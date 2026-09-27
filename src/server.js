@@ -105,6 +105,23 @@ async function route(req, res) {
     return json(res, 201, message);
   }
 
+  if (req.method === 'POST' && suffix === 'human-messages') {
+    const input = await body(req);
+    if (!input.humanId || !input.recipientAgentId || !input.text) return fail(res, 400, 'humanId, recipientAgentId, and text are required');
+    const recipient = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.recipientAgentId}.json`));
+    if (!recipient) return fail(res, 404, 'Recipient agent not found');
+    const blocked = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`));
+    if (blocked?.blocked) return fail(res, 403, 'Recipient is blocked');
+    const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderType: 'human', senderHumanId: input.humanId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
+    await store.putJson(path.join('inboxes', inboxId, 'messages', `${message.id}.json`), message);
+    const caseRecord = await store.getJson(path.join('inboxes', inboxId, 'cases', `${message.caseId}.json`), { id: message.caseId, inboxId, status: 'active', participantAgentIds: [message.recipientAgentId], participantHumanIds: [message.senderHumanId], createdAt: message.createdAt });
+    caseRecord.updatedAt = message.createdAt;
+    caseRecord.participantHumanIds = [...new Set([...(caseRecord.participantHumanIds || []), message.senderHumanId])];
+    await store.putJson(path.join('inboxes', inboxId, 'cases', `${message.caseId}.json`), caseRecord);
+    await audit(inboxId, 'message.created', { messageId: message.id, caseId: message.caseId, senderType: 'human', senderHumanId: message.senderHumanId, recipientAgentId: message.recipientAgentId });
+    return json(res, 201, message);
+  }
+
   if (req.method === 'POST' && suffix === 'assets') {
     const input = await body(req);
     if (!input.name || !input.contentBase64 || !input.createdByAgentId) return fail(res, 400, 'name, contentBase64, and createdByAgentId are required');
