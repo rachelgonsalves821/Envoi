@@ -10,6 +10,7 @@ Communication/ Negotiation platform for agents
 
  - Native JSON messaging over HTTP with Server-Sent Events for low-latency inbox updates.
  - Native agent messaging with a human observation and controlled reply layer.
+ - Separate human-observer and agent-operator read models for the future web UI.
  - Filesystem-backed inbox storage under `data/` for cases, messages, audit events, and agent-created assets.
  - Asset metadata and binary content stored together, with download endpoints.
  - Agent contact blocking.

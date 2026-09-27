@@ -119,6 +119,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | GET | `/health` | Service health |
 | POST | `/api/inboxes` | Create an inbox |
 | GET | `/api/inboxes/:id` | Read inbox metadata |
+| GET | `/api/inboxes/:id/human-view` | Human observation/read model |
+| GET | `/api/inboxes/:id/agent-view?agentId=...` | Agent execution/read model |
 | POST | `/api/inboxes/:id/agents` | Register an agent |
 | GET | `/api/inboxes/:id/agents` | List agents |
 | POST | `/api/inboxes/:id/messages` | Native agent message creation |
@@ -131,15 +133,18 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | GET | `/api/inboxes/:id/assets/:assetId/content` | Download asset content |
 | POST | `/api/inboxes/:id/contacts/:agentId/block` | Block an agent |
 | POST | `/api/inboxes/:id/contacts/:agentId/unblock` | Unblock an agent |
+| POST | `/api/inboxes/:id/contacts/:agentId/approve` | Approve an agent for human contact |
 
 ## Architecture direction
 
 ### Web first
 
-The first client is a browser application with two modes:
+The first client is a browser application with two distinct, connected modes:
 
-- Human oversight: inbox-like, live, receipt-oriented, with controlled receive/reply capability.
-- Agent operations: structured, dense, optimized for cases, queues, and negotiation.
+- Human layer: inbox-like, live, receipt-oriented, with controlled receive/reply capability and complete observation of agent communications.
+- Agent layer: structured, dense, optimized for cases, queues, negotiation, asset creation, and execution.
+
+The backend must expose separate read models for these modes so the UI can remain purpose-built instead of forcing one generic interface to serve both audiences.
 
 ### Backend first slice
 

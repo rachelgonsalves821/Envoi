@@ -35,6 +35,53 @@ async function listMessages(inboxId, caseId) {
   return items.filter((item) => !caseId || item.caseId === caseId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+async function listCases(inboxId) {
+  return (await store.listJson(path.join('inboxes', inboxId, 'cases'))).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
+}
+
+async function humanView(inboxId, inbox) {
+  const [agents, cases, messages, assets, events] = await Promise.all([
+    store.listJson(path.join('inboxes', inboxId, 'agents')),
+    listCases(inboxId),
+    listMessages(inboxId),
+    store.listJson(path.join('inboxes', inboxId, 'assets')),
+    store.listJson(path.join('inboxes', inboxId, 'events'))
+  ]);
+  return {
+    inbox,
+    mode: 'human-observer',
+    capabilities: ['observe_agent_communications', 'receive_agent_messages', 'reply_to_approved_agents', 'review_assets'],
+    summary: { agents: agents.length, cases: cases.length, messages: messages.length, assets: assets.length },
+    agents,
+    cases,
+    messages,
+    assets,
+    recentEvents: events.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100)
+  };
+}
+
+async function agentView(inboxId, inbox, agentId) {
+  const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+  if (!agent) return null;
+  const [cases, messages, assets] = await Promise.all([
+    listCases(inboxId),
+    listMessages(inboxId),
+    store.listJson(path.join('inboxes', inboxId, 'assets'))
+  ]);
+  return {
+    inbox,
+    mode: 'agent-operator',
+    agent,
+    capabilities: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'],
+    queue: {
+      assignedMessages: messages.filter((item) => item.recipientAgentId === agentId),
+      authoredMessages: messages.filter((item) => item.senderAgentId === agentId),
+      activeCases: cases.filter((item) => item.status === 'active' && item.participantAgentIds?.includes(agentId)),
+      createdAssets: assets.filter((item) => item.createdByAgentId === agentId)
+    }
+  };
+}
+
 async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now() });
@@ -65,12 +112,20 @@ async function route(req, res) {
 
   if (req.method === 'GET' && suffix === '') return json(res, 200, inbox);
 
+  if (req.method === 'GET' && suffix === 'human-view') return json(res, 200, await humanView(inboxId, inbox));
+
+  if (req.method === 'GET' && suffix === 'agent-view') {
+    const view = await agentView(inboxId, inbox, url.searchParams.get('agentId'));
+    return view ? json(res, 200, view) : fail(res, 404, 'Agent not found');
+  }
+
   if (req.method === 'POST' && suffix === 'agents') {
     const input = await body(req);
     if (!input.name) return fail(res, 400, 'Agent name is required');
     const agent = { id: input.id || store.id('agent'), name: input.name, address: input.address || `${input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${inboxId}@agents.local`, capabilities: input.capabilities || [], createdAt: store.now(), status: 'active' };
     await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
     if (!inbox.ownerAgentId) { inbox.ownerAgentId = agent.id; await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox); }
+    await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: store.now() });
     await audit(inboxId, 'agent.created', { agentId: agent.id });
     return json(res, 201, agent);
   }
@@ -80,13 +135,24 @@ async function route(req, res) {
   const blockMatch = suffix.match(/^contacts\/([^/]+)\/(block|unblock)$/);
   if (req.method === 'POST' && blockMatch) {
     const [, agentId, action] = blockMatch;
-    const contact = { agentId, blocked: action === 'block', updatedAt: store.now() };
+    const existing = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`), { agentId, approved: true });
+    const contact = { ...existing, agentId, blocked: action === 'block', updatedAt: store.now() };
     await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`), contact);
     await audit(inboxId, `contact.${action}ed`, { agentId });
     return json(res, 200, contact);
   }
 
-  if (req.method === 'GET' && suffix === 'cases') return json(res, 200, await store.listJson(path.join('inboxes', inboxId, 'cases')));
+  const approveMatch = suffix.match(/^contacts\/([^/]+)\/approve$/);
+  if (req.method === 'POST' && approveMatch) {
+    const [, agentId] = approveMatch;
+    if (!await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`))) return fail(res, 404, 'Agent not found');
+    const contact = { agentId, approved: true, blocked: false, updatedAt: store.now() };
+    await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`), contact);
+    await audit(inboxId, 'contact.approved', { agentId });
+    return json(res, 200, contact);
+  }
+
+  if (req.method === 'GET' && suffix === 'cases') return json(res, 200, await listCases(inboxId));
   if (req.method === 'GET' && suffix === 'messages') return json(res, 200, await listMessages(inboxId, url.searchParams.get('caseId')));
 
   if (req.method === 'POST' && suffix === 'messages') {
@@ -96,7 +162,7 @@ async function route(req, res) {
     if (!sender) return fail(res, 403, 'Only registered agents may send messages');
     const blocked = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`));
     if (blocked?.blocked) return fail(res, 403, 'Recipient is blocked');
-    const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderAgentId: input.senderAgentId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
+    const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderType: 'agent', senderAgentId: input.senderAgentId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
     await store.putJson(path.join('inboxes', inboxId, 'messages', `${message.id}.json`), message);
     const caseRecord = await store.getJson(path.join('inboxes', inboxId, 'cases', `${message.caseId}.json`), { id: message.caseId, inboxId, status: 'active', participantAgentIds: [message.senderAgentId, message.recipientAgentId], createdAt: message.createdAt });
     caseRecord.updatedAt = message.createdAt;
@@ -110,8 +176,9 @@ async function route(req, res) {
     if (!input.humanId || !input.recipientAgentId || !input.text) return fail(res, 400, 'humanId, recipientAgentId, and text are required');
     const recipient = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.recipientAgentId}.json`));
     if (!recipient) return fail(res, 404, 'Recipient agent not found');
-    const blocked = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`));
-    if (blocked?.blocked) return fail(res, 403, 'Recipient is blocked');
+    const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`), { approved: true, blocked: false });
+    if (contact.blocked) return fail(res, 403, 'Recipient is blocked');
+    if (contact.approved === false) return fail(res, 403, 'Recipient is not an approved human contact');
     const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderType: 'human', senderHumanId: input.humanId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
     await store.putJson(path.join('inboxes', inboxId, 'messages', `${message.id}.json`), message);
     const caseRecord = await store.getJson(path.join('inboxes', inboxId, 'cases', `${message.caseId}.json`), { id: message.caseId, inboxId, status: 'active', participantAgentIds: [message.recipientAgentId], participantHumanIds: [message.senderHumanId], createdAt: message.createdAt });
