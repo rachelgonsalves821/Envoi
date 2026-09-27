@@ -123,6 +123,15 @@ async function route(req, res) {
   applyHeaders(res, req.headers.origin || '');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/'))) {
+    const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice('/web/'.length);
+    const safePath = path.normalize(relative).replace(/^\.\.[\\/]/, '');
+    const filePath = path.resolve('web', safePath);
+    if (!filePath.startsWith(path.resolve('web'))) return fail(res, 400, 'Invalid asset path');
+    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+    try { res.writeHead(200, { 'content-type': contentTypes[path.extname(filePath)] || 'application/octet-stream' }); return res.end(await readFile(filePath)); }
+    catch (error) { if (error.code === 'ENOENT') return fail(res, 404, 'Web asset not found'); throw error; }
+  }
   if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now() });
 
   if (req.method === 'POST' && url.pathname === '/api/onboarding/agent-account') {
