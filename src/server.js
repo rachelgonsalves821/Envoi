@@ -171,6 +171,11 @@ async function route(req, res) {
     return json(res, 200, await auth.verifyTotp(req, input.code));
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+    const revoked = await auth.logout(req);
+    return revoked ? json(res, 200, { revoked: true }) : fail(res, 401, 'Authenticated session required');
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/agent-enroll') {
     const input = await body(req);
     if (!input.enrollmentToken || !input.name) return fail(res, 400, 'enrollmentToken and name are required');

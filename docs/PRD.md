@@ -105,6 +105,9 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - A human must verify ownership of a phone number before creating or approving an agent.
 - Human account-management operations require a second factor using a TOTP authenticator.
 - Verification codes must be time-limited and attempt-limited.
+- Verification-code delivery must be throttled per phone number.
+- TOTP codes must be single-use per time step, and replacing an existing authenticator requires an MFA-authenticated session.
+- Humans must be able to revoke their current session.
 - Production authentication must use a configured verification provider; development OTP behavior must never be enabled in production.
 - API routes must derive the human principal from the authenticated session rather than trusting a request-body `humanId`.
 - The authenticated human session becomes the root of the agent's identity and permissions.

@@ -19,6 +19,7 @@ const encryptionKey = () => {
   if (mode === 'production' && !configured) throw Object.assign(new Error('Data encryption key is not configured'), { statusCode: 503 });
   return crypto.createHash('sha256').update(configured || 'sinaloa-development-only').digest();
 };
+const lookupHash = value => crypto.createHmac('sha256', encryptionKey()).update(value).digest('hex');
 const encrypt = value => { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(), iv); const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]); return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') }; };
 const decrypt = value => { const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(value.iv, 'base64')); decipher.setAuthTag(Buffer.from(value.tag, 'base64')); return Buffer.concat([decipher.update(Buffer.from(value.ciphertext, 'base64')), decipher.final()]).toString('utf8'); };
 const publicHuman = human => { const value = { ...human }; delete value.totpSecret; delete value.pendingTotpSecret; delete value.phoneHash; return value; };
@@ -36,8 +37,17 @@ export class AuthService {
   async startPhoneVerification(phoneInput, displayName) {
     const phone = normalizePhone(phoneInput);
     if (mode === 'production' && !twilioConfigured()) throw Object.assign(new Error('Phone verification is not configured'), { statusCode: 503 });
+    const phoneHash = lookupHash(phone);
+    const ratePath = path.join('auth', 'phone-rate-limits', `${phoneHash}.json`);
+    const now = Date.now();
+    const rate = await this.store.getJson(ratePath, { starts: [] });
+    rate.starts = rate.starts.filter(timestamp => now - new Date(timestamp).getTime() < 3_600_000);
+    if (rate.starts.length && now - new Date(rate.starts.at(-1)).getTime() < 60_000) throw Object.assign(new Error('Please wait before requesting another verification code'), { statusCode: 429 });
+    if (rate.starts.length >= 5) throw Object.assign(new Error('Phone verification request limit exceeded'), { statusCode: 429 });
+    rate.starts.push(new Date(now).toISOString());
+    await this.store.putJson(ratePath, rate);
     const challengeId = this.store.id('challenge');
-    const challenge = { id: challengeId, phone, phoneHash: hash(phone), phoneLast4: phone.slice(-4), displayName: displayName || null, expiresAt: new Date(Date.now() + challengeMinutes * 60_000).toISOString(), attempts: 0, status: 'pending', provider: twilioConfigured() ? 'twilio-verify' : 'development' };
+    const challenge = { id: challengeId, phoneEncrypted: encrypt(phone), phoneHash, phoneLast4: phone.slice(-4), displayName: displayName || null, expiresAt: new Date(Date.now() + challengeMinutes * 60_000).toISOString(), attempts: 0, status: 'pending', provider: twilioConfigured() ? 'twilio-verify' : 'development' };
     let developmentCode;
     if (twilioConfigured()) await twilioRequest('/Verifications', { To: phone, Channel: 'sms' });
     else { developmentCode = String(crypto.randomInt(100000, 1000000)); challenge.codeHash = hash(developmentCode); }
@@ -54,7 +64,7 @@ export class AuthService {
     if (challenge.attempts > 5) { challenge.status = 'locked'; await this.store.putJson(relative, challenge); throw Object.assign(new Error('Too many verification attempts'), { statusCode: 429 }); }
     let approved = false;
     if (challenge.provider === 'twilio-verify') {
-      const result = await twilioRequest('/VerificationCheck', { To: challenge.phone, Code: code });
+      const result = await twilioRequest('/VerificationCheck', { To: decrypt(challenge.phoneEncrypted), Code: code });
       approved = result.status === 'approved';
     } else approved = hash(String(code)) === challenge.codeHash;
     if (!approved) { await this.store.putJson(relative, challenge); throw Object.assign(new Error('Incorrect verification code'), { statusCode: 401 }); }
@@ -65,7 +75,7 @@ export class AuthService {
     human.verifiedAt = this.store.now();
     await this.store.putJson(path.join('humans', `${human.id}.json`), human);
     await this.store.putJson(path.join('auth', 'phone-index', `${challenge.phoneHash}.json`), { humanId: human.id });
-    delete challenge.phone;
+    delete challenge.phoneEncrypted;
     await this.store.putJson(relative, challenge);
     const sessionToken = token();
     const session = { id: this.store.id('session'), tokenHash: hash(sessionToken), humanId: human.id, assurance: 'phone', createdAt: this.store.now(), expiresAt: new Date(Date.now() + sessionHours * 3_600_000).toISOString() };
@@ -93,6 +103,7 @@ export class AuthService {
     const session = await this.getSession(req);
     if (!session) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
     const human = await this.store.getJson(path.join('humans', `${session.humanId}.json`));
+    if (human.mfaEnabledAt && session.assurance !== 'mfa') throw Object.assign(new Error('Existing second factor must be verified before replacement'), { statusCode: 403 });
     const secret = generateSecret();
     human.pendingTotpSecret = encrypt(secret);
     await this.store.putJson(path.join('humans', `${human.id}.json`), human);
@@ -107,13 +118,22 @@ export class AuthService {
     if (!encrypted) throw Object.assign(new Error('TOTP setup has not been started'), { statusCode: 400 });
     const result = verifySync({ token: String(code), secret: decrypt(encrypted), epochTolerance: 1 });
     if (!result.valid) throw Object.assign(new Error('Incorrect authenticator code'), { statusCode: 401 });
+    if (human.lastTotpTimeStep != null && result.timeStep <= human.lastTotpTimeStep) throw Object.assign(new Error('Authenticator code has already been used'), { statusCode: 401 });
     human.totpSecret = encrypted;
     delete human.pendingTotpSecret;
     human.mfaEnabledAt = this.store.now();
+    human.lastTotpTimeStep = result.timeStep;
     session.assurance = 'mfa';
     session.mfaVerifiedAt = this.store.now();
     await this.store.putJson(path.join('humans', `${human.id}.json`), human);
     await this.store.putJson(path.join('auth', 'sessions', `${session.tokenHash}.json`), session);
     return { human: publicHuman(human), assurance: session.assurance };
+  }
+
+  async logout(req) {
+    const header = req.headers.authorization || '';
+    const raw = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!raw) return false;
+    return this.store.deleteJson(path.join('auth', 'sessions', `${hash(raw)}.json`));
   }
 }

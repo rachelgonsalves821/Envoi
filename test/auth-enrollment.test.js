@@ -28,6 +28,8 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   t.after(server.stop);
   const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550123', displayName: 'Owner' } });
   assert.equal(started.status, 201);
+  const throttled = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550123', displayName: 'Owner' } });
+  assert.equal(throttled.status, 429);
   const verified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
   assert.equal(verified.status, 200);
   const sessionToken = verified.payload.sessionToken;
@@ -35,9 +37,12 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(phoneOnlyWorkspace.status, 401);
   const totpSetup = await request(server.baseUrl, '/api/auth/totp/setup', { token: sessionToken, body: {} });
   assert.equal(totpSetup.status, 201);
-  const totpVerified = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: generateSync({ secret: totpSetup.payload.secret }) } });
+  const totpCode = generateSync({ secret: totpSetup.payload.secret });
+  const totpVerified = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: totpCode } });
   assert.equal(totpVerified.status, 200);
   assert.equal(totpVerified.payload.assurance, 'mfa');
+  const replayedTotp = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: totpCode } });
+  assert.equal(replayedTotp.status, 401);
   const workspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Owner workspace' } });
   assert.equal(workspace.status, 201);
   const tokenResponse = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'create_assets'] } });
@@ -81,4 +86,8 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(blocked.status, 200);
   const rejected = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-3' }, body: { ...messageBody, text: 'blocked message' } });
   assert.equal(rejected.status, 403);
+  const logout = await request(server.baseUrl, '/api/auth/logout', { token: sessionToken, body: {} });
+  assert.equal(logout.status, 200);
+  const afterLogout = await request(server.baseUrl, '/api/auth/me', { token: sessionToken });
+  assert.equal(afterLogout.status, 401);
 });

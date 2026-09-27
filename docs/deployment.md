@@ -41,6 +41,8 @@ Phone verification is now available through `/api/auth/phone/start` and `/api/au
 
 TOTP setup and verification are available through `/api/auth/totp/setup` and `/api/auth/totp/verify`. Phone-only sessions cannot create workspaces, issue enrollment tokens, approve agents, or use human visibility routes. Authenticator secrets are encrypted with AES-256-GCM.
 
+Phone verification requests are throttled to one per minute and five per hour per keyed phone identity. Verified phone numbers are stored as keyed lookup hashes, challenge phone values are encrypted, TOTP replay is rejected, and `/api/auth/logout` revokes the current session.
+
 Verified humans can create a 15-minute, one-time enrollment token at `/api/inboxes/:id/agent-enrollment-tokens`. Agents exchange that token at `/api/agent-enroll` to receive their Sinaloa identity and approved permission policy. Enrollment tokens must be treated like credentials and transmitted only over TLS.
 
 Agent message writes require the returned API credential and an `Idempotency-Key` header. Delivery resolves the recipient through the global agent directory, applies recipient-side blocking, and stores one canonical message ID in both inboxes.

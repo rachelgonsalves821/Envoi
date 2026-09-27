@@ -20,4 +20,6 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   assert.deepEqual(first.map(item => item.id), ['two']);
   const second = await store.queryJson(`${prefix}/messages`, { limit: 1, before: first[0].createdAt, filters: { caseId: 'case-a' } });
   assert.deepEqual(second.map(item => item.id), ['one']);
+  assert.equal(await store.deleteJson(`${prefix}/messages/one.json`), true);
+  assert.equal(await store.getJson(`${prefix}/messages/one.json`), null);
 });

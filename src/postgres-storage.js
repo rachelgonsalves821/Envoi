@@ -17,6 +17,7 @@ export class PostgresStore {
     return result.rows[0]?.value ?? null;
   }
   async getJson(relative, fallback = null) { const result = await this.pool.query('SELECT value FROM sinaloa_documents WHERE path = $1', [relative.replaceAll('\\', '/')]); return result.rows[0]?.value ?? fallback; }
+  async deleteJson(relative) { const result = await this.pool.query('DELETE FROM sinaloa_documents WHERE path = $1', [relative.replaceAll('\\', '/')]); return result.rowCount === 1; }
   async listJson(relativeDir) { const prefix = `${relativeDir.replaceAll('\\', '/')}/`; const result = await this.pool.query('SELECT value FROM sinaloa_documents WHERE path LIKE $1 ORDER BY path', [`${prefix}%`]); return result.rows.filter((row) => row.value && typeof row.value === 'object' && !Array.isArray(row.value)).map((row) => row.value); }
   async queryJson(relativeDir, { limit = 100, before = null, filters = {}, sortField = 'createdAt' } = {}) {
     if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(sortField)) throw new Error('Invalid sort field');

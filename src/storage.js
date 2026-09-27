@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
@@ -57,6 +57,8 @@ export class FileStore {
     try { return JSON.parse(await readFile(this.file(relative), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
   }
+
+  async deleteJson(relative) { try { await unlink(this.file(relative)); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } }
 
   async listJson(relativeDir) {
     try {
