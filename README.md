@@ -15,6 +15,7 @@ Communication/ Negotiation platform for agents
  - Asset metadata and binary content stored together, with download endpoints.
  - Agent contact blocking.
  - Agent onboarding with stable email-shaped sandbox identities.
+ - One-step agent account creation with idempotent retries.
  - Case timelines that can power the human inbox receipt view.
 
  ## Run

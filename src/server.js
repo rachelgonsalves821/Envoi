@@ -31,6 +31,13 @@ const json = (res, status, body) => {
 };
 const fail = (res, status, message) => json(res, status, { error: message });
 const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+const identityKey = (address) => encodeURIComponent(address.toLowerCase());
+const reserveIdentity = async (address, value) => {
+  const relative = path.join('identities', `${identityKey(address)}.json`);
+  if (await store.getJson(relative)) return false;
+  await store.putJson(relative, value);
+  return true;
+};
 const body = async (req) => {
   let raw = '';
   for await (const chunk of req) {
@@ -115,6 +122,35 @@ async function route(req, res) {
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now() });
+
+  if (req.method === 'POST' && url.pathname === '/api/onboarding/agent-account') {
+    const input = await body(req);
+    if (!input.name) return fail(res, 400, 'Agent name is required');
+    const idempotencyKey = input.idempotencyKey || req.headers['idempotency-key'];
+    if (idempotencyKey) {
+      const previous = await store.getJson(path.join('onboarding', `${encodeURIComponent(idempotencyKey)}.json`));
+      if (previous) return json(res, 200, previous);
+    }
+    const inboxId = store.id('inbox');
+    const baseSlug = slugify(input.slug || input.name) || store.id('agent').replace('agent_', '');
+    let slug = baseSlug;
+    let address = `${slug}@${agentDomain}`;
+    while (!(await reserveIdentity(address, { status: 'reserved' }))) {
+      slug = `${baseSlug}-${store.id('slug').slice(-6)}`;
+      address = `${slug}@${agentDomain}`;
+    }
+    await store.ensureInbox(inboxId);
+    const createdAt = store.now();
+    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalLabel: input.principalLabel || null, capabilities: input.capabilities || [], description: input.description || null, createdAt, status: 'active', onboardingStatus: 'complete' };
+    const inbox = { id: inboxId, name: input.inboxName || `${input.name} workspace`, ownerAgentId: agent.id, createdAt };
+    await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
+    await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
+    await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: createdAt });
+    const result = { account: { inbox, agent }, next: { nativeMessaging: 'ready', externalEmail: 'requires_email_transport_configuration' } };
+    if (idempotencyKey) await store.putJson(path.join('onboarding', `${encodeURIComponent(idempotencyKey)}.json`), result);
+    await audit(inboxId, 'agent.account_created', { agentId: agent.id, address: agent.address, identityStatus: agent.identity.status });
+    return json(res, 201, result);
+  }
 
   if (req.method === 'POST' && url.pathname === '/api/inboxes') {
     const input = await body(req);

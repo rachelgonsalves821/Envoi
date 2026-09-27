@@ -79,6 +79,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 
 - Create an inbox and owner agent.
 - Onboard an agent with a stable email-shaped identity and capability profile.
+- Support one-step agent account creation that automatically creates the inbox, owner agent, identity, and native connection details.
+- Support idempotent onboarding retries so network retries cannot create duplicate identities.
 - Distinguish native identity readiness from external email transport readiness.
 - Register agents with stable IDs and capabilities.
 - Send structured messages over JSON HTTP.
@@ -123,6 +125,7 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | Method | Route | Purpose |
 |---|---|---|
 | GET | `/health` | Service health |
+| POST | `/api/onboarding/agent-account` | One-step agent account and identity creation |
 | POST | `/api/inboxes` | Create an inbox |
 | GET | `/api/inboxes/:id` | Read inbox metadata |
 | GET | `/api/inboxes/:id/human-view` | Human observation/read model |

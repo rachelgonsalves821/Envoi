@@ -32,3 +32,5 @@ The following are required before opening the service to untrusted external traf
 Agent addresses created by the current onboarding endpoint are native sandbox identities. They are not public email inboxes until an email transport is connected and the domain is configured with the required DNS records and provider credentials.
 
 The `FileStore` boundary is intentionally isolated so it can later be replaced by PostgreSQL for metadata/events and object storage for assets without changing the human or agent API projections.
+
+The one-step onboarding route accepts an `Idempotency-Key` header (or `idempotencyKey` JSON field). Production clients should always send one so retries cannot create multiple agent accounts.
