@@ -2,12 +2,12 @@
   "version": 1,
   "project": {
     "name": "sinaloa",
-    "productType": "case-first delegation oversight",
+    "productType": "agent-to-agent conversation inbox and delegation oversight",
     "stack": ["React", "TypeScript", "Vite", "Lucide React"]
   },
   "sources": {
     "tokens": ["frontend/src/styles/tokens.css", "C:/Users/Rachel/Downloads/tokens (1).json"],
-    "components": ["21st:28340", "21st:29334", "21st:25163", "21st:26580"],
+    "components": ["21st:28340", "21st:29334", "21st:25163", "21st:26580", "21st:27135", "21st:8088"],
     "assets": ["Lucide React icons"],
     "instructions": ["C:/Users/Rachel/Downloads/DESIGN_SYSTEM (1).md", "C:/Users/Rachel/Downloads/COMPONENTS (1).md"]
   },
@@ -19,23 +19,25 @@
     "radius": { "small": 6, "medium": 10, "large": 14, "extraLarge": 20 },
     "shadows": { "style": "wide, faint, layered" },
     "motion": { "micro": "150ms", "panel": "250ms", "page": "320ms" },
-    "density": "comfortable case-first"
+    "density": "comfortable conversation inbox"
   },
   "components": {
     "installed": [],
     "preferredPrimitives": ["semantic HTML", "native dialog semantics", "Lucide icons"],
-    "patterns": ["case queue", "decision card", "decision-trace timeline", "authority seal", "receipt", "focus-managed mobile navigation"]
+    "patterns": ["conversation inbox", "subject-led list rows", "tag filters", "decision card", "decision-trace timeline", "authority seal", "receipt", "focus-managed mobile navigation"]
   },
   "constraints": {
-    "must": ["Needs me is home", "render authority beside consequential actions", "preserve unknown as a distinct state", "show absolute time zones", "support keyboard, dark mode, reduced motion, and mobile decisions"],
-    "avoid": ["email inbox styling", "chat bubbles", "generic admin cards", "agent reasoning or chain-of-thought", "color-only status", "live controls on expired or revoked work"]
+    "must": ["Inbox is home", "use subject lines and tags for conversation sorting", "render authority beside consequential actions", "preserve unknown as a distinct state", "show absolute time zones", "support keyboard, dark mode, reduced motion, and mobile decisions"],
+    "avoid": ["literal consumer-email cloning", "chat bubbles", "generic admin cards", "decorative gradients or sparkles", "serif type inside the application shell", "agent reasoning or chain-of-thought", "color-only status", "live controls on expired or revoked work"]
   },
   "decisions": [
     { "id": "21st:28340", "outcome": "accepted", "reason": "Semantic activity grouping and continuous rail fit the typed Case event timeline." },
     { "id": "21st:29334", "outcome": "accepted", "reason": "Focus management and mobile sidebar behavior fit the responsive application shell." },
     { "id": "21st:25163", "outcome": "accepted", "reason": "Actor/type/time table structure fits the append-only activity log." },
     { "id": "21st:26580", "outcome": "accepted", "reason": "Deliberate approve-once authority pattern fits human decisions." },
-    { "id": "21st:29318", "outcome": "rejected", "reason": "Exposes agent reasoning and tool traces, outside the Human Interface boundary." }
+    { "id": "21st:29318", "outcome": "rejected", "reason": "Exposes agent reasoning and tool traces, outside the Human Interface boundary." },
+    { "id": "21st:27135", "outcome": "accepted", "reason": "Its distinction between seen and handled informed attention versus completion hierarchy without copying notification aesthetics." },
+    { "id": "21st:8088", "outcome": "accepted", "reason": "Its chronological inbox rhythm informed compact list scanning and date-oriented organization." }
   ],
   "evidence": ["Authenticated CLI account: rachelgonsalves821", "Design context initialized 2026-09-27", "Catalog retrieval IDs: 28340 and 29334"],
   "generatedAt": "2026-09-27T19:25:51.973Z"

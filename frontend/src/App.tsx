@@ -26,7 +26,55 @@ const caseSections: NavSection[] = ['needsMe', 'active', 'waiting', 'scheduled',
 
 type BootState = 'loading' | 'signedOut' | 'setup' | 'ready' | 'error';
 
+const previewHuman: Human = { id: 'human_preview', displayName: 'Rachel' };
+const previewWorkspace: Workspace = { id: 'inbox_preview', organizationId: 'org_preview', name: 'Rachel’s agent studio', ownerAgentId: 'agent_milo', ownerHumanId: previewHuman.id, status: 'active', createdAt: '2026-09-01T14:00:00.000Z' };
+const previewAgents: Agent[] = [
+  { id: 'agent_milo', name: 'Milo', address: 'milo@sinaloa.mail', principalHumanId: previewHuman.id, status: 'active', onboardingStatus: 'approved', permissions: ['send_agent_messages', 'receive_agent_messages', 'execute_cases'] }
+];
+const previewView: HumanView = {
+  inbox: previewWorkspace,
+  mode: 'human-observer',
+  summary: { agents: 1, cases: 4, messages: 0, assets: 1 },
+  agents: previewAgents,
+  participantDirectory: {
+    agent_milo: { id: 'agent_milo', type: 'internalAgent', displayName: 'Milo', address: 'milo@sinaloa.mail', accessState: 'active' },
+    agent_luma: { id: 'agent_luma', type: 'externalAgent', displayName: 'Luma Events agent', address: 'hello@luma.events', accessState: 'active' },
+    agent_jordan: { id: 'agent_jordan', type: 'externalAgent', displayName: 'Jordan’s scheduling agent', address: 'calendar@jordan.ai', accessState: 'active' },
+    agent_atlas: { id: 'agent_atlas', type: 'externalAgent', displayName: 'Atlas Research agent', address: 'research@atlas.team', accessState: 'active' }
+  },
+  cases: [
+    {
+      id: 'conversation_dinner_deposit', schemaVersion: '1.0', objective: 'Finalize the Design Week dinner venue', state: 'waitingForHuman', principal: previewHuman.id, actingAgent: 'agent_milo', participants: ['agent_milo', 'agent_luma'], constraints: { budget: '$2,400', guests: 18 }, authorityRefs: [], evidence: [], receipt: null,
+      proposals: [{ id: 'proposal_dinner', kind: 'negotiation', status: 'countered', expiresAt: '2026-09-28T18:00:00.000Z', createdAt: '2026-09-27T13:15:00.000Z', options: [{ id: 'option_original', value: { title: '$2,650 with private room' }, sourceConfidence: 'enteredForCase', expired: true, outOfPolicyFlags: [] }, { id: 'option_counter', value: { title: '$2,350 with deposit due today' }, sourceConfidence: 'enteredForCase', expired: false, outOfPolicyFlags: ['paymentRequiresApproval'] }] }],
+      policyEvaluations: [{ id: 'policy_deposit', requestedAction: 'payments.sendDeposit', actor: 'agent_milo', matchedPolicyId: 'permission:payments', decision: 'needsHuman', grantType: 'oneTime', effectiveAt: '2026-09-27T15:42:00.000Z', expiresAt: '2026-09-28T18:00:00.000Z', reasonCode: 'paymentRequiresApproval' }],
+      events: [
+        { id: 'evt_dinner_1', type: 'message', actor: 'agent_milo', createdAt: '2026-09-27T13:15:00.000Z', payload: { messageType: 'proposal', text: 'I asked Luma to bring the venue within your $2,400 budget.', senderAgentId: 'agent_milo', recipientAgentId: 'agent_luma', deliveryState: 'delivered', proposalId: 'proposal_dinner', status: 'open' }, linkedPolicyEvaluation: null, precedingEventRef: null },
+        { id: 'evt_dinner_2', type: 'message', actor: 'agent_luma', createdAt: '2026-09-27T15:36:00.000Z', payload: { messageType: 'counterproposal', text: 'Luma can do $2,350 if the deposit is paid today.', senderAgentId: 'agent_luma', recipientAgentId: 'agent_milo', deliveryState: 'received', proposalId: 'proposal_dinner', status: 'countered' }, linkedPolicyEvaluation: null, precedingEventRef: 'evt_dinner_1' },
+        { id: 'evt_dinner_3', type: 'policyEvaluation', actor: 'agent_milo', createdAt: '2026-09-27T15:42:00.000Z', payload: { requestedAction: 'payments.sendDeposit', decision: 'needsHuman' }, linkedPolicyEvaluation: 'policy_deposit', precedingEventRef: 'evt_dinner_2' }
+      ], createdAt: '2026-09-27T13:10:00.000Z', updatedAt: '2026-09-27T15:42:00.000Z'
+    },
+    {
+      id: 'conversation_planning_call', schemaVersion: '1.0', objective: 'Find a time for the product planning call', state: 'waitingForExternalParty', principal: previewHuman.id, actingAgent: 'agent_milo', participants: ['agent_milo', 'agent_jordan'], constraints: { duration: '45 minutes', timezone: 'America/Toronto' }, authorityRefs: [], evidence: [], receipt: null, policyEvaluations: [],
+      proposals: [{ id: 'proposal_planning', kind: 'schedule', status: 'open', expiresAt: '2026-09-29T16:00:00.000Z', createdAt: '2026-09-27T14:00:00.000Z', options: [{ id: 'option_tuesday', value: { start: '2026-09-29T15:00:00.000Z', end: '2026-09-29T15:45:00.000Z', timezone: 'America/Toronto' }, sourceConfidence: 'fromVerifiedProfile', expired: false, outOfPolicyFlags: [] }] }],
+      events: [{ id: 'evt_planning_1', type: 'message', actor: 'agent_milo', createdAt: '2026-09-27T14:05:00.000Z', payload: { messageType: 'proposal', text: 'I sent Tuesday at 11:00 AM as the best overlap across both calendars.', senderAgentId: 'agent_milo', recipientAgentId: 'agent_jordan', deliveryState: 'delivered', proposalId: 'proposal_planning', status: 'open' }, linkedPolicyEvaluation: null, precedingEventRef: null }],
+      createdAt: '2026-09-27T13:50:00.000Z', updatedAt: '2026-09-27T14:05:00.000Z'
+    },
+    {
+      id: 'conversation_research_brief', schemaVersion: '1.0', objective: 'Share the Q4 research brief with the launch team', state: 'inProgress', principal: previewHuman.id, actingAgent: 'agent_milo', participants: ['agent_milo', 'agent_atlas'], constraints: { audience: 'Launch team' }, authorityRefs: [], policyEvaluations: [], receipt: null,
+      evidence: [{ id: 'evidence_brief', kind: 'document', title: 'Q4 customer research brief', provenance: 'extractedFromDocument', url: null }], proposals: [{ id: 'proposal_brief', kind: 'document', status: 'open', expiresAt: null, createdAt: '2026-09-27T12:00:00.000Z', options: [{ id: 'option_brief', value: { title: 'Share research brief and three key takeaways' }, sourceConfidence: 'extractedFromDocument', expired: false, outOfPolicyFlags: [] }] }],
+      events: [{ id: 'evt_brief_1', type: 'message', actor: 'agent_atlas', createdAt: '2026-09-27T12:24:00.000Z', payload: { messageType: 'message', text: 'Atlas added the latest interview synthesis and source notes.', senderAgentId: 'agent_atlas', recipientAgentId: 'agent_milo', deliveryState: 'received' }, linkedPolicyEvaluation: null, precedingEventRef: null }],
+      createdAt: '2026-09-27T11:40:00.000Z', updatedAt: '2026-09-27T12:24:00.000Z'
+    },
+    {
+      id: 'conversation_studio_booking', schemaVersion: '1.0', objective: 'Book the podcast studio for launch week', state: 'completed', principal: previewHuman.id, actingAgent: 'agent_milo', participants: ['agent_milo', 'agent_luma'], constraints: {}, authorityRefs: [], evidence: [], proposals: [], policyEvaluations: [], events: [],
+      receipt: { id: 'receipt_studio', result: 'Studio booked for October 6 at 2:00 PM', authorityBasis: 'calendar.booking', humanApprovalStatus: 'notRequired', createdAt: '2026-09-26T19:10:00.000Z' }, createdAt: '2026-09-26T18:30:00.000Z', updatedAt: '2026-09-26T19:10:00.000Z'
+    }
+  ],
+  messages: [], assets: [], recentEvents: []
+};
+
 export default function App() {
+  const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('preview');
   const [boot, setBoot] = useState<BootState>('loading');
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [human, setHuman] = useState<Human | null>(null);
@@ -80,7 +128,7 @@ export default function App() {
     }
   }, [config, loadView]);
 
-  useEffect(() => { void loadAccount(); }, []);
+  useEffect(() => { if (!isPreview) void loadAccount(); }, [isPreview]);
 
   useEffect(() => {
     if (boot !== 'ready' || !workspace || !config) return;
@@ -113,6 +161,7 @@ export default function App() {
     setBoot('ready');
   }
 
+  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} />;
   if (boot === 'loading') return <LoadingScreen />;
   if (boot === 'signedOut' && config) return <AuthScreen config={config} onAuthenticated={loadAccount} />;
   if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={createWorkspace} />;
@@ -201,7 +250,7 @@ function AuthScreen({ config, onAuthenticated }: { config: AuthConfig; onAuthent
         <div className="auth-message">
           <p className="eyebrow">Delegation you can trust</p>
           <h1>Your agent moves work forward.<br />You keep the final word.</h1>
-          <p>Sinaloa organizes delegated work around objectives, authority, evidence, and durable outcomes—not unread messages.</p>
+        <p>A calm, familiar inbox for the conversations your agents are having, the work they are moving forward, and the moments that genuinely need you.</p>
         </div>
         <div className="trust-note"><ShieldCheck size={18} /><span>Every consequential action carries its authority and receipt.</span></div>
       </section>
@@ -288,6 +337,7 @@ function AppShell(props: ShellProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window === 'undefined') return 'light';
+    if (new URLSearchParams(window.location.search).has('preview')) return 'light';
     return (window.localStorage.getItem(THEME_KEY) as 'light' | 'dark') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   });
   const [toast, setToast] = useState('');
@@ -317,7 +367,7 @@ function AppShell(props: ShellProps) {
         <div className="nav-brand"><div className="brand-lockup"><BrandMark /><span>Sinaloa</span></div><button className="icon-button mobile-only" aria-label="Close navigation" onClick={() => setNavOpen(false)}><X size={18} /></button></div>
         <WorkspacePicker workspaces={workspaces} workspace={workspace} onChange={onSelectWorkspace} />
         <nav className="nav-list">
-          <NavItem section="needsMe" label="Inbox" icon={<Inbox />} count={counts.needsMe} active={section === 'needsMe'} onClick={chooseSection} attention />
+          <NavItem section="needsMe" label="Inbox" icon={<Inbox />} count={view.cases.filter(item => caseState(item) !== 'completed').length} active={section === 'needsMe'} onClick={chooseSection} attention />
           <NavItem section="active" label="In motion" icon={<Zap />} count={counts.active} active={section === 'active'} onClick={chooseSection} />
           <NavItem section="waiting" label="Waiting" icon={<Clock3 />} count={counts.waiting} active={section === 'waiting'} onClick={chooseSection} />
           <NavItem section="scheduled" label="Calendar" icon={<CalendarDays />} count={counts.scheduled} active={section === 'scheduled'} onClick={chooseSection} />
@@ -384,7 +434,7 @@ function CaseQueue({ section, cases, view, selectedId, onSelect }: { section: Na
   }).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
   return (
     <aside className="case-queue" aria-label={`${sectionTitle(section)} conversations`}>
-      <div className="queue-header"><div><p className="eyebrow">Agent inbox</p><h1>{sectionTitle(section)}</h1></div><span className="inbox-spark" aria-hidden="true"><Sparkles size={16} /></span></div>
+      <div className="queue-header"><div><p className="eyebrow">Agent inbox</p><h1>{sectionTitle(section)}</h1></div></div>
       <label className="queue-search"><Search size={15} /><span className="sr-only">Search this inbox</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search this inbox" /></label>
       {tags.length > 0 && <div className="tag-filter" aria-label="Filter conversations by tag"><button className={activeTag === 'All' ? 'active' : ''} onClick={() => setActiveTag('All')}>All</button>{tags.slice(0, 5).map(tag => <button key={tag} className={activeTag === tag ? 'active' : ''} onClick={() => setActiveTag(tag)}>{tag}</button>)}</div>}
       <div className="queue-summary"><span>{filtered.length} {filtered.length === 1 ? 'conversation' : 'conversations'}</span><span>Newest first</span></div>
@@ -407,7 +457,7 @@ function CaseRow({ workCase, view, selected, onSelect }: { workCase: WorkCase; v
       <span className="case-kind"><CaseIcon workCase={workCase} /></span>
       <span className="case-row-copy"><span className="thread-sender">{counterparty.displayName}<span className="case-state-line"><StatusGlyph state={state} />{meta.label}</span></span><strong>{workCase.objective || 'Untitled conversation'}</strong><small>{conversationPreview(workCase)}</small><span className="thread-tags">{tags.map(tag => <span key={tag} className={`thread-tag tag-${tag.toLowerCase().replaceAll(' ', '-')}`}>{tag}</span>)}</span></span>
       <time dateTime={updated}>{formatRelative(updated)}</time>
-      {state === 'waitingForHuman' && <span className="unread-dot" aria-label="Needs your attention" />}
+      {state === 'waitingForHuman' && <span className="attention-line" aria-label="Needs your attention" />}
     </button>
   );
 }

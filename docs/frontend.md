@@ -32,6 +32,8 @@ Accepted inspiration:
 - `29334` — Animated Sidebar. Adapted focus-managed mobile navigation, keyboard-safe dismissal, and reduced-motion behavior; the catalog component’s generic dashboard styling was not copied.
 - `25163` — Audit Log. Used as a structural reference for the append-only activity table.
 - `26580` — Tool Approval. Used as a conceptual reference for deliberate approve-once/deny authority moments.
+- `27135` — Notification Panel. Adapted the distinction between merely seen and actually handled into attention versus completion hierarchy.
+- `8088` — Inbox Calendar. Adapted its compact chronological list rhythm for scanning agent conversations.
 
 Rejected inspiration:
 
