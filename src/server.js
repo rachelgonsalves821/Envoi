@@ -8,6 +8,7 @@ const port = Number(process.env.SINALOA_PORT || 8787);
 const dataDir = process.env.SINALOA_DATA_DIR || path.resolve('data');
 const maxBodyBytes = Number(process.env.SINALOA_MAX_BODY_BYTES || 10 * 1024 * 1024);
 const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
+const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'agents.local';
 const store = new FileStore(dataDir);
 const streams = new Map();
 
@@ -29,6 +30,7 @@ const json = (res, status, body) => {
   res.end(JSON.stringify(body));
 };
 const fail = (res, status, message) => json(res, status, { error: message });
+const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
 const body = async (req) => {
   let raw = '';
   for await (const chunk of req) {
@@ -150,12 +152,32 @@ async function route(req, res) {
   if (req.method === 'POST' && suffix === 'agents') {
     const input = await body(req);
     if (!input.name) return fail(res, 400, 'Agent name is required');
-    const agent = { id: input.id || store.id('agent'), name: input.name, address: input.address || `${input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${inboxId}@agents.local`, capabilities: input.capabilities || [], createdAt: store.now(), status: 'active' };
+    const slug = slugify(input.slug || input.name) || store.id('agent').replace('agent_', '');
+    const address = input.address || `${slug}@${agentDomain}`;
+    const existingAgents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
+    if (existingAgents.some((item) => item.address === address)) return fail(res, 409, 'Agent email address is already registered in this inbox');
+    const agent = { id: input.id || store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, capabilities: input.capabilities || [], createdAt: store.now(), status: 'active', onboardingStatus: 'complete' };
     await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
     if (!inbox.ownerAgentId) { inbox.ownerAgentId = agent.id; await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox); }
     await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: store.now() });
     await audit(inboxId, 'agent.created', { agentId: agent.id });
     return json(res, 201, agent);
+  }
+
+  if (req.method === 'POST' && suffix === 'agent-onboarding') {
+    const input = await body(req);
+    if (!input.name) return fail(res, 400, 'Agent name is required');
+    const slug = slugify(input.slug || input.name);
+    if (!slug) return fail(res, 400, 'A valid agent slug is required');
+    const address = `${slug}@${agentDomain}`;
+    const existingAgents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
+    if (existingAgents.some((item) => item.address === address)) return fail(res, 409, 'Agent email address is already registered in this inbox');
+    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalLabel: input.principalLabel || null, capabilities: input.capabilities || [], description: input.description || null, createdAt: store.now(), status: 'active', onboardingStatus: 'complete' };
+    await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
+    if (!inbox.ownerAgentId) { inbox.ownerAgentId = agent.id; await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox); }
+    await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: store.now() });
+    await audit(inboxId, 'agent.onboarded', { agentId: agent.id, address: agent.address, identityStatus: agent.identity.status });
+    return json(res, 201, { agent, next: { nativeMessaging: 'ready', externalEmail: 'requires_email_transport_configuration' } });
   }
 
   if (req.method === 'GET' && suffix === 'agents') return json(res, 200, await store.listJson(path.join('inboxes', inboxId, 'agents')));

@@ -9,6 +9,7 @@ The current backend is deployable as a single external service. It uses the loca
 - `SINALOA_DATA_DIR`: persistent storage path for inboxes, messages, cases, events, and assets.
 - `SINALOA_CORS_ORIGIN`: comma-separated web origins allowed to call the API.
 - `SINALOA_MAX_BODY_BYTES`: maximum JSON request size; increase only when the asset strategy is ready for it.
+- `SINALOA_AGENT_DOMAIN`: domain used for sandbox agent identities; set this to the future production agent domain after DNS and email transport are configured.
 
 ## Current hosting shape
 
@@ -27,5 +28,7 @@ The following are required before opening the service to untrusted external traf
 5. A durable database/object-storage adapter for multi-instance deployments.
 6. Signed agent envelopes and replay protection.
 7. Secret management and automated backups.
+
+Agent addresses created by the current onboarding endpoint are native sandbox identities. They are not public email inboxes until an email transport is connected and the domain is configured with the required DNS records and provider credentials.
 
 The `FileStore` boundary is intentionally isolated so it can later be replaced by PostgreSQL for metadata/events and object storage for assets without changing the human or agent API projections.

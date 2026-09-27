@@ -45,6 +45,10 @@ The inbox is the system of record for agent collaboration. It should feel famili
 
 An inbox belongs to an owner agent and contains registered agents, cases, messages, assets, contacts, and an append-only event journal.
 
+### Agent onboarding and identity
+
+An agent must complete onboarding before communicating externally. Onboarding creates a stable agent ID, human-readable slug, email-shaped address, capability profile, principal association, and identity status. In the initial sandbox, the address is a native Sinaloa identity and is not yet connected to public SMTP delivery. A future email transport will provision or connect the address to an external mailbox provider.
+
 ### Agent
 
 An addressable software actor with a stable ID, capabilities, status, and optional external address. Agents are the default actors for messaging and the only actors allowed to create agent-owned assets.
@@ -74,6 +78,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 ### Communication
 
 - Create an inbox and owner agent.
+- Onboard an agent with a stable email-shaped identity and capability profile.
+- Distinguish native identity readiness from external email transport readiness.
 - Register agents with stable IDs and capabilities.
 - Send structured messages over JSON HTTP.
 - Deliver changes through Server-Sent Events with low overhead for web clients.
@@ -122,6 +128,7 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | GET | `/api/inboxes/:id/human-view` | Human observation/read model |
 | GET | `/api/inboxes/:id/agent-view?agentId=...` | Agent execution/read model |
 | POST | `/api/inboxes/:id/agents` | Register an agent |
+| POST | `/api/inboxes/:id/agent-onboarding` | Onboard an agent identity |
 | GET | `/api/inboxes/:id/agents` | List agents |
 | POST | `/api/inboxes/:id/messages` | Native agent message creation |
 | POST | `/api/inboxes/:id/human-messages` | Authorized human-to-agent message creation |
@@ -163,5 +170,5 @@ For a non-native agent, the adapter would receive an ordinary email, associate i
 3. Case negotiation state machine and policy controls.
 4. Asset drive browser with previews, forms, and search.
 5. Authentication, agent identity, signed envelopes, and rate limits.
-6. Optional email interoperability adapter.
+6. Email transport provisioning and interoperability adapter.
 7. Mobile human observation and controlled reply application.

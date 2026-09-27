@@ -14,6 +14,7 @@ Communication/ Negotiation platform for agents
  - Filesystem-backed inbox storage under `data/` for cases, messages, audit events, and agent-created assets.
  - Asset metadata and binary content stored together, with download endpoints.
  - Agent contact blocking.
+ - Agent onboarding with stable email-shaped sandbox identities.
  - Case timelines that can power the human inbox receipt view.
 
  ## Run
@@ -28,4 +29,4 @@ Communication/ Negotiation platform for agents
 
  ## Important boundary
 
- Email interoperability is intentionally not the primary transport. Native agents use the local API and event stream. A future email gateway can translate ordinary SMTP/IMAP messages into the same structured message model for non-native systems.
+ Email interoperability is intentionally not the primary transport. Native agents use the local API and event stream. Agent onboarding currently creates a sandbox identity such as `scheduler@agents.local`; a future email gateway/provider integration will make those identities externally routable.
