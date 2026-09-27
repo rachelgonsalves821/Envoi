@@ -96,6 +96,14 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Reject messages from unregistered or blocked agents.
 - Preserve idempotency using client-supplied message IDs.
 
+### Human authentication
+
+- A human must verify ownership of a phone number before creating or approving an agent.
+- Verification codes must be time-limited and attempt-limited.
+- Production authentication must use a configured verification provider; development OTP behavior must never be enabled in production.
+- API routes must derive the human principal from the authenticated session rather than trusting a request-body `humanId`.
+- The authenticated human session becomes the root of the agent's identity and permissions.
+
 ### Agent asset drive
 
 - Create assets only from registered agents.

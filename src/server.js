@@ -2,6 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
+import { AuthService } from './auth.js';
 
 const host = process.env.SINALOA_HOST || '127.0.0.1';
 const port = Number(process.env.SINALOA_PORT || 8787);
@@ -11,6 +12,7 @@ const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
 const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'sinaloa.mail';
 const allowedPermissions = new Set(['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', 'use_email_transport']);
 const store = new FileStore(dataDir);
+const auth = new AuthService(store);
 const streams = new Map();
 
 const applyHeaders = (res, origin) => {
@@ -134,10 +136,28 @@ async function route(req, res) {
   }
   if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now() });
 
+  if (req.method === 'POST' && url.pathname === '/api/auth/phone/start') {
+    const input = await body(req);
+    return json(res, 201, await auth.startPhoneVerification(input.phoneNumber, input.displayName));
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/phone/verify') {
+    const input = await body(req);
+    if (!input.challengeId || !input.code) return fail(res, 400, 'challengeId and code are required');
+    return json(res, 200, await auth.verifyPhone(input.challengeId, input.code));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/auth/me') {
+    const human = await auth.getHuman(req);
+    return human ? json(res, 200, human) : fail(res, 401, 'Authenticated human session required');
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/onboarding/agent-account') {
     const input = await body(req);
     if (!input.name) return fail(res, 400, 'Agent name is required');
-    if (!input.humanId) return fail(res, 400, 'humanId is required so a human can approve the agent');
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Verified human session required');
+    input.humanId = human.id;
     const idempotencyKey = input.idempotencyKey || req.headers['idempotency-key'];
     if (idempotencyKey) {
       const previous = await store.getJson(path.join('onboarding', `${encodeURIComponent(idempotencyKey)}.json`));
@@ -190,9 +210,15 @@ async function route(req, res) {
 
   if (req.method === 'GET' && suffix === '') return json(res, 200, inbox);
 
-  if (req.method === 'GET' && suffix === 'human-view') return json(res, 200, await humanView(inboxId, inbox));
+  if (req.method === 'GET' && suffix === 'human-view') {
+    const human = await auth.getHuman(req);
+    if (!human || human.id !== inbox.ownerHumanId) return fail(res, 403, 'Authenticated inbox owner required');
+    return json(res, 200, await humanView(inboxId, inbox));
+  }
 
   if (req.method === 'GET' && suffix === 'agent-view') {
+    const human = await auth.getHuman(req);
+    if (!human || human.id !== inbox.ownerHumanId) return fail(res, 403, 'Authenticated inbox owner required');
     const view = await agentView(inboxId, inbox, url.searchParams.get('agentId'));
     return view ? json(res, 200, view) : fail(res, 404, 'Agent not found');
   }
@@ -256,9 +282,11 @@ async function route(req, res) {
   if (req.method === 'POST' && onboardingDecision) {
     const [, agentId, decision] = onboardingDecision;
     const input = await body(req);
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Verified human session required');
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
     if (!agent) return fail(res, 404, 'Agent not found');
-    if (!input.humanId || input.humanId !== (agent.principalHumanId || inbox.ownerHumanId)) return fail(res, 403, 'Only the linked human may approve this agent');
+    if (human.id !== (agent.principalHumanId || inbox.ownerHumanId)) return fail(res, 403, 'Only the linked human may approve this agent');
     if (decision === 'reject') {
       agent.status = 'rejected';
       agent.onboardingStatus = 'rejected';
@@ -273,9 +301,9 @@ async function route(req, res) {
       await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
     }
     agent.approvedAt = store.now();
-    agent.approvedByHumanId = input.humanId;
+    agent.approvedByHumanId = human.id;
     await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
-    await audit(inboxId, `agent.onboarding_${decision}ed`, { agentId: agent.id, humanId: input.humanId, permissions: agent.permissions });
+    await audit(inboxId, `agent.onboarding_${decision}ed`, { agentId: agent.id, humanId: human.id, permissions: agent.permissions });
     return json(res, 200, agent);
   }
 
@@ -301,14 +329,16 @@ async function route(req, res) {
 
   if (req.method === 'POST' && suffix === 'human-messages') {
     const input = await body(req);
-    if (!input.humanId || !input.recipientAgentId || !input.text) return fail(res, 400, 'humanId, recipientAgentId, and text are required');
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Verified human session required');
+    if (!input.recipientAgentId || !input.text) return fail(res, 400, 'recipientAgentId and text are required');
     const recipient = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.recipientAgentId}.json`));
     if (!recipient) return fail(res, 404, 'Recipient agent not found');
     if (!hasPermission(recipient, 'receive_agent_messages')) return fail(res, 403, 'Recipient agent is not approved to receive messages');
     const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`), { approved: true, blocked: false });
     if (contact.blocked) return fail(res, 403, 'Recipient is blocked');
     if (contact.approved === false) return fail(res, 403, 'Recipient is not an approved human contact');
-    const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderType: 'human', senderHumanId: input.humanId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
+    const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderType: 'human', senderHumanId: human.id, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
     await store.putJson(path.join('inboxes', inboxId, 'messages', `${message.id}.json`), message);
     const caseRecord = await store.getJson(path.join('inboxes', inboxId, 'cases', `${message.caseId}.json`), { id: message.caseId, inboxId, status: 'active', participantAgentIds: [message.recipientAgentId], participantHumanIds: [message.senderHumanId], createdAt: message.createdAt });
     caseRecord.updatedAt = message.createdAt;

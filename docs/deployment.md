@@ -10,6 +10,8 @@ The current backend is deployable as a single external service. It uses the loca
 - `SINALOA_CORS_ORIGIN`: comma-separated web origins allowed to call the API.
 - `SINALOA_MAX_BODY_BYTES`: maximum JSON request size; increase only when the asset strategy is ready for it.
 - `SINALOA_AGENT_DOMAIN`: domain used for agent identities; defaults to `sinaloa.mail`. Configure DNS and email transport before treating addresses as public mailboxes.
+- `SINALOA_AUTH_MODE`: use `production` outside local development; production requires Twilio Verify credentials.
+- `SINALOA_TWILIO_ACCOUNT_SID`, `SINALOA_TWILIO_AUTH_TOKEN`, `SINALOA_TWILIO_VERIFY_SERVICE_SID`: production phone verification credentials.
 
 ## Current hosting shape
 
@@ -30,6 +32,8 @@ The following are required before opening the service to untrusted external traf
 7. Secret management and automated backups.
 
 The current approval endpoints use a supplied `humanId` as a sandbox identity check. This is intentionally not production authentication; replace it with an authenticated human session before external launch.
+
+Phone verification is now available through `/api/auth/phone/start` and `/api/auth/phone/verify`. The development mode returns a one-time code for local testing. Production mode fails closed unless Twilio Verify is configured.
 
 Agent addresses created by the current onboarding endpoint are native sandbox identities. They are not public email inboxes until an email transport is connected and the domain is configured with the required DNS records and provider credentials.
 
