@@ -40,12 +40,19 @@ describe('Agent Interface to Human Interface translation', () => {
     expect(sectionForCase(baseCase({ state: 'waitingForExternalParty' }))).toBe('waiting');
   });
 
-  it('classifies schedule and document proposals without inventing case state', () => {
-    const schedule = baseCase({ state: 'inProgress', proposals: [{ id: 'proposal_1', kind: 'schedule', status: 'open', expiresAt: null, options: [] }] });
-    const document = baseCase({ state: 'inProgress', proposals: [{ id: 'proposal_2', kind: 'document', status: 'open', expiresAt: null, options: [] }] });
-    expect(sectionForCase(schedule)).toBe('scheduled');
-    expect(sectionForCase(document)).toBe('documents');
+  it('uses the server projection bucket instead of rebuilding workflow state', () => {
+    expect(sectionForCase(baseCase({ state: 'tentativeHold', bucket: 'needsMe' }))).toBe('needsMe');
+    expect(sectionForCase(baseCase({ state: 'paused', bucket: 'needsMe' }))).toBe('needsMe');
+    expect(sectionForCase(baseCase({ state: 'expired', bucket: 'completed' }))).toBe('completed');
+  });
+
+  it('filters scheduling and artifact modes without inventing workflow state', () => {
+    const schedule = baseCase({ state: 'inProgress', collaborationMode: 'scheduling' });
+    const document = baseCase({ state: 'inProgress', collaborationMode: 'artifactCreation' });
+    expect(sectionForCase(schedule)).toBe('active');
+    expect(sectionForCase(document)).toBe('active');
     expect(casesForSection([schedule, document], 'scheduled')).toEqual([schedule]);
+    expect(casesForSection([schedule, document], 'documents')).toEqual([document]);
   });
 
   it('normalizes legacy active cases without changing the source object', () => {
@@ -54,12 +61,25 @@ describe('Agent Interface to Human Interface translation', () => {
     expect(legacy.state).toBeUndefined();
   });
 
-  it('merges structured events and legacy messages chronologically', () => {
+  it('prefers the authoritative structured ledger over legacy message records', () => {
     const workCase = baseCase({ events: [{ id: 'evt_2', type: 'stateChange', actor: 'agent_scheduling', createdAt: '2026-09-27T17:00:00.000Z', payload: { from: 'inProgress', to: 'waitingForHuman' }, linkedPolicyEvaluation: null, precedingEventRef: null }] });
     const messages: Message[] = [{ id: 'msg_1', caseId: workCase.id, senderType: 'agent', senderAgentId: 'agent_scheduling', type: 'message', text: 'I found one mutually available time.', createdAt: '2026-09-27T16:30:00.000Z', status: 'delivered' }];
     const timeline = timelineForCase(workCase, messages);
-    expect(timeline.map(item => item.id)).toEqual(['msg_1', 'evt_2']);
-    expect(timeline[0].payload).toMatchObject({ senderAgentId: 'agent_scheduling', deliveryState: 'delivered' });
+    expect(timeline.map(item => item.id)).toEqual(['evt_2']);
+  });
+
+  it('does not duplicate a message already present in the authoritative case ledger', () => {
+    const message: Message = { id: 'msg_1', caseId: 'case_acme_q4', senderType: 'agent', senderAgentId: 'agent_scheduling', recipientAgentId: 'agent_acme', type: 'message', text: 'One canonical message.', createdAt: '2026-09-27T16:30:00.000Z', status: 'delivered' };
+    const workCase = baseCase({ events: [{ id: 'evt_msg_1', type: 'message', actor: 'agent_scheduling', createdAt: message.createdAt, payload: { messageId: message.id, text: message.text, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId, deliveryState: message.status }, linkedPolicyEvaluation: null, precedingEventRef: null }] });
+    expect(timelineForCase(workCase, [message])).toHaveLength(1);
+    expect(timelineForCase(workCase, [message])[0].id).toBe('evt_msg_1');
+  });
+
+  it('keeps Inbox as an all-conversation view while workflow buckets stay canonical', () => {
+    const needsMe = baseCase({ id: 'case_needs_me', bucket: 'needsMe' });
+    const waiting = baseCase({ id: 'case_waiting', state: 'sent', bucket: 'waiting' });
+    expect(casesForSection([needsMe, waiting], 'inbox')).toEqual([needsMe, waiting]);
+    expect(casesForSection([needsMe, waiting], 'needsMe')).toEqual([needsMe]);
   });
 
   it('resolves workspace and case participant directories in map or array form', () => {

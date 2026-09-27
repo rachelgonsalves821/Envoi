@@ -12,9 +12,9 @@
     "instructions": ["C:/Users/Rachel/Downloads/DESIGN_SYSTEM (1).md", "C:/Users/Rachel/Downloads/COMPONENTS (1).md"]
   },
   "design": {
-    "colorMode": "light and dark",
+    "colorMode": "light only",
     "colors": { "accent": "Cobalt Ink", "canvas": "Porcelain", "darkCanvas": "Graphite" },
-    "typography": { "ui": "Instrument Sans / Geist", "mono": "Geist Mono / IBM Plex Mono" },
+    "typography": { "ui": "Commissioner Variable / Commissioner", "mono": "Geist Mono / IBM Plex Mono" },
     "spacing": { "base": 8, "micro": 4 },
     "radius": { "small": 6, "medium": 10, "large": 14, "extraLarge": 20 },
     "shadows": { "style": "wide, faint, layered" },

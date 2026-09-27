@@ -1,4 +1,4 @@
-import type { AuthConfig, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
+import type { AuthConfig, CalendarConnector, CalendarProvider, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
 
 const SESSION_KEY = 'sinaloa.human-session';
 
@@ -58,4 +58,7 @@ export const api = {
     body: JSON.stringify({ permissions, agentProfile: { name, slug: name } })
   }),
   approveAgent: (inboxId: string, agentId: string, permissions: string[]) => request<{ agent: unknown; agentApiToken?: string }>(`/api/inboxes/${inboxId}/agent-onboarding/${agentId}/approve`, { method: 'POST', body: JSON.stringify({ permissions }) })
+  ,calendarConnectors: (inboxId: string) => request<{ providers: Record<CalendarProvider['id'], CalendarProvider>; connectors: CalendarConnector[] }>(`/api/inboxes/${inboxId}/calendar-connectors`)
+  ,connectCalendar: (inboxId: string, provider: CalendarProvider['id']) => request<{ provider: CalendarProvider['id']; authorizationUrl: string; expiresAt: string }>(`/api/inboxes/${inboxId}/calendar-connectors/${provider}/connect`, { method: 'POST', body: '{}' })
+  ,disconnectCalendar: (inboxId: string, provider: CalendarProvider['id']) => request<CalendarConnector>(`/api/inboxes/${inboxId}/calendar-connectors/${provider}/disconnect`, { method: 'POST', body: '{}' })
 };

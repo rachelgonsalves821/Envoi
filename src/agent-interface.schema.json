@@ -3,12 +3,13 @@
   "$id": "https://sinaloa.mail/schemas/agent-interface/v1.json",
   "title": "Sinaloa Agent Interface",
   "type": "object",
-  "required": ["id", "schemaVersion", "objective", "state", "principal", "actingAgent", "participants", "constraints", "deadline", "authorityRefs", "events", "evidence", "proposals", "policyEvaluations", "receipt", "createdAt", "updatedAt"],
+  "required": ["id", "schemaVersion", "objective", "collaborationMode", "state", "principal", "actingAgent", "participants", "constraints", "deadline", "authorityRefs", "events", "evidence", "proposals", "policyEvaluations", "receipt", "createdAt", "updatedAt"],
   "additionalProperties": false,
   "properties": {
     "id": { "$ref": "#/definitions/ref" },
     "schemaVersion": { "const": "1.0" },
     "objective": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "collaborationMode": { "$ref": "#/definitions/collaborationMode" },
     "state": { "$ref": "#/definitions/caseState" },
     "principal": { "$ref": "#/definitions/ref" },
     "actingAgent": { "$ref": "#/definitions/ref" },
@@ -27,6 +28,10 @@
   "definitions": {
     "timestamp": { "type": "string", "format": "date-time" },
     "ref": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "collaborationMode": {
+      "type": "string",
+      "enum": ["scheduling", "negotiation", "collaboration", "knowledgeSharing", "artifactCreation"]
+    },
     "caseState": {
       "type": "string",
       "enum": ["new", "classifying", "inProgress", "waitingForExternalParty", "waitingForHuman", "tentativeHold", "authorized", "executing", "sent", "received", "accepted", "completed", "failed", "unknownExternalResult", "expired", "paused", "revoked", "disputed"]

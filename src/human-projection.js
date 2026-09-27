@@ -20,7 +20,7 @@ const statePresentation = Object.freeze({
 });
 
 const stateTone = state => ({
-  waitingForHuman: 'needsHuman', tentativeHold: 'tentative', completed: 'confirmed', failed: 'failed', unknownExternalResult: 'unknown', waitingForExternalParty: 'waiting', sent: 'waiting', received: 'waiting', expired: 'failed', revoked: 'failed', disputed: 'failed'
+  waitingForHuman: 'attention', tentativeHold: 'tentative', completed: 'success', authorized: 'success', accepted: 'success', failed: 'danger', unknownExternalResult: 'unknown', waitingForExternalParty: 'waiting', sent: 'waiting', received: 'waiting', expired: 'danger', revoked: 'danger', disputed: 'danger'
 }[state] || 'neutral');
 
 const readableAction = value => String(value || '').replace(/([a-z])([A-Z])/g, '$1 $2').replaceAll('.', ' ').toLowerCase();
@@ -44,15 +44,22 @@ export function projectCaseForHuman(value) {
     id: value.id,
     schemaVersion: value.schemaVersion,
     objective: value.objective,
+    collaborationMode: value.collaborationMode || 'collaboration',
     state: value.state,
     stateLabel,
     stateTone: stateTone(value.state),
     bucket,
     needsAttention,
     nextActor,
+    principal: value.principal,
+    actingAgent: value.actingAgent,
     actingAgentId: value.actingAgent,
-    participantIds: value.participants,
+    participants: value.participants || [],
+    participantIds: value.participants || [],
+    constraints: value.constraints || {},
     deadline: value.deadline,
+    authorityRefs: value.authorityRefs || [],
+    createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     contextualDetail: value.deadline ? `Deadline ${value.deadline}` : openProposal?.expiresAt ? `Proposal expires ${openProposal.expiresAt}` : nextActor,
     decision: needsAttention ? {
@@ -63,7 +70,9 @@ export function projectCaseForHuman(value) {
       expiresAt: relevantPolicy?.expiresAt || openProposal?.expiresAt || null,
       availableActions: value.state === 'waitingForHuman' || value.state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause']
     } : null,
+    events: value.events || [],
     timeline: (value.events || []).map(event => ({ id: event.id, type: event.type, actorId: event.actor, createdAt: event.createdAt, summary: eventSummary(event), policyEvaluationId: event.linkedPolicyEvaluation, payload: event.payload })),
+    policyEvaluations: value.policyEvaluations || [],
     authority: (value.policyEvaluations || []).map(item => ({ id: item.id, requestedAction: item.requestedAction, actorId: item.actor, policyId: item.matchedPolicyId, decision: item.decision, grantType: item.grantType, effectiveAt: item.effectiveAt, expiresAt: item.expiresAt, reasonCode: item.reasonCode })),
     proposals: value.proposals || [],
     evidence: value.evidence || [],

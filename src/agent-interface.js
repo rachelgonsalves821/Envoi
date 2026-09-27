@@ -10,6 +10,7 @@ const validateCaseSchema = ajv.compile(schema);
 const validateActionSchema = ajv.compile({ $ref: `${schema.$id}#/definitions/Action` });
 
 export const CASE_STATES = Object.freeze(schema.definitions.caseState.enum);
+export const COLLABORATION_MODES = Object.freeze(schema.definitions.collaborationMode.enum);
 export const EVENT_TYPES = Object.freeze(schema.definitions.Event.properties.type.enum);
 export const HUMAN_ACTIONS = Object.freeze(['approveOnce', 'decline', 'editProposal', 'pause', 'revoke', 'takeOver']);
 
@@ -42,11 +43,12 @@ export function assertValidAction(value) {
   return value;
 }
 
-export function createCase({ id, objective, principal, actingAgent, participants = [], constraints = {}, deadline = null, createdAt }) {
+export function createCase({ id, objective, collaborationMode = 'collaboration', principal, actingAgent, participants = [], constraints = {}, deadline = null, createdAt }) {
   const value = {
     id,
     schemaVersion: '1.0',
     objective: String(objective || '').trim(),
+    collaborationMode,
     state: 'new',
     principal,
     actingAgent,

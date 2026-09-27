@@ -27,6 +27,24 @@ const maxBodyBytes = Number(process.env.SINALOA_MAX_BODY_BYTES || 10 * 1024 * 10
 const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
 const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'sinaloa.mail';
 const deliveryMaxAttempts = Number(process.env.SINALOA_DELIVERY_MAX_ATTEMPTS || 5);
+const calendarProviders = Object.freeze({
+  google: {
+    label: 'Google Calendar',
+    clientId: process.env.GOOGLE_CALENDAR_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET,
+    authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    scopes: ['openid', 'email', 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.events.freebusy']
+  },
+  outlook: {
+    label: 'Outlook Calendar',
+    clientId: process.env.MICROSOFT_CALENDAR_CLIENT_ID,
+    clientSecret: process.env.MICROSOFT_CALENDAR_CLIENT_SECRET,
+    authorizeUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+    scopes: ['openid', 'email', 'offline_access', 'User.Read', 'Calendars.ReadWrite']
+  }
+});
 const allowedPermissions = new Set(['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', 'use_email_transport']);
 const actionPermission = actionKey => actionKey.startsWith('message.') ? 'send_agent_messages' : actionKey.startsWith('email.') ? 'use_email_transport' : 'execute_cases';
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
@@ -61,7 +79,19 @@ const reserveIdentity = async (address, value) => {
 };
 const hasPermission = (agent, permission) => agent.status === 'active' && agent.onboardingStatus === 'approved' && agent.permissions?.includes(permission);
 const hashSecret = value => crypto.createHash('sha256').update(value).digest('hex');
+const connectorEncryptionKey = () => crypto.createHash('sha256').update(process.env.SINALOA_DATA_ENCRYPTION_KEY || 'sinaloa-development-only').digest();
+const encryptConnectorTokens = value => {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', connectorEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') };
+};
 const publicAgent = agent => { const value = { ...agent }; delete value.credentialHash; return value; };
+const publicCalendarConnector = connector => {
+  const value = { ...connector };
+  delete value.tokenSetEncrypted;
+  return value;
+};
 const bearerToken = req => (req.headers.authorization || '').startsWith('Bearer ') ? req.headers.authorization.slice(7) : null;
 const clientIp = req => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
 const getAgentPrincipal = async (req, inboxId) => {
@@ -207,6 +237,42 @@ async function ensureOrganization(human, requestedId) {
   return existing || createOrganization(human, { name: `${human.displayName || 'My'} workspace` }, `personal-${human.id}`);
 }
 
+async function createDedicatedAgentInbox({ sourceInbox, organizationId, ownerHumanId, agent, status = 'pending_approval' }) {
+  const inboxId = store.id('inbox');
+  const createdAt = agent.createdAt || store.now();
+  const inbox = {
+    id: inboxId,
+    organizationId,
+    name: `${agent.name} inbox`,
+    ownerAgentId: agent.id,
+    ownerHumanId,
+    parentInboxId: sourceInbox?.id || null,
+    kind: 'agent',
+    status,
+    createdAt
+  };
+  await store.ensureInbox(inboxId);
+  await Promise.all([
+    store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox),
+    store.putJson(path.join('organizations', organizationId, 'workspaces', `${inboxId}.json`), { inboxId, createdAt }),
+    store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent),
+    store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: createdAt })
+  ]);
+  return inbox;
+}
+
+const calendarConnectorPath = (inboxId, provider) => path.join('inboxes', inboxId, 'calendar-connectors', `${provider}.json`);
+const calendarProviderStatus = () => Object.fromEntries(Object.entries(calendarProviders).map(([id, provider]) => [id, { id, label: provider.label, configured: Boolean(provider.clientId && provider.clientSecret) }]));
+const calendarRedirectUri = (provider, req) => process.env[provider === 'google' ? 'GOOGLE_CALENDAR_REDIRECT_URI' : 'MICROSOFT_CALENDAR_REDIRECT_URI'] || `${(process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '')}/api/calendar-oauth/${provider}/callback`;
+const tokenAccountLabel = tokenSet => {
+  try {
+    const payload = JSON.parse(Buffer.from(String(tokenSet.id_token || '').split('.')[1], 'base64url').toString('utf8'));
+    return payload.email || payload.preferred_username || payload.name || null;
+  } catch {
+    return null;
+  }
+};
+
 async function listMessages(inboxId, caseId, { limit = 100, before = null } = {}) {
   return store.queryJson(path.join('inboxes', inboxId, 'messages'), { limit, before, filters: caseId ? { caseId } : {}, sortField: 'createdAt' });
 }
@@ -217,7 +283,10 @@ async function listCases(inboxId, { limit = 100, before = null } = {}) {
 
 const caseRecordPath = (inboxId, caseId) => path.join('inboxes', inboxId, 'cases', `${caseId}.json`);
 const saveCase = (inboxId, value) => store.putJson(caseRecordPath(inboxId, value.id), value);
-const getCase = (inboxId, caseId) => store.getJson(caseRecordPath(inboxId, caseId));
+const getCase = async (inboxId, caseId) => {
+  const value = await store.getJson(caseRecordPath(inboxId, caseId));
+  return value?.schemaVersion && !value.collaborationMode ? { ...value, collaborationMode: 'collaboration' } : value;
+};
 
 function proposalFromInput(input, now) {
   const options = Array.isArray(input.options) ? input.options.map(item => ({
@@ -252,6 +321,7 @@ async function ensureStructuredCase(inbox, input, actorAgentId, at) {
   let value = createAgentCase({
     id: caseId,
     objective: input.objective || input.text?.slice(0, 160) || 'Agent communication',
+    collaborationMode: input.collaborationMode || ({ proposal: 'negotiation', counterproposal: 'negotiation', knowledge: 'knowledgeSharing', artifact: 'artifactCreation' }[input.type] || 'collaboration'),
     principal: inbox.ownerHumanId,
     actingAgent: actorAgentId,
     participants: [actorAgentId, input.recipientAgentId].filter(Boolean),
@@ -387,20 +457,21 @@ async function participantDirectoryForHuman(inbox, agents, cases) {
 }
 
 async function humanView(inboxId, inbox) {
-  const [agents, cases, messages, assets, events, deliveryReceipts] = await Promise.all([
+  const [agents, cases, messages, assets, events, deliveryReceipts, calendarConnectors] = await Promise.all([
     store.listJson(path.join('inboxes', inboxId, 'agents')),
     listCases(inboxId),
     listMessages(inboxId),
     store.listJson(path.join('inboxes', inboxId, 'assets')),
     store.listJson(path.join('inboxes', inboxId, 'events')),
-    store.listJson(path.join('inboxes', inboxId, 'delivery-receipts'))
+    store.listJson(path.join('inboxes', inboxId, 'delivery-receipts')),
+    store.listJson(path.join('inboxes', inboxId, 'calendar-connectors'))
   ]);
   const projection = projectWorkspaceForHuman(cases);
   const participantDirectory = await participantDirectoryForHuman(inbox, agents, cases);
   return {
     inbox,
     mode: 'human-observer',
-    capabilities: ['observe_agent_communications', 'receive_agent_messages', 'reply_to_approved_agents', 'review_assets'],
+    capabilities: ['observe_agent_communications', 'receive_agent_messages', 'reply_to_approved_agents', 'review_assets', 'manage_calendar_connectors'],
     summary: { agents: agents.length, cases: cases.length, messages: messages.length, assets: assets.length, needsMe: projection.counts.needsMe },
     navigation: projection.counts,
     caseQueue: projection.cases,
@@ -409,6 +480,8 @@ async function humanView(inboxId, inbox) {
     cases,
     messages,
     assets,
+    calendarProviders: calendarProviderStatus(),
+    calendarConnectors: calendarConnectors.map(publicCalendarConnector),
     deliveryReceipts: deliveryReceipts.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     recentEvents: events.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100)
   };
@@ -417,22 +490,24 @@ async function humanView(inboxId, inbox) {
 async function agentView(inboxId, inbox, agentId) {
   const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
   if (!agent) return null;
-  const [cases, messages, assets, deliveryReceipts] = await Promise.all([
+  const [cases, messages, assets, deliveryReceipts, calendarConnectors] = await Promise.all([
     listCases(inboxId),
     listMessages(inboxId),
     store.listJson(path.join('inboxes', inboxId, 'assets')),
-    store.listJson(path.join('inboxes', inboxId, 'delivery-receipts'))
+    store.listJson(path.join('inboxes', inboxId, 'delivery-receipts')),
+    store.listJson(path.join('inboxes', inboxId, 'calendar-connectors'))
   ]);
   return {
     inbox,
     mode: 'agent-operator',
     agent: publicAgent(agent),
-    capabilities: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'],
+    capabilities: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', ...(calendarConnectors.some(item => item.status === 'connected') ? ['use_connected_calendar'] : [])],
     queue: {
       assignedMessages: messages.filter((item) => item.recipientAgentId === agentId),
       authoredMessages: messages.filter((item) => item.senderAgentId === agentId),
       activeCases: cases.filter((item) => item.status === 'active' && item.participantAgentIds?.includes(agentId)),
       createdAssets: assets.filter((item) => item.createdByAgentId === agentId),
+      calendarConnectors: calendarConnectors.map(publicCalendarConnector),
       deliveryReceipts: deliveryReceipts.filter(item => item.senderAgentId === agentId || item.recipientAgentId === agentId)
     }
   };
@@ -539,6 +614,48 @@ async function route(req, res) {
     return json(res, 200, workspaces.filter(Boolean));
   }
 
+  const calendarCallback = url.pathname.match(/^\/api\/calendar-oauth\/(google|outlook)\/callback$/);
+  if (req.method === 'GET' && calendarCallback) {
+    const providerId = calendarCallback[1];
+    const provider = calendarProviders[providerId];
+    const state = url.searchParams.get('state');
+    const code = url.searchParams.get('code');
+    if (!state || !code || url.searchParams.get('error')) return fail(res, 400, 'Calendar authorization was not completed');
+    const statePath = path.join('auth', 'calendar-oauth', `${hashSecret(state)}.json`);
+    const pending = await store.getJson(statePath);
+    if (!pending || pending.provider !== providerId || pending.usedAt || new Date(pending.expiresAt) <= new Date()) return fail(res, 400, 'Calendar authorization state is invalid or expired');
+    if (!provider.clientId || !provider.clientSecret) return fail(res, 503, `${provider.label} is not configured`);
+    const claimed = await store.claimJson(statePath, 'usedAt', store.now());
+    if (!claimed) return fail(res, 400, 'Calendar authorization state was already used');
+    const tokenResponse = await fetch(provider.tokenUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, client_id: provider.clientId, client_secret: provider.clientSecret, redirect_uri: calendarRedirectUri(providerId, req), grant_type: 'authorization_code' })
+    });
+    const tokenSet = await tokenResponse.json().catch(() => ({}));
+    if (!tokenResponse.ok || !tokenSet.access_token) return fail(res, 502, `${provider.label} token exchange failed`);
+    const connectedAt = store.now();
+    const connector = {
+      id: `calendar_${providerId}`,
+      provider: providerId,
+      label: provider.label,
+      status: 'connected',
+      accountLabel: tokenAccountLabel(tokenSet),
+      scopes: String(tokenSet.scope || provider.scopes.join(' ')).split(/\s+/).filter(Boolean),
+      expiresAt: tokenSet.expires_in ? new Date(Date.now() + Number(tokenSet.expires_in) * 1000).toISOString() : null,
+      refreshTokenPresent: Boolean(tokenSet.refresh_token),
+      connectedByHumanId: pending.humanId,
+      connectedAt,
+      updatedAt: connectedAt,
+      tokenSetEncrypted: encryptConnectorTokens(tokenSet)
+    };
+    await store.putJson(calendarConnectorPath(pending.inboxId, providerId), connector);
+    await audit(pending.inboxId, 'calendar.connected', { provider: providerId, humanId: pending.humanId });
+    const returnUrl = new URL(pending.returnTo || '/', process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`);
+    returnUrl.searchParams.set('calendarConnected', providerId);
+    return redirect(res, returnUrl.toString());
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/agent-enroll') {
     const input = await body(req);
     if (!input.enrollmentToken) return fail(res, 400, 'enrollmentToken is required');
@@ -546,8 +663,8 @@ async function route(req, res) {
     const tokenPath = path.join('auth', 'enrollment-tokens', `${tokenHash}.json`);
     const pendingRecord = await store.getJson(tokenPath);
     if (!pendingRecord || pendingRecord.usedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
-    const inbox = await store.getJson(path.join('inboxes', pendingRecord.inboxId, 'inbox.json'));
-    if (!inbox || (inbox.ownerHumanId !== pendingRecord.humanId && !await getMembership(inbox.organizationId, pendingRecord.humanId))) return fail(res, 403, 'Enrollment owner is invalid');
+    const sourceInbox = await store.getJson(path.join('inboxes', pendingRecord.inboxId, 'inbox.json'));
+    if (!sourceInbox || (sourceInbox.ownerHumanId !== pendingRecord.humanId && !await getMembership(sourceInbox.organizationId, pendingRecord.humanId))) return fail(res, 403, 'Enrollment owner is invalid');
     const agentName = String(input.name || pendingRecord.agentProfile?.name || '').trim();
     if (!agentName) return fail(res, 400, 'Agent name is required');
     const record = await store.claimJson(tokenPath, 'usedAt', store.now());
@@ -558,15 +675,12 @@ async function route(req, res) {
     while (!(await reserveIdentity(address, { status: 'reserved' }))) { slug = `${baseSlug}-${store.id('slug').slice(-6)}`; address = `${slug}@${agentDomain}`; }
     const createdAt = store.now();
     const agentApiToken = `sinaloa_agent_${crypto.randomBytes(32).toString('base64url')}`;
-    const agent = { id: store.id('agent'), organizationId: inbox.organizationId, name: agentName, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalHumanId: record.humanId, capabilities: input.capabilities || record.agentProfile?.capabilities || [], permissions: record.permissions, credentialHash: hashSecret(agentApiToken), createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
-    await store.ensureInbox(record.inboxId);
-    await store.putJson(path.join('inboxes', record.inboxId, 'agents', `${agent.id}.json`), agent);
-    await store.putJson(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId: record.inboxId, address: agent.address, status: agent.status });
-    await store.putJson(path.join('auth', 'agent-credentials', `${agent.credentialHash}.json`), { agentId: agent.id, inboxId: record.inboxId });
-    await store.putJson(path.join('inboxes', record.inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: createdAt });
-    inbox.status = 'active';
-    await store.putJson(path.join('inboxes', record.inboxId, 'inbox.json'), inbox);
-    await audit(record.inboxId, 'agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions });
+    const agent = { id: store.id('agent'), organizationId: sourceInbox.organizationId, name: agentName, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalHumanId: record.humanId, capabilities: input.capabilities || record.agentProfile?.capabilities || [], permissions: record.permissions, credentialHash: hashSecret(agentApiToken), createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
+    const inbox = await createDedicatedAgentInbox({ sourceInbox, organizationId: sourceInbox.organizationId, ownerHumanId: record.humanId, agent, status: 'active' });
+    await store.putJson(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId: inbox.id, address: agent.address, status: agent.status });
+    await store.putJson(path.join('auth', 'agent-credentials', `${agent.credentialHash}.json`), { agentId: agent.id, inboxId: inbox.id });
+    await audit(inbox.id, 'agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions, sourceInboxId: sourceInbox.id });
+    await audit(sourceInbox.id, 'agent.inbox_created', { agentId: agent.id, inboxId: inbox.id, humanId: record.humanId });
     return json(res, 201, { agent: publicAgent(agent), agentApiToken, inbox, nativeMessaging: 'ready' });
   }
 
@@ -593,7 +707,7 @@ async function route(req, res) {
     await store.ensureInbox(inboxId);
     const createdAt = store.now();
     const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalLabel: input.principalLabel || null, principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], description: input.description || null, createdAt, status: 'pending_approval', onboardingStatus: 'pending_approval' };
-    const inbox = { id: inboxId, organizationId: organization.id, name: input.inboxName || `${input.name} workspace`, ownerAgentId: agent.id, ownerHumanId: input.humanId, status: 'pending_approval', createdAt };
+    const inbox = { id: inboxId, organizationId: organization.id, name: input.inboxName || `${input.name} inbox`, ownerAgentId: agent.id, ownerHumanId: input.humanId, parentInboxId: null, kind: 'agent', status: 'pending_approval', createdAt };
     await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
     await store.putJson(path.join('organizations', organization.id, 'workspaces', `${inboxId}.json`), { inboxId, createdAt });
     await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
@@ -611,7 +725,7 @@ async function route(req, res) {
     const organization = await ensureOrganization(human, input.organizationId);
     const inboxId = store.id('inbox');
     await store.ensureInbox(inboxId);
-    const inbox = { id: inboxId, organizationId: organization.id, name: input.name || 'Agent workspace', ownerAgentId: null, ownerHumanId: human.id, status: 'setup', createdAt: store.now() };
+    const inbox = { id: inboxId, organizationId: organization.id, name: input.name || 'Agent workspace', ownerAgentId: null, ownerHumanId: human.id, parentInboxId: null, kind: 'workspace', status: 'setup', createdAt: store.now() };
     await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
     await store.putJson(path.join('organizations', organization.id, 'workspaces', `${inboxId}.json`), { inboxId, createdAt: inbox.createdAt });
     await audit(inboxId, 'inbox.created', { inboxId });
@@ -645,6 +759,49 @@ async function route(req, res) {
     await audit(inboxId, 'agent.enrollment_token_created', { enrollmentId: record.id, humanId: human.id, permissions });
     const publicUrl = process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`;
     return json(res, 201, { enrollmentToken: rawToken, enrollmentUrl: `${publicUrl.replace(/\/$/, '')}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, permissions, agentProfile });
+  }
+
+  if (req.method === 'GET' && suffix === 'calendar-connectors') {
+    const human = await auth.getHuman(req);
+    if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Workspace membership required');
+    const connectors = await store.listJson(path.join('inboxes', inboxId, 'calendar-connectors'));
+    return json(res, 200, { providers: calendarProviderStatus(), connectors: connectors.map(publicCalendarConnector) });
+  }
+
+  const calendarConnectorRoute = suffix.match(/^calendar-connectors\/(google|outlook)\/(connect|disconnect)$/);
+  if (req.method === 'POST' && calendarConnectorRoute) {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const [, providerId, action] = calendarConnectorRoute;
+    const provider = calendarProviders[providerId];
+    if (action === 'disconnect') {
+      const existing = await store.getJson(calendarConnectorPath(inboxId, providerId));
+      if (!existing) return fail(res, 404, 'Calendar connector not found');
+      const disconnected = { ...existing, status: 'disconnected', tokenSetEncrypted: null, refreshTokenPresent: false, updatedAt: store.now(), disconnectedAt: store.now(), disconnectedByHumanId: human.id };
+      await store.putJson(calendarConnectorPath(inboxId, providerId), disconnected);
+      await audit(inboxId, 'calendar.disconnected', { provider: providerId, humanId: human.id });
+      return json(res, 200, publicCalendarConnector(disconnected));
+    }
+    if (!provider.clientId || !provider.clientSecret) return fail(res, 503, `${provider.label} is not configured`);
+    const state = crypto.randomBytes(32).toString('base64url');
+    const publicUrl = (process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
+    const stateRecord = { provider: providerId, inboxId, humanId: human.id, returnTo: `${publicUrl}/?workspace=${encodeURIComponent(inboxId)}`, createdAt: store.now(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), usedAt: null };
+    await store.putJson(path.join('auth', 'calendar-oauth', `${hashSecret(state)}.json`), stateRecord);
+    const authorizationUrl = new URL(provider.authorizeUrl);
+    authorizationUrl.searchParams.set('client_id', provider.clientId);
+    authorizationUrl.searchParams.set('redirect_uri', calendarRedirectUri(providerId, req));
+    authorizationUrl.searchParams.set('response_type', 'code');
+    authorizationUrl.searchParams.set('scope', provider.scopes.join(' '));
+    authorizationUrl.searchParams.set('state', state);
+    if (providerId === 'google') {
+      authorizationUrl.searchParams.set('access_type', 'offline');
+      authorizationUrl.searchParams.set('include_granted_scopes', 'true');
+      authorizationUrl.searchParams.set('prompt', 'consent');
+    } else {
+      authorizationUrl.searchParams.set('response_mode', 'query');
+    }
+    await audit(inboxId, 'calendar.connection_started', { provider: providerId, humanId: human.id });
+    return json(res, 201, { provider: providerId, authorizationUrl: authorizationUrl.toString(), expiresAt: stateRecord.expiresAt });
   }
 
   if (req.method === 'GET' && suffix === 'events') {
@@ -683,14 +840,12 @@ async function route(req, res) {
     if (!input.humanId) return fail(res, 400, 'humanId is required so a human can approve the agent');
     const slug = slugify(input.slug || input.name) || store.id('agent').replace('agent_', '');
     const address = input.address || `${slug}@${agentDomain}`;
-    const existingAgents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
-    if (existingAgents.some((item) => item.address === address)) return fail(res, 409, 'Agent email address is already registered in this inbox');
+    if (!await reserveIdentity(address, { status: 'reserved' })) return fail(res, 409, 'Agent email address is already registered');
     const agent = { id: input.id || store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], createdAt: store.now(), status: 'pending_approval', onboardingStatus: 'pending_approval' };
-    await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
-    if (!inbox.ownerAgentId) { inbox.ownerAgentId = agent.id; inbox.ownerHumanId = input.humanId; inbox.status = 'pending_approval'; await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox); }
-    await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: store.now() });
-    await audit(inboxId, 'agent.created', { agentId: agent.id });
-    return json(res, 201, agent);
+    const agentInbox = await createDedicatedAgentInbox({ sourceInbox: inbox, organizationId: inbox.organizationId, ownerHumanId: input.humanId, agent });
+    await audit(agentInbox.id, 'agent.created', { agentId: agent.id, sourceInboxId: inbox.id });
+    await audit(inbox.id, 'agent.inbox_created', { agentId: agent.id, inboxId: agentInbox.id, humanId: input.humanId });
+    return json(res, 201, { agent: publicAgent(agent), inbox: agentInbox });
   }
 
   if (req.method === 'POST' && suffix === 'agent-onboarding') {
@@ -702,15 +857,13 @@ async function route(req, res) {
     const slug = slugify(input.slug || input.name);
     if (!slug) return fail(res, 400, 'A valid agent slug is required');
     const address = `${slug}@${agentDomain}`;
-    const existingAgents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
-    if (existingAgents.some((item) => item.address === address)) return fail(res, 409, 'Agent email address is already registered in this inbox');
+    if (!await reserveIdentity(address, { status: 'reserved' })) return fail(res, 409, 'Agent email address is already registered');
     if (!input.humanId) return fail(res, 400, 'humanId is required so a human can approve the agent');
     const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalLabel: input.principalLabel || null, principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], description: input.description || null, createdAt: store.now(), status: 'pending_approval', onboardingStatus: 'pending_approval' };
-    await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
-    if (!inbox.ownerAgentId) { inbox.ownerAgentId = agent.id; await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox); }
-    await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: store.now() });
-    await audit(inboxId, 'agent.onboarded', { agentId: agent.id, address: agent.address, identityStatus: agent.identity.status });
-    return json(res, 201, { agent, next: { nativeMessaging: 'pending_human_approval', humanApproval: { required: true, humanId: input.humanId }, externalEmail: 'requires_email_transport_configuration' } });
+    const agentInbox = await createDedicatedAgentInbox({ sourceInbox: inbox, organizationId: inbox.organizationId, ownerHumanId: input.humanId, agent });
+    await audit(agentInbox.id, 'agent.onboarded', { agentId: agent.id, address: agent.address, identityStatus: agent.identity.status, sourceInboxId: inbox.id });
+    await audit(inbox.id, 'agent.inbox_created', { agentId: agent.id, inboxId: agentInbox.id, humanId: input.humanId });
+    return json(res, 201, { agent: publicAgent(agent), inbox: agentInbox, next: { nativeMessaging: 'pending_human_approval', humanApproval: { required: true, humanId: input.humanId }, externalEmail: 'requires_email_transport_configuration' } });
   }
 
   if (req.method === 'GET' && suffix === 'agents') return json(res, 200, (await store.listJson(path.join('inboxes', inboxId, 'agents'))).map(publicAgent));
@@ -779,7 +932,7 @@ async function route(req, res) {
     const input = await body(req);
     if (!String(input.objective || '').trim()) return fail(res, 400, 'A structured case objective is required');
     const now = store.now();
-    const value = createAgentCase({ id: input.id || store.id('case'), objective: input.objective, principal: inbox.ownerHumanId, actingAgent: principal.id, participants: input.participants || [], constraints: input.constraints || {}, deadline: input.deadline || null, createdAt: now });
+    const value = createAgentCase({ id: input.id || store.id('case'), objective: input.objective, collaborationMode: input.collaborationMode || 'collaboration', principal: inbox.ownerHumanId, actingAgent: principal.id, participants: input.participants || [], constraints: input.constraints || {}, deadline: input.deadline || null, createdAt: now });
     if (!await store.putJsonIfAbsent(caseRecordPath(inboxId, value.id), value)) return fail(res, 409, 'Case ID already exists');
     await audit(inboxId, 'case.created', { caseId: value.id, actingAgent: principal.id, objective: value.objective });
     return json(res, 201, value);
@@ -868,6 +1021,7 @@ async function route(req, res) {
     if (proposalRoute[3] === 'counter') {
       const options = proposalFromInput({ kind: value.proposals.find(item => item.id === proposalRoute[2])?.kind, options: input.options }, now).options;
       const updated = counterProposal(value, proposalRoute[2], { options, at: now });
+      appendEvent(updated, { id: store.id('evt'), type: 'decision', actor: principal.id, createdAt: now, payload: { proposalId: proposalRoute[2], status: 'countered', messageType: 'counterproposal' }, linkedPolicyEvaluation: null, precedingEventRef: updated.events.at(-1)?.id || null });
       await saveCase(inboxId, updated);
       await audit(inboxId, 'proposal.countered', { caseId: value.id, proposalId: proposalRoute[2], actor: principal.id });
       return json(res, 201, updated.proposals.find(item => item.id === proposalRoute[2]));
@@ -930,6 +1084,14 @@ async function route(req, res) {
     const queued = message ? { ...message, status: 'queued', queuedAt: at, updatedAt: at, lastDeliveryError: null, deliveryAttempts: 0 } : null;
     const auditEntry = auditRecord(existingDelivery.senderInboxId, 'message.dead_letter_requeued', { messageId: existingDelivery.messageId, deliveryId: existingDelivery.id, actor: human.id }, at);
     const documents = [auditEntry.document, ...(queued ? [document(messagePath(existingDelivery.senderInboxId, queued.id), queued)] : [])];
+    if (queued) {
+      const senderInbox = await store.getJson(path.join('inboxes', existingDelivery.senderInboxId, 'inbox.json'));
+      if (senderInbox) {
+        const currentCase = await ensureStructuredCase(senderInbox, { ...queued, caseId: queued.caseId }, queued.senderAgentId, queued.createdAt);
+        const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), queued, 'queued', at);
+        documents.push(document(caseRecordPath(existingDelivery.senderInboxId, updatedCase.id), updatedCase));
+      }
+    }
     const retried = await store.retryOutbox(existingDelivery.id, documents);
     if (!retried) return fail(res, 409, 'Delivery could not be retried');
     publish(existingDelivery.senderInboxId, auditEntry.event);

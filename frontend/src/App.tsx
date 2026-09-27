@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import {
   Activity, AlertCircle, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
   CircleDashed, Clock3, Command, Copy, Database, FileCheck2, FileText, Gauge, Inbox,
-  KeyRound, Link2, ListFilter, Menu, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen,
-  Pause, Play, PlugZap, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles, Sun,
+  KeyRound, Link2, ListFilter, Menu, MoreHorizontal, PanelRightClose, PanelRightOpen,
+  Pause, Play, PlugZap, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
 import { ApiError, api, clearSessionToken, saveSessionToken } from './api';
 import {
-  STATE_META, auditSummary, caseCounts, caseState, casesForSection, decisionPolicy,
+  STATE_META, auditSummary, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
   eventSummary, exchangeParties, humanize, isExchangeEvent, participantIds, resolveParticipant,
   sectionForCase, stateLabel, timelineForCase
 } from './model';
@@ -20,9 +20,8 @@ import type {
 } from './types';
 
 const WORKSPACE_KEY = 'sinaloa.workspace';
-const THEME_KEY = 'sinaloa.theme';
 const permissions = ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'];
-const caseSections: NavSection[] = ['needsMe', 'active', 'waiting', 'scheduled', 'documents', 'completed'];
+const caseSections: NavSection[] = ['inbox', 'needsMe', 'active', 'waiting', 'scheduled', 'documents', 'completed'];
 
 type BootState = 'loading' | 'signedOut' | 'setup' | 'ready' | 'error';
 
@@ -34,7 +33,9 @@ const previewAgents: Agent[] = [
 const previewView: HumanView = {
   inbox: previewWorkspace,
   mode: 'human-observer',
-  summary: { agents: 1, cases: 4, messages: 0, assets: 1 },
+  capabilities: ['observe_agent_communications', 'receive_agent_messages', 'reply_to_approved_agents', 'review_assets'],
+  summary: { agents: 1, cases: 4, messages: 0, assets: 0, needsMe: 1 },
+  navigation: { needsMe: 1, activeWork: 1, waiting: 1, completed: 1 },
   agents: previewAgents,
   participantDirectory: {
     agent_milo: { id: 'agent_milo', type: 'internalAgent', displayName: 'Milo', address: 'milo@sinaloa.mail', accessState: 'active' },
@@ -70,9 +71,20 @@ const previewView: HumanView = {
       receipt: { id: 'receipt_studio', result: 'Studio booked for October 6 at 2:00 PM', authorityBasis: 'calendar.booking', humanApprovalStatus: 'notRequired', createdAt: '2026-09-26T19:10:00.000Z' }, createdAt: '2026-09-26T18:30:00.000Z', updatedAt: '2026-09-26T19:10:00.000Z'
     }
   ],
-  messages: [], assets: [], recentEvents: []
+  caseQueue: [], messages: [], assets: [], calendarProviders: {
+    google: { id: 'google', label: 'Google Calendar', configured: false },
+    outlook: { id: 'outlook', label: 'Outlook Calendar', configured: false }
+  }, calendarConnectors: [], deliveryReceipts: [], recentEvents: []
 };
 
+previewView.caseQueue = previewView.cases.map(workCase => {
+  const state = caseState(workCase);
+  const section = sectionForCase(workCase);
+  const bucket = section === 'active' ? 'activeWork' : section === 'needsMe' || section === 'waiting' || section === 'completed' ? section : 'activeWork';
+  const collaborationMode = workCase.proposals?.[0]?.kind === 'schedule' ? 'scheduling' : workCase.proposals?.[0]?.kind === 'negotiation' ? 'negotiation' : workCase.proposals?.[0]?.kind === 'document' ? 'artifactCreation' : 'collaboration';
+  const policy = decisionPolicy(workCase);
+  return { ...workCase, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
+});
 export default function App() {
   const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('preview');
   const [boot, setBoot] = useState<BootState>('loading');
@@ -135,7 +147,7 @@ export default function App() {
     if (config.provider === 'workos') {
       const stream = new EventSource(`/api/inboxes/${workspace.id}/events`);
       const refresh = () => { void loadView(workspace.id, true); };
-      const eventTypes = ['agent.enrolled', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.delivered', 'message.created', 'asset.created', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
+      const eventTypes = ['agent.enrolled', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created', 'asset.created', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
       stream.onmessage = refresh;
       eventTypes.forEach(type => stream.addEventListener(type, refresh));
       stream.addEventListener('ready', () => undefined);
@@ -329,23 +341,19 @@ interface ShellProps {
 
 function AppShell(props: ShellProps) {
   const { config, human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout } = props;
-  const [section, setSection] = useState<NavSection>('needsMe');
+  const [section, setSection] = useState<NavSection>('inbox');
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
   const [navOpen, setNavOpen] = useState(false);
   const [mobileDetail, setMobileDetail] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window === 'undefined') return 'light';
-    if (new URLSearchParams(window.location.search).has('preview')) return 'light';
-    return (window.localStorage.getItem(THEME_KEY) as 'light' | 'dark') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  });
   const [toast, setToast] = useState('');
   const counts = useMemo(() => caseCounts(view), [view]);
-  const visibleCases = useMemo(() => section === 'needsMe' ? view.cases.filter(item => caseState(item) !== 'completed') : casesForSection(view.cases, section), [section, view.cases]);
-  const selectedCase = view.cases.find(item => item.id === selectedCaseId) || visibleCases[0] || null;
+  const projectedCases = view.caseQueue;
+  const visibleCases = useMemo(() => casesForSection(projectedCases, section, view.assets), [section, projectedCases, view.assets]);
+  const selectedCase = projectedCases.find(item => item.id === selectedCaseId) || visibleCases[0] || null;
 
-  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem(THEME_KEY, theme); }, [theme]);
+  useEffect(() => { document.documentElement.dataset.theme = 'light'; localStorage.removeItem('sinaloa.theme'); }, []);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setSearchOpen(true); } };
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
@@ -367,7 +375,8 @@ function AppShell(props: ShellProps) {
         <div className="nav-brand"><div className="brand-lockup"><BrandMark /><span>Sinaloa</span></div><button className="icon-button mobile-only" aria-label="Close navigation" onClick={() => setNavOpen(false)}><X size={18} /></button></div>
         <WorkspacePicker workspaces={workspaces} workspace={workspace} onChange={onSelectWorkspace} />
         <nav className="nav-list">
-          <NavItem section="needsMe" label="Inbox" icon={<Inbox />} count={view.cases.filter(item => caseState(item) !== 'completed').length} active={section === 'needsMe'} onClick={chooseSection} attention />
+          <NavItem section="inbox" label="Inbox" icon={<Inbox />} count={counts.inbox} active={section === 'inbox'} onClick={chooseSection} />
+          <NavItem section="needsMe" label="Needs me" icon={<UserRound />} count={counts.needsMe} active={section === 'needsMe'} onClick={chooseSection} attention />
           <NavItem section="active" label="In motion" icon={<Zap />} count={counts.active} active={section === 'active'} onClick={chooseSection} />
           <NavItem section="waiting" label="Waiting" icon={<Clock3 />} count={counts.waiting} active={section === 'waiting'} onClick={chooseSection} />
           <NavItem section="scheduled" label="Calendar" icon={<CalendarDays />} count={counts.scheduled} active={section === 'scheduled'} onClick={chooseSection} />
@@ -388,7 +397,7 @@ function AppShell(props: ShellProps) {
         <header className="topbar">
           <button className="icon-button mobile-only" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={19} /></button>
           <button className="search-trigger" onClick={() => setSearchOpen(true)}><Search size={16} /><span>Search conversations, people, and tags…</span><kbd>⌘K</kbd></button>
-          <div className="topbar-actions"><button className="icon-button" aria-label="Refresh workspace" onClick={() => void onRefresh()}><RefreshCw size={17} /></button><button className="icon-button" aria-label={`Use ${theme === 'light' ? 'dark' : 'light'} mode`} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}</button></div>
+          <div className="topbar-actions"><button className="icon-button" aria-label="Refresh workspace" onClick={() => void onRefresh()}><RefreshCw size={17} /></button></div>
         </header>
 
         {utilitySection ? (
@@ -447,25 +456,25 @@ function CaseQueue({ section, cases, view, selectedId, onSelect }: { section: Na
 }
 
 function CaseRow({ workCase, view, selected, onSelect }: { workCase: WorkCase; view: HumanView; selected: boolean; onSelect: (workCase: WorkCase) => void }) {
-  const state = caseState(workCase); const meta = STATE_META[state]; const updated = workCase.updatedAt || workCase.createdAt;
+  const state = caseState(workCase); const tone = caseTone(workCase); const label = caseLabel(workCase); const updated = workCase.updatedAt || workCase.createdAt;
   const events = timelineForCase(workCase, view.messages);
   const counterpartId = participantIds(workCase, events).find(id => id !== workCase.actingAgent && id !== workCase.principal);
   const counterparty = resolveParticipant(workCase, counterpartId, view.agents, view.participantDirectory);
   const tags = conversationTags(workCase);
   return (
-    <button role="option" aria-selected={selected} className={`case-row tone-${meta.tone} ${selected ? 'selected' : ''}`} onClick={() => onSelect(workCase)}>
+    <button role="option" aria-selected={selected} className={`case-row tone-${tone} ${selected ? 'selected' : ''}`} onClick={() => onSelect(workCase)}>
       <span className="case-kind"><CaseIcon workCase={workCase} /></span>
-      <span className="case-row-copy"><span className="thread-sender">{counterparty.displayName}<span className="case-state-line"><StatusGlyph state={state} />{meta.label}</span></span><strong>{workCase.objective || 'Untitled conversation'}</strong><small>{conversationPreview(workCase)}</small><span className="thread-tags">{tags.map(tag => <span key={tag} className={`thread-tag tag-${tag.toLowerCase().replaceAll(' ', '-')}`}>{tag}</span>)}</span></span>
+      <span className="case-row-copy"><span className="thread-sender">{counterparty.displayName}<span className="case-state-line"><StatusGlyph state={state} />{label}</span></span><strong>{workCase.objective || 'Untitled conversation'}</strong><small>{conversationPreview(workCase)}</small><span className="thread-tags">{tags.map(tag => <span key={tag} className={`thread-tag tag-${tag.toLowerCase().replaceAll(' ', '-')}`}>{tag}</span>)}</span></span>
       <time dateTime={updated}>{formatRelative(updated)}</time>
-      {state === 'waitingForHuman' && <span className="attention-line" aria-label="Needs your attention" />}
+      {workCase.needsAttention && <span className="attention-line" aria-label="Needs your attention" />}
     </button>
   );
 }
 
 function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefresh, notify }: { workCase: WorkCase; view: HumanView; railOpen: boolean; onRailToggle: () => void; onBack: () => void; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
-  const state = caseState(workCase); const meta = STATE_META[state];
+  const state = caseState(workCase);
   const events = timelineForCase(workCase, view.messages);
-  const policy = decisionPolicy(workCase);
+  const policy = workCase.policyEvaluations?.find(item => item.id === workCase.decision?.policyEvaluationId) || decisionPolicy(workCase);
   const [drawer, setDrawer] = useState<{ type: 'policy' | 'evidence'; item?: PolicyEvaluation | EvidenceItem } | null>(null);
   const [confirm, setConfirm] = useState<HumanActionKey | null>(null);
   const [busy, setBusy] = useState<HumanActionKey | null>(null);
@@ -485,12 +494,12 @@ function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefre
         <header className="case-header">
           <div className="case-header-tools"><button className="icon-button mobile-only" aria-label="Back to inbox" onClick={onBack}><ArrowLeft size={18} /></button><span className="object-id">Conversation · {workCase.id}</span><button className="icon-button desktop-only" aria-label={railOpen ? 'Hide conversation details' : 'Show conversation details'} onClick={onRailToggle}>{railOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}</button></div>
           <div className="case-heading"><div className="case-title-icon"><CaseIcon workCase={workCase} /></div><div><p className="eyebrow">{caseType(workCase)}</p><h1>{workCase.objective || 'Untitled conversation'}</h1><div className="conversation-tags">{conversationTags(workCase).map(tag => <span key={tag} className={`thread-tag tag-${tag.toLowerCase().replaceAll(' ', '-')}`}>{tag}</span>)}</div></div></div>
-          <StatusBadge state={state} />
+          <StatusBadge workCase={workCase} />
         </header>
 
         <NegotiationParticipants workCase={workCase} view={view} events={events} />
 
-        {state === 'waitingForHuman' && canAct && (
+        {workCase.decision && canAct && (
           <DecisionCard workCase={workCase} view={view} events={events} policy={policy} busy={busy} onAction={key => ['decline', 'takeOver'].includes(key) ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />
         )}
         {state === 'unknownExternalResult' && <InlineNotice title="External result is unconfirmed" body="The external system did not return a success or failure response. Retry only with the original idempotency key." tone="unknown" />}
@@ -504,7 +513,7 @@ function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefre
           {events.length ? <ol className="timeline">{events.map((event, index) => <TimelineEvent key={event.id} event={event} last={index === events.length - 1} view={view} workCase={workCase} onPolicy={item => setDrawer({ type: 'policy', item })} />)}</ol> : <div className="empty-panel"><Activity size={22} /><strong>The conversation is just getting started</strong><span>Messages, offers, shared context, and completed actions will appear here.</span></div>}
         </section>
 
-        {canAct && state !== 'waitingForHuman' && <div className="case-footer-actions"><button className="button tertiary" onClick={() => setConfirm('takeOver')}><UserRound size={16} />Take over</button><button className="button tertiary" onClick={() => setConfirm('pause')}><Pause size={16} />Pause conversation</button></div>}
+        {canAct && !workCase.decision && <div className="case-footer-actions"><button className="button tertiary" onClick={() => setConfirm('takeOver')}><UserRound size={16} />Take over</button><button className="button tertiary" onClick={() => setConfirm('pause')}><Pause size={16} />Pause conversation</button></div>}
       </article>
 
       {railOpen && <ContextRail workCase={workCase} view={view} onPolicy={item => setDrawer({ type: 'policy', item })} onEvidence={item => setDrawer({ type: 'evidence', item })} />}
@@ -548,6 +557,7 @@ function DecisionCard({ workCase, view, events, policy, busy, onAction, onPolicy
   const option = proposal?.options.find(item => !item.expired);
   const parties = proposal ? proposalParties(workCase, proposal.id, events, view) : null;
   const optionParty = proposal?.status === 'countered' ? parties?.counterparty : parties?.originator;
+  const availableActions = workCase.decision?.availableActions || [];
   return (
     <section className="decision-card" aria-labelledby="decision-title">
       <div className="decision-accent"><Sparkles size={18} /></div>
@@ -555,7 +565,7 @@ function DecisionCard({ workCase, view, events, policy, busy, onAction, onPolicy
         {option && <ProposalOptionView option={option} expiresAt={proposal?.expiresAt || null} stageLabel={proposal?.status === 'countered' ? 'Counteroffer' : 'Offer'} partyLabel={optionParty?.displayName} />}
         <button className="authority-link" onClick={onPolicy} disabled={!policy}><AuthoritySeal decision={policy?.decision || 'needsHuman'} /> <span>Authorized by: {policy?.matchedPolicyId ? humanize(policy.matchedPolicyId) : 'Human approval required'}</span></button>
       </div>
-      <div className="decision-actions"><button className="button primary" disabled={Boolean(busy)} onClick={() => onAction('approveOnce')}>{busy === 'approveOnce' ? 'Approving…' : 'Approve once'}</button><button className="button secondary" disabled={Boolean(busy)} onClick={() => onAction('editProposal')}>Edit proposal</button><button className="button quiet" disabled={Boolean(busy)} onClick={() => onAction('decline')}>Decline</button><button className="button quiet" disabled={Boolean(busy)} onClick={() => onAction('takeOver')}>Take over</button></div>
+      <div className="decision-actions">{availableActions.map((action, index) => <button key={action} className={`button ${index === 0 ? 'primary' : index === 1 ? 'secondary' : 'quiet'}`} disabled={Boolean(busy)} onClick={() => onAction(action)}>{busy === action ? 'Recording…' : action === 'pause' ? 'Pause conversation' : humanize(action)}</button>)}</div>
     </section>
   );
 }
@@ -628,7 +638,7 @@ function ExchangeLedgerEvent({ event, view, workCase }: { event: CaseEvent; view
         <ExchangeParty participant={exchange.recipient} role="To" />
       </div>
       <p>{eventSummary(event)}</p>
-      {event.payload.deliveryState && <span className="delivery-state"><CheckCircle2 size={13} />{humanize(event.payload.deliveryState)}</span>}
+      {event.payload.deliveryState && <span className="delivery-state">{event.payload.deliveryState === 'deadLettered' ? <AlertCircle size={13} /> : ['queued', 'retrying'].includes(event.payload.deliveryState) ? <Clock3 size={13} /> : <CheckCircle2 size={13} />}{humanize(event.payload.deliveryState)}</span>}
     </article>
   );
 }
@@ -659,13 +669,20 @@ function participantRole(participant: ReturnType<typeof resolveParticipant>) {
 
 function ContextRail({ workCase, view, onPolicy, onEvidence }: { workCase: WorkCase; view: HumanView; onPolicy: (item: PolicyEvaluation) => void; onEvidence: (item: EvidenceItem) => void }) {
   const participants = participantIds(workCase, timelineForCase(workCase, view.messages));
+  const assets = view.assets.filter(item => item.caseId === workCase.id);
+  const deliveries = view.deliveryReceipts.filter(item => timelineForCase(workCase, view.messages).some(event => event.payload.messageId === item.messageId));
   return (
     <aside className="context-rail" aria-label="Conversation details">
       <RailSection title="Authority" icon={<ShieldCheck size={16} />}>
         {workCase.policyEvaluations?.length ? workCase.policyEvaluations.map(item => <button key={item.id} className="rail-row interactive" onClick={() => onPolicy(item)}><AuthoritySeal decision={item.decision} /><span><strong>{humanize(item.requestedAction)}</strong><small>{humanize(item.grantType)} · {humanize(item.decision)}</small></span><ChevronDown size={14} /></button>) : <RailEmpty>No special permission has been requested.</RailEmpty>}
       </RailSection>
       <RailSection title="Evidence" icon={<FileCheck2 size={16} />}>
-        {workCase.evidence?.length ? workCase.evidence.map(item => <button key={item.id} className="rail-row interactive" onClick={() => onEvidence(item)}><FileText size={17} /><span><strong>{item.title}</strong><small>{provenanceLabel(item.provenance)}</small></span></button>) : <RailEmpty>No evidence has been attached.</RailEmpty>}
+        {workCase.evidence?.map(item => <button key={item.id} className="rail-row interactive" onClick={() => onEvidence(item)}><FileText size={17} /><span><strong>{item.title}</strong><small>{provenanceLabel(item.provenance)}</small></span></button>)}
+        {assets.map(item => <div key={item.id} className="rail-row"><FileText size={17} /><span><strong>{item.name}</strong><small>{item.mimeType} · {Math.max(1, Math.ceil(item.size / 1024))} KB</small></span></div>)}
+        {!workCase.evidence?.length && !assets.length && <RailEmpty>No evidence has been attached.</RailEmpty>}
+      </RailSection>
+      <RailSection title="Delivery receipts" icon={<ReceiptText size={16} />}>
+        {deliveries.length ? deliveries.map(item => <div key={item.id} className="rail-row"><CheckCircle2 size={17} /><span><strong>{humanize(item.state)}</strong><small>{item.messageId} · {formatAbsolute(item.createdAt)}</small></span></div>) : <RailEmpty>No delivery receipt has been recorded.</RailEmpty>}
       </RailSection>
       <RailSection title="Participants" icon={<UsersRound size={16} />}>
         {participants.length ? participants.map(id => { const participant = resolveParticipant(workCase, id, view.agents, view.participantDirectory); const isAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent'; return <div key={id} className="rail-row"><span className={`identity-mark ${isAgent ? 'agent' : 'human'}`}>{isAgent ? <Bot size={14} /> : <UserRound size={14} />}</span><span><strong>{participant.displayName}</strong><small>{participantRole(participant)}</small></span></div>; }) : <RailEmpty>No additional participants are recorded.</RailEmpty>}
@@ -683,12 +700,12 @@ function RailEmpty({ children }: { children: ReactNode }) { return <p className=
 function ReceiptCard({ workCase }: { workCase: WorkCase }) {
   const receipt = workCase.receipt!;
   return (
-    <section className="receipt-card"><div className="receipt-mark"><ReceiptText size={24} /></div><div className="receipt-content"><p className="eyebrow">Outcome receipt</p><h2>{receipt.result}</h2><div className="receipt-grid"><div><span>Completed</span><strong>{formatAbsolute(receipt.createdAt || workCase.updatedAt || workCase.createdAt)}</strong></div><div><span>Human approval</span><strong>{humanize(receipt.humanApprovalStatus)}</strong></div>{Object.entries(receipt.externalIds || {}).map(([key, value]) => <div key={key}><span>{humanize(key)}</span><code>{String(value)}</code></div>)}</div></div><button className="button secondary" onClick={() => window.print()}>Print receipt</button></section>
+    <section className="receipt-card"><div className="receipt-mark"><ReceiptText size={24} /></div><div className="receipt-content"><p className="eyebrow">Outcome receipt</p><h2>{receipt.result}</h2><div className="receipt-grid"><div><span>Completed</span><strong>{formatAbsolute(receipt.createdAt || workCase.updatedAt || workCase.createdAt)}</strong></div><div><span>Human approval</span><strong>{humanize(receipt.humanApprovalStatus)}</strong></div><div><span>Authority basis</span><strong>{humanize(receipt.authorityBasis)}</strong></div>{receipt.counterparties?.length ? <div><span>Counterparties</span><strong>{receipt.counterparties.join(', ')}</strong></div> : null}{receipt.evidenceRefs?.length ? <div><span>Evidence</span><strong>{receipt.evidenceRefs.join(', ')}</strong></div> : null}{Object.entries(receipt.externalIds || {}).map(([key, value]) => <div key={key}><span>{humanize(key)}</span><code>{String(value)}</code></div>)}</div></div><button className="button secondary" onClick={() => window.print()}>Print receipt</button></section>
   );
 }
 
 function PoliciesPage({ view }: { view: HumanView }) {
-  const policies = view.cases.flatMap(item => item.policyEvaluations || []).sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt));
+  const policies = view.caseQueue.flatMap(item => item.policyEvaluations || []).sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt));
   return <PageFrame eyebrow="Authority" title="Policies" description="The rules that let agents prepare, propose, or commit actions on your behalf."><div className="policy-summary"><Metric value={policies.filter(item => item.decision === 'allow').length} label="Allowed evaluations" /><Metric value={policies.filter(item => item.decision === 'needsHuman').length} label="Asked for judgment" /><Metric value={policies.filter(item => item.decision === 'deny').length} label="Denied" /></div>{policies.length ? <div className="data-list">{policies.map(item => <article key={item.id} className="data-row"><AuthoritySeal decision={item.decision} /><div><strong>{humanize(item.requestedAction)}</strong><span>{humanize(item.matchedPolicyId || 'No matching grant')} · {humanize(item.grantType)}</span></div><StatusText value={item.decision} /><time>{formatAbsolute(item.effectiveAt)}</time></article>)}</div> : <PageEmpty icon={<ShieldCheck />} title="No policy evaluations yet" body="Authority checks will appear here as agents attempt consequential actions." />}</PageFrame>;
 }
 
@@ -737,7 +754,7 @@ function Modal({ title, children, onClose, dismissible = true }: { title: string
 function CommandMenu({ view, onClose, onSelectCase }: { view: HumanView; onClose: () => void; onSelectCase: (item: WorkCase) => void }) {
   const [query, setQuery] = useState('');
   const searchInput = useRef<HTMLInputElement>(null);
-  const results = view.cases.filter(item => `${item.objective} ${item.id}`.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
+  const results = view.caseQueue.filter(item => `${item.objective} ${item.id}`.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
   useEffect(() => { searchInput.current?.focus({ preventScroll: true }); const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [onClose]);
   return <div className="command-layer"><button className="modal-scrim" aria-label="Close search" onClick={onClose} /><div className="command-menu" role="dialog" aria-modal="true" aria-label="Search your agent workspace"><label><Search size={18} /><span className="sr-only">Search conversations, actions, participants, policies, and receipts</span><input ref={searchInput} value={query} onChange={event => setQuery(event.target.value)} placeholder="Search conversations, people, and outcomes…" /><kbd>Esc</kbd></label><div className="command-results"><p className="eyebrow">Conversations</p>{results.map(item => <button key={item.id} onClick={() => onSelectCase(item)}><CaseIcon workCase={item} /><span><strong>{item.objective || item.id}</strong><small>{stateLabel(caseState(item))} · {conversationTags(item).join(' · ')}</small></span></button>)}{!results.length && <p className="command-empty">No results for “{query}”.</p>}</div></div></div>;
 }
@@ -747,42 +764,43 @@ function Field(props: InputHTMLAttributes<HTMLInputElement> & { label: string; n
 function FormError({ message }: { message: string }) { return message ? <p className="form-error" role="alert"><AlertCircle size={15} />{message}</p> : null; }
 function CopyButton({ value, label }: { value: string; label: string }) { const [copied, setCopied] = useState(false); return <button type="button" className="icon-button" aria-label={label} onClick={async () => { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>; }
 function InlineNotice({ title, body, tone }: { title: string; body: string; tone: 'unknown' | 'danger' | 'attention' }) { return <div className={`inline-notice tone-${tone}`} role="status"><AlertCircle size={18} /><div><strong>{title}</strong><p>{body}</p></div></div>; }
-function StatusBadge({ state }: { state: CaseState }) { const meta = STATE_META[state]; return <span className={`status-badge tone-${meta.tone}`}><StatusGlyph state={state} />{meta.label}</span>; }
+function StatusBadge({ workCase }: { workCase: WorkCase }) { const state = caseState(workCase); return <span className={`status-badge tone-${caseTone(workCase)}`}><StatusGlyph state={state} />{caseLabel(workCase)}</span>; }
 function StatusText({ value }: { value: string }) { return <span className={`status-text value-${value.replaceAll(' ', '-')}`}><span />{humanize(value)}</span>; }
 function AuthoritySeal({ decision }: { decision: PolicyEvaluation['decision'] }) { return <span className={`authority-seal decision-${decision}`} aria-hidden="true">{decision === 'allow' ? <Check size={11} /> : decision === 'deny' ? <X size={11} /> : <UserRound size={11} />}</span>; }
 
 function EventIcon({ type }: { type: CaseEvent['type'] }) { const icons = { message: <Inbox />, decision: <Sparkles />, policyEvaluation: <ShieldCheck />, toolAction: <Zap />, humanAction: <UserRound />, stateChange: <RefreshCw />, error: <AlertCircle />, receipt: <ReceiptText /> }; return icons[type]; }
-function CaseIcon({ workCase }: { workCase: WorkCase }) { const kind = workCase.proposals?.[0]?.kind; if (kind === 'schedule') return <CalendarDays />; if (kind === 'form' || kind === 'document') return <FileText />; if (workCase.receipt) return <ReceiptText />; return <Command />; }
+function CaseIcon({ workCase }: { workCase: WorkCase }) { if (workCase.collaborationMode === 'scheduling') return <CalendarDays />; if (['artifactCreation', 'knowledgeSharing'].includes(workCase.collaborationMode || '')) return <FileText />; if (workCase.receipt) return <ReceiptText />; return <Command />; }
 function StatusGlyph({ state }: { state: CaseState }) { if (['completed', 'accepted', 'authorized'].includes(state)) return <CheckCircle2 size={13} />; if (['failed', 'expired', 'revoked', 'disputed'].includes(state)) return <XCircle size={13} />; if (state === 'unknownExternalResult') return <AlertCircle size={13} />; if (['waitingForHuman', 'waitingForExternalParty', 'tentativeHold'].includes(state)) return <Clock3 size={13} />; return <Play size={13} />; }
 function BrandMark() { return <span className="brand-mark" aria-hidden="true"><span /><span /></span>; }
 
-function sectionTitle(section: NavSection) { return ({ needsMe: 'Inbox', active: 'In motion', waiting: 'Waiting', scheduled: 'Calendar', documents: 'Shared files', completed: 'Done', policies: 'Permissions', integrations: 'Agent connections', activity: 'Activity log' } as Record<NavSection, string>)[section]; }
-function emptyTitle(section: NavSection) { return section === 'needsMe' ? 'Your agents have it handled' : `No conversations in ${sectionTitle(section).toLowerCase()}`; }
-function emptyBody(section: NavSection) { return section === 'needsMe' ? 'New conversations will land here when your context or permission is genuinely needed.' : 'Conversations will appear here when they reach this stage.'; }
-function caseType(workCase: WorkCase) { const kind = workCase.proposals?.[0]?.kind; return kind ? `${humanize(kind)} conversation` : 'Agent conversation'; }
-function decisionQuestion(workCase: WorkCase, option?: ProposalOption) { if (option?.outOfPolicyFlags?.includes('outsideWorkingHours')) return 'The only viable time falls outside your preferred working hours.'; const policy = decisionPolicy(workCase); return policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.'; }
+function sectionTitle(section: NavSection) { return ({ inbox: 'Inbox', needsMe: 'Needs me', active: 'In motion', waiting: 'Waiting', scheduled: 'Calendar', documents: 'Shared files', completed: 'Done', policies: 'Permissions', integrations: 'Agent connections', activity: 'Activity log' } as Record<NavSection, string>)[section]; }
+function emptyTitle(section: NavSection) { return section === 'inbox' ? 'Your agent inbox is empty' : section === 'needsMe' ? 'Your agents have it handled' : `No conversations in ${sectionTitle(section).toLowerCase()}`; }
+function emptyBody(section: NavSection) { return section === 'inbox' ? 'Agent-to-agent conversations will appear here as soon as they begin.' : section === 'needsMe' ? 'Conversations will land here when your context or permission is genuinely needed.' : 'Conversations will appear here when they reach this stage.'; }
+function caseType(workCase: WorkCase) { return `${humanize(workCase.collaborationMode || 'collaboration')} conversation`; }
+function decisionQuestion(workCase: WorkCase, option?: ProposalOption) { if (workCase.decision?.question) return workCase.decision.question; if (option?.outOfPolicyFlags?.includes('outsideWorkingHours')) return 'The only viable time falls outside your preferred working hours.'; const policy = decisionPolicy(workCase); return policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.'; }
 function actionPastTense(action: HumanActionKey) { return ({ approveOnce: 'Approved once. The agent can continue.', decline: 'Declined. The conversation has been updated.', editProposal: 'Proposal edits requested.', pause: 'Conversation paused.', revoke: 'Authority revoked.', takeOver: 'You took over this conversation.' })[action]; }
 function confirmTitle(action: HumanActionKey) { return ({ decline: 'Decline this proposal?', revoke: 'Revoke authority?', takeOver: 'Take over this conversation?', pause: 'Pause this conversation?', approveOnce: 'Approve once?', editProposal: 'Request edits?' })[action]; }
 function confirmBody(action: HumanActionKey) { return ({ decline: 'The current proposal will no longer be actionable. The decision remains in the audit record.', revoke: 'The agent will no longer be able to act under this authority.', takeOver: 'Agent work will pause while you handle this conversation directly.', pause: 'The agents will stop advancing this conversation until new authority is provided.', approveOnce: 'This grants one-time authority for the current action.', editProposal: 'The agent will be asked to prepare a revised option.' })[action]; }
 function conversationTags(workCase: WorkCase) {
   const state = caseState(workCase);
-  const kind = workCase.proposals?.[0]?.kind;
+  const mode = workCase.collaborationMode;
   const tags = [
     state === 'waitingForHuman' ? 'Needs approval' : null,
     state === 'waitingForExternalParty' ? 'Waiting on agent' : null,
-    kind === 'schedule' ? 'Scheduling' : null,
-    kind === 'negotiation' ? 'Negotiation' : null,
-    kind === 'form' || kind === 'document' ? 'Shared file' : null,
-    kind === 'cancellation' ? 'Cancellation' : null,
+    mode === 'scheduling' ? 'Scheduling' : null,
+    mode === 'negotiation' ? 'Negotiation' : null,
+    mode === 'artifactCreation' ? 'Artifact creation' : null,
+    mode === 'knowledgeSharing' ? 'Knowledge sharing' : null,
     workCase.receipt ? 'Completed' : null
   ].filter((value): value is string => Boolean(value));
   return [...new Set(tags.length ? tags : ['Agent task'])].slice(0, 3);
 }
 function conversationPreview(workCase: WorkCase) {
+  const projectedEvent = workCase.timeline?.at(-1);
+  if (projectedEvent) return projectedEvent.summary;
   const event = [...(workCase.events || [])].reverse().find(item => item.payload.text || item.payload.message);
   if (event) return String(event.payload.text || event.payload.message);
-  if (workCase.deadline) return `Working toward ${formatDate(workCase.deadline)}`;
-  return STATE_META[caseState(workCase)].description;
+  return workCase.contextualDetail || (workCase.deadline ? `Working toward ${formatDate(workCase.deadline)}` : STATE_META[caseState(workCase)].description);
 }
 function provenanceLabel(value: string) { return ({ fromVerifiedProfile: 'From verified profile', enteredForCase: 'Added for this conversation', extractedFromDocument: 'Extracted from attached document' } as Record<string, string>)[value] || humanize(value); }
 function formatAbsolute(value: string) { return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(value)); }

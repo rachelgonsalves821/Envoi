@@ -4,7 +4,7 @@ import { createCase, addPolicyEvaluation, addProposal, transitionCase } from '..
 import { projectCaseForHuman, projectWorkspaceForHuman } from '../src/human-projection.js';
 
 test('human projection translates authoritative agent state without inventing parallel state', () => {
-  let value = createCase({ id: 'case_1', objective: 'Schedule Q4 planning with Acme', principal: 'human_rachel', actingAgent: 'agent_scheduler', participants: ['external_morgan'], deadline: '2026-10-03T03:59:00.000Z', createdAt: '2026-10-01T13:00:00.000Z' });
+  let value = createCase({ id: 'case_1', objective: 'Schedule Q4 planning with Acme', collaborationMode: 'scheduling', principal: 'human_rachel', actingAgent: 'agent_scheduler', participants: ['external_morgan'], deadline: '2026-10-03T03:59:00.000Z', createdAt: '2026-10-01T13:00:00.000Z' });
   value = transitionCase(value, 'inProgress', { actor: 'agent_scheduler', at: '2026-10-01T13:01:00.000Z' });
   value = addProposal(value, { id: 'proposal_1', kind: 'schedule', options: [{ id: 'option_1', value: { start: '2026-10-01T20:30:00.000Z', timezone: 'America/Toronto' }, sourceConfidence: 'fromVerifiedProfile', expired: false, outOfPolicyFlags: ['outsideWorkingHours'] }], status: 'open', acceptedOptionId: null, expiresAt: '2026-10-01T21:00:00.000Z', createdAt: '2026-10-01T13:02:00.000Z', updatedAt: '2026-10-01T13:02:00.000Z' });
   value = transitionCase(value, 'tentativeHold', { actor: 'agent_scheduler', at: '2026-10-01T13:03:00.000Z' });
@@ -13,6 +13,9 @@ test('human projection translates authoritative agent state without inventing pa
 
   const projected = projectCaseForHuman(value);
   assert.equal(projected.state, value.state);
+  assert.equal(projected.collaborationMode, 'scheduling');
+  assert.equal(projected.actingAgent, value.actingAgent);
+  assert.deepEqual(projected.events, value.events);
   assert.equal(projected.stateLabel, 'Waiting for you');
   assert.equal(projected.bucket, 'needsMe');
   assert.equal(projected.needsAttention, true);
@@ -23,4 +26,14 @@ test('human projection translates authoritative agent state without inventing pa
   const workspace = projectWorkspaceForHuman([value]);
   assert.equal(workspace.counts.needsMe, 1);
   assert.equal(workspace.counts.activeWork, 0);
+});
+
+test('human projection is the canonical source for edge-state buckets', () => {
+  const at = '2026-10-01T13:00:00.000Z';
+  const states = { tentativeHold: 'needsMe', paused: 'needsMe', sent: 'waiting', received: 'waiting', expired: 'completed', revoked: 'completed' };
+  for (const [state, bucket] of Object.entries(states)) {
+    const value = createCase({ id: `case_${state}`, objective: `Test ${state}`, principal: 'human_rachel', actingAgent: 'agent_ops', createdAt: at });
+    value.state = state;
+    assert.equal(projectCaseForHuman(value).bucket, bucket);
+  }
 });

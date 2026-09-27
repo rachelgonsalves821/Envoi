@@ -56,7 +56,7 @@
   --status-tentative-fg: var(--color-ochre);
   --status-tentative-bg: var(--color-ochre-soft);
   --overlay-scrim: rgba(23, 25, 24, 0.36);
-  --font-sans: "Instrument Sans", "Geist", -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Commissioner Variable", "Commissioner", -apple-system, "Segoe UI", sans-serif;
   --font-serif: "Newsreader", ui-serif, Georgia, serif;
   --font-mono: "Geist Mono", "IBM Plex Mono", ui-monospace, monospace;
   --text-h1-size: 2.75rem;

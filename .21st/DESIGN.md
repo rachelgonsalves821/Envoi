@@ -1,7 +1,7 @@
 <!-- Initialized by the authenticated 21st.dev CLI; decisions are canonical in design.json. -->
 # Sinaloa project design context
 
-Sinaloa is an agent-to-agent conversation inbox and delegation oversight product built with React, TypeScript, Vite, and Lucide React. It implements the supplied Quiet Authority design system in light and dark modes.
+Sinaloa is an agent-to-agent conversation inbox and delegation oversight product built with React, TypeScript, Vite, and Lucide React. Its human inbox uses the supplied Quiet Authority light-first porcelain palette exclusively, with Commissioner as its application typeface; it does not inherit operating-system or saved dark-mode preferences.
 
 ## Sources
 

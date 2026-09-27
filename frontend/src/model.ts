@@ -1,4 +1,4 @@
-import type { Agent, AuditEvent, CaseEvent, CaseState, HumanView, Message, NavSection, ParticipantIdentity, PolicyEvaluation, WorkCase } from './types';
+import type { Agent, Asset, AuditEvent, CaseEvent, CaseState, HumanView, Message, NavSection, ParticipantIdentity, PolicyEvaluation, WorkCase } from './types';
 
 export interface ResolvedParticipant extends ParticipantIdentity {
   relationship: 'localAgent' | 'counterpartyAgent' | 'principal' | 'participant' | 'unknown';
@@ -17,17 +17,19 @@ export function caseState(workCase: WorkCase): CaseState {
 }
 
 export function sectionForCase(workCase: WorkCase): NavSection {
+  if (workCase.bucket) return ({ needsMe: 'needsMe', activeWork: 'active', waiting: 'waiting', completed: 'completed' } as const)[workCase.bucket];
   const state = caseState(workCase);
-  if (['waitingForHuman', 'failed', 'unknownExternalResult', 'disputed'].includes(state)) return 'needsMe';
-  if (state === 'waitingForExternalParty' || state === 'tentativeHold') return 'waiting';
-  if (state === 'completed') return 'completed';
-  if (workCase.proposals?.some(proposal => proposal.kind === 'schedule')) return 'scheduled';
-  if (workCase.proposals?.some(proposal => ['form', 'document'].includes(proposal.kind))) return 'documents';
+  if (['waitingForHuman', 'tentativeHold', 'failed', 'unknownExternalResult', 'paused', 'disputed'].includes(state)) return 'needsMe';
+  if (['waitingForExternalParty', 'sent', 'received'].includes(state)) return 'waiting';
+  if (['completed', 'expired', 'revoked'].includes(state)) return 'completed';
   return 'active';
 }
 
-export function casesForSection(cases: WorkCase[], section: NavSection) {
+export function casesForSection(cases: WorkCase[], section: NavSection, assets: Asset[] = []) {
   if (['policies', 'integrations', 'activity'].includes(section)) return [];
+  if (section === 'inbox') return cases;
+  if (section === 'scheduled') return cases.filter(workCase => workCase.collaborationMode === 'scheduling');
+  if (section === 'documents') return cases.filter(workCase => ['artifactCreation', 'knowledgeSharing'].includes(workCase.collaborationMode || '') || workCase.evidence?.length || assets.some(asset => asset.caseId === workCase.id));
   return cases.filter(workCase => sectionForCase(workCase) === section);
 }
 
@@ -40,11 +42,15 @@ export function messagesForCase(messages: Message[], caseId: string) {
 }
 
 export function timelineForCase(workCase: WorkCase, messages: Message[]): CaseEvent[] {
+  if (workCase.timeline) return workCase.timeline.map(event => ({ id: event.id, type: event.type, actor: event.actorId, createdAt: event.createdAt, payload: event.payload, linkedPolicyEvaluation: event.policyEvaluationId, precedingEventRef: null, summary: event.summary }));
   const structured = workCase.events || [];
+  if (structured.length) return structured.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const messageEvents: CaseEvent[] = messagesForCase(messages, workCase.id).map(message => ({ id: message.id, type: 'message', actor: message.senderAgentId || message.senderHumanId || 'external', createdAt: message.createdAt, payload: { text: message.text, messageType: message.type, deliveryState: message.status, senderAgentId: message.senderAgentId, senderHumanId: message.senderHumanId, recipientAgentId: message.recipientAgentId }, linkedPolicyEvaluation: null, precedingEventRef: null }));
-  const ids = new Set(structured.map(event => event.id));
-  return [...structured, ...messageEvents.filter(event => !ids.has(event.id))].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return messageEvents;
 }
+
+export function caseLabel(workCase: WorkCase) { return workCase.stateLabel || STATE_META[caseState(workCase)].label; }
+export function caseTone(workCase: WorkCase) { return workCase.stateTone || STATE_META[caseState(workCase)].tone; }
 
 export function participantIds(workCase: WorkCase, events: CaseEvent[] = []): string[] {
   const eventParticipants = events.flatMap(event => [event.payload.senderAgentId, event.payload.senderHumanId, event.payload.recipientAgentId, isExchangeEvent(event) ? event.actor : undefined]);
@@ -95,6 +101,7 @@ export function isExchangeEvent(event: CaseEvent) {
 }
 
 export function eventSummary(event: CaseEvent): string {
+  if (event.summary) return event.summary;
   const action = event.payload.action;
   if (action?.actionKey) {
     const labels: Record<string, string> = { approveOnce: 'Approved once', decline: 'Declined', editProposal: 'Requested proposal edits', pause: 'Paused conversation', revoke: 'Revoked authority', takeOver: 'Took over this conversation', acceptProposal: 'Attempted to accept the proposal' };
@@ -123,5 +130,9 @@ export function humanize(value: unknown) {
 }
 
 export function caseCounts(view: HumanView) {
-  return view.cases.reduce<Record<NavSection, number>>((counts, item) => { counts[sectionForCase(item)] += 1; return counts; }, { needsMe: 0, active: 0, waiting: 0, scheduled: 0, documents: 0, completed: 0, policies: 0, integrations: view.agents.length, activity: view.recentEvents.length });
+  const cases = view.caseQueue;
+  const counts: Record<NavSection, number> = { inbox: cases.length, needsMe: view.navigation.needsMe, active: view.navigation.activeWork, waiting: view.navigation.waiting, scheduled: 0, documents: 0, completed: view.navigation.completed, policies: 0, integrations: view.agents.length, activity: view.recentEvents.length };
+  counts.scheduled = casesForSection(cases, 'scheduled').length;
+  counts.documents = casesForSection(cases, 'documents', view.assets).length;
+  return counts;
 }
