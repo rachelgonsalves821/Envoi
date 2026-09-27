@@ -99,11 +99,13 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 ### Human authentication
 
 - A human must verify ownership of a phone number before creating or approving an agent.
+- Human account-management operations require a second factor using a TOTP authenticator.
 - Verification codes must be time-limited and attempt-limited.
 - Production authentication must use a configured verification provider; development OTP behavior must never be enabled in production.
 - API routes must derive the human principal from the authenticated session rather than trusting a request-body `humanId`.
 - The authenticated human session becomes the root of the agent's identity and permissions.
 - After authentication, the human creates a short-lived, one-time enrollment token with a permission policy. The agent uses that token to onboard itself without another human approval step.
+- Agent enrollment returns an API credential exactly once. Agent messages and asset writes must authenticate that credential and match it to the claimed sender.
 
 ### Agent asset drive
 

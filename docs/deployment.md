@@ -15,6 +15,7 @@ The current backend is deployable as a single external service. It uses the loca
 - `SINALOA_AGENT_DOMAIN`: domain used for agent identities; defaults to `sinaloa.mail`. Configure DNS and email transport before treating addresses as public mailboxes.
 - `SINALOA_AUTH_MODE`: use `production` outside local development; production requires Twilio Verify credentials.
 - `SINALOA_TWILIO_ACCOUNT_SID`, `SINALOA_TWILIO_AUTH_TOKEN`, `SINALOA_TWILIO_VERIFY_SERVICE_SID`: production phone verification credentials.
+- `SINALOA_DATA_ENCRYPTION_KEY`: required in production; encrypts authenticator secrets at rest. Store it in the hosting provider's secret manager.
 
 ## Current hosting shape
 
@@ -34,9 +35,11 @@ The following are required before opening the service to untrusted external traf
 6. Signed agent envelopes and replay protection.
 7. Secret management and automated backups.
 
-The current approval endpoints use a supplied `humanId` as a sandbox identity check. This is intentionally not production authentication; replace it with an authenticated human session before external launch.
+Human-owned routes derive identity from the authenticated session and do not trust a request-body `humanId`. Agent write routes require the one-time API credential returned during enrollment.
 
 Phone verification is now available through `/api/auth/phone/start` and `/api/auth/phone/verify`. The development mode returns a one-time code for local testing. Production mode fails closed unless Twilio Verify is configured.
+
+TOTP setup and verification are available through `/api/auth/totp/setup` and `/api/auth/totp/verify`. Phone-only sessions cannot create workspaces, issue enrollment tokens, approve agents, or use human visibility routes. Authenticator secrets are encrypted with AES-256-GCM.
 
 Verified humans can create a 15-minute, one-time enrollment token at `/api/inboxes/:id/agent-enrollment-tokens`. Agents exchange that token at `/api/agent-enroll` to receive their Sinaloa identity and approved permission policy. Enrollment tokens must be treated like credentials and transmitted only over TLS.
 

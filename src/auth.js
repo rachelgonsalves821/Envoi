@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { generateSecret, generateURI, verifySync } from 'otplib';
 
 const mode = process.env.SINALOA_AUTH_MODE || 'development';
 const challengeMinutes = Number(process.env.SINALOA_OTP_EXPIRY_MINUTES || 10);
@@ -13,6 +14,14 @@ const normalizePhone = value => {
   return phone;
 };
 const twilioConfigured = () => Boolean(process.env.SINALOA_TWILIO_ACCOUNT_SID && process.env.SINALOA_TWILIO_AUTH_TOKEN && process.env.SINALOA_TWILIO_VERIFY_SERVICE_SID);
+const encryptionKey = () => {
+  const configured = process.env.SINALOA_DATA_ENCRYPTION_KEY;
+  if (mode === 'production' && !configured) throw Object.assign(new Error('Data encryption key is not configured'), { statusCode: 503 });
+  return crypto.createHash('sha256').update(configured || 'sinaloa-development-only').digest();
+};
+const encrypt = value => { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(), iv); const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]); return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') }; };
+const decrypt = value => { const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(value.iv, 'base64')); decipher.setAuthTag(Buffer.from(value.tag, 'base64')); return Buffer.concat([decipher.update(Buffer.from(value.ciphertext, 'base64')), decipher.final()]).toString('utf8'); };
+const publicHuman = human => { const value = { ...human }; delete value.totpSecret; delete value.pendingTotpSecret; delete value.phoneHash; return value; };
 
 async function twilioRequest(pathname, params) {
   const auth = Buffer.from(`${process.env.SINALOA_TWILIO_ACCOUNT_SID}:${process.env.SINALOA_TWILIO_AUTH_TOKEN}`).toString('base64');
@@ -50,23 +59,61 @@ export class AuthService {
     } else approved = hash(String(code)) === challenge.codeHash;
     if (!approved) { await this.store.putJson(relative, challenge); throw Object.assign(new Error('Incorrect verification code'), { statusCode: 401 }); }
     challenge.status = 'verified'; await this.store.putJson(relative, challenge);
-    const existing = (await this.store.listJson('humans')).find(item => item.phoneHash === challenge.phoneHash);
+    const index = await this.store.getJson(path.join('auth', 'phone-index', `${challenge.phoneHash}.json`));
+    const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
     const human = existing || { id: this.store.id('human'), phoneHash: challenge.phoneHash, phoneLast4: challenge.phoneLast4, displayName: challenge.displayName, createdAt: this.store.now() };
     human.verifiedAt = this.store.now();
     await this.store.putJson(path.join('humans', `${human.id}.json`), human);
+    await this.store.putJson(path.join('auth', 'phone-index', `${challenge.phoneHash}.json`), { humanId: human.id });
+    delete challenge.phone;
+    await this.store.putJson(relative, challenge);
     const sessionToken = token();
-    const session = { id: this.store.id('session'), tokenHash: hash(sessionToken), humanId: human.id, createdAt: this.store.now(), expiresAt: new Date(Date.now() + sessionHours * 3_600_000).toISOString() };
-    await this.store.putJson(path.join('auth', 'sessions', `${session.id}.json`), session);
-    return { human, sessionToken, expiresAt: session.expiresAt };
+    const session = { id: this.store.id('session'), tokenHash: hash(sessionToken), humanId: human.id, assurance: 'phone', createdAt: this.store.now(), expiresAt: new Date(Date.now() + sessionHours * 3_600_000).toISOString() };
+    await this.store.putJson(path.join('auth', 'sessions', `${session.tokenHash}.json`), session);
+    return { human: publicHuman(human), sessionToken, expiresAt: session.expiresAt, secondFactorRequired: true };
   }
 
-  async getHuman(req) {
+  async getSession(req) {
     const header = req.headers.authorization || '';
     const raw = header.startsWith('Bearer ') ? header.slice(7) : null;
     if (!raw) return null;
-    const sessions = await this.store.listJson('auth/sessions');
-    const session = sessions.find(item => item.tokenHash === hash(raw) && new Date(item.expiresAt) > new Date());
-    if (!session) return null;
-    return this.store.getJson(path.join('humans', `${session.humanId}.json`));
+    const session = await this.store.getJson(path.join('auth', 'sessions', `${hash(raw)}.json`));
+    if (session && new Date(session.expiresAt) <= new Date()) return null;
+    return session;
+  }
+
+  async getHuman(req, { requireMfa = true } = {}) {
+    const session = await this.getSession(req);
+    if (!session || (requireMfa && session.assurance !== 'mfa')) return null;
+    const human = await this.store.getJson(path.join('humans', `${session.humanId}.json`));
+    return human ? publicHuman(human) : null;
+  }
+
+  async startTotp(req) {
+    const session = await this.getSession(req);
+    if (!session) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
+    const human = await this.store.getJson(path.join('humans', `${session.humanId}.json`));
+    const secret = generateSecret();
+    human.pendingTotpSecret = encrypt(secret);
+    await this.store.putJson(path.join('humans', `${human.id}.json`), human);
+    return { secret, otpauthUri: generateURI({ issuer: 'Sinaloa', label: human.displayName || human.id, secret }) };
+  }
+
+  async verifyTotp(req, code) {
+    const session = await this.getSession(req);
+    if (!session) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
+    const human = await this.store.getJson(path.join('humans', `${session.humanId}.json`));
+    const encrypted = human.pendingTotpSecret || human.totpSecret;
+    if (!encrypted) throw Object.assign(new Error('TOTP setup has not been started'), { statusCode: 400 });
+    const result = verifySync({ token: String(code), secret: decrypt(encrypted), epochTolerance: 1 });
+    if (!result.valid) throw Object.assign(new Error('Incorrect authenticator code'), { statusCode: 401 });
+    human.totpSecret = encrypted;
+    delete human.pendingTotpSecret;
+    human.mfaEnabledAt = this.store.now();
+    session.assurance = 'mfa';
+    session.mfaVerifiedAt = this.store.now();
+    await this.store.putJson(path.join('humans', `${human.id}.json`), human);
+    await this.store.putJson(path.join('auth', 'sessions', `${session.tokenHash}.json`), session);
+    return { human: publicHuman(human), assurance: session.assurance };
   }
 }
