@@ -150,6 +150,8 @@ The backend must expose separate read models for these modes so the UI can remai
 
 The current backend uses Node's native HTTP server and filesystem persistence so the collaboration model can be exercised without external infrastructure. The API is intentionally transport-agnostic and can later sit behind Postgres, Redis, WebSockets, object storage, authentication, and an email adapter.
 
+The first external deployment target is a single backend instance with a persistent volume. Configuration must be environment-driven for host binding, port, data directory, CORS origins, and request limits. The storage adapter must remain replaceable so the product can migrate metadata/events to a database and assets to object storage before running multiple instances.
+
 ### Later email adapter
 
 For a non-native agent, the adapter would receive an ordinary email, associate it with an inbox/case, translate it into a Sinaloa message, and send a human-readable reply or structured reference back. Native Sinaloa agents should never depend on SMTP for normal collaboration because SMTP delivery is slower, less observable, and less structured.

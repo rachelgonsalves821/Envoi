@@ -3,11 +3,27 @@ import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
 
+const host = process.env.SINALOA_HOST || '127.0.0.1';
 const port = Number(process.env.SINALOA_PORT || 8787);
 const dataDir = process.env.SINALOA_DATA_DIR || path.resolve('data');
+const maxBodyBytes = Number(process.env.SINALOA_MAX_BODY_BYTES || 10 * 1024 * 1024);
+const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
 const store = new FileStore(dataDir);
 const streams = new Map();
 
+const applyHeaders = (res, origin) => {
+  const origins = corsOrigin.split(',').map((item) => item.trim());
+  const allowedOrigin = corsOrigin === '*' ? '*' : origins.includes(origin) ? origin : '';
+  if (allowedOrigin) {
+    res.setHeader('access-control-allow-origin', allowedOrigin);
+    res.setHeader('vary', 'Origin');
+  }
+  res.setHeader('access-control-allow-headers', 'content-type, authorization, x-request-id');
+  res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader('referrer-policy', 'no-referrer');
+};
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
@@ -15,11 +31,21 @@ const json = (res, status, body) => {
 const fail = (res, status, message) => json(res, status, { error: message });
 const body = async (req) => {
   let raw = '';
-  for await (const chunk of req) raw += chunk;
+  for await (const chunk of req) {
+    raw += chunk;
+    if (Buffer.byteLength(raw) > maxBodyBytes) {
+      const error = new Error(`Request body exceeds ${maxBodyBytes} bytes`);
+      error.statusCode = 413;
+      throw error;
+    }
+  }
   if (!raw) return {};
-  try { return JSON.parse(raw); } catch { throw new Error('Request body must be valid JSON'); }
+  try { return JSON.parse(raw); } catch {
+    const error = new Error('Request body must be valid JSON');
+    error.statusCode = 400;
+    throw error;
+  }
 };
-const idParam = (url, name) => decodeURIComponent(url.pathname.split('/')[url.pathname.split('/').indexOf(name) + 1]);
 const publish = (inboxId, event) => {
   for (const res of streams.get(inboxId) || []) res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 };
@@ -83,6 +109,8 @@ async function agentView(inboxId, inbox, agentId) {
 }
 
 async function route(req, res) {
+  applyHeaders(res, req.headers.origin || '');
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now() });
 
@@ -103,7 +131,7 @@ async function route(req, res) {
   if (!inbox) return fail(res, 404, 'Inbox not found');
 
   if (req.method === 'GET' && suffix === 'events') {
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     res.write(`event: ready\ndata: ${JSON.stringify({ inboxId, at: store.now() })}\n\n`);
     const set = streams.get(inboxId) || new Set(); set.add(res); streams.set(inboxId, set);
     req.on('close', () => { set.delete(res); if (!set.size) streams.delete(inboxId); });
@@ -213,4 +241,14 @@ async function route(req, res) {
 }
 
 await store.init();
-http.createServer((req, res) => route(req, res).catch((error) => fail(res, 500, error.message))).listen(port, () => console.log(`Sinaloa backend listening on http://localhost:${port}`));
+const server = http.createServer((req, res) => route(req, res).catch((error) => fail(res, error.statusCode || 500, error.message)));
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 70_000;
+server.listen(port, host, () => console.log(`Sinaloa backend listening on http://${host}:${port}`));
+
+const shutdown = () => {
+  for (const set of streams.values()) for (const res of set) res.end();
+  server.close(() => process.exit(0));
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

@@ -24,6 +24,8 @@ Communication/ Negotiation platform for agents
 
  The server listens on `http://localhost:8787` by default. Set `SINALOA_PORT` or `SINALOA_DATA_DIR` to customize it.
 
+ For external hosting, use the included `Dockerfile`, set `SINALOA_HOST=0.0.0.0`, configure `SINALOA_CORS_ORIGIN`, and mount a persistent volume at `SINALOA_DATA_DIR`. See `docs/deployment.md` for the migration contract.
+
  ## Important boundary
 
  Email interoperability is intentionally not the primary transport. Native agents use the local API and event stream. A future email gateway can translate ordinary SMTP/IMAP messages into the same structured message model for non-native systems.
