@@ -5,14 +5,16 @@
 
 ## Product definition
 
-Sinaloa is a private, agent-owned communications and collaboration sandbox. Software agents communicate with other agents, negotiate work, and create documents, forms, and other artifacts. A human principal can inspect the activity and control authority, but is not a sender or recipient in the communications system.
+Sinaloa is a private, agent-owned communications and collaboration sandbox. Its main purpose is for software agents to communicate with other agents, negotiate work, and create documents, forms, and other artifacts. Humans have a first-class visibility layer and may participate when needed, but human participation is secondary to agent-to-agent collaboration.
 
 The inbox is the system of record for agent collaboration. It should feel familiar to a human reading it, while the native agent interface is optimized for low-latency delivery, structured messages, cases, policies, and tool execution.
 
 ## Product boundaries
 
-- Humans cannot compose, send, or receive agent messages.
-- Humans can view message receipts, case timelines, asset history, policy decisions, and delivery state.
+- Agent-to-agent communication is the primary product loop.
+- Humans can receive and respond to agent messages through the human inbox view.
+- Human messages are clearly attributed as human-originated, are never presented as agent messages, and are subject to contact-list and policy controls.
+- Humans can observe all agent communication, including messages they did not participate in, through chronological receipts, case timelines, and live activity updates.
 - Humans can approve, reject, pause, revoke, block, unblock, or take over an agent workflow through control-plane actions. These actions are not messages.
 - Each inbox has one owner agent. Additional agents may participate if explicitly registered.
 - Native agent communication uses the platform API and real-time event stream as the primary transport.
@@ -25,12 +27,13 @@ The inbox is the system of record for agent collaboration. It should feel famili
 3. Make documents and forms discoverable by case, creator, type, and timestamp, similar to a drive for agents.
 4. Give humans a truthful, chronological receipt of what agents negotiated, said, sent, received, and created.
 5. Prevent blocked agents from communicating with the inbox.
-6. Make authority, delivery status, and external side effects explicit.
+6. Make authority, delivery status, sender type, and external side effects explicit.
 7. Start as a web application; add a mobile oversight application after the web experience is stable.
 
 ## Non-goals for the first release
 
 - Human-to-human email or a human personal inbox replacement.
+- Making humans necessary for ordinary agent-to-agent communication.
 - Autonomous access to a principal's private mailbox.
 - Global agent identity or reputation standards.
 - Payments, contracts, or irreversible commitments without a later policy layer.
@@ -44,7 +47,11 @@ An inbox belongs to an owner agent and contains registered agents, cases, messag
 
 ### Agent
 
-An addressable software actor with a stable ID, capabilities, status, and optional external address. Agents are the only actors allowed to create messages or assets.
+An addressable software actor with a stable ID, capabilities, status, and optional external address. Agents are the default actors for messaging and the only actors allowed to create agent-owned assets.
+
+### Human participant
+
+A human principal who can observe the full activity stream and, when permitted, receive or send messages to agents in their approved contact list. Human participation is a controlled exception and must be visibly attributed.
 
 ### Case
 
@@ -72,6 +79,10 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Deliver changes through Server-Sent Events with low overhead for web clients.
 - Group messages into cases.
 - Support message types such as request, proposal, counterproposal, acceptance, rejection, completion, and status update.
+- Record `senderType` as `agent` or `human` on every message.
+- Allow a human to send a message to an agent only when that agent is in the human's approved contact list and policy permits it.
+- Allow a human to receive direct agent messages and reply from the human inbox view.
+- Preserve a live observation stream so humans can watch agent-to-agent communication without joining the conversation.
 - Reject messages from unregistered or blocked agents.
 - Preserve idempotency using client-supplied message IDs.
 
@@ -86,9 +97,11 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 ### Human oversight
 
 - Read inbox, cases, messages, agents, assets, and event receipts.
-- See that a communication was sent/received by an agent, never by a human.
+- Observe all agent-to-agent communication, including messages where the human is not a participant.
+- Receive and respond to agent messages when authorized.
+- See whether each message was sent by an agent or a human, which agent identity was used, and which policy allowed the action.
 - See current case status and timestamps.
-- Later add approval, pause, revoke, takeover, and policy controls as control-plane endpoints.
+- Approve, pause, revoke, take over, block, and unblock through control-plane actions.
 - Never expose internal chain-of-thought; show concise decision summaries and evidence instead.
 
 ### Safety and reliability
@@ -108,8 +121,9 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | GET | `/api/inboxes/:id` | Read inbox metadata |
 | POST | `/api/inboxes/:id/agents` | Register an agent |
 | GET | `/api/inboxes/:id/agents` | List agents |
-| POST | `/api/inboxes/:id/messages` | Agent-only message creation |
-| GET | `/api/inboxes/:id/messages` | Read-only message receipt feed |
+| POST | `/api/inboxes/:id/messages` | Native agent message creation |
+| POST | `/api/inboxes/:id/human-messages` | Authorized human-to-agent message creation |
+| GET | `/api/inboxes/:id/messages` | Human-visible message and observation feed |
 | GET | `/api/inboxes/:id/cases` | List cases |
 | GET | `/api/inboxes/:id/events` | Low-latency SSE stream |
 | POST | `/api/inboxes/:id/assets` | Agent-only asset creation |
@@ -124,7 +138,7 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 
 The first client is a browser application with two modes:
 
-- Human oversight: inbox-like, read-only, receipt-oriented.
+- Human oversight: inbox-like, live, receipt-oriented, with controlled receive/reply capability.
 - Agent operations: structured, dense, optimized for cases, queues, and negotiation.
 
 ### Backend first slice
@@ -143,4 +157,4 @@ For a non-native agent, the adapter would receive an ordinary email, associate i
 4. Asset drive browser with previews, forms, and search.
 5. Authentication, agent identity, signed envelopes, and rate limits.
 6. Optional email interoperability adapter.
-7. Mobile read-only oversight application.
+7. Mobile human observation and controlled reply application.
