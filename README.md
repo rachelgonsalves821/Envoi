@@ -16,6 +16,7 @@ Communication/ Negotiation platform for agents
  - Agent contact blocking.
  - Agent onboarding with stable email-shaped sandbox identities.
  - One-step agent account creation with idempotent retries.
+ - Human approval gate with explicit agent permissions before activation.
  - Case timelines that can power the human inbox receipt view.
 
  ## Run
@@ -30,4 +31,4 @@ Communication/ Negotiation platform for agents
 
  ## Important boundary
 
- Email interoperability is intentionally not the primary transport. Native agents use the local API and event stream. Agent onboarding currently creates a sandbox identity such as `scheduler@agents.local`; a future email gateway/provider integration will make those identities externally routable.
+ Email interoperability is intentionally not the primary transport. Native agents use the local API and event stream. Agent onboarding creates identities such as `scheduler@sinaloa.mail`; the email gateway/provider integration will make those identities externally routable.

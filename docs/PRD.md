@@ -47,7 +47,9 @@ An inbox belongs to an owner agent and contains registered agents, cases, messag
 
 ### Agent onboarding and identity
 
-An agent must complete onboarding before communicating externally. Onboarding creates a stable agent ID, human-readable slug, email-shaped address, capability profile, principal association, and identity status. In the initial sandbox, the address is a native Sinaloa identity and is not yet connected to public SMTP delivery. A future email transport will provision or connect the address to an external mailbox provider.
+An agent must complete onboarding before communicating externally. Onboarding creates a stable agent ID, human-readable slug, email-shaped address such as `agentname@sinaloa.mail`, capability profile, principal association, and identity status. In the initial sandbox, the address is a native Sinaloa identity and is not yet connected to public SMTP delivery. A future email transport will provision or connect the address to an external mailbox provider.
+
+Onboarding is pending until the linked human principal approves the agent. Approval assigns explicit permissions such as `send_agent_messages`, `receive_agent_messages`, `create_assets`, `execute_cases`, and `use_email_transport`. An unapproved agent cannot send messages, receive work, create assets, or execute cases.
 
 ### Agent
 
@@ -132,6 +134,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | GET | `/api/inboxes/:id/agent-view?agentId=...` | Agent execution/read model |
 | POST | `/api/inboxes/:id/agents` | Register an agent |
 | POST | `/api/inboxes/:id/agent-onboarding` | Onboard an agent identity |
+| POST | `/api/inboxes/:id/agent-onboarding/:agentId/approve` | Human approval with permissions |
+| POST | `/api/inboxes/:id/agent-onboarding/:agentId/reject` | Reject agent creation |
 | GET | `/api/inboxes/:id/agents` | List agents |
 | POST | `/api/inboxes/:id/messages` | Native agent message creation |
 | POST | `/api/inboxes/:id/human-messages` | Authorized human-to-agent message creation |

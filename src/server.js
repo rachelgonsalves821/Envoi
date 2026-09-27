@@ -8,7 +8,8 @@ const port = Number(process.env.SINALOA_PORT || 8787);
 const dataDir = process.env.SINALOA_DATA_DIR || path.resolve('data');
 const maxBodyBytes = Number(process.env.SINALOA_MAX_BODY_BYTES || 10 * 1024 * 1024);
 const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
-const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'agents.local';
+const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'sinaloa.mail';
+const allowedPermissions = new Set(['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', 'use_email_transport']);
 const store = new FileStore(dataDir);
 const streams = new Map();
 
@@ -38,6 +39,7 @@ const reserveIdentity = async (address, value) => {
   await store.putJson(relative, value);
   return true;
 };
+const hasPermission = (agent, permission) => agent.status === 'active' && agent.onboardingStatus === 'approved' && agent.permissions?.includes(permission);
 const body = async (req) => {
   let raw = '';
   for await (const chunk of req) {
@@ -126,6 +128,7 @@ async function route(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/onboarding/agent-account') {
     const input = await body(req);
     if (!input.name) return fail(res, 400, 'Agent name is required');
+    if (!input.humanId) return fail(res, 400, 'humanId is required so a human can approve the agent');
     const idempotencyKey = input.idempotencyKey || req.headers['idempotency-key'];
     if (idempotencyKey) {
       const previous = await store.getJson(path.join('onboarding', `${encodeURIComponent(idempotencyKey)}.json`));
@@ -141,12 +144,12 @@ async function route(req, res) {
     }
     await store.ensureInbox(inboxId);
     const createdAt = store.now();
-    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalLabel: input.principalLabel || null, capabilities: input.capabilities || [], description: input.description || null, createdAt, status: 'active', onboardingStatus: 'complete' };
-    const inbox = { id: inboxId, name: input.inboxName || `${input.name} workspace`, ownerAgentId: agent.id, createdAt };
+    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalLabel: input.principalLabel || null, principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], description: input.description || null, createdAt, status: 'pending_approval', onboardingStatus: 'pending_approval' };
+    const inbox = { id: inboxId, name: input.inboxName || `${input.name} workspace`, ownerAgentId: agent.id, ownerHumanId: input.humanId, status: 'pending_approval', createdAt };
     await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
     await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
     await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: createdAt });
-    const result = { account: { inbox, agent }, next: { nativeMessaging: 'ready', externalEmail: 'requires_email_transport_configuration' } };
+    const result = { account: { inbox, agent }, next: { nativeMessaging: 'pending_human_approval', humanApproval: { required: true, humanId: input.humanId }, externalEmail: 'requires_email_transport_configuration' } };
     if (idempotencyKey) await store.putJson(path.join('onboarding', `${encodeURIComponent(idempotencyKey)}.json`), result);
     await audit(inboxId, 'agent.account_created', { agentId: agent.id, address: agent.address, identityStatus: agent.identity.status });
     return json(res, 201, result);
@@ -188,13 +191,14 @@ async function route(req, res) {
   if (req.method === 'POST' && suffix === 'agents') {
     const input = await body(req);
     if (!input.name) return fail(res, 400, 'Agent name is required');
+    if (!input.humanId) return fail(res, 400, 'humanId is required so a human can approve the agent');
     const slug = slugify(input.slug || input.name) || store.id('agent').replace('agent_', '');
     const address = input.address || `${slug}@${agentDomain}`;
     const existingAgents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
     if (existingAgents.some((item) => item.address === address)) return fail(res, 409, 'Agent email address is already registered in this inbox');
-    const agent = { id: input.id || store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, capabilities: input.capabilities || [], createdAt: store.now(), status: 'active', onboardingStatus: 'complete' };
+    const agent = { id: input.id || store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], createdAt: store.now(), status: 'pending_approval', onboardingStatus: 'pending_approval' };
     await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
-    if (!inbox.ownerAgentId) { inbox.ownerAgentId = agent.id; await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox); }
+    if (!inbox.ownerAgentId) { inbox.ownerAgentId = agent.id; inbox.ownerHumanId = input.humanId; inbox.status = 'pending_approval'; await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox); }
     await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: store.now() });
     await audit(inboxId, 'agent.created', { agentId: agent.id });
     return json(res, 201, agent);
@@ -208,12 +212,13 @@ async function route(req, res) {
     const address = `${slug}@${agentDomain}`;
     const existingAgents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
     if (existingAgents.some((item) => item.address === address)) return fail(res, 409, 'Agent email address is already registered in this inbox');
-    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalLabel: input.principalLabel || null, capabilities: input.capabilities || [], description: input.description || null, createdAt: store.now(), status: 'active', onboardingStatus: 'complete' };
+    if (!input.humanId) return fail(res, 400, 'humanId is required so a human can approve the agent');
+    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalLabel: input.principalLabel || null, principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], description: input.description || null, createdAt: store.now(), status: 'pending_approval', onboardingStatus: 'pending_approval' };
     await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
     if (!inbox.ownerAgentId) { inbox.ownerAgentId = agent.id; await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox); }
     await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: store.now() });
     await audit(inboxId, 'agent.onboarded', { agentId: agent.id, address: agent.address, identityStatus: agent.identity.status });
-    return json(res, 201, { agent, next: { nativeMessaging: 'ready', externalEmail: 'requires_email_transport_configuration' } });
+    return json(res, 201, { agent, next: { nativeMessaging: 'pending_human_approval', humanApproval: { required: true, humanId: input.humanId }, externalEmail: 'requires_email_transport_configuration' } });
   }
 
   if (req.method === 'GET' && suffix === 'agents') return json(res, 200, await store.listJson(path.join('inboxes', inboxId, 'agents')));
@@ -238,6 +243,33 @@ async function route(req, res) {
     return json(res, 200, contact);
   }
 
+  const onboardingDecision = suffix.match(/^agent-onboarding\/([^/]+)\/(approve|reject)$/);
+  if (req.method === 'POST' && onboardingDecision) {
+    const [, agentId, decision] = onboardingDecision;
+    const input = await body(req);
+    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    if (!agent) return fail(res, 404, 'Agent not found');
+    if (!input.humanId || input.humanId !== (agent.principalHumanId || inbox.ownerHumanId)) return fail(res, 403, 'Only the linked human may approve this agent');
+    if (decision === 'reject') {
+      agent.status = 'rejected';
+      agent.onboardingStatus = 'rejected';
+      agent.permissions = [];
+    } else {
+      const permissions = Array.isArray(input.permissions) ? input.permissions.filter((permission) => allowedPermissions.has(permission)) : ['send_agent_messages', 'receive_agent_messages'];
+      if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
+      agent.status = 'active';
+      agent.onboardingStatus = 'approved';
+      agent.permissions = permissions;
+      inbox.status = 'active';
+      await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
+    }
+    agent.approvedAt = store.now();
+    agent.approvedByHumanId = input.humanId;
+    await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
+    await audit(inboxId, `agent.onboarding_${decision}ed`, { agentId: agent.id, humanId: input.humanId, permissions: agent.permissions });
+    return json(res, 200, agent);
+  }
+
   if (req.method === 'GET' && suffix === 'cases') return json(res, 200, await listCases(inboxId));
   if (req.method === 'GET' && suffix === 'messages') return json(res, 200, await listMessages(inboxId, url.searchParams.get('caseId')));
 
@@ -246,6 +278,7 @@ async function route(req, res) {
     if (!input.senderAgentId || !input.recipientAgentId || !input.text) return fail(res, 400, 'senderAgentId, recipientAgentId, and text are required');
     const sender = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.senderAgentId}.json`));
     if (!sender) return fail(res, 403, 'Only registered agents may send messages');
+    if (!hasPermission(sender, 'send_agent_messages')) return fail(res, 403, 'Agent is pending approval or lacks send_agent_messages permission');
     const blocked = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`));
     if (blocked?.blocked) return fail(res, 403, 'Recipient is blocked');
     const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderType: 'agent', senderAgentId: input.senderAgentId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
@@ -262,6 +295,7 @@ async function route(req, res) {
     if (!input.humanId || !input.recipientAgentId || !input.text) return fail(res, 400, 'humanId, recipientAgentId, and text are required');
     const recipient = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.recipientAgentId}.json`));
     if (!recipient) return fail(res, 404, 'Recipient agent not found');
+    if (!hasPermission(recipient, 'receive_agent_messages')) return fail(res, 403, 'Recipient agent is not approved to receive messages');
     const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`), { approved: true, blocked: false });
     if (contact.blocked) return fail(res, 403, 'Recipient is blocked');
     if (contact.approved === false) return fail(res, 403, 'Recipient is not an approved human contact');
@@ -278,7 +312,8 @@ async function route(req, res) {
   if (req.method === 'POST' && suffix === 'assets') {
     const input = await body(req);
     if (!input.name || !input.contentBase64 || !input.createdByAgentId) return fail(res, 400, 'name, contentBase64, and createdByAgentId are required');
-    if (!await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.createdByAgentId}.json`))) return fail(res, 403, 'Only registered agents may create assets');
+    const assetAgent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.createdByAgentId}.json`));
+    if (!assetAgent || !hasPermission(assetAgent, 'create_assets')) return fail(res, 403, 'Agent is pending approval or lacks create_assets permission');
     const asset = { id: store.id('asset'), inboxId, caseId: input.caseId || null, name: input.name, mimeType: input.mimeType || 'application/octet-stream', size: Buffer.byteLength(input.contentBase64, 'base64'), createdByAgentId: input.createdByAgentId, createdAt: store.now() };
     await store.putJson(path.join('inboxes', inboxId, 'assets', `${asset.id}.json`), asset);
     await mkdir(path.join(dataDir, 'inboxes', inboxId, 'assets', asset.id), { recursive: true });
