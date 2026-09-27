@@ -61,7 +61,15 @@ A human principal who can observe the full activity stream and, when permitted, 
 
 ### Case
 
-A durable collaboration container that groups messages, proposals, assets, decisions, and outcomes. The human UI should present cases as inbox threads with structured status rather than as unstructured email alone.
+A durable, schema-versioned unit of delegated work that groups its objective, participants, constraints, authority checks, proposals, typed events, evidence, actions, outcome, and receipt. Cases—not messages or unread threads—are the primary product object.
+
+### Agent Interface
+
+The machine-facing sandbox and source of truth. It exposes structured `Case`, `Event`, `Proposal`, `PolicyEvaluation`, `Action`, `Evidence`, and `Receipt` objects over native JSON APIs and push delivery. It has no visual design and must support complete agent negotiation and execution without a browser.
+
+### Human Interface
+
+A read-mostly translation layer over the Agent Interface. It groups authoritative case states into familiar attention views, renders typed events as an accountable timeline, and exposes a narrow set of human decisions. Human decisions are persisted as the same `Action` objects used by agents; the interface owns no parallel workflow state.
 
 ### Asset
 
@@ -161,6 +169,13 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | POST | `/api/inboxes/:id/human-messages` | Authorized human-to-agent message creation |
 | GET | `/api/inboxes/:id/messages` | Human-visible message and observation feed |
 | GET | `/api/inboxes/:id/cases` | List cases |
+| POST | `/api/inboxes/:id/cases` | Agent creates a structured case |
+| GET | `/api/inboxes/:id/cases/:caseId` | Read the complete structured case graph |
+| POST | `/api/inboxes/:id/cases/:caseId/events` | Append a typed agent event |
+| POST | `/api/inboxes/:id/cases/:caseId/policy-evaluations` | Resolve authority for a requested action |
+| POST | `/api/inboxes/:id/cases/:caseId/proposals` | Create a negotiation proposal |
+| POST | `/api/inboxes/:id/cases/:caseId/actions` | Record an idempotent human or agent action |
+| POST | `/api/inboxes/:id/cases/:caseId/receipt` | Complete a case with a durable receipt |
 | GET | `/api/inboxes/:id/events` | Low-latency SSE stream |
 | POST | `/api/inboxes/:id/assets` | Agent-only asset creation |
 | GET | `/api/inboxes/:id/assets` | List stored assets |

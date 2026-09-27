@@ -45,7 +45,15 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(replayedTotp.status, 401);
   const workspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Owner workspace' } });
   assert.equal(workspace.status, 201);
-  const tokenResponse = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'create_assets'] } });
+  assert.ok(workspace.payload.organizationId.startsWith('org_'));
+  const organizations = await request(server.baseUrl, '/api/organizations', { token: sessionToken });
+  assert.equal(organizations.status, 200);
+  assert.equal(organizations.payload.length, 1);
+  assert.equal(organizations.payload[0].id, workspace.payload.organizationId);
+  const organizationWorkspaces = await request(server.baseUrl, `/api/organizations/${workspace.payload.organizationId}/workspaces`, { token: sessionToken });
+  assert.equal(organizationWorkspaces.status, 200);
+  assert.equal(organizationWorkspaces.payload[0].id, workspace.payload.id);
+  const tokenResponse = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'] } });
   assert.equal(tokenResponse.status, 201);
   const enrolled = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: tokenResponse.payload.enrollmentToken, name: 'Worker', slug: 'worker' } });
   assert.equal(enrolled.status, 201);
@@ -86,6 +94,44 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(blocked.status, 200);
   const rejected = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-3' }, body: { ...messageBody, text: 'blocked message' } });
   assert.equal(rejected.status, 403);
+
+  const caseCreated = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/cases`, { token: enrolled.payload.agentApiToken, body: { objective: 'Schedule Q4 planning with Acme', participants: [recipient.payload.agent.id], constraints: { workingHoursEnd: '16:00', timezone: 'America/Toronto' }, deadline: '2026-10-03T03:59:00.000Z' } });
+  assert.equal(caseCreated.status, 201);
+  assert.equal(caseCreated.payload.schemaVersion, '1.0');
+  const progress = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/cases/${caseCreated.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'case-progress-1' }, body: { actionKey: 'case.classify', outcome: 'ok', nextState: 'inProgress' } });
+  assert.equal(progress.status, 201);
+  assert.equal(progress.payload.case.state, 'inProgress');
+  const proposal = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/cases/${caseCreated.payload.id}/proposals`, { token: enrolled.payload.agentApiToken, body: { kind: 'schedule', expiresAt: '2026-10-01T21:00:00.000Z', options: [{ id: 'option_1630', value: { start: '2026-10-01T20:30:00.000Z', end: '2026-10-01T21:00:00.000Z', timezone: 'America/Toronto' }, sourceConfidence: 'fromVerifiedProfile', outOfPolicyFlags: ['outsideWorkingHours'] }] } });
+  assert.equal(proposal.status, 201);
+  const policy = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/cases/${caseCreated.payload.id}/policy-evaluations`, { token: enrolled.payload.agentApiToken, body: { requestedAction: 'calendar.confirmMeeting', reasonCode: 'outsidePreferredWorkingHours', outOfPolicyFlags: ['outsideWorkingHours'], expiresAt: '2026-10-01T21:00:00.000Z' } });
+  assert.equal(policy.status, 201);
+  assert.equal(policy.payload.decision, 'needsHuman');
+  const blockedAccept = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/cases/${caseCreated.payload.id}/proposals/${proposal.payload.id}/accept`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'proposal-accept-1' }, body: { optionId: 'option_1630', policyEvaluationId: policy.payload.id } });
+  assert.equal(blockedAccept.status, 202);
+  assert.equal(blockedAccept.payload.action.outcome, 'needsApproval');
+  const humanApproval = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/cases/${caseCreated.payload.id}/actions`, { token: sessionToken, headers: { 'Idempotency-Key': 'human-approve-1' }, body: { actionKey: 'approveOnce', externalRefs: { policyEvaluationId: policy.payload.id } } });
+  assert.equal(humanApproval.status, 201);
+  assert.equal(humanApproval.payload.case.state, 'authorized');
+  const humanApprovalReplay = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/cases/${caseCreated.payload.id}/actions`, { token: sessionToken, headers: { 'Idempotency-Key': 'human-approve-1' }, body: { actionKey: 'approveOnce', externalRefs: { policyEvaluationId: policy.payload.id } } });
+  assert.equal(humanApprovalReplay.status, 200);
+  assert.equal(humanApprovalReplay.payload.replay, true);
+  const projectedHumanView = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/human-view`, { token: sessionToken });
+  assert.equal(projectedHumanView.status, 200);
+  assert.ok(projectedHumanView.payload.caseQueue.some(item => item.id === caseCreated.payload.id && item.state === 'authorized'));
+  assert.equal(typeof projectedHumanView.payload.navigation.activeWork, 'number');
+  assert.deepEqual(projectedHumanView.payload.participantDirectory[enrolled.payload.agent.id], {
+    id: enrolled.payload.agent.id,
+    type: 'internalAgent',
+    displayName: 'Worker',
+    address: 'worker@sinaloa.mail',
+    organizationId: workspace.payload.organizationId,
+    inboxId: workspace.payload.id,
+    accessState: 'active'
+  });
+  assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].type, 'externalAgent');
+  assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].displayName, 'Recipient');
+  assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].address, 'recipient@sinaloa.mail');
+
   const logout = await request(server.baseUrl, '/api/auth/logout', { token: sessionToken, body: {} });
   assert.equal(logout.status, 200);
   const afterLogout = await request(server.baseUrl, '/api/auth/me', { token: sessionToken });

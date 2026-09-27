@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sinaloa.mail/schemas/agent-interface/v1.json",
+  "title": "Sinaloa Agent Interface",
+  "type": "object",
+  "required": ["id", "schemaVersion", "objective", "state", "principal", "actingAgent", "participants", "constraints", "deadline", "authorityRefs", "events", "evidence", "proposals", "policyEvaluations", "receipt", "createdAt", "updatedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "#/definitions/ref" },
+    "schemaVersion": { "const": "1.0" },
+    "objective": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "state": { "$ref": "#/definitions/caseState" },
+    "principal": { "$ref": "#/definitions/ref" },
+    "actingAgent": { "$ref": "#/definitions/ref" },
+    "participants": { "type": "array", "items": { "$ref": "#/definitions/ref" }, "uniqueItems": true },
+    "constraints": { "type": "object" },
+    "deadline": { "anyOf": [{ "$ref": "#/definitions/timestamp" }, { "type": "null" }] },
+    "authorityRefs": { "type": "array", "items": { "$ref": "#/definitions/ref" }, "uniqueItems": true },
+    "events": { "type": "array", "items": { "$ref": "#/definitions/Event" } },
+    "evidence": { "type": "array", "items": { "$ref": "#/definitions/EvidenceItem" } },
+    "proposals": { "type": "array", "items": { "$ref": "#/definitions/Proposal" } },
+    "policyEvaluations": { "type": "array", "items": { "$ref": "#/definitions/PolicyEvaluation" } },
+    "receipt": { "anyOf": [{ "$ref": "#/definitions/Receipt" }, { "type": "null" }] },
+    "createdAt": { "$ref": "#/definitions/timestamp" },
+    "updatedAt": { "$ref": "#/definitions/timestamp" }
+  },
+  "definitions": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "ref": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "caseState": {
+      "type": "string",
+      "enum": ["new", "classifying", "inProgress", "waitingForExternalParty", "waitingForHuman", "tentativeHold", "authorized", "executing", "sent", "received", "accepted", "completed", "failed", "unknownExternalResult", "expired", "paused", "revoked", "disputed"]
+    },
+    "EvidenceItem": {
+      "type": "object",
+      "required": ["id", "kind", "title", "provenance"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/ref" },
+        "kind": { "enum": ["document", "calendarReference", "confirmationId", "externalLink"] },
+        "title": { "type": "string", "minLength": 1 },
+        "provenance": { "enum": ["fromVerifiedProfile", "enteredForCase", "extractedFromDocument"] },
+        "url": { "type": ["string", "null"], "format": "uri-reference" }
+      }
+    },
+    "PolicyEvaluation": {
+      "type": "object",
+      "required": ["id", "requestedAction", "actor", "decision", "grantType", "effectiveAt", "expiresAt", "reasonCode"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/ref" },
+        "requestedAction": { "type": "string", "minLength": 1 },
+        "actor": { "$ref": "#/definitions/ref" },
+        "matchedPolicyId": { "type": ["string", "null"] },
+        "decision": { "enum": ["allow", "deny", "needsHuman"] },
+        "grantType": { "enum": ["oneTime", "categoryBased", "ongoing"] },
+        "effectiveAt": { "$ref": "#/definitions/timestamp" },
+        "expiresAt": { "anyOf": [{ "$ref": "#/definitions/timestamp" }, { "type": "null" }] },
+        "reasonCode": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ProposalOption": {
+      "type": "object",
+      "required": ["id", "value", "sourceConfidence", "expired", "outOfPolicyFlags"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/ref" },
+        "value": { "type": "object" },
+        "sourceConfidence": { "enum": ["fromVerifiedProfile", "enteredForCase", "extractedFromDocument"] },
+        "expired": { "type": "boolean" },
+        "outOfPolicyFlags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "Proposal": {
+      "type": "object",
+      "required": ["id", "kind", "options", "status", "expiresAt", "createdAt", "updatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/ref" },
+        "kind": { "enum": ["schedule", "form", "negotiation", "document", "cancellation"] },
+        "options": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/ProposalOption" } },
+        "status": { "enum": ["open", "countered", "accepted", "expired", "withdrawn"] },
+        "acceptedOptionId": { "type": ["string", "null"] },
+        "expiresAt": { "anyOf": [{ "$ref": "#/definitions/timestamp" }, { "type": "null" }] },
+        "createdAt": { "$ref": "#/definitions/timestamp" },
+        "updatedAt": { "$ref": "#/definitions/timestamp" }
+      }
+    },
+    "Event": {
+      "type": "object",
+      "required": ["id", "type", "actor", "createdAt", "payload", "linkedPolicyEvaluation", "precedingEventRef"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/ref" },
+        "type": { "enum": ["message", "decision", "policyEvaluation", "toolAction", "humanAction", "stateChange", "error", "receipt"] },
+        "actor": { "$ref": "#/definitions/ref" },
+        "createdAt": { "$ref": "#/definitions/timestamp" },
+        "payload": { "type": "object" },
+        "linkedPolicyEvaluation": { "type": ["string", "null"] },
+        "precedingEventRef": { "type": ["string", "null"] }
+      }
+    },
+    "Action": {
+      "type": "object",
+      "required": ["id", "actionKey", "actor", "idempotencyKey", "outcome", "reasonCode", "externalRefs", "createdAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/ref" },
+        "actionKey": { "type": "string", "minLength": 1 },
+        "actor": { "$ref": "#/definitions/ref" },
+        "idempotencyKey": { "type": "string", "minLength": 1 },
+        "outcome": { "enum": ["ok", "needsApproval", "denied", "failed", "unknown"] },
+        "reasonCode": { "type": ["string", "null"] },
+        "externalRefs": { "type": "object" },
+        "createdAt": { "$ref": "#/definitions/timestamp" }
+      }
+    },
+    "Receipt": {
+      "type": "object",
+      "required": ["id", "result", "counterparties", "externalIds", "authorityBasis", "humanApprovalStatus", "evidenceRefs", "createdAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/ref" },
+        "result": { "type": "string", "minLength": 1 },
+        "counterparties": { "type": "array", "items": { "$ref": "#/definitions/ref" } },
+        "externalIds": { "type": "object" },
+        "authorityBasis": { "$ref": "#/definitions/ref" },
+        "humanApprovalStatus": { "enum": ["approved", "notRequired", "pending"] },
+        "evidenceRefs": { "type": "array", "items": { "$ref": "#/definitions/ref" } },
+        "createdAt": { "$ref": "#/definitions/timestamp" }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { generateSecret, generateURI, verifySync } from 'otplib';
+import { generateSecret, generateSync, generateURI, verifySync } from 'otplib';
 
 const mode = process.env.SINALOA_AUTH_MODE || 'development';
 const challengeMinutes = Number(process.env.SINALOA_OTP_EXPIRY_MINUTES || 10);
@@ -107,7 +107,11 @@ export class AuthService {
     const secret = generateSecret();
     human.pendingTotpSecret = encrypt(secret);
     await this.store.putJson(path.join('humans', `${human.id}.json`), human);
-    return { secret, otpauthUri: generateURI({ issuer: 'Sinaloa', label: human.displayName || human.id, secret }) };
+    return {
+      secret,
+      otpauthUri: generateURI({ issuer: 'Sinaloa', label: human.displayName || human.id, secret }),
+      ...(mode === 'development' ? { developmentCode: generateSync({ secret }) } : {})
+    };
   }
 
   async verifyTotp(req, code) {

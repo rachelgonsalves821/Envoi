@@ -13,8 +13,13 @@ The current backend is deployable as a single external service. It uses the loca
 - `SINALOA_DB_POOL_SIZE`: PostgreSQL connection pool size.
 - `SINALOA_DB_SSL`: set to `true` for hosted PostgreSQL providers that require TLS.
 - `SINALOA_AGENT_DOMAIN`: domain used for agent identities; defaults to `sinaloa.mail`. Configure DNS and email transport before treating addresses as public mailboxes.
-- `SINALOA_AUTH_MODE`: use `production` outside local development; production requires Twilio Verify credentials.
-- `SINALOA_TWILIO_ACCOUNT_SID`, `SINALOA_TWILIO_AUTH_TOKEN`, `SINALOA_TWILIO_VERIFY_SERVICE_SID`: production phone verification credentials.
+- `SINALOA_AUTH_MODE`: use `production` outside local development; this enables secure-cookie and fail-closed production safeguards.
+- `SINALOA_HUMAN_AUTH_PROVIDER`: defaults to `workos` in production and `local` in development. Do not run the local provider in production.
+- `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, `WORKOS_REDIRECT_URI`: required for production AuthKit. The cookie password must be at least 32 characters and the redirect URI must be registered in WorkOS.
+- `WORKOS_ISSUER`: expected WorkOS access-token issuer. When omitted, the backend derives the client-specific WorkOS issuer.
+- `WORKOS_COOKIE_NAME`, `WORKOS_COOKIE_DOMAIN`, `SINALOA_COOKIE_SAMESITE`, `SINALOA_COOKIE_SECURE`: optional session-cookie controls. Production cookies are always secure and HTTP-only.
+- `SINALOA_PUBLIC_URL`: canonical HTTPS origin used for logout returns and one-time agent enrollment links.
+- `SINALOA_TWILIO_ACCOUNT_SID`, `SINALOA_TWILIO_AUTH_TOKEN`, `SINALOA_TWILIO_VERIFY_SERVICE_SID`: used only by the local/legacy phone provider when explicitly configured.
 - `SINALOA_DATA_ENCRYPTION_KEY`: required in production; encrypts authenticator secrets at rest. Store it in the hosting provider's secret manager.
 
 ## Current hosting shape
@@ -27,17 +32,19 @@ The backend exposes `/health` for liveness checks and handles `SIGTERM` by closi
 
 The following are required before opening the service to untrusted external traffic:
 
-1. Real authentication for human sessions and agent credentials.
-2. Per-inbox authorization checks on every read and write route.
-3. Rate limiting and request tracing.
-4. Malware/content scanning for uploaded assets.
-5. A durable database/object-storage adapter for multi-instance deployments.
-6. Signed agent envelopes and replay protection.
-7. Secret management and automated backups.
+1. Configure WorkOS, production secrets, and organization membership policies.
+2. Add edge and per-principal rate limiting plus request tracing.
+3. Move agent-created binaries to production object storage with signed URLs, quotas, and malware scanning.
+4. Add the durable outbox, retry workers, delivery receipts, and dead-letter queue.
+5. Add signed agent envelopes and replay protection beyond HTTP idempotency.
+6. Configure secret management, automated backups, retention, and restore drills.
+7. Complete the `sinaloa.mail` inbound/outbound transport and SPF, DKIM, and DMARC setup before advertising public email delivery.
 
 Human-owned routes derive identity from the authenticated session and do not trust a request-body `humanId`. Agent write routes require the one-time API credential returned during enrollment.
 
-Phone verification is now available through `/api/auth/phone/start` and `/api/auth/phone/verify`. The development mode returns a one-time code for local testing. Production mode fails closed unless Twilio Verify is configured.
+Production human authentication uses WorkOS AuthKit with PKCE, one-time server-side state, sealed HTTP-only sessions, issuer validation, and provider logout. `/api/auth/workos/sign-in`, `/api/auth/workos/sign-up`, and `/api/auth/workos/callback` implement the hosted flow. Production startup fails closed when required WorkOS configuration is missing.
+
+Phone verification remains available through `/api/auth/phone/start` and `/api/auth/phone/verify` only when the local auth provider is enabled. Development mode returns one-time phone and authenticator codes for local testing; those codes are never returned by production mode.
 
 TOTP setup and verification are available through `/api/auth/totp/setup` and `/api/auth/totp/verify`. Phone-only sessions cannot create workspaces, issue enrollment tokens, approve agents, or use human visibility routes. Authenticator secrets are encrypted with AES-256-GCM.
 
@@ -52,5 +59,7 @@ Message and case list endpoints accept `limit` (maximum 200) and an ISO timestam
 Agent addresses created by the current onboarding endpoint are native sandbox identities. They are not public email inboxes until an email transport is connected and the domain is configured with the required DNS records and provider credentials.
 
 The `FileStore` boundary is intentionally isolated. Setting `DATABASE_URL` activates the PostgreSQL adapter for account, identity, message, case, event, and permission metadata without changing the human or agent API projections. Asset binary content still requires the persistent volume until the object-storage adapter is added.
+
+Organizations are first-class Sinaloa records. In WorkOS mode, creation also provisions the WorkOS organization and owner membership; the local Sinaloa organization ID remains the stable application reference. Workspaces carry `organizationId`, and human authorization accepts only active organization members.
 
 The one-step onboarding route accepts an `Idempotency-Key` header (or `idempotencyKey` JSON field). Production clients should always send one so retries cannot create multiple agent accounts.

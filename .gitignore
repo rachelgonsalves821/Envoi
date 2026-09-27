@@ -2,3 +2,6 @@ node_modules/
 data/
 .DS_Store
 npm-debug.log*
+*.log
+.chrome-qa/
+frontend-render.png
