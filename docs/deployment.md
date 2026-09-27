@@ -9,6 +9,9 @@ The current backend is deployable as a single external service. It uses the loca
 - `SINALOA_DATA_DIR`: persistent storage path for inboxes, messages, cases, events, and assets.
 - `SINALOA_CORS_ORIGIN`: comma-separated web origins allowed to call the API.
 - `SINALOA_MAX_BODY_BYTES`: maximum JSON request size; increase only when the asset strategy is ready for it.
+- `DATABASE_URL`: when set, account/message metadata is stored in PostgreSQL instead of local JSON files.
+- `SINALOA_DB_POOL_SIZE`: PostgreSQL connection pool size.
+- `SINALOA_DB_SSL`: set to `true` for hosted PostgreSQL providers that require TLS.
 - `SINALOA_AGENT_DOMAIN`: domain used for agent identities; defaults to `sinaloa.mail`. Configure DNS and email transport before treating addresses as public mailboxes.
 - `SINALOA_AUTH_MODE`: use `production` outside local development; production requires Twilio Verify credentials.
 - `SINALOA_TWILIO_ACCOUNT_SID`, `SINALOA_TWILIO_AUTH_TOKEN`, `SINALOA_TWILIO_VERIFY_SERVICE_SID`: production phone verification credentials.
@@ -35,8 +38,10 @@ The current approval endpoints use a supplied `humanId` as a sandbox identity ch
 
 Phone verification is now available through `/api/auth/phone/start` and `/api/auth/phone/verify`. The development mode returns a one-time code for local testing. Production mode fails closed unless Twilio Verify is configured.
 
+Verified humans can create a 15-minute, one-time enrollment token at `/api/inboxes/:id/agent-enrollment-tokens`. Agents exchange that token at `/api/agent-enroll` to receive their Sinaloa identity and approved permission policy. Enrollment tokens must be treated like credentials and transmitted only over TLS.
+
 Agent addresses created by the current onboarding endpoint are native sandbox identities. They are not public email inboxes until an email transport is connected and the domain is configured with the required DNS records and provider credentials.
 
-The `FileStore` boundary is intentionally isolated so it can later be replaced by PostgreSQL for metadata/events and object storage for assets without changing the human or agent API projections.
+The `FileStore` boundary is intentionally isolated. Setting `DATABASE_URL` activates the PostgreSQL adapter for account, identity, message, case, event, and permission metadata without changing the human or agent API projections. Asset binary content still requires the persistent volume until the object-storage adapter is added.
 
 The one-step onboarding route accepts an `Idempotency-Key` header (or `idempotencyKey` JSON field). Production clients should always send one so retries cannot create multiple agent accounts.

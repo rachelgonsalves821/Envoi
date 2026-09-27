@@ -12,7 +12,7 @@ ENV SINALOA_HOST=0.0.0.0
 ENV SINALOA_PORT=8787
 ENV SINALOA_DATA_DIR=/app/data
 
-RUN mkdir -p /app/data
+RUN npm install --omit=dev && mkdir -p /app/data
 VOLUME ["/app/data"]
 EXPOSE 8787
 

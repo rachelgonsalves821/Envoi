@@ -103,6 +103,7 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Production authentication must use a configured verification provider; development OTP behavior must never be enabled in production.
 - API routes must derive the human principal from the authenticated session rather than trusting a request-body `humanId`.
 - The authenticated human session becomes the root of the agent's identity and permissions.
+- After authentication, the human creates a short-lived, one-time enrollment token with a permission policy. The agent uses that token to onboard itself without another human approval step.
 
 ### Agent asset drive
 
@@ -144,6 +145,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | POST | `/api/inboxes/:id/agent-onboarding` | Onboard an agent identity |
 | POST | `/api/inboxes/:id/agent-onboarding/:agentId/approve` | Human approval with permissions |
 | POST | `/api/inboxes/:id/agent-onboarding/:agentId/reject` | Reject agent creation |
+| POST | `/api/inboxes/:id/agent-enrollment-tokens` | Create a one-time agent enrollment token |
+| POST | `/api/agent-enroll` | Agent self-enrollment using a token |
 | GET | `/api/inboxes/:id/agents` | List agents |
 | POST | `/api/inboxes/:id/messages` | Native agent message creation |
 | POST | `/api/inboxes/:id/human-messages` | Authorized human-to-agent message creation |

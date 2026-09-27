@@ -1,5 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
 import { AuthService } from './auth.js';
@@ -11,7 +12,7 @@ const maxBodyBytes = Number(process.env.SINALOA_MAX_BODY_BYTES || 10 * 1024 * 10
 const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
 const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'sinaloa.mail';
 const allowedPermissions = new Set(['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', 'use_email_transport']);
-const store = new FileStore(dataDir);
+const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
 const auth = new AuthService(store);
 const streams = new Map();
 
@@ -42,6 +43,7 @@ const reserveIdentity = async (address, value) => {
   return true;
 };
 const hasPermission = (agent, permission) => agent.status === 'active' && agent.onboardingStatus === 'approved' && agent.permissions?.includes(permission);
+const hashSecret = value => crypto.createHash('sha256').update(value).digest('hex');
 const body = async (req) => {
   let raw = '';
   for await (const chunk of req) {
@@ -152,6 +154,32 @@ async function route(req, res) {
     return human ? json(res, 200, human) : fail(res, 401, 'Authenticated human session required');
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/agent-enroll') {
+    const input = await body(req);
+    if (!input.enrollmentToken || !input.name) return fail(res, 400, 'enrollmentToken and name are required');
+    const tokenHash = hashSecret(input.enrollmentToken);
+    const records = await store.listJson('auth/enrollment-tokens');
+    const record = records.find(item => item.tokenHash === tokenHash && !item.usedAt && new Date(item.expiresAt) > new Date());
+    if (!record) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
+    const inbox = await store.getJson(path.join('inboxes', record.inboxId, 'inbox.json'));
+    if (!inbox || inbox.ownerHumanId !== record.humanId) return fail(res, 403, 'Enrollment owner is invalid');
+    const baseSlug = slugify(input.slug || input.name) || store.id('agent').replace('agent_', '');
+    let slug = baseSlug;
+    let address = `${slug}@${agentDomain}`;
+    while (!(await reserveIdentity(address, { status: 'reserved' }))) { slug = `${baseSlug}-${store.id('slug').slice(-6)}`; address = `${slug}@${agentDomain}`; }
+    const createdAt = store.now();
+    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalHumanId: record.humanId, capabilities: input.capabilities || [], permissions: record.permissions, createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
+    await store.ensureInbox(record.inboxId);
+    await store.putJson(path.join('inboxes', record.inboxId, 'agents', `${agent.id}.json`), agent);
+    await store.putJson(path.join('inboxes', record.inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: createdAt });
+    record.usedAt = createdAt;
+    await store.putJson(path.join('auth', 'enrollment-tokens', `${record.id}.json`), record);
+    inbox.status = 'active';
+    await store.putJson(path.join('inboxes', record.inboxId, 'inbox.json'), inbox);
+    await audit(record.inboxId, 'agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions });
+    return json(res, 201, { agent, inbox, nativeMessaging: 'ready' });
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/onboarding/agent-account') {
     const input = await body(req);
     if (!input.name) return fail(res, 400, 'Agent name is required');
@@ -199,6 +227,20 @@ async function route(req, res) {
   const [, inboxId, suffix = ''] = match;
   const inbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
   if (!inbox) return fail(res, 404, 'Inbox not found');
+
+  if (req.method === 'POST' && suffix === 'agent-enrollment-tokens') {
+    const human = await auth.getHuman(req);
+    if (!human || human.id !== inbox.ownerHumanId) return fail(res, 403, 'Authenticated inbox owner required');
+    const input = await body(req);
+    const requested = Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages'];
+    const permissions = requested.filter(permission => allowedPermissions.has(permission));
+    if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
+    const rawToken = crypto.randomBytes(32).toString('base64url');
+    const record = { id: store.id('enrollment'), tokenHash: hashSecret(rawToken), inboxId, humanId: human.id, permissions, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    await store.putJson(path.join('auth', 'enrollment-tokens', `${record.id}.json`), record);
+    await audit(inboxId, 'agent.enrollment_token_created', { enrollmentId: record.id, humanId: human.id, permissions });
+    return json(res, 201, { enrollmentToken: rawToken, expiresAt: record.expiresAt, permissions });
+  }
 
   if (req.method === 'GET' && suffix === 'events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
@@ -380,7 +422,7 @@ server.listen(port, host, () => console.log(`Sinaloa backend listening on http:/
 
 const shutdown = () => {
   for (const set of streams.values()) for (const res of set) res.end();
-  server.close(() => process.exit(0));
+  server.close(async () => { if (store.close) await store.close(); process.exit(0); });
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
