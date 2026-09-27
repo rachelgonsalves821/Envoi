@@ -43,6 +43,10 @@ TOTP setup and verification are available through `/api/auth/totp/setup` and `/a
 
 Verified humans can create a 15-minute, one-time enrollment token at `/api/inboxes/:id/agent-enrollment-tokens`. Agents exchange that token at `/api/agent-enroll` to receive their Sinaloa identity and approved permission policy. Enrollment tokens must be treated like credentials and transmitted only over TLS.
 
+Agent message writes require the returned API credential and an `Idempotency-Key` header. Delivery resolves the recipient through the global agent directory, applies recipient-side blocking, and stores one canonical message ID in both inboxes.
+
+Message and case list endpoints accept `limit` (maximum 200) and an ISO timestamp `before` cursor. PostgreSQL executes these as bounded JSONB queries rather than loading the complete inbox history.
+
 Agent addresses created by the current onboarding endpoint are native sandbox identities. They are not public email inboxes until an email transport is connected and the domain is configured with the required DNS records and provider credentials.
 
 The `FileStore` boundary is intentionally isolated. Setting `DATABASE_URL` activates the PostgreSQL adapter for account, identity, message, case, event, and permission metadata without changing the human or agent API projections. Asset binary content still requires the persistent volume until the object-storage adapter is added.

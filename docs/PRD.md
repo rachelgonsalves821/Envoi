@@ -95,6 +95,10 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Preserve a live observation stream so humans can watch agent-to-agent communication without joining the conversation.
 - Reject messages from unregistered or blocked agents.
 - Preserve idempotency using client-supplied message IDs.
+- Require an idempotency key for every agent message and reject conflicting reuse.
+- Route messages through the global agent directory and persist the same canonical message in both sender and recipient inboxes.
+- Apply blocking rules from the recipient inbox before delivery.
+- Bound inbox and case reads to 200 records and support cursor-style `before` pagination.
 
 ### Human authentication
 

@@ -38,9 +38,7 @@ const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-'
 const identityKey = (address) => encodeURIComponent(address.toLowerCase());
 const reserveIdentity = async (address, value) => {
   const relative = path.join('identities', `${identityKey(address)}.json`);
-  if (await store.getJson(relative)) return false;
-  await store.putJson(relative, value);
-  return true;
+  return store.putJsonIfAbsent(relative, value);
 };
 const hasPermission = (agent, permission) => agent.status === 'active' && agent.onboardingStatus === 'approved' && agent.permissions?.includes(permission);
 const hashSecret = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -81,13 +79,12 @@ const audit = async (inboxId, type, data) => {
   return event;
 };
 
-async function listMessages(inboxId, caseId) {
-  const items = await store.listJson(path.join('inboxes', inboxId, 'messages'));
-  return items.filter((item) => !caseId || item.caseId === caseId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+async function listMessages(inboxId, caseId, { limit = 100, before = null } = {}) {
+  return store.queryJson(path.join('inboxes', inboxId, 'messages'), { limit, before, filters: caseId ? { caseId } : {}, sortField: 'createdAt' });
 }
 
-async function listCases(inboxId) {
-  return (await store.listJson(path.join('inboxes', inboxId, 'cases'))).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
+async function listCases(inboxId, { limit = 100, before = null } = {}) {
+  return store.queryJson(path.join('inboxes', inboxId, 'cases'), { limit, before, sortField: 'updatedAt' });
 }
 
 async function humanView(inboxId, inbox) {
@@ -178,8 +175,9 @@ async function route(req, res) {
     const input = await body(req);
     if (!input.enrollmentToken || !input.name) return fail(res, 400, 'enrollmentToken and name are required');
     const tokenHash = hashSecret(input.enrollmentToken);
-    const records = await store.listJson('auth/enrollment-tokens');
-    const record = records.find(item => item.tokenHash === tokenHash && !item.usedAt && new Date(item.expiresAt) > new Date());
+    const tokenPath = path.join('auth', 'enrollment-tokens', `${tokenHash}.json`);
+    const pendingRecord = await store.getJson(tokenPath);
+    const record = pendingRecord && !pendingRecord.usedAt && new Date(pendingRecord.expiresAt) > new Date() ? await store.claimJson(tokenPath, 'usedAt', store.now()) : null;
     if (!record) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
     const inbox = await store.getJson(path.join('inboxes', record.inboxId, 'inbox.json'));
     if (!inbox || inbox.ownerHumanId !== record.humanId) return fail(res, 403, 'Enrollment owner is invalid');
@@ -192,10 +190,9 @@ async function route(req, res) {
     const agent = { id: store.id('agent'), name: input.name, slug, address, identity: { type: 'agent-email', address, domain: agentDomain, status: 'sandbox', transport: 'native' }, principalHumanId: record.humanId, capabilities: input.capabilities || [], permissions: record.permissions, credentialHash: hashSecret(agentApiToken), createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
     await store.ensureInbox(record.inboxId);
     await store.putJson(path.join('inboxes', record.inboxId, 'agents', `${agent.id}.json`), agent);
+    await store.putJson(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId: record.inboxId, address: agent.address, status: agent.status });
     await store.putJson(path.join('auth', 'agent-credentials', `${agent.credentialHash}.json`), { agentId: agent.id, inboxId: record.inboxId });
     await store.putJson(path.join('inboxes', record.inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: createdAt });
-    record.usedAt = createdAt;
-    await store.putJson(path.join('auth', 'enrollment-tokens', `${record.id}.json`), record);
     inbox.status = 'active';
     await store.putJson(path.join('inboxes', record.inboxId, 'inbox.json'), inbox);
     await audit(record.inboxId, 'agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions });
@@ -267,7 +264,7 @@ async function route(req, res) {
     if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
     const rawToken = crypto.randomBytes(32).toString('base64url');
     const record = { id: store.id('enrollment'), tokenHash: hashSecret(rawToken), inboxId, humanId: human.id, permissions, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
-    await store.putJson(path.join('auth', 'enrollment-tokens', `${record.id}.json`), record);
+    await store.putJson(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record);
     await audit(inboxId, 'agent.enrollment_token_created', { enrollmentId: record.id, humanId: human.id, permissions });
     return json(res, 201, { enrollmentToken: rawToken, expiresAt: record.expiresAt, permissions });
   }
@@ -387,6 +384,7 @@ async function route(req, res) {
       agentApiToken = `sinaloa_agent_${crypto.randomBytes(32).toString('base64url')}`;
       agent.credentialHash = hashSecret(agentApiToken);
       await store.putJson(path.join('auth', 'agent-credentials', `${agent.credentialHash}.json`), { agentId: agent.id, inboxId });
+      await store.putJson(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId, address: agent.address, status: agent.status });
       inbox.status = 'active';
       await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
     }
@@ -397,25 +395,39 @@ async function route(req, res) {
     return json(res, 200, { agent: publicAgent(agent), ...(agentApiToken ? { agentApiToken } : {}) });
   }
 
-  if (req.method === 'GET' && suffix === 'cases') return json(res, 200, await listCases(inboxId));
-  if (req.method === 'GET' && suffix === 'messages') return json(res, 200, await listMessages(inboxId, url.searchParams.get('caseId')));
+  if (req.method === 'GET' && suffix === 'cases') return json(res, 200, await listCases(inboxId, { limit: url.searchParams.get('limit'), before: url.searchParams.get('before') }));
+  if (req.method === 'GET' && suffix === 'messages') return json(res, 200, await listMessages(inboxId, url.searchParams.get('caseId'), { limit: url.searchParams.get('limit'), before: url.searchParams.get('before') }));
 
   if (req.method === 'POST' && suffix === 'messages') {
     const input = await body(req);
     if (!input.senderAgentId || !input.recipientAgentId || !input.text) return fail(res, 400, 'senderAgentId, recipientAgentId, and text are required');
+    const idempotencyKey = req.headers['idempotency-key'] || input.idempotencyKey;
+    if (!idempotencyKey) return fail(res, 400, 'Idempotency-Key header is required');
     const sender = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.senderAgentId}.json`));
     if (!sender) return fail(res, 403, 'Only registered agents may send messages');
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || principal.id !== sender.id) return fail(res, 401, 'Valid sender agent credential required');
     if (!hasPermission(sender, 'send_agent_messages')) return fail(res, 403, 'Agent is pending approval or lacks send_agent_messages permission');
-    const blocked = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`));
+    const recipientDirectory = await store.getJson(path.join('directory', 'agents', `${input.recipientAgentId}.json`));
+    if (!recipientDirectory || recipientDirectory.status !== 'active') return fail(res, 404, 'Recipient agent not found');
+    const recipient = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'agents', `${input.recipientAgentId}.json`));
+    if (!recipient || !hasPermission(recipient, 'receive_agent_messages')) return fail(res, 403, 'Recipient agent is not approved to receive messages');
+    const blocked = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'contacts', `${input.senderAgentId}.json`));
     if (blocked?.blocked) return fail(res, 403, 'Recipient is blocked');
-    const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderType: 'agent', senderAgentId: input.senderAgentId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
-    await store.putJson(path.join('inboxes', inboxId, 'messages', `${message.id}.json`), message);
-    const caseRecord = await store.getJson(path.join('inboxes', inboxId, 'cases', `${message.caseId}.json`), { id: message.caseId, inboxId, status: 'active', participantAgentIds: [message.senderAgentId, message.recipientAgentId], createdAt: message.createdAt });
-    caseRecord.updatedAt = message.createdAt;
-    await store.putJson(path.join('inboxes', inboxId, 'cases', `${message.caseId}.json`), caseRecord);
-    await audit(inboxId, 'message.created', { messageId: message.id, caseId: message.caseId, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId });
+    const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
+    const existing = await store.getJson(path.join('inboxes', inboxId, 'messages', `${messageId}.json`));
+    if (existing) {
+      const sameRequest = existing.recipientAgentId === input.recipientAgentId && existing.text === input.text && JSON.stringify(existing.payload) === JSON.stringify(input.payload || null);
+      return sameRequest ? json(res, 200, existing) : fail(res, 409, 'Idempotency key was already used for a different message');
+    }
+    const message = { id: messageId, caseId: input.caseId || store.id('case'), senderInboxId: inboxId, recipientInboxId: recipientDirectory.inboxId, senderType: 'agent', senderAgentId: input.senderAgentId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'delivered' };
+    for (const targetInboxId of new Set([inboxId, recipientDirectory.inboxId])) {
+      await store.putJson(path.join('inboxes', targetInboxId, 'messages', `${message.id}.json`), message);
+      const caseRecord = await store.getJson(path.join('inboxes', targetInboxId, 'cases', `${message.caseId}.json`), { id: message.caseId, inboxId: targetInboxId, status: 'active', participantAgentIds: [message.senderAgentId, message.recipientAgentId], createdAt: message.createdAt });
+      caseRecord.updatedAt = message.createdAt;
+      await store.putJson(path.join('inboxes', targetInboxId, 'cases', `${message.caseId}.json`), caseRecord);
+      await audit(targetInboxId, 'message.delivered', { messageId: message.id, caseId: message.caseId, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId, senderInboxId: inboxId, recipientInboxId: recipientDirectory.inboxId });
+    }
     return json(res, 201, message);
   }
 
