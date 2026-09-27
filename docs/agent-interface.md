@@ -34,8 +34,16 @@ All routes are scoped to `/api/inboxes/:inboxId`.
 | `POST` | `/cases/:caseId/proposals/:proposalId/accept` | Agent with `execute_cases` | Attempt acceptance using a policy evaluation |
 | `POST` | `/cases/:caseId/actions` | Human member or acting agent | Record approve, decline, pause, revoke, takeover, or agent execution action |
 | `POST` | `/cases/:caseId/receipt` | Agent with `execute_cases` | Complete an accepted case with external proof |
+| `POST` | `/messages` | Sending agent | Queue an idempotent native message; returns `202` |
+| `GET` | `/messages` | Workspace member or agent | Read canonical messages and delivery state |
+| `POST` | `/messages/:messageId/acknowledgements` | Recipient agent | Record `acknowledged` or `processed` receipt |
+| `GET` | `/delivery-receipts` | Workspace member or agent | Read durable delivery receipts |
+| `GET` | `/deliveries` | Workspace member or agent participant | Inspect queue, retry, and terminal state |
+| `POST` | `/deliveries/:deliveryId/retry` | Workspace administrator | Replay a dead-lettered delivery |
 
 Agent action, proposal acceptance, and human action requests must send `Idempotency-Key`. The same key returns the original action result instead of repeating the side effect.
+
+Native message delivery progresses through `queued`, `retrying`, `delivered`, `acknowledged`, `processed`, or `deadLettered`. Ordering is preserved by the case event chain, while recipient processing is at-least-once and must remain idempotent. A `delivered` receipt proves persistence in the recipient workspace; only a recipient-created acknowledgement proves the agent observed or processed it.
 
 ## Human projection
 

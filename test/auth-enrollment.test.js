@@ -23,6 +23,16 @@ async function request(baseUrl, pathname, { token, body, headers = {}, method = 
   return { status: response.status, payload };
 }
 
+async function waitFor(check, { timeoutMs = 5000, intervalMs = 25 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await check();
+    if (value) return value;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  throw new Error('Timed out waiting for asynchronous delivery');
+}
+
 test('verified human issues a single-use permissioned agent enrollment', async t => {
   const server = await startServer();
   t.after(server.stop);
@@ -69,8 +79,13 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(spoofed.status, 401);
   const messageBody = { senderAgentId: enrolled.payload.agent.id, recipientAgentId: recipient.payload.agent.id, text: 'authenticated cross-inbox message' };
   const sent = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-1' }, body: messageBody });
-  assert.equal(sent.status, 201);
-  assert.equal(sent.payload.status, 'delivered');
+  assert.equal(sent.status, 202);
+  assert.equal(sent.payload.status, 'queued');
+  const delivered = await waitFor(async () => {
+    const response = await request(server.baseUrl, `/api/inboxes/${recipientWorkspace.payload.id}/messages`, { token: sessionToken });
+    return response.payload.find(item => item.id === sent.payload.id && item.status === 'delivered');
+  });
+  assert.ok(delivered.deliveredAt);
   const retry = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-1' }, body: messageBody });
   assert.equal(retry.status, 200);
   assert.equal(retry.payload.id, sent.payload.id);
@@ -82,8 +97,27 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(visible.status, 200);
   assert.equal(visible.payload.length, 1);
   assert.equal(visible.payload[0].id, sent.payload.id);
+  assert.equal(visible.payload[0].status, 'delivered');
+  const acknowledged = await request(server.baseUrl, `/api/inboxes/${recipientWorkspace.payload.id}/messages/${sent.payload.id}/acknowledgements`, { token: recipient.payload.agentApiToken, headers: { 'Idempotency-Key': 'ack-message-1' }, body: { state: 'acknowledged' } });
+  assert.equal(acknowledged.status, 201);
+  assert.equal(acknowledged.payload.state, 'acknowledged');
+  const acknowledgedReplay = await request(server.baseUrl, `/api/inboxes/${recipientWorkspace.payload.id}/messages/${sent.payload.id}/acknowledgements`, { token: recipient.payload.agentApiToken, headers: { 'Idempotency-Key': 'ack-message-1' }, body: { state: 'acknowledged' } });
+  assert.equal(acknowledgedReplay.status, 200);
+  const processed = await request(server.baseUrl, `/api/inboxes/${recipientWorkspace.payload.id}/messages/${sent.payload.id}/acknowledgements`, { token: recipient.payload.agentApiToken, headers: { 'Idempotency-Key': 'processed-message-1' }, body: { state: 'processed' } });
+  assert.equal(processed.status, 201);
+  assert.equal(processed.payload.state, 'processed');
+  const receipts = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/delivery-receipts`, { token: sessionToken });
+  assert.ok(receipts.payload.some(receipt => receipt.messageId === sent.payload.id && receipt.state === 'delivered'));
+  assert.ok(receipts.payload.some(receipt => receipt.messageId === sent.payload.id && receipt.state === 'acknowledged'));
+  assert.ok(receipts.payload.some(receipt => receipt.messageId === sent.payload.id && receipt.state === 'processed'));
+  const deliveries = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/deliveries`, { token: sessionToken });
+  assert.ok(deliveries.payload.some(delivery => delivery.messageId === sent.payload.id && delivery.status === 'delivered'));
   const second = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-2' }, body: { ...messageBody, text: 'second message' } });
-  assert.equal(second.status, 201);
+  assert.equal(second.status, 202);
+  await waitFor(async () => {
+    const response = await request(server.baseUrl, `/api/inboxes/${recipientWorkspace.payload.id}/messages`, { token: sessionToken });
+    return response.payload.find(item => item.id === second.payload.id && item.status === 'delivered');
+  });
   const firstPage = await request(server.baseUrl, `/api/inboxes/${recipientWorkspace.payload.id}/messages?limit=1`, { token: sessionToken });
   assert.equal(firstPage.payload.length, 1);
   assert.equal(firstPage.payload[0].id, second.payload.id);

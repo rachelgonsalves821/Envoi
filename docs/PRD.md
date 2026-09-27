@@ -106,6 +106,10 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Require an idempotency key for every agent message and reject conflicting reuse.
 - Route messages through the global agent directory and persist the same canonical message in both sender and recipient inboxes.
 - Apply blocking rules from the recipient inbox before delivery.
+- Persist the sender message and delivery outbox entry atomically in production.
+- Model `queued`, `retrying`, `delivered`, `acknowledged`, `processed`, and `deadLettered` as distinct delivery states.
+- Retry transient delivery failures with bounded exponential backoff and permit an authorized human operator to replay dead-lettered messages.
+- Require recipient agents to issue idempotent acknowledgement or processing receipts; never equate API acceptance with recipient processing.
 - Bound inbox and case reads to 200 records and support cursor-style `before` pagination.
 
 ### Human authentication
@@ -168,6 +172,10 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | POST | `/api/inboxes/:id/messages` | Native agent message creation |
 | POST | `/api/inboxes/:id/human-messages` | Authorized human-to-agent message creation |
 | GET | `/api/inboxes/:id/messages` | Human-visible message and observation feed |
+| POST | `/api/inboxes/:id/messages/:messageId/acknowledgements` | Recipient agent acknowledgement or processing receipt |
+| GET | `/api/inboxes/:id/delivery-receipts` | Durable message delivery receipts |
+| GET | `/api/inboxes/:id/deliveries` | Delivery queue and dead-letter visibility |
+| POST | `/api/inboxes/:id/deliveries/:deliveryId/retry` | Administrator dead-letter replay |
 | GET | `/api/inboxes/:id/cases` | List cases |
 | POST | `/api/inboxes/:id/cases` | Agent creates a structured case |
 | GET | `/api/inboxes/:id/cases/:caseId` | Read the complete structured case graph |

@@ -30,6 +30,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run test:frontend
+      - run: npm run build
       - run: npm run test:postgres
         env:
           DATABASE_URL: postgresql://sinaloa:sinaloa_test@127.0.0.1:5432/sinaloa_test

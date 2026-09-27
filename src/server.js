@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
 import { createHumanAuth } from './human-auth.js';
 import { sessionCookieHeader } from './workos-auth.js';
+import { DeliveryWorker } from './delivery-worker.js';
 import {
   acceptProposal,
   addPolicyEvaluation,
@@ -25,6 +26,7 @@ const dataDir = process.env.SINALOA_DATA_DIR || path.resolve('data');
 const maxBodyBytes = Number(process.env.SINALOA_MAX_BODY_BYTES || 10 * 1024 * 1024);
 const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
 const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'sinaloa.mail';
+const deliveryMaxAttempts = Number(process.env.SINALOA_DELIVERY_MAX_ATTEMPTS || 5);
 const allowedPermissions = new Set(['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', 'use_email_transport']);
 const actionPermission = actionKey => actionKey.startsWith('message.') ? 'send_agent_messages' : actionKey.startsWith('email.') ? 'use_email_transport' : 'execute_cases';
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
@@ -96,6 +98,43 @@ const audit = async (inboxId, type, data) => {
   publish(inboxId, event);
   return event;
 };
+
+const document = (relative, value) => ({ path: relative, value });
+const messagePath = (inboxId, messageId) => path.join('inboxes', inboxId, 'messages', `${messageId}.json`);
+const deliveryReceiptPath = (inboxId, receiptId) => path.join('inboxes', inboxId, 'delivery-receipts', `${receiptId}.json`);
+const auditRecord = (inboxId, type, data, createdAt = store.now()) => {
+  const event = { id: store.id('evt'), type, createdAt, ...data };
+  return { event, document: document(path.join('inboxes', inboxId, 'events', `${event.id}.json`), event) };
+};
+
+function setCaseMessageDeliveryState(value, message, state, at) {
+  const eventId = `evt_${message.id}`;
+  const existing = value.events.find(item => item.id === eventId);
+  if (existing) {
+    existing.payload = { ...existing.payload, deliveryState: state };
+    value.updatedAt = at;
+    return value;
+  }
+  appendEvent(value, {
+    id: eventId,
+    type: 'message',
+    actor: message.senderAgentId,
+    createdAt: message.createdAt,
+    payload: {
+      messageId: message.id,
+      messageType: message.type,
+      text: message.text,
+      data: message.payload,
+      senderAgentId: message.senderAgentId,
+      recipientAgentId: message.recipientAgentId,
+      deliveryState: state
+    },
+    linkedPolicyEvaluation: null,
+    precedingEventRef: value.events.at(-1)?.id || null
+  });
+  value.updatedAt = at;
+  return value;
+}
 
 async function getMembership(organizationId, humanId) {
   if (!organizationId || !humanId) return null;
@@ -224,6 +263,106 @@ async function ensureStructuredCase(inbox, input, actorAgentId, at) {
   return value;
 }
 
+const permanentDeliveryError = message => Object.assign(new Error(message), { permanent: true });
+
+async function deliverQueuedMessage(outbox) {
+  if (outbox.kind !== 'nativeAgentMessage') throw permanentDeliveryError(`Unsupported outbox kind: ${outbox.kind}`);
+  const queued = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
+  if (!queued) throw permanentDeliveryError('Queued message no longer exists');
+  const directory = await store.getJson(path.join('directory', 'agents', `${queued.recipientAgentId}.json`));
+  if (!directory || directory.status !== 'active' || directory.inboxId !== outbox.recipientInboxId) throw permanentDeliveryError('Recipient agent is unavailable');
+  const recipient = await store.getJson(path.join('inboxes', directory.inboxId, 'agents', `${queued.recipientAgentId}.json`));
+  if (!recipient || !hasPermission(recipient, 'receive_agent_messages')) throw permanentDeliveryError('Recipient is not approved to receive messages');
+  const contact = await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${queued.senderAgentId}.json`));
+  if (contact?.blocked) throw permanentDeliveryError('Recipient blocked the sender before delivery');
+
+  const deliveredAt = store.now();
+  const delivered = { ...queued, status: 'delivered', deliveredAt };
+  const receipt = {
+    id: `delivery_receipt_${queued.id}_delivered`,
+    type: 'delivery',
+    messageId: queued.id,
+    senderAgentId: queued.senderAgentId,
+    recipientAgentId: queued.recipientAgentId,
+    state: 'delivered',
+    attempt: Number(outbox.attempts || 0) + 1,
+    createdAt: deliveredAt
+  };
+  const documents = [];
+  const events = [];
+  for (const targetInboxId of new Set([outbox.senderInboxId, outbox.recipientInboxId])) {
+    const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
+    if (!targetInbox) throw permanentDeliveryError('Delivery target workspace no longer exists');
+    const currentCase = await ensureStructuredCase(targetInbox, { ...delivered, caseId: delivered.caseId }, delivered.senderAgentId, delivered.createdAt);
+    const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), delivered, 'delivered', deliveredAt);
+    const auditEntry = auditRecord(targetInboxId, 'message.delivered', {
+      messageId: delivered.id,
+      caseId: delivered.caseId,
+      senderAgentId: delivered.senderAgentId,
+      recipientAgentId: delivered.recipientAgentId,
+      senderInboxId: outbox.senderInboxId,
+      recipientInboxId: outbox.recipientInboxId,
+      deliveryId: outbox.id
+    }, deliveredAt);
+    documents.push(
+      document(messagePath(targetInboxId, delivered.id), delivered),
+      document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase),
+      document(deliveryReceiptPath(targetInboxId, receipt.id), receipt),
+      auditEntry.document
+    );
+    events.push({ inboxId: targetInboxId, event: auditEntry.event });
+  }
+  return { documents, result: { messageId: delivered.id, receiptId: receipt.id, deliveredAt }, events };
+}
+
+async function recordDeliveryFailure(outbox, error, { attempt, deadLettered }) {
+  const queued = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
+  if (!queued) return { documents: [], events: [] };
+  const at = store.now();
+  const state = deadLettered ? 'deadLettered' : 'retrying';
+  const failed = { ...queued, status: state, lastDeliveryError: String(error?.message || error).slice(0, 1000), deliveryAttempts: attempt, updatedAt: at };
+  const documents = [document(messagePath(outbox.senderInboxId, failed.id), failed)];
+  const events = [];
+  const senderInbox = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'inbox.json'));
+  if (senderInbox) {
+    const currentCase = await ensureStructuredCase(senderInbox, { ...failed, caseId: failed.caseId }, failed.senderAgentId, failed.createdAt);
+    const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), failed, state, at);
+    documents.push(document(caseRecordPath(outbox.senderInboxId, updatedCase.id), updatedCase));
+  }
+  const auditEntry = auditRecord(outbox.senderInboxId, deadLettered ? 'message.dead_lettered' : 'message.retry_scheduled', {
+    messageId: failed.id,
+    deliveryId: outbox.id,
+    attempt,
+    error: failed.lastDeliveryError
+  }, at);
+  documents.push(auditEntry.document);
+  events.push({ inboxId: outbox.senderInboxId, event: auditEntry.event });
+  if (deadLettered) {
+    const receipt = {
+      id: `delivery_receipt_${failed.id}_failed`,
+      type: 'delivery',
+      messageId: failed.id,
+      senderAgentId: failed.senderAgentId,
+      recipientAgentId: failed.recipientAgentId,
+      state,
+      attempt,
+      error: failed.lastDeliveryError,
+      createdAt: at
+    };
+    documents.push(document(deliveryReceiptPath(outbox.senderInboxId, receipt.id), receipt));
+  }
+  return { documents, events };
+}
+
+const deliveryWorker = new DeliveryWorker({
+  store,
+  deliver: deliverQueuedMessage,
+  onFailure: recordDeliveryFailure,
+  onSettled: async (_record, events) => {
+    for (const { inboxId, event } of events) publish(inboxId, event);
+  }
+});
+
 async function participantDirectoryForHuman(inbox, agents, cases) {
   const localAgents = new Map(agents.map(agent => [agent.id, agent]));
   const ids = new Set();
@@ -248,12 +387,13 @@ async function participantDirectoryForHuman(inbox, agents, cases) {
 }
 
 async function humanView(inboxId, inbox) {
-  const [agents, cases, messages, assets, events] = await Promise.all([
+  const [agents, cases, messages, assets, events, deliveryReceipts] = await Promise.all([
     store.listJson(path.join('inboxes', inboxId, 'agents')),
     listCases(inboxId),
     listMessages(inboxId),
     store.listJson(path.join('inboxes', inboxId, 'assets')),
-    store.listJson(path.join('inboxes', inboxId, 'events'))
+    store.listJson(path.join('inboxes', inboxId, 'events')),
+    store.listJson(path.join('inboxes', inboxId, 'delivery-receipts'))
   ]);
   const projection = projectWorkspaceForHuman(cases);
   const participantDirectory = await participantDirectoryForHuman(inbox, agents, cases);
@@ -269,6 +409,7 @@ async function humanView(inboxId, inbox) {
     cases,
     messages,
     assets,
+    deliveryReceipts: deliveryReceipts.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     recentEvents: events.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100)
   };
 }
@@ -276,10 +417,11 @@ async function humanView(inboxId, inbox) {
 async function agentView(inboxId, inbox, agentId) {
   const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
   if (!agent) return null;
-  const [cases, messages, assets] = await Promise.all([
+  const [cases, messages, assets, deliveryReceipts] = await Promise.all([
     listCases(inboxId),
     listMessages(inboxId),
-    store.listJson(path.join('inboxes', inboxId, 'assets'))
+    store.listJson(path.join('inboxes', inboxId, 'assets')),
+    store.listJson(path.join('inboxes', inboxId, 'delivery-receipts'))
   ]);
   return {
     inbox,
@@ -290,7 +432,8 @@ async function agentView(inboxId, inbox, agentId) {
       assignedMessages: messages.filter((item) => item.recipientAgentId === agentId),
       authoredMessages: messages.filter((item) => item.senderAgentId === agentId),
       activeCases: cases.filter((item) => item.status === 'active' && item.participantAgentIds?.includes(agentId)),
-      createdAssets: assets.filter((item) => item.createdByAgentId === agentId)
+      createdAssets: assets.filter((item) => item.createdByAgentId === agentId),
+      deliveryReceipts: deliveryReceipts.filter(item => item.senderAgentId === agentId || item.recipientAgentId === agentId)
     }
   };
 }
@@ -756,6 +899,91 @@ async function route(req, res) {
 
   if (req.method === 'GET' && suffix === 'cases') return json(res, 200, await listCases(inboxId, { limit: url.searchParams.get('limit'), before: url.searchParams.get('before') }));
   if (req.method === 'GET' && suffix === 'messages') return json(res, 200, await listMessages(inboxId, url.searchParams.get('caseId'), { limit: url.searchParams.get('limit'), before: url.searchParams.get('before') }));
+  if (req.method === 'GET' && suffix === 'delivery-receipts') {
+    const receipts = await store.listJson(path.join('inboxes', inboxId, 'delivery-receipts'));
+    return json(res, 200, receipts.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));
+  }
+  if (req.method === 'GET' && suffix === 'deliveries') {
+    const human = await auth.getHuman(req);
+    const agent = await getAgentPrincipal(req, inboxId);
+    let deliveries = await store.queryOutbox({ inboxId, status: url.searchParams.get('status'), limit: url.searchParams.get('limit') });
+    if (!human && agent) {
+      const visible = [];
+      for (const delivery of deliveries) {
+        const message = await store.getJson(messagePath(delivery.senderInboxId, delivery.messageId));
+        if (message && [message.senderAgentId, message.recipientAgentId].includes(agent.id)) visible.push(delivery);
+      }
+      deliveries = visible;
+    }
+    return json(res, 200, deliveries);
+  }
+
+  const retryDeliveryRoute = suffix.match(/^deliveries\/([^/]+)\/retry$/);
+  if (req.method === 'POST' && retryDeliveryRoute) {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const existingDelivery = await store.getOutbox(retryDeliveryRoute[1]);
+    if (!existingDelivery || ![existingDelivery.senderInboxId, existingDelivery.recipientInboxId].includes(inboxId)) return fail(res, 404, 'Delivery not found');
+    if (existingDelivery.status !== 'deadLettered') return fail(res, 409, 'Only dead-lettered deliveries can be retried');
+    const message = await store.getJson(messagePath(existingDelivery.senderInboxId, existingDelivery.messageId));
+    const at = store.now();
+    const queued = message ? { ...message, status: 'queued', queuedAt: at, updatedAt: at, lastDeliveryError: null, deliveryAttempts: 0 } : null;
+    const auditEntry = auditRecord(existingDelivery.senderInboxId, 'message.dead_letter_requeued', { messageId: existingDelivery.messageId, deliveryId: existingDelivery.id, actor: human.id }, at);
+    const documents = [auditEntry.document, ...(queued ? [document(messagePath(existingDelivery.senderInboxId, queued.id), queued)] : [])];
+    const retried = await store.retryOutbox(existingDelivery.id, documents);
+    if (!retried) return fail(res, 409, 'Delivery could not be retried');
+    publish(existingDelivery.senderInboxId, auditEntry.event);
+    deliveryWorker.kick();
+    return json(res, 202, retried);
+  }
+
+  const acknowledgementRoute = suffix.match(/^messages\/([^/]+)\/acknowledgements$/);
+  if (req.method === 'POST' && acknowledgementRoute) {
+    const principal = await getAgentPrincipal(req, inboxId);
+    if (!principal) return fail(res, 401, 'Recipient agent credential required');
+    const input = await body(req);
+    const idempotencyKey = req.headers['idempotency-key'] || input.idempotencyKey;
+    if (!idempotencyKey) return fail(res, 400, 'Idempotency-Key header is required');
+    const message = await store.getJson(messagePath(inboxId, acknowledgementRoute[1]));
+    if (!message || message.recipientAgentId !== principal.id) return fail(res, 404, 'Delivered message not found for this agent');
+    const state = input.state || 'acknowledged';
+    if (!['acknowledged', 'processed'].includes(state)) return fail(res, 400, 'Acknowledgement state must be acknowledged or processed');
+    if (!['delivered', 'acknowledged', 'processed'].includes(message.status)) return fail(res, 409, 'Message has not been delivered');
+    const receiptId = `delivery_receipt_${message.id}_${state}`;
+    const existingReceipt = await store.getJson(deliveryReceiptPath(inboxId, receiptId));
+    if (existingReceipt) return json(res, 200, existingReceipt);
+    const at = store.now();
+    const updated = { ...message, status: state, [`${state}At`]: at, updatedAt: at };
+    const receipt = {
+      id: receiptId,
+      type: 'delivery',
+      messageId: message.id,
+      senderAgentId: message.senderAgentId,
+      recipientAgentId: message.recipientAgentId,
+      state,
+      idempotencyKeyHash: hashSecret(idempotencyKey),
+      createdAt: at
+    };
+    const documents = [];
+    const events = [];
+    for (const targetInboxId of new Set([message.senderInboxId, message.recipientInboxId])) {
+      const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
+      if (!targetInbox) continue;
+      const currentCase = await ensureStructuredCase(targetInbox, { ...updated, caseId: updated.caseId }, updated.senderAgentId, updated.createdAt);
+      const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), updated, state, at);
+      const auditEntry = auditRecord(targetInboxId, `message.${state}`, { messageId: message.id, caseId: message.caseId, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId }, at);
+      documents.push(
+        document(messagePath(targetInboxId, message.id), updated),
+        document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase),
+        document(deliveryReceiptPath(targetInboxId, receipt.id), receipt),
+        auditEntry.document
+      );
+      events.push({ inboxId: targetInboxId, event: auditEntry.event });
+    }
+    await store.putJsonBatch(documents);
+    for (const { inboxId: targetInboxId, event } of events) publish(targetInboxId, event);
+    return json(res, 201, receipt);
+  }
 
   if (req.method === 'POST' && suffix === 'messages') {
     const input = await body(req);
@@ -774,21 +1002,64 @@ async function route(req, res) {
     const blocked = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'contacts', `${input.senderAgentId}.json`));
     if (blocked?.blocked) return fail(res, 403, 'Recipient is blocked');
     const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
-    const existing = await store.getJson(path.join('inboxes', inboxId, 'messages', `${messageId}.json`));
+    const requestHash = hashSecret(JSON.stringify({ senderAgentId: input.senderAgentId, recipientAgentId: input.recipientAgentId, caseId: input.caseId || null, type: input.type || 'message', text: input.text, payload: input.payload || null }));
+    const existing = await store.getJson(messagePath(inboxId, messageId));
     if (existing) {
-      const sameRequest = existing.recipientAgentId === input.recipientAgentId && existing.text === input.text && JSON.stringify(existing.payload) === JSON.stringify(input.payload || null);
+      const sameRequest = existing.requestHash ? existing.requestHash === requestHash : existing.recipientAgentId === input.recipientAgentId && existing.text === input.text && JSON.stringify(existing.payload) === JSON.stringify(input.payload || null);
       return sameRequest ? json(res, 200, existing) : fail(res, 409, 'Idempotency key was already used for a different message');
     }
-    const message = { id: messageId, caseId: input.caseId || store.id('case'), senderInboxId: inboxId, recipientInboxId: recipientDirectory.inboxId, senderType: 'agent', senderAgentId: input.senderAgentId, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'delivered' };
-    for (const targetInboxId of new Set([inboxId, recipientDirectory.inboxId])) {
-      await store.putJson(path.join('inboxes', targetInboxId, 'messages', `${message.id}.json`), message);
-      const targetInbox = targetInboxId === inboxId ? inbox : await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
-      const caseRecord = await ensureStructuredCase(targetInbox, { ...input, caseId: message.caseId }, message.senderAgentId, message.createdAt);
-      appendEvent(caseRecord, { id: `evt_${message.id}`, type: 'message', actor: message.senderAgentId, createdAt: message.createdAt, payload: { messageId: message.id, messageType: message.type, text: message.text, data: message.payload, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId, deliveryState: message.status }, linkedPolicyEvaluation: null, precedingEventRef: caseRecord.events.at(-1)?.id || null });
-      await saveCase(targetInboxId, caseRecord);
-      await audit(targetInboxId, 'message.delivered', { messageId: message.id, caseId: message.caseId, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId, senderInboxId: inboxId, recipientInboxId: recipientDirectory.inboxId });
-    }
-    return json(res, 201, message);
+    const createdAt = store.now();
+    const message = {
+      id: messageId,
+      caseId: input.caseId || store.id('case'),
+      senderInboxId: inboxId,
+      recipientInboxId: recipientDirectory.inboxId,
+      senderType: 'agent',
+      senderAgentId: input.senderAgentId,
+      recipientAgentId: input.recipientAgentId,
+      type: input.type || 'message',
+      text: input.text,
+      payload: input.payload || null,
+      requestHash,
+      createdAt,
+      queuedAt: createdAt,
+      status: 'queued'
+    };
+    const currentCase = await ensureStructuredCase(inbox, { ...input, caseId: message.caseId }, message.senderAgentId, message.createdAt);
+    const queuedCase = setCaseMessageDeliveryState(structuredClone(currentCase), message, 'queued', createdAt);
+    const auditEntry = auditRecord(inboxId, 'message.queued', {
+      messageId: message.id,
+      caseId: message.caseId,
+      senderAgentId: message.senderAgentId,
+      recipientAgentId: message.recipientAgentId,
+      senderInboxId: inboxId,
+      recipientInboxId: recipientDirectory.inboxId
+    }, createdAt);
+    const outbox = {
+      id: `delivery_${message.id}`,
+      kind: 'nativeAgentMessage',
+      messageId: message.id,
+      senderInboxId: inboxId,
+      recipientInboxId: recipientDirectory.inboxId,
+      orderingKey: message.caseId,
+      requestHash,
+      status: 'queued',
+      attempts: 0,
+      maxAttempts: deliveryMaxAttempts,
+      availableAt: createdAt,
+      createdAt,
+      updatedAt: createdAt
+    };
+    const queuedDelivery = await store.enqueueOutbox([
+      document(messagePath(inboxId, message.id), message),
+      document(caseRecordPath(inboxId, queuedCase.id), queuedCase),
+      auditEntry.document
+    ], outbox);
+    if (queuedDelivery.requestHash && queuedDelivery.requestHash !== requestHash) return fail(res, 409, 'Idempotency key was already used for a different message');
+    publish(inboxId, auditEntry.event);
+    deliveryWorker.kick();
+    const responseMessage = queuedDelivery.enqueueCreated ? message : await store.getJson(messagePath(inboxId, message.id), message);
+    return json(res, 202, responseMessage);
   }
 
   if (req.method === 'POST' && suffix === 'human-messages') {
@@ -839,6 +1110,7 @@ async function route(req, res) {
 }
 
 await store.init();
+deliveryWorker.start();
 const server = http.createServer((req, res) => route(req, res).catch((error) => fail(res, error.statusCode || 500, error.message)));
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
@@ -846,7 +1118,11 @@ server.listen(port, host, () => console.log(`Sinaloa backend listening on http:/
 
 const shutdown = () => {
   for (const set of streams.values()) for (const res of set) res.end();
-  server.close(async () => { if (store.close) await store.close(); process.exit(0); });
+  server.close(async () => {
+    await deliveryWorker.stop();
+    if (store.close) await store.close();
+    process.exit(0);
+  });
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
