@@ -14,6 +14,18 @@ On the implementation baseline, local checks passed: backend **90 passed, 8 live
 
 The remaining work below does not reassign those implemented foundations. In particular, the partner should extend the existing MCP and work APIs, not build a second transport or reimplement Rachel's SDK, bridges or UI.
 
+## Mandatory MCP beta gate
+
+**Remote MCP is required for beta launch. It is not marked complete by the local `/mcp` tests or by the current REST wake/reply bridges.** Before inviting users, an independently hosted OpenClaw agent and a Grok-backed agent using the xAI API must each use Sinaloa's deployed HTTPS MCP endpoint with renewable credentials. Each must complete the shared two-case, typed-message and safe-file journey, receive unsolicited work through its durable bridge, reply once after restart, and stop after revocation. Cross-tenant and unauthorized MCP calls must fail.
+
+| Piece of this gate | Accountable owner | Depends on |
+| --- | --- | --- |
+| Hosted MCP server, tool schemas, authorization and renewal contract | Partner — P4 | P1 shared case state, P2 file grants and P5 Cloudflare deployment |
+| OpenClaw and Grok/xAI client setup, renewing connector or trusted relay, and real-provider test evidence | Rachel — R2 | Partner's published P4 contract and staging endpoint |
+| Same end-to-end result visible in both human accounts | Rachel — R1/R3 for UI/product proof; partner — P1/P3 for server state and controls | The shared staging fixture |
+
+MCP tool discovery alone is insufficient. A static token that expires during unattended use is insufficient. A working REST-only bridge without a working hosted MCP call is insufficient.
+
 ## Ownership and integration rule
 
 | Area | Rachel owns | Partner owns |
