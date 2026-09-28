@@ -85,6 +85,23 @@ export function validateProductionConfiguration(env = process.env) {
     required(env, 'RESEND_WEBHOOK_SECRET', errors);
   }
 
+  if (env.SINALOA_ENABLE_CALENDAR_WRITES === 'true') {
+    const providers = [
+      ['GOOGLE_CALENDAR_CLIENT_ID', 'GOOGLE_CALENDAR_CLIENT_SECRET', 'GOOGLE_CALENDAR_REDIRECT_URI'],
+      ['MICROSOFT_CALENDAR_CLIENT_ID', 'MICROSOFT_CALENDAR_CLIENT_SECRET', 'MICROSOFT_CALENDAR_REDIRECT_URI']
+    ];
+    const configured = providers.filter(names => names.every(name => String(env[name] || '').trim()));
+    if (!configured.length) errors.push('At least one complete calendar OAuth provider is required when calendar writes are enabled');
+    for (const names of providers) {
+      const present = names.filter(name => String(env[name] || '').trim());
+      if (present.length && present.length !== names.length) errors.push(`${names[0].replace('_CLIENT_ID', '')} OAuth configuration must include client ID, client secret, and redirect URI`);
+      if (present.length === names.length) {
+        const providerRedirect = httpsUrl(env[names[2]], names[2], errors);
+        if (providerRedirect && publicUrl && providerRedirect.origin !== publicUrl.origin) errors.push(`${names[2]} must use the SINALOA_PUBLIC_URL origin`);
+      }
+    }
+  }
+
   const positiveIntegerVariables = [
     'SINALOA_PORT', 'SINALOA_MAX_BODY_BYTES', 'SINALOA_DB_POOL_SIZE', 'SINALOA_DB_CONNECT_TIMEOUT_MS',
     'SINALOA_DB_STATEMENT_TIMEOUT_MS', 'SINALOA_DB_QUERY_TIMEOUT_MS', 'SINALOA_REQUEST_TIMEOUT_MS',
@@ -92,11 +109,58 @@ export function validateProductionConfiguration(env = process.env) {
     'SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS', 'SINALOA_DELIVERY_MAX_ATTEMPTS', 'SINALOA_DELIVERY_POLL_MS',
     'SINALOA_DELIVERY_LEASE_MS', 'SINALOA_DELIVERY_RETRY_BASE_MS', 'SINALOA_DELIVERY_RETRY_MAX_MS',
     'SINALOA_OBJECT_MAX_BYTES', 'SINALOA_WORKSPACE_OBJECT_QUOTA_BYTES', 'SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS',
-    'SINALOA_EXTERNAL_EMAIL_AGENT_HOURLY_LIMIT', 'SINALOA_EXTERNAL_EMAIL_RECIPIENT_HOURLY_LIMIT'
+    'SINALOA_S3_REQUEST_TIMEOUT_MS', 'SINALOA_SCAN_WORKER_INTERVAL_MS', 'SINALOA_SCAN_RETENTION_INTERVAL_MS',
+    'SINALOA_SCAN_MAX_ATTEMPTS', 'SINALOA_SCAN_LEASE_MS', 'SINALOA_SCAN_RETRY_BASE_MS', 'SINALOA_SCAN_RETRY_MAX_MS',
+    'SINALOA_SCAN_INFECTED_RETENTION_MS', 'SINALOA_SCAN_DEAD_LETTER_RETENTION_MS', 'SINALOA_SCAN_COMPLETED_JOB_RETENTION_MS', 'SINALOA_SCAN_RETENTION_RETRY_MS',
+    'SINALOA_EXTERNAL_EMAIL_AGENT_HOURLY_LIMIT', 'SINALOA_EXTERNAL_EMAIL_RECIPIENT_HOURLY_LIMIT',
+    'SINALOA_CALENDAR_OAUTH_TIMEOUT_MS', 'SINALOA_OTP_EXPIRY_MINUTES', 'SINALOA_SESSION_HOURS', 'SINALOA_AUTH_FLOW_MINUTES'
   ];
   for (const name of positiveIntegerVariables) {
     if (env[name] !== undefined && (!Number.isSafeInteger(Number(env[name])) || Number(env[name]) < 1)) errors.push(`${name} must be a positive integer`);
   }
+  const maximums = {
+    SINALOA_PORT: 65_535,
+    SINALOA_MAX_BODY_BYTES: 104_857_600,
+    SINALOA_DB_POOL_SIZE: 200,
+    SINALOA_DB_CONNECT_TIMEOUT_MS: 120_000,
+    SINALOA_DB_STATEMENT_TIMEOUT_MS: 120_000,
+    SINALOA_DB_QUERY_TIMEOUT_MS: 120_000,
+    SINALOA_REQUEST_TIMEOUT_MS: 120_000,
+    SINALOA_READINESS_TIMEOUT_MS: 120_000,
+    SINALOA_MAX_SSE_PER_PRINCIPAL: 1_000,
+    SINALOA_AGENT_ACCESS_TOKEN_TTL_SECONDS: 86_400,
+    SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS: 365,
+    SINALOA_DELIVERY_MAX_ATTEMPTS: 100,
+    SINALOA_S3_REQUEST_TIMEOUT_MS: 120_000,
+    SINALOA_CALENDAR_OAUTH_TIMEOUT_MS: 120_000,
+    SINALOA_DELIVERY_POLL_MS: 2_147_483_647,
+    SINALOA_DELIVERY_LEASE_MS: 2_147_483_647,
+    SINALOA_DELIVERY_RETRY_BASE_MS: 2_147_483_647,
+    SINALOA_DELIVERY_RETRY_MAX_MS: 2_147_483_647,
+    SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS: 2_147_483_647,
+    SINALOA_OBJECT_MAX_BYTES: 5_368_709_120,
+    SINALOA_WORKSPACE_OBJECT_QUOTA_BYTES: 1_099_511_627_776,
+    SINALOA_SCAN_WORKER_INTERVAL_MS: 2_147_483_647,
+    SINALOA_SCAN_RETENTION_INTERVAL_MS: 2_147_483_647,
+    SINALOA_SCAN_MAX_ATTEMPTS: 100,
+    SINALOA_SCAN_LEASE_MS: 2_147_483_647,
+    SINALOA_SCAN_RETRY_BASE_MS: 2_147_483_647,
+    SINALOA_SCAN_RETRY_MAX_MS: 2_147_483_647,
+    SINALOA_SCAN_INFECTED_RETENTION_MS: 31_536_000_000,
+    SINALOA_SCAN_DEAD_LETTER_RETENTION_MS: 31_536_000_000,
+    SINALOA_SCAN_COMPLETED_JOB_RETENTION_MS: 31_536_000_000,
+    SINALOA_SCAN_RETENTION_RETRY_MS: 2_147_483_647,
+    SINALOA_OTP_EXPIRY_MINUTES: 60,
+    SINALOA_SESSION_HOURS: 720,
+    SINALOA_AUTH_FLOW_MINUTES: 60,
+    SINALOA_EXTERNAL_EMAIL_AGENT_HOURLY_LIMIT: 100_000,
+    SINALOA_EXTERNAL_EMAIL_RECIPIENT_HOURLY_LIMIT: 100_000
+  };
+  for (const [name, maximum] of Object.entries(maximums)) {
+    if (env[name] !== undefined && Number(env[name]) > maximum) errors.push(`${name} must not exceed ${maximum}`);
+  }
+  if (env.SINALOA_DELIVERY_RETRY_BASE_MS !== undefined && env.SINALOA_DELIVERY_RETRY_MAX_MS !== undefined && Number(env.SINALOA_DELIVERY_RETRY_BASE_MS) > Number(env.SINALOA_DELIVERY_RETRY_MAX_MS)) errors.push('SINALOA_DELIVERY_RETRY_BASE_MS must not exceed SINALOA_DELIVERY_RETRY_MAX_MS');
+  if (env.SINALOA_SCAN_RETRY_BASE_MS !== undefined && env.SINALOA_SCAN_RETRY_MAX_MS !== undefined && Number(env.SINALOA_SCAN_RETRY_BASE_MS) > Number(env.SINALOA_SCAN_RETRY_MAX_MS)) errors.push('SINALOA_SCAN_RETRY_BASE_MS must not exceed SINALOA_SCAN_RETRY_MAX_MS');
 
   if (errors.length) throw new Error(`Invalid production configuration:\n- ${[...new Set(errors)].join('\n- ')}`);
   return { mode: 'production', validated: true, publicOrigin: publicUrl.origin, corsOrigins: origins, platformDomain, externalEmailEnabled, emailDomain, objectStorageProvider: 's3', humanAuthProvider: 'workos', databaseTlsMode: 'verify-full', policyActiveKeyId };

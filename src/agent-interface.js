@@ -143,7 +143,7 @@ export function counterProposal(caseInput, proposalId, { options, at }) {
   return assertValidCase(value);
 }
 
-export function acceptProposal(caseInput, proposalId, optionId, evaluation, { actor, idempotencyKey, actionId, at }) {
+export function acceptProposal(caseInput, proposalId, optionId, evaluation, { actor, idempotencyKey, actionId, externalRefs = {}, at }) {
   let value = addPolicyEvaluation(caseInput, evaluation, { at });
   const proposal = value.proposals.find(item => item.id === proposalId);
   if (!proposal) throw domainError('Proposal not found', 404);
@@ -157,7 +157,7 @@ export function acceptProposal(caseInput, proposalId, optionId, evaluation, { ac
     idempotencyKey,
     outcome: evaluation.decision === 'allow' ? 'ok' : evaluation.decision === 'needsHuman' ? 'needsApproval' : 'denied',
     reasonCode: evaluation.reasonCode,
-    externalRefs: { proposalId, optionId },
+    externalRefs: { ...externalRefs, proposalId, optionId },
     createdAt: at
   });
   if (action.outcome === 'needsApproval') value = transitionCase(value, 'waitingForHuman', { actor, at, reasonCode: evaluation.reasonCode });

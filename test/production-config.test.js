@@ -58,6 +58,21 @@ test('production supports native platform routing without SMTP and conditionally
 test('production rejects insecure database TLS and invalid numeric limits', () => {
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_SSL_MODE: 'disable' })), /verify-full/);
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_POOL_SIZE: 'NaN', SINALOA_REQUEST_TIMEOUT_MS: '0' })), /SINALOA_DB_POOL_SIZE must be a positive integer[\s\S]*SINALOA_REQUEST_TIMEOUT_MS must be a positive integer/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_MAX_BODY_BYTES: '104857601', SINALOA_DB_POOL_SIZE: '201', SINALOA_OBJECT_MAX_BYTES: '5368709121', SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS: '366', SINALOA_SCAN_MAX_ATTEMPTS: '101' })), /SINALOA_MAX_BODY_BYTES must not exceed[\s\S]*SINALOA_DB_POOL_SIZE must not exceed[\s\S]*SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS must not exceed[\s\S]*SINALOA_OBJECT_MAX_BYTES must not exceed[\s\S]*SINALOA_SCAN_MAX_ATTEMPTS must not exceed/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_SCAN_RETRY_BASE_MS: '1000', SINALOA_SCAN_RETRY_MAX_MS: '999' })), /SCAN_RETRY_BASE_MS must not exceed/);
+});
+
+test('production requires complete same-origin calendar OAuth when writes are enabled', () => {
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_ENABLE_CALENDAR_WRITES: 'true' })), /complete calendar OAuth provider/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_ENABLE_CALENDAR_WRITES: 'true', GOOGLE_CALENDAR_CLIENT_ID: 'client' })), /GOOGLE_CALENDAR OAuth configuration/);
+  const configured = validateProductionConfiguration(validProduction({
+    SINALOA_ENABLE_CALENDAR_WRITES: 'true',
+    GOOGLE_CALENDAR_CLIENT_ID: 'client',
+    GOOGLE_CALENDAR_CLIENT_SECRET: 'secret',
+    GOOGLE_CALENDAR_REDIRECT_URI: 'https://app.sinaloa.example/api/calendar-oauth/google/callback',
+    SINALOA_CALENDAR_OAUTH_TIMEOUT_MS: '15000'
+  }));
+  assert.equal(configured.validated, true);
 });
 
 test('production validates policy key rotation and strict policy bounds', () => {
@@ -69,4 +84,26 @@ test('production validates policy key rotation and strict policy bounds', () => 
     SINALOA_POLICY_SIGNING_KEYS: JSON.stringify({ old: 'o'.repeat(32), new: 'n'.repeat(32) })
   }));
   assert.equal(rotated.policyActiveKeyId, 'new');
+});
+
+test('production calendar writes require one complete same-origin HTTPS provider', () => {
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_ENABLE_CALENDAR_WRITES: 'true' })), /complete calendar OAuth provider/);
+  assert.throws(() => validateProductionConfiguration(validProduction({
+    SINALOA_ENABLE_CALENDAR_WRITES: 'true',
+    GOOGLE_CALENDAR_CLIENT_ID: 'google-client',
+    GOOGLE_CALENDAR_CLIENT_SECRET: 'google-secret'
+  })), /must include client ID, client secret, and redirect URI/);
+  assert.throws(() => validateProductionConfiguration(validProduction({
+    SINALOA_ENABLE_CALENDAR_WRITES: 'true',
+    GOOGLE_CALENDAR_CLIENT_ID: 'google-client',
+    GOOGLE_CALENDAR_CLIENT_SECRET: 'google-secret',
+    GOOGLE_CALENDAR_REDIRECT_URI: 'https://other.example/api/calendar-oauth/google/callback'
+  })), /must use the SINALOA_PUBLIC_URL origin/);
+  const configured = validateProductionConfiguration(validProduction({
+    SINALOA_ENABLE_CALENDAR_WRITES: 'true',
+    GOOGLE_CALENDAR_CLIENT_ID: 'google-client',
+    GOOGLE_CALENDAR_CLIENT_SECRET: 'google-secret',
+    GOOGLE_CALENDAR_REDIRECT_URI: 'https://app.sinaloa.example/api/calendar-oauth/google/callback'
+  }));
+  assert.equal(configured.validated, true);
 });

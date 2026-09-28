@@ -28,10 +28,16 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm ci
       - run: npm test
       - run: npm run test:frontend
+      - run: npm run test:sdk:typescript
+      - run: npm run test:sdk:python
       - run: npm run build
+      - run: npm run cf:check
       - run: npm run test:postgres
         env:
           DATABASE_URL: postgresql://sinaloa:sinaloa_test@127.0.0.1:5432/sinaloa_test

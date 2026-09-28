@@ -19,6 +19,7 @@ export interface AuthConfig {
   totp?: boolean;
   signInPath?: string;
   signUpPath?: string;
+  csrfCookieName?: string;
 }
 
 export interface Human {

@@ -193,7 +193,7 @@ export class PostgresMalwareScanJobStore {
 
 export class DurableMalwareScanLifecycle {
   constructor({
-    jobStore, adapter, metadataStore, scanner, maxAttempts = 5, leaseMs = 60_000,
+    jobStore, adapter, metadataStore, quotaLedger, scanner, maxAttempts = 5, leaseMs = 60_000,
     retryBaseMs = 5_000, retryMaxMs = 15 * 60_000, infectedRetentionMs = 30 * 24 * 60 * 60_000,
     deadLetterRetentionMs = 7 * 24 * 60 * 60_000, completedJobRetentionMs = 90 * 24 * 60 * 60_000,
     retentionRetryMs = 60 * 60_000, clock = () => new Date(), random = Math.random
@@ -201,10 +201,12 @@ export class DurableMalwareScanLifecycle {
     if (!jobStore || !['enqueue', 'get', 'claim', 'claimNext', 'complete', 'fail', 'claimRetention', 'finishRetention', 'deferRetention'].every(method => typeof jobStore[method] === 'function')) throw new TypeError('A durable malware scan job store is required');
     if (!adapter || !['getObject', 'deleteObject'].every(method => typeof adapter[method] === 'function')) throw new TypeError('An object adapter is required');
     if (!metadataStore || !['get', 'updateScan'].every(method => typeof metadataStore[method] === 'function')) throw new TypeError('An object metadata store is required');
+    if (!quotaLedger || typeof quotaLedger.deleteCommitted !== 'function') throw new TypeError('A quota ledger with committed-byte deletion is required');
     if (!scanner || typeof scanner.scan !== 'function') throw new TypeError('A malware scanner is required');
     this.jobStore = jobStore;
     this.adapter = adapter;
     this.metadataStore = metadataStore;
+    this.quotaLedger = quotaLedger;
     this.scanner = scanner;
     this.config = {
       maxAttempts: positiveInteger(maxAttempts, 'maxAttempts'), leaseMs: positiveInteger(leaseMs, 'leaseMs', 1_000),
@@ -291,6 +293,7 @@ export class DurableMalwareScanLifecycle {
         const object = await this.metadataStore.get(job.objectId);
         if (object) {
           await this.adapter.deleteObject(object.key);
+          await this.quotaLedger.deleteCommitted(object.reservationId);
           await this.metadataStore.updateScan(object.id, {
             state: 'deleted', scannedAt: iso(this.clock()),
             result: { status: 'deleted', reason: `${job.statusBeforeRetention} retention expired`, previousScan: object.scan ?? null }

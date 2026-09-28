@@ -39,12 +39,16 @@ The backend can run as one or more external service instances. Each instance run
 - `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`: provider secret and signed-webhook secret. Register `POST /api/email-webhooks/resend` for inbound and delivery events.
 - `SINALOA_EXTERNAL_EMAIL_AGENT_HOURLY_LIMIT`, `SINALOA_EXTERNAL_EMAIL_RECIPIENT_HOURLY_LIMIT`: defense-in-depth caps for one-to-one public email. Use an edge/distributed limiter as well when running multiple instances.
 - `SINALOA_ENABLE_CALENDAR_WRITES`, `SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS`: both default to `false`; enable only after the corresponding policy and provider controls are verified.
+- `SINALOA_CALENDAR_OAUTH_TIMEOUT_MS`: bounded timeout for calendar token exchanges. Calendar authorization uses one-time state plus PKCE; enabling writes in production requires one complete Google or Microsoft OAuth configuration with an HTTPS callback on the public Sinaloa origin.
 - `SINALOA_REQUEST_TIMEOUT_MS`, `SINALOA_MAX_SSE_PER_PRINCIPAL`: request and concurrent-stream resource bounds.
 - `SINALOA_OBJECT_STORAGE_PROVIDER`: set to `s3` in production; `local` is for development.
 - `SINALOA_S3_ENDPOINT`, `SINALOA_S3_BUCKET`, `SINALOA_S3_REGION`, `SINALOA_S3_ACCESS_KEY_ID`, `SINALOA_S3_SECRET_ACCESS_KEY`, `SINALOA_S3_SESSION_TOKEN`: private S3-compatible storage settings. Public buckets and public base URLs are rejected.
 - `SINALOA_OBJECT_MAX_BYTES`, `SINALOA_WORKSPACE_OBJECT_QUOTA_BYTES`, `SINALOA_OBJECT_ALLOWED_MIME_TYPES`: immutable upload and quota policy.
 - `SINALOA_MALWARE_SCANNER_URL`, `SINALOA_MALWARE_SCANNER_TOKEN`: HTTPS scanner endpoint. Downloads remain locked unless a scan returns `clean`; no scanner means fail closed.
 - `SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS`: interval for reclaiming abandoned upload reservations; defaults to five minutes.
+- `SINALOA_S3_REQUEST_TIMEOUT_MS`: bounded timeout for private object-storage operations; defaults to 30 seconds.
+- `SINALOA_SCAN_WORKER_INTERVAL_MS`, `SINALOA_SCAN_RETENTION_INTERVAL_MS`, `SINALOA_SCAN_MAX_ATTEMPTS`, `SINALOA_SCAN_LEASE_MS`, `SINALOA_SCAN_RETRY_BASE_MS`, `SINALOA_SCAN_RETRY_MAX_MS`: durable malware-scan worker, lease, retry, and dead-letter controls.
+- `SINALOA_SCAN_INFECTED_RETENTION_MS`, `SINALOA_SCAN_DEAD_LETTER_RETENTION_MS`, `SINALOA_SCAN_COMPLETED_JOB_RETENTION_MS`, `SINALOA_SCAN_RETENTION_RETRY_MS`: quarantine/dead-letter retention and cleanup retry controls.
 
 ## Current hosting shape
 

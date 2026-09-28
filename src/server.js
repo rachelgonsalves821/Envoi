@@ -13,6 +13,10 @@ import { PostgresMalwareScanJobStore } from './object-scan-lifecycle.js';
 import { validateProductionConfiguration } from './production-config.js';
 import { evaluateReadiness } from './readiness.js';
 import { clientIp, publicHttpError } from './http-security.js';
+import { createPkcePair, exchangeCalendarAuthorizationCode } from './calendar-oauth.js';
+import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from './path-safety.js';
+import { claimIdempotency, completeIdempotency, replayResponse, scopedIdempotencyPath, semanticDigest, validateIdempotencyKey } from './idempotency.js';
+import { humanConversationMessagingEnabled } from './human-messaging.js';
 import {
   assertExactBinding,
   createWorkspacePolicy,
@@ -84,10 +88,12 @@ const rateBuckets = new Map();
 const emailRateBuckets = new Map();
 const sseCounts = new Map();
 const requestTimeoutMs = Number(process.env.SINALOA_REQUEST_TIMEOUT_MS || 30_000);
+const calendarOAuthTimeoutMs = Number(process.env.SINALOA_CALENDAR_OAUTH_TIMEOUT_MS || 15_000);
 const maxSsePerPrincipal = Number(process.env.SINALOA_MAX_SSE_PER_PRINCIPAL || 10);
 const objectStorageProvider = process.env.SINALOA_OBJECT_STORAGE_PROVIDER || 'local';
 const objectMaxBytes = Number(process.env.SINALOA_OBJECT_MAX_BYTES || 25 * 1024 * 1024);
 const objectQuotaBytes = Number(process.env.SINALOA_WORKSPACE_OBJECT_QUOTA_BYTES || 1024 * 1024 * 1024);
+const objectStorageRequestTimeoutMs = Number(process.env.SINALOA_S3_REQUEST_TIMEOUT_MS || 30_000);
 const objectScanWorkerIntervalMs = Number(process.env.SINALOA_SCAN_WORKER_INTERVAL_MS || 1_000);
 const objectScanRetentionIntervalMs = Number(process.env.SINALOA_SCAN_RETENTION_INTERVAL_MS || 60_000);
 if (!Number.isSafeInteger(objectScanWorkerIntervalMs) || objectScanWorkerIntervalMs < 1) throw new TypeError('SINALOA_SCAN_WORKER_INTERVAL_MS must be a positive integer');
@@ -101,12 +107,24 @@ const objectStorageAdapter = createObjectStorageAdapter(objectStorageProvider ==
   accessKeyId: process.env.SINALOA_S3_ACCESS_KEY_ID,
   secretAccessKey: process.env.SINALOA_S3_SECRET_ACCESS_KEY,
   sessionToken: process.env.SINALOA_S3_SESSION_TOKEN,
+  requestTimeoutMs: objectStorageRequestTimeoutMs,
   maxObjectBytes: objectMaxBytes,
   allowedMimeTypes: objectAllowedMimeTypes
 } : { provider: 'local', root: path.join(dataDir, 'object-storage'), maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
 const objectScanner = process.env.SINALOA_MALWARE_SCANNER_URL ? new HttpMalwareScanner({ endpoint: process.env.SINALOA_MALWARE_SCANNER_URL, token: process.env.SINALOA_MALWARE_SCANNER_TOKEN || null }) : new FailClosedScanner();
 const scanJobStore = process.env.DATABASE_URL ? new PostgresMalwareScanJobStore(store) : null;
-const objectStorage = new ObjectStorageService({ adapter: objectStorageAdapter, metadataStore: new DocumentObjectMetadataStore(store), quotaLedger: new PersistentQuotaLedger(store, { defaultQuotaBytes: objectQuotaBytes }), scanner: objectScanner, scanJobStore, maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
+const objectQuotaLedger = new PersistentQuotaLedger(store, { defaultQuotaBytes: objectQuotaBytes });
+const scanLifecycle = {
+  maxAttempts: Number(process.env.SINALOA_SCAN_MAX_ATTEMPTS || 5),
+  leaseMs: Number(process.env.SINALOA_SCAN_LEASE_MS || 60_000),
+  retryBaseMs: Number(process.env.SINALOA_SCAN_RETRY_BASE_MS || 5_000),
+  retryMaxMs: Number(process.env.SINALOA_SCAN_RETRY_MAX_MS || 15 * 60_000),
+  infectedRetentionMs: Number(process.env.SINALOA_SCAN_INFECTED_RETENTION_MS || 30 * 24 * 60 * 60_000),
+  deadLetterRetentionMs: Number(process.env.SINALOA_SCAN_DEAD_LETTER_RETENTION_MS || 7 * 24 * 60 * 60_000),
+  completedJobRetentionMs: Number(process.env.SINALOA_SCAN_COMPLETED_JOB_RETENTION_MS || 90 * 24 * 60 * 60_000),
+  retentionRetryMs: Number(process.env.SINALOA_SCAN_RETENTION_RETRY_MS || 60 * 60_000)
+};
+const objectStorage = new ObjectStorageService({ adapter: objectStorageAdapter, metadataStore: new DocumentObjectMetadataStore(store), quotaLedger: objectQuotaLedger, scanner: objectScanner, scanJobStore, scanLifecycle, maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
 if (scanJobStore && !['processNextScan', 'reapScanRetention'].every(method => typeof objectStorage[method] === 'function')) throw new TypeError('Object storage durable scan lifecycle is not configured');
 const readinessTimeoutMs = Number(process.env.SINALOA_READINESS_TIMEOUT_MS || 5_000);
 
@@ -500,45 +518,55 @@ async function listHumanOrganizations(humanId) {
 async function createOrganization(human, input = {}, idempotencyKey) {
   const name = String(input.name || '').trim();
   if (!name) throw Object.assign(new Error('Organization name is required'), { statusCode: 400 });
-  if (idempotencyKey) {
-    const existing = await store.getJson(path.join('idempotency', 'organizations', `${encodeURIComponent(`${human.id}:${idempotencyKey}`)}.json`));
-    if (existing) return existing;
+  const safeKey = validateIdempotencyKey(idempotencyKey);
+  const requestDigest = semanticDigest({ name });
+  const idempotencyPath = safeKey ? scopedIdempotencyPath('organizations', human.id, human.id, safeKey) : null;
+  let idempotencyClaim = null;
+  if (idempotencyPath) {
+    idempotencyClaim = await claimIdempotency(store, idempotencyPath, { principalId: human.id, requestDigest, createdAt: store.now() });
+    if (idempotencyClaim.replay) return idempotencyClaim.replay;
   }
-  const organizationId = store.id('org');
-  let providerOrganization = null;
-  if (auth.provider === 'workos') {
-    providerOrganization = await auth.createProviderOrganization({
+  try {
+    const organizationId = store.id('org');
+    let providerOrganization = null;
+    if (auth.provider === 'workos') {
+      providerOrganization = await auth.createProviderOrganization({
+        name,
+        externalId: organizationId,
+        idempotencyKey: safeKey || organizationId,
+        userId: human.providerUserId
+      });
+    }
+    const organization = {
+      id: organizationId,
       name,
-      externalId: organizationId,
-      idempotencyKey: idempotencyKey || organizationId,
-      userId: human.providerUserId
-    });
+      slug: slugify(name) || organizationId.slice(-8),
+      ownerHumanId: human.id,
+      workosOrganizationId: providerOrganization?.id || null,
+      status: 'active',
+      createdAt: store.now(),
+      updatedAt: store.now()
+    };
+    const membership = { organizationId, humanId: human.id, role: 'owner', status: 'active', createdAt: organization.createdAt };
+    await Promise.all([
+      store.putJson(path.join('organizations', organizationId, 'organization.json'), organization),
+      store.putJson(path.join('organizations', organizationId, 'members', `${human.id}.json`), membership),
+      store.putJson(path.join('humans', human.id, 'organizations', `${organizationId}.json`), { organizationId, role: 'owner' }),
+      ...(providerOrganization ? [store.putJson(path.join('auth', 'workos-organization-index', `${encodeURIComponent(providerOrganization.id)}.json`), { organizationId })] : [])
+    ]);
+    if (idempotencyPath) await completeIdempotency(store, idempotencyPath, { principalId: human.id, requestDigest, response: organization, createdAt: organization.createdAt });
+    return organization;
+  } catch (error) {
+    if (idempotencyPath && idempotencyClaim?.claimed) await store.deleteJson(idempotencyPath).catch(() => {});
+    throw error;
   }
-  const organization = {
-    id: organizationId,
-    name,
-    slug: slugify(name) || organizationId.slice(-8),
-    ownerHumanId: human.id,
-    workosOrganizationId: providerOrganization?.id || null,
-    status: 'active',
-    createdAt: store.now(),
-    updatedAt: store.now()
-  };
-  const membership = { organizationId, humanId: human.id, role: 'owner', status: 'active', createdAt: organization.createdAt };
-  await Promise.all([
-    store.putJson(path.join('organizations', organizationId, 'organization.json'), organization),
-    store.putJson(path.join('organizations', organizationId, 'members', `${human.id}.json`), membership),
-    store.putJson(path.join('humans', human.id, 'organizations', `${organizationId}.json`), { organizationId, role: 'owner' }),
-    ...(providerOrganization ? [store.putJson(path.join('auth', 'workos-organization-index', `${encodeURIComponent(providerOrganization.id)}.json`), { organizationId })] : [])
-  ]);
-  if (idempotencyKey) await store.putJson(path.join('idempotency', 'organizations', `${encodeURIComponent(`${human.id}:${idempotencyKey}`)}.json`), organization);
-  return organization;
 }
 
 async function ensureOrganization(human, requestedId) {
   if (requestedId) {
-    const organization = await store.getJson(path.join('organizations', requestedId, 'organization.json'));
-    if (!organization || !await getMembership(requestedId, human.id)) throw Object.assign(new Error('Active organization membership required'), { statusCode: 403 });
+    const organizationId = assertSafeIdentifier(requestedId, 'organizationId');
+    const organization = await store.getJson(path.join('organizations', organizationId, 'organization.json'));
+    if (!organization || !await getMembership(organizationId, human.id)) throw Object.assign(new Error('Active organization membership required'), { statusCode: 403 });
     return organization;
   }
   const [existing] = await listHumanOrganizations(human.id);
@@ -624,12 +652,12 @@ function proposalFromInput(input, now) {
     outOfPolicyFlags: Array.isArray(item.outOfPolicyFlags) ? [...new Set(item.outOfPolicyFlags)] : []
   })) : [];
   if (!options.length) throw Object.assign(new Error('At least one structured proposal option is required'), { statusCode: 400 });
-  return { id: input.id || store.id('proposal'), kind: input.kind, options, status: 'open', acceptedOptionId: null, expiresAt: input.expiresAt || null, createdAt: now, updatedAt: now };
+  return { id: store.id('proposal'), kind: input.kind, options, status: 'open', acceptedOptionId: null, expiresAt: input.expiresAt || null, createdAt: now, updatedAt: now };
 }
 
 function policyEvaluationFromInput(input, actor, now) {
   return {
-    id: input.id || store.id('policy_eval'),
+    id: input.id,
     requestedAction: input.requestedAction,
     actor,
     matchedPolicyId: input.matchedPolicyId || null,
@@ -721,6 +749,8 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
     policy,
     previousRecordDigest: chain.latest?.recordDigest || null,
     phase: options.phase || 'evaluation',
+    sourceEvaluationId: options.sourceEvaluationId || null,
+    grantType: input.grantType || 'oneTime',
     keyring: policyKeyring,
     now: store.now()
   });
@@ -739,6 +769,22 @@ const hasHumanApprovalForEvaluation = (caseRecord, evaluationId) => caseRecord.e
   && event.payload.action.externalRefs?.policyEvaluationId === evaluationId
 );
 
+const actionRequestDigest = input => {
+  const externalRefs = { ...(input.externalRefs || {}) };
+  delete externalRefs.policyExecutionId;
+  delete externalRefs.requestDigest;
+  return valueDigest({
+    actor: input.actor,
+    actionKey: input.actionKey,
+    outcome: input.outcome ?? null,
+    nextState: input.nextState ?? null,
+    policyEvaluationId: input.policyEvaluationId ?? externalRefs.policyEvaluationId ?? null,
+    actionPayload: input.actionPayload || {},
+    externalRefs,
+    reasonCode: input.reasonCode ?? null
+  });
+};
+
 async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluationId, { requestedAction, actionPayload, proposalId, optionId, executionId = store.id('action'), allowPendingHuman = false } = {}) {
   const evaluation = caseRecord.policyEvaluations.find(item => item.id === evaluationId);
   const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluation.id)) : null;
@@ -754,12 +800,20 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
     throw Object.assign(new Error('This action requires human approval'), { statusCode: 409 });
   }
   if (proposalId && !caseRecord.proposals.some(proposal => proposal.id === proposalId)) throw Object.assign(new Error('Proposal not found'), { statusCode: 404 });
+  if (evaluation.decision === 'needsHuman' && !humanApproved && allowPendingHuman) {
+    return { evaluation, binding, refreshed: binding, humanApproved: false, executionId };
+  }
+  const priorExecutions = await store.listJson(path.join('inboxes', inboxId, 'policy-executions'));
+  if (binding.grantType === 'oneTime' && priorExecutions.some(record => record.sourceEvaluationId === evaluation.id)) {
+    throw Object.assign(new Error('This one-time policy evaluation has already been consumed'), { statusCode: 409 });
+  }
 
   const refreshed = await evaluateServerPolicy(inboxId, principal, caseRecord, {
     requestedAction: binding.requestedAction,
     actionPayload: binding.actionPayload,
-    expiresAt: binding.expiresAt
-  }, { id: store.id('policy_exec'), phase: 'execution', executionId });
+    expiresAt: binding.expiresAt,
+    grantType: binding.grantType || 'oneTime'
+  }, { id: store.id('policy_exec'), phase: 'execution', executionId, sourceEvaluationId: evaluation.id });
   await store.putJson(policyExecutionPath(inboxId, refreshed.binding.id), refreshed.binding);
   await audit(inboxId, 'policy.re_evaluated', {
     caseId: caseRecord.id,
@@ -781,7 +835,7 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
 }
 
 async function ensureStructuredCase(inbox, input, actorAgentId, at) {
-  const caseId = input.caseId || store.id('case');
+  const caseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : store.id('case');
   const existing = await getCase(inbox.id, caseId);
   if (existing?.schemaVersion) return existing;
   let value = createAgentCase({
@@ -1147,7 +1201,7 @@ async function humanView(inboxId, inbox) {
   return {
     inbox,
     mode: 'human-observer',
-    capabilities: ['observe_agent_communications', 'receive_agent_messages', 'reply_to_approved_agents', 'review_assets', 'manage_calendar_connectors'],
+    capabilities: ['observe_agent_communications', 'approve_or_pause_agent_actions', 'review_assets', 'manage_calendar_connectors'],
     summary: { agents: agents.length, cases: cases.length, messages: messages.length, assets: assets.length, needsMe: projection.counts.needsMe + pendingInvitations },
     navigation: { ...projection.counts, needsMe: projection.counts.needsMe + pendingInvitations },
     caseQueue: projection.cases,
@@ -1196,6 +1250,8 @@ async function route(req, res) {
   const responseNonce = crypto.randomBytes(18).toString('base64');
   applyHeaders(res, req.headers.origin || '', responseNonce);
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+  try { assertSafeRequestTarget(req.url); }
+  catch { return fail(res, 400, 'Invalid request path'); }
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   req.setTimeout(requestTimeoutMs);
   if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
@@ -1206,9 +1262,9 @@ async function route(req, res) {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfExempt && parseCookies(req.headers.cookie)[sessionCookieName()] && !verifyCsrfRequest(req)) return fail(res, 403, 'CSRF validation failed');
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/'))) {
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice('/web/'.length);
-    const safePath = path.normalize(relative).replace(/^\.\.[\\/]/, '');
-    const filePath = path.resolve('web', safePath);
-    if (!filePath.startsWith(path.resolve('web'))) return fail(res, 400, 'Invalid asset path');
+    let filePath;
+    try { filePath = resolvePathWithin(path.resolve('web'), relative); }
+    catch { return fail(res, 400, 'Invalid asset path'); }
     const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
     try {
       const extension = path.extname(filePath);
@@ -1376,13 +1432,14 @@ async function route(req, res) {
     if (!provider.clientId || !provider.clientSecret) return fail(res, 503, `${provider.label} is not configured`);
     const claimed = await store.claimJson(statePath, 'usedAt', store.now());
     if (!claimed) return fail(res, 400, 'Calendar authorization state was already used');
-    const tokenResponse = await fetch(provider.tokenUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ code, client_id: provider.clientId, client_secret: provider.clientSecret, redirect_uri: calendarRedirectUri(providerId, req), grant_type: 'authorization_code' })
+    if (!claimed.codeVerifier) return fail(res, 400, 'Calendar authorization state is invalid or expired');
+    const tokenSet = await exchangeCalendarAuthorizationCode({
+      provider,
+      code,
+      redirectUri: calendarRedirectUri(providerId, req),
+      codeVerifier: claimed.codeVerifier,
+      timeoutMs: calendarOAuthTimeoutMs
     });
-    const tokenSet = await tokenResponse.json().catch(() => ({}));
-    if (!tokenResponse.ok || !tokenSet.access_token) return fail(res, 502, `${provider.label} token exchange failed`);
     const connectedAt = store.now();
     const connector = {
       id: `calendar_${providerId}`,
@@ -1443,31 +1500,47 @@ async function route(req, res) {
     if (!human) return fail(res, 401, 'Verified human session required');
     input.humanId = human.id;
     const organization = await ensureOrganization(human, input.organizationId);
-    const idempotencyKey = input.idempotencyKey || req.headers['idempotency-key'];
-    if (idempotencyKey) {
-      const previous = await store.getJson(path.join('onboarding', `${encodeURIComponent(idempotencyKey)}.json`));
-      if (previous) return json(res, 200, previous);
+    const idempotencyKey = validateIdempotencyKey(input.idempotencyKey || req.headers['idempotency-key']);
+    const onboardingRequestDigest = semanticDigest({
+      organizationId: organization.id,
+      name: String(input.name).trim(),
+      slug: slugify(input.slug || input.name),
+      inboxName: input.inboxName || null,
+      principalLabel: input.principalLabel || null,
+      capabilities: Array.isArray(input.capabilities) ? input.capabilities : [],
+      description: input.description || null
+    });
+    const onboardingIdempotencyPath = idempotencyKey ? scopedIdempotencyPath('agent-onboarding', organization.id, human.id, idempotencyKey) : null;
+    let onboardingClaim = null;
+    if (onboardingIdempotencyPath) {
+      onboardingClaim = await claimIdempotency(store, onboardingIdempotencyPath, { principalId: human.id, requestDigest: onboardingRequestDigest, createdAt: store.now() });
+      if (onboardingClaim.replay) return json(res, 200, onboardingClaim.replay);
     }
-    const inboxId = store.id('inbox');
-    const baseSlug = slugify(input.slug || input.name) || store.id('agent').replace('agent_', '');
-    let slug = baseSlug;
-    let address = `${slug}@${agentDomain}`;
-    while (!(await reserveIdentity(address, { status: 'reserved' }))) {
-      slug = `${baseSlug}-${store.id('slug').slice(-6)}`;
-      address = `${slug}@${agentDomain}`;
+    try {
+      const inboxId = store.id('inbox');
+      const baseSlug = slugify(input.slug || input.name) || store.id('agent').replace('agent_', '');
+      let slug = baseSlug;
+      let address = `${slug}@${agentDomain}`;
+      while (!(await reserveIdentity(address, { status: 'reserved' }))) {
+        slug = `${baseSlug}-${store.id('slug').slice(-6)}`;
+        address = `${slug}@${agentDomain}`;
+      }
+      await store.ensureInbox(inboxId);
+      const createdAt = store.now();
+      const agent = { id: store.id('agent'), name: input.name, slug, address, identity: publicIdentity(slug), principalLabel: input.principalLabel || null, principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], description: input.description || null, createdAt, status: 'pending_approval', onboardingStatus: 'pending_approval' };
+      const inbox = { id: inboxId, organizationId: organization.id, name: input.inboxName || `${input.name} inbox`, ownerAgentId: agent.id, ownerHumanId: input.humanId, parentInboxId: null, kind: 'agent', status: 'pending_approval', createdAt };
+      await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
+      await store.putJson(path.join('organizations', organization.id, 'workspaces', `${inboxId}.json`), { inboxId, createdAt });
+      await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
+      await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: createdAt });
+      const result = { account: { inbox, agent }, next: { nativeMessaging: 'pending_human_approval', humanApproval: { required: true, humanId: input.humanId }, externalEmail: 'requires_email_transport_configuration' } };
+      if (onboardingIdempotencyPath) await completeIdempotency(store, onboardingIdempotencyPath, { principalId: human.id, requestDigest: onboardingRequestDigest, response: result, createdAt });
+      await audit(inboxId, 'agent.account_created', { agentId: agent.id, address: agent.address, identityStatus: agent.identity.status });
+      return json(res, 201, result);
+    } catch (error) {
+      if (onboardingIdempotencyPath && onboardingClaim?.claimed) await store.deleteJson(onboardingIdempotencyPath).catch(() => {});
+      throw error;
     }
-    await store.ensureInbox(inboxId);
-    const createdAt = store.now();
-    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: publicIdentity(slug), principalLabel: input.principalLabel || null, principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], description: input.description || null, createdAt, status: 'pending_approval', onboardingStatus: 'pending_approval' };
-    const inbox = { id: inboxId, organizationId: organization.id, name: input.inboxName || `${input.name} inbox`, ownerAgentId: agent.id, ownerHumanId: input.humanId, parentInboxId: null, kind: 'agent', status: 'pending_approval', createdAt };
-    await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
-    await store.putJson(path.join('organizations', organization.id, 'workspaces', `${inboxId}.json`), { inboxId, createdAt });
-    await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
-    await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agent.id}.json`), { agentId: agent.id, approved: true, blocked: false, updatedAt: createdAt });
-    const result = { account: { inbox, agent }, next: { nativeMessaging: 'pending_human_approval', humanApproval: { required: true, humanId: input.humanId }, externalEmail: 'requires_email_transport_configuration' } };
-    if (idempotencyKey) await store.putJson(path.join('onboarding', `${encodeURIComponent(idempotencyKey)}.json`), result);
-    await audit(inboxId, 'agent.account_created', { agentId: agent.id, address: agent.address, identityStatus: agent.identity.status });
-    return json(res, 201, result);
   }
 
   if (req.method === 'POST' && url.pathname === '/api/inboxes') {
@@ -1536,8 +1609,9 @@ async function route(req, res) {
     }
     if (!provider.clientId || !provider.clientSecret) return fail(res, 503, `${provider.label} is not configured`);
     const state = crypto.randomBytes(32).toString('base64url');
+    const pkce = createPkcePair();
     const publicUrl = (process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
-    const stateRecord = { provider: providerId, inboxId, humanId: human.id, returnTo: `${publicUrl}/?workspace=${encodeURIComponent(inboxId)}`, createdAt: store.now(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), usedAt: null };
+    const stateRecord = { provider: providerId, inboxId, humanId: human.id, codeVerifier: pkce.verifier, returnTo: `${publicUrl}/?workspace=${encodeURIComponent(inboxId)}`, createdAt: store.now(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), usedAt: null };
     await store.putJson(path.join('auth', 'calendar-oauth', `${hashSecret(state)}.json`), stateRecord);
     const authorizationUrl = new URL(provider.authorizeUrl);
     authorizationUrl.searchParams.set('client_id', provider.clientId);
@@ -1545,6 +1619,8 @@ async function route(req, res) {
     authorizationUrl.searchParams.set('response_type', 'code');
     authorizationUrl.searchParams.set('scope', provider.scopes.join(' '));
     authorizationUrl.searchParams.set('state', state);
+    authorizationUrl.searchParams.set('code_challenge', pkce.challenge);
+    authorizationUrl.searchParams.set('code_challenge_method', pkce.method);
     if (providerId === 'google') {
       authorizationUrl.searchParams.set('access_type', 'offline');
       authorizationUrl.searchParams.set('include_granted_scopes', 'true');
@@ -1666,9 +1742,9 @@ async function route(req, res) {
     if (!input.name) return fail(res, 400, 'Agent name is required');
     if (!input.humanId) return fail(res, 400, 'humanId is required so a human can approve the agent');
     const slug = slugify(input.slug || input.name) || store.id('agent').replace('agent_', '');
-    const address = input.address || `${slug}@${agentDomain}`;
+    const address = `${slug}@${agentDomain}`;
     if (!await reserveIdentity(address, { status: 'reserved' })) return fail(res, 409, 'Agent email address is already registered');
-    const agent = { id: input.id || store.id('agent'), name: input.name, slug, address, identity: publicIdentity(slug), principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], createdAt: store.now(), status: 'pending_approval', onboardingStatus: 'pending_approval' };
+    const agent = { id: store.id('agent'), name: input.name, slug, address, identity: publicIdentity(slug), principalHumanId: input.humanId, capabilities: input.capabilities || [], permissions: [], createdAt: store.now(), status: 'pending_approval', onboardingStatus: 'pending_approval' };
     const agentInbox = await createDedicatedAgentInbox({ sourceInbox: inbox, organizationId: inbox.organizationId, ownerHumanId: input.humanId, agent });
     await audit(agentInbox.id, 'agent.created', { agentId: agent.id, sourceInboxId: inbox.id });
     await audit(inbox.id, 'agent.inbox_created', { agentId: agent.id, inboxId: agentInbox.id, humanId: input.humanId });
@@ -1776,7 +1852,7 @@ async function route(req, res) {
     const input = await body(req);
     if (!String(input.objective || '').trim()) return fail(res, 400, 'A structured case objective is required');
     const now = store.now();
-    const value = createAgentCase({ id: input.id || store.id('case'), objective: input.objective, collaborationMode: input.collaborationMode || 'collaboration', principal: inbox.ownerHumanId, actingAgent: principal.id, participants: input.participants || [], constraints: input.constraints || {}, deadline: input.deadline || null, createdAt: now });
+    const value = createAgentCase({ id: store.id('case'), objective: input.objective, collaborationMode: input.collaborationMode || 'collaboration', principal: inbox.ownerHumanId, actingAgent: principal.id, participants: input.participants || [], constraints: input.constraints || {}, deadline: input.deadline || null, createdAt: now });
     if (!await store.putJsonIfAbsent(caseRecordPath(inboxId, value.id), value)) return fail(res, 409, 'Case ID already exists');
     await audit(inboxId, 'case.created', { caseId: value.id, actingAgent: principal.id, objective: value.objective });
     return json(res, 201, value);
@@ -1796,7 +1872,7 @@ async function route(req, res) {
     const value = await getCase(inboxId, caseRoute[1]);
     if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
     const now = store.now();
-    appendEvent(value, { id: input.id || store.id('evt'), type: input.type, actor: principal.id, createdAt: now, payload: input.payload || {}, linkedPolicyEvaluation: input.linkedPolicyEvaluation || null, precedingEventRef: input.precedingEventRef || value.events.at(-1)?.id || null });
+    appendEvent(value, { id: store.id('evt'), type: input.type, actor: principal.id, createdAt: now, payload: input.payload || {}, linkedPolicyEvaluation: input.linkedPolicyEvaluation || null, precedingEventRef: input.precedingEventRef || value.events.at(-1)?.id || null });
     await saveCase(inboxId, value);
     await audit(inboxId, 'case.event_appended', { caseId: value.id, eventId: value.events.at(-1).id, eventType: input.type, actor: principal.id });
     return json(res, 201, value.events.at(-1));
@@ -1810,7 +1886,7 @@ async function route(req, res) {
     const value = await getCase(inboxId, caseRoute[1]);
     if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
     const now = store.now();
-    const evaluationId = input.id || store.id('policy_eval');
+    const evaluationId = store.id('policy_eval');
     const evaluated = await evaluateServerPolicy(inboxId, principal, value, { ...input, id: evaluationId }, { id: evaluationId });
     const evaluation = policyEvaluationFromInput({
       id: evaluationId,
@@ -1847,8 +1923,7 @@ async function route(req, res) {
 
   if (req.method === 'POST' && caseRoute?.[2] === 'actions') {
     const input = await body(req);
-    const idempotencyKey = req.headers['idempotency-key'] || input.idempotencyKey;
-    if (!idempotencyKey) return fail(res, 400, 'Idempotency-Key header is required');
+    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
     const value = await getCase(inboxId, caseRoute[1]);
     if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
     const now = store.now();
@@ -1856,6 +1931,13 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     let result;
     if (human && await canAccessInbox(human, inbox)) {
+      const requestDigest = actionRequestDigest({ ...input, actor: human.id, outcome: 'ok' });
+      const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
+      if (replayEvent) {
+        const replayAction = replayEvent.payload.action;
+        if (replayAction.actor !== human.id || replayAction.externalRefs?.requestDigest !== requestDigest) return fail(res, 409, 'Idempotency key was already used for a different action');
+        return json(res, 200, { case: value, action: replayAction, replay: true });
+      }
       if (input.actionKey === 'approveOnce') {
         const evaluationId = input.externalRefs?.policyEvaluationId;
         const evaluation = value.policyEvaluations.find(item => item.id === evaluationId);
@@ -1863,16 +1945,17 @@ async function route(req, res) {
         await policyDecisionChain(inboxId);
         if (!evaluationId || !evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) return fail(res, 409, 'A current needsHuman policy evaluation is required for one-time approval');
       }
-      result = applyHumanAction(value, { id: input.id || store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: input.externalRefs || {}, reasonCode: input.reasonCode || null }, { at: now });
+      result = applyHumanAction(value, { id: store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: { ...(input.externalRefs || {}), requestDigest }, reasonCode: input.reasonCode || null }, { at: now });
     } else if (principal && principal.id === value.actingAgent) {
+      const requestDigest = actionRequestDigest({ ...input, actor: principal.id });
       const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
       if (replayEvent) {
         const replayAction = replayEvent.payload.action;
-        if (replayAction.actor !== principal.id || replayAction.actionKey !== input.actionKey || replayAction.externalRefs?.policyEvaluationId !== input.policyEvaluationId) return fail(res, 409, 'Idempotency key was already used for a different action');
+        if (replayAction.actor !== principal.id || replayAction.externalRefs?.requestDigest !== requestDigest) return fail(res, 409, 'Idempotency key was already used for a different action');
         return json(res, 200, { case: value, action: replayAction, replay: true });
       }
-      let policyExternalRefs = input.externalRefs || {};
-      const actionId = input.id || store.id('action');
+      let policyExternalRefs = { ...(input.externalRefs || {}), requestDigest };
+      const actionId = store.id('action');
       if (requiresPolicyEvaluation(input.actionKey)) {
         if (!input.policyEvaluationId) return fail(res, 400, 'policyEvaluationId is required for policy-controlled or unknown agent actions');
         const authorization = await validatedPolicyBinding(inboxId, value, principal, input.policyEvaluationId, { requestedAction: input.actionKey, actionPayload: input.actionPayload || {}, executionId: actionId });
@@ -1901,16 +1984,23 @@ async function route(req, res) {
       await audit(inboxId, 'proposal.countered', { caseId: value.id, proposalId: proposalRoute[2], actor: principal.id });
       return json(res, 201, updated.proposals.find(item => item.id === proposalRoute[2]));
     }
-    const idempotencyKey = req.headers['idempotency-key'] || input.idempotencyKey;
-    if (!idempotencyKey || !input.optionId || !input.policyEvaluationId) return fail(res, 400, 'optionId, policyEvaluationId, and Idempotency-Key are required');
+    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
+    if (!input.optionId || !input.policyEvaluationId) return fail(res, 400, 'optionId and policyEvaluationId are required');
+    const requestDigest = actionRequestDigest({ actor: principal.id, actionKey: 'acceptProposal', outcome: null, policyEvaluationId: input.policyEvaluationId, externalRefs: { proposalId: proposalRoute[2], optionId: input.optionId } });
+    const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
+    if (replayEvent) {
+      const replayAction = replayEvent.payload.action;
+      if (replayAction.actor !== principal.id || replayAction.externalRefs?.requestDigest !== requestDigest) return fail(res, 409, 'Idempotency key was already used for a different action');
+      return json(res, 200, { case: value, action: replayAction, replay: true });
+    }
     const evaluation = value.policyEvaluations.find(item => item.id === input.policyEvaluationId);
     if (!evaluation || evaluation.actor !== principal.id) return fail(res, 403, 'A case policy evaluation for this agent is required');
-    const actionId = input.id || store.id('action');
+    const actionId = store.id('action');
     const authorization = await validatedPolicyBinding(inboxId, value, principal, evaluation.id, { proposalId: proposalRoute[2], optionId: input.optionId, executionId: actionId, allowPendingHuman: true });
     const effectiveEvaluation = evaluation.decision === 'needsHuman' && authorization.humanApproved ? { ...evaluation, decision: 'allow', reasonCode: 'humanApproved' } : evaluation;
-    const result = acceptProposal(value, proposalRoute[2], input.optionId, effectiveEvaluation, { actor: principal.id, idempotencyKey, actionId, at: now });
+    const result = acceptProposal(value, proposalRoute[2], input.optionId, effectiveEvaluation, { actor: principal.id, idempotencyKey, actionId, externalRefs: { requestDigest, policyEvaluationId: evaluation.id, policyExecutionId: authorization.refreshed.phase === 'execution' ? authorization.refreshed.id : null }, at: now });
     await saveCase(inboxId, result.case);
-    await audit(inboxId, 'proposal.accept_attempted', { caseId: value.id, proposalId: proposalRoute[2], optionId: input.optionId, actor: principal.id, outcome: result.action.outcome });
+    if (!result.replay) await audit(inboxId, 'proposal.accept_attempted', { caseId: value.id, proposalId: proposalRoute[2], optionId: input.optionId, actor: principal.id, outcome: result.action.outcome });
     return json(res, result.action.outcome === 'needsApproval' ? 202 : 201, result);
   }
 
@@ -1922,7 +2012,7 @@ async function route(req, res) {
     if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
     if (!input.result || !input.authorityBasis) return fail(res, 400, 'Receipt result and authorityBasis are required');
     const now = store.now();
-    const receipt = { id: input.id || store.id('receipt'), result: input.result, counterparties: input.counterparties || [], externalIds: input.externalIds || {}, authorityBasis: input.authorityBasis, humanApprovalStatus: input.humanApprovalStatus || 'notRequired', evidenceRefs: input.evidenceRefs || [], createdAt: now };
+    const receipt = { id: store.id('receipt'), result: input.result, counterparties: input.counterparties || [], externalIds: input.externalIds || {}, authorityBasis: input.authorityBasis, humanApprovalStatus: input.humanApprovalStatus || 'notRequired', evidenceRefs: input.evidenceRefs || [], createdAt: now };
     const updated = completeCase(value, receipt, { actor: principal.id, at: now });
     await saveCase(inboxId, updated);
     await audit(inboxId, 'case.completed', { caseId: value.id, receiptId: receipt.id, actor: principal.id });
@@ -2030,16 +2120,22 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal) return fail(res, 401, 'Recipient agent credential required');
     const input = await body(req);
-    const idempotencyKey = req.headers['idempotency-key'] || input.idempotencyKey;
-    if (!idempotencyKey) return fail(res, 400, 'Idempotency-Key header is required');
+    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
     const message = await store.getJson(messagePath(inboxId, acknowledgementRoute[1]));
     if (!message || message.recipientAgentId !== principal.id) return fail(res, 404, 'Delivered message not found for this agent');
     const state = input.state || 'acknowledged';
     if (!['acknowledged', 'processed'].includes(state)) return fail(res, 400, 'Acknowledgement state must be acknowledged or processed');
     if (!['delivered', 'acknowledged', 'processed'].includes(message.status)) return fail(res, 409, 'Message has not been delivered');
+    const acknowledgementDigest = semanticDigest({ messageId: message.id, state });
+    const acknowledgementIdempotencyPath = scopedIdempotencyPath('acknowledgements', inboxId, principal.id, idempotencyKey);
+    const replay = replayResponse(await store.getJson(acknowledgementIdempotencyPath), { principalId: principal.id, requestDigest: acknowledgementDigest });
+    if (replay) return json(res, 200, replay);
     const receiptId = `delivery_receipt_${message.id}_${state}`;
     const existingReceipt = await store.getJson(deliveryReceiptPath(inboxId, receiptId));
-    if (existingReceipt) return json(res, 200, existingReceipt);
+    if (existingReceipt) {
+      await store.putJson(acknowledgementIdempotencyPath, { principalId: principal.id, requestDigest: acknowledgementDigest, response: existingReceipt, createdAt: existingReceipt.createdAt });
+      return json(res, 200, existingReceipt);
+    }
     const at = store.now();
     const updated = { ...message, status: state, [`${state}At`]: at, updatedAt: at };
     const receipt = {
@@ -2069,6 +2165,7 @@ async function route(req, res) {
       events.push({ inboxId: targetInboxId, event: auditEntry.event });
     }
     await store.putJsonBatch(documents);
+    await store.putJson(acknowledgementIdempotencyPath, { principalId: principal.id, requestDigest: acknowledgementDigest, response: receipt, createdAt: at });
     for (const { inboxId: targetInboxId, event } of events) publish(targetInboxId, event);
     return json(res, 201, receipt);
   }
@@ -2076,10 +2173,9 @@ async function route(req, res) {
   if (req.method === 'POST' && suffix === 'external-emails') {
     if (!externalEmailEnabled) return fail(res, 503, 'External email is disabled for this deployment');
     const input = await body(req);
-    const idempotencyKey = req.headers['idempotency-key'] || input.idempotencyKey;
-    if (!idempotencyKey) return fail(res, 400, 'Idempotency-Key header is required');
+    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
     emailTransport.assertReady();
-    const senderAgentId = String(input.senderAgentId || '');
+    const senderAgentId = assertSafeIdentifier(String(input.senderAgentId || ''), 'senderAgentId');
     const sender = await store.getJson(path.join('inboxes', inboxId, 'agents', `${senderAgentId}.json`));
     const principal = await getAgentPrincipal(req, inboxId);
     if (!sender || !principal || principal.id !== sender.id) return fail(res, 401, 'Valid sender agent credential required');
@@ -2100,7 +2196,7 @@ async function route(req, res) {
     if (existing) return existing.requestHash === requestHash ? json(res, 200, existing) : fail(res, 409, 'Idempotency key was already used for a different email');
     if (!consumeExternalEmailLimit(sender.id, recipientEmail)) return fail(res, 429, 'External email rate limit exceeded');
     const createdAt = store.now();
-    const caseId = input.caseId || store.id('case');
+    const caseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : store.id('case');
     const replyAddress = `reply+${hashSecret(messageId).slice(0, 32)}@${emailTransport.publicDomain}`;
     const message = { id: messageId, caseId, senderInboxId: inboxId, transport: 'email', direction: 'outbound', senderType: 'agent', senderAgentId, senderEmail: publicEmailAddressForAgent(sender), recipientEmail, subject, type: 'email', text, html, payload: input.payload || null, replyAddress, requestHash, createdAt, queuedAt: createdAt, status: 'queued', externalDeliveryState: 'queued' };
     const currentCase = await ensureStructuredCase(inbox, { ...input, caseId, type: 'message', text, objective: subject }, sender.id, createdAt);
@@ -2122,9 +2218,9 @@ async function route(req, res) {
   if (req.method === 'POST' && suffix === 'messages') {
     const input = await body(req);
     if (!input.senderAgentId || !input.recipientEmail || !input.text) return fail(res, 400, 'senderAgentId, recipientEmail, and text are required');
-    const idempotencyKey = req.headers['idempotency-key'] || input.idempotencyKey;
-    if (!idempotencyKey) return fail(res, 400, 'Idempotency-Key header is required');
-    const sender = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.senderAgentId}.json`));
+    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
+    const senderAgentId = assertSafeIdentifier(String(input.senderAgentId), 'senderAgentId');
+    const sender = await store.getJson(path.join('inboxes', inboxId, 'agents', `${senderAgentId}.json`));
     if (!sender) return fail(res, 403, 'Only registered agents may send messages');
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || principal.id !== sender.id) return fail(res, 401, 'Valid sender agent credential required');
@@ -2144,7 +2240,8 @@ async function route(req, res) {
     if (existingInvitation?.state === 'declined') return fail(res, 403, 'The recipient is unavailable');
     const relationshipApproved = senderContact?.approved === true && recipientContact?.approved === true;
     const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
-    const requestHash = hashSecret(JSON.stringify({ senderAgentId: input.senderAgentId, recipientEmail, caseId: input.caseId || null, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, authority: input.authority || null, artifactRefs: input.artifactRefs || [] }));
+    const requestedCaseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
+    const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: requestedCaseId, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, authority: input.authority || null, artifactRefs: input.artifactRefs || [] }));
     const existing = await store.getJson(messagePath(inboxId, messageId));
     if (existing) {
       const sameRequest = existing.requestHash ? existing.requestHash === requestHash : existing.recipientEmail === recipientEmail && existing.text === input.text && JSON.stringify(existing.payload) === JSON.stringify(input.payload || null);
@@ -2155,7 +2252,7 @@ async function route(req, res) {
       return json(res, 202, { invitation: existingInvitation, message: pendingMessage, contactState: 'pending' });
     }
     const createdAt = store.now();
-    const conversationId = input.caseId || senderContact?.conversationId || existingInvitation?.conversationId || existingInvitation?.pendingConversationId || store.id('conversation');
+    const conversationId = requestedCaseId || senderContact?.conversationId || existingInvitation?.conversationId || existingInvitation?.pendingConversationId || store.id('conversation');
     const protocol = createProtocolMessage({
       messageId,
       conversationId,
@@ -2182,7 +2279,7 @@ async function route(req, res) {
       senderInboxId: inboxId,
       recipientInboxId: recipientDirectory.inboxId,
       senderType: 'agent',
-      senderAgentId: input.senderAgentId,
+      senderAgentId,
       recipientAgentId: recipient.id,
       recipientEmail,
       transport: 'native',
@@ -2228,18 +2325,20 @@ async function route(req, res) {
   }
 
   if (req.method === 'POST' && suffix === 'human-messages') {
+    if (!humanConversationMessagingEnabled()) return fail(res, 403, 'Human conversation messaging is disabled in production');
     const input = await body(req);
     const human = await auth.getHuman(req);
     if (!human) return fail(res, 401, 'Verified human session required');
     if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Workspace membership required');
     if (!input.recipientAgentId || !input.text) return fail(res, 400, 'recipientAgentId and text are required');
-    const recipient = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.recipientAgentId}.json`));
+    const recipientAgentId = assertSafeIdentifier(input.recipientAgentId, 'recipientAgentId');
+    const recipient = await store.getJson(path.join('inboxes', inboxId, 'agents', `${recipientAgentId}.json`));
     if (!recipient) return fail(res, 404, 'Recipient agent not found');
     if (!hasPermission(recipient, 'receive_agent_messages')) return fail(res, 403, 'Recipient agent is not approved to receive messages');
-    const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${input.recipientAgentId}.json`), { approved: true, blocked: false });
+    const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${recipientAgentId}.json`), { approved: true, blocked: false });
     if (contact.blocked) return fail(res, 403, 'Recipient is blocked');
     if (contact.approved === false) return fail(res, 403, 'Recipient is not an approved human contact');
-    const message = { id: input.id || store.id('msg'), inboxId, caseId: input.caseId || store.id('case'), senderType: 'human', senderHumanId: human.id, recipientAgentId: input.recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
+    const message = { id: store.id('msg'), inboxId, caseId: input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : store.id('case'), senderType: 'human', senderHumanId: human.id, recipientAgentId, type: input.type || 'message', text: input.text, payload: input.payload || null, createdAt: store.now(), status: 'received' };
     await store.putJson(path.join('inboxes', inboxId, 'messages', `${message.id}.json`), message);
     const caseRecord = await ensureStructuredCase(inbox, { ...input, caseId: message.caseId }, message.recipientAgentId, message.createdAt);
     appendEvent(caseRecord, { id: `evt_${message.id}`, type: 'message', actor: human.id, createdAt: message.createdAt, payload: { messageId: message.id, messageType: message.type, text: message.text, data: message.payload, senderHumanId: human.id, recipientAgentId: message.recipientAgentId, deliveryState: message.status }, linkedPolicyEvaluation: null, precedingEventRef: caseRecord.events.at(-1)?.id || null });
@@ -2283,14 +2382,15 @@ async function route(req, res) {
     if (objectStorageProvider === 's3') return fail(res, 410, 'Direct asset uploads are disabled; use asset-uploads and signed URLs');
     const input = await body(req);
     if (!input.name || !input.contentBase64 || !input.createdByAgentId) return fail(res, 400, 'name, contentBase64, and createdByAgentId are required');
-    const assetAgent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${input.createdByAgentId}.json`));
+    const createdByAgentId = assertSafeIdentifier(input.createdByAgentId, 'createdByAgentId');
+    const assetAgent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${createdByAgentId}.json`));
     if (!assetAgent || !hasPermission(assetAgent, 'create_assets')) return fail(res, 403, 'Agent is pending approval or lacks create_assets permission');
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || principal.id !== assetAgent.id) return fail(res, 401, 'Valid creator agent credential required');
-    const asset = { id: store.id('asset'), inboxId, caseId: input.caseId || null, name: input.name, mimeType: input.mimeType || 'application/octet-stream', size: Buffer.byteLength(input.contentBase64, 'base64'), createdByAgentId: input.createdByAgentId, createdAt: store.now() };
+    const asset = { id: store.id('asset'), inboxId, caseId: input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null, name: input.name, mimeType: input.mimeType || 'application/octet-stream', size: Buffer.byteLength(input.contentBase64, 'base64'), createdByAgentId, createdAt: store.now() };
     await store.putJson(path.join('inboxes', inboxId, 'assets', `${asset.id}.json`), asset);
-    await mkdir(path.join(dataDir, 'inboxes', inboxId, 'assets', asset.id), { recursive: true });
-    await writeFile(path.join(dataDir, 'inboxes', inboxId, 'assets', asset.id, 'content.bin'), Buffer.from(input.contentBase64, 'base64'));
+    await mkdir(resolvePathWithin(dataDir, 'inboxes', inboxId, 'assets', asset.id), { recursive: true });
+    await writeFile(resolvePathWithin(dataDir, 'inboxes', inboxId, 'assets', asset.id, 'content.bin'), Buffer.from(input.contentBase64, 'base64'));
     await audit(inboxId, 'asset.created', { assetId: asset.id, caseId: asset.caseId, createdByAgentId: asset.createdByAgentId });
     return json(res, 201, asset);
   }
@@ -2302,7 +2402,7 @@ async function route(req, res) {
     if (!asset) return fail(res, 404, 'Asset not found');
     if (asset.key || process.env.SINALOA_AUTH_MODE === 'production') return fail(res, 410, 'Use the scanner-gated signed download endpoint');
     res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${asset.name.replace(/"/g, '')}"`, 'x-content-type-options': 'nosniff' });
-    return res.end(await readFile(path.join(dataDir, 'inboxes', inboxId, 'assets', asset.id, 'content.bin')));
+    return res.end(await readFile(resolvePathWithin(dataDir, 'inboxes', inboxId, 'assets', asset.id, 'content.bin')));
   }
   return fail(res, 404, 'Not found');
 }

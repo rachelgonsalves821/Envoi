@@ -8,6 +8,6 @@ export function createHumanAuth(store) {
   if (provider !== 'local') throw new Error(`Unsupported SINALOA_HUMAN_AUTH_PROVIDER: ${provider}`);
   const auth = new LocalAuthService(store);
   auth.provider = 'local';
-  auth.config = () => ({ provider: 'local', hosted: false, phoneVerification: true, totp: true });
+  auth.config = () => ({ provider: 'local', hosted: false, phoneVerification: true, totp: true, csrfCookieName: process.env.SINALOA_CSRF_COOKIE_NAME || 'sinaloa_csrf' });
   return auth;
 }

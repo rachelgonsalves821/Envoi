@@ -51,6 +51,9 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   const committedReservation = await store.reserveObjectQuota(quotaWorkspace, 6, 10);
   await store.commitObjectQuota(committedReservation.id);
   assert.deepEqual(await store.objectQuotaUsage(quotaWorkspace, 10), { workspaceId: quotaWorkspace, used: 6, reserved: 0, quota: 10 });
+  await store.deleteCommittedObjectQuota(committedReservation.id);
+  await store.deleteCommittedObjectQuota(committedReservation.id);
+  assert.deepEqual(await store.objectQuotaUsage(quotaWorkspace, 10), { workspaceId: quotaWorkspace, used: 0, reserved: 0, quota: 10 });
   const expiredReservation = await store.reserveObjectQuota(quotaWorkspace, 4, 10, 1_000);
   const reclaimed = await store.reclaimExpiredObjectQuota(new Date(new Date(expiredReservation.expiresAt).getTime() + 1));
   assert.deepEqual(reclaimed, { releasedReservations: 1, releasedBytes: 4 });

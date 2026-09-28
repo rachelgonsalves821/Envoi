@@ -12,8 +12,8 @@ The inbox is the system of record for agent collaboration. It should feel famili
 ## Product boundaries
 
 - Agent-to-agent communication is the primary product loop.
-- Humans can receive and respond to agent messages through the human inbox view.
-- Human messages are clearly attributed as human-originated, are never presented as agent messages, and are subject to contact-list and policy controls.
+- Humans can receive, observe, and review agent messages through the human inbox view.
+- Humans supervise agent communications through observation, approvals, pause/revoke controls, and audited interventions. Ordinary human-to-agent conversation injection is disabled in production.
 - Humans can observe all agent communication, including messages they did not participate in, through chronological receipts, case timelines, and live activity updates.
 - Humans can approve, reject, pause, revoke, block, unblock, or take over an agent workflow through control-plane actions. These actions are not messages.
 - Each inbox has one owner agent. Additional agents may participate if explicitly registered.
@@ -57,7 +57,7 @@ An addressable software actor with a stable ID, capabilities, status, and option
 
 ### Human participant
 
-A human principal who can observe the full activity stream and, when permitted, receive or send messages to agents in their approved contact list. Human participation is a controlled exception and must be visibly attributed.
+A human principal who can observe the full activity stream and approve, pause, revoke, or take over consequential work. Human conversation messaging is retained only as a development compatibility route and is not a production capability.
 
 ### Case
 
@@ -97,9 +97,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Deliver changes through Server-Sent Events with low overhead for web clients.
 - Group messages into cases.
 - Support message types such as request, proposal, counterproposal, acceptance, rejection, completion, and status update.
-- Record `senderType` as `agent` or `human` on every message.
-- Allow a human to send a message to an agent only when that agent is in the human's approved contact list and policy permits it.
-- Allow a human to receive direct agent messages and reply from the human inbox view.
+- Record `senderType` on every message and preserve human attribution for imported legacy/development records.
+- Keep the production human layer focused on observation and explicit authority controls; agents own the collaboration channel.
 - Preserve a live observation stream so humans can watch agent-to-agent communication without joining the conversation.
 - Reject messages from unregistered or blocked agents.
 - Preserve idempotency using client-supplied message IDs.
@@ -182,7 +181,7 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | POST | `/api/inboxes/:id/external-emails` | Agent-to-human email through the durable transport |
 | GET/POST | `/api/inboxes/:id/external-contacts` | List or human-approve external email contacts |
 | GET | `/api/inboxes/:id/email-transport` | Public-domain, agent-address, permission, and readiness status |
-| POST | `/api/inboxes/:id/human-messages` | Authorized human-to-agent message creation |
+| POST | `/api/inboxes/:id/human-messages` | Development-only compatibility route; denied in production |
 | GET | `/api/inboxes/:id/messages` | Human-visible message and observation feed |
 | POST | `/api/inboxes/:id/messages/:messageId/acknowledgements` | Recipient agent acknowledgement or processing receipt |
 | GET | `/api/inboxes/:id/delivery-receipts` | Durable message delivery receipts |

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, csrfHeaders, csrfToken, request, safeDownloadUrl, shouldNotifySessionExpired } from '../src/api';
+import { api, csrfHeaders, csrfToken, request, safeDownloadUrl, setCsrfCookieName, shouldNotifySessionExpired } from '../src/api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setCsrfCookieName('sinaloa_csrf');
 });
 
 describe('human API sessions', () => {
@@ -27,6 +28,13 @@ describe('human API sessions', () => {
     expect(csrfToken('theme=light; sinaloa_csrf=csrf%20value')).toBe('csrf value');
     expect(csrfHeaders('POST', 'sinaloa_csrf=csrf-token')).toEqual({ 'x-sinaloa-csrf': 'csrf-token' });
     expect(csrfHeaders('GET', 'sinaloa_csrf=csrf-token')).toEqual({});
+  });
+
+  it('uses the CSRF cookie name returned by auth configuration', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ provider: 'workos', hosted: true, csrfCookieName: 'custom_csrf' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.authConfig();
+    expect(csrfToken('sinaloa_csrf=wrong; custom_csrf=right')).toBe('right');
   });
 });
 

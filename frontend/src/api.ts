@@ -1,6 +1,11 @@
 import type { AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
 
 export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
+let configuredCsrfCookieName = 'sinaloa_csrf';
+
+export function setCsrfCookieName(name?: string) {
+  configuredCsrfCookieName = name && /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(name) ? name : 'sinaloa_csrf';
+}
 
 export class ApiError extends Error {
   constructor(
@@ -28,7 +33,7 @@ export function shouldNotifySessionExpired(pathname: string) {
 }
 
 export function csrfToken(cookieHeader = typeof document === 'undefined' ? '' : document.cookie) {
-  const encodedName = encodeURIComponent('sinaloa_csrf');
+  const encodedName = encodeURIComponent(configuredCsrfCookieName);
   const value = cookieHeader.split(';').map(item => item.trim()).find(item => item.startsWith(`${encodedName}=`))?.slice(encodedName.length + 1);
   return value ? decodeURIComponent(value) : null;
 }
@@ -72,7 +77,11 @@ export function safeDownloadUrl(value: string, baseUrl = typeof window === 'unde
 }
 
 export const api = {
-  authConfig: () => request<AuthConfig>('/api/auth/config'),
+  authConfig: async () => {
+    const config = await request<AuthConfig>('/api/auth/config');
+    setCsrfCookieName(config.csrfCookieName);
+    return config;
+  },
   me: () => request<Human>('/api/auth/me'),
   phoneStart: (phoneNumber: string, displayName: string) => request<{ challengeId: string; expiresAt: string; developmentCode?: string }>('/api/auth/phone/start', { method: 'POST', body: JSON.stringify({ phoneNumber, displayName }) }),
   phoneVerify: (challengeId: string, code: string) => request<{ human: Human; secondFactorRequired: boolean; expiresAt?: string }>('/api/auth/phone/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),

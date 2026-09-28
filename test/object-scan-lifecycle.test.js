@@ -11,7 +11,7 @@ async function setup({ body = Buffer.from('safe'), scanner, maxAttempts = 3, dea
   const metadataStore = new InMemoryMetadataStore();
   const object = {
     id: 'obj_test', key: 'workspaces/workspace_a/objects/obj_test', workspaceId: 'workspace_a', filename: 'test.txt',
-    mimeType: 'text/plain', size: body.length, checksumSha256: checksum(body), state: 'quarantine', scannedAt: null, scan: null
+    mimeType: 'text/plain', size: body.length, checksumSha256: checksum(body), state: 'quarantine', scannedAt: null, scan: null, reservationId: 'quota_test'
   };
   await metadataStore.create(object);
   const deleted = [];
@@ -20,12 +20,14 @@ async function setup({ body = Buffer.from('safe'), scanner, maxAttempts = 3, dea
     deleteObject: async key => { deleted.push(key); }
   };
   const jobStore = new InMemoryMalwareScanJobStore();
+  const quotaDeletes = [];
+  const quotaLedger = { deleteCommitted: async reservationId => { if (!quotaDeletes.includes(reservationId)) quotaDeletes.push(reservationId); } };
   const lifecycleOptions = {
-    jobStore, adapter, metadataStore, scanner, maxAttempts, leaseMs: 1_000, retryBaseMs: 1_000, retryMaxMs: 10_000,
+    jobStore, adapter, metadataStore, quotaLedger, scanner, maxAttempts, leaseMs: 1_000, retryBaseMs: 1_000, retryMaxMs: 10_000,
     deadLetterRetentionMs, infectedRetentionMs, completedJobRetentionMs: 4_000, retentionRetryMs: 1_000,
     clock: () => new Date(now), random: () => 0.5
   };
-  return { adapter, deleted, jobStore, lifecycleOptions, metadataStore, object, setNow: value => { now = new Date(value); } };
+  return { adapter, deleted, jobStore, lifecycleOptions, metadataStore, object, quotaDeletes, setNow: value => { now = new Date(value); } };
 }
 
 test('scan retry survives lifecycle restart and eventually unlocks a verified clean object', async () => {
@@ -82,6 +84,7 @@ test('immutable checksum failures dead-letter immediately and retention deletes 
   const reaped = await lifecycle.reapRetention('retention-worker');
   assert.equal(reaped.action, 'deleted-object');
   assert.deepEqual(state.deleted, [state.object.key]);
+  assert.deepEqual(state.quotaDeletes, [state.object.reservationId]);
   assert.equal((await state.metadataStore.get(state.object.id)).state, 'deleted');
   assert.equal(await state.jobStore.get(job.id), null);
 });
@@ -96,4 +99,5 @@ test('infected objects stay locked, are retained for policy duration, then delet
   state.setNow('2026-01-01T00:00:03.000Z');
   assert.equal((await lifecycle.reapRetention('retention-worker')).action, 'deleted-object');
   assert.equal((await state.metadataStore.get(state.object.id)).state, 'deleted');
+  assert.deepEqual(state.quotaDeletes, [state.object.reservationId]);
 });

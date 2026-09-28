@@ -68,4 +68,5 @@ test('key rotation verifies old records, signs new records with active key, and 
   assert.equal(verifyDecisionRecord({ ...newRecord, integrityKeyId: 'unknown' }, { keyring: rotated }), false);
   const unsigned = evaluatePolicy({ ...base, id: 'unsigned', requestedAction: 'case.classify' });
   assert.equal(verifyDecisionRecord(unsigned, { keyring: rotated, requireSigned: true }), false);
+  assert.equal(verifyDecisionRecord(unsigned, { keyring: rotated }), false);
 });

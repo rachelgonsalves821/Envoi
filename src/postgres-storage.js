@@ -2,8 +2,10 @@ import pg from 'pg';
 import crypto from 'node:crypto';
 import { runMigrations } from './migrations.js';
 import { createPostgresOptions } from './postgres-options.js';
+import { normalizeDocumentPath } from './path-safety.js';
 
 const { Pool } = pg;
+const likePrefix = relative => `${normalizeDocumentPath(relative).replace(/[\\%_]/g, value => `\\${value}`)}/%`;
 
 export class PostgresStore {
   constructor(connectionString) { this.pool = new Pool(createPostgresOptions(connectionString)); }
@@ -16,10 +18,10 @@ export class PostgresStore {
       ON CONFLICT(inbox_id) DO UPDATE SET value = sinaloa_event_sequences.value + 1 RETURNING value`, [inboxId]);
     return Number(result.rows[0].value);
   }
-  async putJson(relative, value) { await this.pool.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()', [relative.replaceAll('\\', '/'), value]); }
+  async putJson(relative, value) { await this.pool.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()', [normalizeDocumentPath(relative), value]); }
   async writeDocuments(client, documents) {
     for (const document of documents) {
-      await client.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()', [document.path.replaceAll('\\', '/'), document.value]);
+      await client.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()', [normalizeDocumentPath(document.path), document.value]);
     }
   }
   async putJsonBatch(documents) {
@@ -192,6 +194,29 @@ export class PostgresStore {
   }
   commitObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, true); }
   releaseObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, false); }
+  async deleteCommittedObjectQuota(reservationId) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query('SELECT * FROM sinaloa_object_quota_reservations WHERE id = $1 FOR UPDATE', [reservationId]);
+      const reservation = result.rows[0];
+      if (!reservation) throw Object.assign(new Error('Unknown object quota reservation'), { code: 'UNKNOWN_RESERVATION', statusCode: 400 });
+      if (reservation.status === 'committed') {
+        await client.query('UPDATE sinaloa_object_quota_usage SET used_bytes = GREATEST(0, used_bytes - $2), updated_at = NOW() WHERE workspace_id = $1', [reservation.workspace_id, Number(reservation.bytes)]);
+        await client.query("UPDATE sinaloa_object_quota_reservations SET status = 'released', updated_at = NOW() WHERE id = $1", [reservationId]);
+        reservation.status = 'released';
+      } else if (reservation.status !== 'released') {
+        throw Object.assign(new Error('Object quota is not committed'), { code: 'QUOTA_NOT_COMMITTED', statusCode: 409 });
+      }
+      await client.query('COMMIT');
+      return { id: reservation.id, workspaceId: reservation.workspace_id, bytes: Number(reservation.bytes), state: reservation.status, createdAt: new Date(reservation.created_at).toISOString() };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
   async reclaimExpiredObjectQuota(now = new Date()) {
     const client = await this.pool.connect();
     try {
@@ -221,19 +246,19 @@ export class PostgresStore {
     const row = result.rows[0];
     return row ? { workspaceId, used: Number(row.used_bytes), reserved: Number(row.reserved_bytes), quota: Number(row.quota_bytes) } : { workspaceId, used: 0, reserved: 0, quota: quotaBytes };
   }
-  async putJsonIfAbsent(relative, value) { const result = await this.pool.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO NOTHING RETURNING path', [relative.replaceAll('\\', '/'), value]); return result.rowCount === 1; }
+  async putJsonIfAbsent(relative, value) { const result = await this.pool.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO NOTHING RETURNING path', [normalizeDocumentPath(relative), value]); return result.rowCount === 1; }
   async claimJson(relative, field, value) {
     if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(field)) throw new Error('Invalid claim field');
-    const result = await this.pool.query(`UPDATE sinaloa_documents SET value = jsonb_set(value, $2, to_jsonb($3::text)), updated_at = NOW() WHERE path = $1 AND (value->>$4) IS NULL RETURNING value`, [relative.replaceAll('\\', '/'), `{${field}}`, value, field]);
+    const result = await this.pool.query(`UPDATE sinaloa_documents SET value = jsonb_set(value, $2, to_jsonb($3::text)), updated_at = NOW() WHERE path = $1 AND (value->>$4) IS NULL RETURNING value`, [normalizeDocumentPath(relative), `{${field}}`, value, field]);
     return result.rows[0]?.value ?? null;
   }
-  async getJson(relative, fallback = null) { const result = await this.pool.query('SELECT value FROM sinaloa_documents WHERE path = $1', [relative.replaceAll('\\', '/')]); return result.rows[0]?.value ?? fallback; }
-  async deleteJson(relative) { const result = await this.pool.query('DELETE FROM sinaloa_documents WHERE path = $1', [relative.replaceAll('\\', '/')]); return result.rowCount === 1; }
-  async listJson(relativeDir) { const prefix = `${relativeDir.replaceAll('\\', '/')}/`; const result = await this.pool.query('SELECT value FROM sinaloa_documents WHERE path LIKE $1 ORDER BY path', [`${prefix}%`]); return result.rows.filter((row) => row.value && typeof row.value === 'object' && !Array.isArray(row.value)).map((row) => row.value); }
+  async getJson(relative, fallback = null) { const result = await this.pool.query('SELECT value FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rows[0]?.value ?? fallback; }
+  async deleteJson(relative) { const result = await this.pool.query('DELETE FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rowCount === 1; }
+  async listJson(relativeDir) { const result = await this.pool.query("SELECT value FROM sinaloa_documents WHERE path LIKE $1 ESCAPE '\\\\' ORDER BY path", [likePrefix(relativeDir)]); return result.rows.filter((row) => row.value && typeof row.value === 'object' && !Array.isArray(row.value)).map((row) => row.value); }
   async queryJson(relativeDir, { limit = 100, before = null, filters = {}, sortField = 'createdAt' } = {}) {
     if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(sortField)) throw new Error('Invalid sort field');
-    const values = [`${relativeDir.replaceAll('\\', '/')}/%`];
-    const conditions = ['path LIKE $1'];
+    const values = [likePrefix(relativeDir)];
+    const conditions = ["path LIKE $1 ESCAPE '\\\\'"];
     for (const [key, value] of Object.entries(filters)) {
       if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)) throw new Error('Invalid filter field');
       values.push(key, String(value));

@@ -86,7 +86,7 @@ export class WorkOSAuthService {
   }
 
   config() {
-    return { provider: 'workos', hosted: true, signInPath: '/api/auth/workos/sign-in', signUpPath: '/api/auth/workos/sign-up' };
+    return { provider: 'workos', hosted: true, signInPath: '/api/auth/workos/sign-in', signUpPath: '/api/auth/workos/sign-up', csrfCookieName: csrfCookie };
   }
 
   async startAuthorization({ screenHint = 'sign-in', returnTo = '/' } = {}) {

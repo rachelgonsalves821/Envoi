@@ -133,7 +133,7 @@ export function evaluatePolicy({
   caseDeadline = null, requestedExpiresAt = null, contactApproved = null,
   calendarConnectorAvailable = null, outsideWorkingHours = false, proposalDigest = null,
   allowedOptionIds = [], policy = createWorkspacePolicy({ version: '2026-09-27' }),
-  previousRecordDigest = null, phase = 'evaluation', executionId = null,
+  previousRecordDigest = null, phase = 'evaluation', executionId = null, sourceEvaluationId = null, grantType = 'oneTime',
   signingKey = null, keyring = null, now = new Date().toISOString()
 }) {
   const issuedAt = isoInstant(now);
@@ -169,7 +169,7 @@ export function evaluatePolicy({
   const keys = normalizeKeyring({ signingKey, keyring });
   const unsigned = {
     schemaVersion: POLICY_ENGINE_SCHEMA_VERSION,
-    id, phase, executionId, workspaceId, caseId, agentId, requestedAction: action, actionClass,
+    id, phase, executionId, sourceEvaluationId, grantType, workspaceId, caseId, agentId, requestedAction: action, actionClass,
     policy: { id: policy.id, version: policy.version, digest: policy.digest },
     decision: result.decision, reasonCode: result.reasonCode, reasons: [result.reasonCode],
     ...binding, proposalDigest, allowedOptionIds: [...new Set(allowedOptionIds)].sort(),
@@ -185,7 +185,7 @@ export function verifyDecisionRecord(record, options = {}) {
   if (!record || record.schemaVersion !== POLICY_ENGINE_SCHEMA_VERSION || !record.recordDigest) return false;
   const { recordDigest, ...unsigned } = record;
   const keys = normalizeKeyring(options);
-  if (options.requireSigned === true && record.integrityAlgorithm !== 'hmac-sha256') return false;
+  if ((options.requireSigned === true || keys) && record.integrityAlgorithm !== 'hmac-sha256') return false;
   let key = null;
   if (record.integrityAlgorithm === 'hmac-sha256') {
     key = keys?.keys?.[record.integrityKeyId];

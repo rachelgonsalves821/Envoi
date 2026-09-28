@@ -1,10 +1,11 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { resolvePathWithin } from './path-safety.js';
 
 export class FileStore {
   constructor(root) {
-    this.root = root;
+    this.root = path.resolve(root);
     this.claims = new Set();
     this.outboxMutation = Promise.resolve();
     this.objectQuotaMutation = Promise.resolve();
@@ -28,8 +29,8 @@ export class FileStore {
     return dir;
   }
 
-  inboxDir(inboxId) { return path.join(this.root, 'inboxes', inboxId); }
-  file(...parts) { return path.join(this.root, ...parts); }
+  inboxDir(inboxId) { return this.file('inboxes', inboxId); }
+  file(...parts) { return resolvePathWithin(this.root, ...parts); }
 
   async putJson(relative, value) {
     const target = this.file(relative);
@@ -236,6 +237,23 @@ export class FileStore {
 
   commitObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, true); }
   releaseObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, false); }
+  async deleteCommittedObjectQuota(reservationId) {
+    return this.withObjectQuotaMutation(async () => {
+      const reservationPath = path.join('object-storage', 'quota-reservations', `${reservationId}.json`);
+      const reservation = await this.getJson(reservationPath);
+      if (!reservation) throw Object.assign(new Error('Unknown object quota reservation'), { code: 'UNKNOWN_RESERVATION', statusCode: 400 });
+      if (reservation.state === 'released') return reservation;
+      if (reservation.state !== 'committed') throw Object.assign(new Error('Object quota is not committed'), { code: 'QUOTA_NOT_COMMITTED', statusCode: 409 });
+      const usagePath = path.join('object-storage', 'quota-usage', `${reservation.workspaceId}.json`);
+      const usage = await this.getJson(usagePath, { workspaceId: reservation.workspaceId, used: 0, reserved: 0, quota: reservation.bytes });
+      usage.used = Math.max(0, Number(usage.used || 0) - Number(reservation.bytes));
+      reservation.state = 'released';
+      reservation.releasedAt = this.now();
+      reservation.updatedAt = reservation.releasedAt;
+      await this.putJsonBatch([{ path: usagePath, value: usage }, { path: reservationPath, value: reservation }]);
+      return reservation;
+    });
+  }
   async objectQuotaUsage(workspaceId, quotaBytes) { return this.getJson(path.join('object-storage', 'quota-usage', `${workspaceId}.json`), { workspaceId, used: 0, reserved: 0, quota: quotaBytes }); }
 
   async putJsonIfAbsent(relative, value) {

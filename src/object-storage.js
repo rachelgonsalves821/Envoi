@@ -1,12 +1,14 @@
 import crypto from 'node:crypto';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { DurableMalwareScanLifecycle } from './object-scan-lifecycle.js';
 
 const DEFAULT_ALLOWED_MIME_TYPES = Object.freeze([
   'application/pdf', 'image/jpeg', 'image/png', 'text/plain'
 ]);
 const SHA256_BASE64_LENGTH = 44;
 const MAX_PRESIGN_TTL_SECONDS = 7 * 24 * 60 * 60;
+const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const WORKSPACE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const MIME_TYPE = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/;
 
@@ -25,9 +27,11 @@ export function validateObjectStorageConfig(config = {}) {
   const provider = requestedProvider === 'r2' ? 's3' : requestedProvider;
   const region = requestedProvider === 'r2' ? (config.region ?? 'auto') : config.region;
   const maxObjectBytes = Number(config.maxObjectBytes ?? 25 * 1024 * 1024);
+  const requestTimeoutMs = Number(config.requestTimeoutMs ?? 30_000);
   const allowedMimeTypes = config.allowedMimeTypes ?? DEFAULT_ALLOWED_MIME_TYPES;
   if (!['local', 's3'].includes(provider)) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'provider must be "local", "s3", or "r2"');
   if (!Number.isSafeInteger(maxObjectBytes) || maxObjectBytes < 1) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'maxObjectBytes must be a positive integer');
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > MAX_REQUEST_TIMEOUT_MS) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'requestTimeoutMs must be an integer from 1 to 120000');
   if (!Array.isArray(allowedMimeTypes) || !allowedMimeTypes.length || allowedMimeTypes.some(type => typeof type !== 'string' || !MIME_TYPE.test(type))) {
     throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'allowedMimeTypes must contain valid MIME types');
   }
@@ -54,7 +58,7 @@ export function validateObjectStorageConfig(config = {}) {
   return {
     provider, endpoint: endpoint.toString().replace(/\/$/, ''), bucket: config.bucket, region,
     accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey, sessionToken: config.sessionToken,
-    allowInsecureEndpoint: Boolean(config.allowInsecureEndpoint), isR2, maxObjectBytes, allowedMimeTypes: [...new Set(allowedMimeTypes)]
+    allowInsecureEndpoint: Boolean(config.allowInsecureEndpoint), isR2, maxObjectBytes, requestTimeoutMs, allowedMimeTypes: [...new Set(allowedMimeTypes)]
   };
 }
 
@@ -136,7 +140,7 @@ export class DocumentObjectMetadataStore {
 
 export class PersistentQuotaLedger {
   constructor(store, { defaultQuotaBytes, reservationTtlMs = 1_200_000 } = {}) {
-    if (!store || !['reserveObjectQuota', 'commitObjectQuota', 'releaseObjectQuota', 'reclaimExpiredObjectQuota'].every(method => typeof store[method] === 'function')) throw new ObjectStorageError('INVALID_QUOTA_STORE', 'Storage backend does not implement atomic object quota operations');
+    if (!store || !['reserveObjectQuota', 'commitObjectQuota', 'releaseObjectQuota', 'deleteCommittedObjectQuota', 'reclaimExpiredObjectQuota'].every(method => typeof store[method] === 'function')) throw new ObjectStorageError('INVALID_QUOTA_STORE', 'Storage backend does not implement atomic object quota operations');
     if (!Number.isSafeInteger(defaultQuotaBytes) || defaultQuotaBytes < 1) throw new ObjectStorageError('INVALID_QUOTA', 'defaultQuotaBytes must be a positive integer');
     if (!Number.isSafeInteger(reservationTtlMs) || reservationTtlMs < 1_000) throw new ObjectStorageError('INVALID_QUOTA', 'reservationTtlMs must be at least one second');
     this.store = store;
@@ -146,6 +150,7 @@ export class PersistentQuotaLedger {
   reserve(workspaceId, bytes) { return this.store.reserveObjectQuota(workspaceId, bytes, this.defaultQuotaBytes, this.reservationTtlMs); }
   commit(reservationId) { return this.store.commitObjectQuota(reservationId); }
   release(reservationId) { return this.store.releaseObjectQuota(reservationId); }
+  deleteCommitted(reservationId) { return this.store.deleteCommittedObjectQuota(reservationId); }
   reclaimExpired() { return this.store.reclaimExpiredObjectQuota(); }
   usage(workspaceId) { return this.store.objectQuotaUsage(workspaceId, this.defaultQuotaBytes); }
 }
@@ -215,6 +220,18 @@ export class InMemoryQuotaLedger {
   }
   async commit(reservationId) { return this.#settle(reservationId, true); }
   async release(reservationId) { return this.#settle(reservationId, false); }
+  async deleteCommitted(reservationId) {
+    const reservation = this.#reservations.get(reservationId);
+    if (!reservation) throw new ObjectStorageError('UNKNOWN_RESERVATION', 'Unknown quota reservation');
+    return this.#withWorkspaceLock(reservation.workspaceId, async () => {
+      if (reservation.state === 'released') return immutable(reservation);
+      if (reservation.state !== 'committed') throw new ObjectStorageError('QUOTA_NOT_COMMITTED', 'Object quota is not committed', 409);
+      const usage = this.#usage.get(reservation.workspaceId);
+      this.#usage.set(reservation.workspaceId, { ...usage, used: Math.max(0, usage.used - reservation.bytes) });
+      reservation.state = 'released';
+      return immutable(reservation);
+    });
+  }
   async #settle(reservationId, commit) {
     const reservation = this.#reservations.get(reservationId);
     if (!reservation) throw new ObjectStorageError('UNKNOWN_RESERVATION', 'Unknown quota reservation');
@@ -349,7 +366,11 @@ export class S3CompatibleObjectStorageAdapter {
     if (this.config.sessionToken) headers['x-amz-security-token'] = this.config.sessionToken;
     const signing = this.#sign({ method, objectPath, headers, now });
     headers.authorization = `AWS4-HMAC-SHA256 Credential=${this.config.accessKeyId}/${signing.scope}, SignedHeaders=${signing.signedHeaders}, Signature=${signing.signature}`;
-    return fetch(`${this.endpoint.origin}${objectPath}`, { method, headers });
+    try {
+      return await fetch(`${this.endpoint.origin}${objectPath}`, { method, headers, signal: AbortSignal.timeout(this.config.requestTimeoutMs) });
+    } catch {
+      throw new ObjectStorageError('OBJECT_STORAGE_UNAVAILABLE', 'Object storage request failed or timed out', 503);
+    }
   }
   async headObject(key) {
     const response = await this.#request('HEAD', key);
@@ -372,7 +393,7 @@ export class S3CompatibleObjectStorageAdapter {
 }
 
 export class ObjectStorageService {
-  constructor({ adapter, metadataStore, quotaLedger, scanner, maxObjectBytes = 25 * 1024 * 1024, allowedMimeTypes = DEFAULT_ALLOWED_MIME_TYPES, uploadUrlTtlSeconds = 900, downloadUrlTtlSeconds = 300 } = {}) {
+  constructor({ adapter, metadataStore, quotaLedger, scanner, scanJobStore = null, scanLifecycle = {}, maxObjectBytes = 25 * 1024 * 1024, allowedMimeTypes = DEFAULT_ALLOWED_MIME_TYPES, uploadUrlTtlSeconds = 900, downloadUrlTtlSeconds = 300 } = {}) {
     if (!adapter || !['createPresignedUpload', 'createPresignedDownload', 'headObject', 'getObject', 'deleteObject'].every(method => typeof adapter[method] === 'function')) throw new ObjectStorageError('INVALID_ADAPTER', 'Object storage adapter is incomplete');
     if (!metadataStore || !['create', 'get', 'updateScan', 'remove'].every(method => typeof metadataStore[method] === 'function')) throw new ObjectStorageError('INVALID_METADATA_STORE', 'Metadata store is incomplete');
     if (!quotaLedger || !['reserve', 'commit', 'release'].every(method => typeof quotaLedger[method] === 'function')) throw new ObjectStorageError('INVALID_QUOTA_LEDGER', 'Quota ledger is incomplete');
@@ -384,6 +405,7 @@ export class ObjectStorageService {
     validatePresignExpiry(uploadUrlTtlSeconds);
     validatePresignExpiry(downloadUrlTtlSeconds);
     this.config = { maxObjectBytes, allowedMimeTypes, uploadUrlTtlSeconds, downloadUrlTtlSeconds };
+    this.scanLifecycle = scanJobStore ? new DurableMalwareScanLifecycle({ jobStore: scanJobStore, adapter, metadataStore, quotaLedger, scanner, ...scanLifecycle }) : null;
   }
   async init() { await this.adapter.init?.(); }
   async beginUpload(input) {
@@ -419,6 +441,7 @@ export class ObjectStorageService {
   }
   async scanObject(id) {
     const record = await this.completeUpload(id);
+    if (this.scanLifecycle) return this.scanLifecycle.processObject(id);
     try {
       const body = await this.adapter.getObject(record.key);
       if (!body) throw new ObjectStorageError('OBJECT_NOT_FOUND', 'Object is missing from storage', 404);
@@ -430,6 +453,14 @@ export class ObjectStorageService {
       await this.metadataStore.updateScan(id, { state: 'error', scannedAt: new Date().toISOString(), result: { status: 'error', message: error.message } });
       throw error;
     }
+  }
+  async processNextScan(workerId) {
+    if (!this.scanLifecycle) throw new ObjectStorageError('SCAN_LIFECYCLE_NOT_CONFIGURED', 'Durable malware scan lifecycle is not configured', 503);
+    return this.scanLifecycle.processNext(workerId);
+  }
+  async reapScanRetention(workerId) {
+    if (!this.scanLifecycle) throw new ObjectStorageError('SCAN_LIFECYCLE_NOT_CONFIGURED', 'Durable malware scan lifecycle is not configured', 503);
+    return this.scanLifecycle.reapRetention(workerId);
   }
   async createDownload(id) {
     const record = await this.#requireObject(id);

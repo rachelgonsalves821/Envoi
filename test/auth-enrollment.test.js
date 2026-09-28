@@ -106,6 +106,22 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const organizationWorkspaces = await request(server.baseUrl, `/api/organizations/${workspace.payload.organizationId}/workspaces`, { token: sessionToken });
   assert.equal(organizationWorkspaces.status, 200);
   assert.equal(organizationWorkspaces.payload[0].id, workspace.payload.id);
+  const organizationCreated = await request(server.baseUrl, '/api/organizations', { token: sessionToken, headers: { 'Idempotency-Key': 'organization-create-1' }, body: { name: 'Second workspace' } });
+  assert.equal(organizationCreated.status, 201);
+  const organizationReplay = await request(server.baseUrl, '/api/organizations', { token: sessionToken, headers: { 'Idempotency-Key': 'organization-create-1' }, body: { name: 'Second workspace' } });
+  assert.equal(organizationReplay.status, 201);
+  assert.equal(organizationReplay.payload.id, organizationCreated.payload.id);
+  const organizationConflict = await request(server.baseUrl, '/api/organizations', { token: sessionToken, headers: { 'Idempotency-Key': 'organization-create-1' }, body: { name: 'Changed workspace' } });
+  assert.equal(organizationConflict.status, 409);
+  const organizationsBeforeRace = await request(server.baseUrl, '/api/organizations', { token: sessionToken });
+  const racedOrganizations = await Promise.all([
+    request(server.baseUrl, '/api/organizations', { token: sessionToken, headers: { 'Idempotency-Key': 'organization-concurrent-1' }, body: { name: 'Concurrent workspace' } }),
+    request(server.baseUrl, '/api/organizations', { token: sessionToken, headers: { 'Idempotency-Key': 'organization-concurrent-1' }, body: { name: 'Concurrent workspace' } })
+  ]);
+  assert.ok(racedOrganizations.every(result => [201, 409].includes(result.status)));
+  assert.ok(racedOrganizations.some(result => result.status === 201));
+  const organizationsAfterRace = await request(server.baseUrl, '/api/organizations', { token: sessionToken });
+  assert.equal(organizationsAfterRace.payload.length, organizationsBeforeRace.payload.length + 1);
   const tokenResponse = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'] } });
   assert.equal(tokenResponse.status, 201);
   const enrolled = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: tokenResponse.payload.enrollmentToken, name: 'Worker', slug: 'worker' } });
@@ -269,6 +285,8 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const humanApprovalReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: sessionToken, headers: { 'Idempotency-Key': 'human-approve-1' }, body: { actionKey: 'approveOnce', externalRefs: { policyEvaluationId: policy.payload.id } } });
   assert.equal(humanApprovalReplay.status, 200);
   assert.equal(humanApprovalReplay.payload.replay, true);
+  const changedHumanReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: sessionToken, headers: { 'Idempotency-Key': 'human-approve-1' }, body: { actionKey: 'decline', externalRefs: { policyEvaluationId: policy.payload.id } } });
+  assert.equal(changedHumanReplay.status, 409);
 
   const paymentCase = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases`, { token: enrolled.payload.agentApiToken, body: { objective: 'Pay approved launch supplier', collaborationMode: 'collaboration' } });
   assert.equal(paymentCase.status, 201);
@@ -286,6 +304,12 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const authorizedPaymentReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
   assert.equal(authorizedPaymentReplay.status, 200);
   assert.equal(authorizedPaymentReplay.payload.replay, true);
+  const changedPaymentReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'failed', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
+  assert.equal(changedPaymentReplay.status, 409);
+  const changedPayloadReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: { ...paymentPayload, amount: { minorUnits: 4999, currency: 'CAD' } } } });
+  assert.equal(changedPayloadReplay.status, 409);
+  const reusedOneTimePolicy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-2' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
+  assert.equal(reusedOneTimePolicy.status, 409);
   const projectedHumanView = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/human-view`, { token: sessionToken });
   assert.equal(projectedHumanView.status, 200);
   const projectedCase = projectedHumanView.payload.caseQueue.find(item => item.id === caseCreated.payload.id);

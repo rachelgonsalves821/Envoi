@@ -102,6 +102,9 @@ test('quota reservations are race-safe and only commit verified uploads', async 
   const committed = await ledger.reserve('workspace_a', 6);
   await ledger.commit(committed.id);
   assert.deepEqual(await ledger.usage('workspace_a'), { used: 6, reserved: 0, quota: 10 });
+  await ledger.deleteCommitted(committed.id);
+  await ledger.deleteCommitted(committed.id);
+  assert.deepEqual(await ledger.usage('workspace_a'), { used: 0, reserved: 0, quota: 10 });
 });
 
 test('persistent quota releases expired reservations and rejects late commits', async t => {
@@ -114,6 +117,11 @@ test('persistent quota releases expired reservations and rejects late commits', 
   assert.deepEqual(reclaimed, { releasedReservations: 1, releasedBytes: 8 });
   assert.deepEqual(await store.objectQuotaUsage('workspace_a', 10), { workspaceId: 'workspace_a', used: 0, reserved: 0, quota: 10 });
   await assert.rejects(() => store.commitObjectQuota(reservation.id), error => error.code === 'QUOTA_RESERVATION_EXPIRED');
+  const committed = await store.reserveObjectQuota('workspace_a', 6, 10);
+  await store.commitObjectQuota(committed.id);
+  await store.deleteCommittedObjectQuota(committed.id);
+  await store.deleteCommittedObjectQuota(committed.id);
+  assert.deepEqual(await store.objectQuotaUsage('workspace_a', 10), { workspaceId: 'workspace_a', used: 0, reserved: 0, quota: 10 });
 });
 
 test('strict validation rejects unsafe input and public S3 configurations', async t => {
@@ -161,4 +169,23 @@ test('R2 mode uses region auto and metadata-bound SHA-256 without unsupported fu
   assert.equal(upload.headers['x-amz-checksum-sha256'], undefined);
   assert.deepEqual(url.searchParams.get('X-Amz-SignedHeaders').split(';'), ['content-type', 'host', 'if-none-match', 'x-amz-meta-sinaloa-sha256']);
   await assert.rejects(() => adapter.createPresignedDownload({ key: 'valid/key', expiresInSeconds: 604_801 }), error => error.code === 'INVALID_PRESIGN_TTL');
+});
+
+test('S3 adapter bounds transport time and sanitizes timeout failures', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = (_url, options) => new Promise((_, reject) => {
+    options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+  });
+  const adapter = new S3CompatibleObjectStorageAdapter({
+    provider: 's3', endpoint: 'https://s3.example.test', bucket: 'private-bucket', region: 'ca-central-1',
+    accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'must-not-leak', requestTimeoutMs: 5
+  });
+  await assert.rejects(() => adapter.headObject('workspaces/workspace_a/objects/obj_1'), error => {
+    assert.equal(error.code, 'OBJECT_STORAGE_UNAVAILABLE');
+    assert.equal(error.statusCode, 503);
+    assert.equal(error.message.includes('must-not-leak'), false);
+    assert.equal(error.message.includes('s3.example.test'), false);
+    return true;
+  });
 });
