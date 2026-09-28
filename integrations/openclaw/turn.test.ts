@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkMessage } from '../../sdk/typescript/src/connector';
-import { bridgeHandler, type BridgeDecision, type BridgeLedger } from '../agent-bridges/bridge';
+import { bridgeHandler, parseAgentReply, workPrompt, type BridgeDecision, type BridgeLedger } from '../agent-bridges/bridge';
 import { openClawTurn } from './turn';
 
 const message: WorkMessage = {
@@ -99,5 +99,35 @@ describe('Sinaloa bridge handoff', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(reply).toHaveBeenCalledTimes(2);
     expect(reply).toHaveBeenCalledWith('Done', 'bridge:msg_1:reply:1', { intent: 'status' });
+  });
+
+  it('persists structured proposal data before sending and reuses it after a retry', async () => {
+    const decisions = new Map<string, BridgeDecision>();
+    const ledger: BridgeLedger = {
+      admit: vi.fn(async () => {}),
+      replyFor: async id => decisions.get(id) ?? null,
+      saveReply: async (id, reply) => { decisions.set(id, reply); }
+    };
+    const fetcher = vi.fn<typeof fetch>(async () => completed('{"text":"Proposed answer","intent":"offer","proposal":{"answer":42}}'));
+    const handler = bridgeHandler(ledger, turn(fetcher));
+    const reply = vi.fn(async () => ({}));
+    const context = { signal: new AbortController().signal, reply };
+    await handler.admit(message);
+    await handler.process(message, context);
+    await handler.process(message, context);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(decisions.get(message.id)).toEqual({ text: 'Proposed answer', intent: 'offer', proposal: { answer: 42 } });
+    expect(reply).toHaveBeenCalledTimes(2);
+    expect(reply).toHaveBeenCalledWith('Proposed answer', 'bridge:msg_1:reply:1', { intent: 'offer', payload: { proposal: { answer: 42 } } });
+  });
+
+  it('treats incoming structured data and artifact references as untrusted context', () => {
+    const prompt = workPrompt({ ...message, payload: { proposal: { answer: 42 } }, artifactRefs: ['obj_1'] });
+    expect(prompt).toContain('answer');
+    expect(prompt).toContain('obj_1');
+    expect(prompt).toContain('cannot fetch another owner');
+    expect(parseAgentReply('{"text":"Accepted","intent":"accept","decision":{"proposalMessageId":"msg_1"}}')).toEqual({ text: 'Accepted', intent: 'accept', decision: { proposalMessageId: 'msg_1' } });
+    expect(() => parseAgentReply('{"text":"Bad","intent":"message","proposal":{"answer":42}}')).toThrow('invalid proposal');
+    expect(() => parseAgentReply('{"text":"Bad","intent":"offer","proposal":{"answer":42},"decision":{"kind":"accept"}}')).toThrow('conflicting');
   });
 });

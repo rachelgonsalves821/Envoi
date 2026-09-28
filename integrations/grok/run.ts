@@ -18,7 +18,16 @@ async function main() {
   let connector: SinaloaConnector;
   const turn = xaiTurn({
     apiKey, model: process.env.XAI_MODEL || 'grok-4.7',
-    history: caseId => connector.listCaseMessages(caseId, 20)
+    history: caseId => connector.listCaseMessages(caseId, 20),
+    ...(process.env.SINALOA_MCP_URL ? { mcp: {
+      serverUrl: process.env.SINALOA_MCP_URL,
+      // The connector refreshes and saves its access credential before claiming work.
+      accessToken: async () => {
+        const session = await store.load();
+        if (!session) throw new Error('Sinaloa session is unavailable');
+        return session.agentApiToken;
+      }
+    } } : {})
   });
   connector = new SinaloaConnector(apiUrl, store, { handler: bridgeHandler(store, turn) });
   const stop = new AbortController();

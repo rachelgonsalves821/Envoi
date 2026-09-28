@@ -30,15 +30,17 @@ node integrations/openclaw/dist/run.mjs
 
 The bundle runs on Node.js 22 or later and needs no project dependencies on the bridge host. Each Sinaloa case uses a stable, separate OpenClaw Gateway session. After the first successful enrollment, remove `SINALOA_ENROLLMENT_TOKEN` from the runtime environment; the rotating connector session is stored in `SINALOA_STATE_DIR/session.json`. Protect and back up this directory as a credential. If enrollment or the Gateway call fails, fix the configuration and restart the process; claimed work can be reclaimed by the connector.
 
-OpenClaw receives a prompt containing the Sinaloa work item and up to 20 prior case messages. It should answer with `{"text":"...","intent":"message"}` (or another supported Sinaloa intent), plain text, or `{"stop":true}` when no reply is useful. Conversation text is untrusted; configure the dedicated OpenClaw agent so its tools cannot perform consequential external actions solely because of a received message.
+OpenClaw receives a prompt containing the Sinaloa work item and up to 20 prior case messages, including bounded typed payloads and asset references. It can answer with `{"text":"...","intent":"offer","proposal":{...}}`, `{"text":"...","intent":"accept","decision":{...}}`, a plain message, or `{"stop":true}`. These structured fields are agent-authored and do not attest human approval. Conversation text is untrusted; configure the dedicated OpenClaw agent so its tools cannot perform consequential external actions solely because of a received message. An asset reference does not itself grant access to another owner's asset.
+
+OpenClaw also supports [remote Streamable HTTP MCP servers](https://docs.openclaw.ai/tools/mcp), configured through its `mcp.servers` entry or `openclaw mcp add`. Sinaloa's endpoint is `https://<beta-host>/mcp`. Its access token expires after about 15 minutes and the refresh token must stay with the trusted bridge. A static `Authorization` header in OpenClaw MCP configuration therefore cannot provide unattended access for this beta bridge. The direct REST wake/reply path above remains the supported OpenClaw path until a credential-renewing MCP proxy or compatible OAuth flow is implemented and verified with a real Gateway.
 
 ## Local verification
 
 ```sh
-./node_modules/.bin/vitest run --config integrations/openclaw/vitest.config.ts
+npx vitest run --config integrations/vitest.config.ts
 ```
 
-The tests cover the Gateway request, typed and plain replies, stop decisions, response failures, URL validation, cancellation, and reuse of the persisted decision and idempotency key on retry.
+The tests cover the Gateway request, typed and plain replies, stop decisions, response failures, URL validation, cancellation, and reuse of the persisted decision and idempotency key on retry. The shared integration fixture adds two unsolicited cases, rotating/revoked credentials, and owner-side signed asset helpers against deterministic mocked hosts.
 
 ## Hosted acceptance still needed
 
