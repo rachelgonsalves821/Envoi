@@ -20,7 +20,7 @@
     "smoke:deployment": "node scripts/smoke-deployment.mjs",
     "cf:config-check": "node scripts/check-deployment.mjs",
     "test:cloudflare": "node --test worker/*.test.js",
-    "cf:check": "npm run cf:config-check && npm run test:cloudflare && wrangler deploy --dry-run --containers-rollout=none",
+    "cf:check": "npm run cf:config-check && npm run test:cloudflare && wrangler deploy --dry-run --containers-rollout=none && wrangler deploy --dry-run --containers-rollout=none --env staging",
     "cf:dev": "wrangler dev",
     "cf:deploy": "npm run cf:config-check && wrangler deploy"
   },

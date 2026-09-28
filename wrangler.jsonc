@@ -34,5 +34,34 @@
       "tag": "v1",
       "new_sqlite_classes": ["SinaloaContainer"]
     }
-  ]
+  ],
+  "env": {
+    "staging": {
+      "workers_dev": true,
+      "containers": [
+        {
+          "name": "sinaloa-beta-staging",
+          "class_name": "SinaloaContainer",
+          "image": "./Dockerfile.cloudflare",
+          "max_instances": 1,
+          "instance_type": "basic",
+          "rollout_active_grace_period": 60
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "SINALOA_CONTAINER",
+            "class_name": "SinaloaContainer"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["SinaloaContainer"]
+        }
+      ]
+    }
+  }
 }
