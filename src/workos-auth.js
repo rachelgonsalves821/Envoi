@@ -4,6 +4,7 @@ import { WorkOS } from '@workos-inc/node';
 
 const flowMinutes = Number(process.env.SINALOA_AUTH_FLOW_MINUTES || 10);
 const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
+const csrfCookie = process.env.SINALOA_CSRF_COOKIE_NAME || 'sinaloa_csrf';
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const safeReturnPath = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/';
 const publicHuman = human => ({
@@ -33,6 +34,32 @@ export function sessionCookieHeader(value, { clear = false } = {}) {
   if (clear) attributes.push('Max-Age=0');
   else attributes.push(`Max-Age=${Number(process.env.SINALOA_SESSION_HOURS || 24) * 3600}`);
   return attributes.join('; ');
+}
+
+export function createCsrfToken() { return crypto.randomBytes(32).toString('base64url'); }
+
+export function csrfCookieHeader(value, { clear = false } = {}) {
+  const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
+  const attributes = [`${csrfCookie}=${clear ? '' : encodeURIComponent(value)}`, 'Path=/', 'SameSite=Strict'];
+  if (secure) attributes.push('Secure');
+  if (clear) attributes.push('Max-Age=0');
+  else attributes.push(`Max-Age=${Number(process.env.SINALOA_SESSION_HOURS || 24) * 3600}`);
+  return attributes.join('; ');
+}
+
+export function verifyCsrfRequest(req) {
+  const cookieToken = parseCookies(req.headers.cookie)[csrfCookie];
+  const headerToken = String(req.headers['x-sinaloa-csrf'] || '');
+  if (!cookieToken || !headerToken) return false;
+  const cookieBytes = Buffer.from(cookieToken);
+  const headerBytes = Buffer.from(headerToken);
+  if (cookieBytes.length !== headerBytes.length || !crypto.timingSafeEqual(cookieBytes, headerBytes)) return false;
+  try {
+    const expectedOrigin = new URL(process.env.SINALOA_PUBLIC_URL).origin;
+    return String(req.headers.origin || '') === expectedOrigin;
+  } catch {
+    return false;
+  }
 }
 
 export class WorkOSAuthService {

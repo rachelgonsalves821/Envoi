@@ -7,6 +7,8 @@ export class FileStore {
     this.root = root;
     this.claims = new Set();
     this.outboxMutation = Promise.resolve();
+    this.objectQuotaMutation = Promise.resolve();
+    this.eventSequenceMutation = Promise.resolve();
   }
 
   async init() {
@@ -42,6 +44,19 @@ export class FileStore {
   async withOutboxMutation(operation) {
     const pending = this.outboxMutation.then(operation, operation);
     this.outboxMutation = pending.catch(() => {});
+    return pending;
+  }
+
+  async nextEventSequence(inboxId) {
+    const operation = async () => {
+      const relative = path.join('inboxes', inboxId, 'event-sequence.json');
+      const current = await this.getJson(relative, { value: 0 });
+      const value = Number(current.value || 0) + 1;
+      await this.putJson(relative, { value });
+      return value;
+    };
+    const pending = this.eventSequenceMutation.then(operation, operation);
+    this.eventSequenceMutation = pending.catch(() => {});
     return pending;
   }
 
@@ -138,6 +153,90 @@ export class FileStore {
       return record;
     });
   }
+
+  async withObjectQuotaMutation(operation) {
+    const pending = this.objectQuotaMutation.then(operation, operation);
+    this.objectQuotaMutation = pending.catch(() => {});
+    return pending;
+  }
+
+  async reclaimExpiredObjectQuotaUnsafe(now) {
+    const reservations = await this.listJson(path.join('object-storage', 'quota-reservations'));
+    const expired = reservations.filter(reservation => reservation.state === 'reserved' && reservation.expiresAt && new Date(reservation.expiresAt) <= new Date(now));
+    if (!expired.length) return { releasedReservations: 0, releasedBytes: 0 };
+    const usageByWorkspace = new Map();
+    for (const reservation of expired) {
+      const usagePath = path.join('object-storage', 'quota-usage', `${reservation.workspaceId}.json`);
+      const usage = usageByWorkspace.get(reservation.workspaceId) ?? await this.getJson(usagePath, { workspaceId: reservation.workspaceId, used: 0, reserved: 0, quota: reservation.bytes });
+      usage.reserved = Math.max(0, Number(usage.reserved || 0) - Number(reservation.bytes));
+      usageByWorkspace.set(reservation.workspaceId, usage);
+      reservation.state = 'released';
+      reservation.releasedAt = now;
+      reservation.updatedAt = now;
+    }
+    await this.putJsonBatch([
+      ...[...usageByWorkspace.values()].map(usage => ({ path: path.join('object-storage', 'quota-usage', `${usage.workspaceId}.json`), value: usage })),
+      ...expired.map(reservation => ({ path: path.join('object-storage', 'quota-reservations', `${reservation.id}.json`), value: reservation }))
+    ]);
+    return { releasedReservations: expired.length, releasedBytes: expired.reduce((total, reservation) => total + Number(reservation.bytes), 0) };
+  }
+
+  async reclaimExpiredObjectQuota(now = this.now()) {
+    return this.withObjectQuotaMutation(() => this.reclaimExpiredObjectQuotaUnsafe(now));
+  }
+
+  async reserveObjectQuota(workspaceId, bytes, quotaBytes, reservationTtlMs = 1_200_000) {
+    return this.withObjectQuotaMutation(async () => {
+      const now = this.now();
+      await this.reclaimExpiredObjectQuotaUnsafe(now);
+      const usagePath = path.join('object-storage', 'quota-usage', `${workspaceId}.json`);
+      const usage = await this.getJson(usagePath, { workspaceId, used: 0, reserved: 0, quota: quotaBytes });
+      if (Number(usage.used || 0) + Number(usage.reserved || 0) + bytes > quotaBytes) throw Object.assign(new Error('Workspace object quota exceeded'), { code: 'QUOTA_EXCEEDED', statusCode: 413 });
+      const reservation = { id: `quota_${crypto.randomUUID()}`, workspaceId, bytes, state: 'reserved', createdAt: now, expiresAt: new Date(new Date(now).getTime() + reservationTtlMs).toISOString() };
+      usage.reserved = Number(usage.reserved || 0) + bytes;
+      usage.quota = quotaBytes;
+      await this.putJsonBatch([
+        { path: usagePath, value: usage },
+        { path: path.join('object-storage', 'quota-reservations', `${reservation.id}.json`), value: reservation }
+      ]);
+      return reservation;
+    });
+  }
+
+  async settleObjectQuota(reservationId, commit) {
+    return this.withObjectQuotaMutation(async () => {
+      const reservationPath = path.join('object-storage', 'quota-reservations', `${reservationId}.json`);
+      const reservation = await this.getJson(reservationPath);
+      if (!reservation) throw Object.assign(new Error('Unknown object quota reservation'), { code: 'UNKNOWN_RESERVATION', statusCode: 400 });
+      if (reservation.state !== 'reserved') {
+        if (commit && reservation.expiresAt && reservation.state === 'released') throw Object.assign(new Error('Object quota reservation has expired'), { code: 'QUOTA_RESERVATION_EXPIRED', statusCode: 409 });
+        return reservation;
+      }
+      if (reservation.expiresAt && new Date(reservation.expiresAt) <= new Date()) {
+        const usagePath = path.join('object-storage', 'quota-usage', `${reservation.workspaceId}.json`);
+        const usage = await this.getJson(usagePath, { workspaceId: reservation.workspaceId, used: 0, reserved: 0, quota: reservation.bytes });
+        usage.reserved = Math.max(0, Number(usage.reserved || 0) - reservation.bytes);
+        reservation.state = 'released';
+        reservation.releasedAt = this.now();
+        reservation.updatedAt = reservation.releasedAt;
+        await this.putJsonBatch([{ path: usagePath, value: usage }, { path: reservationPath, value: reservation }]);
+        if (commit) throw Object.assign(new Error('Object quota reservation has expired'), { code: 'QUOTA_RESERVATION_EXPIRED', statusCode: 409 });
+        return reservation;
+      }
+      const usagePath = path.join('object-storage', 'quota-usage', `${reservation.workspaceId}.json`);
+      const usage = await this.getJson(usagePath, { workspaceId: reservation.workspaceId, used: 0, reserved: 0, quota: reservation.bytes });
+      usage.reserved = Math.max(0, Number(usage.reserved || 0) - reservation.bytes);
+      if (commit) usage.used = Number(usage.used || 0) + reservation.bytes;
+      reservation.state = commit ? 'committed' : 'released';
+      reservation.updatedAt = this.now();
+      await this.putJsonBatch([{ path: usagePath, value: usage }, { path: reservationPath, value: reservation }]);
+      return reservation;
+    });
+  }
+
+  commitObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, true); }
+  releaseObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, false); }
+  async objectQuotaUsage(workspaceId, quotaBytes) { return this.getJson(path.join('object-storage', 'quota-usage', `${workspaceId}.json`), { workspaceId, used: 0, reserved: 0, quota: quotaBytes }); }
 
   async putJsonIfAbsent(relative, value) {
     const target = this.file(relative);

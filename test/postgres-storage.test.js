@@ -8,6 +8,9 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   t.after(() => store.close());
   await store.init();
   const prefix = `test/${crypto.randomUUID()}`;
+  const eventInboxId = `inbox_${crypto.randomUUID()}`;
+  assert.equal(await store.nextEventSequence(eventInboxId), 1);
+  assert.equal(await store.nextEventSequence(eventInboxId), 2);
   await store.putJson(`${prefix}/messages/one.json`, { id: 'one', caseId: 'case-a', createdAt: '2026-01-01T00:00:00.000Z' });
   await store.putJson(`${prefix}/messages/two.json`, { id: 'two', caseId: 'case-a', createdAt: '2026-01-02T00:00:00.000Z' });
   assert.equal((await store.getJson(`${prefix}/messages/one.json`)).id, 'one');
@@ -35,4 +38,18 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   assert.deepEqual(second.map(item => item.id), ['one']);
   assert.equal(await store.deleteJson(`${prefix}/messages/one.json`), true);
   assert.equal(await store.getJson(`${prefix}/messages/one.json`), null);
+  const quotaWorkspace = `workspace_${crypto.randomUUID()}`;
+  const quotaAttempts = await Promise.allSettled(Array.from({ length: 4 }, () => store.reserveObjectQuota(quotaWorkspace, 6, 10)));
+  assert.equal(quotaAttempts.filter(attempt => attempt.status === 'fulfilled').length, 1);
+  assert.equal(quotaAttempts.filter(attempt => attempt.status === 'rejected' && attempt.reason.code === 'QUOTA_EXCEEDED').length, 3);
+  const firstReservation = quotaAttempts.find(attempt => attempt.status === 'fulfilled').value;
+  await store.releaseObjectQuota(firstReservation.id);
+  assert.deepEqual(await store.objectQuotaUsage(quotaWorkspace, 10), { workspaceId: quotaWorkspace, used: 0, reserved: 0, quota: 10 });
+  const committedReservation = await store.reserveObjectQuota(quotaWorkspace, 6, 10);
+  await store.commitObjectQuota(committedReservation.id);
+  assert.deepEqual(await store.objectQuotaUsage(quotaWorkspace, 10), { workspaceId: quotaWorkspace, used: 6, reserved: 0, quota: 10 });
+  const expiredReservation = await store.reserveObjectQuota(quotaWorkspace, 4, 10, 1_000);
+  const reclaimed = await store.reclaimExpiredObjectQuota(new Date(new Date(expiredReservation.expiresAt).getTime() + 1));
+  assert.deepEqual(reclaimed, { releasedReservations: 1, releasedBytes: 4 });
+  await assert.rejects(() => store.commitObjectQuota(expiredReservation.id), error => error.code === 'QUOTA_RESERVATION_EXPIRED');
 });

@@ -4,7 +4,22 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FileStore } from '../src/storage.js';
-import { sessionCookieHeader, WorkOSAuthService } from '../src/workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
+
+test('WorkOS cookie mutations require a matching CSRF token and exact origin', () => {
+  const previousPublicUrl = process.env.SINALOA_PUBLIC_URL;
+  process.env.SINALOA_PUBLIC_URL = 'https://app.sinaloa.example';
+  try {
+    const token = createCsrfToken();
+    const cookie = csrfCookieHeader(token).split(';')[0];
+    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://app.sinaloa.example', 'x-sinaloa-csrf': token } }), true);
+    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://evil.example', 'x-sinaloa-csrf': token } }), false);
+    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://app.sinaloa.example', 'x-sinaloa-csrf': 'wrong' } }), false);
+  } finally {
+    if (previousPublicUrl === undefined) delete process.env.SINALOA_PUBLIC_URL;
+    else process.env.SINALOA_PUBLIC_URL = previousPublicUrl;
+  }
+});
 
 test('WorkOS auth uses one-time PKCE state and maps provider users to stable humans', async () => {
   const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-workos-')));

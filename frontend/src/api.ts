@@ -1,46 +1,81 @@
-import type { AuthConfig, CalendarConnector, CalendarProvider, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
+import type { Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
 
-const SESSION_KEY = 'sinaloa.human-session';
+export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number) {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+    public details?: Record<string, unknown>
+  ) {
     super(message);
+    this.name = 'ApiError';
   }
 }
 
-export function getSessionToken() {
-  return localStorage.getItem(SESSION_KEY);
+export function shouldNotifySessionExpired(pathname: string) {
+  return ![
+    '/api/auth/config',
+    '/api/auth/phone/start',
+    '/api/auth/phone/verify',
+    '/api/auth/totp/setup',
+    '/api/auth/totp/verify',
+    '/api/auth/workos/sign-in',
+    '/api/auth/workos/sign-up',
+    '/api/auth/workos/callback'
+  ].some(path => pathname.startsWith(path));
 }
 
-export function saveSessionToken(token: string) {
-  localStorage.setItem(SESSION_KEY, token);
+export function csrfToken(cookieHeader = typeof document === 'undefined' ? '' : document.cookie) {
+  const encodedName = encodeURIComponent('sinaloa_csrf');
+  const value = cookieHeader.split(';').map(item => item.trim()).find(item => item.startsWith(`${encodedName}=`))?.slice(encodedName.length + 1);
+  return value ? decodeURIComponent(value) : null;
 }
 
-export function clearSessionToken() {
-  localStorage.removeItem(SESSION_KEY);
+export function csrfHeaders(method = 'GET', cookieHeader?: string): Record<string, string> {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return {};
+  const token = csrfToken(cookieHeader);
+  return token ? { 'x-sinaloa-csrf': token } : {};
 }
 
 export async function request<T>(pathname: string, options: RequestInit = {}): Promise<T> {
-  const token = getSessionToken();
   const response = await fetch(pathname, {
     ...options,
     credentials: 'same-origin',
     headers: {
       ...(options.body ? { 'content-type': 'application/json' } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...csrfHeaders(options.method),
       ...(options.headers || {})
     }
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(payload.error || 'The request could not be completed.', response.status);
+  const payload = await response.json().catch(() => ({})) as { error?: string; code?: string; details?: Record<string, unknown> };
+  if (!response.ok) {
+    if (response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    }
+    throw new ApiError(payload.error || 'The request could not be completed.', response.status, payload.code, payload.details);
+  }
   return payload as T;
+}
+
+export function safeDownloadUrl(value: string, baseUrl = typeof window === 'undefined' ? 'https://localhost/' : window.location.href) {
+  try {
+    const base = new URL(baseUrl);
+    const target = new URL(value, base);
+    if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password) return null;
+    if (base.protocol === 'https:' && target.protocol !== 'https:') return null;
+    return target.href;
+  } catch {
+    return null;
+  }
 }
 
 export const api = {
   authConfig: () => request<AuthConfig>('/api/auth/config'),
   me: () => request<Human>('/api/auth/me'),
   phoneStart: (phoneNumber: string, displayName: string) => request<{ challengeId: string; expiresAt: string; developmentCode?: string }>('/api/auth/phone/start', { method: 'POST', body: JSON.stringify({ phoneNumber, displayName }) }),
-  phoneVerify: (challengeId: string, code: string) => request<{ human: Human; sessionToken: string; secondFactorRequired: boolean }>('/api/auth/phone/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
+  phoneVerify: (challengeId: string, code: string) => request<{ human: Human; secondFactorRequired: boolean; expiresAt?: string }>('/api/auth/phone/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
   totpSetup: () => request<{ secret: string; otpauthUri: string; developmentCode?: string }>('/api/auth/totp/setup', { method: 'POST', body: '{}' }),
   totpVerify: (code: string) => request<{ human: Human; assurance: string }>('/api/auth/totp/verify', { method: 'POST', body: JSON.stringify({ code }) }),
   logout: () => request<{ revoked: boolean; logoutUrl?: string | null }>('/api/auth/logout', { method: 'POST', body: '{}' }),
@@ -58,6 +93,8 @@ export const api = {
     body: JSON.stringify({ permissions, agentProfile: { name, slug: name } })
   }),
   approveAgent: (inboxId: string, agentId: string, permissions: string[]) => request<{ agent: unknown; agentApiToken?: string }>(`/api/inboxes/${inboxId}/agent-onboarding/${agentId}/approve`, { method: 'POST', body: JSON.stringify({ permissions }) })
+  ,downloadAsset: (inboxId: string, assetId: string) => request<{ object: Asset; download: { url: string; method: 'GET'; headers?: Record<string, string> } }>(`/api/inboxes/${inboxId}/assets/${assetId}/download`)
+  ,emailTransport: (inboxId: string) => request<EmailTransportStatus>(`/api/inboxes/${inboxId}/email-transport`)
   ,calendarConnectors: (inboxId: string) => request<{ providers: Record<CalendarProvider['id'], CalendarProvider>; connectors: CalendarConnector[] }>(`/api/inboxes/${inboxId}/calendar-connectors`)
   ,connectCalendar: (inboxId: string, provider: CalendarProvider['id']) => request<{ provider: CalendarProvider['id']; authorizationUrl: string; expiresAt: string }>(`/api/inboxes/${inboxId}/calendar-connectors/${provider}/connect`, { method: 'POST', body: '{}' })
   ,disconnectCalendar: (inboxId: string, provider: CalendarProvider['id']) => request<CalendarConnector>(`/api/inboxes/${inboxId}/calendar-connectors/${provider}/disconnect`, { method: 'POST', body: '{}' })

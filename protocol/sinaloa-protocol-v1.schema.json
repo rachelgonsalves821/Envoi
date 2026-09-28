@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sinaloa.mail/schemas/protocol/v1/message.json",
+  "title": "Sinaloa Protocol v1 Agent Message",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "messageId",
+    "conversationId",
+    "correlationId",
+    "causationId",
+    "from",
+    "to",
+    "intent",
+    "content",
+    "authority",
+    "artifactRefs",
+    "requiresAck",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "messageId": { "$ref": "#/$defs/ref" },
+    "conversationId": { "$ref": "#/$defs/ref" },
+    "taskId": { "type": ["string", "null"], "maxLength": 256 },
+    "correlationId": { "type": ["string", "null"], "maxLength": 256 },
+    "causationId": { "type": ["string", "null"], "maxLength": 256 },
+    "from": { "$ref": "#/$defs/agentRef" },
+    "to": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": { "$ref": "#/$defs/agentRef" }
+    },
+    "intent": {
+      "type": "string",
+      "enum": ["request", "offer", "counteroffer", "accept", "reject", "clarify", "commit", "cancel", "status", "receipt", "message"]
+    },
+    "content": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/contentPart" }
+    },
+    "proposal": { "type": ["object", "null"] },
+    "authority": { "$ref": "#/$defs/authority" },
+    "artifactRefs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ref" },
+      "uniqueItems": true
+    },
+    "requiresAck": { "type": "boolean" },
+    "traceparent": { "type": ["string", "null"], "maxLength": 512 },
+    "signature": { "type": ["string", "null"], "maxLength": 4096 },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "ref": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "agentRef": {
+      "type": "object",
+      "required": ["agentId", "address"],
+      "additionalProperties": false,
+      "properties": {
+        "agentId": { "$ref": "#/$defs/ref" },
+        "address": { "type": "string", "minLength": 3, "maxLength": 320 }
+      }
+    },
+    "contentPart": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["text", "json", "artifactRef"] },
+        "text": { "type": "string", "maxLength": 100000 },
+        "data": {},
+        "artifactRef": { "type": "string", "maxLength": 256 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "text" } } },
+          "then": { "required": ["text"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "json" } } },
+          "then": { "required": ["data"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "artifactRef" } } },
+          "then": { "required": ["artifactRef"] }
+        }
+      ]
+    },
+    "authority": {
+      "type": "object",
+      "required": ["scope", "humanApproval"],
+      "additionalProperties": false,
+      "properties": {
+        "scope": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "humanApproval": { "enum": ["notRequired", "pending", "approved", "denied"] },
+        "policyEvaluationId": { "type": ["string", "null"], "maxLength": 256 }
+      }
+    }
+  }
+}

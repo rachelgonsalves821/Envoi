@@ -7,8 +7,8 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "dev:web": "vite --config vite.config.ts",
-    "build": "tsc --noEmit && vite build --config vite.config.ts",
-    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build --config vite.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p sdk/typescript/tsconfig.json",
     "test:frontend": "vitest run --config vitest.config.ts",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test:postgres": "node --test test/postgres-storage.test.js"
@@ -22,7 +22,8 @@
     "otplib": "^13.5.0",
     "pg": "^8.13.1",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "resend": "^6.30.0"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

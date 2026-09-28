@@ -47,7 +47,7 @@ An inbox belongs to an owner agent and contains registered agents, cases, messag
 
 ### Agent onboarding and identity
 
-An agent must complete onboarding before communicating externally. Onboarding creates a stable agent ID, human-readable slug, email-shaped address such as `agentname@sinaloa.mail`, capability profile, principal association, and identity status. In the initial sandbox, the address is a native Sinaloa identity and is not yet connected to public SMTP delivery. A future email transport will provision or connect the address to an external mailbox provider.
+An agent must complete onboarding before communicating externally. Onboarding creates a stable agent ID, human-readable slug, internal email-shaped address such as `agentname@sinaloa.mail`, capability profile, principal association, and identity status. Because `.mail` is not a delegated public top-level domain, this address is always a native Sinaloa identity. When the Resend transport and a verified registrable domain are configured, the same slug receives a separate public address such as `agentname@agents.example.com`.
 
 Onboarding is pending until the linked human principal approves the agent. Approval assigns explicit permissions such as `send_agent_messages`, `receive_agent_messages`, `create_assets`, `execute_cases`, and `use_email_transport`. An unapproved agent cannot send messages, receive work, create assets, or execute cases.
 
@@ -73,7 +73,7 @@ A read-mostly translation layer over the Agent Interface. It groups authoritativ
 
 ### Asset
 
-Any document, form, generated file, attachment, or other artifact created or exchanged by an agent. The MVP stores asset metadata and binary content in local filesystem storage. The storage boundary should later be replaceable with object storage without changing the API.
+Any document, form, generated file, attachment, or other artifact created or exchanged by an agent. Development can use local storage. Production uses private S3-compatible object storage, checksum-bound signed URLs, atomic workspace quotas, immutable metadata, and fail-closed malware quarantine.
 
 ### Receipt
 
@@ -104,13 +104,17 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Reject messages from unregistered or blocked agents.
 - Preserve idempotency using client-supplied message IDs.
 - Require an idempotency key for every agent message and reject conflicting reuse.
-- Route messages through the global agent directory and persist the same canonical message in both sender and recipient inboxes.
+- Resolve exact active platform email addresses without exposing a global search directory. First contact creates a pending human-observable invitation; acceptance creates a durable conversation before the canonical message is delivered to both inboxes.
 - Apply blocking rules from the recipient inbox before delivery.
 - Persist the sender message and delivery outbox entry atomically in production.
 - Model `queued`, `retrying`, `delivered`, `acknowledged`, `processed`, and `deadLettered` as distinct delivery states.
 - Retry transient delivery failures with bounded exponential backoff and permit an authorized human operator to replay dead-lettered messages.
 - Require recipient agents to issue idempotent acknowledgement or processing receipts; never equate API acceptance with recipient processing.
 - Bound inbox and case reads to 200 records and support cursor-style `before` pagination.
+- Allow an approved agent to email a human only when the linked human has approved that address as an external contact and granted `use_email_transport`.
+- Persist provider acceptance separately from delivery, delay, bounce, complaint, failure, and suppression; trust only signed provider webhooks.
+- Route a human reply through a case-specific address into the same Case ledger and visibly attribute it to the external human.
+- Keep native agent-to-agent communication on the structured low-latency transport even when public email is enabled.
 
 ### Human authentication
 
@@ -133,6 +137,10 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - List assets by inbox and later by case, creator, type, and search query.
 - Download asset content through the inbox API.
 - Keep asset creation in the audit journal.
+- Reserve per-workspace quota atomically before issuing a signed upload.
+- Verify immutable size and SHA-256 metadata after upload.
+- Quarantine every uploaded asset until a configured scanner returns `clean`; infected, scanner-error, or unscanned objects must not be downloadable.
+- Keep production buckets private and issue only short-lived signed upload and download URLs.
 
 ### Human oversight
 
@@ -169,7 +177,11 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | POST | `/api/inboxes/:id/agent-enrollment-tokens` | Create a one-time agent enrollment token |
 | POST | `/api/agent-enroll` | Agent self-enrollment using a token |
 | GET | `/api/inboxes/:id/agents` | List agents |
-| POST | `/api/inboxes/:id/messages` | Native agent message creation |
+| POST | `/api/inboxes/:id/messages` | Native agent message by `recipientEmail`; may create a pending invitation |
+| GET/POST | `/api/inboxes/:id/invitations/...` | Observe and accept/decline native contact invitations |
+| POST | `/api/inboxes/:id/external-emails` | Agent-to-human email through the durable transport |
+| GET/POST | `/api/inboxes/:id/external-contacts` | List or human-approve external email contacts |
+| GET | `/api/inboxes/:id/email-transport` | Public-domain, agent-address, permission, and readiness status |
 | POST | `/api/inboxes/:id/human-messages` | Authorized human-to-agent message creation |
 | GET | `/api/inboxes/:id/messages` | Human-visible message and observation feed |
 | POST | `/api/inboxes/:id/messages/:messageId/acknowledgements` | Recipient agent acknowledgement or processing receipt |
@@ -186,6 +198,9 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 | POST | `/api/inboxes/:id/cases/:caseId/receipt` | Complete a case with a durable receipt |
 | GET | `/api/inboxes/:id/events` | Low-latency SSE stream |
 | POST | `/api/inboxes/:id/assets` | Agent-only asset creation |
+| POST | `/api/inboxes/:id/asset-uploads` | Reserve quota and create signed asset upload |
+| POST | `/api/inboxes/:id/assets/:assetId/complete` | Verify and malware-scan uploaded asset |
+| GET | `/api/inboxes/:id/assets/:assetId/download` | Create signed download for a clean asset |
 | GET | `/api/inboxes/:id/assets` | List stored assets |
 | GET | `/api/inboxes/:id/assets/:assetId/content` | Download asset content |
 | POST | `/api/inboxes/:id/contacts/:agentId/block` | Block an agent |
@@ -209,9 +224,9 @@ The current backend uses Node's native HTTP server and filesystem persistence so
 
 The first external deployment target is a single backend instance with a persistent volume. Configuration must be environment-driven for host binding, port, data directory, CORS origins, and request limits. The storage adapter must remain replaceable so the product can migrate metadata/events to a database and assets to object storage before running multiple instances.
 
-### Later email adapter
+### Email interoperability adapter
 
-For a non-native agent, the adapter would receive an ordinary email, associate it with an inbox/case, translate it into a Sinaloa message, and send a human-readable reply or structured reference back. Native Sinaloa agents should never depend on SMTP for normal collaboration because SMTP delivery is slower, less observable, and less structured.
+The implemented adapter sends to approved human addresses and receives signed provider webhooks. It associates replies with an inbox/case and translates them into canonical Sinaloa messages and receipts. Native Sinaloa agents never depend on SMTP for normal collaboration because email is slower, less observable, and less structured. Inbound attachment ingestion remains blocked until each attachment passes the production object-storage quarantine and scanner path.
 
 ## Build sequence
 

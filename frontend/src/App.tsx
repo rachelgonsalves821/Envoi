@@ -3,19 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
 import {
   Activity, AlertCircle, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
-  CircleDashed, Clock3, Command, Copy, Database, FileCheck2, FileText, Gauge, Inbox,
+  CircleDashed, Clock3, Command, Copy, Database, Download, FileCheck2, FileText, Gauge, Inbox,
   KeyRound, Link2, ListFilter, Menu, MoreHorizontal, PanelRightClose, PanelRightOpen,
   Pause, Play, PlugZap, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
-import { ApiError, api, clearSessionToken, saveSessionToken } from './api';
+import { ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl } from './api';
 import {
-  STATE_META, auditSummary, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
-  eventSummary, exchangeParties, humanize, isExchangeEvent, participantIds, resolveParticipant,
+  STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
+  eventSummary, exchangeParties, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
   sectionForCase, stateLabel, timelineForCase
 } from './model';
 import type {
-  Agent, AuthConfig, CaseEvent, CaseState, EvidenceItem, Human, HumanActionKey, HumanView,
+  Agent, Asset, AuthConfig, CaseEvent, CaseState, EmailTransportStatus, EvidenceItem, Human, HumanActionKey, HumanView,
   Inbox as Workspace, NavSection, Organization, PolicyEvaluation, ProposalOption, WorkCase
 } from './types';
 
@@ -34,7 +34,7 @@ const previewView: HumanView = {
   inbox: previewWorkspace,
   mode: 'human-observer',
   capabilities: ['observe_agent_communications', 'receive_agent_messages', 'reply_to_approved_agents', 'review_assets'],
-  summary: { agents: 1, cases: 4, messages: 0, assets: 0, needsMe: 1 },
+  summary: { agents: 1, cases: 4, messages: 0, assets: 2, needsMe: 1 },
   navigation: { needsMe: 1, activeWork: 1, waiting: 1, completed: 1 },
   agents: previewAgents,
   participantDirectory: {
@@ -71,7 +71,10 @@ const previewView: HumanView = {
       receipt: { id: 'receipt_studio', result: 'Studio booked for October 6 at 2:00 PM', authorityBasis: 'calendar.booking', humanApprovalStatus: 'notRequired', createdAt: '2026-09-26T19:10:00.000Z' }, createdAt: '2026-09-26T18:30:00.000Z', updatedAt: '2026-09-26T19:10:00.000Z'
     }
   ],
-  caseQueue: [], messages: [], assets: [], calendarProviders: {
+  caseQueue: [], messages: [], assets: [
+    { id: 'asset_brief', workspaceId: previewWorkspace.id, caseId: 'conversation_research_brief', filename: 'Q4-customer-research.pdf', mimeType: 'application/pdf', size: 842_112, createdByAgentId: 'agent_atlas', state: 'clean', createdAt: '2026-09-27T12:22:00.000Z', scannedAt: '2026-09-27T12:23:00.000Z', scan: { status: 'clean', engine: 'Sinaloa Guard' } },
+    { id: 'asset_sources', workspaceId: previewWorkspace.id, caseId: 'conversation_research_brief', filename: 'interview-source-notes.csv', mimeType: 'text/csv', size: 93_408, createdByAgentId: 'agent_atlas', state: 'scanning', createdAt: '2026-09-27T12:24:00.000Z', scannedAt: null, scan: null }
+  ], calendarProviders: {
     google: { id: 'google', label: 'Google Calendar', configured: false },
     outlook: { id: 'outlook', label: 'Outlook Calendar', configured: false }
   }, calendarConnectors: [], deliveryReceipts: [], recentEvents: []
@@ -95,6 +98,16 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [view, setView] = useState<HumanView | null>(null);
   const [error, setError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
+  const [syncNotice, setSyncNotice] = useState('');
+
+  const expireSession = useCallback(() => {
+    setHuman(null);
+    setWorkspace(null);
+    setView(null);
+    setAuthNotice('Your secure session expired. Sign in again to continue observing agent work.');
+    setBoot('signedOut');
+  }, []);
 
   const loadView = useCallback(async (workspaceId: string, quiet = false) => {
     if (!quiet) setView(null);
@@ -125,37 +138,43 @@ export default function App() {
       setWorkspace(selected);
       localStorage.setItem(WORKSPACE_KEY, selected.id);
       await loadView(selected.id);
+      setAuthNotice('');
       setBoot('ready');
     } catch (caught) {
       const nextConfig = config || await api.authConfig().catch(() => null);
       if (nextConfig) setConfig(nextConfig);
       if (caught instanceof ApiError && caught.status === 401) {
-        clearSessionToken();
-        setHuman(null);
-        setBoot('signedOut');
+        expireSession();
       } else {
         setError(caught instanceof Error ? caught.message : 'Sinaloa could not load your workspace.');
         setBoot('error');
       }
     }
-  }, [config, loadView]);
+  }, [config, expireSession, loadView]);
 
   useEffect(() => { if (!isPreview) void loadAccount(); }, [isPreview]);
 
   useEffect(() => {
+    if (isPreview) return;
+    window.addEventListener(SESSION_EXPIRED_EVENT, expireSession);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expireSession);
+  }, [expireSession, isPreview]);
+
+  useEffect(() => {
     if (boot !== 'ready' || !workspace || !config) return;
-    if (config.provider === 'workos') {
-      const stream = new EventSource(`/api/inboxes/${workspace.id}/events`);
-      const refresh = () => { void loadView(workspace.id, true); };
-      const eventTypes = ['agent.enrolled', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created', 'asset.created', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
-      stream.onmessage = refresh;
-      eventTypes.forEach(type => stream.addEventListener(type, refresh));
-      stream.addEventListener('ready', () => undefined);
-      stream.onerror = () => stream.close();
-      return () => { eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.close(); };
-    }
-    const interval = window.setInterval(() => void loadView(workspace.id, true), 30_000);
-    return () => window.clearInterval(interval);
+    const refresh = () => { void loadView(workspace.id, true).then(() => setSyncNotice('')).catch(caught => { if (!(caught instanceof ApiError && caught.status === 401)) setSyncNotice('Live updates are temporarily paused. Your workspace will keep retrying.'); }); };
+    const stream = new EventSource(`/api/inboxes/${workspace.id}/events`);
+    const eventTypes = ['agent.enrolled', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created', 'asset.created', 'asset.upload_started', 'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
+    stream.onopen = () => setSyncNotice('');
+    stream.onmessage = refresh;
+    eventTypes.forEach(type => stream.addEventListener(type, refresh));
+    stream.addEventListener('ready', () => setSyncNotice(''));
+    stream.onerror = () => {
+      setSyncNotice('Live updates are reconnecting. You can refresh now or keep working.');
+      void api.me().catch(() => undefined);
+    };
+    const interval = window.setInterval(refresh, 30_000);
+    return () => { window.clearInterval(interval); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.close(); };
   }, [boot, config, loadView, workspace]);
 
   async function selectWorkspace(next: Workspace) {
@@ -173,9 +192,9 @@ export default function App() {
     setBoot('ready');
   }
 
-  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} />;
+  if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen />;
-  if (boot === 'signedOut' && config) return <AuthScreen config={config} onAuthenticated={loadAccount} />;
+  if (boot === 'signedOut' && config) return <AuthScreen config={config} notice={authNotice} onAuthenticated={loadAccount} />;
   if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={createWorkspace} />;
   if (boot === 'error') return <FailureScreen message={error} onRetry={loadAccount} />;
   if (!human || !workspace || !view || !config) return <LoadingScreen />;
@@ -188,11 +207,11 @@ export default function App() {
       workspaces={workspaces}
       workspace={workspace}
       view={view}
+      syncNotice={syncNotice}
       onSelectWorkspace={selectWorkspace}
       onRefresh={() => loadView(workspace.id, true)}
       onLogout={async () => {
         const result = await api.logout();
-        clearSessionToken();
         if (result.logoutUrl) window.location.assign(result.logoutUrl);
         else window.location.reload();
       }}
@@ -221,7 +240,7 @@ function FailureScreen({ message, onRetry }: { message: string; onRetry: () => v
   );
 }
 
-function AuthScreen({ config, onAuthenticated }: { config: AuthConfig; onAuthenticated: () => Promise<void> }) {
+function AuthScreen({ config, notice, onAuthenticated }: { config: AuthConfig; notice?: string; onAuthenticated: () => Promise<void> }) {
   const [step, setStep] = useState<'phone' | 'code' | 'totp'>('phone');
   const [challengeId, setChallengeId] = useState('');
   const [developmentCode, setDevelopmentCode] = useState('');
@@ -242,8 +261,7 @@ function AuthScreen({ config, onAuthenticated }: { config: AuthConfig; onAuthent
     event.preventDefault(); setBusy(true); setError('');
     const form = new FormData(event.currentTarget);
     try {
-      const verified = await api.phoneVerify(challengeId, String(form.get('code')));
-      saveSessionToken(verified.sessionToken);
+      await api.phoneVerify(challengeId, String(form.get('code')));
       const setup = await api.totpSetup(); setTotp(setup); setStep('totp');
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
@@ -268,6 +286,7 @@ function AuthScreen({ config, onAuthenticated }: { config: AuthConfig; onAuthent
       </section>
       <section className="auth-panel">
         <div className="auth-card">
+          {notice && <InlineNotice title="Sign in again" body={notice} tone="attention" />}
           {config.provider === 'workos' ? (
             <>
               <p className="eyebrow">Secure workspace</p><h2>Continue to Sinaloa</h2>
@@ -336,11 +355,11 @@ function WorkspaceSetup({ human, onCreate }: { human: Human; onCreate: (name: st
 interface ShellProps {
   config: AuthConfig; human: Human; organizations: Organization[]; workspaces: Workspace[];
   workspace: Workspace; view: HumanView; onSelectWorkspace: (workspace: Workspace) => Promise<void>;
-  onRefresh: () => Promise<unknown>; onLogout: () => Promise<void>;
+  onRefresh: () => Promise<unknown>; onLogout: () => Promise<void>; syncNotice: string;
 }
 
 function AppShell(props: ShellProps) {
-  const { config, human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout } = props;
+  const { config, human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout, syncNotice } = props;
   const [section, setSection] = useState<NavSection>('inbox');
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
@@ -393,12 +412,13 @@ function AppShell(props: ShellProps) {
         </div>
       </aside>
 
-      <section className={`application ${utilitySection ? 'utility-layout' : ''}`}>
+      <section className={`application ${utilitySection ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
         <header className="topbar">
           <button className="icon-button mobile-only" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={19} /></button>
           <button className="search-trigger" onClick={() => setSearchOpen(true)}><Search size={16} /><span>Search conversations, people, and tags…</span><kbd>⌘K</kbd></button>
           <div className="topbar-actions"><button className="icon-button" aria-label="Refresh workspace" onClick={() => void onRefresh()}><RefreshCw size={17} /></button></div>
         </header>
+        {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span><button className="button quiet" onClick={() => void onRefresh()}>Refresh now</button></div>}
 
         {utilitySection ? (
           <main id="main-content" className="utility-content">
@@ -478,6 +498,7 @@ function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefre
   const [drawer, setDrawer] = useState<{ type: 'policy' | 'evidence'; item?: PolicyEvaluation | EvidenceItem } | null>(null);
   const [confirm, setConfirm] = useState<HumanActionKey | null>(null);
   const [busy, setBusy] = useState<HumanActionKey | null>(null);
+  const caseAssets = view.assets.filter(item => item.caseId === workCase.id);
 
   async function act(actionKey: HumanActionKey) {
     setBusy(actionKey);
@@ -508,6 +529,8 @@ function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefre
 
         <ProposalHistory workCase={workCase} view={view} events={events} />
 
+        {caseAssets.length > 0 && <section className="mobile-assets-panel" aria-labelledby="shared-files-title"><div className="section-heading"><div><p className="eyebrow">Safety checked</p><h2 id="shared-files-title">Shared files</h2></div><span>{caseAssets.length} {caseAssets.length === 1 ? 'file' : 'files'}</span></div><div className="mobile-assets-list">{caseAssets.map(asset => <AssetRow key={asset.id} asset={asset} inboxId={view.inbox.id} notify={notify} />)}</div></section>}
+
         <section className="timeline-section" aria-labelledby="timeline-title">
           <div className="section-heading"><div><p className="eyebrow">Conversation activity</p><h2 id="timeline-title">What the agents are doing</h2></div><span>{events.length} updates</span></div>
           {events.length ? <ol className="timeline">{events.map((event, index) => <TimelineEvent key={event.id} event={event} last={index === events.length - 1} view={view} workCase={workCase} onPolicy={item => setDrawer({ type: 'policy', item })} />)}</ol> : <div className="empty-panel"><Activity size={22} /><strong>The conversation is just getting started</strong><span>Messages, offers, shared context, and completed actions will appear here.</span></div>}
@@ -516,7 +539,7 @@ function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefre
         {canAct && !workCase.decision && <div className="case-footer-actions"><button className="button tertiary" onClick={() => setConfirm('takeOver')}><UserRound size={16} />Take over</button><button className="button tertiary" onClick={() => setConfirm('pause')}><Pause size={16} />Pause conversation</button></div>}
       </article>
 
-      {railOpen && <ContextRail workCase={workCase} view={view} onPolicy={item => setDrawer({ type: 'policy', item })} onEvidence={item => setDrawer({ type: 'evidence', item })} />}
+      {railOpen && <ContextRail workCase={workCase} view={view} onPolicy={item => setDrawer({ type: 'policy', item })} onEvidence={item => setDrawer({ type: 'evidence', item })} notify={notify} />}
       {drawer && <DetailDrawer drawer={drawer} onClose={() => setDrawer(null)} />}
       {confirm && <ConfirmDialog action={confirm} busy={busy === confirm} onCancel={() => setConfirm(null)} onConfirm={() => void act(confirm)} />}
     </div>
@@ -637,6 +660,7 @@ function ExchangeLedgerEvent({ event, view, workCase }: { event: CaseEvent; view
         <span className="exchange-arrow" aria-hidden="true"><ArrowRight size={18} /></span>
         <ExchangeParty participant={exchange.recipient} role="To" />
       </div>
+      {event.payload.subject && <strong className="email-subject">Subject: {String(event.payload.subject)}</strong>}
       <p>{eventSummary(event)}</p>
       {event.payload.deliveryState && <span className="delivery-state">{event.payload.deliveryState === 'deadLettered' ? <AlertCircle size={13} /> : ['queued', 'retrying'].includes(event.payload.deliveryState) ? <Clock3 size={13} /> : <CheckCircle2 size={13} />}{humanize(event.payload.deliveryState)}</span>}
     </article>
@@ -650,6 +674,7 @@ function ExchangeParty({ participant, role }: { participant: ReturnType<typeof r
 
 function exchangeEventLabel(event: CaseEvent) {
   const messageType = String(event.payload.messageType || '').toLowerCase();
+  if (messageType === 'email') return event.payload.senderEmail ? 'Email reply' : 'Email';
   if (messageType === 'proposal' || (event.payload.proposalId && event.payload.status === 'open')) return 'Offer';
   if (messageType === 'counterproposal' || String(event.payload.status || '').toLowerCase() === 'countered') return 'Counteroffer';
   if (messageType === 'request') return 'Request';
@@ -667,7 +692,7 @@ function participantRole(participant: ReturnType<typeof resolveParticipant>) {
   return humanize(participant.type);
 }
 
-function ContextRail({ workCase, view, onPolicy, onEvidence }: { workCase: WorkCase; view: HumanView; onPolicy: (item: PolicyEvaluation) => void; onEvidence: (item: EvidenceItem) => void }) {
+function ContextRail({ workCase, view, onPolicy, onEvidence, notify }: { workCase: WorkCase; view: HumanView; onPolicy: (item: PolicyEvaluation) => void; onEvidence: (item: EvidenceItem) => void; notify: (message: string) => void }) {
   const participants = participantIds(workCase, timelineForCase(workCase, view.messages));
   const assets = view.assets.filter(item => item.caseId === workCase.id);
   const deliveries = view.deliveryReceipts.filter(item => timelineForCase(workCase, view.messages).some(event => event.payload.messageId === item.messageId));
@@ -678,11 +703,11 @@ function ContextRail({ workCase, view, onPolicy, onEvidence }: { workCase: WorkC
       </RailSection>
       <RailSection title="Evidence" icon={<FileCheck2 size={16} />}>
         {workCase.evidence?.map(item => <button key={item.id} className="rail-row interactive" onClick={() => onEvidence(item)}><FileText size={17} /><span><strong>{item.title}</strong><small>{provenanceLabel(item.provenance)}</small></span></button>)}
-        {assets.map(item => <div key={item.id} className="rail-row"><FileText size={17} /><span><strong>{item.name}</strong><small>{item.mimeType} · {Math.max(1, Math.ceil(item.size / 1024))} KB</small></span></div>)}
+        {assets.map(item => <AssetRow key={item.id} asset={item} inboxId={view.inbox.id} notify={notify} />)}
         {!workCase.evidence?.length && !assets.length && <RailEmpty>No evidence has been attached.</RailEmpty>}
       </RailSection>
       <RailSection title="Delivery receipts" icon={<ReceiptText size={16} />}>
-        {deliveries.length ? deliveries.map(item => <div key={item.id} className="rail-row"><CheckCircle2 size={17} /><span><strong>{humanize(item.state)}</strong><small>{item.messageId} · {formatAbsolute(item.createdAt)}</small></span></div>) : <RailEmpty>No delivery receipt has been recorded.</RailEmpty>}
+        {deliveries.length ? deliveries.map(item => <div key={item.id} className="rail-row"><CheckCircle2 size={17} /><span><strong>{item.transport === 'email' || item.type === 'email' ? `Email ${humanize(item.state).toLowerCase()}` : humanize(item.state)}</strong><small>{item.recipientEmail || item.senderEmail || item.recipientAgentId || item.messageId} · {formatAbsolute(item.createdAt)}</small></span></div>) : <RailEmpty>No delivery receipt has been recorded.</RailEmpty>}
       </RailSection>
       <RailSection title="Participants" icon={<UsersRound size={16} />}>
         {participants.length ? participants.map(id => { const participant = resolveParticipant(workCase, id, view.agents, view.participantDirectory); const isAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent'; return <div key={id} className="rail-row"><span className={`identity-mark ${isAgent ? 'agent' : 'human'}`}>{isAgent ? <Bot size={14} /> : <UserRound size={14} />}</span><span><strong>{participant.displayName}</strong><small>{participantRole(participant)}</small></span></div>; }) : <RailEmpty>No additional participants are recorded.</RailEmpty>}
@@ -692,6 +717,34 @@ function ContextRail({ workCase, view, onPolicy, onEvidence }: { workCase: WorkC
       </RailSection>
     </aside>
   );
+}
+
+function AssetRow({ asset, inboxId, notify }: { asset: Asset; inboxId: string; notify: (message: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const state = assetStateMeta(asset);
+  const downloadable = canDownloadAsset(asset);
+  async function download() {
+    setBusy(true);
+    try {
+      const result = await api.downloadAsset(inboxId, asset.id);
+      const url = safeDownloadUrl(result.download.url);
+      if (!url) throw new Error('The storage provider returned an unsafe download address.');
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = assetDisplayName(asset);
+      link.rel = 'noopener';
+      link.referrerPolicy = 'no-referrer';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      notify(`Downloading ${assetDisplayName(asset)}.`);
+    } catch (caught) {
+      notify(assetDownloadError(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <div className={`asset-row tone-${state.tone}`}><div className="asset-row-heading"><FileText size={17} /><span><strong>{assetDisplayName(asset)}</strong><small>{asset.mimeType} · {formatBytes(asset.size)}</small></span></div><span className="asset-state"><StatusGlyph state={asset.state === 'clean' ? 'completed' : asset.state === 'infected' ? 'failed' : asset.state === 'error' ? 'unknownExternalResult' : 'waitingForExternalParty'} />{state.label}</span><p>{state.description}</p>{downloadable && <button className="button tertiary compact" disabled={busy} onClick={() => void download()}><Download size={14} />{busy ? 'Preparing…' : 'Download file'}</button>}</div>;
 }
 
 function RailSection({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) { return <section className="rail-section"><h3>{icon}{title}</h3>{children}</section>; }
@@ -712,17 +765,75 @@ function PoliciesPage({ view }: { view: HumanView }) {
 function IntegrationsPage({ view, workspace, onRefresh, notify }: { view: HumanView; workspace: Workspace; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const [enrollment, setEnrollment] = useState<{ enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null>(null);
   const [open, setOpen] = useState(false);
-  return <PageFrame eyebrow="Scoped access" title="Integrations & agents" description="Review connected identities, effective permissions, health, and one-time enrollment."><div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div>{view.agents.length ? <div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} onRefresh={onRefresh} notify={notify} />)}</div> : <PageEmpty icon={<PlugZap />} title="No agents are connected" body="Create a permissioned, 15-minute enrollment link to add the first agent." action={<button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button>} />}{open && <EnrollmentDialog workspace={workspace} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}</PageFrame>;
+  const [emailTransport, setEmailTransport] = useState<EmailTransportStatus | null>(null);
+  const [emailError, setEmailError] = useState('');
+  useEffect(() => {
+    let active = true;
+    if (view.publicEmailTransport) {
+      setEmailTransport({ ...view.publicEmailTransport, contacts: view.contacts || view.publicEmailTransport.contacts || [] });
+      setEmailError('');
+      return () => { active = false; };
+    }
+    if (workspace.id === previewWorkspace.id) {
+      setEmailTransport({ provider: 'resend', ready: true, publicDomain: 'agents.example.com', domainVerified: true, reason: null, internalAgentDomain: 'sinaloa.mail', agents: [{ agentId: 'agent_milo', internalAddress: 'milo@sinaloa.mail', externalAddress: 'milo@agents.example.com', permitted: true }], contacts: [] });
+      return () => { active = false; };
+    }
+    setEmailTransport(null); setEmailError('');
+    void api.emailTransport(workspace.id).then(value => { if (active) setEmailTransport(value); }).catch(caught => { if (active) setEmailError(errorMessage(caught)); });
+    return () => { active = false; };
+  }, [view.contacts, view.publicEmailTransport, workspace.id]);
+  const steps = onboardingSteps(view);
+  const completeCount = steps.filter(step => step.complete).length;
+  const calendarConfigured = Object.values(view.calendarProviders).some(provider => provider.configured);
+  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Bring one agent online, verify a native counterparty, and watch the first delivery reach a durable receipt.">
+    <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div>
+    <section className="onboarding-card" aria-labelledby="onboarding-title">
+      <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
+      <div className="progress-track" aria-label={`${completeCount} of ${steps.length} onboarding steps complete`}><span style={{ width: `${(completeCount / steps.length) * 100}%` }} /></div>
+      <ol>{steps.map((step, index) => <li key={step.id} className={step.complete ? 'complete' : ''}><span className="step-mark">{step.complete ? <Check size={14} /> : index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p></div>{step.id === 'enroll' && !step.complete && <button className="button tertiary compact" onClick={() => setOpen(true)}>Create link</button>}</li>)}</ol>
+    </section>
+    <section className="beta-safeguards" aria-labelledby="safeguards-title">
+      <div className="section-heading"><div><p className="eyebrow">Beta safeguards</p><h2 id="safeguards-title">Native messages only</h2></div><span>Closed beta</span></div>
+      <div className="safeguard-grid">
+        <SafeguardCard icon={<Inbox size={18} />} title="Agent-to-agent messaging" status="Beta path" body="Use verified Sinaloa agent addresses. Delivery and acknowledgement states remain visible here." />
+        <SafeguardCard icon={<Link2 size={18} />} title="Public email" status={emailTransport?.ready ? 'Ready' : emailTransport ? 'Unavailable' : 'Checking'} body={emailTransport?.ready ? `Verified on ${emailTransport.publicDomain}. Agents may email approved contacts only; humans remain observers and approvers.` : emailTransport ? `Not available: ${emailTransport.reason || 'provider configuration is incomplete'}. No public email action is offered.` : emailError || 'Checking the configured transport and verified domain.'} />
+        <SafeguardCard icon={<CalendarDays size={18} />} title="Calendar actions" status={calendarConfigured ? 'Configured, gated' : 'Unavailable'} body={calendarConfigured ? 'A provider is configured, but connect and booking actions remain gated during the closed beta.' : 'No calendar provider is configured, and calendar actions remain gated during the closed beta.'} />
+        <SafeguardCard icon={<FileText size={18} />} title="Attachment upload" status="Disabled" body="Human uploads are unavailable. Agent files stay locked until the safety scan reports clean." />
+      </div>
+    </section>
+    <ConnectionInvitations view={view} />
+    <ApprovedContacts emailTransport={emailTransport} error={emailError} />
+    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Connected agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} emailTransport={emailTransport} onRefresh={onRefresh} notify={notify} />)}</div></> : <PageEmpty icon={<PlugZap />} title="No agents are connected" body="Create a permissioned, 15-minute enrollment link to add the first agent." action={<button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button>} />}
+    {open && <EnrollmentDialog workspace={workspace} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
+  </PageFrame>;
 }
 
-function AgentCard({ agent, workspace, onRefresh, notify }: { agent: Agent; workspace: Workspace; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+function SafeguardCard({ icon, title, status, body }: { icon: ReactNode; title: string; status: string; body: string }) {
+  return <article className="safeguard-card"><span className="safeguard-icon">{icon}</span><div><header><strong>{title}</strong><span>{status}</span></header><p>{body}</p></div></article>;
+}
+
+function ConnectionInvitations({ view }: { view: HumanView }) {
+  const invitations = view.invitations || view.connectionInvitations;
+  return <section className="connection-invitations" aria-labelledby="invitations-title"><div className="section-heading"><div><p className="eyebrow">Discovery layer</p><h2 id="invitations-title">Connection invitations</h2></div><span>{invitations?.filter(item => item.state === 'pending').length || 0} pending</span></div>{invitations === undefined ? <InlineNotice title="Invitation feed unavailable" body="This server has not published connection-invitation state yet. No approval or decline action is shown until that contract is available." tone="unknown" /> : invitations.length ? <div className="invitation-list">{invitations.map(item => <article key={item.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{item.senderName}</strong><code>{item.senderAddress}</code><small>Received {formatAbsolute(item.createdAt)}</small></div><StatusText value={item.state} /></article>)}</div> : <div className="compact-empty"><CheckCircle2 size={18} /><span><strong>No incoming invitations</strong><small>First-time agent requests will appear here for human approval or decline.</small></span></div>}</section>;
+}
+
+function ApprovedContacts({ emailTransport, error }: { emailTransport: EmailTransportStatus | null; error: string }) {
+  return <section className="approved-contacts" aria-labelledby="approved-contacts-title"><div className="section-heading"><div><p className="eyebrow">Public email boundary</p><h2 id="approved-contacts-title">Approved contacts</h2></div><span>Agent-owned sending</span></div>{error ? <InlineNotice title="Contact state unavailable" body={error} tone="unknown" /> : !emailTransport ? <div className="compact-empty"><CircleDashed size={18} /><span><strong>Checking public email readiness</strong><small>No external action is enabled until configuration and contact state are confirmed.</small></span></div> : emailTransport.contacts.length ? <div className="contact-list">{emailTransport.contacts.map(contact => { const state = contact.blocked ? 'blocked' : contact.approved ? 'approved' : 'pending'; return <article key={contact.id}><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{contact.displayName}</strong><code>{contact.email}</code><small>{humanize(contact.direction)} email · updated {formatAbsolute(contact.updatedAt)}</small></div><StatusText value={state} /></article>; })}</div> : <div className="compact-empty"><ShieldCheck size={18} /><span><strong>No approved public contacts</strong><small>Agents cannot send arbitrary external email. Approved-contact state will appear here.</small></span></div>}</section>;
+}
+
+function AgentCard({ agent, workspace, emailTransport, onRefresh, notify }: { agent: Agent; workspace: Workspace; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const pending = agent.onboardingStatus === 'pending_approval';
-  return <article className="integration-card"><div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><code>{agent.address}</code></div><StatusText value={pending ? 'needs human' : agent.status} /></div><div className="capability-list">{agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div><dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Verified and active' : 'Pending approval'}</dd></div><div><dt>Access</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>{pending && <button className="button primary" onClick={async () => { try { await api.approveAgent(workspace.id, agent.id, permissions); notify('Agent approved with scoped execution permissions.'); await onRefresh(); } catch (caught) { notify(errorMessage(caught)); } }}>Approve agent</button>}</article>;
+  const [credential, setCredential] = useState('');
+  const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
+  const platformAddress = agent.platformAddress || transportAgent?.internalAddress || agent.address;
+  const publicEmailAddress = agent.publicEmailAddress || agent.identity?.externalAddress || transportAgent?.externalAddress || null;
+  return <article className="integration-card"><div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.status} /></div>{emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}<div className="capability-list">{agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div><dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Verified and active' : 'Pending approval'}</dd></div><div><dt>Access</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>{credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}{pending && <button className="button primary" onClick={async () => { try { const result = await api.approveAgent(workspace.id, agent.id, permissions); if (result.agentApiToken) setCredential(result.agentApiToken); notify('Agent approved with scoped execution permissions.'); await onRefresh(); } catch (caught) { notify(errorMessage(caught)); } }}>Approve agent</button>}</article>;
 }
 
 function EnrollmentDialog({ workspace, result, setResult, onClose }: { workspace: Workspace; result: { enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null; setResult: (value: any) => void; onClose: () => void }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  return <Modal title={result ? 'Enrollment link created' : 'Enroll an agent'} onClose={onClose}>{result ? <><InlineNotice title="Shown once" body="This credential cannot be recovered after you close this dialog." tone="attention" /><label className="field"><span>One-time enrollment URL</span><div className="copy-field"><input readOnly value={result.enrollmentUrl} /><CopyButton value={result.enrollmentUrl} label="Copy enrollment URL" /></div><small>Expires {formatAbsolute(result.expiresAt)}</small></label><div className="dialog-actions"><button className="button primary" onClick={onClose}>Done</button></div></> : <form onSubmit={async event => { event.preventDefault(); setBusy(true); setError(''); try { setResult(await api.enrollmentToken(workspace.id, String(new FormData(event.currentTarget).get('name')), permissions)); } catch (caught) { setError(errorMessage(caught)); setBusy(false); } }}><Field label="Agent name" name="name" placeholder="Scheduling agent" required /><fieldset className="permission-set"><legend>Permission policy</legend>{permissions.map(item => <label key={item}><input type="checkbox" checked readOnly /><span>{humanize(item)}</span></label>)}</fieldset><FormError message={error} /><div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating link…' : 'Create one-time link'}</button></div></form>}</Modal>;
+  const exchangeCommand = result ? `curl -X POST ${window.location.origin}/api/agent-enroll -H "content-type: application/json" --data '${JSON.stringify({ enrollmentToken: result.enrollmentToken, name: 'My agent' })}'` : '';
+  return <Modal title={result ? 'Enrollment link created' : 'Enroll an agent'} onClose={onClose}>{result ? <><InlineNotice title="Shown once" body="This enrollment credential cannot be recovered after you close this dialog." tone="attention" /><label className="field"><span>One-time enrollment URL</span><div className="copy-field"><input readOnly value={result.enrollmentUrl} /><CopyButton value={result.enrollmentUrl} label="Copy enrollment URL" /></div><small>Expires {formatAbsolute(result.expiresAt)}</small></label><div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Exchange the link for SDK credentials</h3><p>Run this only in the agent’s trusted environment. The response returns short-lived access and refresh credentials once.</p><div className="copy-field"><input readOnly value={exchangeCommand} aria-label="Agent enrollment command" /><CopyButton value={exchangeCommand} label="Copy agent enrollment command" /></div><small>Then initialize the included <code>@sinaloa/protocol</code> client with the returned <code>agentApiToken</code>.</small></div><div className="dialog-actions"><button className="button primary" onClick={onClose}>I’ve copied the handoff</button></div></> : <form onSubmit={async event => { event.preventDefault(); setBusy(true); setError(''); try { setResult(await api.enrollmentToken(workspace.id, String(new FormData(event.currentTarget).get('name')), permissions)); } catch (caught) { setError(errorMessage(caught)); setBusy(false); } }}><Field label="Agent name" name="name" placeholder="Scheduling agent" required /><fieldset className="permission-set"><legend>Permission policy</legend>{permissions.map(item => <label key={item}><input type="checkbox" checked readOnly /><span>{humanize(item)}</span></label>)}</fieldset><FormError message={error} /><div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating link…' : 'Create one-time link'}</button></div></form>}</Modal>;
 }
 
 function ActivityPage({ view }: { view: HumanView }) {
@@ -807,4 +918,6 @@ function formatAbsolute(value: string) { return new Intl.DateTimeFormat(undefine
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(value)); }
 function formatTime(value: string) { return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value)); }
 function formatRelative(value: string) { const diff = Date.now() - new Date(value).getTime(); const minutes = Math.max(0, Math.floor(diff / 60_000)); if (minutes < 60) return `${minutes}m`; const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours}h`; return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value)); }
-function errorMessage(caught: unknown) { return caught instanceof Error ? caught.message : 'The action could not be completed.'; }
+function formatBytes(value: number) { if (value < 1024) return `${value} B`; if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`; return `${(value / 1024 / 1024).toFixed(1)} MB`; }
+function assetDownloadError(caught: unknown) { if (caught instanceof ApiError && caught.status === 423) return 'Download remains locked until the safety scan completes.'; if (caught instanceof ApiError && caught.status === 503) return 'File storage is not configured or is temporarily unavailable. Ask a workspace administrator to check the provider.'; if (caught instanceof ApiError && caught.status === 401) return 'Your session expired. Sign in again before downloading this file.'; return errorMessage(caught); }
+function errorMessage(caught: unknown) { if (caught instanceof ApiError && caught.status === 503) return `${caught.message} Check the provider configuration, then retry.`; return caught instanceof Error ? caught.message : 'The action could not be completed.'; }

@@ -13,6 +13,10 @@ export class PostgresStore {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS sinaloa_documents_path_prefix ON sinaloa_documents (path text_pattern_ops);
+      CREATE TABLE IF NOT EXISTS sinaloa_event_sequences (
+        inbox_id TEXT PRIMARY KEY,
+        value BIGINT NOT NULL DEFAULT 0
+      );
       CREATE TABLE IF NOT EXISTS sinaloa_outbox (
         id TEXT PRIMARY KEY,
         value JSONB NOT NULL,
@@ -32,9 +36,34 @@ export class PostgresStore {
       ALTER TABLE sinaloa_outbox ADD COLUMN IF NOT EXISTS delivery_sequence BIGSERIAL;
       CREATE INDEX IF NOT EXISTS sinaloa_outbox_delivery_queue ON sinaloa_outbox (status, available_at, created_at);
       CREATE INDEX IF NOT EXISTS sinaloa_outbox_conversation_order ON sinaloa_outbox ((value->>'orderingKey'), delivery_sequence);
+      CREATE TABLE IF NOT EXISTS sinaloa_object_quota_usage (
+        workspace_id TEXT PRIMARY KEY,
+        used_bytes BIGINT NOT NULL DEFAULT 0,
+        reserved_bytes BIGINT NOT NULL DEFAULT 0,
+        quota_bytes BIGINT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (used_bytes >= 0 AND reserved_bytes >= 0 AND quota_bytes > 0)
+      );
+      CREATE TABLE IF NOT EXISTS sinaloa_object_quota_reservations (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES sinaloa_object_quota_usage(workspace_id),
+        bytes BIGINT NOT NULL CHECK (bytes > 0),
+        status TEXT NOT NULL CHECK (status IN ('reserved', 'committed', 'released')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      ALTER TABLE sinaloa_object_quota_reservations ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+      CREATE INDEX IF NOT EXISTS sinaloa_object_quota_reservations_workspace ON sinaloa_object_quota_reservations (workspace_id, status);
+      CREATE INDEX IF NOT EXISTS sinaloa_object_quota_reservations_expiry ON sinaloa_object_quota_reservations (expires_at) WHERE status = 'reserved';
     `);
   }
   async ensureInbox() {}
+  async nextEventSequence(inboxId) {
+    const result = await this.pool.query(`INSERT INTO sinaloa_event_sequences(inbox_id, value) VALUES($1, 1)
+      ON CONFLICT(inbox_id) DO UPDATE SET value = sinaloa_event_sequences.value + 1 RETURNING value`, [inboxId]);
+    return Number(result.rows[0].value);
+  }
   async putJson(relative, value) { await this.pool.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()', [relative.replaceAll('\\', '/'), value]); }
   async writeDocuments(client, documents) {
     for (const document of documents) {
@@ -161,6 +190,84 @@ export class PostgresStore {
       await client.query('ROLLBACK');
       throw error;
     } finally { client.release(); }
+  }
+  async reserveObjectQuota(workspaceId, bytes, quotaBytes, reservationTtlMs = 1_200_000) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`INSERT INTO sinaloa_object_quota_usage(workspace_id, quota_bytes) VALUES($1, $2)
+        ON CONFLICT(workspace_id) DO UPDATE SET quota_bytes = EXCLUDED.quota_bytes, updated_at = NOW()`, [workspaceId, quotaBytes]);
+      const usage = await client.query('SELECT * FROM sinaloa_object_quota_usage WHERE workspace_id = $1 FOR UPDATE', [workspaceId]);
+      const row = usage.rows[0];
+      const expired = await client.query(`UPDATE sinaloa_object_quota_reservations SET status = 'released', updated_at = NOW()
+        WHERE workspace_id = $1 AND status = 'reserved' AND expires_at IS NOT NULL AND expires_at <= NOW() RETURNING bytes`, [workspaceId]);
+      const expiredBytes = expired.rows.reduce((total, value) => total + Number(value.bytes), 0);
+      if (expiredBytes) await client.query('UPDATE sinaloa_object_quota_usage SET reserved_bytes = GREATEST(0, reserved_bytes - $2), updated_at = NOW() WHERE workspace_id = $1', [workspaceId, expiredBytes]);
+      const activeReserved = Number(row.reserved_bytes) - expiredBytes;
+      if (Number(row.used_bytes) + activeReserved + bytes > quotaBytes) throw Object.assign(new Error('Workspace object quota exceeded'), { code: 'QUOTA_EXCEEDED', statusCode: 413 });
+      const createdAt = new Date();
+      const reservation = { id: `quota_${crypto.randomUUID()}`, workspaceId, bytes, state: 'reserved', createdAt: createdAt.toISOString(), expiresAt: new Date(createdAt.getTime() + reservationTtlMs).toISOString() };
+      await client.query('UPDATE sinaloa_object_quota_usage SET reserved_bytes = reserved_bytes + $2, updated_at = NOW() WHERE workspace_id = $1', [workspaceId, bytes]);
+      await client.query('INSERT INTO sinaloa_object_quota_reservations(id, workspace_id, bytes, status, created_at, expires_at, updated_at) VALUES($1, $2, $3, $4, $5, $6, $5)', [reservation.id, workspaceId, bytes, reservation.state, reservation.createdAt, reservation.expiresAt]);
+      await client.query('COMMIT');
+      return reservation;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  }
+  async settleObjectQuota(reservationId, commit) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query('SELECT * FROM sinaloa_object_quota_reservations WHERE id = $1 FOR UPDATE', [reservationId]);
+      const reservation = result.rows[0];
+      if (!reservation) throw Object.assign(new Error('Unknown object quota reservation'), { code: 'UNKNOWN_RESERVATION', statusCode: 400 });
+      const expired = reservation.status === 'reserved' && reservation.expires_at && new Date(reservation.expires_at) <= new Date();
+      if (reservation.status === 'reserved') {
+        await client.query(`UPDATE sinaloa_object_quota_usage SET reserved_bytes = GREATEST(0, reserved_bytes - $2), used_bytes = used_bytes + $3, updated_at = NOW() WHERE workspace_id = $1`, [reservation.workspace_id, Number(reservation.bytes), commit ? Number(reservation.bytes) : 0]);
+        await client.query('UPDATE sinaloa_object_quota_reservations SET status = $2, updated_at = NOW() WHERE id = $1', [reservationId, expired ? 'released' : commit ? 'committed' : 'released']);
+        reservation.status = expired ? 'released' : commit ? 'committed' : 'released';
+      }
+      await client.query('COMMIT');
+      if (expired && commit) throw Object.assign(new Error('Object quota reservation has expired'), { code: 'QUOTA_RESERVATION_EXPIRED', statusCode: 409 });
+      if (commit && reservation.status === 'released') throw Object.assign(new Error('Object quota reservation has expired'), { code: 'QUOTA_RESERVATION_EXPIRED', statusCode: 409 });
+      return { id: reservation.id, workspaceId: reservation.workspace_id, bytes: Number(reservation.bytes), state: reservation.status, createdAt: new Date(reservation.created_at).toISOString() };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  }
+  commitObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, true); }
+  releaseObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, false); }
+  async reclaimExpiredObjectQuota(now = new Date()) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const workspaces = await client.query(`SELECT DISTINCT workspace_id FROM sinaloa_object_quota_reservations
+        WHERE status = 'reserved' AND expires_at IS NOT NULL AND expires_at <= $1`, [now]);
+      let releasedReservations = 0;
+      let releasedBytes = 0;
+      for (const { workspace_id: workspaceId } of workspaces.rows) {
+        await client.query('SELECT workspace_id FROM sinaloa_object_quota_usage WHERE workspace_id = $1 FOR UPDATE', [workspaceId]);
+        const expired = await client.query(`UPDATE sinaloa_object_quota_reservations SET status = 'released', updated_at = NOW()
+          WHERE workspace_id = $1 AND status = 'reserved' AND expires_at IS NOT NULL AND expires_at <= $2 RETURNING bytes`, [workspaceId, now]);
+        const bytes = expired.rows.reduce((total, value) => total + Number(value.bytes), 0);
+        if (bytes) await client.query('UPDATE sinaloa_object_quota_usage SET reserved_bytes = GREATEST(0, reserved_bytes - $2), updated_at = NOW() WHERE workspace_id = $1', [workspaceId, bytes]);
+        releasedReservations += expired.rowCount;
+        releasedBytes += bytes;
+      }
+      await client.query('COMMIT');
+      return { releasedReservations, releasedBytes };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  }
+  async objectQuotaUsage(workspaceId, quotaBytes) {
+    const result = await this.pool.query('SELECT * FROM sinaloa_object_quota_usage WHERE workspace_id = $1', [workspaceId]);
+    const row = result.rows[0];
+    return row ? { workspaceId, used: Number(row.used_bytes), reserved: Number(row.reserved_bytes), quota: Number(row.quota_bytes) } : { workspaceId, used: 0, reserved: 0, quota: quotaBytes };
   }
   async putJsonIfAbsent(relative, value) { const result = await this.pool.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO NOTHING RETURNING path', [relative.replaceAll('\\', '/'), value]); return result.rowCount === 1; }
   async claimJson(relative, field, value) {

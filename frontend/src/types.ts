@@ -7,6 +7,7 @@ export type CollaborationMode = 'scheduling' | 'negotiation' | 'collaboration' |
 export type CaseBucket = 'needsMe' | 'activeWork' | 'waiting' | 'completed';
 export type StateTone = 'neutral' | 'attention' | 'waiting' | 'success' | 'danger' | 'unknown' | 'tentative';
 export type DeliveryState = 'queued' | 'retrying' | 'delivered' | 'acknowledged' | 'processed' | 'deadLettered' | 'received';
+export type EmailDeliveryState = 'accepted' | 'delivered' | 'delivery_delayed' | 'bounced' | 'complained' | 'failed' | 'suppressed' | 'received';
 
 export type EventType = 'message' | 'decision' | 'policyEvaluation' | 'toolAction' | 'humanAction' | 'stateChange' | 'error' | 'receipt';
 export type HumanActionKey = 'approveOnce' | 'decline' | 'editProposal' | 'pause' | 'revoke' | 'takeOver';
@@ -35,6 +36,9 @@ export interface Agent {
   id: string;
   name: string;
   address: string;
+  platformAddress?: string;
+  publicEmailAddress?: string | null;
+  identity?: { address?: string; externalAddress?: string | null; externalTransportStatus?: string };
   principalHumanId: string;
   status: string;
   onboardingStatus: string;
@@ -50,7 +54,7 @@ export interface ParticipantIdentity {
   orgRef?: string | null;
   organizationId?: string | null;
   inboxId?: string | null;
-  accessState?: 'active' | 'revoked' | 'unavailable';
+  accessState?: 'active' | 'pending' | 'approved' | 'blocked' | 'revoked' | 'unavailable';
   address?: string | null;
 }
 
@@ -190,9 +194,28 @@ export interface Message {
   lastDeliveryError?: string | null;
 }
 
-export interface Asset { id: string; caseId: string | null; name: string; mimeType: string; size: number; createdByAgentId: string; createdAt: string }
+export type AssetState = 'quarantine' | 'quarantined' | 'scanning' | 'clean' | 'infected' | 'error';
+export interface Asset {
+  id: string;
+  workspaceId?: string;
+  caseId: string | null;
+  filename?: string;
+  name?: string;
+  mimeType: string;
+  size: number;
+  checksumSha256?: string;
+  createdByAgentId: string | null;
+  state?: AssetState;
+  createdAt: string;
+  scannedAt?: string | null;
+  scan?: { status: 'clean' | 'infected' | 'error'; engine?: string | null; signature?: string | null; message?: string } | null;
+}
 export interface AuditEvent { id: string; type: string; createdAt: string; [key: string]: unknown }
-export interface DeliveryReceipt { id: string; type: 'delivery'; messageId: string; senderAgentId: string; recipientAgentId: string; state: DeliveryState; attempt?: number; error?: string; createdAt: string }
+export interface DeliveryReceipt { id: string; type: 'delivery' | 'email'; transport?: 'native' | 'email'; messageId: string; senderAgentId?: string; recipientAgentId?: string; senderEmail?: string; recipientEmail?: string; state: DeliveryState | EmailDeliveryState; provider?: string; providerMessageId?: string; attempt?: number; error?: string; createdAt: string }
+export interface AgentConnectionInvitation { id: string; senderAgentId: string; senderName: string; senderAddress: string; state: 'pending' | 'approved' | 'blocked' | 'declined'; createdAt: string }
+export interface EmailTransportAgent { agentId: string; internalAddress: string; externalAddress: string | null; permitted: boolean }
+export interface ApprovedEmailContact { id: string; email: string; displayName: string; direction: 'inbound' | 'outbound' | 'both'; approved: boolean; blocked: boolean; blockedReason?: string | null; updatedAt: string }
+export interface EmailTransportStatus { provider: string; ready: boolean; publicDomain: string | null; domainVerified: boolean; reason: string | null; internalAgentDomain: string; agents: EmailTransportAgent[]; contacts: ApprovedEmailContact[] }
 export interface CalendarProvider { id: 'google' | 'outlook'; label: string; configured: boolean }
 export interface CalendarConnector { id: string; provider: CalendarProvider['id']; label: string; status: 'connected' | 'disconnected'; accountLabel: string | null; scopes: string[]; expiresAt: string | null; refreshTokenPresent: boolean; connectedByHumanId: string; connectedAt: string; updatedAt: string; disconnectedAt?: string }
 
@@ -211,6 +234,10 @@ export interface HumanView {
   calendarProviders: Record<CalendarProvider['id'], CalendarProvider>;
   calendarConnectors: CalendarConnector[];
   deliveryReceipts: DeliveryReceipt[];
+  connectionInvitations?: AgentConnectionInvitation[];
+  invitations?: AgentConnectionInvitation[];
+  contacts?: ApprovedEmailContact[];
+  publicEmailTransport?: EmailTransportStatus;
   recentEvents: AuditEvent[];
 }
 
