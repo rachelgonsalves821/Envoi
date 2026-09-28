@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
-import { SinaloaClient } from '@sinaloa/protocol';
+import { newCaseId, SinaloaClient } from '@sinaloa/protocol';
 import { enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore } from '@sinaloa/protocol/connector';
 import { BrowserSession } from '../../../test/browser-session.js';
 
@@ -164,5 +164,55 @@ describe('customer-hosted connector against the real local API', () => {
     expect(await senderConnector.processWorkOnce()).toBe(true);
     expect(senderReceived).toHaveLength(2);
     expect(await recipientConnector.processWorkOnce()).toBe(false);
+  }, 30_000);
+
+  it('keeps two cases between the same pair separate when the recipient connector restarts', async () => {
+    const server = await startServer();
+    servers.push(server);
+    const senderHuman = await owner(server.baseUrl, 'Two-case sender', '+14165550151');
+    const recipientHuman = await owner(server.baseUrl, 'Two-case recipient', '+14165550152');
+    const sender = await enroll(server.baseUrl, senderHuman, 'Sender agent');
+    const recipient = await enroll(server.baseUrl, recipientHuman, 'Recipient agent');
+    const senderClient = new SinaloaClient(server.baseUrl, sender.get().agentApiToken);
+    const caseIds = [newCaseId(), newCaseId()];
+    const requests = await Promise.all(caseIds.map((caseId, index) => senderClient.startCase(sender.get().inboxId, `new-case-${index}`, {
+      senderAgentId: sender.get().agentId, recipientEmail: recipient.get().address, caseId, text: `Question ${index + 1}`
+    })));
+    expect(requests[0].caseId).toBe(caseIds[0]);
+    expect(requests[1].caseId).toBe(caseIds[1]);
+    await eventually(async () => {
+      const messages = await request(server.baseUrl, `/api/inboxes/${recipient.get().inboxId}/messages`, recipientHuman.browser, { token: recipient.get().agentApiToken });
+      const delivered = (messages.payload as any[]).filter(item => requests.some(sent => sent.id === item.id && item.status === 'delivered'));
+      return delivered.length === 2 ? delivered : null;
+    });
+
+    const durableReplies = new Map<string, string>();
+    const processed: string[] = [];
+    const handler = {
+      admit: async (message: { id: string }) => { processed.push(`admit:${message.id}`); },
+      process: async (message: { id: string; caseId?: string | null }, context: { reply(text: string, key: string): Promise<unknown> }) => {
+        const reply = durableReplies.get(message.id) || `Reply to ${message.caseId}`;
+        durableReplies.set(message.id, reply);
+        await context.reply(reply, `reply:${message.id}:1`);
+        processed.push(`process:${message.id}`);
+      }
+    };
+    expect(await new SinaloaConnector(server.baseUrl, recipient.store, { handler }).processWorkOnce()).toBe(true);
+    // A replacement connector instance reuses the stored session and this fixture's reply ledger.
+    expect(await new SinaloaConnector(server.baseUrl, recipient.store, { handler }).processWorkOnce()).toBe(true);
+    expect(durableReplies.size).toBe(2);
+    expect(processed.filter(item => item.startsWith('process:'))).toHaveLength(2);
+
+    await eventually(async () => {
+      const messages = await request(server.baseUrl, `/api/inboxes/${sender.get().inboxId}/messages`, senderHuman.browser, { token: sender.get().agentApiToken });
+      const replies = (messages.payload as any[]).filter(item => item.text?.startsWith('Reply to ') && item.status === 'delivered');
+      return replies.length === 2 ? replies : null;
+    });
+    for (const caseId of caseIds) {
+      const senderMessages = await senderClient.listCaseMessages(sender.get().inboxId, caseId);
+      const recipientMessages = await new SinaloaClient(server.baseUrl, recipient.get().agentApiToken).listCaseMessages(recipient.get().inboxId, caseId);
+      expect(senderMessages.map(item => item.caseId)).toEqual([caseId, caseId]);
+      expect(recipientMessages.map(item => item.caseId)).toEqual([caseId, caseId]);
+    }
   }, 30_000);
 });

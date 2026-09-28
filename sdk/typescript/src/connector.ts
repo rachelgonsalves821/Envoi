@@ -60,7 +60,7 @@ export interface ConnectorOptions extends ClientOptions {
   pageSize?: number;
   pollIntervalMs?: number;
   refreshSkewMs?: number;
-  /** Observation only. Processing requires the server's future fenced work-claim API. */
+  /** Observation only. Processing uses the separate fenced work-claim API. */
   onEvent?: (event: InboxEvent) => Promise<void> | void;
   /** Enables fenced work processing when the server work routes are available. */
   handler?: WorkHandler;
@@ -80,6 +80,13 @@ export class ConnectorContractError extends Error {
   }
 }
 
+export class ConnectorCredentialsError extends Error {
+  constructor() {
+    super('Connector credentials are missing or expired; re-enrollment is required');
+    this.name = 'ConnectorCredentialsError';
+  }
+}
+
 function apiOrigin(value: string): string {
   const url = new URL(value);
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
@@ -91,8 +98,9 @@ function apiOrigin(value: string): string {
 }
 
 function validSession(value: ConnectorSession | null): ConnectorSession {
-  if (!value || !value.agentId || !value.inboxId || !value.agentApiToken || !value.agentRefreshToken || !Number.isFinite(Date.parse(value.agentTokenExpiresAt))) {
-    throw new SinaloaError('Connector credentials are missing or invalid');
+  if (!value || !value.agentId || !value.inboxId || !value.agentApiToken || !value.agentRefreshToken ||
+    !Number.isFinite(Date.parse(value.agentTokenExpiresAt)) || !Number.isFinite(Date.parse(value.agentRefreshTokenExpiresAt))) {
+    throw new ConnectorCredentialsError();
   }
   return value;
 }
@@ -168,6 +176,7 @@ export class SinaloaConnector {
     this.refreshInFlight = (async () => {
       const current = validSession(await this.store.load());
       if (!force && Date.parse(current.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return current;
+      if (Date.parse(current.agentRefreshTokenExpiresAt) <= Date.now()) throw new ConnectorCredentialsError();
       const rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, this.options);
       const next = validSession({ ...current, ...rotated });
       // A failed save is fatal: using the consumed refresh token again would replay it.
@@ -298,6 +307,7 @@ export class SinaloaConnector {
     const workAbort = new AbortController();
     const onAbort = () => workAbort.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) workAbort.abort();
     let leaseExpiresAt = work.leaseExpiresAt;
     let renewalError: unknown = null;
     const renewal = (async () => {
@@ -315,6 +325,7 @@ export class SinaloaConnector {
     const stopRenewal = async () => { workAbort.abort(); await renewal; };
     let settled = false;
     try {
+      if (workAbort.signal.aborted) throw new SinaloaError('Work claim was interrupted before admission');
       await handler.admit(work.message);
       if (workAbort.signal.aborted) throw new SinaloaError('Work lease was interrupted before acknowledgement');
       const acknowledged = await this.postWork<WorkSettlement>(`${workPath}/acknowledge`, { leaseToken: work.leaseToken }, acknowledgeKey);
@@ -323,9 +334,13 @@ export class SinaloaConnector {
       }
       await handler.process(work.message, {
         signal: workAbort.signal,
-        reply: (text, key, extra) => this.reply(work.message, text, key, extra)
+        reply: async (text, key, extra) => {
+          if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) {
+            throw new SinaloaError('Work lease is no longer valid for a reply');
+          }
+          return this.reply(work.message, text, key, extra);
+        }
       });
-      await stopRenewal();
       if (renewalError) throw new SinaloaError('Work lease renewal failed');
       if (signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new SinaloaError('Work lease expired before completion');
       const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey);
@@ -333,6 +348,7 @@ export class SinaloaConnector {
         throw new SinaloaError('Sinaloa returned an invalid completion');
       }
       settled = true;
+      await stopRenewal();
       return true;
     } catch (error) {
       await stopRenewal();
@@ -390,7 +406,7 @@ export class SinaloaConnector {
       } catch (error) {
         if (signal.aborted) break;
         // Authentication/credential persistence requires operator intervention.
-        if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError || (error instanceof SinaloaError && [401, 403].includes(error.status || 0))) throw error;
+        if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError || error instanceof ConnectorCredentialsError || (error instanceof SinaloaError && [401, 403].includes(error.status || 0))) throw error;
         failures += 1;
         const ceiling = Math.min(30_000, 500 * 2 ** Math.min(failures, 6));
         await delay(Math.round(ceiling / 2 + Math.random() * ceiling / 2), signal);

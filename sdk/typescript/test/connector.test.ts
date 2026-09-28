@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ConnectorContractError, ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore } from '@sinaloa/protocol/connector';
+import { ConnectorContractError, ConnectorCredentialsError, ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore } from '@sinaloa/protocol/connector';
 
 const session = (): ConnectorSession => ({
   agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@sinaloa.mail',
@@ -143,6 +143,22 @@ describe('Sinaloa outbound connector', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('fails promptly when the rotating refresh credential has expired', async () => {
+    const memory = memoryStore({ ...session(), agentTokenExpiresAt: new Date(Date.now() - 1_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() - 1_000).toISOString() });
+    const fetcher = vi.fn();
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
+    await expect(connector.run(new AbortController().signal)).rejects.toBeInstanceOf(ConnectorCredentialsError);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a revoked credential while sending a case event', async () => {
+    const memory = memoryStore(session());
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ error: 'Revoked' }), { status: 403 }));
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
+    await expect(connector.sendCaseEvent('stable-key', { caseId: 'case_one', recipientEmail: 'peer@sinaloa.mail', text: 'Hello' })).rejects.toMatchObject({ status: 403 });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects non-TLS remote endpoints before sending an enrollment secret', async () => {
     const fetcher = vi.fn();
     await expect(enrollConnector('http://api.example', 'secret', memoryStore().store, { fetch: fetcher as typeof fetch })).rejects.toThrow(/HTTPS/);
@@ -248,6 +264,45 @@ describe('Sinaloa outbound connector', () => {
     } });
     expect(await connector.processWorkOnce()).toBe(true);
     expect(renewals).toBeGreaterThan(0);
+  });
+
+  it('refuses a reply after shutdown invalidates the work lease', async () => {
+    const memory = memoryStore(session());
+    const stop = new AbortController();
+    const paths: string[] = [];
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const route = String(url);
+      paths.push(route);
+      if (route.endsWith('/work/claim')) return new Response(JSON.stringify({ work: {
+        workId: 'work_one', message: { id: 'msg_one', recipientAgentId: 'agent_one', from: { address: 'two@sinaloa.mail' }, caseId: 'case_one', text: 'hello', status: 'delivered' },
+        leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString()
+      } }));
+      if (route.endsWith('/work/work_one/acknowledge')) return new Response(JSON.stringify({ workId: 'work_one', status: 'acknowledged', receipt: { messageId: 'msg_one', state: 'acknowledged' } }));
+      throw new Error(`Unexpected route ${route}`);
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, handler: {
+      admit: async () => {},
+      process: async (_message, context) => { stop.abort(); await expect(context.reply('Too late', 'stable-reply-key')).rejects.toThrow('lease'); }
+    } });
+    await expect(connector.processWorkOnce(stop.signal)).rejects.toThrow('expired before completion');
+    expect(paths.some(path => path.endsWith('/messages'))).toBe(false);
+  });
+
+  it('does not admit work when shutdown arrives during the claim request', async () => {
+    const memory = memoryStore(session());
+    const stop = new AbortController();
+    const admit = vi.fn();
+    const fetcher = vi.fn(async () => {
+      stop.abort();
+      return new Response(JSON.stringify({ work: {
+        workId: 'work_one', message: { id: 'msg_one', recipientAgentId: 'agent_one', from: { address: 'two@sinaloa.mail' }, text: 'hello', status: 'delivered' },
+        leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString()
+      } }));
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, handler: { admit, process: async () => {} } });
+    await expect(connector.processWorkOnce(stop.signal)).rejects.toThrow('interrupted before admission');
+    expect(admit).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('runs the claim and processing loop until graceful shutdown', async () => {
