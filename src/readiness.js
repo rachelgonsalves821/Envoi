@@ -1,5 +1,3 @@
-const safeMessage = error => String(error?.message || error || 'Readiness check failed').slice(0, 240);
-
 async function runCheck(check, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`${check.name} readiness check timed out`)), timeoutMs);
@@ -9,8 +7,9 @@ async function runCheck(check, timeoutMs) {
       new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true }))
     ]);
     return { name: check.name, ready: true, critical: check.critical !== false };
-  } catch (error) {
-    return { name: check.name, ready: false, critical: check.critical !== false, reason: safeMessage(error) };
+  } catch {
+    return { name: check.name, ready: false, critical: check.critical !== false,
+      reason: controller.signal.aborted ? 'Readiness check timed out' : 'Dependency check failed' };
   } finally {
     clearTimeout(timer);
   }

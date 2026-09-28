@@ -91,7 +91,7 @@ export const api = {
   organizations: () => request<Organization[]>('/api/organizations'),
   workspaces: (organizationId: string) => request<Inbox[]>(`/api/organizations/${organizationId}/workspaces`),
   createWorkspace: (name: string, organizationId?: string) => request<Inbox>('/api/inboxes', { method: 'POST', body: JSON.stringify({ name, organizationId }) }),
-  humanView: (inboxId: string) => request<HumanView>(`/api/inboxes/${inboxId}/human-view`),
+  humanView: (inboxId: string, history?: Record<string, string>) => request<HumanView>(`/api/inboxes/${inboxId}/human-view${history ? `?history=${encodeURIComponent(JSON.stringify(history))}` : ''}`),
   invitations: (inboxId: string) => request<AgentConnectionInvitation[]>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations`),
   acceptInvitation: (inboxId: string, invitationId: string) => request<AgentConnectionInvitationDecision>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations/${encodeURIComponent(invitationId)}/accept`, { method: 'POST' }),
   declineInvitation: (inboxId: string, invitationId: string) => request<AgentConnectionInvitation>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations/${encodeURIComponent(invitationId)}/decline`, { method: 'POST' }),

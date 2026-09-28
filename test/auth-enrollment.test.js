@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
@@ -17,7 +17,7 @@ async function startServer() {
     child.once('exit', code => reject(new Error(`Server exited with ${code}`)));
     child.stdout.on('data', chunk => { const match = chunk.toString().match(/http:\/\/127\.0\.0\.1:(\d+)/); if (match) { clearTimeout(timer); resolve(`http://127.0.0.1:${match[1]}`); } });
   });
-  return { baseUrl, stop: () => new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); }) };
+  return { baseUrl, dataDir, stop: () => new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); }) };
 }
 
 async function request(baseUrl, pathname, options = {}) {
@@ -68,6 +68,18 @@ async function readSseEvent(baseUrl, pathname, { token, lastEventId, matches, ti
     controller.abort();
   }
   throw new Error('SSE stream ended before the expected event');
+}
+
+async function waitForStreamClose(reader, timeoutMs = 2000) {
+  return Promise.race([
+    (async () => {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) return true;
+      }
+    })(),
+    new Promise(resolve => setTimeout(() => resolve(false), timeoutMs))
+  ]);
 }
 
 test('verified human issues a single-use permissioned agent enrollment', async t => {
@@ -263,6 +275,26 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const progress = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'case-progress-1' }, body: { actionKey: 'case.classify', outcome: 'ok', nextState: 'inProgress' } });
   assert.equal(progress.status, 201);
   assert.equal(progress.payload.case.state, 'inProgress');
+  const concurrentEvents = await Promise.all([
+    request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/events`, { token: enrolled.payload.agentApiToken, body: { type: 'message', payload: { marker: 'concurrent-a' } } }),
+    request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/events`, { token: enrolled.payload.agentApiToken, body: { type: 'message', payload: { marker: 'concurrent-b' } } })
+  ]);
+  assert.deepEqual(concurrentEvents.map(result => result.status), [201, 201]);
+  const caseAfterConcurrentEvents = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}`, { token: enrolled.payload.agentApiToken });
+  assert.deepEqual(caseAfterConcurrentEvents.payload.events.filter(event => event.payload?.marker?.startsWith('concurrent-')).map(event => event.payload.marker).sort(), ['concurrent-a', 'concurrent-b']);
+  const ownerProfile = await request(server.baseUrl, '/api/auth/me', { token: sessionToken });
+  const membershipPath = path.join(server.dataDir, 'organizations', workspace.payload.organizationId, 'members', `${ownerProfile.payload.id}.json`);
+  const ownerMembership = { organizationId: workspace.payload.organizationId, humanId: ownerProfile.payload.id, role: 'owner', status: 'active', createdAt: workspace.payload.createdAt };
+  await writeFile(membershipPath, JSON.stringify({ ...ownerMembership, role: 'member' }, null, 2));
+  const observerView = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/human-view`, { token: sessionToken });
+  assert.equal(observerView.status, 200);
+  const observerIntervention = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: sessionToken, headers: { 'Idempotency-Key': 'observer-must-not-pause' }, body: { actionKey: 'pause' } });
+  assert.equal(observerIntervention.status, 403);
+  await writeFile(membershipPath, JSON.stringify(ownerMembership, null, 2));
+  const messagingOnlyCaseMutation = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/cases/${sent.payload.caseId}/events`, { token: recipient.payload.agentApiToken, body: { type: 'message', payload: { marker: 'must-not-write' } } });
+  assert.equal(messagingOnlyCaseMutation.status, 403);
+  const messagingOnlyCaseAction = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/cases/${sent.payload.caseId}/actions`, { token: recipient.payload.agentApiToken, headers: { 'Idempotency-Key': 'messaging-only-action' }, body: { actionKey: 'case.classify', outcome: 'ok', nextState: 'inProgress' } });
+  assert.equal(messagingOnlyCaseAction.status, 403);
   const unknownPolicy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/policy-evaluations`, { token: enrolled.payload.agentApiToken, body: { requestedAction: 'wireFunds' } });
   assert.equal(unknownPolicy.status, 201);
   assert.equal(unknownPolicy.payload.decision, 'deny');
@@ -297,18 +329,20 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(paymentPolicy.payload.decision, 'allow');
   const alteredPayment = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-altered-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: { ...paymentPayload, amount: { minorUnits: 9000, currency: 'CAD' } } } });
   assert.equal(alteredPayment.status, 409);
-  const authorizedPayment = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
-  assert.equal(authorizedPayment.status, 201);
+  const paymentAttempts = await Promise.all(['payment-authorized-1', 'payment-authorized-2'].map(key => request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': key }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } })));
+  assert.deepEqual(paymentAttempts.map(result => result.status).sort(), [201, 409]);
+  const authorizedPayment = paymentAttempts.find(result => result.status === 201);
+  const authorizedPaymentKey = authorizedPayment.payload.action.idempotencyKey;
   assert.equal(authorizedPayment.payload.action.externalRefs.policyEvaluationId, paymentPolicy.payload.id);
   assert.ok(authorizedPayment.payload.action.externalRefs.policyExecutionId);
-  const authorizedPaymentReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
+  const authorizedPaymentReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': authorizedPaymentKey }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
   assert.equal(authorizedPaymentReplay.status, 200);
   assert.equal(authorizedPaymentReplay.payload.replay, true);
-  const changedPaymentReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'failed', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
+  const changedPaymentReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': authorizedPaymentKey }, body: { actionKey: 'payment.send', outcome: 'failed', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
   assert.equal(changedPaymentReplay.status, 409);
-  const changedPayloadReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: { ...paymentPayload, amount: { minorUnits: 4999, currency: 'CAD' } } } });
+  const changedPayloadReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': authorizedPaymentKey }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: { ...paymentPayload, amount: { minorUnits: 4999, currency: 'CAD' } } } });
   assert.equal(changedPayloadReplay.status, 409);
-  const reusedOneTimePolicy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-2' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
+  const reusedOneTimePolicy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-3' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
   assert.equal(reusedOneTimePolicy.status, 409);
   const projectedHumanView = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/human-view`, { token: sessionToken });
   assert.equal(projectedHumanView.status, 200);
@@ -335,6 +369,19 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].displayName, 'Recipient');
   assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].address, 'recipient@sinaloa.mail');
   assert.equal(projectedHumanView.payload.recentEvents.filter(event => event.type === 'policy.re_evaluated' && event.policyEvaluationId === paymentPolicy.payload.id && event.decision === 'allow').length, 1);
+
+  const recipientStream = await fetch(`${server.baseUrl}/api/inboxes/${recipientInboxId}/events`, { headers: { authorization: `Bearer ${recipient.payload.agentApiToken}` } });
+  assert.equal(recipientStream.status, 200);
+  const recipientReader = recipientStream.body.getReader();
+  await recipientReader.read();
+  const rejectedRecipient = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/agent-onboarding/${recipient.payload.agent.id}/reject`, { token: sessionToken, body: {} });
+  assert.equal(rejectedRecipient.status, 200);
+  assert.equal(rejectedRecipient.payload.agent.status, 'rejected');
+  assert.equal(await waitForStreamClose(recipientReader), true);
+  const rejectedRecipientRead = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/events/delta`, { token: recipient.payload.agentApiToken });
+  assert.equal(rejectedRecipientRead.status, 401);
+  const rejectedRecipientRefresh = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: recipient.payload.agentRefreshToken } });
+  assert.equal(rejectedRecipientRefresh.status, 401);
 
   const revokedCredentials = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agents/${enrolled.payload.agent.id}/credentials/revoke`, { token: sessionToken, body: {} });
   assert.equal(revokedCredentials.status, 200);

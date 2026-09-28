@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl } from './api';
 import { previewRequested } from './preview';
+import { mergeHistory, olderCursors } from './history';
+import { subscribeReplayRecovery } from './event-replay';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
   eventSummary, exchangeParties, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
@@ -102,8 +104,11 @@ export default function App() {
   const [error, setError] = useState('');
   const [authNotice, setAuthNotice] = useState('');
   const [syncNotice, setSyncNotice] = useState('');
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const activeWorkspace = useRef<string | null>(null);
 
   const expireSession = useCallback(() => {
+    activeWorkspace.current = null;
     setHuman(null);
     setWorkspace(null);
     setView(null);
@@ -112,11 +117,25 @@ export default function App() {
   }, []);
 
   const loadView = useCallback(async (workspaceId: string, quiet = false) => {
+    activeWorkspace.current = workspaceId;
     if (!quiet) setView(null);
     const next = await api.humanView(workspaceId);
-    setView(next);
+    if (activeWorkspace.current === workspaceId) setView(current => quiet ? mergeHistory(current, next) : next);
     return next;
   }, []);
+
+  async function loadOlder() {
+    if (!view || historyBusy) return;
+    const workspaceId = view.inbox.id;
+    const cursors = olderCursors(view);
+    if (!Object.keys(cursors).length) return;
+    setHistoryBusy(true);
+    try {
+      const next = await api.humanView(workspaceId, cursors);
+      if (activeWorkspace.current === workspaceId) setView(current => current ? mergeHistory(current, next, cursors) : current);
+    } catch (caught) { setSyncNotice(errorMessage(caught)); }
+    finally { setHistoryBusy(false); }
+  }
 
   const loadAccount = useCallback(async () => {
     try {
@@ -166,6 +185,7 @@ export default function App() {
     if (boot !== 'ready' || !workspace || !config) return;
     const refresh = () => { void loadView(workspace.id, true).then(() => setSyncNotice('')).catch(caught => { if (!(caught instanceof ApiError && caught.status === 401)) setSyncNotice('Live updates are temporarily paused. Your workspace will keep retrying.'); }); };
     const stream = new EventSource(`/api/inboxes/${workspace.id}/events`);
+    const stopReplayRecovery = subscribeReplayRecovery(stream, refresh, setSyncNotice);
     const eventTypes = ['agent.enrolled', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created', 'asset.created', 'asset.upload_started', 'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
     stream.onopen = () => setSyncNotice('');
     stream.onmessage = refresh;
@@ -176,7 +196,7 @@ export default function App() {
       void api.me().catch(() => undefined);
     };
     const interval = window.setInterval(refresh, 30_000);
-    return () => { window.clearInterval(interval); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.close(); };
+    return () => { window.clearInterval(interval); stopReplayRecovery(); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.close(); };
   }, [boot, config, loadView, workspace]);
 
   async function selectWorkspace(next: Workspace) {
@@ -210,6 +230,8 @@ export default function App() {
       workspace={workspace}
       view={view}
       syncNotice={syncNotice}
+      onLoadOlder={loadOlder}
+      historyBusy={historyBusy}
       onSelectWorkspace={selectWorkspace}
       onRefresh={() => loadView(workspace.id, true)}
       onLogout={async () => {
@@ -358,6 +380,7 @@ interface ShellProps {
   config: AuthConfig; human: Human; organizations: Organization[]; workspaces: Workspace[];
   workspace: Workspace; view: HumanView; onSelectWorkspace: (workspace: Workspace) => Promise<void>;
   onRefresh: () => Promise<unknown>; onLogout: () => Promise<void>; syncNotice: string;
+  onLoadOlder?: () => Promise<void>; historyBusy?: boolean;
 }
 
 function AppShell(props: ShellProps) {
@@ -414,12 +437,13 @@ function AppShell(props: ShellProps) {
         </div>
       </aside>
 
-      <section className={`application ${utilitySection ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
+      <section className={`application ${view.history ? 'has-history' : ''} ${utilitySection ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
         <header className="topbar">
           <button className="icon-button mobile-only" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={19} /></button>
           <button className="search-trigger" onClick={() => setSearchOpen(true)}><Search size={16} /><span>Search conversations, people, and tags…</span><kbd>⌘K</kbd></button>
           <div className="topbar-actions"><button className="icon-button" aria-label="Refresh workspace" onClick={() => void onRefresh()}><RefreshCw size={17} /></button></div>
         </header>
+          {view.history && <div className="history-controls"><small>{view.cases.length} of {view.history.cases?.total ?? view.cases.length} conversations loaded · Filters and search cover loaded history</small>{Object.keys(olderCursors(view)).length > 0 && <button className="button quiet" disabled={props.historyBusy} onClick={() => void props.onLoadOlder?.()}>{props.historyBusy ? 'Loading history…' : 'Load older history'}</button>}</div>}
         {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span><button className="button quiet" onClick={() => void onRefresh()}>Refresh now</button></div>}
 
         {utilitySection ? (

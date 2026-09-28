@@ -1,0 +1,22 @@
+import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS } from '../worker/runtime-config.js';
+
+const root = new URL('../', import.meta.url);
+const config = JSON.parse(await readFile(new URL('wrangler.jsonc', root), 'utf8'));
+assert.equal(config.name, 'sinaloa', 'Worker name must match the connected Builds project');
+assert.equal(config.keep_vars, true, 'Preserve dashboard-managed runtime variables on deployment');
+assert.equal(config.containers.length, 1, 'Beta routing supports exactly one container application');
+assert.equal(config.containers[0].max_instances, 1, 'Multiple instances require shared event/rate state and explicit routing; keep beta at one');
+assert.equal(config.containers[0].class_name, 'SinaloaContainer');
+assert.equal(config.containers[0].image, './Dockerfile.cloudflare');
+assert.ok(config.durable_objects.bindings.some(item => item.name === 'SINALOA_CONTAINER' && item.class_name === 'SinaloaContainer'));
+assert.ok(config.triggers.crons.includes('* * * * *'), 'In-process background jobs require the beta wake-up schedule');
+assert.equal(new Set(CONTAINER_ENV_KEYS).size, CONTAINER_ENV_KEYS.length, 'Runtime allowlist contains duplicates');
+assert.equal(CONTAINER_DEFAULTS.SINALOA_PORT, '8787');
+const docker = await readFile(new URL('Dockerfile.cloudflare', root), 'utf8');
+assert.match(docker, /FROM node:22-alpine/);
+assert.match(docker, /EXPOSE 8787/);
+assert.equal((await readFile(new URL('.node-version', root), 'utf8')).trim(), '22');
+console.log(`Deployment configuration checked: ${fileURLToPath(root)}`);

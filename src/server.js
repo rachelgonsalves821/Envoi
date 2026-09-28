@@ -3,8 +3,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
+import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
+import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
-import { createCsrfToken, csrfCookieHeader, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, parseCookies, providerMembershipCanManage, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
 import { DeliveryWorker } from './delivery-worker.js';
 import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
@@ -12,6 +14,7 @@ import { createObjectStorageAdapter, DocumentObjectMetadataStore, FailClosedScan
 import { PostgresMalwareScanJobStore } from './object-scan-lifecycle.js';
 import { validateProductionConfiguration } from './production-config.js';
 import { evaluateReadiness } from './readiness.js';
+import { dependencyReadinessChecks } from './dependency-readiness.js';
 import { clientIp, publicHttpError } from './http-security.js';
 import { createPkcePair, exchangeCalendarAuthorizationCode } from './calendar-oauth.js';
 import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from './path-safety.js';
@@ -83,6 +86,7 @@ const allowedPermissions = new Set(['send_agent_messages', 'receive_agent_messag
 const actionPermission = actionKey => actionKey.startsWith('message.') ? 'send_agent_messages' : actionKey.startsWith('email.') ? 'use_email_transport' : 'execute_cases';
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
 const auth = createHumanAuth(store);
+const providerMembershipCache = Symbol('provider-membership-cache');
 const streams = new Map();
 const rateBuckets = new Map();
 const emailRateBuckets = new Map();
@@ -155,36 +159,8 @@ function runObjectScanRetention() {
 }
 
 async function readinessReport() {
-  const production = process.env.SINALOA_AUTH_MODE === 'production';
-  const checks = [
-    { name: 'database', run: async () => { await store.queryJson('readiness-probe', { limit: 1 }); } },
-    {
-      name: 'objectStorage',
-      critical: production,
-      run: async () => {
-        if (objectStorageProvider !== 's3') return;
-        await objectStorageAdapter.headObject('__sinaloa_readiness_probe__');
-      }
-    },
-    {
-      name: 'malwareScanner',
-      critical: production,
-      run: async signal => {
-        if (!process.env.SINALOA_MALWARE_SCANNER_URL) throw new Error('Malware scanner is not configured');
-        const response = await fetch(process.env.SINALOA_MALWARE_SCANNER_URL, {
-          method: 'HEAD',
-          signal,
-          headers: process.env.SINALOA_MALWARE_SCANNER_TOKEN ? { authorization: `Bearer ${process.env.SINALOA_MALWARE_SCANNER_TOKEN}` } : {}
-        });
-        if (response.status >= 500 || [401, 403].includes(response.status)) throw new Error(`Malware scanner health check returned ${response.status}`);
-      }
-    },
-    {
-      name: 'publicEmail',
-      critical: externalEmailEnabled,
-      run: async () => { if (externalEmailEnabled) emailTransport.assertReady(); }
-    }
-  ];
+  const checks = dependencyReadinessChecks({ store, adapter: objectStorageAdapter,
+    provider: objectStorageProvider, env: process.env, externalEmailEnabled, emailTransport });
   const report = await evaluateReadiness(checks, { timeoutMs: readinessTimeoutMs, at: store.now() });
   return { ...report, service: 'sinaloa', mode: productionConfig.mode, configurationValidated: productionConfig.validated };
 }
@@ -360,13 +336,20 @@ async function issueAgentCredentials(agentId, inboxId, familyId = store.id('cred
 async function rotateAgentCredentials(rawRefreshToken) {
   if (!String(rawRefreshToken || '').startsWith('sinaloa_agent_refresh_')) throw Object.assign(new Error('Valid agent refresh token required'), { statusCode: 401 });
   const refreshPath = agentRefreshCredentialPath(hashSecret(rawRefreshToken));
-  const current = await store.getJson(refreshPath);
-  if (!current || current.tokenType !== 'refresh' || current.revokedAt || current.usedAt || new Date(current.expiresAt) <= new Date()) throw Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
-  const family = await store.getJson(agentCredentialFamilyPath(current.inboxId, current.agentId, current.familyId));
-  if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) throw Object.assign(new Error('Agent credential family is invalid or revoked'), { statusCode: 401 });
-  const claimed = await store.claimJson(refreshPath, 'usedAt', store.now());
-  if (!claimed) throw Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
-  return issueAgentCredentials(current.agentId, current.inboxId, current.familyId);
+  const pending = await store.getJson(refreshPath);
+  if (!pending?.inboxId) throw Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
+  const rotate = async () => {
+    const current = await store.getJson(refreshPath);
+    if (!current || current.tokenType !== 'refresh' || current.revokedAt || current.usedAt || new Date(current.expiresAt) <= new Date()) throw Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
+    const family = await store.getJson(agentCredentialFamilyPath(current.inboxId, current.agentId, current.familyId));
+    if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) throw Object.assign(new Error('Agent credential family is invalid or revoked'), { statusCode: 401 });
+    const agent = await store.getJson(path.join('inboxes', current.inboxId, 'agents', `${current.agentId}.json`));
+    if (agent?.status !== 'active' || agent.onboardingStatus !== 'approved') throw Object.assign(new Error('Agent is not active and approved'), { statusCode: 401 });
+    const claimed = await store.claimJson(refreshPath, 'usedAt', store.now());
+    if (!claimed) throw Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
+    return issueAgentCredentials(current.agentId, current.inboxId, current.familyId);
+  };
+  return typeof store.withTransaction === 'function' ? store.withTransaction([inboxMutationKey(pending.inboxId)], rotate) : rotate();
 }
 
 const getAgentPrincipal = async (req, inboxId) => {
@@ -382,7 +365,8 @@ const getAgentPrincipal = async (req, inboxId) => {
     const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));
     if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
   }
-  return store.getJson(path.join('inboxes', inboxId, 'agents', `${index.agentId}.json`));
+  const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${index.agentId}.json`));
+  return agent?.status === 'active' && agent.onboardingStatus === 'approved' ? agent : null;
 };
 const body = async (req) => {
   let raw = '';
@@ -438,18 +422,25 @@ const sendStreamEvent = (subscription, event) => {
   subscription.res.write(`id: ${normalized.cursor}\nevent: ${normalized.type}\ndata: ${JSON.stringify(normalized)}\n\n`);
 };
 const publish = (inboxId, event) => {
-  for (const subscription of streams.get(inboxId) || []) sendStreamEvent(subscription, event);
+  for (const subscription of streams.get(inboxId) || []) {
+    if (subscription.replaying) {
+      if (subscription.buffer.size >= 500) subscription.overflow = true;
+      else subscription.buffer.set(event.id, event);
+    } else sendStreamEvent(subscription, event);
+  }
 };
-const listStreamEvents = async inboxId => (await store.listJson(path.join('inboxes', inboxId, 'events')))
-  .map(normalizeStreamEvent)
-  .sort((left, right) => left.cursor.localeCompare(right.cursor));
-const audit = async (inboxId, type, data) => {
-  const event = { id: store.id('evt'), type, createdAt: store.now(), sequence: await store.nextEventSequence(inboxId), ...data };
-  event.cursor = eventCursor(event);
-  await store.putJson(path.join('inboxes', inboxId, 'events', `${event.id}.json`), event);
-  publish(inboxId, event);
-  return event;
+const disconnectAgentStreams = (inboxId, agentId) => {
+  const subscriptions = streams.get(inboxId);
+  if (!subscriptions) return;
+  for (const subscription of [...subscriptions]) {
+    if (subscription.agentId !== agentId) continue;
+    clearInterval(subscription.heartbeat);
+    subscriptions.delete(subscription);
+    subscription.res.end();
+  }
+  if (!subscriptions.size) streams.delete(inboxId);
 };
+const audit = (inboxId, type, data) => withInboxMutation(inboxId, writeAudit => writeAudit(type, data));
 
 const document = (relative, value) => ({ path: relative, value });
 const messagePath = (inboxId, messageId) => path.join('inboxes', inboxId, 'messages', `${messageId}.json`);
@@ -459,6 +450,33 @@ const auditRecord = async (inboxId, type, data, createdAt = store.now()) => {
   event.cursor = eventCursor(event);
   return { event, document: document(path.join('inboxes', inboxId, 'events', `${event.id}.json`), event) };
 };
+
+const inboxMutationKey = inboxId => `inbox:${inboxId}:mutations`;
+async function withInboxMutation(inboxId, operation, relatedInboxIds = []) {
+  const committedEvents = [];
+  const run = () => operation(async (type, data, createdAt = store.now(), targetInboxId = inboxId) => {
+    const record = await auditRecord(targetInboxId, type, data, createdAt);
+    await store.putJson(record.document.path, record.document.value);
+    committedEvents.push({ inboxId: targetInboxId, event: record.event });
+    return record.event;
+  });
+  const result = typeof store.withTransaction === 'function'
+    ? await store.withTransaction([...new Set([inboxId, ...relatedInboxIds])].map(inboxMutationKey), run)
+    : await run();
+  for (const committed of committedEvents) publish(committed.inboxId, committed.event);
+  return result;
+}
+
+async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedAt = store.now()) {
+  const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
+  await store.putJsonBatch(families.map(family => document(agentCredentialFamilyPath(inboxId, agentId, family.id), {
+    ...family,
+    revokedAt,
+    revokedByHumanId: humanId,
+    updatedAt: revokedAt
+  })));
+  return families.length;
+}
 
 function setCaseMessageDeliveryState(value, message, state, at) {
   const eventId = `evt_${message.id}`;
@@ -498,15 +516,28 @@ async function getMembership(organizationId, humanId) {
   return membership?.status === 'active' ? membership : null;
 }
 
+async function getAuthorizedMembership(organizationId, human) {
+  if (!human) return null;
+  const membership = await getMembership(organizationId, human.id);
+  if (!membership || auth.provider !== 'workos') return membership;
+  const organization = await store.getJson(path.join('organizations', organizationId, 'organization.json'));
+  if (!organization?.workosOrganizationId || !human.providerUserId || typeof auth.getOrganizationMembership !== 'function') return null;
+  if (!human[providerMembershipCache]) Object.defineProperty(human, providerMembershipCache, { value: new Map(), enumerable: false });
+  const cacheKey = organization.workosOrganizationId;
+  if (!human[providerMembershipCache].has(cacheKey)) human[providerMembershipCache].set(cacheKey, auth.getOrganizationMembership(human.providerUserId, cacheKey));
+  const providerMembership = await human[providerMembershipCache].get(cacheKey);
+  return providerMembership ? { ...membership, providerMembership } : null;
+}
+
 async function canAccessInbox(human, inbox) {
-  return Boolean(human && (human.id === inbox.ownerHumanId || await getMembership(inbox.organizationId, human.id)));
+  return Boolean(await getAuthorizedMembership(inbox.organizationId, human));
 }
 
 async function canManageInbox(human, inbox) {
-  if (!human) return false;
-  if (human.id === inbox.ownerHumanId) return true;
-  const membership = await getMembership(inbox.organizationId, human.id);
-  return Boolean(membership && ['owner', 'admin'].includes(membership.role));
+  const membership = await getAuthorizedMembership(inbox.organizationId, human);
+  if (!membership || !['owner', 'admin'].includes(membership.role)) return false;
+  if (auth.provider !== 'workos') return true;
+  return providerMembershipCanManage(membership.providerMembership);
 }
 
 async function listHumanOrganizations(humanId) {
@@ -566,10 +597,14 @@ async function ensureOrganization(human, requestedId) {
   if (requestedId) {
     const organizationId = assertSafeIdentifier(requestedId, 'organizationId');
     const organization = await store.getJson(path.join('organizations', organizationId, 'organization.json'));
-    if (!organization || !await getMembership(organizationId, human.id)) throw Object.assign(new Error('Active organization membership required'), { statusCode: 403 });
+    if (!organization || !await getAuthorizedMembership(organizationId, human)) throw Object.assign(new Error('Active organization membership required'), { statusCode: 403 });
     return organization;
   }
-  const [existing] = await listHumanOrganizations(human.id);
+  const existingOrganizations = await listHumanOrganizations(human.id);
+  let existing = null;
+  for (const organization of existingOrganizations) {
+    if (await getAuthorizedMembership(organization.id, human)) { existing = organization; break; }
+  }
   return existing || createOrganization(human, { name: `${human.displayName || 'My'} workspace` }, `personal-${human.id}`);
 }
 
@@ -642,6 +677,7 @@ const getCase = async (inboxId, caseId) => {
   const value = await store.getJson(caseRecordPath(inboxId, caseId));
   return value?.schemaVersion && !value.collaborationMode ? { ...value, collaborationMode: 'collaboration' } : value;
 };
+const isCaseParticipant = (value, agentId) => Boolean(agentId && (value?.actingAgent === agentId || value?.participants?.includes(agentId)));
 
 function proposalFromInput(input, now) {
   const options = Array.isArray(input.options) ? input.options.map(item => ({
@@ -785,7 +821,7 @@ const actionRequestDigest = input => {
   });
 };
 
-async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluationId, { requestedAction, actionPayload, proposalId, optionId, executionId = store.id('action'), allowPendingHuman = false } = {}) {
+async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluationId, { requestedAction, actionPayload, proposalId, optionId, executionId = store.id('action'), allowPendingHuman = false, writeAudit = (type, data) => audit(inboxId, type, data) } = {}) {
   const evaluation = caseRecord.policyEvaluations.find(item => item.id === evaluationId);
   const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluation.id)) : null;
   await policyDecisionChain(inboxId);
@@ -804,9 +840,7 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
     return { evaluation, binding, refreshed: binding, humanApproved: false, executionId };
   }
   const priorExecutions = await store.listJson(path.join('inboxes', inboxId, 'policy-executions'));
-  if (binding.grantType === 'oneTime' && priorExecutions.some(record => record.sourceEvaluationId === evaluation.id)) {
-    throw Object.assign(new Error('This one-time policy evaluation has already been consumed'), { statusCode: 409 });
-  }
+  if (binding.grantType === 'oneTime' && priorExecutions.some(record => record.sourceEvaluationId === evaluation.id)) throw Object.assign(new Error('This one-time policy evaluation has already been consumed'), { statusCode: 409 });
 
   const refreshed = await evaluateServerPolicy(inboxId, principal, caseRecord, {
     requestedAction: binding.requestedAction,
@@ -814,8 +848,12 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
     expiresAt: binding.expiresAt,
     grantType: binding.grantType || 'oneTime'
   }, { id: store.id('policy_exec'), phase: 'execution', executionId, sourceEvaluationId: evaluation.id });
-  await store.putJson(policyExecutionPath(inboxId, refreshed.binding.id), refreshed.binding);
-  await audit(inboxId, 'policy.re_evaluated', {
+  const executionPath = policyExecutionPath(inboxId, binding.grantType === 'oneTime' ? evaluation.id : refreshed.binding.id);
+  const persisted = binding.grantType === 'oneTime'
+    ? await store.putJsonIfAbsent(executionPath, refreshed.binding)
+    : (await store.putJson(executionPath, refreshed.binding), true);
+  if (!persisted) throw Object.assign(new Error('This one-time policy evaluation has already been consumed'), { statusCode: 409 });
+  await writeAudit('policy.re_evaluated', {
     caseId: caseRecord.id,
     policyEvaluationId: evaluation.id,
     policyExecutionId: refreshed.binding.id,
@@ -855,12 +893,32 @@ async function ensureStructuredCase(inbox, input, actorAgentId, at) {
 
 const permanentDeliveryError = message => Object.assign(new Error(message), { permanent: true });
 
-async function enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType = 'message.queued') {
+async function enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType = 'message.queued', writeAudit = null, agentRequest = null) {
+  if (!writeAudit) {
+    const queued = await withInboxMutation(senderInbox.id, auditWriter => enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType, auditWriter, agentRequest), [recipientInboxId]);
+    deliveryWorker.kick();
+    return queued;
+  }
+  const [senderAgent, recipientAgent] = await Promise.all([
+    store.getJson(path.join('inboxes', senderInbox.id, 'agents', `${message.senderAgentId}.json`)),
+    store.getJson(path.join('inboxes', recipientInboxId, 'agents', `${message.recipientAgentId}.json`))
+  ]);
+  if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is no longer approved to send messages'), { statusCode: 403 });
+  if (!recipientAgent || !hasPermission(recipientAgent, 'receive_agent_messages')) throw Object.assign(new Error('Recipient agent is unavailable'), { statusCode: 404 });
+  if (agentRequest) {
+    const currentPrincipal = await getAgentPrincipal(agentRequest, senderInbox.id);
+    if (!currentPrincipal || currentPrincipal.id !== senderAgent.id) throw Object.assign(new Error('Valid sender agent credential required'), { statusCode: 401 });
+  }
+  const existing = await store.getJson(messagePath(senderInbox.id, message.id));
+  if (existing) {
+    if (existing.requestHash && existing.requestHash !== message.requestHash) throw Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409 });
+    if (existing.status !== 'pendingContactApproval') return existing;
+  }
   const queuedAt = store.now();
   const queued = { ...message, recipientInboxId, status: 'queued', queuedAt, updatedAt: queuedAt };
   const currentCase = await ensureStructuredCase(senderInbox, { ...queued, caseId: queued.caseId }, queued.senderAgentId, queued.createdAt);
   const queuedCase = setCaseMessageDeliveryState(structuredClone(currentCase), queued, 'queued', queuedAt);
-  const auditEntry = await auditRecord(senderInbox.id, eventType, {
+  const auditData = {
     messageId: queued.id,
     caseId: queued.caseId,
     conversationId: queued.conversationId,
@@ -869,7 +927,7 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
     recipientEmail: queued.recipientEmail,
     senderInboxId: senderInbox.id,
     recipientInboxId
-  }, queuedAt);
+  };
   const outbox = {
     id: `delivery_${queued.id}`,
     kind: 'nativeAgentMessage',
@@ -887,12 +945,10 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
   };
   const delivery = await store.enqueueOutbox([
     document(messagePath(senderInbox.id, queued.id), queued),
-    document(caseRecordPath(senderInbox.id, queuedCase.id), queuedCase),
-    auditEntry.document
+    document(caseRecordPath(senderInbox.id, queuedCase.id), queuedCase)
   ], outbox);
   if (delivery.requestHash && delivery.requestHash !== queued.requestHash) throw Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409 });
-  publish(senderInbox.id, auditEntry.event);
-  deliveryWorker.kick();
+  await writeAudit(eventType, auditData, queuedAt);
   return delivery.enqueueCreated ? queued : await store.getJson(messagePath(senderInbox.id, queued.id), queued);
 }
 
@@ -995,15 +1051,33 @@ const emailEventState = type => ({
   'email.suppressed': 'deadLettered'
 }[type] || null);
 
-async function processInboundEmail(event) {
+async function prepareEmailDelivery(outbox) {
+  if (outbox.kind !== 'emailWebhook') return {};
+  const event = outbox.emailEvent;
+  if (!event?.type) throw permanentDeliveryError('Email webhook event is invalid');
+  if (event.type !== 'email.received') {
+    if (!event.data?.email_id || !emailEventState(event.type)) return {};
+    const index = await store.getJson(path.join('email-provider-index', 'resend', `${identityKey(event.data.email_id)}.json`));
+    if (!index?.inboxId) throw new Error('Provider message index is not available yet');
+    return { lockKeys: [`inbox:${index.inboxId}:mutations`], context: { index } };
+  }
+  // Provider payload is immutable; retrieve it before opening a database
+  // transaction, then revalidate every mutable routing/permission record inside.
   const inbound = await emailTransport.retrieveInbound(event.data?.email_id);
   const recipients = [...new Set([...(inbound.received_for || []), ...(inbound.to || [])].map(normalizedEmail).filter(Boolean))];
-  let route = null;
   for (const recipient of recipients) {
-    route = await store.getJson(replyAddressDirectoryPath(recipient));
-    if (route) break;
+    const route = await store.getJson(replyAddressDirectoryPath(recipient));
+    if (route?.inboxId && route?.agentId) return { lockKeys: [`inbox:${route.inboxId}:mutations`], context: { inbound, recipients, route, routeAddress: recipient } };
   }
+  throw permanentDeliveryError('Inbound email is not addressed to a verified reply alias');
+}
+
+async function processInboundEmail(event, prepared) {
+  if (!prepared?.route) throw new Error('Inbound email routing was not prepared');
+  const { inbound, recipients } = prepared;
+  const route = await store.getJson(replyAddressDirectoryPath(prepared.routeAddress));
   if (!route?.inboxId || !route?.agentId) throw permanentDeliveryError('Inbound email is not addressed to a verified reply alias');
+  if (route.inboxId !== prepared.route.inboxId || route.agentId !== prepared.route.agentId || route.caseId !== prepared.route.caseId) throw new Error('Inbound email route changed; retry routing');
   const recipient = await store.getJson(path.join('inboxes', route.inboxId, 'agents', `${route.agentId}.json`));
   if (!recipient || !hasPermission(recipient, 'receive_agent_messages')) throw permanentDeliveryError('Inbound recipient is unavailable');
   const senderEmailMatch = String(inbound.from || '').match(/<([^<>]+)>\s*$/);
@@ -1047,12 +1121,13 @@ async function processInboundEmail(event) {
   return { documents: [document(messagePath(route.inboxId, message.id), message), document(caseRecordPath(route.inboxId, currentCase.id), currentCase), document(deliveryReceiptPath(route.inboxId, receipt.id), receipt), auditEntry.document], result: { inboxId: route.inboxId, messageId: message.id, receiptId: receipt.id }, events: [{ inboxId: route.inboxId, event: auditEntry.event }] };
 }
 
-async function processOutboundEmailEvent(event) {
+async function processOutboundEmailEvent(event, prepared) {
   const providerMessageId = event.data?.email_id;
   const state = emailEventState(event.type);
   if (!providerMessageId || !state) return { documents: [], result: { ignored: true }, events: [] };
   const index = await store.getJson(path.join('email-provider-index', 'resend', `${identityKey(providerMessageId)}.json`));
   if (!index) throw new Error('Provider message index is not available yet');
+  if (index.inboxId !== prepared?.index?.inboxId || index.messageId !== prepared?.index?.messageId) throw new Error('Provider message route changed; retry routing');
   const message = await store.getJson(messagePath(index.inboxId, index.messageId));
   if (!message) return { documents: [], result: { ignored: true, reason: 'unknown_message' }, events: [] };
   const at = event.created_at || store.now();
@@ -1070,16 +1145,16 @@ async function processOutboundEmailEvent(event) {
   return { documents, result: { inboxId: index.inboxId, messageId: updated.id, state: updated.externalDeliveryState }, events: [{ inboxId: index.inboxId, event: auditEntry.event }] };
 }
 
-async function processEmailWebhook(outbox) {
+async function processEmailWebhook(outbox, prepared) {
   const event = outbox.emailEvent;
   if (!event?.type) throw permanentDeliveryError('Email webhook event is invalid');
-  return event.type === 'email.received' ? processInboundEmail(event) : processOutboundEmailEvent(event);
+  return event.type === 'email.received' ? processInboundEmail(event, prepared) : processOutboundEmailEvent(event, prepared);
 }
 
-async function deliverQueuedMessage(outbox) {
+async function deliverQueuedMessage(outbox, prepared) {
   if (outbox.kind === 'nativeAgentMessage') return deliverNativeAgentMessage(outbox);
   if (outbox.kind === 'externalEmail') return deliverExternalEmail(outbox);
-  if (outbox.kind === 'emailWebhook') return processEmailWebhook(outbox);
+  if (outbox.kind === 'emailWebhook') return processEmailWebhook(outbox, prepared);
   throw permanentDeliveryError(`Unsupported outbox kind: ${outbox.kind}`);
 }
 
@@ -1139,6 +1214,7 @@ async function recordDeliveryFailure(outbox, error, { attempt, deadLettered }) {
 
 const deliveryWorker = new DeliveryWorker({
   store,
+  prepare: prepareEmailDelivery,
   deliver: deliverQueuedMessage,
   onFailure: recordDeliveryFailure,
   onSettled: async (_record, events) => {
@@ -1176,18 +1252,13 @@ async function participantDirectoryForHuman(inbox, agents, cases) {
   return Object.fromEntries(entries);
 }
 
-async function humanView(inboxId, inbox) {
-  const [agents, cases, messages, assets, events, deliveryReceipts, calendarConnectors, invitations, externalContacts] = await Promise.all([
+async function humanView(inboxId, inbox, cursors = {}) {
+  const [agents, calendarConnectors, page] = await Promise.all([
     store.listJson(path.join('inboxes', inboxId, 'agents')),
-    listCases(inboxId),
-    listMessages(inboxId),
-    store.listJson(path.join('inboxes', inboxId, 'assets')),
-    store.listJson(path.join('inboxes', inboxId, 'events')),
-    store.listJson(path.join('inboxes', inboxId, 'delivery-receipts')),
     store.listJson(path.join('inboxes', inboxId, 'calendar-connectors')),
-    store.listJson(path.join('inboxes', inboxId, 'invitations')),
-    store.listJson(path.join('inboxes', inboxId, 'external-contacts'))
+    workspaceHistory(store, inboxId, cursors)
   ]);
+  const { items: { cases, messages, assets, recentEvents: events, deliveryReceipts, invitations, contacts: externalContacts }, history } = page;
   const projection = projectWorkspaceForHuman(cases);
   const participantDirectory = await participantDirectoryForHuman(inbox, agents, cases);
   const projectedInvitations = invitations
@@ -1202,7 +1273,9 @@ async function humanView(inboxId, inbox) {
     inbox,
     mode: 'human-observer',
     capabilities: ['observe_agent_communications', 'approve_or_pause_agent_actions', 'review_assets', 'manage_calendar_connectors'],
-    summary: { agents: agents.length, cases: cases.length, messages: messages.length, assets: assets.length, needsMe: projection.counts.needsMe + pendingInvitations },
+    history,
+    countScope: { navigation: 'loaded-history', summaryTotals: 'workspace' },
+    summary: { agents: agents.length, cases: history.cases.total, messages: history.messages.total, assets: history.assets.total, needsMe: projection.counts.needsMe + pendingInvitations },
     navigation: { ...projection.counts, needsMe: projection.counts.needsMe + pendingInvitations },
     caseQueue: projection.cases,
     participantDirectory,
@@ -1399,7 +1472,10 @@ async function route(req, res) {
   if (url.pathname === '/api/organizations' && req.method === 'GET') {
     const human = await auth.getHuman(req);
     if (!human) return fail(res, 401, 'Authenticated human session required');
-    return json(res, 200, await listHumanOrganizations(human.id));
+    const organizations = await listHumanOrganizations(human.id);
+    const authorized = [];
+    for (const organization of organizations) if (await getAuthorizedMembership(organization.id, human)) authorized.push(organization);
+    return json(res, 200, authorized);
   }
 
   if (url.pathname === '/api/organizations' && req.method === 'POST') {
@@ -1413,7 +1489,7 @@ async function route(req, res) {
   if (req.method === 'GET' && organizationWorkspaces) {
     const human = await auth.getHuman(req);
     const organizationId = organizationWorkspaces[1];
-    if (!human || !await getMembership(organizationId, human.id)) return fail(res, 403, 'Active organization membership required');
+    if (!human || !await getAuthorizedMembership(organizationId, human)) return fail(res, 403, 'Active organization membership required');
     const references = await store.listJson(path.join('organizations', organizationId, 'workspaces'));
     const workspaces = await Promise.all(references.map(reference => store.getJson(path.join('inboxes', reference.inboxId, 'inbox.json'))));
     return json(res, 200, workspaces.filter(Boolean));
@@ -1470,7 +1546,17 @@ async function route(req, res) {
     const pendingRecord = await store.getJson(tokenPath);
     if (!pendingRecord || pendingRecord.usedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
     const sourceInbox = await store.getJson(path.join('inboxes', pendingRecord.inboxId, 'inbox.json'));
-    if (!sourceInbox || (sourceInbox.ownerHumanId !== pendingRecord.humanId && !await getMembership(sourceInbox.organizationId, pendingRecord.humanId))) return fail(res, 403, 'Enrollment owner is invalid');
+    const localOwnerMembership = sourceInbox ? await getMembership(sourceInbox.organizationId, pendingRecord.humanId) : null;
+    let providerOwnerMembership = true;
+    if (sourceInbox && auth.provider === 'workos') {
+      const [organization, owner] = await Promise.all([
+        store.getJson(path.join('organizations', sourceInbox.organizationId, 'organization.json')),
+        store.getJson(path.join('humans', `${pendingRecord.humanId}.json`))
+      ]);
+      providerOwnerMembership = Boolean(organization?.workosOrganizationId && owner?.workosUserId
+        && await auth.getOrganizationMembership(owner.workosUserId, organization.workosOrganizationId));
+    }
+    if (!sourceInbox || !localOwnerMembership || !providerOwnerMembership) return fail(res, 403, 'Enrollment owner is invalid');
     const agentName = String(input.name || pendingRecord.agentProfile?.name || '').trim();
     if (!agentName) return fail(res, 400, 'Agent name is required');
     const record = await store.claimJson(tokenPath, 'usedAt', store.now());
@@ -1680,14 +1766,7 @@ async function route(req, res) {
     if (!await canAccessInbox(human, inbox) && !agent) return fail(res, 401, 'Authenticated inbox participant required');
     const cursor = url.searchParams.get('cursor') || '';
     if (cursor.length > 512) return fail(res, 400, 'Event cursor is invalid');
-    const limit = Math.max(1, Math.min(Number(url.searchParams.get('limit')) || 100, 200));
-    const matching = (await listStreamEvents(inboxId)).filter(event => !cursor || event.cursor > cursor);
-    const events = matching.slice(0, limit);
-    return json(res, 200, {
-      events,
-      nextCursor: events.at(-1)?.cursor || cursor || null,
-      hasMore: matching.length > events.length
-    });
+    return json(res, 200, await fetchEventPage(store, inboxId, { cursor, limit: url.searchParams.get('limit') ?? 100 }));
   }
 
   if (req.method === 'GET' && suffix === 'events') {
@@ -1695,26 +1774,54 @@ async function route(req, res) {
     const agent = await getAgentPrincipal(req, inboxId);
     if (!await canAccessInbox(human, inbox) && !agent) return fail(res, 401, 'Authenticated inbox participant required');
     const cursor = String(req.headers['last-event-id'] || url.searchParams.get('cursor') || '');
-    if (cursor.length > 512) return fail(res, 400, 'Event cursor is invalid');
+    if (cursor.length > 512 || /[\r\n\0]/.test(cursor)) return fail(res, 400, 'Event cursor is invalid');
     const connectionKey = rateIdentity(req);
     if (Number(sseCounts.get(connectionKey) || 0) >= maxSsePerPrincipal) return fail(res, 429, 'Too many concurrent event streams');
     sseCounts.set(connectionKey, Number(sseCounts.get(connectionKey) || 0) + 1);
     req.setTimeout(0);
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
-    const subscription = { res, cursor, sentIds: new Set(), heartbeat: null };
-    for (const event of (await listStreamEvents(inboxId)).filter(event => !cursor || event.cursor > cursor)) sendStreamEvent(subscription, event);
-    res.write(`event: ready\ndata: ${JSON.stringify({ inboxId, at: store.now(), cursor: subscription.cursor || cursor || null })}\n\n`);
+    const subscription = { res, cursor, sentIds: new Set(), heartbeat: null, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
     const set = streams.get(inboxId) || new Set(); set.add(subscription); streams.set(inboxId, set);
-    for (const event of (await listStreamEvents(inboxId)).filter(event => !subscription.cursor || event.cursor > subscription.cursor)) sendStreamEvent(subscription, event);
-    subscription.heartbeat = setInterval(() => res.write(`: keepalive ${store.now()}\n\n`), 20_000);
-    subscription.heartbeat.unref?.();
-    req.on('close', () => {
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
       clearInterval(subscription.heartbeat);
       set.delete(subscription);
       if (!set.size) streams.delete(inboxId);
       const remaining = Math.max(0, Number(sseCounts.get(connectionKey) || 1) - 1);
       if (remaining) sseCounts.set(connectionKey, remaining); else sseCounts.delete(connectionKey);
-    });
+    };
+    res.on('close', cleanup);
+    const resumeReplay = () => {
+      // No id field: reconnect from the last actual event, never beyond it.
+      if (!res.destroyed) res.write(`event: replay_required\ndata: ${JSON.stringify({ cursor: subscription.cursor || null, hasMore: true })}\n\n`);
+      cleanup(); res.end();
+    };
+    try {
+      let hasMore = false;
+      for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
+        const page = await fetchEventPage(store, inboxId, { cursor: subscription.cursor, limit: 100 });
+        if (cleaned) return;
+        for (const event of page.events) sendStreamEvent(subscription, event);
+        hasMore = page.hasMore;
+        if (!hasMore || subscription.overflow) break;
+      }
+      if (hasMore || subscription.overflow) { resumeReplay(); return; }
+      const buffered = [...subscription.buffer.values()].map(normalizeStreamEvent).sort((a, b) => a.cursor.localeCompare(b.cursor));
+      for (const event of buffered) {
+        if (!cursor || event.cursor > cursor) sendStreamEvent(subscription, event);
+      }
+      subscription.buffer.clear();
+      subscription.replaying = false;
+      res.write(`event: ready\ndata: ${JSON.stringify({ inboxId, at: store.now(), cursor: subscription.cursor || cursor || null })}\n\n`);
+      subscription.heartbeat = setInterval(() => res.write(`: keepalive ${store.now()}\n\n`), 20_000);
+      subscription.heartbeat.unref?.();
+    } catch (error) {
+      cleanup();
+      res.write(`event: replay_error\ndata: ${JSON.stringify({ message: 'Event history is temporarily unavailable' })}\n\n`);
+      res.end();
+    }
     return;
   }
 
@@ -1723,7 +1830,7 @@ async function route(req, res) {
   if (req.method === 'GET' && suffix === 'human-view') {
     const human = await auth.getHuman(req);
     if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Workspace membership required');
-    return json(res, 200, await humanView(inboxId, inbox));
+    return json(res, 200, await humanView(inboxId, inbox, parseHistoryCursors(url.searchParams.get('history'))));
   }
 
   if (req.method === 'GET' && suffix === 'agent-view') {
@@ -1802,34 +1909,46 @@ async function route(req, res) {
     const input = await body(req);
     const human = await auth.getHuman(req);
     if (!human) return fail(res, 401, 'Verified human session required');
-    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
-    if (!agent) return fail(res, 404, 'Agent not found');
-    if (human.id !== (agent.principalHumanId || inbox.ownerHumanId) && !await canManageInbox(human, inbox)) return fail(res, 403, 'Only the linked human or a workspace administrator may approve this agent');
-    let credentials = null;
-    if (decision === 'reject') {
-      agent.status = 'rejected';
-      agent.onboardingStatus = 'rejected';
-      agent.permissions = [];
-    } else {
-      const permissions = Array.isArray(input.permissions) ? input.permissions.filter((permission) => allowedPermissions.has(permission)) : ['send_agent_messages', 'receive_agent_messages'];
-      if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
-      agent.status = 'active';
-      agent.onboardingStatus = 'approved';
-      agent.permissions = permissions;
-      credentials = await issueAgentCredentials(agent.id, inboxId);
-      await store.putJsonBatch([
-        document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: agent.status, verified: true }),
-        document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId, address: agent.address, status: agent.status, verified: true })
-      ]);
-      if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId, address: publicEmailAddressForAgent(agent), status: agent.status });
-      inbox.status = 'active';
-      await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), inbox);
-    }
-    agent.approvedAt = store.now();
-    agent.approvedByHumanId = human.id;
-    await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
-    await audit(inboxId, `agent.onboarding_${decision}ed`, { agentId: agent.id, humanId: human.id, permissions: agent.permissions });
-    return json(res, 200, { agent: publicAgent(agent), ...(credentials || {}) });
+    const existingAgent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    if (!existingAgent) return fail(res, 404, 'Agent not found');
+    if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Active workspace membership required');
+    if (human.id !== (existingAgent.principalHumanId || inbox.ownerHumanId) && !await canManageInbox(human, inbox)) return fail(res, 403, 'Only the linked human or a workspace administrator may approve this agent');
+    const result = await withInboxMutation(inboxId, async writeAudit => {
+      const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      if (!agent) throw Object.assign(new Error('Agent not found'), { statusCode: 404 });
+      let credentials = null;
+      if (decision === 'reject') {
+        agent.status = 'rejected';
+        agent.onboardingStatus = 'rejected';
+        agent.permissions = [];
+        await revokeAgentCredentialFamilies(inboxId, agent.id, human.id);
+        await store.putJsonBatch([
+          document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: agent.status, verified: true }),
+          document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId, address: agent.address, status: agent.status, verified: true })
+        ]);
+        if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId, address: publicEmailAddressForAgent(agent), status: agent.status });
+      } else {
+        const permissions = Array.isArray(input.permissions) ? input.permissions.filter((permission) => allowedPermissions.has(permission)) : ['send_agent_messages', 'receive_agent_messages'];
+        if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
+        agent.status = 'active';
+        agent.onboardingStatus = 'approved';
+        agent.permissions = permissions;
+        credentials = await issueAgentCredentials(agent.id, inboxId);
+        await store.putJsonBatch([
+          document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: agent.status, verified: true }),
+          document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId, address: agent.address, status: agent.status, verified: true })
+        ]);
+        if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId, address: publicEmailAddressForAgent(agent), status: agent.status });
+        await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), { ...inbox, status: 'active' });
+      }
+      agent.approvedAt = store.now();
+      agent.approvedByHumanId = human.id;
+      await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
+      await writeAudit(`agent.onboarding_${decision}ed`, { agentId: agent.id, humanId: human.id, permissions: agent.permissions });
+      return { agent, credentials };
+    });
+    if (decision === 'reject') disconnectAgentStreams(inboxId, agentId);
+    return json(res, 200, { agent: publicAgent(result.agent), ...(result.credentials || {}) });
   }
 
   const revokeAgentCredentials = suffix.match(/^agents\/([^/]+)\/credentials\/revoke$/);
@@ -1839,11 +1958,14 @@ async function route(req, res) {
     const agentId = revokeAgentCredentials[1];
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
     if (!agent) return fail(res, 404, 'Agent not found');
-    const revokedAt = store.now();
-    const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
-    await store.putJsonBatch(families.map(family => document(agentCredentialFamilyPath(inboxId, agentId, family.id), { ...family, revokedAt, revokedByHumanId: human.id, updatedAt: revokedAt })));
-    await audit(inboxId, 'agent.credentials_revoked', { agentId, humanId: human.id, credentialFamilyCount: families.length });
-    return json(res, 200, { revoked: true, agentId, credentialFamilyCount: families.length, revokedAt });
+    const revoked = await withInboxMutation(inboxId, async writeAudit => {
+      const revokedAt = store.now();
+      const credentialFamilyCount = await revokeAgentCredentialFamilies(inboxId, agentId, human.id, revokedAt);
+      await writeAudit('agent.credentials_revoked', { agentId, humanId: human.id, credentialFamilyCount });
+      return { revoked: true, agentId, credentialFamilyCount, revokedAt };
+    });
+    disconnectAgentStreams(inboxId, agentId);
+    return json(res, 200, revoked);
   }
 
   if (req.method === 'POST' && suffix === 'cases') {
@@ -1851,10 +1973,15 @@ async function route(req, res) {
     if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!String(input.objective || '').trim()) return fail(res, 400, 'A structured case objective is required');
-    const now = store.now();
-    const value = createAgentCase({ id: store.id('case'), objective: input.objective, collaborationMode: input.collaborationMode || 'collaboration', principal: inbox.ownerHumanId, actingAgent: principal.id, participants: input.participants || [], constraints: input.constraints || {}, deadline: input.deadline || null, createdAt: now });
-    if (!await store.putJsonIfAbsent(caseRecordPath(inboxId, value.id), value)) return fail(res, 409, 'Case ID already exists');
-    await audit(inboxId, 'case.created', { caseId: value.id, actingAgent: principal.id, objective: value.objective });
+    const value = await withInboxMutation(inboxId, async writeAudit => {
+      const currentPrincipal = await getAgentPrincipal(req, inboxId);
+      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      const now = store.now();
+      const created = createAgentCase({ id: store.id('case'), objective: input.objective, collaborationMode: input.collaborationMode || 'collaboration', principal: inbox.ownerHumanId, actingAgent: currentPrincipal.id, participants: input.participants || [], constraints: input.constraints || {}, deadline: input.deadline || null, createdAt: now });
+      if (!await store.putJsonIfAbsent(caseRecordPath(inboxId, created.id), created)) throw Object.assign(new Error('Case ID already exists'), { statusCode: 409 });
+      await writeAudit('case.created', { caseId: created.id, actingAgent: currentPrincipal.id, objective: created.objective });
+      return created;
+    });
     return json(res, 201, value);
   }
 
@@ -1866,16 +1993,23 @@ async function route(req, res) {
 
   if (req.method === 'POST' && caseRoute?.[2] === 'events') {
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal) return fail(res, 401, 'Agent credential required');
+    if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!['message', 'error'].includes(input.type)) return fail(res, 400, 'Direct event writes support only message or error; use actions for stateful work');
-    const value = await getCase(inboxId, caseRoute[1]);
-    if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
-    const now = store.now();
-    appendEvent(value, { id: store.id('evt'), type: input.type, actor: principal.id, createdAt: now, payload: input.payload || {}, linkedPolicyEvaluation: input.linkedPolicyEvaluation || null, precedingEventRef: input.precedingEventRef || value.events.at(-1)?.id || null });
-    await saveCase(inboxId, value);
-    await audit(inboxId, 'case.event_appended', { caseId: value.id, eventId: value.events.at(-1).id, eventType: input.type, actor: principal.id });
-    return json(res, 201, value.events.at(-1));
+    const event = await withInboxMutation(inboxId, async writeAudit => {
+      const currentPrincipal = await getAgentPrincipal(req, inboxId);
+      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      const value = await getCase(inboxId, caseRoute[1]);
+      if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
+      if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
+      const now = store.now();
+      appendEvent(value, { id: store.id('evt'), type: input.type, actor: currentPrincipal.id, createdAt: now, payload: input.payload || {}, linkedPolicyEvaluation: input.linkedPolicyEvaluation || null, precedingEventRef: input.precedingEventRef || value.events.at(-1)?.id || null });
+      await saveCase(inboxId, value);
+      const appended = value.events.at(-1);
+      await writeAudit('case.event_appended', { caseId: value.id, eventId: appended.id, eventType: input.type, actor: currentPrincipal.id });
+      return appended;
+    });
+    return json(res, 201, event);
   }
 
   if (req.method === 'POST' && caseRoute?.[2] === 'policy-evaluations') {
@@ -1883,26 +2017,21 @@ async function route(req, res) {
     if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!input.requestedAction) return fail(res, 400, 'requestedAction is required');
-    const value = await getCase(inboxId, caseRoute[1]);
-    if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
-    const now = store.now();
-    const evaluationId = store.id('policy_eval');
-    const evaluated = await evaluateServerPolicy(inboxId, principal, value, { ...input, id: evaluationId }, { id: evaluationId });
-    const evaluation = policyEvaluationFromInput({
-      id: evaluationId,
-      requestedAction: input.requestedAction,
-      decision: evaluated.decision,
-      matchedPolicyId: evaluated.matchedPolicyId,
-      grantType: 'oneTime',
-      expiresAt: evaluated.expiresAt,
-      reasonCode: evaluated.reasonCode
-    }, principal.id, now);
-    const updated = addPolicyEvaluation(value, evaluation, { at: now });
-    await store.putJsonBatch([
-      document(caseRecordPath(inboxId, updated.id), updated),
-      document(policyBindingPath(inboxId, evaluation.id), evaluated.binding)
-    ]);
-    await audit(inboxId, 'policy.evaluated', { caseId: value.id, policyEvaluationId: evaluation.id, requestedAction: evaluation.requestedAction, decision: evaluation.decision, reasonCode: evaluation.reasonCode });
+    const evaluation = await withInboxMutation(inboxId, async writeAudit => {
+      const currentPrincipal = await getAgentPrincipal(req, inboxId);
+      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      const value = await getCase(inboxId, caseRoute[1]);
+      if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
+      if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
+      const now = store.now();
+      const evaluationId = store.id('policy_eval');
+      const evaluated = await evaluateServerPolicy(inboxId, currentPrincipal, value, { ...input, id: evaluationId }, { id: evaluationId });
+      const created = policyEvaluationFromInput({ id: evaluationId, requestedAction: input.requestedAction, decision: evaluated.decision, matchedPolicyId: evaluated.matchedPolicyId, grantType: 'oneTime', expiresAt: evaluated.expiresAt, reasonCode: evaluated.reasonCode }, currentPrincipal.id, now);
+      const updated = addPolicyEvaluation(value, created, { at: now });
+      await store.putJsonBatch([document(caseRecordPath(inboxId, updated.id), updated), document(policyBindingPath(inboxId, created.id), evaluated.binding)]);
+      await writeAudit('policy.evaluated', { caseId: value.id, policyEvaluationId: created.id, requestedAction: created.requestedAction, decision: created.decision, reasonCode: created.reasonCode });
+      return created;
+    });
     return json(res, 201, evaluation);
   }
 
@@ -1910,62 +2039,76 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
-    const value = await getCase(inboxId, caseRoute[1]);
-    if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
-    const now = store.now();
-    const proposal = proposalFromInput(input, now);
-    const updated = addProposal(value, proposal);
-    appendEvent(updated, { id: store.id('evt'), type: 'decision', actor: principal.id, createdAt: now, payload: { proposalId: proposal.id, status: proposal.status }, linkedPolicyEvaluation: null, precedingEventRef: updated.events.at(-1)?.id || null });
-    await saveCase(inboxId, updated);
-    await audit(inboxId, 'proposal.created', { caseId: value.id, proposalId: proposal.id, kind: proposal.kind, actor: principal.id });
+    const proposal = await withInboxMutation(inboxId, async writeAudit => {
+      const currentPrincipal = await getAgentPrincipal(req, inboxId);
+      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      const value = await getCase(inboxId, caseRoute[1]);
+      if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
+      if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
+      const now = store.now();
+      const created = proposalFromInput(input, now);
+      const updated = addProposal(value, created);
+      appendEvent(updated, { id: store.id('evt'), type: 'decision', actor: currentPrincipal.id, createdAt: now, payload: { proposalId: created.id, status: created.status }, linkedPolicyEvaluation: null, precedingEventRef: updated.events.at(-1)?.id || null });
+      await saveCase(inboxId, updated);
+      await writeAudit('proposal.created', { caseId: value.id, proposalId: created.id, kind: created.kind, actor: currentPrincipal.id });
+      return created;
+    });
     return json(res, 201, proposal);
   }
 
   if (req.method === 'POST' && caseRoute?.[2] === 'actions') {
     const input = await body(req);
     const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
-    const value = await getCase(inboxId, caseRoute[1]);
-    if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
-    const now = store.now();
     const human = await auth.getHuman(req);
     const principal = await getAgentPrincipal(req, inboxId);
-    let result;
-    if (human && await canAccessInbox(human, inbox)) {
-      const requestDigest = actionRequestDigest({ ...input, actor: human.id, outcome: 'ok' });
-      const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
-      if (replayEvent) {
-        const replayAction = replayEvent.payload.action;
-        if (replayAction.actor !== human.id || replayAction.externalRefs?.requestDigest !== requestDigest) return fail(res, 409, 'Idempotency key was already used for a different action');
-        return json(res, 200, { case: value, action: replayAction, replay: true });
+    const humanCanManage = human ? await canManageInbox(human, inbox) : false;
+    if (!humanCanManage && (!principal || !hasPermission(principal, 'execute_cases'))) return fail(res, 403, 'Workspace administrator or agent credential with execute_cases permission required');
+    const response = await withInboxMutation(inboxId, async writeAudit => {
+      const currentPrincipal = humanCanManage ? null : await getAgentPrincipal(req, inboxId);
+      if (!humanCanManage && (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases'))) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      const value = await getCase(inboxId, caseRoute[1]);
+      if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
+      const now = store.now();
+      let result;
+      if (humanCanManage) {
+        const requestDigest = actionRequestDigest({ ...input, actor: human.id, outcome: 'ok' });
+        const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
+        if (replayEvent) {
+          const replayAction = replayEvent.payload.action;
+          if (replayAction.actor !== human.id || replayAction.externalRefs?.requestDigest !== requestDigest) throw Object.assign(new Error('Idempotency key was already used for a different action'), { statusCode: 409 });
+          return { status: 200, result: { case: value, action: replayAction, replay: true } };
+        }
+        if (input.actionKey === 'approveOnce') {
+          const evaluationId = input.externalRefs?.policyEvaluationId;
+          const evaluation = value.policyEvaluations.find(item => item.id === evaluationId);
+          const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluationId)) : null;
+          await policyDecisionChain(inboxId);
+          if (!evaluationId || !evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) throw Object.assign(new Error('A current needsHuman policy evaluation is required for one-time approval'), { statusCode: 409 });
+        }
+        result = applyHumanAction(value, { id: store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: { ...(input.externalRefs || {}), requestDigest }, reasonCode: input.reasonCode || null }, { at: now });
+      } else {
+        if (currentPrincipal.id !== value.actingAgent || !isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
+        const requestDigest = actionRequestDigest({ ...input, actor: currentPrincipal.id });
+        const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
+        if (replayEvent) {
+          const replayAction = replayEvent.payload.action;
+          if (replayAction.actor !== currentPrincipal.id || replayAction.externalRefs?.requestDigest !== requestDigest) throw Object.assign(new Error('Idempotency key was already used for a different action'), { statusCode: 409 });
+          return { status: 200, result: { case: value, action: replayAction, replay: true } };
+        }
+        let policyExternalRefs = { ...(input.externalRefs || {}), requestDigest };
+        const actionId = store.id('action');
+        if (requiresPolicyEvaluation(input.actionKey)) {
+          if (!input.policyEvaluationId) throw Object.assign(new Error('policyEvaluationId is required for policy-controlled or unknown agent actions'), { statusCode: 400 });
+          const authorization = await validatedPolicyBinding(inboxId, value, currentPrincipal, input.policyEvaluationId, { requestedAction: input.actionKey, actionPayload: input.actionPayload || {}, executionId: actionId, writeAudit });
+          policyExternalRefs = { ...policyExternalRefs, policyEvaluationId: input.policyEvaluationId, policyExecutionId: authorization.refreshed.id };
+        }
+        result = applyAgentAction(value, { id: actionId, actionKey: input.actionKey, actor: currentPrincipal.id, idempotencyKey, outcome: input.outcome, externalRefs: policyExternalRefs, reasonCode: input.reasonCode || null }, { at: now, nextState: input.nextState || null });
       }
-      if (input.actionKey === 'approveOnce') {
-        const evaluationId = input.externalRefs?.policyEvaluationId;
-        const evaluation = value.policyEvaluations.find(item => item.id === evaluationId);
-        const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluationId)) : null;
-        await policyDecisionChain(inboxId);
-        if (!evaluationId || !evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) return fail(res, 409, 'A current needsHuman policy evaluation is required for one-time approval');
-      }
-      result = applyHumanAction(value, { id: store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: { ...(input.externalRefs || {}), requestDigest }, reasonCode: input.reasonCode || null }, { at: now });
-    } else if (principal && principal.id === value.actingAgent) {
-      const requestDigest = actionRequestDigest({ ...input, actor: principal.id });
-      const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
-      if (replayEvent) {
-        const replayAction = replayEvent.payload.action;
-        if (replayAction.actor !== principal.id || replayAction.externalRefs?.requestDigest !== requestDigest) return fail(res, 409, 'Idempotency key was already used for a different action');
-        return json(res, 200, { case: value, action: replayAction, replay: true });
-      }
-      let policyExternalRefs = { ...(input.externalRefs || {}), requestDigest };
-      const actionId = store.id('action');
-      if (requiresPolicyEvaluation(input.actionKey)) {
-        if (!input.policyEvaluationId) return fail(res, 400, 'policyEvaluationId is required for policy-controlled or unknown agent actions');
-        const authorization = await validatedPolicyBinding(inboxId, value, principal, input.policyEvaluationId, { requestedAction: input.actionKey, actionPayload: input.actionPayload || {}, executionId: actionId });
-        policyExternalRefs = { ...policyExternalRefs, policyEvaluationId: input.policyEvaluationId, policyExecutionId: authorization.refreshed.id };
-      }
-      result = applyAgentAction(value, { id: actionId, actionKey: input.actionKey, actor: principal.id, idempotencyKey, outcome: input.outcome, externalRefs: policyExternalRefs, reasonCode: input.reasonCode || null }, { at: now, nextState: input.nextState || null });
-    } else return fail(res, 403, 'Case participant credential required');
-    await saveCase(inboxId, result.case);
-    if (!result.replay) await audit(inboxId, 'case.action_recorded', { caseId: value.id, actionId: result.action.id, actionKey: result.action.actionKey, actor: result.action.actor, outcome: result.action.outcome });
-    return json(res, result.replay ? 200 : 201, result);
+      await saveCase(inboxId, result.case);
+      if (!result.replay) await writeAudit('case.action_recorded', { caseId: value.id, actionId: result.action.id, actionKey: result.action.actionKey, actor: result.action.actor, outcome: result.action.outcome });
+      return { status: result.replay ? 200 : 201, result };
+    });
+    return json(res, response.status, response.result);
   }
 
   const proposalRoute = suffix.match(/^cases\/([^/]+)\/proposals\/([^/]+)\/(counter|accept)$/);
@@ -1973,49 +2116,61 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
-    const value = await getCase(inboxId, proposalRoute[1]);
-    if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
-    const now = store.now();
-    if (proposalRoute[3] === 'counter') {
-      const options = proposalFromInput({ kind: value.proposals.find(item => item.id === proposalRoute[2])?.kind, options: input.options }, now).options;
-      const updated = counterProposal(value, proposalRoute[2], { options, at: now });
-      appendEvent(updated, { id: store.id('evt'), type: 'decision', actor: principal.id, createdAt: now, payload: { proposalId: proposalRoute[2], status: 'countered', messageType: 'counterproposal' }, linkedPolicyEvaluation: null, precedingEventRef: updated.events.at(-1)?.id || null });
-      await saveCase(inboxId, updated);
-      await audit(inboxId, 'proposal.countered', { caseId: value.id, proposalId: proposalRoute[2], actor: principal.id });
-      return json(res, 201, updated.proposals.find(item => item.id === proposalRoute[2]));
-    }
-    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
-    if (!input.optionId || !input.policyEvaluationId) return fail(res, 400, 'optionId and policyEvaluationId are required');
-    const requestDigest = actionRequestDigest({ actor: principal.id, actionKey: 'acceptProposal', outcome: null, policyEvaluationId: input.policyEvaluationId, externalRefs: { proposalId: proposalRoute[2], optionId: input.optionId } });
-    const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
-    if (replayEvent) {
-      const replayAction = replayEvent.payload.action;
-      if (replayAction.actor !== principal.id || replayAction.externalRefs?.requestDigest !== requestDigest) return fail(res, 409, 'Idempotency key was already used for a different action');
-      return json(res, 200, { case: value, action: replayAction, replay: true });
-    }
-    const evaluation = value.policyEvaluations.find(item => item.id === input.policyEvaluationId);
-    if (!evaluation || evaluation.actor !== principal.id) return fail(res, 403, 'A case policy evaluation for this agent is required');
-    const actionId = store.id('action');
-    const authorization = await validatedPolicyBinding(inboxId, value, principal, evaluation.id, { proposalId: proposalRoute[2], optionId: input.optionId, executionId: actionId, allowPendingHuman: true });
-    const effectiveEvaluation = evaluation.decision === 'needsHuman' && authorization.humanApproved ? { ...evaluation, decision: 'allow', reasonCode: 'humanApproved' } : evaluation;
-    const result = acceptProposal(value, proposalRoute[2], input.optionId, effectiveEvaluation, { actor: principal.id, idempotencyKey, actionId, externalRefs: { requestDigest, policyEvaluationId: evaluation.id, policyExecutionId: authorization.refreshed.phase === 'execution' ? authorization.refreshed.id : null }, at: now });
-    await saveCase(inboxId, result.case);
-    if (!result.replay) await audit(inboxId, 'proposal.accept_attempted', { caseId: value.id, proposalId: proposalRoute[2], optionId: input.optionId, actor: principal.id, outcome: result.action.outcome });
-    return json(res, result.action.outcome === 'needsApproval' ? 202 : 201, result);
+    const response = await withInboxMutation(inboxId, async writeAudit => {
+      const currentPrincipal = await getAgentPrincipal(req, inboxId);
+      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      const value = await getCase(inboxId, proposalRoute[1]);
+      if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
+      if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
+      const now = store.now();
+      if (proposalRoute[3] === 'counter') {
+        const options = proposalFromInput({ kind: value.proposals.find(item => item.id === proposalRoute[2])?.kind, options: input.options }, now).options;
+        const updated = counterProposal(value, proposalRoute[2], { options, at: now });
+        appendEvent(updated, { id: store.id('evt'), type: 'decision', actor: currentPrincipal.id, createdAt: now, payload: { proposalId: proposalRoute[2], status: 'countered', messageType: 'counterproposal' }, linkedPolicyEvaluation: null, precedingEventRef: updated.events.at(-1)?.id || null });
+        await saveCase(inboxId, updated);
+        await writeAudit('proposal.countered', { caseId: value.id, proposalId: proposalRoute[2], actor: currentPrincipal.id });
+        return { status: 201, result: updated.proposals.find(item => item.id === proposalRoute[2]) };
+      }
+      const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
+      if (!input.optionId || !input.policyEvaluationId) throw Object.assign(new Error('optionId and policyEvaluationId are required'), { statusCode: 400 });
+      const requestDigest = actionRequestDigest({ actor: currentPrincipal.id, actionKey: 'acceptProposal', outcome: null, policyEvaluationId: input.policyEvaluationId, externalRefs: { proposalId: proposalRoute[2], optionId: input.optionId } });
+      const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
+      if (replayEvent) {
+        const replayAction = replayEvent.payload.action;
+        if (replayAction.actor !== currentPrincipal.id || replayAction.externalRefs?.requestDigest !== requestDigest) throw Object.assign(new Error('Idempotency key was already used for a different action'), { statusCode: 409 });
+        return { status: 200, result: { case: value, action: replayAction, replay: true } };
+      }
+      const evaluation = value.policyEvaluations.find(item => item.id === input.policyEvaluationId);
+      if (!evaluation || evaluation.actor !== currentPrincipal.id) throw Object.assign(new Error('A case policy evaluation for this agent is required'), { statusCode: 403 });
+      const actionId = store.id('action');
+      const authorization = await validatedPolicyBinding(inboxId, value, currentPrincipal, evaluation.id, { proposalId: proposalRoute[2], optionId: input.optionId, executionId: actionId, allowPendingHuman: true, writeAudit });
+      const effectiveEvaluation = evaluation.decision === 'needsHuman' && authorization.humanApproved ? { ...evaluation, decision: 'allow', reasonCode: 'humanApproved' } : evaluation;
+      const result = acceptProposal(value, proposalRoute[2], input.optionId, effectiveEvaluation, { actor: currentPrincipal.id, idempotencyKey, actionId, externalRefs: { requestDigest, policyEvaluationId: evaluation.id, policyExecutionId: authorization.refreshed.phase === 'execution' ? authorization.refreshed.id : null }, at: now });
+      await saveCase(inboxId, result.case);
+      if (!result.replay) await writeAudit('proposal.accept_attempted', { caseId: value.id, proposalId: proposalRoute[2], optionId: input.optionId, actor: currentPrincipal.id, outcome: result.action.outcome });
+      return { status: result.action.outcome === 'needsApproval' ? 202 : 201, result };
+    });
+    return json(res, response.status, response.result);
   }
 
   if (req.method === 'POST' && caseRoute?.[2] === 'receipt') {
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || principal.id === undefined || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
-    const value = await getCase(inboxId, caseRoute[1]);
-    if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
     if (!input.result || !input.authorityBasis) return fail(res, 400, 'Receipt result and authorityBasis are required');
-    const now = store.now();
-    const receipt = { id: store.id('receipt'), result: input.result, counterparties: input.counterparties || [], externalIds: input.externalIds || {}, authorityBasis: input.authorityBasis, humanApprovalStatus: input.humanApprovalStatus || 'notRequired', evidenceRefs: input.evidenceRefs || [], createdAt: now };
-    const updated = completeCase(value, receipt, { actor: principal.id, at: now });
-    await saveCase(inboxId, updated);
-    await audit(inboxId, 'case.completed', { caseId: value.id, receiptId: receipt.id, actor: principal.id });
+    const receipt = await withInboxMutation(inboxId, async writeAudit => {
+      const currentPrincipal = await getAgentPrincipal(req, inboxId);
+      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      const value = await getCase(inboxId, caseRoute[1]);
+      if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
+      if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
+      const now = store.now();
+      const created = { id: store.id('receipt'), result: input.result, counterparties: input.counterparties || [], externalIds: input.externalIds || {}, authorityBasis: input.authorityBasis, humanApprovalStatus: input.humanApprovalStatus || 'notRequired', evidenceRefs: input.evidenceRefs || [], createdAt: now };
+      const updated = completeCase(value, created, { actor: currentPrincipal.id, at: now });
+      await saveCase(inboxId, updated);
+      await writeAudit('case.completed', { caseId: value.id, receiptId: created.id, actor: currentPrincipal.id });
+      return created;
+    });
     return json(res, 201, receipt);
   }
 
@@ -2047,22 +2202,26 @@ async function route(req, res) {
     const existingDelivery = await store.getOutbox(retryDeliveryRoute[1]);
     if (!existingDelivery || ![existingDelivery.senderInboxId, existingDelivery.recipientInboxId].includes(inboxId)) return fail(res, 404, 'Delivery not found');
     if (existingDelivery.status !== 'deadLettered') return fail(res, 409, 'Only dead-lettered deliveries can be retried');
-    const message = await store.getJson(messagePath(existingDelivery.senderInboxId, existingDelivery.messageId));
-    const at = store.now();
-    const queued = message ? { ...message, status: 'queued', queuedAt: at, updatedAt: at, lastDeliveryError: null, deliveryAttempts: 0 } : null;
-    const auditEntry = await auditRecord(existingDelivery.senderInboxId, 'message.dead_letter_requeued', { messageId: existingDelivery.messageId, deliveryId: existingDelivery.id, actor: human.id }, at);
-    const documents = [auditEntry.document, ...(queued ? [document(messagePath(existingDelivery.senderInboxId, queued.id), queued)] : [])];
-    if (queued) {
-      const senderInbox = await store.getJson(path.join('inboxes', existingDelivery.senderInboxId, 'inbox.json'));
-      if (senderInbox) {
-        const currentCase = await ensureStructuredCase(senderInbox, { ...queued, caseId: queued.caseId }, queued.senderAgentId, queued.createdAt);
-        const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), queued, 'queued', at);
-        documents.push(document(caseRecordPath(existingDelivery.senderInboxId, updatedCase.id), updatedCase));
+    const retried = await withInboxMutation(existingDelivery.senderInboxId, async writeAudit => {
+      const currentDelivery = await store.getOutbox(existingDelivery.id);
+      if (!currentDelivery || currentDelivery.status !== 'deadLettered') throw Object.assign(new Error('Only dead-lettered deliveries can be retried'), { statusCode: 409 });
+      const message = await store.getJson(messagePath(currentDelivery.senderInboxId, currentDelivery.messageId));
+      const at = store.now();
+      const queued = message ? { ...message, status: 'queued', queuedAt: at, updatedAt: at, lastDeliveryError: null, deliveryAttempts: 0 } : null;
+      const documents = queued ? [document(messagePath(currentDelivery.senderInboxId, queued.id), queued)] : [];
+      if (queued) {
+        const senderInbox = await store.getJson(path.join('inboxes', currentDelivery.senderInboxId, 'inbox.json'));
+        if (senderInbox) {
+          const currentCase = await ensureStructuredCase(senderInbox, { ...queued, caseId: queued.caseId }, queued.senderAgentId, queued.createdAt);
+          const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), queued, 'queued', at);
+          documents.push(document(caseRecordPath(currentDelivery.senderInboxId, updatedCase.id), updatedCase));
+        }
       }
-    }
-    const retried = await store.retryOutbox(existingDelivery.id, documents);
-    if (!retried) return fail(res, 409, 'Delivery could not be retried');
-    publish(existingDelivery.senderInboxId, auditEntry.event);
+      const value = await store.retryOutbox(currentDelivery.id, documents);
+      if (!value) throw Object.assign(new Error('Delivery could not be retried'), { statusCode: 409 });
+      await writeAudit('message.dead_letter_requeued', { messageId: currentDelivery.messageId, deliveryId: currentDelivery.id, actor: human.id }, at);
+      return value;
+    }, [existingDelivery.recipientInboxId].filter(Boolean));
     deliveryWorker.kick();
     return json(res, 202, retried);
   }
@@ -2083,36 +2242,43 @@ async function route(req, res) {
     const invitation = await store.getJson(invitationPath(inboxId, invitationId));
     if (!invitation || invitation.recipientInboxId !== inboxId) return fail(res, 404, 'Invitation not found');
     if (!['pending', decision === 'accept' ? 'accepted' : 'declined'].includes(invitation.state)) return fail(res, 409, `Invitation is already ${invitation.state}`);
-    const now = store.now();
-    const senderInbox = await store.getJson(path.join('inboxes', invitation.senderInboxId, 'inbox.json'));
-    const pendingMessage = await store.getJson(messagePath(invitation.senderInboxId, invitation.messageId));
-    if (!senderInbox || !pendingMessage) return fail(res, 409, 'Invitation message is no longer available');
-    if (decision === 'decline') {
-      const declined = { ...invitation, state: 'declined', declinedAt: invitation.declinedAt || now, decidedByHumanId: human.id, updatedAt: now };
-      const message = { ...pendingMessage, status: 'declined', updatedAt: now };
+    const response = await withInboxMutation(inboxId, async writeAudit => {
+      const currentInvitation = await store.getJson(invitationPath(inboxId, invitationId));
+      if (!currentInvitation || currentInvitation.recipientInboxId !== inboxId) throw Object.assign(new Error('Invitation not found'), { statusCode: 404 });
+      if (!['pending', decision === 'accept' ? 'accepted' : 'declined'].includes(currentInvitation.state)) throw Object.assign(new Error(`Invitation is already ${currentInvitation.state}`), { statusCode: 409 });
+      const now = store.now();
+      const senderInbox = await store.getJson(path.join('inboxes', currentInvitation.senderInboxId, 'inbox.json'));
+      const pendingMessage = await store.getJson(messagePath(currentInvitation.senderInboxId, currentInvitation.messageId));
+      if (!senderInbox || !pendingMessage) throw Object.assign(new Error('Invitation message is no longer available'), { statusCode: 409 });
+      if (decision === 'decline') {
+        const declined = { ...currentInvitation, state: 'declined', declinedAt: currentInvitation.declinedAt || now, decidedByHumanId: human.id, updatedAt: now };
+        const message = { ...pendingMessage, status: 'declined', updatedAt: now };
+        await store.putJsonBatch([
+          document(invitationPath(inboxId, currentInvitation.id), declined),
+          document(invitationPath(currentInvitation.senderInboxId, currentInvitation.id), declined),
+          document(messagePath(currentInvitation.senderInboxId, message.id), message),
+          document(path.join('inboxes', inboxId, 'contacts', `${currentInvitation.senderAgentId}.json`), { agentId: currentInvitation.senderAgentId, email: currentInvitation.fromAddress, state: 'declined', approved: false, blocked: false, updatedAt: now })
+        ]);
+        await writeAudit('invitation.declined', { invitationId: currentInvitation.id, senderAgentId: currentInvitation.senderAgentId, humanId: human.id });
+        return { status: 200, result: declined, queued: false };
+      }
+      const conversationId = currentInvitation.conversationId || currentInvitation.pendingConversationId || store.id('conversation');
+      const accepted = { ...currentInvitation, state: 'accepted', conversationId, acceptedAt: currentInvitation.acceptedAt || now, decidedByHumanId: human.id, updatedAt: now };
+      const senderContact = { agentId: currentInvitation.recipientAgentId, email: currentInvitation.toAddress, state: 'accepted', approved: true, blocked: false, conversationId, updatedAt: now };
+      const recipientContact = { agentId: currentInvitation.senderAgentId, email: currentInvitation.fromAddress, state: 'accepted', approved: true, blocked: false, conversationId, updatedAt: now };
       await store.putJsonBatch([
-        document(invitationPath(inboxId, invitation.id), declined),
-        document(invitationPath(invitation.senderInboxId, invitation.id), declined),
-        document(messagePath(invitation.senderInboxId, message.id), message),
-        document(path.join('inboxes', inboxId, 'contacts', `${invitation.senderAgentId}.json`), { agentId: invitation.senderAgentId, email: invitation.fromAddress, state: 'declined', approved: false, blocked: false, updatedAt: now })
+        document(invitationPath(inboxId, currentInvitation.id), accepted),
+        document(invitationPath(currentInvitation.senderInboxId, currentInvitation.id), accepted),
+        document(path.join('inboxes', currentInvitation.senderInboxId, 'contacts', `${currentInvitation.recipientAgentId}.json`), senderContact),
+        document(path.join('inboxes', inboxId, 'contacts', `${currentInvitation.senderAgentId}.json`), recipientContact)
       ]);
-      await audit(inboxId, 'invitation.declined', { invitationId: invitation.id, senderAgentId: invitation.senderAgentId, humanId: human.id });
-      return json(res, 200, declined);
-    }
-    const conversationId = invitation.conversationId || invitation.pendingConversationId || store.id('conversation');
-    const accepted = { ...invitation, state: 'accepted', conversationId, acceptedAt: invitation.acceptedAt || now, decidedByHumanId: human.id, updatedAt: now };
-    const senderContact = { agentId: invitation.recipientAgentId, email: invitation.toAddress, state: 'accepted', approved: true, blocked: false, conversationId, updatedAt: now };
-    const recipientContact = { agentId: invitation.senderAgentId, email: invitation.fromAddress, state: 'accepted', approved: true, blocked: false, conversationId, updatedAt: now };
-    await store.putJsonBatch([
-      document(invitationPath(inboxId, invitation.id), accepted),
-      document(invitationPath(invitation.senderInboxId, invitation.id), accepted),
-      document(path.join('inboxes', invitation.senderInboxId, 'contacts', `${invitation.recipientAgentId}.json`), senderContact),
-      document(path.join('inboxes', inboxId, 'contacts', `${invitation.senderAgentId}.json`), recipientContact)
-    ]);
-    let message = { ...pendingMessage, conversationId, caseId: conversationId, invitationId: invitation.id, contactState: 'accepted' };
-    if (['pendingContactApproval', 'queued'].includes(message.status)) message = await enqueueNativeMessage(message, senderInbox, inboxId, 'message.queued_after_invitation');
-    await audit(inboxId, 'invitation.accepted', { invitationId: invitation.id, conversationId, senderAgentId: invitation.senderAgentId, recipientAgentId: invitation.recipientAgentId, humanId: human.id });
-    return json(res, invitation.state === 'accepted' ? 200 : 201, { invitation: accepted, message });
+      let message = { ...pendingMessage, conversationId, caseId: conversationId, invitationId: currentInvitation.id, contactState: 'accepted' };
+      if (['pendingContactApproval', 'queued'].includes(message.status)) message = await enqueueNativeMessage(message, senderInbox, inboxId, 'message.queued_after_invitation', (type, data, createdAt) => writeAudit(type, data, createdAt, currentInvitation.senderInboxId));
+      await writeAudit('invitation.accepted', { invitationId: currentInvitation.id, conversationId, senderAgentId: currentInvitation.senderAgentId, recipientAgentId: currentInvitation.recipientAgentId, humanId: human.id });
+      return { status: currentInvitation.state === 'accepted' ? 200 : 201, result: { invitation: accepted, message }, queued: true };
+    }, [invitation.senderInboxId]);
+    if (response.queued) deliveryWorker.kick();
+    return json(res, response.status, response.result);
   }
 
   const acknowledgementRoute = suffix.match(/^messages\/([^/]+)\/acknowledgements$/);
@@ -2128,46 +2294,36 @@ async function route(req, res) {
     if (!['delivered', 'acknowledged', 'processed'].includes(message.status)) return fail(res, 409, 'Message has not been delivered');
     const acknowledgementDigest = semanticDigest({ messageId: message.id, state });
     const acknowledgementIdempotencyPath = scopedIdempotencyPath('acknowledgements', inboxId, principal.id, idempotencyKey);
-    const replay = replayResponse(await store.getJson(acknowledgementIdempotencyPath), { principalId: principal.id, requestDigest: acknowledgementDigest });
-    if (replay) return json(res, 200, replay);
-    const receiptId = `delivery_receipt_${message.id}_${state}`;
-    const existingReceipt = await store.getJson(deliveryReceiptPath(inboxId, receiptId));
-    if (existingReceipt) {
-      await store.putJson(acknowledgementIdempotencyPath, { principalId: principal.id, requestDigest: acknowledgementDigest, response: existingReceipt, createdAt: existingReceipt.createdAt });
-      return json(res, 200, existingReceipt);
-    }
-    const at = store.now();
-    const updated = { ...message, status: state, [`${state}At`]: at, updatedAt: at };
-    const receipt = {
-      id: receiptId,
-      type: 'delivery',
-      messageId: message.id,
-      senderAgentId: message.senderAgentId,
-      recipientAgentId: message.recipientAgentId,
-      state,
-      idempotencyKeyHash: hashSecret(idempotencyKey),
-      createdAt: at
-    };
-    const documents = [];
-    const events = [];
-    for (const targetInboxId of new Set([message.senderInboxId, message.recipientInboxId])) {
-      const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
-      if (!targetInbox) continue;
-      const currentCase = await ensureStructuredCase(targetInbox, { ...updated, caseId: updated.caseId }, updated.senderAgentId, updated.createdAt);
-      const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), updated, state, at);
-      const auditEntry = await auditRecord(targetInboxId, `message.${state}`, { messageId: message.id, caseId: message.caseId, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId }, at);
-      documents.push(
-        document(messagePath(targetInboxId, message.id), updated),
-        document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase),
-        document(deliveryReceiptPath(targetInboxId, receipt.id), receipt),
-        auditEntry.document
-      );
-      events.push({ inboxId: targetInboxId, event: auditEntry.event });
-    }
-    await store.putJsonBatch(documents);
-    await store.putJson(acknowledgementIdempotencyPath, { principalId: principal.id, requestDigest: acknowledgementDigest, response: receipt, createdAt: at });
-    for (const { inboxId: targetInboxId, event } of events) publish(targetInboxId, event);
-    return json(res, 201, receipt);
+    const response = await withInboxMutation(inboxId, async writeAudit => {
+      const currentPrincipal = await getAgentPrincipal(req, inboxId);
+      if (!currentPrincipal || currentPrincipal.id !== principal.id || !hasPermission(currentPrincipal, 'receive_agent_messages')) throw Object.assign(new Error('Recipient agent credential required'), { statusCode: 401 });
+      const currentMessage = await store.getJson(messagePath(inboxId, acknowledgementRoute[1]));
+      if (!currentMessage || currentMessage.recipientAgentId !== currentPrincipal.id) throw Object.assign(new Error('Delivered message not found for this agent'), { statusCode: 404 });
+      const replay = replayResponse(await store.getJson(acknowledgementIdempotencyPath), { principalId: principal.id, requestDigest: acknowledgementDigest });
+      if (replay) return { status: 200, receipt: replay };
+      const receiptId = `delivery_receipt_${currentMessage.id}_${state}`;
+      const existingReceipt = await store.getJson(deliveryReceiptPath(inboxId, receiptId));
+      if (existingReceipt) {
+        await store.putJson(acknowledgementIdempotencyPath, { principalId: principal.id, requestDigest: acknowledgementDigest, response: existingReceipt, createdAt: existingReceipt.createdAt });
+        return { status: 200, receipt: existingReceipt };
+      }
+      const at = store.now();
+      const updated = { ...currentMessage, status: state, [`${state}At`]: at, updatedAt: at };
+      const receipt = { id: receiptId, type: 'delivery', messageId: currentMessage.id, senderAgentId: currentMessage.senderAgentId, recipientAgentId: currentMessage.recipientAgentId, state, idempotencyKeyHash: hashSecret(idempotencyKey), createdAt: at };
+      const documents = [];
+      for (const targetInboxId of new Set([currentMessage.senderInboxId, currentMessage.recipientInboxId])) {
+        const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
+        if (!targetInbox) continue;
+        const currentCase = await ensureStructuredCase(targetInbox, { ...updated, caseId: updated.caseId }, updated.senderAgentId, updated.createdAt);
+        const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), updated, state, at);
+        documents.push(document(messagePath(targetInboxId, currentMessage.id), updated), document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
+        await writeAudit(`message.${state}`, { messageId: currentMessage.id, caseId: currentMessage.caseId, senderAgentId: currentMessage.senderAgentId, recipientAgentId: currentMessage.recipientAgentId }, at, targetInboxId);
+      }
+      await store.putJsonBatch(documents);
+      await store.putJson(acknowledgementIdempotencyPath, { principalId: principal.id, requestDigest: acknowledgementDigest, response: receipt, createdAt: at });
+      return { status: 201, receipt };
+    }, [message.senderInboxId, message.recipientInboxId].filter(Boolean));
+    return json(res, response.status, response.receipt);
   }
 
   if (req.method === 'POST' && suffix === 'external-emails') {
@@ -2192,27 +2348,37 @@ async function route(req, res) {
     if (!contact?.approved || contact.blocked || !['outbound', 'both'].includes(contact.direction || 'both')) return fail(res, 403, 'Recipient is not an approved outbound contact');
     const messageId = `msg_email_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
     const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: input.caseId || null, subject, text, html }));
-    const existing = await store.getJson(messagePath(inboxId, messageId));
-    if (existing) return existing.requestHash === requestHash ? json(res, 200, existing) : fail(res, 409, 'Idempotency key was already used for a different email');
-    if (!consumeExternalEmailLimit(sender.id, recipientEmail)) return fail(res, 429, 'External email rate limit exceeded');
-    const createdAt = store.now();
-    const caseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : store.id('case');
-    const replyAddress = `reply+${hashSecret(messageId).slice(0, 32)}@${emailTransport.publicDomain}`;
-    const message = { id: messageId, caseId, senderInboxId: inboxId, transport: 'email', direction: 'outbound', senderType: 'agent', senderAgentId, senderEmail: publicEmailAddressForAgent(sender), recipientEmail, subject, type: 'email', text, html, payload: input.payload || null, replyAddress, requestHash, createdAt, queuedAt: createdAt, status: 'queued', externalDeliveryState: 'queued' };
-    const currentCase = await ensureStructuredCase(inbox, { ...input, caseId, type: 'message', text, objective: subject }, sender.id, createdAt);
-    const queuedCase = setCaseMessageDeliveryState(structuredClone(currentCase), message, 'queued', createdAt);
-    const auditEntry = await auditRecord(inboxId, 'email.queued', { messageId, caseId, senderAgentId, senderEmail: message.senderEmail, recipientEmail }, createdAt);
-    const outbox = { id: `delivery_${message.id}`, kind: 'externalEmail', messageId, senderInboxId: inboxId, recipientInboxId: null, orderingKey: caseId, requestHash, status: 'queued', attempts: 0, maxAttempts: deliveryMaxAttempts, availableAt: createdAt, createdAt, updatedAt: createdAt };
-    const queuedDelivery = await store.enqueueOutbox([
-      document(messagePath(inboxId, message.id), message),
-      document(caseRecordPath(inboxId, queuedCase.id), queuedCase),
-      document(replyAddressDirectoryPath(replyAddress), { address: replyAddress, inboxId, agentId: sender.id, caseId, messageId }),
-      auditEntry.document
-    ], outbox);
-    if (queuedDelivery.requestHash && queuedDelivery.requestHash !== requestHash) return fail(res, 409, 'Idempotency key was already used for a different email');
-    publish(inboxId, auditEntry.event);
+    const queued = await withInboxMutation(inboxId, async writeAudit => {
+      const [currentPrincipal, currentSender] = await Promise.all([
+        getAgentPrincipal(req, inboxId),
+        store.getJson(path.join('inboxes', inboxId, 'agents', `${senderAgentId}.json`))
+      ]);
+      if (!currentSender || !currentPrincipal || currentPrincipal.id !== currentSender.id) throw Object.assign(new Error('Valid sender agent credential required'), { statusCode: 401 });
+      if (!hasPermission(currentSender, 'send_agent_messages') || !hasPermission(currentSender, 'use_email_transport')) throw Object.assign(new Error('Agent lacks send_agent_messages or use_email_transport permission'), { statusCode: 403 });
+      const existing = await store.getJson(messagePath(inboxId, messageId));
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw Object.assign(new Error('Idempotency key was already used for a different email'), { statusCode: 409 });
+        return { status: 200, message: existing };
+      }
+      if (!consumeExternalEmailLimit(currentSender.id, recipientEmail)) throw Object.assign(new Error('External email rate limit exceeded'), { statusCode: 429 });
+      const createdAt = store.now();
+      const caseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : store.id('case');
+      const replyAddress = `reply+${hashSecret(messageId).slice(0, 32)}@${emailTransport.publicDomain}`;
+      const message = { id: messageId, caseId, senderInboxId: inboxId, transport: 'email', direction: 'outbound', senderType: 'agent', senderAgentId, senderEmail: publicEmailAddressForAgent(currentSender), recipientEmail, subject, type: 'email', text, html, payload: input.payload || null, replyAddress, requestHash, createdAt, queuedAt: createdAt, status: 'queued', externalDeliveryState: 'queued' };
+      const currentCase = await ensureStructuredCase(inbox, { ...input, caseId, type: 'message', text, objective: subject }, currentSender.id, createdAt);
+      const queuedCase = setCaseMessageDeliveryState(structuredClone(currentCase), message, 'queued', createdAt);
+      const outbox = { id: `delivery_${message.id}`, kind: 'externalEmail', messageId, senderInboxId: inboxId, recipientInboxId: null, orderingKey: caseId, requestHash, status: 'queued', attempts: 0, maxAttempts: deliveryMaxAttempts, availableAt: createdAt, createdAt, updatedAt: createdAt };
+      const queuedDelivery = await store.enqueueOutbox([
+        document(messagePath(inboxId, message.id), message),
+        document(caseRecordPath(inboxId, queuedCase.id), queuedCase),
+        document(replyAddressDirectoryPath(replyAddress), { address: replyAddress, inboxId, agentId: currentSender.id, caseId, messageId })
+      ], outbox);
+      if (queuedDelivery.requestHash && queuedDelivery.requestHash !== requestHash) throw Object.assign(new Error('Idempotency key was already used for a different email'), { statusCode: 409 });
+      await writeAudit('email.queued', { messageId, caseId, senderAgentId, senderEmail: message.senderEmail, recipientEmail }, createdAt);
+      return { status: 202, message: queuedDelivery.enqueueCreated ? message : await store.getJson(messagePath(inboxId, message.id), message) };
+    });
     deliveryWorker.kick();
-    return json(res, 202, queuedDelivery.enqueueCreated ? message : await store.getJson(messagePath(inboxId, message.id), message));
+    return json(res, queued.status, queued.message);
   }
 
   if (req.method === 'POST' && suffix === 'messages') {
@@ -2321,7 +2487,7 @@ async function route(req, res) {
       publish(recipientDirectory.inboxId, recipientAudit.event);
       return json(res, 202, { invitation, message: { ...message, invitationId }, contactState: 'pending' });
     }
-    return json(res, 202, await enqueueNativeMessage(message, inbox, recipientDirectory.inboxId));
+    return json(res, 202, await enqueueNativeMessage(message, inbox, recipientDirectory.inboxId, 'message.queued', null, req));
   }
 
   if (req.method === 'POST' && suffix === 'human-messages') {

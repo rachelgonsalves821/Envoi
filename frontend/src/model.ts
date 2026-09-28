@@ -165,5 +165,13 @@ export function caseCounts(view: HumanView) {
   const counts: Record<NavSection, number> = { inbox: cases.length, needsMe: view.navigation.needsMe, active: view.navigation.activeWork, waiting: view.navigation.waiting, scheduled: 0, documents: 0, completed: view.navigation.completed, policies: 0, integrations: view.agents.length, activity: view.recentEvents.length };
   counts.scheduled = casesForSection(cases, 'scheduled').length;
   counts.documents = casesForSection(cases, 'documents', view.assets).length;
+  if (view.history) {
+    // Category badges describe loaded results; workspace totals are displayed
+    // separately beside the history control rather than inferred from a page.
+    counts.needsMe = casesForSection(cases, 'needsMe').length + view.invitations.filter(item => item.actionable).length;
+    counts.active = casesForSection(cases, 'active').length;
+    counts.waiting = casesForSection(cases, 'waiting').length;
+    counts.completed = casesForSection(cases, 'completed').length;
+  }
   return counts;
 }

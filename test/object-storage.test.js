@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -8,6 +9,7 @@ import { FileStore } from '../src/storage.js';
 import {
   InMemoryMetadataStore,
   InMemoryQuotaLedger,
+  HttpMalwareScanner,
   LocalObjectStorageAdapter,
   ObjectStorageError,
   ObjectStorageService,
@@ -175,7 +177,9 @@ test('S3 adapter bounds transport time and sanitizes timeout failures', async t 
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   globalThis.fetch = (_url, options) => new Promise((_, reject) => {
-    options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+    // Model the live socket that keeps a real request pending on Node 22.
+    const pendingRequest = setTimeout(() => reject(new Error('Mock request did not abort')), 1000);
+    options.signal.addEventListener('abort', () => { clearTimeout(pendingRequest); reject(options.signal.reason); }, { once: true });
   });
   const adapter = new S3CompatibleObjectStorageAdapter({
     provider: 's3', endpoint: 'https://s3.example.test', bucket: 'private-bucket', region: 'ca-central-1',
@@ -188,4 +192,15 @@ test('S3 adapter bounds transport time and sanitizes timeout failures', async t 
     assert.equal(error.message.includes('s3.example.test'), false);
     return true;
   });
+});
+
+test('HTTP scanner enforces a bounded response time', async t => {
+  const scannerServer = http.createServer((_request, response) => {
+    setTimeout(() => { if (!response.destroyed) response.end(JSON.stringify({ status: 'clean' })); }, 100);
+  });
+  await new Promise(resolve => scannerServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => scannerServer.close(resolve)));
+  const scanner = new HttpMalwareScanner({ endpoint: `http://127.0.0.1:${scannerServer.address().port}/scan`, timeoutMs: 5 });
+  const content = Buffer.from('harmless');
+  await assert.rejects(() => scanner.scan({ body: content, object: { id: 'obj_timeout', mimeType: 'text/plain', checksumSha256: checksum(content) } }), error => error.name === 'TimeoutError' || error.name === 'AbortError');
 });

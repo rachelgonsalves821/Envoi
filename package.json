@@ -15,10 +15,14 @@
     "test:sdk:python": "cd sdk/python && python -m unittest discover -s tests -p test_*.py",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test:postgres": "node --test test/postgres-storage.test.js",
+    "test:storage:live": "node --test test/object-storage-live.test.js",
+    "preflight:config": "node scripts/preflight.mjs",
+    "smoke:deployment": "node scripts/smoke-deployment.mjs",
+    "cf:config-check": "node scripts/check-deployment.mjs",
     "test:cloudflare": "node --test worker/*.test.js",
-    "cf:check": "npm run test:cloudflare && wrangler deploy --dry-run --containers-rollout=none",
+    "cf:check": "npm run cf:config-check && npm run test:cloudflare && wrangler deploy --dry-run --containers-rollout=none",
     "cf:dev": "wrangler dev",
-    "cf:deploy": "wrangler deploy"
+    "cf:deploy": "npm run cf:config-check && wrangler deploy"
   },
   "dependencies": {
     "@fontsource-variable/commissioner": "^5.3.0",

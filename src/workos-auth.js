@@ -2,11 +2,29 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { WorkOS } from '@workos-inc/node';
 
+// Authorization must follow current provider membership, including demotions.
+// Sealed-session role/permission claims can outlive a membership change.
+export const providerMembershipCanManage = membership => membership?.status === 'active'
+  && ['owner', 'admin'].includes(String(membership.role?.slug || '').toLowerCase());
+
 const flowMinutes = Number(process.env.SINALOA_AUTH_FLOW_MINUTES || 10);
 const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
 const csrfCookie = process.env.SINALOA_CSRF_COOKIE_NAME || 'sinaloa_csrf';
+const requestHuman = Symbol('workos-request-human');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
-const safeReturnPath = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/';
+export const safeReturnPath = value => {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(value)) return '/';
+  try {
+    let decoded = value;
+    for (let index = 0; index < 2; index += 1) decoded = decodeURIComponent(decoded);
+    if (!decoded.startsWith('/') || decoded.startsWith('//') || decoded.includes('\\')) return '/';
+    const origin = 'https://sinaloa.invalid';
+    const resolved = new URL(value, origin);
+    return resolved.origin === origin ? `${resolved.pathname}${resolved.search}${resolved.hash}` : '/';
+  } catch {
+    return '/';
+  }
+};
 const publicHuman = human => ({
   id: human.id,
   displayName: human.displayName,
@@ -161,10 +179,28 @@ export class WorkOSAuthService {
   }
 
   async getHuman(req) {
-    const session = await this.getSession(req);
-    if (!session || !session.user?.emailVerified) return null;
-    const human = await this.upsertHuman(session.user);
-    return { ...publicHuman(human), providerUserId: session.user.id, organizationId: session.organizationId || null, role: session.role || null, permissions: session.permissions || [] };
+    if (req[requestHuman]) return req[requestHuman];
+    const pending = (async () => {
+      const session = await this.getSession(req);
+      if (!session || !session.user?.emailVerified) return null;
+      const human = await this.upsertHuman(session.user);
+      return { ...publicHuman(human), providerUserId: session.user.id, organizationId: session.organizationId || null, role: session.role || null, permissions: session.permissions || [] };
+    })();
+    Object.defineProperty(req, requestHuman, { value: pending, enumerable: false });
+    return pending;
+  }
+
+  async getOrganizationMembership(userId, organizationId) {
+    if (!userId || !organizationId) return null;
+    const result = await this.workos.userManagement.listOrganizationMemberships({
+      userId,
+      organizationId,
+      statuses: ['active'],
+      limit: 10
+    });
+    return result.data.find(membership => membership.userId === userId
+      && membership.organizationId === organizationId
+      && membership.status === 'active') || null;
   }
 
   async logout(req) {

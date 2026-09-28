@@ -243,7 +243,10 @@ export interface EmailTransportStatus { provider: string; ready: boolean; public
 export interface CalendarProvider { id: 'google' | 'outlook'; label: string; configured: boolean }
 export interface CalendarConnector { id: string; provider: CalendarProvider['id']; label: string; status: 'connected' | 'disconnected'; accountLabel: string | null; scopes: string[]; expiresAt: string | null; refreshTokenPresent: boolean; connectedByHumanId: string; connectedAt: string; updatedAt: string; disconnectedAt?: string }
 
+export type HistoryCollection = 'cases' | 'messages' | 'assets' | 'recentEvents' | 'deliveryReceipts' | 'invitations' | 'contacts';
+export type HistoryMetadata = Partial<Record<HistoryCollection, { total: number; hasMore: boolean; nextCursor: string | null }>>;
 export interface HumanView {
+  history?: HistoryMetadata;
   inbox: Inbox;
   mode: 'human-observer';
   capabilities: string[];

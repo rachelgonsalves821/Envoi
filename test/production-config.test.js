@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateProductionConfiguration } from '../src/production-config.js';
+import { deploymentPreflight } from '../src/deployment-preflight.js';
 
 const validProduction = (overrides = {}) => ({
   SINALOA_AUTH_MODE: 'production',
@@ -35,6 +36,12 @@ test('development configuration remains local while production fails unsafe depe
   assert.throws(() => validateProductionConfiguration(validProduction({ DATABASE_URL: '', SINALOA_OBJECT_STORAGE_PROVIDER: 'local', SINALOA_AGENT_DOMAIN: 'sinaloa.mail' })), /DATABASE_URL is required[\s\S]*must be s3[\s\S]*cannot use \.mail/);
 });
 
+test('production scanner health stays on the authenticated scanner origin', () => {
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_MALWARE_SCANNER_HEALTH_URL: 'https://unrelated.example/health' })), /must use the scanner origin/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_MALWARE_SCANNER_URL: 'https://user:password@scanner.example/scan' })), /must not contain embedded credentials/);
+  assert.equal(validateProductionConfiguration(validProduction({ SINALOA_MALWARE_SCANNER_HEALTH_URL: 'https://scanner.sinaloa.example/status' })).validated, true);
+});
+
 test('production supports native platform routing without SMTP and conditionally validates public email', () => {
   const nativeOnly = validateProductionConfiguration(validProduction());
   assert.equal(nativeOnly.validated, true);
@@ -60,6 +67,23 @@ test('production rejects insecure database TLS and invalid numeric limits', () =
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_POOL_SIZE: 'NaN', SINALOA_REQUEST_TIMEOUT_MS: '0' })), /SINALOA_DB_POOL_SIZE must be a positive integer[\s\S]*SINALOA_REQUEST_TIMEOUT_MS must be a positive integer/);
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_MAX_BODY_BYTES: '104857601', SINALOA_DB_POOL_SIZE: '201', SINALOA_OBJECT_MAX_BYTES: '5368709121', SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS: '366', SINALOA_SCAN_MAX_ATTEMPTS: '101' })), /SINALOA_MAX_BODY_BYTES must not exceed[\s\S]*SINALOA_DB_POOL_SIZE must not exceed[\s\S]*SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS must not exceed[\s\S]*SINALOA_OBJECT_MAX_BYTES must not exceed[\s\S]*SINALOA_SCAN_MAX_ATTEMPTS must not exceed/);
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_SCAN_RETRY_BASE_MS: '1000', SINALOA_SCAN_RETRY_MAX_MS: '999' })), /SCAN_RETRY_BASE_MS must not exceed/);
+});
+
+test('deployment preflight rejects database URLs that cannot start the container', () => {
+  const environment = validProduction({ SINALOA_EDGE_ALLOWED_HOSTS: 'app.sinaloa.example' });
+  assert.equal(deploymentPreflight(environment).ready, true);
+  for (const parameter of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert']) {
+    const report = deploymentPreflight({ ...environment, DATABASE_URL: `${environment.DATABASE_URL}?${parameter}=require` });
+    assert.equal(report.ready, false);
+    assert.ok(report.errors.some(message => /not DATABASE_URL query parameters/.test(message)));
+    assert.doesNotMatch(JSON.stringify(report), /user:secret/);
+  }
+  for (const databaseUrl of ['postgresql://user:secret@[broken/db', 'postgresql:///sinaloa', 'https://db.example/sinaloa']) {
+    const report = deploymentPreflight({ ...environment, DATABASE_URL: databaseUrl });
+    assert.equal(report.ready, false);
+    assert.ok(report.errors.some(message => message.includes('DATABASE_URL')));
+    assert.doesNotMatch(JSON.stringify(report), /user:secret/);
+  }
 });
 
 test('production requires complete same-origin calendar OAuth when writes are enabled', () => {

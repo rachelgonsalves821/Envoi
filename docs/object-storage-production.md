@@ -43,7 +43,7 @@ The existing server integration must provide:
 - Optional `SINALOA_SCAN_WORKER_INTERVAL_MS` (default `1000`) for queued scans, retries, and expired leases
 - Optional `SINALOA_SCAN_RETENTION_INTERVAL_MS` (default `60000`) for clean-job purging and infected/dead-letter binary retention
 
-The background scan workers are enabled only when `DATABASE_URL` is configured. The R2 token needs object read/write permission on only the configured bucket. The scanner credential must authorize only the scan endpoint. Neither secret may be exposed to clients; only presigned bearer URLs leave the server.
+The background scan workers are enabled only when `DATABASE_URL` is configured. The R2 token needs object read/write permission on only the configured bucket. The scanner credential must authorize the scan endpoint and its same-origin health endpoint. `GET /health` (or `SINALOA_MALWARE_SCANNER_HEALTH_URL`) must return HTTP 200 with JSON `{"ready":true}`; redirects and other responses fail readiness. Neither secret may be exposed to clients; only presigned bearer URLs leave the server.
 
 ## Credential-gated verification
 
@@ -64,3 +64,4 @@ node --test test/object-storage-live.test.js
 ```
 
 The R2 test writes a unique object, verifies signed upload/HEAD/download, and deletes it in a `finally` block. Use a dedicated integration-test bucket rather than production data.
+The scanner test sends harmless text and the EICAR test signature to confirm distinct verdicts. When a scanner token is configured, it also checks that an invalid token is rejected. With both services configured, a combined test verifies quarantine, clean download, infected download denial, and immutable checksum rejection. Tests are skipped unless the matching `SINALOA_RUN_LIVE_*_TESTS` flag is set. Run them only against a dedicated test bucket and scanner endpoint; do not use production objects.

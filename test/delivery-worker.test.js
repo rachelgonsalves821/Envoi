@@ -6,6 +6,49 @@ import path from 'node:path';
 import { FileStore } from '../src/storage.js';
 import { DeliveryWorker } from '../src/delivery-worker.js';
 
+test('resolved webhook routing locks delivery and failure against inbox mutations', async () => {
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-webhook-lock-')));
+  await store.init();
+  const now = store.now();
+  await store.enqueueOutbox([], { id: 'webhook_lock', kind: 'emailWebhook', senderInboxId: null, recipientInboxId: null, status: 'queued', attempts: 0, maxAttempts: 2, availableAt: now, createdAt: now, updatedAt: now });
+  const key = 'inbox:actual:mutations';
+  const casePath = path.join('inboxes', 'actual', 'cases', 'case.json');
+  await store.putJson(casePath, { id: 'case', events: [] });
+  const claimed = await store.claimOutbox('webhook-test', 30_000);
+  store.claimOutbox = async () => claimed;
+  let release; let entered; let prepared;
+  const held = new Promise(resolve => { release = resolve; });
+  const acquired = new Promise(resolve => { entered = resolve; });
+  const preparedSignal = new Promise(resolve => { prepared = resolve; });
+  const mutation = store.withTransaction([key], async () => {
+    entered(); await held;
+    await store.putJson(casePath, { id: 'case', events: ['human-change'] });
+  });
+  await acquired;
+  let delivered = false;
+  const lockCalls = [];
+  const transaction = store.withTransaction.bind(store);
+  store.withTransaction = (keys, callback) => { lockCalls.push(keys); return transaction(keys, callback); };
+  const worker = new DeliveryWorker({ store, prepare: async () => { prepared(); return { lockKeys: [key], context: { inboxId: 'actual' } }; },
+    deliver: async (_record, context) => {
+      delivered = true; assert.equal(context.inboxId, 'actual');
+      assert.deepEqual((await store.getJson(casePath)).events, ['human-change']);
+      throw new Error('test retry');
+    },
+    onFailure: async (_record, _error, { context }) => {
+      assert.equal(context.inboxId, 'actual');
+      const value = await store.getJson(casePath); value.events.push('failure-recorded');
+      return { documents: [{ path: casePath, value }] };
+    }
+  });
+  const processing = worker.processOne(); await preparedSignal;
+  assert.equal(delivered, false);
+  release(); await mutation; await processing;
+  assert.ok(lockCalls.length >= 2);
+  assert.ok(lockCalls.every(keys => keys.includes(key)));
+  assert.deepEqual((await store.getJson(casePath)).events, ['human-change', 'failure-recorded']);
+});
+
 test('delivery worker retries transient failures, dead-letters, and supports operator replay', async () => {
   const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-test-')));
   await store.init();
@@ -94,7 +137,24 @@ test('outbox preserves order within a conversation while allowing leased workers
   const first = await store.claimOutbox('worker_one');
   assert.equal(first.id, 'delivery_first');
   assert.equal(await store.claimOutbox('worker_two'), null);
-  await store.completeOutbox(first.id, []);
+  await store.completeOutbox(first.id, [], {}, first);
   const second = await store.claimOutbox('worker_two');
   assert.equal(second.id, 'delivery_second');
+});
+
+test('reclaimed delivery lease fences stale settlements and their documents', async () => {
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-fence-')));
+  await store.init();
+  const createdAt = store.now();
+  await store.enqueueOutbox([], { id: 'delivery_fenced', kind: 'test', status: 'queued', attempts: 0, maxAttempts: 2, availableAt: createdAt, createdAt, updatedAt: createdAt });
+  const original = await store.claimOutbox('worker_one');
+  await store.putJson('outbox/delivery_fenced.json', { ...original, lockedAt: '2000-01-01T00:00:00.000Z' });
+  const replacement = await store.claimOutbox('worker_two', 1_000);
+  assert.notEqual(original.leaseToken, replacement.leaseToken);
+  await assert.rejects(() => store.completeOutbox(original.id, [{ path: 'test/stale.json', value: { stale: true } }], {}, original), error => error.code === 'LEASE_LOST');
+  await assert.rejects(() => store.failOutbox(original.id, [{ path: 'test/stale.json', value: { stale: true } }], { error: 'old worker', nextAttemptAt: createdAt, lease: original }), error => error.code === 'LEASE_LOST');
+  assert.equal(await store.getJson('test/stale.json'), null);
+  await store.completeOutbox(replacement.id, [{ path: 'test/current.json', value: { current: true } }], {}, replacement);
+  assert.equal((await store.getOutbox(replacement.id)).status, 'delivered');
+  assert.deepEqual(await store.getJson('test/current.json'), { current: true });
 });

@@ -523,3 +523,7 @@ kbd { color: var(--text-tertiary); font-size: var(--text-micro-size); border: va
   .case-workspace { width: 100%; padding: 0; }
   body { background: var(--surface-overlay); }
 }
+
+.application.has-history { grid-template-rows: var(--topbar-height) auto minmax(0, 1fr); }
+.application.has-history.has-sync-notice { grid-template-rows: var(--topbar-height) auto auto minmax(0, 1fr); }
+.history-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border-subtle); }

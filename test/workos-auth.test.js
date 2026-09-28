@@ -4,7 +4,26 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FileStore } from '../src/storage.js';
-import { createCsrfToken, csrfCookieHeader, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
+
+test('management authority follows active provider membership after role changes', () => {
+  const membership = { status: 'active', role: { slug: 'admin' } };
+  assert.equal(providerMembershipCanManage(membership), true);
+  membership.role.slug = 'member';
+  assert.equal(providerMembershipCanManage(membership), false);
+  assert.equal(providerMembershipCanManage({ status: 'inactive', role: { slug: 'admin' } }), false);
+  assert.equal(providerMembershipCanManage({ status: 'active' }), false);
+  assert.equal(providerMembershipCanManage(null), false);
+});
+
+test('WorkOS return paths cannot escape the application origin', () => {
+  assert.equal(safeReturnPath('/inbox?workspace=one#latest'), '/inbox?workspace=one#latest');
+  assert.equal(safeReturnPath('/\\evil.example'), '/');
+  assert.equal(safeReturnPath('//evil.example'), '/');
+  assert.equal(safeReturnPath('/%5cevil.example'), '/');
+  assert.equal(safeReturnPath('/%255cevil.example'), '/');
+  assert.equal(safeReturnPath('https://evil.example'), '/');
+});
 
 test('WorkOS cookie mutations require a matching CSRF token and exact origin', () => {
   const previousPublicUrl = process.env.SINALOA_PUBLIC_URL;
@@ -38,6 +57,7 @@ test('WorkOS auth uses one-time PKCE state and maps provider users to stable hum
         authenticate: async () => sessionData === 'sealed_session_1' ? { authenticated: true, user, sessionId: 'session_1', organizationId: 'org_workos_1', role: 'admin', permissions: ['workspace:manage'] } : { authenticated: false, reason: 'invalid_session_cookie' },
         getLogoutUrl: async () => 'https://auth.example.test/logout'
       }),
+      listOrganizationMemberships: async ({ userId, organizationId, statuses }) => ({ data: userId === user.id && organizationId === 'org_workos_1' && statuses.includes('active') ? [{ id: 'membership_1', userId, organizationId, status: 'active', role: { slug: 'admin' } }] : [] }),
       createOrganizationMembership: async input => { calls.memberships.push(input); return { id: 'membership_1', ...input }; }
     },
     organizations: {
@@ -59,6 +79,9 @@ test('WorkOS auth uses one-time PKCE state and maps provider users to stable hum
   assert.equal(human.providerUserId, 'user_workos_1');
   assert.equal(human.organizationId, 'org_workos_1');
   assert.equal(human.role, 'admin');
+  const providerMembership = await auth.getOrganizationMembership(human.providerUserId, human.organizationId);
+  assert.equal(providerMembership.status, 'active');
+  assert.equal(providerMembership.role.slug, 'admin');
 
   const organization = await auth.createProviderOrganization({ name: 'Sinaloa Test', externalId: 'org_local_1', idempotencyKey: 'org-create-1', userId: human.providerUserId });
   assert.equal(organization.id, 'org_workos_1');

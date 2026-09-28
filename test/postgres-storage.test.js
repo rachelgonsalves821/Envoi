@@ -8,7 +8,7 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   t.after(() => store.close());
   await store.init();
   const migrations = await store.pool.query('SELECT name, checksum FROM sinaloa_schema_migrations ORDER BY name');
-  assert.deepEqual(migrations.rows.map(row => row.name), ['001_documents.sql', '002_object_storage.sql', '003_delivery.sql']);
+  assert.deepEqual(migrations.rows.map(row => row.name), ['001_documents.sql', '002_object_storage.sql', '003_delivery.sql', '004_history_indexes.sql']);
   assert.ok(migrations.rows.every(row => /^[a-f0-9]{64}$/.test(row.checksum)));
   const prefix = `test/${crypto.randomUUID()}`;
   const eventInboxId = `inbox_${crypto.randomUUID()}`;
@@ -32,13 +32,19 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   const claimed = await store.claimOutbox('postgres-test-worker');
   assert.equal(claimed.id, outboxId);
   assert.equal(claimed.status, 'processing');
-  await store.completeOutbox(outboxId, [{ path: `${prefix}/messages/queued.json`, value: { id: 'queued', status: 'delivered' } }], { receiptId: 'receipt_1' });
+  await store.completeOutbox(outboxId, [{ path: `${prefix}/messages/queued.json`, value: { id: 'queued', status: 'delivered' } }], { receiptId: 'receipt_1' }, claimed);
   assert.equal((await store.getOutbox(outboxId)).status, 'delivered');
   assert.equal((await store.getJson(`${prefix}/messages/queued.json`)).status, 'delivered');
   const first = await store.queryJson(`${prefix}/messages`, { limit: 1, filters: { caseId: 'case-a' } });
   assert.deepEqual(first.map(item => item.id), ['two']);
   const second = await store.queryJson(`${prefix}/messages`, { limit: 1, before: first[0].createdAt, filters: { caseId: 'case-a' } });
   assert.deepEqual(second.map(item => item.id), ['one']);
+  assert.equal(await store.countJson(`${prefix}/messages`, { filters: { caseId: 'case-a' } }), 2);
+  await store.putJson(`${prefix}/messages/three.json`, { id: 'three', caseId: 'case-a', createdAt: '2026-01-02T00:00:00.000Z' });
+  const compoundFirst = await store.queryJson(`${prefix}/messages`, { limit: 1, filters: { caseId: 'case-a' } });
+  const compoundSecond = await store.queryJson(`${prefix}/messages`, { limit: 1, before: { value: compoundFirst[0].createdAt, id: compoundFirst[0].id }, filters: { caseId: 'case-a' } });
+  assert.deepEqual(compoundFirst.map(item => item.id), ['two']);
+  assert.deepEqual(compoundSecond.map(item => item.id), ['three']);
   assert.equal(await store.deleteJson(`${prefix}/messages/one.json`), true);
   assert.equal(await store.getJson(`${prefix}/messages/one.json`), null);
   const quotaWorkspace = `workspace_${crypto.randomUUID()}`;
@@ -58,4 +64,83 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   const reclaimed = await store.reclaimExpiredObjectQuota(new Date(new Date(expiredReservation.expiresAt).getTime() + 1));
   assert.deepEqual(reclaimed, { releasedReservations: 1, releasedBytes: 4 });
   await assert.rejects(() => store.commitObjectQuota(expiredReservation.id), error => error.code === 'QUOTA_RESERVATION_EXPIRED');
+  const unreapedReservation = await store.reserveObjectQuota(quotaWorkspace, 4, 10, 1_000);
+  await store.pool.query('UPDATE sinaloa_object_quota_reservations SET expires_at = NOW() - INTERVAL \'1 second\' WHERE id = $1', [unreapedReservation.id]);
+  await assert.rejects(() => store.commitObjectQuota(unreapedReservation.id), error => error.code === 'QUOTA_RESERVATION_EXPIRED');
+  assert.deepEqual(await store.objectQuotaUsage(quotaWorkspace, 10), { workspaceId: quotaWorkspace, used: 0, reserved: 0, quota: 10 });
+});
+
+test('PostgreSQL transaction locks preserve both mutations and rollback all writes', { skip: !process.env.DATABASE_URL }, async t => {
+  const store = new PostgresStore(process.env.DATABASE_URL);
+  t.after(() => store.close());
+  await store.init();
+  const relative = `test/${crypto.randomUUID()}/transaction.json`;
+  await store.putJson(relative, { count: 0 });
+  await Promise.all(Array.from({ length: 8 }, () => store.withTransaction([relative], async () => {
+    const current = await store.getJson(relative);
+    await store.withTransaction([relative], () => store.putJson(relative, { count: current.count + 1 }));
+  })));
+  assert.equal((await store.getJson(relative)).count, 8);
+  await assert.rejects(() => store.withTransaction([relative], async () => {
+    await store.putJson(relative, { count: 99 });
+    await store.putJsonBatch([{ path: `test/${crypto.randomUUID()}/extra.json`, value: { extra: true } }]);
+    throw new Error('abort');
+  }), /abort/);
+  assert.equal((await store.getJson(relative)).count, 8);
+});
+
+test('PostgreSQL delivery lease rejects stale document writes', { skip: !process.env.DATABASE_URL }, async t => {
+  const store = new PostgresStore(process.env.DATABASE_URL);
+  t.after(() => store.close());
+  await store.init();
+  const id = `delivery_${crypto.randomUUID()}`;
+  const prefix = `test/${crypto.randomUUID()}`;
+  const createdAt = new Date().toISOString();
+  await store.enqueueOutbox([], { id, kind: 'test', status: 'queued', attempts: 0, maxAttempts: 2, availableAt: createdAt, createdAt, updatedAt: createdAt });
+  const original = await store.claimOutbox('worker_one');
+  await store.pool.query("UPDATE sinaloa_outbox SET locked_at = NOW() - INTERVAL '1 minute' WHERE id = $1", [id]);
+  const replacement = await store.claimOutbox('worker_two', 1_000);
+  assert.notEqual(original.leaseToken, replacement.leaseToken);
+  await assert.rejects(() => store.completeOutbox(id, [{ path: `${prefix}/stale.json`, value: { stale: true } }], {}, original), error => error.code === 'LEASE_LOST');
+  assert.equal(await store.getJson(`${prefix}/stale.json`), null);
+  await store.completeOutbox(id, [{ path: `${prefix}/current.json`, value: { current: true } }], {}, replacement);
+  assert.deepEqual(await store.getJson(`${prefix}/current.json`), { current: true });
+});
+
+test('PostgreSQL quota settlement cannot deadlock a workspace reaper', { skip: !process.env.DATABASE_URL }, async t => {
+  const reaper = new PostgresStore(process.env.DATABASE_URL);
+  const settler = new PostgresStore(process.env.DATABASE_URL);
+  t.after(async () => { await reaper.close(); await settler.close(); });
+  await reaper.init();
+  const workspaceId = `workspace_${crypto.randomUUID()}`;
+  const reservation = await reaper.reserveObjectQuota(workspaceId, 4, 10);
+  let settlement;
+  try {
+    await reaper.withTransaction([], async () => {
+      // Pause reaping after its workspace lock but before its reservation lock.
+      await reaper.query('SELECT workspace_id FROM sinaloa_object_quota_usage WHERE workspace_id = $1 FOR UPDATE', [workspaceId]);
+      let reportPid;
+      const pidReady = new Promise(resolve => { reportPid = resolve; });
+      settlement = settler.withTransaction([], async () => {
+        const result = await settler.query('SELECT pg_backend_pid() AS pid');
+        reportPid(result.rows[0].pid);
+        return settler.releaseObjectQuota(reservation.id);
+      });
+      // Attach a rejection handler while the competing transaction is blocked.
+      settlement.catch(() => {});
+      const pid = await pidReady;
+      let waiting = false;
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const locks = await reaper.query('SELECT 1 FROM pg_locks WHERE pid = $1 AND NOT granted', [pid]);
+        if (locks.rowCount) { waiting = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.equal(waiting, true, 'settlement should wait for the workspace lock');
+      // With inverted lock order the settler already holds this row, so NOWAIT
+      // raises 55P03; real reaping without NOWAIT would deadlock instead.
+      await reaper.query('SELECT id FROM sinaloa_object_quota_reservations WHERE id = $1 FOR UPDATE NOWAIT', [reservation.id]);
+      await reaper.reclaimExpiredObjectQuota(new Date(Date.now() + 3_600_000));
+    });
+  } finally { if (settlement) await settlement; }
+  assert.deepEqual(await reaper.objectQuotaUsage(workspaceId, 10), { workspaceId, used: 0, reserved: 0, quota: 10 });
 });

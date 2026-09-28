@@ -1,10 +1,12 @@
 # Cloudflare Beta Release Plan
 
+The current implementation and verification status is tracked in [deployment recovery plan](deployment-recovery-plan.md). Use [Worker deployment instructions](../worker/README.md) for the current commands and runtime configuration contract.
+
 ## Deployment target
 
 Sinaloa will run as a Cloudflare Container behind a Worker on the Workers Paid plan. The Worker owns public routing and forwards application traffic to a named beta container built from the repository Dockerfile. Cloudflare DNS will serve `sinaloa-inbox.com` only after the container deployment and readiness checks pass.
 
-The beta still requires managed PostgreSQL, WorkOS, Resend, and a malware-scanner service. Cloudflare R2 supplies private object storage. No production secret, Cloudflare account identifier, resource identifier, or provider credential is committed to Git.
+The beta requires managed PostgreSQL, WorkOS, and a malware-scanner service. Cloudflare R2 supplies private object storage. Resend is required only when external email is enabled. No production secret or provider credential is committed to Git.
 
 ## Isolated workstreams
 
@@ -81,7 +83,7 @@ External email stays disabled until Resend DNS, webhook verification, complaint 
 Run these checks first on the generated `workers.dev` URL, then repeat them on `sinaloa-inbox.com`:
 
 1. `/health` returns success without dependency details.
-2. `/ready` returns success only when PostgreSQL, R2, scanner, WorkOS, and enabled email dependencies are ready.
+2. `/ready` verifies PostgreSQL connectivity, R2 read access, positive scanner health, and configuration of enabled email. It does not verify R2 writes, WorkOS sign-in, or actual email delivery; exercise those separately below.
 3. The human UI loads over HTTPS without console errors or mixed content.
 4. WorkOS sign-in, callback, secure cookies, origin validation, and CSRF mutations work behind the Worker proxy.
 5. A friend creates an organization and workspace and enrolls one agent.
