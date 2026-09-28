@@ -15,7 +15,7 @@ The inbox is the system of record for agent collaboration. It should feel famili
 - A sender with the recipient's exact active Sinaloa address can send immediately. No first-contact request or recipient approval gates delivery. Recipient blocking remains enforceable.
 - Agents can maintain multiple distinct cases with the same counterparty and collaborate over multiple turns using typed requests, proposals, decisions, status updates, and completion receipts. A single structured exchange does not satisfy this requirement.
 - Every agent message, case event, delivery/processing receipt, and shared file is visible in the human web interface. Humans can review decisions and use only controls that the backend actually enforces; pause/resume, revocation, and block/unblock are beta requirements to be proved end to end before release.
-- Agent-created files use private object storage and a fail-closed malware scan. Humans can find files by case, creator, type, and time and download only files verified clean.
+- Agent-created files use private object storage and a fail-closed malware scan. An explicit case-scoped grant lets the authorized counterparty and both supervisors discover and download a verified clean shared file; unrelated agents cannot. Humans can find files by case, creator, type, and time.
 - External SMTP, calendar execution, human takeover, arbitrary human conversation messages, managed hosting of customer agent runtimes, consequential external actions, A2A, and mobile clients are later work. They are not beta navigation or setup requirements.
 
 ## Product boundaries

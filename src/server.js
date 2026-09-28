@@ -20,6 +20,7 @@ import { createPkcePair, exchangeCalendarAuthorizationCode } from './calendar-oa
 import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from './path-safety.js';
 import { claimIdempotency, completeIdempotency, replayResponse, scopedIdempotencyPath, semanticDigest, validateIdempotencyKey } from './idempotency.js';
 import { humanConversationMessagingEnabled } from './human-messaging.js';
+import { handleAgentMcp } from './agent-mcp.js';
 import {
   assertExactBinding,
   createWorkspacePolicy,
@@ -223,7 +224,7 @@ const applyHeaders = (res, origin, nonce) => {
     res.setHeader('vary', 'Origin');
     if (allowedOrigin !== '*') res.setHeader('access-control-allow-credentials', 'true');
   }
-  res.setHeader('access-control-allow-headers', 'content-type, authorization, idempotency-key, if-none-match, x-request-id, x-sinaloa-csrf, traceparent, x-amz-checksum-sha256, x-amz-meta-sinaloa-sha256');
+  res.setHeader('access-control-allow-headers', 'content-type, authorization, idempotency-key, mcp-protocol-version, if-none-match, x-request-id, x-sinaloa-csrf, traceparent, x-amz-checksum-sha256, x-amz-meta-sinaloa-sha256');
   res.setHeader('access-control-allow-methods', 'GET, HEAD, POST, PUT, OPTIONS');
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('x-frame-options', 'DENY');
@@ -426,6 +427,15 @@ const rawBuffer = async (req) => {
   return Buffer.concat(chunks);
 };
 const publicBaseUrl = req => (process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
+const mcpOriginAllowed = req => {
+  if (!req.headers.origin) return true;
+  const allowed = corsOrigin.split(',').map(value => value.trim()).filter(value => value && value !== '*');
+  if (process.env.SINALOA_PUBLIC_URL) {
+    try { allowed.push(new URL(process.env.SINALOA_PUBLIC_URL).origin); }
+    catch { return false; }
+  }
+  return allowed.includes(req.headers.origin);
+};
 const browserObjectUrl = (value, req) => {
   if (!value?.url?.startsWith('local-object://')) return value;
   const parsed = new URL(value.url);
@@ -1382,6 +1392,7 @@ async function agentView(inboxId, inbox, agentId) {
 async function route(req, res) {
   const responseNonce = crypto.randomBytes(18).toString('base64');
   applyHeaders(res, req.headers.origin || '', responseNonce);
+  if (String(req.url || '').split('?', 1)[0] === '/mcp' && !mcpOriginAllowed(req)) return fail(res, 403, 'MCP Origin is not allowed');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   try { assertSafeRequestTarget(req.url); }
   catch { return fail(res, 400, 'Invalid request path'); }
@@ -1393,6 +1404,31 @@ async function route(req, res) {
     || url.pathname === '/api/auth/phone/start'
     || url.pathname === '/api/auth/phone/verify';
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfExempt && parseCookies(req.headers.cookie)[sessionCookieName()] && !verifyCsrfRequest(req)) return fail(res, 403, 'CSRF validation failed');
+  if (url.pathname === '/mcp') {
+    const identity = await getAgentWorkIdentity(req);
+    if (!identity) {
+      res.setHeader('www-authenticate', 'Bearer realm="Sinaloa agent MCP"');
+      return fail(res, 401, 'Active v1 agent credential required');
+    }
+    const callRest = async (method, pathname, input, idempotencyKey) => {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Local API is unavailable');
+      const response = await fetch(`http://127.0.0.1:${address.port}${pathname}`, {
+        method,
+        headers: {
+          authorization: req.headers.authorization,
+          ...(input === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {})
+        },
+        body: input === undefined ? undefined : JSON.stringify(input),
+        redirect: 'error',
+        signal: AbortSignal.timeout(Math.min(requestTimeoutMs, 25_000))
+      });
+      const payload = await response.json();
+      return { status: response.status, payload };
+    };
+    return handleAgentMcp(req, res, { identity, callRest });
+  }
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/'))) {
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice('/web/'.length);
     let filePath;
@@ -2769,9 +2805,25 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || !hasPermission(principal, 'create_assets')) return fail(res, 403, 'Agent credential with create_assets permission required');
     if (input.createdByAgentId && input.createdByAgentId !== principal.id) return fail(res, 403, 'createdByAgentId must match the authenticated agent');
-    const started = await objectStorage.beginUpload({ workspaceId: inboxId, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null, createdByAgentId: principal.id });
-    await audit(inboxId, 'asset.upload_started', { assetId: started.object.id, caseId: started.object.caseId, createdByAgentId: principal.id, size: started.object.size, state: started.object.state });
-    return json(res, 201, { object: started.object, upload: browserObjectUrl(started.upload, req) });
+    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey);
+    const idempotencyPath = idempotencyKey ? scopedIdempotencyPath('asset-upload', inboxId, principal.id, idempotencyKey) : null;
+    const requestDigest = idempotencyPath ? semanticDigest({ filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null }) : null;
+    const claimed = idempotencyPath ? await claimIdempotency(store, idempotencyPath, { principalId: principal.id, requestDigest, createdAt: store.now() }) : null;
+    if (claimed?.replay) return json(res, 200, claimed.replay);
+    let persisted = false;
+    let started;
+    try {
+      started = await objectStorage.beginUpload({ workspaceId: inboxId, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null, createdByAgentId: principal.id });
+      const response = { object: started.object, upload: browserObjectUrl(started.upload, req) };
+      if (idempotencyPath) await completeIdempotency(store, idempotencyPath, { principalId: principal.id, requestDigest, response, createdAt: store.now() });
+      persisted = true;
+      await audit(inboxId, 'asset.upload_started', { assetId: started.object.id, caseId: started.object.caseId, createdByAgentId: principal.id, size: started.object.size, state: started.object.state });
+      return json(res, 201, response);
+    } catch (error) {
+      if (!persisted && started) await objectStorage.abortUpload(started.object.id).catch(() => {});
+      if (claimed?.claimed && !persisted) await store.deleteJson(idempotencyPath).catch(() => {});
+      throw error;
+    }
   }
 
   const completeAssetUpload = suffix.match(/^assets\/([^/]+)\/complete$/);
