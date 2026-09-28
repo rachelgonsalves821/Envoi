@@ -1,0 +1,103 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { WorkMessage } from '../../sdk/typescript/src/connector';
+import { bridgeHandler, type BridgeDecision, type BridgeLedger } from '../agent-bridges/bridge';
+import { openClawTurn } from './turn';
+
+const message: WorkMessage = {
+  id: 'msg_1',
+  senderAgentId: 'sender_1',
+  recipientAgentId: 'receiver_1',
+  from: { agentId: 'sender_1', address: 'sender@example.test' },
+  caseId: 'case_1',
+  intent: 'request',
+  text: 'Can you send a status update?'
+};
+
+function turn(fetcher: typeof fetch) {
+  return openClawTurn({
+    gatewayUrl: 'https://gateway.example.test',
+    gatewayToken: 'secret-gateway-token',
+    agentId: 'sinaloa-agent',
+    history: async () => [{ id: 'older_1', senderAgentId: 'other', text: 'Earlier context', intent: 'message' }],
+    fetch: fetcher
+  });
+}
+
+function completed(content: string) {
+  return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content } }] }), {
+    status: 200, headers: { 'content-type': 'application/json' }
+  });
+}
+
+describe('OpenClaw turn', () => {
+  it('runs a normal Gateway agent turn with the incoming work and history', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => completed('{"text":"We are on track.","intent":"status"}'));
+    await expect(turn(fetcher)(message, new AbortController().signal)).resolves.toEqual({ text: 'We are on track.', intent: 'status' });
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://gateway.example.test/v1/chat/completions');
+    expect(init?.method).toBe('POST');
+    expect(init?.redirect).toBe('error');
+    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer secret-gateway-token');
+    const body = JSON.parse(String(init?.body));
+    expect(body.model).toBe('openclaw/sinaloa-agent');
+    expect(body.user).toBe('sinaloa:case_1');
+    expect(body.stream).toBe(false);
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toContain('Earlier context');
+    expect(body.messages[0].content).toContain('Can you send a status update?');
+  });
+
+  it('accepts a stop decision and plain text', async () => {
+    await expect(turn(vi.fn(async () => completed('{"stop":true}')))(message, new AbortController().signal)).resolves.toEqual({ stop: true });
+    await expect(turn(vi.fn(async () => completed('Hello there')))(message, new AbortController().signal)).resolves.toEqual({ text: 'Hello there', intent: 'message' });
+  });
+
+  it('rejects incomplete, malformed and failed Gateway responses without exposing response bodies', async () => {
+    const bad = [
+      new Response(JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: 'secret' } }] }), { status: 200 }),
+      new Response('null', { status: 200 }),
+      new Response('invalid json', { status: 200 }),
+      new Response('secret diagnostic', { status: 500 })
+    ];
+    for (const response of bad) {
+      await expect(turn(vi.fn(async () => response))(message, new AbortController().signal)).rejects.toThrow('OpenClaw ');
+    }
+  });
+
+  it('requires a private-safe Gateway origin and a configured agent ID', () => {
+    const base = { gatewayToken: 'token', agentId: 'agent' };
+    expect(() => openClawTurn({ ...base, gatewayUrl: 'http://remote.example.test' })).toThrow('HTTPS');
+    expect(() => openClawTurn({ ...base, gatewayUrl: 'https://remote.example.test/path' })).toThrow('origin');
+    expect(() => openClawTurn({ ...base, gatewayUrl: 'https://remote.example.test', agentId: '../other' })).toThrow('agent ID');
+    expect(() => openClawTurn({ ...base, gatewayUrl: 'http://127.0.0.1:18789' })).not.toThrow();
+  });
+
+  it('honors an already canceled work lease', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(turn(fetcher)(message, controller.signal)).rejects.toThrow('canceled');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+describe('Sinaloa bridge handoff', () => {
+  it('reuses the persisted decision and stable reply key when a claim is retried', async () => {
+    const decisions = new Map<string, BridgeDecision>();
+    const ledger: BridgeLedger = {
+      admit: vi.fn(async () => {}),
+      replyFor: async id => decisions.get(id) ?? null,
+      saveReply: async (id, reply) => { decisions.set(id, reply); }
+    };
+    const fetcher = vi.fn<typeof fetch>(async () => completed('{"text":"Done","intent":"status"}'));
+    const handler = bridgeHandler(ledger, turn(fetcher));
+    const reply = vi.fn(async () => ({}));
+    const context = { signal: new AbortController().signal, reply };
+    await handler.admit(message);
+    await handler.process(message, context);
+    await handler.process(message, context);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(reply).toHaveBeenCalledTimes(2);
+    expect(reply).toHaveBeenCalledWith('Done', 'bridge:msg_1:reply:1', { intent: 'status' });
+  });
+});
