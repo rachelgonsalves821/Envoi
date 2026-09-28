@@ -54,6 +54,40 @@ describe('closed beta onboarding', () => {
     expect(onboardingSteps(sourceView, [linkedAgentInbox]).filter(step => ['enroll', 'sdk', 'approve'].includes(step.id)).every(step => step.complete)).toBe(true);
   });
 
+  it('accepts a processed delivery receipt as the durable first-exchange outcome', () => {
+    const workCase = baseCase({ receipt: null });
+    const view = {
+      inbox: { id: 'inbox_1', organizationId: 'org_1', name: 'Agent inbox', ownerAgentId: 'agent_1', ownerHumanId: 'human_1', status: 'active', createdAt: '2026-09-27T16:00:00.000Z' },
+      mode: 'human-observer' as const,
+      canManageInbox: false,
+      capabilities: [], summary: { agents: 1, cases: 1, messages: 1, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 1, waiting: 0, completed: 0 },
+      participantDirectory: { external_1: { id: 'external_1', type: 'externalAgent' as const, displayName: 'Known agent', accessState: 'active' as const } },
+      agents: [{ id: 'agent_1', name: 'My agent', address: 'mine@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: [] }],
+      caseQueue: [workCase], cases: [workCase],
+      messages: [{ id: 'message_1', caseId: workCase.id, senderType: 'agent' as const, senderAgentId: 'agent_1', type: 'message', text: 'Processed', createdAt: '2026-09-27T16:30:00.000Z', status: 'processed' }],
+      assets: [], calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [],
+      deliveryReceipts: [{ id: 'delivery_receipt_1', type: 'delivery' as const, messageId: 'message_1', state: 'processed' as const, createdAt: '2026-09-27T16:35:00.000Z' }], recentEvents: []
+    };
+    expect(onboardingSteps(view).find(step => step.id === 'delivery')).toMatchObject({ complete: true, description: 'Delivery evidence and the durable outcome are visible to the human.' });
+  });
+
+  it('discloses when the durable outcome may be outside loaded receipt history', () => {
+    const workCase = baseCase({ receipt: null });
+    const view = {
+      inbox: { id: 'inbox_1', organizationId: 'org_1', name: 'Agent inbox', ownerAgentId: 'agent_1', ownerHumanId: 'human_1', status: 'active', createdAt: '2026-09-27T16:00:00.000Z' },
+      mode: 'human-observer' as const,
+      canManageInbox: true,
+      capabilities: [], summary: { agents: 1, cases: 1, messages: 1, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 1, waiting: 0, completed: 0 },
+      participantDirectory: { external_1: { id: 'external_1', type: 'externalAgent' as const, displayName: 'Known agent', accessState: 'active' as const } },
+      agents: [{ id: 'agent_1', name: 'My agent', address: 'mine@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: [] }],
+      caseQueue: [workCase], cases: [workCase],
+      messages: [{ id: 'message_1', caseId: workCase.id, senderType: 'agent' as const, senderAgentId: 'agent_1', type: 'message', text: 'Delivered', createdAt: '2026-09-27T16:30:00.000Z', status: 'delivered' }],
+      assets: [], calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [], deliveryReceipts: [], recentEvents: [],
+      history: { deliveryReceipts: { total: 80, hasMore: true, nextCursor: 'receipt_cursor' } }
+    };
+    expect(onboardingSteps(view).find(step => step.id === 'delivery')).toMatchObject({ complete: false, description: 'Older receipt history is not loaded yet. Load older history to verify the durable outcome.' });
+  });
+
   it('finds files across cases by name, creator, type and newest timestamp', () => {
     const cases = [baseCase({ id: 'case_one', objective: 'Research brief' }), baseCase({ id: 'case_two', objective: 'Launch copy' })];
     const agents = [{ id: 'agent_scheduling', name: 'Milo', address: 'milo@sinaloa.mail', principalHumanId: 'human_rachel', status: 'active', onboardingStatus: 'approved', permissions: [] }];

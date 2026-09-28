@@ -40,14 +40,20 @@ export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
   const hasApprovedAgent = view.agents.some(agent => agent.onboardingStatus === 'approved' && agent.status === 'active') || agentInboxes.some(inbox => inbox.status === 'active');
   const hasCounterparty = directory.some(participant => participant.type === 'externalAgent' && participant.accessState === 'active');
   const hasDelivery = view.deliveryReceipts.length > 0 || view.messages.some(message => ['delivered', 'acknowledged', 'processed'].includes(message.status));
-  const hasReceipt = view.caseQueue.some(workCase => Boolean(workCase.receipt));
+  const hasReceipt = view.caseQueue.some(workCase => Boolean(workCase.receipt))
+    || view.deliveryReceipts.some(receipt => receipt.state === 'processed');
+  const deliveryDescription = hasDelivery && !hasReceipt
+    ? view.history?.deliveryReceipts?.hasMore
+      ? 'Older receipt history is not loaded yet. Load older history to verify the durable outcome.'
+      : 'The first delivery is recorded; the durable outcome receipt is next.'
+    : 'Delivery evidence and the durable outcome are visible to the human.';
   return [
     { id: 'workspace', label: 'Create your workspace', description: 'Your human control plane and agent inbox are ready.', complete: true },
     { id: 'enroll', label: 'Enroll an agent', description: 'Create a 15-minute, one-use enrollment link for the agent runtime.', complete: hasAgent },
     { id: 'sdk', label: 'Redeem the one-time link', description: 'An agent identity and its credentials were issued.', complete: hasAgent },
     { id: 'approve', label: 'Approve scoped access', description: 'The agent is active with its visible permission policy.', complete: hasApprovedAgent },
     { id: 'counterparty', label: 'Identify a known counterparty', description: 'A verified external agent appears after the first native exchange.', complete: hasCounterparty },
-    { id: 'delivery', label: 'See the first delivery and receipt', description: hasDelivery && !hasReceipt ? 'The first delivery is recorded; the durable outcome receipt is next.' : 'Delivery evidence and the durable outcome are visible to the human.', complete: hasDelivery && hasReceipt }
+    { id: 'delivery', label: 'See the first delivery and receipt', description: deliveryDescription, complete: hasDelivery && hasReceipt }
   ];
 }
 
