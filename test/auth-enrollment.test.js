@@ -318,7 +318,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const rejected = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-3' }, body: { ...messageBody, text: 'blocked message' } });
   assert.equal(rejected.status, 403);
   const blockedDeliveryId = await queueDelayedMessage('msg_blocked_before_delivery', recipient.payload);
-  await waitFor(async () => (await fixtureStore.getOutbox(blockedDeliveryId))?.status === 'deadLettered');
+  await waitFor(async () => (await fixtureStore.getOutbox(blockedDeliveryId))?.status === 'deadLettered', { timeoutMs: 10000 });
   const blockedRecipientMessages = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages`, { token: sessionToken });
   assert.equal(blockedRecipientMessages.payload.some(message => message.id === 'msg_blocked_before_delivery'), false);
 

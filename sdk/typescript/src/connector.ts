@@ -1,4 +1,4 @@
-import { rotateAgentToken, SinaloaClient, SinaloaError, type AgentTokens, type ClientOptions } from './index';
+import { rotateAgentToken, SinaloaClient, SinaloaError, type AgentTokens, type ClientOptions, type NativeMessageInput } from './index';
 
 /** Persist the whole record atomically, including each replacement refresh token. */
 export interface ConnectorSession extends AgentTokens {
@@ -20,18 +20,63 @@ export interface InboxEvent {
   [key: string]: unknown;
 }
 
+export interface WorkMessage extends Record<string, unknown> {
+  id: string;
+  senderAgentId: string;
+  recipientAgentId: string;
+  from: { agentId: string; address: string };
+  caseId?: string | null;
+  text: string;
+}
+
+export interface WorkLease {
+  workId: string;
+  message: WorkMessage;
+  leaseToken: string;
+  leaseExpiresAt: string;
+}
+
+interface WorkSettlement {
+  workId: string;
+  status: 'acknowledged' | 'processed';
+  receipt: { messageId: string; state: 'acknowledged' | 'processed'; [key: string]: unknown };
+}
+
+export interface WorkContext {
+  /** Aborts on shutdown or if the connector can no longer renew its lease. */
+  signal: AbortSignal;
+  /** Use a stable idempotency key for each logical reply; retries may run the handler again. */
+  reply(text: string, idempotencyKey: string, extra?: Omit<NativeMessageInput, 'senderAgentId' | 'recipientEmail' | 'text' | 'caseId'>): Promise<unknown>;
+}
+
+export interface WorkHandler {
+  /** Must durably admit by message.id before resolving; may be called again after a crash. */
+  admit(message: WorkMessage): Promise<void>;
+  /** Must be idempotent by message.id and honor context.signal for long work. */
+  process(message: WorkMessage, context: WorkContext): Promise<void>;
+}
+
 export interface ConnectorOptions extends ClientOptions {
   pageSize?: number;
   pollIntervalMs?: number;
   refreshSkewMs?: number;
   /** Observation only. Processing requires the server's future fenced work-claim API. */
   onEvent?: (event: InboxEvent) => Promise<void> | void;
+  /** Enables fenced work processing when the server work routes are available. */
+  handler?: WorkHandler;
 }
 
 export class ConnectorPersistenceError extends Error {
   constructor() {
     super('Connector credential persistence failed; stop this installation and re-enroll if needed');
     this.name = 'ConnectorPersistenceError';
+  }
+}
+
+export class ConnectorContractError extends Error {
+  constructor() {
+    super('Sinaloa fenced work API is unavailable; agent processing cannot start');
+    this.name = 'ConnectorContractError';
   }
 }
 
@@ -105,6 +150,7 @@ export class SinaloaConnector {
   private readonly pageSize: number;
   private readonly pollIntervalMs: number;
   private readonly refreshSkewMs: number;
+  private refreshInFlight: Promise<ConnectorSession> | null = null;
 
   constructor(baseUrl: string, private readonly store: ConnectorStore, private readonly options: ConnectorOptions = {}) {
     this.origin = apiOrigin(baseUrl);
@@ -114,16 +160,153 @@ export class SinaloaConnector {
     if (!Number.isSafeInteger(this.pageSize) || this.pageSize < 1 || this.pageSize > 200) throw new RangeError('pageSize must be from 1 to 200');
     if (!Number.isSafeInteger(this.pollIntervalMs) || this.pollIntervalMs < 1) throw new RangeError('pollIntervalMs must be positive');
     if (!Number.isSafeInteger(this.refreshSkewMs) || this.refreshSkewMs < 0) throw new RangeError('refreshSkewMs must be nonnegative');
+    if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 300_000)) throw new RangeError('timeoutMs must be an integer from 1 to 300000');
   }
 
   private async freshSession(force = false): Promise<ConnectorSession> {
-    const current = validSession(await this.store.load());
-    if (!force && Date.parse(current.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return current;
-    const rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, this.options);
-    const next = validSession({ ...current, ...rotated });
-    // A failed save is fatal: using the consumed refresh token again would replay it.
-    try { await this.store.save(next); } catch { throw new ConnectorPersistenceError(); }
-    return next;
+    if (this.refreshInFlight) return this.refreshInFlight;
+    this.refreshInFlight = (async () => {
+      const current = validSession(await this.store.load());
+      if (!force && Date.parse(current.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return current;
+      const rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, this.options);
+      const next = validSession({ ...current, ...rotated });
+      // A failed save is fatal: using the consumed refresh token again would replay it.
+      try { await this.store.save(next); } catch { throw new ConnectorPersistenceError(); }
+      return next;
+    })();
+    try { return await this.refreshInFlight; } finally { this.refreshInFlight = null; }
+  }
+
+  private async postWork<T>(path: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
+    const send = async (accessToken: string): Promise<T> => {
+      const controller = new AbortController();
+      const duration = this.options.timeoutMs ?? 30_000;
+      const timer = setTimeout(() => controller.abort(), duration);
+      let response: Response;
+      try {
+        response = await (this.options.fetch || fetch)(`${this.origin}${path}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json', authorization: `Bearer ${accessToken}`,
+            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
+          },
+          body: JSON.stringify(body), signal: controller.signal
+        });
+      } catch {
+        throw new SinaloaError(controller.signal.aborted ? 'Sinaloa request timed out' : 'Sinaloa could not be reached');
+      } finally { clearTimeout(timer); }
+      let payload: Record<string, unknown> | null = null;
+      try {
+        const parsed: unknown = await response.json();
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
+      } catch { /* Never expose a raw provider body. */ }
+      if (!response.ok) {
+        const remote = payload?.error;
+        throw new SinaloaError(typeof remote === 'string' && remote.length <= 500 ? remote : `Sinaloa work request failed with HTTP ${response.status}`, response.status);
+      }
+      if (!payload) throw new SinaloaError('Sinaloa returned an invalid work response', response.status);
+      return payload as T;
+    };
+    const session = await this.freshSession();
+    try { return await send(session.agentApiToken); }
+    catch (error) {
+      if (!(error instanceof SinaloaError) || error.status !== 401) throw error;
+      const current = validSession(await this.store.load());
+      const next = current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current;
+      return send(next.agentApiToken);
+    }
+  }
+
+  private async reply(message: WorkMessage, text: string, idempotencyKey: string, extra: Omit<NativeMessageInput, 'senderAgentId' | 'recipientEmail' | 'text' | 'caseId'> = {}): Promise<unknown> {
+    if (!idempotencyKey || !message.from?.address) throw new TypeError('A stable reply idempotency key and sender address are required');
+    const send = async (session: ConnectorSession) => new SinaloaClient(this.origin, session.agentApiToken, this.options).sendMessage(
+      session.inboxId, idempotencyKey,
+      { ...extra, senderAgentId: session.agentId, recipientEmail: message.from.address, text, ...(message.caseId ? { caseId: message.caseId } : {}) }
+    );
+    const session = await this.freshSession();
+    try { return await send(session); }
+    catch (error) {
+      if (!(error instanceof SinaloaError) || error.status !== 401) throw error;
+      const current = validSession(await this.store.load());
+      return send(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
+    }
+  }
+
+  /** Claims and processes one canonical message. Requires the server's fenced work routes. */
+  async processWorkOnce(signal?: AbortSignal): Promise<boolean> {
+    const handler = this.options.handler;
+    if (!handler) throw new TypeError('A durable work handler is required');
+    if (signal?.aborted) return false;
+    let claimed: { work: WorkLease | null };
+    try { claimed = await this.postWork<{ work: WorkLease | null }>('/api/agent/work/claim', {}); }
+    catch (error) {
+      if (error instanceof SinaloaError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError();
+      throw error;
+    }
+    if (claimed.work === null) return false;
+    const work = claimed.work;
+    if (!work || typeof work.workId !== 'string' || typeof work.leaseToken !== 'string' || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || typeof work.message?.id !== 'string' || !work.message.id) {
+      throw new SinaloaError('Sinaloa returned an invalid work claim');
+    }
+    const session = validSession(await this.store.load());
+    if (work.message.recipientAgentId !== session.agentId || work.message.status === 'processed' || !work.message.from?.address) {
+      throw new SinaloaError('Sinaloa returned work for the wrong recipient');
+    }
+    const workPath = `/api/agent/work/${encodeURIComponent(work.workId)}`;
+    // The server scopes idempotency by agent, so a reclaimed lease needs new
+    // request keys; reuse these keys only within this claim attempt.
+    const attemptId = globalThis.crypto.randomUUID();
+    const acknowledgeKey = `connector:${work.message.id}:${attemptId}:ack`;
+    const completeKey = `connector:${work.message.id}:${attemptId}:complete`;
+    const workAbort = new AbortController();
+    const onAbort = () => workAbort.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    let leaseExpiresAt = work.leaseExpiresAt;
+    let renewalError: unknown = null;
+    const renewal = (async () => {
+      while (!workAbort.signal.aborted) {
+        const remaining = Date.parse(leaseExpiresAt) - Date.now();
+        await delay(Math.max(100, Math.min(30_000, Math.floor(remaining / 3))), workAbort.signal);
+        if (workAbort.signal.aborted) break;
+        try {
+          const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken });
+          if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new SinaloaError('Sinaloa returned an invalid lease renewal');
+          leaseExpiresAt = renewed.leaseExpiresAt;
+        } catch (error) { renewalError = error; workAbort.abort(); break; }
+      }
+    })();
+    const stopRenewal = async () => { workAbort.abort(); await renewal; };
+    let settled = false;
+    try {
+      await handler.admit(work.message);
+      if (workAbort.signal.aborted) throw new SinaloaError('Work lease was interrupted before acknowledgement');
+      const acknowledged = await this.postWork<WorkSettlement>(`${workPath}/acknowledge`, { leaseToken: work.leaseToken }, acknowledgeKey);
+      if (acknowledged.workId !== work.workId || acknowledged.status !== 'acknowledged' || acknowledged.receipt?.state !== 'acknowledged' || acknowledged.receipt.messageId !== work.message.id) {
+        throw new SinaloaError('Sinaloa returned an invalid acknowledgement');
+      }
+      await handler.process(work.message, {
+        signal: workAbort.signal,
+        reply: (text, key, extra) => this.reply(work.message, text, key, extra)
+      });
+      await stopRenewal();
+      if (renewalError) throw new SinaloaError('Work lease renewal failed');
+      if (signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new SinaloaError('Work lease expired before completion');
+      const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey);
+      if (completed.workId !== work.workId || completed.status !== 'processed' || completed.receipt?.state !== 'processed' || completed.receipt.messageId !== work.message.id) {
+        throw new SinaloaError('Sinaloa returned an invalid completion');
+      }
+      settled = true;
+      return true;
+    } catch (error) {
+      await stopRenewal();
+      if (!renewalError && !settled && !signal?.aborted && Date.parse(leaseExpiresAt) > Date.now()) {
+        await this.postWork(`${workPath}/fail`, { leaseToken: work.leaseToken, retryable: true, reasonCode: 'HANDLER_FAILED' }).catch(() => {});
+      }
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+      await stopRenewal();
+    }
   }
 
   /** Reads one durable delta page. The callback must complete before its cursor is committed. */
@@ -158,6 +341,7 @@ export class SinaloaConnector {
     let failures = 0;
     while (!signal.aborted) {
       try {
+        if (this.options.handler && await this.processWorkOnce(signal)) { failures = 0; continue; }
         const page = await this.pollOnce();
         failures = 0;
         if (page.hasMore) continue;
@@ -165,7 +349,7 @@ export class SinaloaConnector {
       } catch (error) {
         if (signal.aborted) break;
         // Authentication/credential persistence requires operator intervention.
-        if (error instanceof ConnectorPersistenceError || (error instanceof SinaloaError && [401, 403].includes(error.status || 0))) throw error;
+        if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError || (error instanceof SinaloaError && [401, 403].includes(error.status || 0))) throw error;
         failures += 1;
         const ceiling = Math.min(30_000, 500 * 2 ** Math.min(failures, 6));
         await delay(Math.round(ceiling / 2 + Math.random() * ceiling / 2), signal);

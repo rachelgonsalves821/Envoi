@@ -64,6 +64,8 @@ const policyKeyring = Object.freeze({ activeKeyId: policyActiveKeyId, keys: Obje
 const emailTransport = createEmailTransport();
 const agentAccessTokenTtlSeconds = Math.max(60, Number(process.env.SINALOA_AGENT_ACCESS_TOKEN_TTL_SECONDS || 900));
 const agentRefreshTokenTtlDays = Math.max(1, Number(process.env.SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS || 30));
+const configuredAgentWorkLeaseMs = Number(process.env.SINALOA_AGENT_WORK_LEASE_MS || 60_000);
+const agentWorkLeaseMs = Number.isFinite(configuredAgentWorkLeaseMs) ? Math.max(1_000, Math.min(300_000, configuredAgentWorkLeaseMs)) : 60_000;
 const calendarProviders = Object.freeze({
   google: {
     label: 'Google Calendar',
@@ -369,6 +371,19 @@ const getAgentPrincipal = async (req, inboxId) => {
   const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${index.agentId}.json`));
   return agent?.status === 'active' && agent.onboardingStatus === 'approved' ? agent : null;
 };
+const workClaimPath = (inboxId, workId) => path.join('inboxes', inboxId, 'work-claims', `${workId}.json`);
+
+async function getAgentWorkIdentity(req) {
+  const raw = bearerToken(req);
+  if (!raw) return null;
+  const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
+  if (!index?.inboxId || index.tokenType !== 'access' || index.revokedAt || new Date(index.expiresAt) <= new Date() || !index.familyId) return null;
+  const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));
+  if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
+  const agent = await store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`));
+  if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') return null;
+  return { agent, familyId: index.familyId, inboxId: index.inboxId };
+}
 const body = async (req) => {
   let raw = '';
   for await (const chunk of req) {
@@ -1369,6 +1384,166 @@ async function route(req, res) {
     return json(res, readiness.ready ? 200 : 503, readiness);
   }
   if (req.method === 'GET' && url.pathname === '/api/email-transport/status') return json(res, 200, { ...emailTransport.status(), enabled: externalEmailEnabled, internalAgentDomain: agentDomain, internalIdentityOnly: agentDomain === 'sinaloa.mail' });
+
+  const workSettlementRoute = url.pathname.match(/^\/api\/agent\/work\/([^/]+)\/(renew|acknowledge|complete|fail)$/);
+  if ((req.method === 'POST' && url.pathname === '/api/agent/work/claim') || (req.method === 'POST' && workSettlementRoute)) {
+    const identity = await getAgentWorkIdentity(req);
+    if (!identity) return fail(res, 401, 'Active v1 agent credential required');
+    if (!hasPermission(identity.agent, 'receive_agent_messages')) return fail(res, 403, 'Agent is not approved to receive messages');
+    const input = workSettlementRoute ? await body(req) : {};
+    const workId = workSettlementRoute ? assertSafeIdentifier(workSettlementRoute[1], 'workId') : null;
+    const action = workSettlementRoute?.[2] || 'claim';
+    const requestedMessage = workSettlementRoute ? await store.getJson(messagePath(identity.inboxId, workId)) : null;
+    if (action !== 'claim' && (typeof input.leaseToken !== 'string' || !input.leaseToken)) return fail(res, 400, 'leaseToken is required');
+    if (action === 'fail' && typeof input.retryable !== 'boolean') return fail(res, 400, 'retryable must be a boolean');
+    let idempotencyKey = null;
+    let idempotencyPath = null;
+    let requestDigest = null;
+    if (action === 'acknowledge' || action === 'complete') {
+      idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'], { required: true });
+      idempotencyPath = scopedIdempotencyPath(`agent-work-${action}`, identity.inboxId, identity.agent.id, idempotencyKey);
+      requestDigest = semanticDigest({ workId, leaseToken: input.leaseToken });
+    }
+    const result = await withInboxMutation(identity.inboxId, async writeAudit => {
+      const currentIdentity = await getAgentWorkIdentity(req);
+      if (!currentIdentity || currentIdentity.inboxId !== identity.inboxId || currentIdentity.agent.id !== identity.agent.id || currentIdentity.familyId !== identity.familyId) {
+        throw Object.assign(new Error('Agent credential is revoked or no longer active'), { statusCode: 401 });
+      }
+      if (!hasPermission(currentIdentity.agent, 'receive_agent_messages')) throw Object.assign(new Error('Agent is not approved to receive messages'), { statusCode: 403 });
+      if (action === 'claim') {
+        const messages = (await store.listJson(path.join('inboxes', identity.inboxId, 'messages')))
+          .filter(message => message.senderInboxId && message.senderAgentId && message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status))
+          .sort((left, right) => String(left.deliveredAt || left.createdAt).localeCompare(String(right.deliveredAt || right.createdAt)) || String(left.id).localeCompare(String(right.id)));
+        for (const message of messages) {
+          const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
+          const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
+          if (senderContact?.blocked || senderContact?.approved === false || recipientContact?.blocked || recipientContact?.approved === false) continue;
+          const claimPath = workClaimPath(identity.inboxId, message.id);
+          const currentClaim = await store.getJson(claimPath);
+          if (currentClaim && ['completed', 'failed'].includes(currentClaim.status)) continue;
+          if (currentClaim && ['claimed', 'acknowledged'].includes(currentClaim.status) && new Date(currentClaim.leaseExpiresAt) > new Date()) continue;
+          const now = store.now();
+          const leaseToken = crypto.randomBytes(32).toString('base64url');
+          const leaseExpiresAt = new Date(Date.now() + agentWorkLeaseMs).toISOString();
+          const claim = {
+            workId: message.id,
+            messageId: message.id,
+            agentId: identity.agent.id,
+            inboxId: identity.inboxId,
+            credentialFamilyId: identity.familyId,
+            fence: Number(currentClaim?.fence || 0) + 1,
+            leaseTokenHash: hashSecret(leaseToken),
+            leaseExpiresAt,
+            status: 'claimed',
+            createdAt: currentClaim?.createdAt || now,
+            updatedAt: now
+          };
+          await store.putJson(claimPath, claim);
+          await writeAudit('agent.work_claimed', { workId: message.id, agentId: identity.agent.id, fence: claim.fence }, now);
+          return { status: 200, payload: { work: { workId: message.id, message, leaseToken, leaseExpiresAt } } };
+        }
+        return { status: 200, payload: { work: null } };
+      }
+
+      const currentMessage = await store.getJson(messagePath(identity.inboxId, workId));
+      if (!currentMessage || currentMessage.recipientInboxId !== identity.inboxId || currentMessage.recipientAgentId !== identity.agent.id) {
+        throw Object.assign(new Error('Work was not found for this agent'), { statusCode: 404 });
+      }
+      const senderContact = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'contacts', `${identity.agent.id}.json`));
+      const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${currentMessage.senderAgentId}.json`));
+      if (senderContact?.blocked || senderContact?.approved === false || recipientContact?.blocked || recipientContact?.approved === false) {
+        throw Object.assign(new Error('Message receive permission was lost'), { statusCode: 403 });
+      }
+      const claimPath = workClaimPath(identity.inboxId, workId);
+      const claim = await store.getJson(claimPath);
+      const leaseTokenHash = hashSecret(input.leaseToken);
+      if (!claim || claim.credentialFamilyId !== identity.familyId || claim.leaseTokenHash !== leaseTokenHash) {
+        throw Object.assign(new Error('Work lease fence is stale'), { statusCode: 409 });
+      }
+      const now = store.now();
+      const live = ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(now);
+      const priorComplete = action === 'complete' ? await store.getJson(idempotencyPath) : null;
+      if (action === 'complete' && priorComplete) {
+        const replay = replayResponse(priorComplete, { principalId: identity.agent.id, requestDigest });
+        if (claim.status === 'completed' && replay) return { status: 200, payload: replay };
+      }
+      if (!live) throw Object.assign(new Error('Work lease has expired or was consumed'), { statusCode: 409 });
+
+      if (action === 'renew') {
+        claim.leaseExpiresAt = new Date(Date.now() + agentWorkLeaseMs).toISOString();
+        claim.updatedAt = now;
+        await store.putJson(claimPath, claim);
+        return { status: 200, payload: { workId, leaseToken: input.leaseToken, leaseExpiresAt: claim.leaseExpiresAt } };
+      }
+      if (action === 'fail') {
+        const reasonCode = input.reasonCode == null ? null : String(input.reasonCode).slice(0, 120);
+        claim.status = input.retryable ? 'retryable' : 'failed';
+        claim.failure = { retryable: input.retryable, reasonCode, createdAt: now };
+        claim.leaseExpiresAt = null;
+        claim.updatedAt = now;
+        await store.putJson(claimPath, claim);
+        await writeAudit('agent.work_failed', { workId, agentId: identity.agent.id, retryable: input.retryable, reasonCode }, now);
+        return { status: 200, payload: { workId, status: claim.status } };
+      }
+
+      const state = action === 'acknowledge' ? 'acknowledged' : 'processed';
+      if (action === 'acknowledge') {
+        const replay = replayResponse(await store.getJson(idempotencyPath), { principalId: identity.agent.id, requestDigest });
+        if (replay) return { status: 200, payload: replay };
+      }
+      if (currentMessage.status === 'processed' || claim.status === 'completed') {
+        throw Object.assign(new Error('Work has already been processed'), { statusCode: 409 });
+      }
+      const receiptId = `delivery_receipt_${currentMessage.id}_${state}`;
+      const existingReceipt = await store.getJson(deliveryReceiptPath(identity.inboxId, receiptId));
+      if (existingReceipt && action === 'acknowledge' && currentMessage.status === 'acknowledged') {
+        const receipt = {
+          id: existingReceipt.id,
+          type: 'delivery',
+          messageId: currentMessage.id,
+          senderAgentId: currentMessage.senderAgentId,
+          recipientAgentId: currentMessage.recipientAgentId,
+          state: 'acknowledged',
+          createdAt: existingReceipt.createdAt
+        };
+        const response = { workId, status: 'acknowledged', receipt };
+        claim.status = 'acknowledged';
+        claim.updatedAt = now;
+        await store.putJson(claimPath, claim);
+        await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
+        return { status: 200, payload: response };
+      }
+      if (existingReceipt) throw Object.assign(new Error('Message already has a receipt outside this work fence'), { statusCode: 409 });
+      const updated = { ...currentMessage, status: state, [`${state}At`]: now, updatedAt: now };
+      const receipt = {
+        id: receiptId,
+        type: 'delivery',
+        messageId: currentMessage.id,
+        senderAgentId: currentMessage.senderAgentId,
+        recipientAgentId: currentMessage.recipientAgentId,
+        state,
+        createdAt: now
+      };
+      const documents = [];
+      for (const targetInboxId of new Set([currentMessage.senderInboxId, currentMessage.recipientInboxId])) {
+        const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
+        if (!targetInbox) continue;
+        const currentCase = await ensureStructuredCase(targetInbox, { ...updated, caseId: updated.caseId }, updated.senderAgentId, updated.createdAt);
+        const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), updated, state, now);
+        documents.push(document(messagePath(targetInboxId, currentMessage.id), updated), document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
+        await writeAudit(`message.${state}`, { messageId: currentMessage.id, caseId: currentMessage.caseId, senderAgentId: currentMessage.senderAgentId, recipientAgentId: currentMessage.recipientAgentId }, now, targetInboxId);
+      }
+      claim.status = state === 'processed' ? 'completed' : 'acknowledged';
+      claim.updatedAt = now;
+      if (state === 'processed') claim.leaseExpiresAt = null;
+      const response = { workId, status: state, receipt };
+      await store.putJsonBatch(documents);
+      await store.putJson(claimPath, claim);
+      if (idempotencyPath) await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
+      return { status: 201, payload: response };
+    }, [identity.inboxId, requestedMessage?.senderInboxId].filter(Boolean));
+    return json(res, result.status, result.payload);
+  }
 
   if (req.method === 'POST' && url.pathname === '/api/email-webhooks/resend') {
     if (!externalEmailEnabled) return fail(res, 404, 'External email transport is disabled');

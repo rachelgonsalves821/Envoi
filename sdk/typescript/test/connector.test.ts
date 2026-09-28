@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore } from '@sinaloa/protocol/connector';
+import { ConnectorContractError, ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore } from '@sinaloa/protocol/connector';
 
 const session = (): ConnectorSession => ({
   agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@sinaloa.mail',
@@ -102,5 +102,136 @@ describe('Sinaloa outbound connector', () => {
     const fetcher = vi.fn();
     await expect(enrollConnector('http://api.example', 'secret', memoryStore().store, { fetch: fetcher as typeof fetch })).rejects.toThrow(/HTTPS/);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('claims, durably admits, acknowledges, invokes the handler, replies, and completes under one fence', async () => {
+    const memory = memoryStore(session());
+    const order: string[] = [];
+    const message = { id: 'msg_one', senderAgentId: 'agent_two', recipientAgentId: 'agent_one', from: { agentId: 'agent_two', address: 'two@sinaloa.mail' }, caseId: 'case_one', text: 'Can we meet?', status: 'delivered' };
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const path = String(url);
+      const body = JSON.parse(String(init?.body));
+      if (path.endsWith('/work/claim')) { order.push('claim'); return new Response(JSON.stringify({ work: { workId: 'work_one', message, leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString() } })); }
+      if (path.endsWith('/work/work_one/acknowledge')) {
+        order.push('ack'); expect(body).toEqual({ leaseToken: 'fence_one' });
+        expect(new Headers(init?.headers).get('Idempotency-Key')).toMatch(/^connector:msg_one:[a-f0-9-]+:ack$/);
+        return new Response(JSON.stringify({ workId: 'work_one', status: 'acknowledged', receipt: { id: 'receipt_ack', messageId: 'msg_one', state: 'acknowledged' } }));
+      }
+      if (path.endsWith('/messages')) {
+        order.push('reply'); expect(body).toMatchObject({ senderAgentId: 'agent_one', recipientEmail: 'two@sinaloa.mail', caseId: 'case_one', text: 'Yes' });
+        expect(new Headers(init?.headers).get('Idempotency-Key')).toBe('reply-msg-one-1');
+        return new Response(JSON.stringify({ id: 'msg_reply' }));
+      }
+      if (path.endsWith('/work/work_one/complete')) {
+        order.push('complete'); expect(body).toEqual({ leaseToken: 'fence_one' });
+        expect(new Headers(init?.headers).get('Idempotency-Key')).toMatch(/^connector:msg_one:[a-f0-9-]+:complete$/);
+        return new Response(JSON.stringify({ workId: 'work_one', status: 'processed', receipt: { id: 'receipt_processed', messageId: 'msg_one', state: 'processed' } }));
+      }
+      throw new Error(`Unexpected route ${path}`);
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, {
+      fetch: fetcher as typeof fetch,
+      handler: {
+        admit: async () => { order.push('admit'); },
+        process: async (_message, context) => { order.push('process'); await context.reply('Yes', 'reply-msg-one-1'); }
+      }
+    });
+    expect(await connector.processWorkOnce()).toBe(true);
+    expect(order).toEqual(['claim', 'admit', 'ack', 'process', 'reply', 'complete']);
+  });
+
+  it('reports handler failure through a retryable fenced fail without sending raw error text', async () => {
+    const memory = memoryStore(session());
+    const paths: string[] = [];
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const path = String(url);
+      paths.push(path);
+      if (path.endsWith('/work/claim')) return new Response(JSON.stringify({ work: { workId: 'work_one', message: { id: 'msg_one', recipientAgentId: 'agent_one', from: { address: 'two@sinaloa.mail' }, text: 'hello', status: 'delivered' }, leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString() } }));
+      if (path.endsWith('/work/work_one/acknowledge')) return new Response(JSON.stringify({ workId: 'work_one', status: 'acknowledged', receipt: { messageId: 'msg_one', state: 'acknowledged' } }));
+      if (path.endsWith('/work/work_one/fail')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ leaseToken: 'fence_one', retryable: true, reasonCode: 'HANDLER_FAILED' });
+        return new Response(JSON.stringify({ workId: 'work_one', status: 'retryable' }));
+      }
+      throw new Error(`Unexpected route ${path}`);
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, handler: {
+      admit: async () => {}, process: async () => { throw new Error('private-agent-secret'); }
+    } });
+    await expect(connector.processWorkOnce()).rejects.toThrow('private-agent-secret');
+    expect(paths.some(path => path.endsWith('/work/work_one/fail'))).toBe(true);
+    expect(paths.some(path => path.endsWith('/work/work_one/complete'))).toBe(false);
+  });
+
+  it('does not invoke the runtime when no canonical work is claimable', async () => {
+    const memory = memoryStore(session());
+    const admit = vi.fn();
+    const process = vi.fn();
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ work: null })));
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, handler: { admit, process } });
+    expect(await connector.processWorkOnce()).toBe(false);
+    expect(admit).not.toHaveBeenCalled();
+    expect(process).not.toHaveBeenCalled();
+  });
+
+  it('stops instead of treating a missing claim endpoint as an empty inbox', async () => {
+    const memory = memoryStore(session());
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ error: 'Not found' }), { status: 404 }));
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, handler: { admit: async () => {}, process: async () => {} } });
+    await expect(connector.processWorkOnce()).rejects.toBeInstanceOf(ConnectorContractError);
+  });
+
+  it('renews the same fence while a long handler is running', async () => {
+    const memory = memoryStore(session());
+    let renewals = 0;
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const path = String(url);
+      if (path.endsWith('/work/claim')) return new Response(JSON.stringify({ work: {
+        workId: 'work_one', message: { id: 'msg_one', recipientAgentId: 'agent_one', from: { address: 'two@sinaloa.mail' }, text: 'hello', status: 'delivered' },
+        leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 250).toISOString()
+      } }));
+      if (path.endsWith('/work/work_one/renew')) {
+        renewals += 1;
+        return new Response(JSON.stringify({ workId: 'work_one', leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 250).toISOString() }));
+      }
+      if (path.endsWith('/work/work_one/acknowledge')) return new Response(JSON.stringify({ workId: 'work_one', status: 'acknowledged', receipt: { messageId: 'msg_one', state: 'acknowledged' } }));
+      if (path.endsWith('/work/work_one/complete')) return new Response(JSON.stringify({ workId: 'work_one', status: 'processed', receipt: { messageId: 'msg_one', state: 'processed' } }));
+      throw new Error(`Unexpected route ${path}`);
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, handler: {
+      admit: async () => {},
+      process: async () => { await new Promise(resolve => setTimeout(resolve, 500)); }
+    } });
+    expect(await connector.processWorkOnce()).toBe(true);
+    expect(renewals).toBeGreaterThan(0);
+  });
+
+  it('runs the claim and processing loop until graceful shutdown', async () => {
+    const memory = memoryStore(session());
+    const stop = new AbortController();
+    let claims = 0;
+    const calls: string[] = [];
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const route = String(url);
+      if (route.endsWith('/work/claim')) {
+        claims += 1;
+        if (claims === 2) setTimeout(() => stop.abort(), 0);
+        return new Response(JSON.stringify({ work: claims === 1 ? {
+          workId: 'work_one', message: { id: 'msg_one', recipientAgentId: 'agent_one', from: { address: 'two@sinaloa.mail' }, text: 'hello', status: 'delivered' },
+          leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString()
+        } : null }));
+      }
+      if (route.endsWith('/work/work_one/acknowledge')) return new Response(JSON.stringify({ workId: 'work_one', status: 'acknowledged', receipt: { messageId: 'msg_one', state: 'acknowledged' } }));
+      if (route.endsWith('/work/work_one/complete')) {
+        return new Response(JSON.stringify({ workId: 'work_one', status: 'processed', receipt: { messageId: 'msg_one', state: 'processed' } }));
+      }
+      if (route.includes('/events/delta')) return new Response(JSON.stringify({ events: [], nextCursor: null, hasMore: false }));
+      throw new Error(`Unexpected route ${route}`);
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, pollIntervalMs: 100, handler: {
+      admit: async () => { calls.push('admit'); }, process: async () => { calls.push('process'); }
+    } });
+    await connector.run(stop.signal);
+    expect(calls).toEqual(['admit', 'process']);
+    expect(claims).toBeGreaterThan(1);
   });
 });
