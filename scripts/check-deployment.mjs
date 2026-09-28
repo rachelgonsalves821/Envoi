@@ -18,5 +18,6 @@ assert.equal(CONTAINER_DEFAULTS.SINALOA_PORT, '8787');
 const docker = await readFile(new URL('Dockerfile.cloudflare', root), 'utf8');
 assert.match(docker, /FROM node:22-alpine/);
 assert.match(docker, /EXPOSE 8787/);
+assert.match(docker, /COPY --chown=node:node protocol \.\/protocol/, 'Server startup imports the protocol schema; include it in the image');
 assert.equal((await readFile(new URL('.node-version', root), 'utf8')).trim(), '22');
 console.log(`Deployment configuration checked: ${fileURLToPath(root)}`);

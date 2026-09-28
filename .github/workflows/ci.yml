@@ -46,6 +46,7 @@ jobs:
           output=$(timeout 20s docker run --rm sinaloa-ci 2>&1)
           result=$?
           set -e
+          printf '%s\n' "$output"
           test "$result" -ne 0
           test "$result" -ne 124
           printf '%s\n' "$output" | grep -q 'Invalid production configuration'
