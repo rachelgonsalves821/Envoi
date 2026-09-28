@@ -6,6 +6,7 @@ const DEFAULT_ALLOWED_MIME_TYPES = Object.freeze([
   'application/pdf', 'image/jpeg', 'image/png', 'text/plain'
 ]);
 const SHA256_BASE64_LENGTH = 44;
+const MAX_PRESIGN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const WORKSPACE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const MIME_TYPE = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/;
 
@@ -20,10 +21,12 @@ export class ObjectStorageError extends Error {
 
 export function validateObjectStorageConfig(config = {}) {
   if (!config || typeof config !== 'object') throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'Object storage configuration is required');
-  const provider = config.provider ?? 'local';
+  const requestedProvider = config.provider ?? 'local';
+  const provider = requestedProvider === 'r2' ? 's3' : requestedProvider;
+  const region = requestedProvider === 'r2' ? (config.region ?? 'auto') : config.region;
   const maxObjectBytes = Number(config.maxObjectBytes ?? 25 * 1024 * 1024);
   const allowedMimeTypes = config.allowedMimeTypes ?? DEFAULT_ALLOWED_MIME_TYPES;
-  if (!['local', 's3'].includes(provider)) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'provider must be "local" or "s3"');
+  if (!['local', 's3'].includes(provider)) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'provider must be "local", "s3", or "r2"');
   if (!Number.isSafeInteger(maxObjectBytes) || maxObjectBytes < 1) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'maxObjectBytes must be a positive integer');
   if (!Array.isArray(allowedMimeTypes) || !allowedMimeTypes.length || allowedMimeTypes.some(type => typeof type !== 'string' || !MIME_TYPE.test(type))) {
     throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'allowedMimeTypes must contain valid MIME types');
@@ -34,7 +37,7 @@ export function validateObjectStorageConfig(config = {}) {
   }
   if (config.publicBucket || config.acl === 'public-read' || config.publicBaseUrl) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'Public object buckets are not supported');
   if (typeof config.bucket !== 'string' || !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(config.bucket)) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'A valid private S3 bucket is required');
-  if (typeof config.region !== 'string' || !/^[a-z0-9-]+$/.test(config.region)) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'A valid S3 region is required');
+  if (typeof region !== 'string' || !/^[a-z0-9-]+$/.test(region)) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'A valid S3 region is required');
   if (typeof config.accessKeyId !== 'string' || !config.accessKeyId || typeof config.secretAccessKey !== 'string' || !config.secretAccessKey) {
     throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'S3 credentials are required');
   }
@@ -44,10 +47,14 @@ export function validateObjectStorageConfig(config = {}) {
     throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'S3 endpoint must use HTTPS');
   }
   if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'S3 endpoint must not include credentials, query, or fragment');
+  const isR2 = requestedProvider === 'r2' || endpoint.hostname.endsWith('.r2.cloudflarestorage.com');
+  if (requestedProvider === 'r2' && !endpoint.hostname.endsWith('.r2.cloudflarestorage.com')) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'R2 requires the Cloudflare S3 API endpoint');
+  if (isR2 && endpoint.pathname !== '/') throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'R2 endpoint must not include a bucket or object path');
+  if (isR2 && !['auto', 'us-east-1'].includes(region)) throw new ObjectStorageError('INVALID_STORAGE_CONFIG', 'R2 region must be "auto" (or the supported us-east-1 alias)');
   return {
-    provider, endpoint: endpoint.toString().replace(/\/$/, ''), bucket: config.bucket, region: config.region,
+    provider, endpoint: endpoint.toString().replace(/\/$/, ''), bucket: config.bucket, region,
     accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey, sessionToken: config.sessionToken,
-    allowInsecureEndpoint: Boolean(config.allowInsecureEndpoint), maxObjectBytes, allowedMimeTypes: [...new Set(allowedMimeTypes)]
+    allowInsecureEndpoint: Boolean(config.allowInsecureEndpoint), isR2, maxObjectBytes, allowedMimeTypes: [...new Set(allowedMimeTypes)]
   };
 }
 
@@ -79,6 +86,9 @@ function clone(value) { return structuredClone(value); }
 function immutable(value) { return Object.freeze(clone(value)); }
 function sha256Base64(body) { return crypto.createHash('sha256').update(body).digest('base64'); }
 function safeKey(key) { return typeof key === 'string' && key.split('/').every(part => part && part !== '.' && part !== '..' && !part.includes('\\') && !part.includes('\0')); }
+function validatePresignExpiry(value) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > MAX_PRESIGN_TTL_SECONDS) throw new ObjectStorageError('INVALID_PRESIGN_TTL', 'Presigned URL expiry must be between 1 second and 7 days');
+}
 
 export class InMemoryMetadataStore {
   #records = new Map();
@@ -253,6 +263,7 @@ export class LocalObjectStorageAdapter {
     await Promise.all([unlink(target).catch(error => { if (error.code !== 'ENOENT') throw error; }), unlink(`${target}.metadata.json`).catch(error => { if (error.code !== 'ENOENT') throw error; })]);
   }
   async createPresignedUpload({ key, contentType, checksumSha256, expiresInSeconds }) {
+    validatePresignExpiry(expiresInSeconds);
     const token = crypto.randomUUID();
     this.#tokens.set(token, { key, contentType, checksumSha256, expiresAt: Date.now() + expiresInSeconds * 1000, method: 'PUT' });
     return immutable({ url: `local-object://upload/${token}`, method: 'PUT', headers: { 'content-type': contentType, 'x-amz-checksum-sha256': checksumSha256 } });
@@ -265,6 +276,7 @@ export class LocalObjectStorageAdapter {
     this.#tokens.delete(token);
   }
   async createPresignedDownload({ key, expiresInSeconds }) {
+    validatePresignExpiry(expiresInSeconds);
     const token = crypto.randomUUID();
     this.#tokens.set(token, { key, expiresAt: Date.now() + expiresInSeconds * 1000, method: 'GET' });
     return immutable({ url: `local-object://download/${token}`, method: 'GET', headers: {} });
@@ -282,10 +294,10 @@ function awsEncode(value) { return encodeURIComponent(value).replace(/[!'()*]/g,
 function hmac(key, value, encoding) { return crypto.createHmac('sha256', key).update(value).digest(encoding); }
 function amzDate(date) { return date.toISOString().replace(/[:-]|\.\d{3}/g, ''); }
 function dateStamp(date) { return amzDate(date).slice(0, 8); }
-function canonicalQuery(query) { return [...query.entries()].map(([key, value]) => [awsEncode(key), awsEncode(value)]).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join('&'); }
+function canonicalQuery(query) { return [...query.entries()].map(([key, value]) => [awsEncode(key), awsEncode(value)]).sort(([aKey, aValue], [bKey, bValue]) => aKey < bKey ? -1 : aKey > bKey ? 1 : aValue < bValue ? -1 : aValue > bValue ? 1 : 0).map(([key, value]) => `${key}=${value}`).join('&'); }
 
 export class S3CompatibleObjectStorageAdapter {
-  constructor(config) { this.config = validateObjectStorageConfig({ ...config, provider: 's3' }); this.endpoint = new URL(this.config.endpoint); }
+  constructor(config) { this.config = validateObjectStorageConfig({ ...config, provider: config?.provider ?? 's3' }); this.endpoint = new URL(this.config.endpoint); }
   #objectPath(key) {
     if (!safeKey(key)) throw new ObjectStorageError('INVALID_OBJECT_KEY', 'Invalid object key');
     const base = this.endpoint.pathname.replace(/\/$/, '');
@@ -305,18 +317,27 @@ export class S3CompatibleObjectStorageAdapter {
   }
   #url(objectPath, query) { return `${this.endpoint.origin}${objectPath}?${canonicalQuery(query)}`; }
   async createPresignedUpload({ key, contentType, checksumSha256, expiresInSeconds }) {
+    validatePresignExpiry(expiresInSeconds);
     const now = new Date();
     const objectPath = this.#objectPath(key);
-    const query = new URLSearchParams({ 'X-Amz-Algorithm': 'AWS4-HMAC-SHA256', 'X-Amz-Credential': `${this.config.accessKeyId}/${dateStamp(now)}/${this.config.region}/s3/aws4_request`, 'X-Amz-Date': amzDate(now), 'X-Amz-Expires': String(expiresInSeconds), 'X-Amz-SignedHeaders': 'content-type;host;x-amz-checksum-sha256' });
+    const uploadHeaders = {
+      'content-type': contentType,
+      'if-none-match': '*',
+      'x-amz-meta-sinaloa-sha256': checksumSha256,
+      ...(!this.config.isR2 ? { 'x-amz-checksum-sha256': checksumSha256 } : {})
+    };
+    const signedHeaders = ['host', ...Object.keys(uploadHeaders)].sort().join(';');
+    const query = new URLSearchParams({ 'X-Amz-Algorithm': 'AWS4-HMAC-SHA256', 'X-Amz-Content-Sha256': 'UNSIGNED-PAYLOAD', 'X-Amz-Credential': `${this.config.accessKeyId}/${dateStamp(now)}/${this.config.region}/s3/aws4_request`, 'X-Amz-Date': amzDate(now), 'X-Amz-Expires': String(expiresInSeconds), 'X-Amz-SignedHeaders': signedHeaders });
     if (this.config.sessionToken) query.set('X-Amz-Security-Token', this.config.sessionToken);
-    const signing = this.#sign({ method: 'PUT', objectPath, query, headers: { 'content-type': contentType, 'x-amz-checksum-sha256': checksumSha256 }, now });
+    const signing = this.#sign({ method: 'PUT', objectPath, query, headers: uploadHeaders, now });
     query.set('X-Amz-Signature', signing.signature);
-    return immutable({ url: this.#url(objectPath, query), method: 'PUT', headers: { 'content-type': contentType, 'x-amz-checksum-sha256': checksumSha256 } });
+    return immutable({ url: this.#url(objectPath, query), method: 'PUT', headers: uploadHeaders });
   }
   async createPresignedDownload({ key, expiresInSeconds }) {
+    validatePresignExpiry(expiresInSeconds);
     const now = new Date();
     const objectPath = this.#objectPath(key);
-    const query = new URLSearchParams({ 'X-Amz-Algorithm': 'AWS4-HMAC-SHA256', 'X-Amz-Credential': `${this.config.accessKeyId}/${dateStamp(now)}/${this.config.region}/s3/aws4_request`, 'X-Amz-Date': amzDate(now), 'X-Amz-Expires': String(expiresInSeconds), 'X-Amz-SignedHeaders': 'host' });
+    const query = new URLSearchParams({ 'X-Amz-Algorithm': 'AWS4-HMAC-SHA256', 'X-Amz-Content-Sha256': 'UNSIGNED-PAYLOAD', 'X-Amz-Credential': `${this.config.accessKeyId}/${dateStamp(now)}/${this.config.region}/s3/aws4_request`, 'X-Amz-Date': amzDate(now), 'X-Amz-Expires': String(expiresInSeconds), 'X-Amz-SignedHeaders': 'host' });
     if (this.config.sessionToken) query.set('X-Amz-Security-Token', this.config.sessionToken);
     query.set('X-Amz-Signature', this.#sign({ method: 'GET', objectPath, query, now }).signature);
     return immutable({ url: this.#url(objectPath, query), method: 'GET', headers: {} });
@@ -335,7 +356,7 @@ export class S3CompatibleObjectStorageAdapter {
     if (response.status === 404) return null;
     if (!response.ok) throw new ObjectStorageError('OBJECT_STORAGE_UNAVAILABLE', `S3 HEAD failed with ${response.status}`, 503);
     const size = Number(response.headers.get('content-length'));
-    const checksumSha256 = response.headers.get('x-amz-checksum-sha256');
+    const checksumSha256 = response.headers.get('x-amz-meta-sinaloa-sha256') || response.headers.get('x-amz-checksum-sha256');
     return immutable({ size, checksumSha256, contentType: response.headers.get('content-type') });
   }
   async getObject(key) {
@@ -360,6 +381,8 @@ export class ObjectStorageService {
     this.metadataStore = metadataStore;
     this.quotaLedger = quotaLedger;
     this.scanner = scanner;
+    validatePresignExpiry(uploadUrlTtlSeconds);
+    validatePresignExpiry(downloadUrlTtlSeconds);
     this.config = { maxObjectBytes, allowedMimeTypes, uploadUrlTtlSeconds, downloadUrlTtlSeconds };
   }
   async init() { await this.adapter.init?.(); }
@@ -399,6 +422,7 @@ export class ObjectStorageService {
     try {
       const body = await this.adapter.getObject(record.key);
       if (!body) throw new ObjectStorageError('OBJECT_NOT_FOUND', 'Object is missing from storage', 404);
+      if (body.length !== record.size || sha256Base64(body) !== record.checksumSha256) throw new ObjectStorageError('CHECKSUM_MISMATCH', 'Stored object failed immutable size or checksum verification', 422);
       const result = await this.scanner.scan({ body, object: record });
       if (!result || !['clean', 'infected'].includes(result.status)) throw new ObjectStorageError('INVALID_SCAN_RESULT', 'Scanner returned an invalid result');
       return this.metadataStore.updateScan(id, { state: result.status, scannedAt: new Date().toISOString(), result: { status: result.status, engine: result.engine ?? null, signature: result.signature ?? null } });

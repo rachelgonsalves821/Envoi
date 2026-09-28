@@ -1,15 +1,12 @@
 import pg from 'pg';
 import { runMigrations } from './migrations.js';
+import { createPostgresOptions } from './postgres-options.js';
 
 const { Pool } = pg;
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL is required to run migrations');
 
-const pool = new Pool({
-  connectionString,
-  max: 1,
-  ssl: process.env.SINALOA_DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined
-});
+const pool = new Pool(createPostgresOptions(connectionString, process.env, { max: 1 }));
 
 try {
   const result = await runMigrations(pool);

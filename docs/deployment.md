@@ -11,7 +11,9 @@ The backend can run as one or more external service instances. Each instance run
 - `SINALOA_MAX_BODY_BYTES`: maximum JSON request size; increase only when the asset strategy is ready for it.
 - `DATABASE_URL`: required in production. It stores application records and the transactional delivery outbox.
 - `SINALOA_DB_POOL_SIZE`: PostgreSQL connection pool size.
-- `SINALOA_DB_SSL`: set to `true` for hosted PostgreSQL providers that require TLS.
+- `SINALOA_DB_SSL_MODE`: use `verify-full` in production. Certificate verification cannot be disabled in production.
+- `SINALOA_DB_CA`: optional PEM CA chain supplied as a runtime secret when the provider is not trusted by the base image.
+- `SINALOA_DB_CONNECT_TIMEOUT_MS`, `SINALOA_DB_STATEMENT_TIMEOUT_MS`, `SINALOA_DB_QUERY_TIMEOUT_MS`: bounded positive connection and query timeouts.
 - `SINALOA_DELIVERY_MAX_ATTEMPTS`: delivery attempts before a message enters the dead-letter queue; defaults to `5`.
 - `SINALOA_DELIVERY_POLL_MS`: idle worker polling interval; defaults to `250` milliseconds.
 - `SINALOA_DELIVERY_LEASE_MS`: lease duration used to recover work from an interrupted process; defaults to `30000` milliseconds.

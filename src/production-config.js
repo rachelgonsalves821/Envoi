@@ -21,6 +21,7 @@ export function validateProductionConfiguration(env = process.env) {
   const publicUrl = httpsUrl(required(env, 'SINALOA_PUBLIC_URL', errors), 'SINALOA_PUBLIC_URL', errors);
   const databaseUrl = required(env, 'DATABASE_URL', errors);
   if (databaseUrl && !/^postgres(?:ql)?:\/\//i.test(databaseUrl)) errors.push('DATABASE_URL must be a PostgreSQL connection URL');
+  if ((env.SINALOA_DB_SSL_MODE || (env.SINALOA_DB_SSL === 'true' ? 'verify-full' : 'disable')) !== 'verify-full') errors.push('SINALOA_DB_SSL_MODE must be verify-full in production');
   if ((env.SINALOA_HUMAN_AUTH_PROVIDER || 'workos') !== 'workos') errors.push('SINALOA_HUMAN_AUTH_PROVIDER must be workos in production');
   required(env, 'WORKOS_CLIENT_ID', errors);
   required(env, 'WORKOS_API_KEY', errors);
@@ -62,6 +63,19 @@ export function validateProductionConfiguration(env = process.env) {
     required(env, 'RESEND_WEBHOOK_SECRET', errors);
   }
 
+  const positiveIntegerVariables = [
+    'SINALOA_PORT', 'SINALOA_MAX_BODY_BYTES', 'SINALOA_DB_POOL_SIZE', 'SINALOA_DB_CONNECT_TIMEOUT_MS',
+    'SINALOA_DB_STATEMENT_TIMEOUT_MS', 'SINALOA_DB_QUERY_TIMEOUT_MS', 'SINALOA_REQUEST_TIMEOUT_MS',
+    'SINALOA_READINESS_TIMEOUT_MS', 'SINALOA_MAX_SSE_PER_PRINCIPAL', 'SINALOA_AGENT_ACCESS_TOKEN_TTL_SECONDS',
+    'SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS', 'SINALOA_DELIVERY_MAX_ATTEMPTS', 'SINALOA_DELIVERY_POLL_MS',
+    'SINALOA_DELIVERY_LEASE_MS', 'SINALOA_DELIVERY_RETRY_BASE_MS', 'SINALOA_DELIVERY_RETRY_MAX_MS',
+    'SINALOA_OBJECT_MAX_BYTES', 'SINALOA_WORKSPACE_OBJECT_QUOTA_BYTES', 'SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS',
+    'SINALOA_EXTERNAL_EMAIL_AGENT_HOURLY_LIMIT', 'SINALOA_EXTERNAL_EMAIL_RECIPIENT_HOURLY_LIMIT'
+  ];
+  for (const name of positiveIntegerVariables) {
+    if (env[name] !== undefined && (!Number.isSafeInteger(Number(env[name])) || Number(env[name]) < 1)) errors.push(`${name} must be a positive integer`);
+  }
+
   if (errors.length) throw new Error(`Invalid production configuration:\n- ${[...new Set(errors)].join('\n- ')}`);
-  return { mode: 'production', validated: true, publicOrigin: publicUrl.origin, corsOrigins: origins, platformDomain, externalEmailEnabled, emailDomain, objectStorageProvider: 's3', humanAuthProvider: 'workos' };
+  return { mode: 'production', validated: true, publicOrigin: publicUrl.origin, corsOrigins: origins, platformDomain, externalEmailEnabled, emailDomain, objectStorageProvider: 's3', humanAuthProvider: 'workos', databaseTlsMode: 'verify-full' };
 }

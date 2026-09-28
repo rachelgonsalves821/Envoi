@@ -137,10 +137,28 @@ test('S3-compatible adapter creates private checksum-bound presigned URLs', asyn
   assert.equal(url.protocol, 'https:');
   assert.match(url.pathname, /^\/private-bucket\/workspaces\/workspace_a\/objects\/obj_1$/);
   assert.equal(url.searchParams.get('X-Amz-Algorithm'), 'AWS4-HMAC-SHA256');
-  assert.equal(url.searchParams.get('X-Amz-SignedHeaders'), 'content-type;host;x-amz-checksum-sha256');
+  assert.equal(url.searchParams.get('X-Amz-Content-Sha256'), 'UNSIGNED-PAYLOAD');
+  assert.deepEqual(url.searchParams.get('X-Amz-SignedHeaders').split(';'), ['content-type', 'host', 'if-none-match', 'x-amz-checksum-sha256', 'x-amz-meta-sinaloa-sha256']);
   assert.ok(url.searchParams.get('X-Amz-Signature'));
   assert.equal(upload.headers['x-amz-checksum-sha256'], digest);
+  assert.equal(upload.headers['x-amz-meta-sinaloa-sha256'], digest);
+  assert.equal(upload.headers['if-none-match'], '*');
   assert.ok(!upload.url.includes('secret-value'));
   const download = await adapter.createPresignedDownload({ key: 'workspaces/workspace_a/objects/obj_1', expiresInSeconds: 60 });
   assert.equal(new URL(download.url).searchParams.get('X-Amz-SignedHeaders'), 'host');
+});
+
+test('R2 mode uses region auto and metadata-bound SHA-256 without unsupported full-object checksum mode', async () => {
+  const adapter = new S3CompatibleObjectStorageAdapter({
+    provider: 'r2', endpoint: 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com',
+    bucket: 'private-bucket', accessKeyId: 'R2EXAMPLE', secretAccessKey: 'secret-value'
+  });
+  const digest = checksum(Buffer.from('payload'));
+  const upload = await adapter.createPresignedUpload({ key: 'workspaces/workspace_a/objects/obj_1', contentType: 'text/plain', checksumSha256: digest, expiresInSeconds: 60 });
+  const url = new URL(upload.url);
+  assert.match(url.searchParams.get('X-Amz-Credential'), /\/auto\/s3\/aws4_request$/);
+  assert.equal(upload.headers['x-amz-meta-sinaloa-sha256'], digest);
+  assert.equal(upload.headers['x-amz-checksum-sha256'], undefined);
+  assert.deepEqual(url.searchParams.get('X-Amz-SignedHeaders').split(';'), ['content-type', 'host', 'if-none-match', 'x-amz-meta-sinaloa-sha256']);
+  await assert.rejects(() => adapter.createPresignedDownload({ key: 'valid/key', expiresInSeconds: 604_801 }), error => error.code === 'INVALID_PRESIGN_TTL');
 });

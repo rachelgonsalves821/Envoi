@@ -1,11 +1,12 @@
 import pg from 'pg';
 import crypto from 'node:crypto';
 import { runMigrations } from './migrations.js';
+import { createPostgresOptions } from './postgres-options.js';
 
 const { Pool } = pg;
 
 export class PostgresStore {
-  constructor(connectionString) { this.pool = new Pool({ connectionString, max: Number(process.env.SINALOA_DB_POOL_SIZE || 10), ssl: process.env.SINALOA_DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined }); }
+  constructor(connectionString) { this.pool = new Pool(createPostgresOptions(connectionString)); }
   async init() {
     await runMigrations(this.pool);
   }

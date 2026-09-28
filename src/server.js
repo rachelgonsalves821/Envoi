@@ -11,6 +11,7 @@ import { createProtocolMessage } from './protocol-v1.js';
 import { createObjectStorageAdapter, DocumentObjectMetadataStore, FailClosedScanner, HttpMalwareScanner, ObjectStorageService, PersistentQuotaLedger } from './object-storage.js';
 import { validateProductionConfiguration } from './production-config.js';
 import { evaluateReadiness } from './readiness.js';
+import { clientIp, publicHttpError } from './http-security.js';
 import {
   acceptProposal,
   addPolicyEvaluation,
@@ -172,8 +173,8 @@ const applyHeaders = (res, origin, nonce) => {
     res.setHeader('vary', 'Origin');
     if (allowedOrigin !== '*') res.setHeader('access-control-allow-credentials', 'true');
   }
-  res.setHeader('access-control-allow-headers', 'content-type, authorization, idempotency-key, x-request-id, x-sinaloa-csrf, traceparent, x-amz-checksum-sha256');
-  res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+  res.setHeader('access-control-allow-headers', 'content-type, authorization, idempotency-key, if-none-match, x-request-id, x-sinaloa-csrf, traceparent, x-amz-checksum-sha256, x-amz-meta-sinaloa-sha256');
+  res.setHeader('access-control-allow-methods', 'GET, HEAD, POST, PUT, OPTIONS');
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('x-frame-options', 'DENY');
   res.setHeader('referrer-policy', 'no-referrer');
@@ -255,7 +256,6 @@ const publicCalendarConnector = connector => {
   return value;
 };
 const bearerToken = req => (req.headers.authorization || '').startsWith('Bearer ') ? req.headers.authorization.slice(7) : null;
-const clientIp = req => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
 const agentCredentialPath = tokenHash => path.join('auth', 'agent-credentials', `${tokenHash}.json`);
 const agentRefreshCredentialPath = tokenHash => path.join('auth', 'agent-refresh-credentials', `${tokenHash}.json`);
 const agentCredentialFamilyPath = (inboxId, agentId, familyId) => path.join('auth', 'agent-credential-families', inboxId, agentId, `${familyId}.json`);
@@ -2243,7 +2243,12 @@ await synchronizePublicEmailDirectory();
 deliveryWorker.start();
 const objectQuotaReaper = setInterval(() => objectStorage.quotaLedger.reclaimExpired?.().catch(error => console.error('Object quota reaper failed', error)), Number(process.env.SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
 objectQuotaReaper.unref?.();
-const server = http.createServer((req, res) => route(req, res).catch((error) => fail(res, error.statusCode || 500, error.message)));
+const server = http.createServer((req, res) => route(req, res).catch((error) => {
+  const requestId = String(req.headers['x-request-id'] || crypto.randomUUID()).slice(0, 128);
+  const response = publicHttpError(error, requestId);
+  if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
+  return json(res, response.status, response.body);
+}));
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 server.listen(port, host, () => console.log(`Sinaloa backend listening on http://${host}:${server.address().port}`));

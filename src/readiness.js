@@ -3,7 +3,6 @@ const safeMessage = error => String(error?.message || error || 'Readiness check 
 async function runCheck(check, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`${check.name} readiness check timed out`)), timeoutMs);
-  timer.unref?.();
   try {
     await Promise.race([
       check.run(controller.signal),

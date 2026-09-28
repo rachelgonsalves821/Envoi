@@ -6,6 +6,7 @@ const validProduction = (overrides = {}) => ({
   SINALOA_AUTH_MODE: 'production',
   SINALOA_PUBLIC_URL: 'https://app.sinaloa.example',
   DATABASE_URL: 'postgresql://user:secret@db.example/sinaloa',
+  SINALOA_DB_SSL_MODE: 'verify-full',
   SINALOA_HUMAN_AUTH_PROVIDER: 'workos',
   WORKOS_CLIENT_ID: 'client_123',
   WORKOS_API_KEY: 'sk_live_123',
@@ -50,4 +51,9 @@ test('production supports native platform routing without SMTP and conditionally
   }));
   assert.equal(dualTransport.externalEmailEnabled, true);
   assert.equal(dualTransport.emailDomain, 'mail.sinaloa.example');
+});
+
+test('production rejects insecure database TLS and invalid numeric limits', () => {
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_SSL_MODE: 'disable' })), /verify-full/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_POOL_SIZE: 'NaN', SINALOA_REQUEST_TIMEOUT_MS: '0' })), /SINALOA_DB_POOL_SIZE must be a positive integer[\s\S]*SINALOA_REQUEST_TIMEOUT_MS must be a positive integer/);
 });

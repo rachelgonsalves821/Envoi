@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "sinaloa-inbox",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-09-27",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "containers": [
+    {
+      "name": "sinaloa-beta",
+      "class_name": "SinaloaContainer",
+      "image": "./Dockerfile.cloudflare",
+      "max_instances": 1,
+      "instance_type": "basic",
+      "rollout_active_grace_period": 60
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SINALOA_CONTAINER",
+        "class_name": "SinaloaContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SinaloaContainer"]
+    }
+  ]
+}
