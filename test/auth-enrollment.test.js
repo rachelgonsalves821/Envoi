@@ -11,7 +11,7 @@ const browserSession = new BrowserSession();
 
 async function startServer() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-test-'));
-  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_ENABLE_CALENDAR_WRITES: 'true' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_ENABLE_CALENDAR_WRITES: 'true', SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS: 'true', SINALOA_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR: '10000' }, stdio: ['ignore', 'pipe', 'pipe'] });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10000);
     child.once('exit', code => reject(new Error(`Server exited with ${code}`)));
@@ -247,6 +247,14 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const progress = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'case-progress-1' }, body: { actionKey: 'case.classify', outcome: 'ok', nextState: 'inProgress' } });
   assert.equal(progress.status, 201);
   assert.equal(progress.payload.case.state, 'inProgress');
+  const unknownPolicy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/policy-evaluations`, { token: enrolled.payload.agentApiToken, body: { requestedAction: 'wireFunds' } });
+  assert.equal(unknownPolicy.status, 201);
+  assert.equal(unknownPolicy.payload.decision, 'deny');
+  assert.equal(unknownPolicy.payload.reasonCode, 'unsupportedAction');
+  const unknownWithoutPolicy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'unknown-action-1' }, body: { actionKey: 'wireFunds', outcome: 'ok' } });
+  assert.equal(unknownWithoutPolicy.status, 400);
+  const deniedUnknown = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'unknown-action-2' }, body: { actionKey: 'wireFunds', outcome: 'ok', policyEvaluationId: unknownPolicy.payload.id } });
+  assert.equal(deniedUnknown.status, 403);
   const proposal = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/proposals`, { token: enrolled.payload.agentApiToken, body: { kind: 'schedule', expiresAt: '2026-10-01T21:00:00.000Z', options: [{ id: 'option_1630', value: { start: '2026-10-01T20:30:00.000Z', end: '2026-10-01T21:00:00.000Z', timezone: 'America/Toronto' }, sourceConfidence: 'fromVerifiedProfile', outOfPolicyFlags: ['outsideWorkingHours'] }] } });
   assert.equal(proposal.status, 201);
   const policy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/policy-evaluations`, { token: enrolled.payload.agentApiToken, body: { requestedAction: 'calendar.confirmMeeting', expiresAt: '2026-10-01T21:00:00.000Z' } });
@@ -261,6 +269,23 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const humanApprovalReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: sessionToken, headers: { 'Idempotency-Key': 'human-approve-1' }, body: { actionKey: 'approveOnce', externalRefs: { policyEvaluationId: policy.payload.id } } });
   assert.equal(humanApprovalReplay.status, 200);
   assert.equal(humanApprovalReplay.payload.replay, true);
+
+  const paymentCase = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases`, { token: enrolled.payload.agentApiToken, body: { objective: 'Pay approved launch supplier', collaborationMode: 'collaboration' } });
+  assert.equal(paymentCase.status, 201);
+  const paymentExpiry = new Date(Date.now() + 5 * 60_000).toISOString();
+  const paymentPayload = { counterparties: [{ type: 'human', email: 'supplier@example.com' }], amount: { minorUnits: 5000, currency: 'CAD' }, executeNotAfter: paymentExpiry };
+  const paymentPolicy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/policy-evaluations`, { token: enrolled.payload.agentApiToken, body: { requestedAction: 'payment.send', actionPayload: paymentPayload, expiresAt: paymentExpiry } });
+  assert.equal(paymentPolicy.status, 201);
+  assert.equal(paymentPolicy.payload.decision, 'allow');
+  const alteredPayment = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-altered-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: { ...paymentPayload, amount: { minorUnits: 9000, currency: 'CAD' } } } });
+  assert.equal(alteredPayment.status, 409);
+  const authorizedPayment = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
+  assert.equal(authorizedPayment.status, 201);
+  assert.equal(authorizedPayment.payload.action.externalRefs.policyEvaluationId, paymentPolicy.payload.id);
+  assert.ok(authorizedPayment.payload.action.externalRefs.policyExecutionId);
+  const authorizedPaymentReplay = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${paymentCase.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'payment-authorized-1' }, body: { actionKey: 'payment.send', outcome: 'ok', policyEvaluationId: paymentPolicy.payload.id, actionPayload: paymentPayload } });
+  assert.equal(authorizedPaymentReplay.status, 200);
+  assert.equal(authorizedPaymentReplay.payload.replay, true);
   const projectedHumanView = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/human-view`, { token: sessionToken });
   assert.equal(projectedHumanView.status, 200);
   const projectedCase = projectedHumanView.payload.caseQueue.find(item => item.id === caseCreated.payload.id);
@@ -285,6 +310,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].type, 'externalAgent');
   assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].displayName, 'Recipient');
   assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].address, 'recipient@sinaloa.mail');
+  assert.equal(projectedHumanView.payload.recentEvents.filter(event => event.type === 'policy.re_evaluated' && event.policyEvaluationId === paymentPolicy.payload.id && event.decision === 'allow').length, 1);
 
   const revokedCredentials = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agents/${enrolled.payload.agent.id}/credentials/revoke`, { token: sessionToken, body: {} });
   assert.equal(revokedCredentials.status, 200);

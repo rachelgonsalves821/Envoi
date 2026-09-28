@@ -14,6 +14,9 @@ The backend can run as one or more external service instances. Each instance run
 - `SINALOA_DB_SSL_MODE`: use `verify-full` in production. Certificate verification cannot be disabled in production.
 - `SINALOA_DB_CA`: optional PEM CA chain supplied as a runtime secret when the provider is not trusted by the base image.
 - `SINALOA_DB_CONNECT_TIMEOUT_MS`, `SINALOA_DB_STATEMENT_TIMEOUT_MS`, `SINALOA_DB_QUERY_TIMEOUT_MS`: bounded positive connection and query timeouts.
+- `SINALOA_POLICY_ACTIVE_KEY_ID`: key ID used to sign new policy decisions.
+- `SINALOA_POLICY_SIGNING_KEYS`: JSON keyring supplied as a runtime secret. Keep the previous key during rotation until all unexpired decisions and retained audit records no longer require it.
+- `SINALOA_POLICY_DECISION_TTL_SECONDS`, `SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS`, `SINALOA_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR`: strict authority bounds; malformed values prevent production startup.
 - `SINALOA_DELIVERY_MAX_ATTEMPTS`: delivery attempts before a message enters the dead-letter queue; defaults to `5`.
 - `SINALOA_DELIVERY_POLL_MS`: idle worker polling interval; defaults to `250` milliseconds.
 - `SINALOA_DELIVERY_LEASE_MS`: lease duration used to recover work from an interrupted process; defaults to `30000` milliseconds.

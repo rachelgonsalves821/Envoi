@@ -13,6 +13,8 @@ const validProduction = (overrides = {}) => ({
   WORKOS_COOKIE_PASSWORD: 'a'.repeat(32),
   WORKOS_REDIRECT_URI: 'https://app.sinaloa.example/api/auth/workos/callback',
   SINALOA_DATA_ENCRYPTION_KEY: 'b'.repeat(32),
+  SINALOA_POLICY_ACTIVE_KEY_ID: 'primary',
+  SINALOA_POLICY_SIGNING_KEY: 'c'.repeat(32),
   SINALOA_COOKIE_SECURE: 'true',
   SINALOA_COOKIE_SAMESITE: 'Lax',
   SINALOA_CORS_ORIGIN: 'https://app.sinaloa.example',
@@ -56,4 +58,15 @@ test('production supports native platform routing without SMTP and conditionally
 test('production rejects insecure database TLS and invalid numeric limits', () => {
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_SSL_MODE: 'disable' })), /verify-full/);
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_POOL_SIZE: 'NaN', SINALOA_REQUEST_TIMEOUT_MS: '0' })), /SINALOA_DB_POOL_SIZE must be a positive integer[\s\S]*SINALOA_REQUEST_TIMEOUT_MS must be a positive integer/);
+});
+
+test('production validates policy key rotation and strict policy bounds', () => {
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_SIGNING_KEY: '', SINALOA_POLICY_ACTIVE_KEY_ID: 'missing' })), /active policy signing key/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_DECISION_TTL_SECONDS: '1', SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS: 'NaN' })), /SINALOA_POLICY_DECISION_TTL_SECONDS[\s\S]*SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS/);
+  const rotated = validateProductionConfiguration(validProduction({
+    SINALOA_POLICY_SIGNING_KEY: '',
+    SINALOA_POLICY_ACTIVE_KEY_ID: 'new',
+    SINALOA_POLICY_SIGNING_KEYS: JSON.stringify({ old: 'o'.repeat(32), new: 'n'.repeat(32) })
+  }));
+  assert.equal(rotated.policyActiveKeyId, 'new');
 });

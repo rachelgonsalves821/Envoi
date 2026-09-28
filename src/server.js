@@ -13,6 +13,15 @@ import { validateProductionConfiguration } from './production-config.js';
 import { evaluateReadiness } from './readiness.js';
 import { clientIp, publicHttpError } from './http-security.js';
 import {
+  assertExactBinding,
+  createWorkspacePolicy,
+  evaluatePolicy,
+  requiresPolicyEvaluation,
+  valueDigest,
+  verifyDecisionChain,
+  verifyDecisionRecord
+} from './policy-engine.js';
+import {
   acceptProposal,
   addPolicyEvaluation,
   addProposal,
@@ -37,6 +46,13 @@ const deliveryMaxAttempts = Number(process.env.SINALOA_DELIVERY_MAX_ATTEMPTS || 
 const externalEmailEnabled = process.env.SINALOA_ENABLE_EXTERNAL_EMAIL === 'true';
 const calendarWritesEnabled = process.env.SINALOA_ENABLE_CALENDAR_WRITES === 'true';
 const consequentialActionsEnabled = process.env.SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS === 'true';
+const policyActiveKeyId = process.env.SINALOA_POLICY_ACTIVE_KEY_ID || 'primary';
+const policySigningKeys = (() => {
+  const configured = process.env.SINALOA_POLICY_SIGNING_KEYS ? JSON.parse(process.env.SINALOA_POLICY_SIGNING_KEYS) : {};
+  const single = process.env.SINALOA_POLICY_SIGNING_KEY || process.env.SINALOA_DATA_ENCRYPTION_KEY || 'sinaloa-development-policy-signing-key';
+  return { ...configured, [policyActiveKeyId]: configured[policyActiveKeyId] || single };
+})();
+const policyKeyring = Object.freeze({ activeKeyId: policyActiveKeyId, keys: Object.freeze(policySigningKeys) });
 const emailTransport = createEmailTransport();
 const agentAccessTokenTtlSeconds = Math.max(60, Number(process.env.SINALOA_AGENT_ACCESS_TOKEN_TTL_SECONDS || 900));
 const agentRefreshTokenTtlDays = Math.max(1, Number(process.env.SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS || 30));
@@ -593,13 +609,7 @@ function policyEvaluationFromInput(input, actor, now) {
 }
 
 const policyBindingPath = (inboxId, evaluationId) => path.join('inboxes', inboxId, 'policy-bindings', `${evaluationId}.json`);
-const consequentialAction = actionKey => /^(calendar\.|email\.|payment\.|contract\.|asset\.share|external\.)/.test(String(actionKey || ''));
-const canonicalValue = value => {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalValue(value[key])]));
-  return value;
-};
-const valueDigest = value => hashSecret(JSON.stringify(canonicalValue(value)));
+const policyExecutionPath = (inboxId, executionId) => path.join('inboxes', inboxId, 'policy-executions', `${executionId}.json`);
 const minutesFromClock = value => {
   const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
   if (!match) return null;
@@ -613,87 +623,80 @@ const zonedMinutes = (instant, timezone) => {
   } catch { return null; }
 };
 
-async function evaluateServerPolicy(inboxId, agent, caseRecord, input) {
+async function activeWorkspacePolicy(inboxId) {
+  const configured = await store.getJson(path.join('inboxes', inboxId, 'policies', 'active.json')) || {};
+  return createWorkspacePolicy({
+    ...configured,
+    id: configured.id || 'sinaloa-default-authority',
+    version: configured.version || process.env.SINALOA_POLICY_VERSION || '2026-09-27',
+    decisionTtlSeconds: configured.decisionTtlSeconds ?? Number(process.env.SINALOA_POLICY_DECISION_TTL_SECONDS || 600),
+    executeAtToleranceSeconds: configured.executeAtToleranceSeconds ?? Number(process.env.SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS || 60),
+    maxPaymentMinorWithoutHuman: configured.maxPaymentMinorWithoutHuman ?? Number(process.env.SINALOA_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR || 0),
+    consequentialActionsEnabled: consequentialActionsEnabled && configured.consequentialActionsEnabled !== false,
+    externalEmailEnabled: externalEmailEnabled && configured.externalEmailEnabled !== false,
+    calendarWritesEnabled: calendarWritesEnabled && configured.calendarWritesEnabled !== false
+  });
+}
+
+async function policyDecisionChain(inboxId) {
+  const decisions = [
+    ...await store.listJson(path.join('inboxes', inboxId, 'policy-bindings')),
+    ...await store.listJson(path.join('inboxes', inboxId, 'policy-executions'))
+  ];
+  if (!verifyDecisionChain(decisions, { keyring: policyKeyring, requireSigned: true })) {
+    throw Object.assign(new Error('Policy decision history failed integrity verification'), { statusCode: 409, code: 'POLICY_CHAIN_INVALID' });
+  }
+  const referenced = new Set(decisions.map(decision => decision.previousRecordDigest).filter(Boolean));
+  return { records: decisions, latest: decisions.find(decision => !referenced.has(decision.recordDigest)) || null };
+}
+
+async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options = {}) {
   const requestedAction = String(input.requestedAction || '');
   const requiredPermission = actionPermission(requestedAction);
-  const actionPayload = input.actionPayload && typeof input.actionPayload === 'object' ? input.actionPayload : {};
-  const flags = [];
-  let decision = hasPermission(agent, requiredPermission) ? 'allow' : 'deny';
-  let reasonCode = decision === 'deny' ? `missingPermission:${requiredPermission}` : 'withinServerPolicy';
-  let policyClass = `permission:${requiredPermission}`;
-  if (caseRecord.deadline && new Date(caseRecord.deadline) <= new Date()) {
-    decision = 'deny';
-    reasonCode = 'caseDeadlineExpired';
-    flags.push('caseDeadlineExpired');
-  } else if (/^(payment\.|contract\.|asset\.share|external\.)/.test(requestedAction) && !consequentialActionsEnabled) {
-    decision = 'deny';
-    reasonCode = 'consequentialActionsDisabled';
-    policyClass = 'server:feature-gate';
-    flags.push('consequentialActionsDisabled');
-  } else if (/^(payment\.|contract\.|asset\.share|external\.)/.test(requestedAction)) {
-    decision = decision === 'deny' ? 'deny' : 'needsHuman';
-    reasonCode = decision === 'deny' ? reasonCode : 'consequentialExternalCommitment';
-    policyClass = 'server:consequential-action';
-    flags.push('consequentialExternalCommitment');
-  } else if (requestedAction.startsWith('email.')) {
-    if (!externalEmailEnabled) {
-      decision = 'deny';
-      reasonCode = 'externalEmailDisabled';
-      flags.push('externalEmailDisabled');
-    }
-    const recipientEmail = normalizedEmail(actionPayload.recipientEmail || input.recipientEmail);
-    const contact = validEmail(recipientEmail) ? await store.getJson(externalContactPath(inboxId, recipientEmail)) : null;
-    if (!contact?.approved || contact.blocked || !['outbound', 'both'].includes(contact.direction || 'both')) {
-      decision = 'deny';
-      reasonCode = 'externalContactNotApproved';
-      flags.push('externalContactNotApproved');
-    }
-    policyClass = 'server:approved-external-contact';
-  } else if (requestedAction.startsWith('calendar.')) {
-    const connectors = await store.listJson(path.join('inboxes', inboxId, 'calendar-connectors'));
-    if (!calendarWritesEnabled) {
-      decision = 'deny';
-      reasonCode = 'calendarWritesDisabled';
-      flags.push('calendarWritesDisabled');
-    } else if (!connectors.some(connector => connector.status === 'connected')) {
-      decision = decision === 'deny' ? 'deny' : 'needsHuman';
-      reasonCode = 'calendarConnectorUnavailable';
-      flags.push('calendarConnectorUnavailable');
-    } else {
-      const startBoundary = minutesFromClock(caseRecord.constraints?.workingHoursStart);
-      const endBoundary = minutesFromClock(caseRecord.constraints?.workingHoursEnd);
-      const scheduleOptions = (caseRecord.proposals || []).filter(proposal => ['open', 'countered'].includes(proposal.status) && proposal.kind === 'schedule').flatMap(proposal => proposal.options.filter(option => !option.expired));
-      for (const option of scheduleOptions) {
-        const candidate = zonedMinutes(option.value?.start, option.value?.timezone || caseRecord.constraints?.timezone || 'UTC');
-        if (candidate != null && ((startBoundary != null && candidate < startBoundary) || (endBoundary != null && candidate > endBoundary))) flags.push('outsideWorkingHours');
-      }
-      if (decision !== 'deny' && flags.includes('outsideWorkingHours')) {
-        decision = 'needsHuman';
-        reasonCode = 'outsideWorkingHours';
-      }
-    }
-    policyClass = 'server:calendar-policy';
-  }
-  const now = store.now();
-  const expiresAt = input.expiresAt && new Date(input.expiresAt) > new Date() ? input.expiresAt : new Date(Date.now() + 10 * 60_000).toISOString();
+  const actionPayload = {
+    ...(input.actionPayload && typeof input.actionPayload === 'object' && !Array.isArray(input.actionPayload) ? input.actionPayload : {}),
+    ...(input.recipientEmail && !input.actionPayload?.recipientEmail ? { recipientEmail: normalizedEmail(input.recipientEmail) } : {})
+  };
+  const recipientEmail = normalizedEmail(actionPayload.recipientEmail);
+  const contact = requestedAction.startsWith('email.') && validEmail(recipientEmail) ? await store.getJson(externalContactPath(inboxId, recipientEmail)) : null;
+  const connectors = requestedAction.startsWith('calendar.') ? await store.listJson(path.join('inboxes', inboxId, 'calendar-connectors')) : [];
+  const startBoundary = minutesFromClock(caseRecord.constraints?.workingHoursStart);
+  const endBoundary = minutesFromClock(caseRecord.constraints?.workingHoursEnd);
+  const scheduleOptions = requestedAction.startsWith('calendar.') ? (caseRecord.proposals || []).filter(proposal => ['open', 'countered'].includes(proposal.status) && proposal.kind === 'schedule').flatMap(proposal => proposal.options.filter(option => !option.expired)) : [];
+  const outsideWorkingHours = scheduleOptions.some(option => {
+    const candidate = zonedMinutes(option.value?.start, option.value?.timezone || caseRecord.constraints?.timezone || 'UTC');
+    return candidate != null && ((startBoundary != null && candidate < startBoundary) || (endBoundary != null && candidate > endBoundary));
+  });
+  const policy = await activeWorkspacePolicy(inboxId);
+  const chain = await policyDecisionChain(inboxId);
+  const record = evaluatePolicy({
+    id: options.id || input.id || store.id(options.phase === 'execution' ? 'policy_exec' : 'policy_eval'),
+    executionId: options.executionId || null,
+    workspaceId: inboxId,
+    caseId: caseRecord.id,
+    agentId: agent.id,
+    requestedAction,
+    actionPayload,
+    permissionGranted: hasPermission(agent, requiredPermission),
+    caseDeadline: caseRecord.deadline,
+    requestedExpiresAt: input.expiresAt,
+    contactApproved: contact ? contact.approved && !contact.blocked && ['outbound', 'both'].includes(contact.direction || 'both') : false,
+    calendarConnectorAvailable: connectors.some(connector => connector.status === 'connected'),
+    outsideWorkingHours,
+    proposalDigest: valueDigest(caseRecord.proposals || []),
+    allowedOptionIds: (caseRecord.proposals || []).flatMap(proposal => proposal.options.filter(option => !option.expired).map(option => option.id)),
+    policy,
+    previousRecordDigest: chain.latest?.recordDigest || null,
+    phase: options.phase || 'evaluation',
+    keyring: policyKeyring,
+    now: store.now()
+  });
   return {
-    decision,
-    reasonCode,
-    matchedPolicyId: `${policyClass}:${valueDigest({ requestedAction, requiredPermission, actionPayload, constraints: caseRecord.constraints, flags }).slice(0, 24)}`,
-    expiresAt,
-    binding: {
-      caseId: caseRecord.id,
-      agentId: agent.id,
-      requestedAction,
-      actionPayloadDigest: valueDigest(actionPayload),
-      proposalDigest: valueDigest(caseRecord.proposals || []),
-      allowedOptionIds: (caseRecord.proposals || []).flatMap(proposal => proposal.options.filter(option => !option.expired).map(option => option.id)),
-      decision,
-      reasonCode,
-      flags,
-      effectiveAt: now,
-      expiresAt
-    }
+    decision: record.decision,
+    reasonCode: record.reasonCode,
+    matchedPolicyId: `${policy.id}@${policy.version}`,
+    expiresAt: record.expiresAt,
+    binding: record
   };
 }
 
@@ -703,26 +706,45 @@ const hasHumanApprovalForEvaluation = (caseRecord, evaluationId) => caseRecord.e
   && event.payload.action.externalRefs?.policyEvaluationId === evaluationId
 );
 
-async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluationId, { requestedAction, actionPayload, proposalId, optionId, allowPendingHuman = false } = {}) {
+async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluationId, { requestedAction, actionPayload, proposalId, optionId, executionId = store.id('action'), allowPendingHuman = false } = {}) {
   const evaluation = caseRecord.policyEvaluations.find(item => item.id === evaluationId);
   const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluation.id)) : null;
-  if (!evaluation || !binding || evaluation.actor !== principal.id || binding.agentId !== principal.id || binding.caseId !== caseRecord.id) {
+  await policyDecisionChain(inboxId);
+  if (!evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.actor !== principal.id || binding.agentId !== principal.id || binding.caseId !== caseRecord.id) {
     throw Object.assign(new Error('A current server-issued policy evaluation for this agent and case is required'), { statusCode: 403 });
   }
-  if (new Date(binding.expiresAt) <= new Date()) throw Object.assign(new Error('Policy evaluation has expired; request a new evaluation'), { statusCode: 409 });
+  const proposalStateDigest = valueDigest(caseRecord.proposals || []);
+  assertExactBinding(binding, { requestedAction: requestedAction || binding.requestedAction, actionPayload: actionPayload || {}, proposalDigest: proposalId ? proposalStateDigest : null, optionId, keyring: policyKeyring, at: store.now() });
   if (evaluation.decision === 'deny') throw Object.assign(new Error(`Policy denied this action: ${evaluation.reasonCode}`), { statusCode: 403 });
   const humanApproved = hasHumanApprovalForEvaluation(caseRecord, evaluation.id);
   if (evaluation.decision === 'needsHuman' && !humanApproved && !allowPendingHuman) {
     throw Object.assign(new Error('This action requires human approval'), { statusCode: 409 });
   }
-  if (requestedAction && binding.requestedAction !== requestedAction) throw Object.assign(new Error('Policy evaluation does not authorize this action'), { statusCode: 403 });
-  if (actionPayload && binding.actionPayloadDigest !== valueDigest(actionPayload)) throw Object.assign(new Error('Action payload changed after policy evaluation'), { statusCode: 409 });
-  if (proposalId) {
-    const proposal = caseRecord.proposals.find(item => item.id === proposalId);
-    if (!proposal || binding.proposalDigest !== valueDigest(caseRecord.proposals || [])) throw Object.assign(new Error('Proposal changed after policy evaluation'), { statusCode: 409 });
-    if (!binding.allowedOptionIds?.includes(optionId)) throw Object.assign(new Error('Policy evaluation does not authorize this proposal option'), { statusCode: 403 });
+  if (proposalId && !caseRecord.proposals.some(proposal => proposal.id === proposalId)) throw Object.assign(new Error('Proposal not found'), { statusCode: 404 });
+
+  const refreshed = await evaluateServerPolicy(inboxId, principal, caseRecord, {
+    requestedAction: binding.requestedAction,
+    actionPayload: binding.actionPayload,
+    expiresAt: binding.expiresAt
+  }, { id: store.id('policy_exec'), phase: 'execution', executionId });
+  await store.putJson(policyExecutionPath(inboxId, refreshed.binding.id), refreshed.binding);
+  await audit(inboxId, 'policy.re_evaluated', {
+    caseId: caseRecord.id,
+    policyEvaluationId: evaluation.id,
+    policyExecutionId: refreshed.binding.id,
+    executionId,
+    requestedAction: refreshed.binding.requestedAction,
+    decision: refreshed.decision,
+    reasonCode: refreshed.reasonCode,
+    previousRecordDigest: refreshed.binding.previousRecordDigest,
+    recordDigest: refreshed.binding.recordDigest
+  });
+  if (refreshed.decision === 'deny') throw Object.assign(new Error(`Current policy denied this action: ${refreshed.reasonCode}`), { statusCode: 403 });
+  const approvalApplies = humanApproved && refreshed.binding.policy.digest === binding.policy.digest;
+  if (refreshed.decision === 'needsHuman' && !approvalApplies && !allowPendingHuman) {
+    throw Object.assign(new Error('Current policy requires a new human approval'), { statusCode: 409 });
   }
-  return { evaluation, binding, humanApproved };
+  return { evaluation, binding, refreshed: refreshed.binding, humanApproved: approvalApplies, executionId };
 }
 
 async function ensureStructuredCase(inbox, input, actorAgentId, at) {
@@ -1755,9 +1777,10 @@ async function route(req, res) {
     const value = await getCase(inboxId, caseRoute[1]);
     if (!value?.schemaVersion) return fail(res, 404, 'Structured case not found');
     const now = store.now();
-    const evaluated = await evaluateServerPolicy(inboxId, principal, value, input);
+    const evaluationId = input.id || store.id('policy_eval');
+    const evaluated = await evaluateServerPolicy(inboxId, principal, value, { ...input, id: evaluationId }, { id: evaluationId });
     const evaluation = policyEvaluationFromInput({
-      id: input.id,
+      id: evaluationId,
       requestedAction: input.requestedAction,
       decision: evaluated.decision,
       matchedPolicyId: evaluated.matchedPolicyId,
@@ -1768,7 +1791,7 @@ async function route(req, res) {
     const updated = addPolicyEvaluation(value, evaluation, { at: now });
     await store.putJsonBatch([
       document(caseRecordPath(inboxId, updated.id), updated),
-      document(policyBindingPath(inboxId, evaluation.id), { ...evaluated.binding, id: evaluation.id, matchedPolicyId: evaluation.matchedPolicyId })
+      document(policyBindingPath(inboxId, evaluation.id), evaluated.binding)
     ]);
     await audit(inboxId, 'policy.evaluated', { caseId: value.id, policyEvaluationId: evaluation.id, requestedAction: evaluation.requestedAction, decision: evaluation.decision, reasonCode: evaluation.reasonCode });
     return json(res, 201, evaluation);
@@ -1804,17 +1827,25 @@ async function route(req, res) {
         const evaluationId = input.externalRefs?.policyEvaluationId;
         const evaluation = value.policyEvaluations.find(item => item.id === evaluationId);
         const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluationId)) : null;
-        if (!evaluationId || !evaluation || !binding || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) return fail(res, 409, 'A current needsHuman policy evaluation is required for one-time approval');
+        await policyDecisionChain(inboxId);
+        if (!evaluationId || !evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) return fail(res, 409, 'A current needsHuman policy evaluation is required for one-time approval');
       }
       result = applyHumanAction(value, { id: input.id || store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: input.externalRefs || {}, reasonCode: input.reasonCode || null }, { at: now });
     } else if (principal && principal.id === value.actingAgent) {
-      let policyExternalRefs = input.externalRefs || {};
-      if (consequentialAction(input.actionKey)) {
-        if (!input.policyEvaluationId) return fail(res, 400, 'policyEvaluationId is required for consequential agent actions');
-        await validatedPolicyBinding(inboxId, value, principal, input.policyEvaluationId, { requestedAction: input.actionKey, actionPayload: input.actionPayload || {} });
-        policyExternalRefs = { ...policyExternalRefs, policyEvaluationId: input.policyEvaluationId };
+      const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
+      if (replayEvent) {
+        const replayAction = replayEvent.payload.action;
+        if (replayAction.actor !== principal.id || replayAction.actionKey !== input.actionKey || replayAction.externalRefs?.policyEvaluationId !== input.policyEvaluationId) return fail(res, 409, 'Idempotency key was already used for a different action');
+        return json(res, 200, { case: value, action: replayAction, replay: true });
       }
-      result = applyAgentAction(value, { id: input.id || store.id('action'), actionKey: input.actionKey, actor: principal.id, idempotencyKey, outcome: input.outcome, externalRefs: policyExternalRefs, reasonCode: input.reasonCode || null }, { at: now, nextState: input.nextState || null });
+      let policyExternalRefs = input.externalRefs || {};
+      const actionId = input.id || store.id('action');
+      if (requiresPolicyEvaluation(input.actionKey)) {
+        if (!input.policyEvaluationId) return fail(res, 400, 'policyEvaluationId is required for policy-controlled or unknown agent actions');
+        const authorization = await validatedPolicyBinding(inboxId, value, principal, input.policyEvaluationId, { requestedAction: input.actionKey, actionPayload: input.actionPayload || {}, executionId: actionId });
+        policyExternalRefs = { ...policyExternalRefs, policyEvaluationId: input.policyEvaluationId, policyExecutionId: authorization.refreshed.id };
+      }
+      result = applyAgentAction(value, { id: actionId, actionKey: input.actionKey, actor: principal.id, idempotencyKey, outcome: input.outcome, externalRefs: policyExternalRefs, reasonCode: input.reasonCode || null }, { at: now, nextState: input.nextState || null });
     } else return fail(res, 403, 'Case participant credential required');
     await saveCase(inboxId, result.case);
     if (!result.replay) await audit(inboxId, 'case.action_recorded', { caseId: value.id, actionId: result.action.id, actionKey: result.action.actionKey, actor: result.action.actor, outcome: result.action.outcome });
@@ -1841,9 +1872,10 @@ async function route(req, res) {
     if (!idempotencyKey || !input.optionId || !input.policyEvaluationId) return fail(res, 400, 'optionId, policyEvaluationId, and Idempotency-Key are required');
     const evaluation = value.policyEvaluations.find(item => item.id === input.policyEvaluationId);
     if (!evaluation || evaluation.actor !== principal.id) return fail(res, 403, 'A case policy evaluation for this agent is required');
-    const authorization = await validatedPolicyBinding(inboxId, value, principal, evaluation.id, { proposalId: proposalRoute[2], optionId: input.optionId, allowPendingHuman: true });
+    const actionId = input.id || store.id('action');
+    const authorization = await validatedPolicyBinding(inboxId, value, principal, evaluation.id, { proposalId: proposalRoute[2], optionId: input.optionId, executionId: actionId, allowPendingHuman: true });
     const effectiveEvaluation = evaluation.decision === 'needsHuman' && authorization.humanApproved ? { ...evaluation, decision: 'allow', reasonCode: 'humanApproved' } : evaluation;
-    const result = acceptProposal(value, proposalRoute[2], input.optionId, effectiveEvaluation, { actor: principal.id, idempotencyKey, actionId: input.id || store.id('action'), at: now });
+    const result = acceptProposal(value, proposalRoute[2], input.optionId, effectiveEvaluation, { actor: principal.id, idempotencyKey, actionId, at: now });
     await saveCase(inboxId, result.case);
     await audit(inboxId, 'proposal.accept_attempted', { caseId: value.id, proposalId: proposalRoute[2], optionId: input.optionId, actor: principal.id, outcome: result.action.outcome });
     return json(res, result.action.outcome === 'needsApproval' ? 202 : 201, result);
