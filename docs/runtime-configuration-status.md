@@ -1,10 +1,17 @@
 # Cloudflare runtime configuration status
 
-Checked 2026-09-28 in the signed-in Cloudflare dashboard, Worker `sinaloa`, Production settings.
+The Worker `sinaloa` Production settings were checked in a signed-in Cloudflare dashboard on 2026-09-28. A later read-only check on 2026-09-28 verified the repository and public endpoints but could not reopen the account dashboard. Dashboard observations below are therefore the **last confirmed account snapshot**, not a claim that the same settings are still present.
+
+## Follow-up verification — 2026-09-28
+
+- The recovery branch now defines a separate Wrangler `staging` environment (`sinaloa-staging`) with its own Container and Durable Object configuration. This is code configuration, not evidence that staging has been created or deployed in Cloudflare.
+- Read-only HTTPS requests to `https://sinaloa.rachelgonsalves821.workers.dev/health` and `https://sinaloa-staging.rachelgonsalves821.workers.dev/health` both returned Cloudflare HTTP 404. Neither hostname passed an application health check. A 404 alone cannot distinguish an absent deployment from disabled routing or a different live hostname.
+- `wrangler whoami` reported **not authenticated**. No connected browser surface was available for a fresh account inspection. Current Workers Paid/Containers entitlement, R2 activation, Builds token permissions, runtime variable/secret inventory, WorkOS, PostgreSQL and scanner state remain unverified in this follow-up.
+- The earlier saved variables belong to the Production Worker only. Staging needs its own runtime table, test-only PostgreSQL/R2/scanner resources, and origin-bound WorkOS callback before a staging rollout. Do not copy production secrets or data into staging.
 
 ## Applied without deployment
 
-The runtime table was initially empty. The following eleven plaintext variables were entered and saved using **More options → Save**, not **Add variables and deploy**. The resulting table showed every name/value below. These settings are preparation for the first staging release, not proof that a container is running.
+At the dashboard check, the Production runtime table was initially empty. The following eleven plaintext variables were entered and saved using **More options → Save**, not **Add variables and deploy**. The resulting table showed every name/value below. These settings are preparation for a release, not proof that a container is running, and they have not been reverified since the follow-up above.
 
 | Runtime variable | Saved value |
 | --- | --- |
@@ -26,7 +33,7 @@ The dashboard warns that Wrangler configuration must stay synchronized. The reco
 
 ## Required configuration still missing
 
-“Missing” below means absent from the Worker runtime table at this check. Except for R2 activation, it does not prove the provider account/resource does not exist elsewhere.
+“Missing” below means absent from the Production Worker runtime table at the last dashboard check. It does not prove the provider account/resource does not exist elsewhere, nor establish the current state of either Worker's table.
 
 | Name | Cloudflare type | Source / completion requirement |
 | --- | --- | --- |
@@ -50,16 +57,16 @@ Optional provider-specific settings: `SINALOA_DB_CA` (secret, if the provider CA
 
 ## Provider evidence and blockers
 
-- **R2 is not activated on this Cloudflare account.** Opening R2 Object Storage redirected to `/r2/plans`, showing “Get started with R2” and “Add R2 subscription to my account.” Activation requires accepting billing/terms. No subscription was purchased or terms accepted. After activation, create the private bucket, restricted S3 credentials and app-origin CORS; run live upload/download/quarantine tests.
+- **R2 was not activated at the last dashboard check.** Opening R2 Object Storage redirected to `/r2/plans`, showing “Get started with R2” and “Add R2 subscription to my account.” Activation requires accepting billing/terms. No subscription was purchased or terms accepted in that workstream. Recheck account state; after activation, create private staging and production buckets, restricted S3 credentials and app-origin CORS, then run live upload/download/quarantine tests.
 - **PostgreSQL, WorkOS and scanner provisioning remain unverified.** The relevant checkout contains environment examples, not configured production environment files. No credentials were invented or copied from unrelated projects. The local disposable PostgreSQL test instance is not a production service.
 - **Application secrets still need secure provisioning.** Store them directly as encrypted Worker runtime secrets using the owner’s approved secure process; do not paste them in chat or commit them. Keep encryption/signing keys backed up securely.
-- **Workers Paid and container entitlement still need release verification.** This workstream did not change or inspect billing subscriptions beyond the R2 activation page, and did not retry the existing failed build.
+- **Workers Paid, container entitlement and Builds permissions still need release verification.** The follow-up did not gain authenticated account access and did not retry the existing failed build. Confirm the intended build token has `Account > Containers Edit` in the correct Cloudflare account.
 - **Initial optional integrations stay disabled.** Resend email credentials/domain verification and Google/Microsoft calendar OAuth are not required while their feature flags are false. They require separate provider setup and acceptance before enablement.
 
 ## Completion sequence
 
-1. Owner enables the required Workers/R2 services; locate or provision the managed PostgreSQL, WorkOS environment and HTTPS scanner.
-2. Fill the remaining runtime entries with real provider values and independent application keys. Preserve the same staging origin in public URL, CORS, WorkOS callback and R2 CORS.
+1. Owner checks Workers Paid/Containers entitlement, R2 activation and the Builds token's `Containers Edit` permission in the intended account; locate or provision managed PostgreSQL, the WorkOS environment and HTTPS scanner. Record resource names and owners without recording secret values.
+2. Partner sets up isolated staging and production resources, then fills each Worker's runtime entries with real provider values and independent application keys. Keep each environment's public URL, CORS, WorkOS callback and R2 CORS on its own exact origin.
 3. Run the ignored `.env.production` through `node --env-file=.env.production scripts/preflight.mjs`, without printing values. Passing preflight only validates configuration structure.
 4. Apply migrations and run live dependency acceptance. Confirm the reviewed deployment preserves the runtime table, then deploy the reviewed commit and verify smoke/end-to-end tests.
 5. Enable/publicize the custom domain only after acceptance, updating all origin-bound settings together.
