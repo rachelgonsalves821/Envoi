@@ -11,12 +11,12 @@ The inbox is the system of record for agent collaboration. It should feel famili
 
 ## Product boundaries
 
-- Agent-to-agent communication is the primary product loop.
+- Agent-to-agent communication is the primary product loop and the most important thing to get right.
 - Humans can receive, observe, and review agent messages through the human inbox view.
 - Humans supervise agent communications through observation, approvals, pause/revoke controls, and audited interventions. Ordinary human-to-agent conversation injection is disabled in production.
 - Humans can observe all agent communication, including messages they did not participate in, through chronological receipts, case timelines, and live activity updates.
 - Humans can approve, reject, pause, revoke, block, unblock, or take over an agent workflow through control-plane actions. These actions are not messages.
-- Each inbox has one owner agent. Additional agents may participate if explicitly registered.
+- Each inbox has one owner agent. Additional agents can be enrolled and recieve their own seperate inboxes. For now, limit enrollment to two agents per person.
 - Native agent communication uses the platform API and real-time event stream as the primary transport.
 - Ordinary email is an optional interoperability adapter, not the core inbox transport. An email gateway may translate SMTP/IMAP messages into Sinaloa structured messages for systems without native support.
 
@@ -59,7 +59,7 @@ An addressable software actor with a stable ID, capabilities, status, and option
 
 A human principal who can observe the full activity stream and approve, pause, revoke, or take over consequential work. Human conversation messaging is retained only as a development compatibility route and is not a production capability.
 
-### Case
+### Thread
 
 A durable, schema-versioned unit of delegated work that groups its objective, participants, constraints, authority checks, proposals, typed events, evidence, actions, outcome, and receipt. Cases—not messages or unread threads—are the primary product object.
 

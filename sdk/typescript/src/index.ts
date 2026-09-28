@@ -105,17 +105,13 @@ export interface ContactInvitation {
   id: string;
   fromAddress: string;
   toAddress: string;
-  state: 'pending' | 'accepted' | 'declined';
+  state: 'pending' | 'accepted' | 'declined' | 'superseded';
   conversationId: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export type SendMessageResult = (AgentMessage & { status: DeliveryState; transport: 'native'; recipientEmail: string }) | {
-  invitation: ContactInvitation;
-  message: AgentMessage & { status: 'pendingContactApproval'; transport: 'native'; recipientEmail: string };
-  contactState: 'pending';
-};
+export type SendMessageResult = AgentMessage & { status: DeliveryState; transport: 'native'; recipientEmail: string };
 
 export class SinaloaClient {
   private readonly requestTimeoutMs: number;

@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { PostgresStore } from '../src/postgres-storage.js';
+import { DocumentObjectMetadataStore } from '../src/object-storage.js';
+import { PostgresMalwareScanJobStore } from '../src/object-scan-lifecycle.js';
 
 test('PostgreSQL store preserves atomic and paginated document semantics', { skip: !process.env.DATABASE_URL }, async t => {
   const store = new PostgresStore(process.env.DATABASE_URL);
@@ -105,6 +107,35 @@ test('PostgreSQL delivery lease rejects stale document writes', { skip: !process
   assert.equal(await store.getJson(`${prefix}/stale.json`), null);
   await store.completeOutbox(id, [{ path: `${prefix}/current.json`, value: { current: true } }], {}, replacement);
   assert.deepEqual(await store.getJson(`${prefix}/current.json`), { current: true });
+});
+
+test('PostgreSQL scan lease fences stale verdicts and settles metadata with its job', { skip: !process.env.DATABASE_URL }, async t => {
+  const store = new PostgresStore(process.env.DATABASE_URL);
+  t.after(() => store.close());
+  await store.init();
+  const metadata = new DocumentObjectMetadataStore(store);
+  const jobs = new PostgresMalwareScanJobStore(store);
+  const objectId = `obj_${crypto.randomUUID()}`;
+  const inboxId = `inbox_${crypto.randomUUID()}`;
+  const createdAt = new Date().toISOString();
+  await metadata.create({ id: objectId, workspaceId: inboxId, state: 'quarantine', key: `test/${objectId}`, reservationId: `quota_${objectId}`, createdAt });
+  const jobId = `scan_${objectId}`;
+  await jobs.enqueue({ id: jobId, objectId, status: 'queued', attempts: 0, availableAt: createdAt, createdAt, updatedAt: createdAt });
+  const original = await jobs.claim(jobId, 'same-worker', 1_000);
+  await store.query("UPDATE sinaloa_documents SET value = value || jsonb_build_object('leaseExpiresAt', (NOW() - INTERVAL '1 second')::text) WHERE path = $1", [`object-storage/scan-jobs/${jobId}.json`]);
+  const replacement = await jobs.claim(jobId, 'same-worker', 1_000);
+  assert.notEqual(original.leaseToken, replacement.leaseToken);
+  const verdict = { state: 'clean', scannedAt: createdAt, result: { status: 'clean' } };
+  const outcome = { status: 'clean', completedAt: createdAt };
+  await assert.rejects(() => jobs.settleProcessing(original, 'same-worker', outcome, metadata, verdict), error => error.code === 'SCAN_LEASE_LOST');
+  assert.equal((await metadata.get(objectId)).state, 'quarantine');
+  const rejectedMetadata = { store, updateScan: async () => { throw new Error('metadata write failed'); } };
+  await assert.rejects(() => jobs.settleProcessing(replacement, 'same-worker', outcome, rejectedMetadata, verdict), /metadata write failed/);
+  assert.equal((await jobs.get(jobId)).status, 'processing');
+  await jobs.settleProcessing(replacement, 'same-worker', outcome, metadata, verdict);
+  assert.equal((await metadata.get(objectId)).state, 'clean');
+  assert.equal((await store.getJson(`inboxes/${inboxId}/assets/${objectId}.json`)).state, 'clean');
+  assert.equal((await jobs.get(jobId)).status, 'clean');
 });
 
 test('PostgreSQL quota settlement cannot deadlock a workspace reaper', { skip: !process.env.DATABASE_URL }, async t => {

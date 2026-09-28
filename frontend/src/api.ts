@@ -54,12 +54,12 @@ export async function request<T>(pathname: string, options: RequestInit = {}): P
       ...(options.headers || {})
     }
   });
-  const payload = await response.json().catch(() => ({})) as { error?: string; code?: string; details?: Record<string, unknown> };
+  const payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
   if (!response.ok) {
     if (response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
       window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
     }
-    throw new ApiError(payload.error || 'The request could not be completed.', response.status, payload.code, payload.details);
+    throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
   }
   return payload as T;
 }
@@ -84,7 +84,7 @@ export const api = {
   },
   me: () => request<Human>('/api/auth/me'),
   phoneStart: (phoneNumber: string, displayName: string) => request<{ challengeId: string; expiresAt: string; developmentCode?: string }>('/api/auth/phone/start', { method: 'POST', body: JSON.stringify({ phoneNumber, displayName }) }),
-  phoneVerify: (challengeId: string, code: string) => request<{ human: Human; secondFactorRequired: boolean; expiresAt?: string }>('/api/auth/phone/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
+  phoneVerify: (challengeId: string, code: string) => request<{ human: Human; secondFactorRequired: boolean; mfaSetupRequired: boolean; expiresAt?: string }>('/api/auth/phone/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
   totpSetup: () => request<{ secret: string; otpauthUri: string; developmentCode?: string }>('/api/auth/totp/setup', { method: 'POST', body: '{}' }),
   totpVerify: (code: string) => request<{ human: Human; assurance: string }>('/api/auth/totp/verify', { method: 'POST', body: JSON.stringify({ code }) }),
   logout: () => request<{ revoked: boolean; logoutUrl?: string | null }>('/api/auth/logout', { method: 'POST', body: '{}' }),

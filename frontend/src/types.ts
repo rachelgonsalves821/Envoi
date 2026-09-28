@@ -27,6 +27,7 @@ export interface Human {
   displayName: string;
   email?: string;
   phoneNumber?: string;
+  mfaSetupRequired?: boolean;
   auth?: { provider: string; assurance: string };
 }
 
@@ -221,7 +222,7 @@ export interface AgentConnectionInvitation {
   recipientAgentId: string;
   direction: 'incoming' | 'outgoing';
   actionable: boolean;
-  state: 'pending' | 'accepted' | 'declined';
+  state: 'pending' | 'accepted' | 'declined' | 'superseded';
   conversationId?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -249,6 +250,7 @@ export interface HumanView {
   history?: HistoryMetadata;
   inbox: Inbox;
   mode: 'human-observer';
+  canManageInbox: boolean;
   capabilities: string[];
   summary: { agents: number; cases: number; messages: number; assets: number; needsMe: number };
   navigation: { needsMe: number; activeWork: number; waiting: number; completed: number };

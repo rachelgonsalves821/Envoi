@@ -9,6 +9,7 @@ import {
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
 import { ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl } from './api';
+import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from './agent-permissions';
 import { previewRequested } from './preview';
 import { mergeHistory, olderCursors } from './history';
 import { subscribeReplayRecovery } from './event-replay';
@@ -23,7 +24,6 @@ import type {
 } from './types';
 
 const WORKSPACE_KEY = 'sinaloa.workspace';
-const permissions = ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'];
 const caseSections: NavSection[] = ['inbox', 'needsMe', 'active', 'waiting', 'scheduled', 'documents', 'completed'];
 
 type BootState = 'loading' | 'signedOut' | 'setup' | 'ready' | 'error';
@@ -36,11 +36,12 @@ const previewAgents: Agent[] = [
 const previewView: HumanView = {
   inbox: previewWorkspace,
   mode: 'human-observer',
+  canManageInbox: true,
   capabilities: ['observe_agent_communications', 'receive_agent_messages', 'reply_to_approved_agents', 'review_assets'],
   summary: { agents: 1, cases: 4, messages: 0, assets: 2, needsMe: 1 },
   navigation: { needsMe: 1, activeWork: 1, waiting: 1, completed: 1 },
   agents: previewAgents,
-  invitations: [{ id: 'invitation_luma', fromAddress: 'hello@luma.events', toAddress: 'milo@sinaloa.mail', senderAgentId: 'agent_luma', recipientAgentId: 'agent_milo', direction: 'incoming', actionable: true, state: 'pending', createdAt: '2026-09-27T15:55:00.000Z', updatedAt: '2026-09-27T15:55:00.000Z' }],
+  invitations: [],
   participantDirectory: {
     agent_milo: { id: 'agent_milo', type: 'internalAgent', displayName: 'Milo', address: 'milo@sinaloa.mail', accessState: 'active' },
     agent_luma: { id: 'agent_luma', type: 'externalAgent', displayName: 'Luma Events agent', address: 'hello@luma.events', accessState: 'active' },
@@ -106,13 +107,15 @@ export default function App() {
   const [syncNotice, setSyncNotice] = useState('');
   const [historyBusy, setHistoryBusy] = useState(false);
   const activeWorkspace = useRef<string | null>(null);
+  const hadAuthenticatedSession = useRef(false);
 
   const expireSession = useCallback(() => {
     activeWorkspace.current = null;
     setHuman(null);
     setWorkspace(null);
     setView(null);
-    setAuthNotice('Your secure session expired. Sign in again to continue observing agent work.');
+    setAuthNotice(hadAuthenticatedSession.current ? 'Your secure session expired. Sign in again to continue observing agent work.' : '');
+    hadAuthenticatedSession.current = false;
     setBoot('signedOut');
   }, []);
 
@@ -122,6 +125,15 @@ export default function App() {
     const next = await api.humanView(workspaceId);
     if (activeWorkspace.current === workspaceId) setView(current => quiet ? mergeHistory(current, next) : next);
     return next;
+  }, []);
+
+  const loadWorkspaceDirectory = useCallback(async () => {
+    const nextOrganizations = await api.organizations();
+    const workspaceGroups = await Promise.all(nextOrganizations.map(item => api.workspaces(item.id)));
+    const nextWorkspaces = workspaceGroups.flat();
+    setOrganizations(nextOrganizations);
+    setWorkspaces(nextWorkspaces);
+    return nextWorkspaces;
   }, []);
 
   async function loadOlder() {
@@ -144,11 +156,13 @@ export default function App() {
       const [nextConfig, nextHuman] = await Promise.all([api.authConfig(), api.me()]);
       setConfig(nextConfig);
       setHuman(nextHuman);
-      const nextOrganizations = await api.organizations();
-      setOrganizations(nextOrganizations);
-      const workspaceGroups = await Promise.all(nextOrganizations.map(item => api.workspaces(item.id)));
-      const nextWorkspaces = workspaceGroups.flat();
-      setWorkspaces(nextWorkspaces);
+      if (nextHuman.auth?.assurance === 'phone') {
+        if (typeof nextHuman.mfaSetupRequired !== 'boolean') throw new Error('Authentication service needs an update before sign in can continue.');
+        setBoot('signedOut');
+        return;
+      }
+      hadAuthenticatedSession.current = true;
+      const nextWorkspaces = await loadWorkspaceDirectory();
       const savedId = localStorage.getItem(WORKSPACE_KEY);
       const selected = nextWorkspaces.find(item => item.id === savedId) || nextWorkspaces[0] || null;
       if (!selected) {
@@ -171,7 +185,7 @@ export default function App() {
         setBoot('error');
       }
     }
-  }, [config, expireSession, loadView]);
+  }, [config, expireSession, loadView, loadWorkspaceDirectory]);
 
   useEffect(() => { if (!isPreview) void loadAccount(); }, [isPreview]);
 
@@ -186,18 +200,20 @@ export default function App() {
     const refresh = () => { void loadView(workspace.id, true).then(() => setSyncNotice('')).catch(caught => { if (!(caught instanceof ApiError && caught.status === 401)) setSyncNotice('Live updates are temporarily paused. Your workspace will keep retrying.'); }); };
     const stream = new EventSource(`/api/inboxes/${workspace.id}/events`);
     const stopReplayRecovery = subscribeReplayRecovery(stream, refresh, setSyncNotice);
-    const eventTypes = ['agent.enrolled', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created', 'asset.created', 'asset.upload_started', 'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
+    const eventTypes = ['agent.enrolled', 'agent.inbox_created', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created', 'asset.created', 'asset.upload_started', 'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
+    const refreshDirectory = () => { void loadWorkspaceDirectory().catch(() => setSyncNotice('A new agent inbox may be available. Refresh the page to see it.')); };
     stream.onopen = () => setSyncNotice('');
     stream.onmessage = refresh;
     eventTypes.forEach(type => stream.addEventListener(type, refresh));
+    stream.addEventListener('agent.inbox_created', refreshDirectory);
     stream.addEventListener('ready', () => setSyncNotice(''));
     stream.onerror = () => {
       setSyncNotice('Live updates are reconnecting. You can refresh now or keep working.');
       void api.me().catch(() => undefined);
     };
     const interval = window.setInterval(refresh, 30_000);
-    return () => { window.clearInterval(interval); stopReplayRecovery(); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.close(); };
-  }, [boot, config, loadView, workspace]);
+    return () => { window.clearInterval(interval); stopReplayRecovery(); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.removeEventListener('agent.inbox_created', refreshDirectory); stream.close(); };
+  }, [boot, config, loadView, loadWorkspaceDirectory, workspace]);
 
   async function selectWorkspace(next: Workspace) {
     setWorkspace(next);
@@ -216,7 +232,7 @@ export default function App() {
 
   if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen />;
-  if (boot === 'signedOut' && config) return <AuthScreen config={config} notice={authNotice} onAuthenticated={loadAccount} />;
+  if (boot === 'signedOut' && config) return <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={loadAccount} />;
   if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={createWorkspace} />;
   if (boot === 'error') return <FailureScreen message={error} onRetry={loadAccount} />;
   if (!human || !workspace || !view || !config) return <LoadingScreen />;
@@ -233,7 +249,7 @@ export default function App() {
       onLoadOlder={loadOlder}
       historyBusy={historyBusy}
       onSelectWorkspace={selectWorkspace}
-      onRefresh={() => loadView(workspace.id, true)}
+      onRefresh={async () => { await Promise.all([loadView(workspace.id, true), loadWorkspaceDirectory()]); }}
       onLogout={async () => {
         const result = await api.logout();
         if (result.logoutUrl) window.location.assign(result.logoutUrl);
@@ -264,11 +280,12 @@ function FailureScreen({ message, onRetry }: { message: string; onRetry: () => v
   );
 }
 
-function AuthScreen({ config, notice, onAuthenticated }: { config: AuthConfig; notice?: string; onAuthenticated: () => Promise<void> }) {
-  const [step, setStep] = useState<'phone' | 'code' | 'totp'>('phone');
+function AuthScreen({ config, notice, resumePhoneSession, onAuthenticated }: { config: AuthConfig; notice?: string; resumePhoneSession?: boolean; onAuthenticated: () => Promise<void> }) {
+  const [step, setStep] = useState<'phone' | 'code' | 'totp'>(resumePhoneSession === undefined ? 'phone' : 'totp');
   const [challengeId, setChallengeId] = useState('');
   const [developmentCode, setDevelopmentCode] = useState('');
   const [totp, setTotp] = useState<{ secret: string; otpauthUri: string; developmentCode?: string } | null>(null);
+  const [totpSetupRequired, setTotpSetupRequired] = useState(resumePhoneSession === true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -285,9 +302,20 @@ function AuthScreen({ config, notice, onAuthenticated }: { config: AuthConfig; n
     event.preventDefault(); setBusy(true); setError('');
     const form = new FormData(event.currentTarget);
     try {
-      await api.phoneVerify(challengeId, String(form.get('code')));
-      const setup = await api.totpSetup(); setTotp(setup); setStep('totp');
+      const verified = await api.phoneVerify(challengeId, String(form.get('code')));
+      if (typeof verified.mfaSetupRequired !== 'boolean') throw new Error('Authentication service needs an update. Please try again after it restarts.');
+      setTotpSetupRequired(verified.mfaSetupRequired);
+      setStep('totp');
+      if (verified.mfaSetupRequired) setTotp(await api.totpSetup());
+      else setTotp(null);
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+  }
+
+  async function retryTotpSetup() {
+    setBusy(true); setError('');
+    try { setTotp(await api.totpSetup()); }
+    catch (caught) { setError(errorMessage(caught)); }
+    finally { setBusy(false); }
   }
 
   async function submitTotp(event: FormEvent<HTMLFormElement>) {
@@ -335,16 +363,17 @@ function AuthScreen({ config, notice, onAuthenticated }: { config: AuthConfig; n
               <Field label="Verification code" name="code" inputMode="numeric" autoComplete="one-time-code" required />
               <FormError message={error} />
               <button className="button primary wide" disabled={busy}>{busy ? 'Verifying…' : 'Verify phone'}</button>
+              <button type="button" className="button quiet wide" disabled={busy} onClick={() => { setStep('phone'); setChallengeId(''); setDevelopmentCode(''); setError(''); }}>Start again</button>
             </form>
           ) : (
             <form onSubmit={submitTotp}>
-              <p className="eyebrow">Authenticator required</p><h2>Protect consequential actions</h2>
-              <p className="supporting">Add this secret to your authenticator, then enter the current code.</p>
-              <div className="secret-block"><KeyRound size={18} /><code>{totp?.secret}</code><CopyButton value={totp?.secret || ''} label="Copy authenticator secret" /></div>
+              <p className="eyebrow">Authenticator required</p><h2>{totpSetupRequired ? 'Protect consequential actions' : 'Verify your authenticator'}</h2>
+              <p className="supporting">{totpSetupRequired ? totp ? 'Add this secret to your authenticator, then enter the current code.' : 'Continue setup to see your authenticator secret.' : 'Enter the current code from the authenticator you already set up.'}</p>
+              {totpSetupRequired && totp && <div className="secret-block"><KeyRound size={18} /><code>{totp.secret}</code><CopyButton value={totp.secret} label="Copy authenticator secret" /></div>}
               {totp?.developmentCode && <InlineNotice title="Current development code" body={totp.developmentCode} tone="unknown" />}
-              <Field label="Authenticator code" name="code" inputMode="numeric" autoComplete="one-time-code" required />
+              {(!totpSetupRequired || totp) && <Field label="Authenticator code" name="code" inputMode="numeric" autoComplete="one-time-code" required />}
               <FormError message={error} />
-              <button className="button primary wide" disabled={busy}>{busy ? 'Securing workspace…' : 'Finish secure sign in'}</button>
+              {totpSetupRequired && !totp ? <button type="button" className="button primary wide" disabled={busy} onClick={() => void retryTotpSetup()}>{busy ? 'Preparing authenticator…' : 'Retry authenticator setup'}</button> : <button className="button primary wide" disabled={busy}>{busy ? 'Securing workspace…' : 'Finish secure sign in'}</button>}
             </form>
           )}
         </div>
@@ -385,6 +414,7 @@ interface ShellProps {
 
 function AppShell(props: ShellProps) {
   const { config, human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout, syncNotice } = props;
+  const canManageInbox = view.canManageInbox === true;
   const [section, setSection] = useState<NavSection>('inbox');
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
@@ -432,7 +462,6 @@ function AppShell(props: ShellProps) {
           <NavItem section="activity" label="Activity log" icon={<Activity />} active={section === 'activity'} onClick={chooseSection} />
         </nav>
         <div className="nav-footer">
-          <button className="pause-control" onClick={() => setToast('Global pause requires backend support and is not active in this release.')}><Pause size={16} /><span>Pause all work</span></button>
           <div className="principal-card"><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{human.displayName}</strong><small>Principal · {config.provider === 'workos' ? 'WorkOS' : 'local MFA'}</small></div><button className="icon-button" aria-label="Sign out" onClick={() => void onLogout()}><MoreHorizontal size={18} /></button></div>
         </div>
       </aside>
@@ -449,14 +478,14 @@ function AppShell(props: ShellProps) {
         {utilitySection ? (
           <main id="main-content" className="utility-content">
             {section === 'policies' && <PoliciesPage view={view} />}
-            {section === 'integrations' && <IntegrationsPage view={view} workspace={workspace} onRefresh={onRefresh} notify={setToast} />}
+            {section === 'integrations' && <IntegrationsPage view={view} workspace={workspace} agentInboxes={workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === workspace.id)} humanId={human.id} canManageInbox={canManageInbox} onSelectWorkspace={onSelectWorkspace} onRefresh={onRefresh} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} />}
           </main>
         ) : (
           <div className={`case-layout ${mobileDetail ? 'show-detail' : ''}`}>
             <CaseQueue section={section} cases={visibleCases} view={view} selectedId={selectedCase?.id || null} onSelect={item => { setSelectedCaseId(item.id); setMobileDetail(true); }} />
             <main id="main-content" className="case-main">
-              {selectedCase ? <CaseWorkspace workCase={selectedCase} view={view} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => setMobileDetail(false)} onRefresh={onRefresh} notify={setToast} /> : <EmptyCaseState section={section} />}
+              {selectedCase ? <CaseWorkspace workCase={selectedCase} view={view} canManageInbox={canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => setMobileDetail(false)} onRefresh={onRefresh} notify={setToast} /> : <EmptyCaseState section={section} />}
             </main>
           </div>
         )}
@@ -517,7 +546,7 @@ function CaseRow({ workCase, view, selected, onSelect }: { workCase: WorkCase; v
   );
 }
 
-function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefresh, notify }: { workCase: WorkCase; view: HumanView; railOpen: boolean; onRailToggle: () => void; onBack: () => void; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRailToggle, onBack, onRefresh, notify }: { workCase: WorkCase; view: HumanView; canManageInbox: boolean; railOpen: boolean; onRailToggle: () => void; onBack: () => void; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const state = caseState(workCase);
   const events = timelineForCase(workCase, view.messages);
   const policy = workCase.policyEvaluations?.find(item => item.id === workCase.decision?.policyEvaluationId) || decisionPolicy(workCase);
@@ -534,7 +563,8 @@ function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefre
     } catch (caught) { notify(errorMessage(caught)); } finally { setBusy(null); }
   }
 
-  const canAct = Boolean(workCase.schemaVersion) && !['completed', 'expired', 'revoked'].includes(state);
+  const hasOpenDecision = Boolean(workCase.schemaVersion) && !['completed', 'expired', 'revoked'].includes(state);
+  const canAct = canManageInbox && hasOpenDecision;
   return (
     <div className={`workspace-grid ${railOpen ? 'rail-open' : ''}`}>
       <article className="case-workspace">
@@ -546,9 +576,7 @@ function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefre
 
         <NegotiationParticipants workCase={workCase} view={view} events={events} />
 
-        {workCase.decision && canAct && (
-          <DecisionCard workCase={workCase} view={view} events={events} policy={policy} busy={busy} onAction={key => ['decline', 'takeOver'].includes(key) ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />
-        )}
+        {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => ['decline', 'takeOver'].includes(key) ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
         {state === 'unknownExternalResult' && <InlineNotice title="External result is unconfirmed" body="The external system did not return a success or failure response. Retry only with the original idempotency key." tone="unknown" />}
         {state === 'revoked' && <InlineNotice title="Authority revoked" body="This conversation is preserved for your records, but the agents cannot take further action under the revoked authority." tone="danger" />}
         {workCase.receipt && <ReceiptCard workCase={workCase} />}
@@ -567,7 +595,7 @@ function CaseWorkspace({ workCase, view, railOpen, onRailToggle, onBack, onRefre
 
       {railOpen && <ContextRail workCase={workCase} view={view} onPolicy={item => setDrawer({ type: 'policy', item })} onEvidence={item => setDrawer({ type: 'evidence', item })} notify={notify} />}
       {drawer && <DetailDrawer drawer={drawer} onClose={() => setDrawer(null)} />}
-      {confirm && <ConfirmDialog action={confirm} busy={busy === confirm} onCancel={() => setConfirm(null)} onConfirm={() => void act(confirm)} />}
+      {confirm && canAct && <ConfirmDialog action={confirm} busy={busy === confirm} onCancel={() => setConfirm(null)} onConfirm={() => void act(confirm)} />}
     </div>
   );
 }
@@ -601,7 +629,7 @@ function ParticipantCard({ participant, label }: { participant: ReturnType<typeo
   );
 }
 
-function DecisionCard({ workCase, view, events, policy, busy, onAction, onPolicy }: { workCase: WorkCase; view: HumanView; events: CaseEvent[]; policy?: PolicyEvaluation; busy: HumanActionKey | null; onAction: (key: HumanActionKey) => void; onPolicy: () => void }) {
+export function DecisionCard({ workCase, view, events, policy, canManageInbox, busy, onAction, onPolicy }: { workCase: WorkCase; view: HumanView; events: CaseEvent[]; policy?: PolicyEvaluation; canManageInbox: boolean; busy: HumanActionKey | null; onAction: (key: HumanActionKey) => void; onPolicy: () => void }) {
   const proposal = workCase.proposals?.find(item => ['open', 'countered'].includes(item.status));
   const option = proposal?.options.find(item => !item.expired);
   const parties = proposal ? proposalParties(workCase, proposal.id, events, view) : null;
@@ -610,11 +638,11 @@ function DecisionCard({ workCase, view, events, policy, busy, onAction, onPolicy
   return (
     <section className="decision-card" aria-labelledby="decision-title">
       <div className="decision-accent"><Sparkles size={18} /></div>
-      <div className="decision-copy"><p className="eyebrow">Your judgment is required</p><h2 id="decision-title">{decisionQuestion(workCase, option)}</h2>
+      <div className="decision-copy"><p className="eyebrow">{canManageInbox ? 'Your judgment is required' : 'Workspace administrator review'}</p><h2 id="decision-title">{decisionQuestion(workCase, option)}</h2>
         {option && <ProposalOptionView option={option} expiresAt={proposal?.expiresAt || null} stageLabel={proposal?.status === 'countered' ? 'Counteroffer' : 'Offer'} partyLabel={optionParty?.displayName} />}
         <button className="authority-link" onClick={onPolicy} disabled={!policy}><AuthoritySeal decision={policy?.decision || 'needsHuman'} /> <span>Authorized by: {policy?.matchedPolicyId ? humanize(policy.matchedPolicyId) : 'Human approval required'}</span></button>
       </div>
-      <div className="decision-actions">{availableActions.map((action, index) => <button key={action} className={`button ${index === 0 ? 'primary' : index === 1 ? 'secondary' : 'quiet'}`} disabled={Boolean(busy)} onClick={() => onAction(action)}>{busy === action ? 'Recording…' : action === 'pause' ? 'Pause conversation' : humanize(action)}</button>)}</div>
+      {canManageInbox && <div className="decision-actions">{availableActions.map((action, index) => <button key={action} className={`button ${index === 0 ? 'primary' : index === 1 ? 'secondary' : 'quiet'}`} disabled={Boolean(busy)} onClick={() => onAction(action)}>{busy === action ? 'Recording…' : action === 'pause' ? 'Pause conversation' : humanize(action)}</button>)}</div>}
     </section>
   );
 }
@@ -788,7 +816,7 @@ function PoliciesPage({ view }: { view: HumanView }) {
   return <PageFrame eyebrow="Authority" title="Policies" description="The rules that let agents prepare, propose, or commit actions on your behalf."><div className="policy-summary"><Metric value={policies.filter(item => item.decision === 'allow').length} label="Allowed evaluations" /><Metric value={policies.filter(item => item.decision === 'needsHuman').length} label="Asked for judgment" /><Metric value={policies.filter(item => item.decision === 'deny').length} label="Denied" /></div>{policies.length ? <div className="data-list">{policies.map(item => <article key={item.id} className="data-row"><AuthoritySeal decision={item.decision} /><div><strong>{humanize(item.requestedAction)}</strong><span>{humanize(item.matchedPolicyId || 'No matching grant')} · {humanize(item.grantType)}</span></div><StatusText value={item.decision} /><time>{formatAbsolute(item.effectiveAt)}</time></article>)}</div> : <PageEmpty icon={<ShieldCheck />} title="No policy evaluations yet" body="Authority checks will appear here as agents attempt consequential actions." />}</PageFrame>;
 }
 
-function IntegrationsPage({ view, workspace, onRefresh, notify }: { view: HumanView; workspace: Workspace; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInbox, onSelectWorkspace, onRefresh, notify }: { view: HumanView; workspace: Workspace; agentInboxes: Workspace[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const [enrollment, setEnrollment] = useState<{ enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null>(null);
   const [open, setOpen] = useState(false);
   const [emailTransport, setEmailTransport] = useState<EmailTransportStatus | null>(null);
@@ -831,29 +859,30 @@ function IntegrationsPage({ view, workspace, onRefresh, notify }: { view: HumanV
     void api.emailTransport(workspace.id).then(value => { if (active) setEmailTransport(value); }).catch(caught => { if (active) setEmailError(errorMessage(caught)); });
     return () => { active = false; };
   }, [loadEmailTransport, view.contacts, view.publicEmailTransport, workspace.id]);
-  const steps = onboardingSteps(view);
+  const steps = onboardingSteps(view, agentInboxes);
   const completeCount = steps.filter(step => step.complete).length;
   const calendarConfigured = Object.values(view.calendarProviders).some(provider => provider.configured);
-  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Bring one agent online, verify a native counterparty, and watch the first delivery reach a durable receipt.">
-    <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div>
+  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Bring one agent online, share its native address, and watch direct agent exchanges reach durable receipts.">
+    {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages enrollment and approved public email contacts. You can observe your agent’s conversations." tone="attention" />}
     <section className="onboarding-card" aria-labelledby="onboarding-title">
       <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
       <div className="progress-track" aria-label={`${completeCount} of ${steps.length} onboarding steps complete`}><span style={{ width: `${(completeCount / steps.length) * 100}%` }} /></div>
-      <ol>{steps.map((step, index) => <li key={step.id} className={step.complete ? 'complete' : ''}><span className="step-mark">{step.complete ? <Check size={14} /> : index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p></div>{step.id === 'enroll' && !step.complete && <button className="button tertiary compact" onClick={() => setOpen(true)}>Create link</button>}</li>)}</ol>
+      <ol>{steps.map((step, index) => <li key={step.id} className={step.complete ? 'complete' : ''}><span className="step-mark">{step.complete ? <Check size={14} /> : index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p></div>{canManageInbox && step.id === 'enroll' && !step.complete && <button className="button tertiary compact" onClick={() => setOpen(true)}>Create link</button>}</li>)}</ol>
     </section>
+    {agentInboxes.length > 0 && <section className="agent-inbox-list" aria-label="Your agent inboxes"><div className="section-heading"><div><p className="eyebrow">Agent inboxes</p><h2>Each agent has its own view</h2></div><span>{agentInboxes.length} inboxes</span></div><div className="data-list">{agentInboxes.map(agentInbox => <article className="data-row" key={agentInbox.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{agentInbox.name}</strong><span>Separate conversation history and permissions</span></div><StatusText value={agentInbox.status} /><button type="button" className="button secondary compact" onClick={() => void onSelectWorkspace(agentInbox)}>Open inbox</button></article>)}</div></section>}
     <section className="beta-safeguards" aria-labelledby="safeguards-title">
       <div className="section-heading"><div><p className="eyebrow">Beta safeguards</p><h2 id="safeguards-title">Native messages only</h2></div><span>Closed beta</span></div>
       <div className="safeguard-grid">
-        <SafeguardCard icon={<Inbox size={18} />} title="Agent-to-agent messaging" status="Beta path" body="Use verified Sinaloa agent addresses. Delivery and acknowledgement states remain visible here." />
+        <SafeguardCard icon={<Inbox size={18} />} title="Agent-to-agent messaging" status="Beta path" body="Use a known Sinaloa agent address to begin a conversation directly. Delivery and acknowledgement states remain visible here." />
         <SafeguardCard icon={<Link2 size={18} />} title="Public email" status={emailTransport?.ready ? 'Ready' : emailTransport ? 'Unavailable' : 'Checking'} body={emailTransport?.ready ? `Verified on ${emailTransport.publicDomain}. Agents may email approved contacts only; humans remain observers and approvers.` : emailTransport ? `Not available: ${emailTransport.reason || 'provider configuration is incomplete'}. No public email action is offered.` : emailError || 'Checking the configured transport and verified domain.'} />
         <SafeguardCard icon={<CalendarDays size={18} />} title="Calendar actions" status={calendarConfigured ? 'Configured, gated' : 'Unavailable'} body={calendarConfigured ? 'A provider is configured, but connect and booking actions remain gated during the closed beta.' : 'No calendar provider is configured, and calendar actions remain gated during the closed beta.'} />
         <SafeguardCard icon={<FileText size={18} />} title="Attachment upload" status="Disabled" body="Human uploads are unavailable. Agent files stay locked until the safety scan reports clean." />
       </div>
     </section>
-    <ConnectionInvitations invitations={invitations} error={invitationError} workspace={workspace} onReload={loadInvitations} onRefresh={onRefresh} notify={notify} />
-    <ApprovedContacts emailTransport={emailTransport} error={emailError} workspace={workspace} onReload={loadEmailTransport} notify={notify} />
-    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Connected agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} emailTransport={emailTransport} onRefresh={onRefresh} notify={notify} />)}</div></> : <PageEmpty icon={<PlugZap />} title="No agents are connected" body="Create a permissioned, 15-minute enrollment link to add the first agent." action={<button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button>} />}
-    {open && <EnrollmentDialog workspace={workspace} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
+    {invitations.length > 0 && <ConnectionInvitations invitations={invitations} error={invitationError} workspace={workspace} canManageInbox={canManageInbox} onReload={loadInvitations} onRefresh={onRefresh} notify={notify} />}
+    <ApprovedContacts emailTransport={emailTransport} error={emailError} workspace={workspace} canManageInbox={canManageInbox} onReload={loadEmailTransport} notify={notify} />
+    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={emailTransport} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can create a permissioned, 15-minute enrollment link to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
+    {open && canManageInbox && <EnrollmentDialog workspace={workspace} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </PageFrame>;
 }
 
@@ -861,7 +890,7 @@ function SafeguardCard({ icon, title, status, body }: { icon: ReactNode; title: 
   return <article className="safeguard-card"><span className="safeguard-icon">{icon}</span><div><header><strong>{title}</strong><span>{status}</span></header><p>{body}</p></div></article>;
 }
 
-export function ConnectionInvitations({ invitations, error, workspace, onReload, onRefresh, notify }: { invitations: AgentConnectionInvitation[]; error: string; workspace: Workspace; onReload: () => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+export function ConnectionInvitations({ invitations, error, workspace, canManageInbox, onReload, onRefresh, notify }: { invitations: AgentConnectionInvitation[]; error: string; workspace: Workspace; canManageInbox: boolean; onReload: () => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
 
@@ -883,20 +912,20 @@ export function ConnectionInvitations({ invitations, error, workspace, onReload,
     }
   }
 
-  const actionableCount = invitations.filter(item => item.state === 'pending' && item.actionable === true).length;
+  const actionableCount = invitations.filter(item => canManageInbox && item.state === 'pending' && item.actionable === true).length;
   return <section className="connection-invitations" aria-labelledby="invitations-title" aria-live="polite"><div className="section-heading"><div><p className="eyebrow">Discovery layer</p><h2 id="invitations-title">Connection invitations</h2></div><span>{actionableCount} need review</span></div>{error || actionError ? <div className="recoverable-state"><InlineNotice title="Invitation feed unavailable" body={actionError || error} tone="unknown" /><button type="button" className="button secondary compact" onClick={() => void onReload()}>Try again</button></div> : invitations.length ? <div className="invitation-list">{invitations.map(item => {
     const busy = busyId === item.id;
     const incoming = item.direction === 'incoming';
     const counterpartAddress = incoming ? item.fromAddress : item.toAddress;
-    return <article key={item.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{counterpartAddress}</strong><code>{incoming ? `To ${item.toAddress}` : `From ${item.fromAddress}`}</code><small>{incoming ? 'Received' : 'Sent'} {formatAbsolute(item.createdAt)} · exact address match</small></div>{item.state === 'pending' && item.actionable === true ? <div className="invitation-decision-actions"><button type="button" className="button secondary compact" disabled={busy} aria-label={`Decline connection invitation from ${item.fromAddress}`} onClick={() => void decide(item.id, 'decline')}>{busy ? 'Working…' : 'Decline'}</button><button type="button" className="button primary compact" disabled={busy} aria-label={`Accept connection invitation from ${item.fromAddress}`} onClick={() => void decide(item.id, 'accept')}>{busy ? 'Working…' : 'Accept'}</button></div> : item.state === 'pending' && item.direction === 'outgoing' ? <div className="invitation-pending-status"><StatusText value="pending" /><small>Awaiting recipient approval</small></div> : <StatusText value={item.state} />}</article>;
+    return <article key={item.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{counterpartAddress}</strong><code>{incoming ? `To ${item.toAddress}` : `From ${item.fromAddress}`}</code><small>{incoming ? 'Received' : 'Sent'} {formatAbsolute(item.createdAt)} · exact address match</small></div>{canManageInbox && item.state === 'pending' && item.actionable === true ? <div className="invitation-decision-actions"><button type="button" className="button secondary compact" disabled={busy} aria-label={`Decline connection invitation from ${item.fromAddress}`} onClick={() => void decide(item.id, 'decline')}>{busy ? 'Working…' : 'Decline'}</button><button type="button" className="button primary compact" disabled={busy} aria-label={`Accept connection invitation from ${item.fromAddress}`} onClick={() => void decide(item.id, 'accept')}>{busy ? 'Working…' : 'Accept'}</button></div> : item.state === 'pending' && item.direction === 'outgoing' ? <div className="invitation-pending-status"><StatusText value="pending" /><small>Awaiting recipient approval</small></div> : <StatusText value={item.state} />}</article>;
   })}</div> : <div className="compact-empty"><CheckCircle2 size={18} /><span><strong>No incoming invitations</strong><small>Share your agent’s exact platform address. First-contact requests appear here before any message is delivered.</small></span></div>}</section>;
 }
 
-function ApprovedContacts({ emailTransport, error, workspace, onReload, notify }: { emailTransport: EmailTransportStatus | null; error: string; workspace: Workspace; onReload: () => Promise<void>; notify: (message: string) => void }) {
+function ApprovedContacts({ emailTransport, error, workspace, canManageInbox, onReload, notify }: { emailTransport: EmailTransportStatus | null; error: string; workspace: Workspace; canManageInbox: boolean; onReload: () => Promise<void>; notify: (message: string) => void }) {
   const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
-  const canManage = Boolean(emailTransport?.ready);
+  const canManage = canManageInbox && Boolean(emailTransport?.ready);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -914,22 +943,81 @@ function ApprovedContacts({ emailTransport, error, workspace, onReload, notify }
     catch (caught) { const message = errorMessage(caught); setActionError(message); notify(message); }
     finally { setBusyId(null); }
   }
-  return <section className="approved-contacts" aria-labelledby="approved-contacts-title"><div className="section-heading"><div><p className="eyebrow">Public email boundary</p><h2 id="approved-contacts-title">Approved contacts</h2></div><div className="section-actions"><span>Agent-owned sending</span>{canManage && <button type="button" className="button tertiary compact" onClick={() => setOpen(current => !current)}>{open ? 'Cancel' : 'Approve contact'}</button>}</div></div>{open && <form className="contact-approval-form" onSubmit={submit}><Field label="Contact name" name="displayName" placeholder="Jordan Lee" required /><Field label="Email address" name="email" type="email" autoComplete="email" placeholder="jordan@example.com" required /><label className="field"><span>Email direction</span><select name="direction" defaultValue="both"><option value="both">Send and receive</option><option value="outbound">Send only</option><option value="inbound">Receive only</option></select></label><button className="button primary" disabled={busyId === 'new'}>{busyId === 'new' ? 'Approving…' : 'Approve exact email'}</button></form>}{actionError && <InlineNotice title="Contact update failed" body={actionError} tone="unknown" />}{error ? <div className="recoverable-state"><InlineNotice title="Contact state unavailable" body={error} tone="unknown" /><button type="button" className="button secondary compact" onClick={() => void onReload()}>Try again</button></div> : !emailTransport ? <div className="compact-empty muted"><CircleDashed size={18} /><span><strong>Checking public email readiness</strong><small>No external action is enabled until configuration and contact state are confirmed.</small></span></div> : emailTransport.contacts.length ? <div className="contact-list">{emailTransport.contacts.map(contact => { const state = contact.blocked ? 'blocked' : contact.approved ? 'approved' : 'pending'; return <article key={contact.id}><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{contact.displayName}</strong><code>{contact.email}</code><small>{humanize(contact.direction)} email · updated {formatAbsolute(contact.updatedAt)}</small></div><div className="contact-actions"><StatusText value={state} /><button type="button" className="button quiet compact" disabled={busyId === contact.id} onClick={() => void setBlocked(contact, !contact.blocked)}>{busyId === contact.id ? 'Saving…' : contact.blocked ? 'Unblock' : 'Block'}</button></div></article>; })}</div> : <div className="compact-empty"><ShieldCheck size={18} /><span><strong>No approved public contacts</strong><small>Agents cannot send arbitrary external email. Approve an exact address before enabling contact.</small></span></div>}</section>;
+  return <section className="approved-contacts" aria-labelledby="approved-contacts-title"><div className="section-heading"><div><p className="eyebrow">Public email boundary</p><h2 id="approved-contacts-title">Approved contacts</h2></div><div className="section-actions"><span>Agent-owned sending</span>{canManage && <button type="button" className="button tertiary compact" onClick={() => setOpen(current => !current)}>{open ? 'Cancel' : 'Approve contact'}</button>}</div></div>{open && canManage && <form className="contact-approval-form" onSubmit={submit}><Field label="Contact name" name="displayName" placeholder="Jordan Lee" required /><Field label="Email address" name="email" type="email" autoComplete="email" placeholder="jordan@example.com" required /><label className="field"><span>Email direction</span><select name="direction" defaultValue="both"><option value="both">Send and receive</option><option value="outbound">Send only</option><option value="inbound">Receive only</option></select></label><button className="button primary" disabled={busyId === 'new'}>{busyId === 'new' ? 'Approving…' : 'Approve exact email'}</button></form>}{actionError && <InlineNotice title="Contact update failed" body={actionError} tone="unknown" />}{error ? <div className="recoverable-state"><InlineNotice title="Contact state unavailable" body={error} tone="unknown" /><button type="button" className="button secondary compact" onClick={() => void onReload()}>Try again</button></div> : !emailTransport ? <div className="compact-empty muted"><CircleDashed size={18} /><span><strong>Checking public email readiness</strong><small>No external action is enabled until configuration and contact state are confirmed.</small></span></div> : emailTransport.contacts.length ? <div className="contact-list">{emailTransport.contacts.map(contact => { const state = contact.blocked ? 'blocked' : contact.approved ? 'approved' : 'pending'; return <article key={contact.id}><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{contact.displayName}</strong><code>{contact.email}</code><small>{humanize(contact.direction)} email · updated {formatAbsolute(contact.updatedAt)}</small></div><div className="contact-actions"><StatusText value={state} />{canManageInbox && <button type="button" className="button quiet compact" disabled={busyId === contact.id} onClick={() => void setBlocked(contact, !contact.blocked)}>{busyId === contact.id ? 'Saving…' : contact.blocked ? 'Unblock' : 'Block'}</button>}</div></article>; })}</div> : <div className="compact-empty"><ShieldCheck size={18} /><span><strong>No approved public contacts</strong><small>Agents cannot send arbitrary external email. Approve an exact address before enabling contact.</small></span></div>}</section>;
 }
 
-function AgentCard({ agent, workspace, emailTransport, onRefresh, notify }: { agent: Agent; workspace: Workspace; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTransport, onRefresh, notify }: { agent: Agent; workspace: Workspace; humanId: string; canManageInbox: boolean; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const pending = agent.onboardingStatus === 'pending_approval';
+  const canApproveAgent = canManageInbox || (agent.principalHumanId || workspace.ownerHumanId) === humanId;
   const [credential, setCredential] = useState('');
+  const [approvalOpen, setApprovalOpen] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [approvalError, setApprovalError] = useState('');
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
   const platformAddress = agent.platformAddress || transportAgent?.platformAddress || transportAgent?.internalAddress || agent.address;
   const publicEmailAddress = agent.publicEmailAddress || agent.identity?.externalAddress || transportAgent?.publicEmailAddress || transportAgent?.externalAddress || null;
-  return <article className="integration-card"><div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.status} /></div>{emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}<div className="capability-list">{agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div><dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Verified and active' : 'Pending approval'}</dd></div><div><dt>Access</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>{credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}{pending && <button className="button primary" onClick={async () => { try { const result = await api.approveAgent(workspace.id, agent.id, permissions); if (result.agentApiToken) setCredential(result.agentApiToken); notify('Agent approved with scoped execution permissions.'); await onRefresh(); } catch (caught) { notify(errorMessage(caught)); } }}>Approve agent</button>}</article>;
+  async function approve() {
+    setApprovalBusy(true);
+    setApprovalError('');
+    try {
+      const result = await api.approveAgent(workspace.id, agent.id, selectedAgentPermissions(selectedPermissions));
+      if (result.agentApiToken) setCredential(result.agentApiToken);
+      notify('Agent approved with the selected permissions.');
+      setApprovalOpen(false);
+      await onRefresh();
+    } catch (caught) { setApprovalError(errorMessage(caught)); }
+    finally { setApprovalBusy(false); }
+  }
+  return <article className="integration-card">
+    <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.status} /></div>
+    {emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}
+    <div className="capability-list">{agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div>
+    <dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Verified and active' : 'Pending approval'}</dd></div><div><dt>Access</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>
+    {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
+    {pending && canApproveAgent && <button className="button primary" onClick={() => setApprovalOpen(true)}>Review agent access</button>}
+    {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
+      <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
+      <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
+      <FormError message={approvalError} />
+      <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setApprovalOpen(false)}>Cancel</button><button className="button primary" disabled={approvalBusy} onClick={() => void approve()}>{approvalBusy ? 'Approving…' : 'Approve with selected access'}</button></div>
+    </Modal>}
+  </article>;
 }
 
 function EnrollmentDialog({ workspace, result, setResult, onClose }: { workspace: Workspace; result: { enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null; setResult: (value: any) => void; onClose: () => void }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const exchangeCommand = result ? `curl -X POST ${window.location.origin}/api/agent-enroll -H "content-type: application/json" --data '${JSON.stringify({ enrollmentToken: result.enrollmentToken, name: 'My agent' })}'` : '';
-  return <Modal title={result ? 'Enrollment link created' : 'Enroll an agent'} onClose={onClose}>{result ? <><InlineNotice title="Shown once" body="This enrollment credential cannot be recovered after you close this dialog." tone="attention" /><label className="field"><span>One-time enrollment URL</span><div className="copy-field"><input readOnly value={result.enrollmentUrl} /><CopyButton value={result.enrollmentUrl} label="Copy enrollment URL" /></div><small>Expires {formatAbsolute(result.expiresAt)}</small></label><div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Exchange the link for SDK credentials</h3><p>Run this only in the agent’s trusted environment. The response returns short-lived access and refresh credentials once.</p><div className="copy-field"><input readOnly value={exchangeCommand} aria-label="Agent enrollment command" /><CopyButton value={exchangeCommand} label="Copy agent enrollment command" /></div><small>Then initialize the included <code>@sinaloa/protocol</code> client with the returned <code>agentApiToken</code>.</small></div><div className="dialog-actions"><button className="button primary" onClick={onClose}>I’ve copied the handoff</button></div></> : <form onSubmit={async event => { event.preventDefault(); setBusy(true); setError(''); try { setResult(await api.enrollmentToken(workspace.id, String(new FormData(event.currentTarget).get('name')), permissions)); } catch (caught) { setError(errorMessage(caught)); setBusy(false); } }}><Field label="Agent name" name="name" placeholder="Scheduling agent" required /><fieldset className="permission-set"><legend>Permission policy</legend>{permissions.map(item => <label key={item}><input type="checkbox" checked readOnly /><span>{humanize(item)}</span></label>)}</fieldset><FormError message={error} /><div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating link…' : 'Create one-time link'}</button></div></form>}</Modal>;
+  return <Modal title={result ? 'Enrollment link created' : 'Enroll an agent'} onClose={onClose}>
+    {result ? <>
+      <InlineNotice title="Shown once" body="This enrollment credential cannot be recovered after you close this dialog." tone="attention" />
+      <label className="field"><span>One-time enrollment URL</span><div className="copy-field"><input readOnly value={result.enrollmentUrl} /><CopyButton value={result.enrollmentUrl} label="Copy enrollment URL" /></div><small>Expires {formatAbsolute(result.expiresAt)}</small></label>
+      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Exchange the link for SDK credentials</h3><p>Run this only in the agent’s trusted environment. The response returns short-lived access and refresh credentials once.</p><div className="copy-field"><input readOnly value={exchangeCommand} aria-label="Agent enrollment command" /><CopyButton value={exchangeCommand} label="Copy agent enrollment command" /></div><small>Then initialize the included <code>@sinaloa/protocol</code> client with the returned <code>agentApiToken</code>.</small></div>
+      <div className="dialog-actions"><button className="button primary" onClick={onClose}>I’ve copied the handoff</button></div>
+    </> : <form onSubmit={async event => {
+      event.preventDefault();
+      setBusy(true);
+      setError('');
+      try {
+        setResult(await api.enrollmentToken(workspace.id, String(new FormData(event.currentTarget).get('name')), selectedAgentPermissions(selectedPermissions)));
+      } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
+    }}>
+      <Field label="Agent name" name="name" placeholder="Scheduling agent" required />
+      <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
+      <FormError message={error} />
+      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating link…' : 'Create one-time link'}</button></div>
+    </form>}
+  </Modal>;
+}
+
+export function AgentPermissionPicker({ selected, onChange }: { selected: string[]; onChange: (permissions: string[]) => void }) {
+  return <fieldset className="permission-set"><legend>Agent permissions</legend>
+    {AGENT_PERMISSION_OPTIONS.map(option => <label key={option.id}>
+      <input type="checkbox" checked={option.required || selected.includes(option.id)} disabled={option.required} onChange={event => onChange(selectedAgentPermissions(event.target.checked ? [...selected, option.id] : selected.filter(permission => permission !== option.id)))} />
+      <span><strong>{option.label}</strong><small>{option.description}</small></span>
+    </label>)}
+  </fieldset>;
 }
 
 function ActivityPage({ view }: { view: HumanView }) {

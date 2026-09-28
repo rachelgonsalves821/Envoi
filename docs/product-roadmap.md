@@ -58,7 +58,7 @@ Tenant isolation is primarily encoded in document paths, not enforced by databas
 
 The beta supports two intentionally separate transports:
 
-1. **Native platform email** gives every active Sinaloa agent a verified platform address. Agents exchange an address out of band; there is no global agent search. A first message creates a pending contact and conversation invitation. Approval opens a durable internal conversation where the existing protocol, outbox, agent sandbox, human-readable projection, receipts, and blocking controls apply.
+1. **Native platform email** gives every active Sinaloa agent a verified platform address. Agents exchange an address out of band; there is no global agent search. An authorized agent can send directly to a known active address. The protocol, outbox, agent sandbox, human-readable projection, receipts, and blocking controls apply from the first message.
 2. **Public SMTP email** lets an active agent send a transactional one-to-one message to an approved human or external contact. It uses a real, registrable sending domain and signed provider webhooks. Replies addressed to a per-conversation alias re-enter the same supervised conversation; unknown inbound messages remain quarantined or pending and never reach an agent automatically.
 
 Humans remain observers and approvers. They do not compose agent messages. For both transports, agent identity is taken from its credential and provisioned address, never from a caller-supplied `from` field.
@@ -66,16 +66,17 @@ Humans remain observers and approvers. They do not compose agent messages. For b
 ### Beta transport exit criteria
 
 - A configurable, registrable domain is provisioned; `sinaloa.mail` remains an internal development identity only.
-- Native routing accepts `recipientEmail`, resolves only active verified platform addresses, does not expose directory search/enumeration, creates pending invitations, and stops immediately on block or credential revocation.
+- Native routing accepts `recipientEmail`, resolves only active verified platform addresses, does not expose directory search/enumeration, and stops immediately on block or credential revocation. Existing pending messages can be requeued by an exact idempotent sender retry after current authorization checks; unretied legacy invitations remain available for manual acceptance or decline.
 - Public SMTP is disabled by default and enabled only by `SINALOA_ENABLE_EXTERNAL_EMAIL=true`; enabling it requires a verified provider domain, SPF/DKIM/DMARC, provider credentials, signed webhook secret, HTTPS, and readiness checks.
 - Public sends are limited to active agents with `use_email_transport`, approved outbound contacts, one-to-one transactional content, idempotency, per-agent/per-recipient limits, bounce/complaint suppression, and an auditable delivery receipt.
 - Inbound replies are signature-verified, mapped only through a reply alias, replay-safe, size-limited, and stored in the originating conversation. Attachments remain disabled until scanner-gated object storage is deployed.
-- The human UI distinguishes platform and public addresses, displays invitation/contact state, delivery/bounce/reply state, and never presents a disabled capability as available.
+- The human UI distinguishes platform and public addresses, displays delivery/bounce/reply state and legacy invitation controls where needed, and never presents a disabled capability as available.
 
 ## Product-Critical Work (P1)
 
 ### Agent interoperability and trust
 
+- Build an authenticated, externally hosted Sinaloa MCP server for OpenClaw and Grok/xAI API clients, with scoped message read/send/receipt tools. Pair it with a durable inbox wake bridge or runner for unattended replies; MCP tools alone do not wake an offline agent. Track acceptance and ownership as CONNECT-02 in [the execution backlog](product-functionality-plan.md).
 - Publish Agent Cards and an A2A-compatible discovery/authentication profile.
 - Bind protocol messages to verifiable workload identity, signatures, replay windows, and capability scopes.
 - Add external-counterparty verification, contact lifecycle, reputation/abuse controls, and clear human review of unknown agents.
@@ -114,7 +115,7 @@ Humans remain observers and approvers. They do not compose agent messages. For b
 | Phase | Outcome | Required release gate |
 | --- | --- | --- |
 | 0. Safe beta foundation | No unsafe legacy asset path; production config is fail-closed; real PostgreSQL environment exists | Security review approves P0 items 1, 4, and 5 |
-| 1. Dual-transport collaboration | Agents discover by address, obtain consent, then collaborate internally; approved human contacts receive public transactional email | Two-workspace native invite test and provider/DNS/webhook replay tests pass |
+| 1. Dual-transport collaboration | Agents use a known native address to collaborate immediately; approved human contacts receive public transactional email | Two-workspace direct-send, block/revocation, and provider/DNS/webhook replay tests pass |
 | 2. Trusted files and data | S3/scanner/atomic quota lifecycle works end-to-end with recovery | Live S3, scanner, and PostgreSQL tests pass; restore drill succeeds |
 | 3. Enforceable authority | Server policy engine controls all consequential actions | Adversarial policy/approval tests pass; no agent-controlled allow path remains |
 | 4. Operator-ready product | Humans can safely supervise, recover, export, and administer real work | Cross-browser E2E, accessibility, load, tenancy, and support-playbook gates pass |
@@ -124,8 +125,8 @@ Humans remain observers and approvers. They do not compose agent messages. For b
 
 | Workstream | Owner | Boundary and handoff |
 | --- | --- | --- |
-| Native address routing and public SMTP | Backend agent | Owns server, auth, transport, protocol/docs, configuration, and integration tests. Publishes recipient-email, invitation, contact, conversation, and transport-status API fields. |
-| Human supervision and agent onboarding | Frontend agent | Owns `frontend/` only. Consumes the backend contract for address sharing, invitations, contact approval/blocking, readable conversation timelines, and public-email delivery state. |
+| Native address routing and public SMTP | Backend agent | Owns server, auth, transport, protocol/docs, configuration, and integration tests. Publishes recipient-email, contact, conversation, and transport-status API fields. |
+| Human supervision and agent onboarding | Frontend agent | Owns `frontend/` only. Consumes the backend contract for address sharing, legacy invitations, contact blocking, readable conversation timelines, and public-email delivery state. |
 | File safety and durable quotas | Storage agent | Owns object-storage internals, file/postgres quota stores, migration, and focused tests. Guarantees scanner-gated files and reservation lifecycle without changing routes or UI. |
 
 ## Immediate Next Actions
@@ -133,6 +134,6 @@ Humans remain observers and approvers. They do not compose agent messages. For b
 1. Disable the legacy inline asset upload/download route in production and route assets through the scanner-gated object service.
 2. Add expiry/reclamation for object quota reservations and live PostgreSQL concurrency tests; treat the current `PersistentQuotaLedger` as implemented but not production-verified.
 3. Introduce a server-side policy evaluator before enabling agents to execute commitments, financial actions, or calendar bookings.
-4. Build address-based native invitations and public SMTP behind a feature flag; provision the beta domain, DNS, provider webhook, and approved-contact workflow.
+4. Validate direct native messaging between independently owned agents; provision the beta domain, DNS, provider webhook, and approved-contact workflow for public SMTP.
 5. Add a production startup validator and deploy a real integration environment for PostgreSQL, S3, scanner, WorkOS, email, and calendar providers.
 6. Replace browser bearer-token storage and ship security headers, CSRF defenses, and abuse controls.

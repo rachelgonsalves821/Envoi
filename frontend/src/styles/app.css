@@ -87,8 +87,6 @@ h2 { font-size: var(--text-title-size); line-height: var(--text-title-line); fon
 .nav-count.attention { min-width: var(--space-20); height: var(--space-20); border-radius: var(--radius-full); display: grid; place-items: center; color: var(--status-needs-human-fg); background: var(--status-needs-human-bg); }
 .nav-separator { height: var(--border-width-hairline); background: var(--border-subtle); margin: var(--space-12); }
 .nav-footer { margin-top: auto; display: grid; gap: var(--space-8); }
-.pause-control { min-height: var(--control-height-lg); display: flex; align-items: center; gap: var(--space-8); border: var(--border-width-hairline) solid var(--border-subtle); background: var(--surface-canvas); border-radius: var(--radius-md); padding: 0 var(--space-12); cursor: pointer; }
-.pause-control:hover { border-color: var(--status-tentative-fg); color: var(--status-tentative-fg); }
 .principal-card { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-12) var(--space-8) 0; border-top: var(--border-width-hairline) solid var(--border-subtle); }
 .principal-card > div { min-width: 0; flex: 1; }
 .principal-card strong, .principal-card small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -401,6 +399,8 @@ kbd { color: var(--text-tertiary); font-size: var(--text-micro-size); border: va
 .permission-set { border: 0; padding: 0; margin: 0; display: grid; gap: var(--space-8); }
 .permission-set legend { font-weight: 600; margin-bottom: var(--space-8); }
 .permission-set label { display: flex; align-items: center; gap: var(--space-8); color: var(--text-secondary); }
+.permission-set label span { display: grid; gap: var(--space-2); }
+.permission-set label small { color: var(--text-tertiary); }
 .command-layer { place-items: start center; padding-top: 12vh; }
 .command-menu { width: min(100%, 42rem); max-height: 70vh; position: relative; z-index: var(--z-modal); background: var(--surface-overlay); border-radius: var(--radius-xl); box-shadow: var(--elevation-3); overflow: hidden; }
 .command-menu > label { min-height: var(--space-64); display: flex; align-items: center; gap: var(--space-12); padding: 0 var(--space-20); border-bottom: var(--border-width-hairline) solid var(--border-subtle); }
@@ -424,11 +424,10 @@ kbd { color: var(--text-tertiary); font-size: var(--text-micro-size); border: va
 
 @media (max-width: 1279px) {
   :root { --sidebar-width: 72px; --case-list-width: 340px; }
-  .brand-lockup > span:last-child, .workspace-picker select, .workspace-picker > svg:last-child, .nav-item > span:not(.nav-icon):not(.nav-count), .pause-control span, .principal-card > div, .principal-card > .icon-button { display: none; }
+  .brand-lockup > span:last-child, .workspace-picker select, .workspace-picker > svg:last-child, .nav-item > span:not(.nav-icon):not(.nav-count), .principal-card > div, .principal-card > .icon-button { display: none; }
   .workspace-picker { justify-content: center; padding: 0; }
   .nav-item { grid-template-columns: 1fr; justify-items: center; padding: 0; }
   .nav-count { position: absolute; right: var(--space-4); top: var(--space-4); }
-  .pause-control { justify-content: center; }
   .principal-card { justify-content: center; }
   .workspace-grid.rail-open { grid-template-columns: minmax(0, 1fr); }
   .context-rail { display: none; }
@@ -440,11 +439,10 @@ kbd { color: var(--text-tertiary); font-size: var(--text-micro-size); border: va
   .app-shell { grid-template-columns: 1fr; }
   .primary-nav { position: fixed; left: 0; top: 0; bottom: 0; width: min(19rem, 88vw); height: 100vh; transform: translateX(-100%); transition: transform var(--duration-panel) var(--ease-enter); box-shadow: var(--elevation-3); z-index: var(--z-modal); }
   .primary-nav.is-open { transform: translateX(0); }
-  .brand-lockup > span:last-child, .workspace-picker select, .workspace-picker > svg:last-child, .nav-item > span:not(.nav-icon):not(.nav-count), .pause-control span, .principal-card > div, .principal-card > .icon-button { display: block; }
+  .brand-lockup > span:last-child, .workspace-picker select, .workspace-picker > svg:last-child, .nav-item > span:not(.nav-icon):not(.nav-count), .principal-card > div, .principal-card > .icon-button { display: block; }
   .workspace-picker { justify-content: initial; padding: 0 var(--space-12); }
   .nav-item { grid-template-columns: var(--space-24) 1fr auto; justify-items: initial; padding: 0 var(--space-12); }
   .nav-count { position: static; }
-  .pause-control { justify-content: flex-start; }
   .principal-card { justify-content: flex-start; }
   .nav-scrim { display: block; }
   .topbar { justify-content: flex-start; }

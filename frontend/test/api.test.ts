@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, csrfHeaders, csrfToken, request, safeDownloadUrl, setCsrfCookieName, shouldNotifySessionExpired } from '../src/api';
+import { ApiError, api, csrfHeaders, csrfToken, request, safeDownloadUrl, setCsrfCookieName, shouldNotifySessionExpired } from '../src/api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,6 +35,20 @@ describe('human API sessions', () => {
     vi.stubGlobal('fetch', fetchMock);
     await api.authConfig();
     expect(csrfToken('sinaloa_csrf=wrong; custom_csrf=right')).toBe('right');
+  });
+
+  it('shows the server message rather than its generic error code', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'REQUEST_FAILED', message: 'Existing second factor must be verified before replacement' }), { status: 403 })));
+    await expect(request('/api/auth/totp/setup', { method: 'POST', body: '{}' })).rejects.toMatchObject({
+      message: 'Existing second factor must be verified before replacement',
+      code: 'REQUEST_FAILED',
+      status: 403
+    } satisfies Partial<ApiError>);
+  });
+
+  it('preserves the returning-human MFA setup decision', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ human: { id: 'human_1' }, secondFactorRequired: true, mfaSetupRequired: false }), { status: 200 })));
+    await expect(api.phoneVerify('challenge_1', '000000')).resolves.toMatchObject({ mfaSetupRequired: false });
   });
 });
 

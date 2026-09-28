@@ -6,7 +6,7 @@ import { FileStore } from './storage.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
-import { createCsrfToken, csrfCookieHeader, parseCookies, providerMembershipCanManage, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
 import { DeliveryWorker } from './delivery-worker.js';
 import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
@@ -84,6 +84,7 @@ const calendarProviders = Object.freeze({
 });
 const allowedPermissions = new Set(['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', 'use_email_transport']);
 const actionPermission = actionKey => actionKey.startsWith('message.') ? 'send_agent_messages' : actionKey.startsWith('email.') ? 'use_email_transport' : 'execute_cases';
+const acknowledgementStateRank = Object.freeze({ delivered: 0, acknowledged: 1, processed: 2 });
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
 const auth = createHumanAuth(store);
 const providerMembershipCache = Symbol('provider-membership-cache');
@@ -452,7 +453,8 @@ const auditRecord = async (inboxId, type, data, createdAt = store.now()) => {
 };
 
 const inboxMutationKey = inboxId => `inbox:${inboxId}:mutations`;
-async function withInboxMutation(inboxId, operation, relatedInboxIds = []) {
+const enrollmentMutationKey = tokenHash => `enrollment:${tokenHash}:mutations`;
+async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = []) {
   const committedEvents = [];
   const run = () => operation(async (type, data, createdAt = store.now(), targetInboxId = inboxId) => {
     const record = await auditRecord(targetInboxId, type, data, createdAt);
@@ -461,7 +463,7 @@ async function withInboxMutation(inboxId, operation, relatedInboxIds = []) {
     return record.event;
   });
   const result = typeof store.withTransaction === 'function'
-    ? await store.withTransaction([...new Set([inboxId, ...relatedInboxIds])].map(inboxMutationKey), run)
+    ? await store.withTransaction([...new Set([inboxId, ...relatedInboxIds])].map(inboxMutationKey).concat(additionalLockKeys), run)
     : await run();
   for (const committed of committedEvents) publish(committed.inboxId, committed.event);
   return result;
@@ -535,9 +537,7 @@ async function canAccessInbox(human, inbox) {
 
 async function canManageInbox(human, inbox) {
   const membership = await getAuthorizedMembership(inbox.organizationId, human);
-  if (!membership || !['owner', 'admin'].includes(membership.role)) return false;
-  if (auth.provider !== 'workos') return true;
-  return providerMembershipCanManage(membership.providerMembership);
+  return membershipCanManage(membership, auth.provider);
 }
 
 async function listHumanOrganizations(humanId) {
@@ -608,8 +608,7 @@ async function ensureOrganization(human, requestedId) {
   return existing || createOrganization(human, { name: `${human.displayName || 'My'} workspace` }, `personal-${human.id}`);
 }
 
-async function createDedicatedAgentInbox({ sourceInbox, organizationId, ownerHumanId, agent, status = 'pending_approval' }) {
-  const inboxId = store.id('inbox');
+async function createDedicatedAgentInbox({ sourceInbox, organizationId, ownerHumanId, agent, status = 'pending_approval', inboxId = store.id('inbox') }) {
   const createdAt = agent.createdAt || store.now();
   const inbox = {
     id: inboxId,
@@ -905,10 +904,16 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
   ]);
   if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is no longer approved to send messages'), { statusCode: 403 });
   if (!recipientAgent || !hasPermission(recipientAgent, 'receive_agent_messages')) throw Object.assign(new Error('Recipient agent is unavailable'), { statusCode: 404 });
+  let senderCredentialFamilyId;
   if (agentRequest) {
     const currentPrincipal = await getAgentPrincipal(agentRequest, senderInbox.id);
     if (!currentPrincipal || currentPrincipal.id !== senderAgent.id) throw Object.assign(new Error('Valid sender agent credential required'), { statusCode: 401 });
+    senderCredentialFamilyId = (await store.getJson(agentCredentialPath(hashSecret(bearerToken(agentRequest)))))?.familyId;
+  } else {
+    const families = await store.listJson(path.join('auth', 'agent-credential-families', senderInbox.id, senderAgent.id));
+    senderCredentialFamilyId = families.find(family => !family.revokedAt && new Date(family.refreshExpiresAt) > new Date())?.id;
   }
+  if (!senderCredentialFamilyId) throw Object.assign(new Error('An active sender agent credential is required'), { statusCode: 401 });
   const existing = await store.getJson(messagePath(senderInbox.id, message.id));
   if (existing) {
     if (existing.requestHash && existing.requestHash !== message.requestHash) throw Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409 });
@@ -934,6 +939,7 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
     messageId: queued.id,
     senderInboxId: senderInbox.id,
     recipientInboxId,
+    senderCredentialFamilyId,
     orderingKey: queued.caseId,
     requestHash: queued.requestHash,
     status: 'queued',
@@ -955,13 +961,22 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
 async function deliverNativeAgentMessage(outbox) {
   const queued = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
   if (!queued) throw permanentDeliveryError('Queued message no longer exists');
+  const sender = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'agents', `${queued.senderAgentId}.json`));
+  if (!sender || !hasPermission(sender, 'send_agent_messages')) throw permanentDeliveryError('Sender agent is no longer approved to send messages');
+  const senderFamilies = outbox.senderCredentialFamilyId
+    ? [await store.getJson(agentCredentialFamilyPath(outbox.senderInboxId, queued.senderAgentId, outbox.senderCredentialFamilyId))]
+    : await store.listJson(path.join('auth', 'agent-credential-families', outbox.senderInboxId, queued.senderAgentId));
+  if (!senderFamilies.some(family => family && !family.revokedAt && new Date(family.refreshExpiresAt) > new Date())) throw permanentDeliveryError('Sender agent credential is revoked or expired');
   const directory = await store.getJson(path.join('directory', 'agents', `${queued.recipientAgentId}.json`));
   if (!directory || directory.status !== 'active' || directory.inboxId !== outbox.recipientInboxId) throw permanentDeliveryError('Recipient agent is unavailable');
   const recipient = await store.getJson(path.join('inboxes', directory.inboxId, 'agents', `${queued.recipientAgentId}.json`));
   if (!recipient || !hasPermission(recipient, 'receive_agent_messages')) throw permanentDeliveryError('Recipient is not approved to receive messages');
   const contact = await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${queued.senderAgentId}.json`));
   const senderContact = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'contacts', `${queued.recipientAgentId}.json`));
-  if (contact?.blocked || senderContact?.blocked || contact?.approved !== true || senderContact?.approved !== true) throw permanentDeliveryError('The agent relationship is not approved for delivery');
+  if (contact?.blocked || senderContact?.blocked || contact?.approved === false || senderContact?.approved === false) throw permanentDeliveryError('The agent relationship is blocked for delivery');
+  const invitationId = `invitation_${hashSecret(`${queued.senderAgentId}:${queued.recipientAgentId}`).slice(0, 40)}`;
+  const invitation = await store.getJson(invitationPath(outbox.recipientInboxId, invitationId));
+  if (invitation?.state === 'declined') throw permanentDeliveryError('The agent relationship is declined');
 
   const deliveredAt = store.now();
   const delivered = { ...queued, status: 'delivered', deliveredAt };
@@ -1446,7 +1461,11 @@ async function route(req, res) {
     const human = await auth.getHuman(req, { requireMfa: false });
     if (!human) return fail(res, 401, 'Authenticated human session required');
     const session = await auth.getSession(req);
-    return json(res, 200, { ...human, auth: { provider: auth.provider, assurance: session?.assurance || 'provider' } });
+    const assurance = session?.assurance || 'provider';
+    const mfaSetupRequired = assurance === 'phone' && typeof auth.getMfaSetupRequired === 'function'
+      ? await auth.getMfaSetupRequired(req)
+      : null;
+    return json(res, 200, { ...human, auth: { provider: auth.provider, assurance }, ...(assurance === 'phone' ? { mfaSetupRequired } : {}) });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/totp/setup') {
@@ -1545,38 +1564,46 @@ async function route(req, res) {
     const tokenPath = path.join('auth', 'enrollment-tokens', `${tokenHash}.json`);
     const pendingRecord = await store.getJson(tokenPath);
     if (!pendingRecord || pendingRecord.usedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
-    const sourceInbox = await store.getJson(path.join('inboxes', pendingRecord.inboxId, 'inbox.json'));
-    const localOwnerMembership = sourceInbox ? await getMembership(sourceInbox.organizationId, pendingRecord.humanId) : null;
-    let providerOwnerMembership = true;
-    if (sourceInbox && auth.provider === 'workos') {
-      const [organization, owner] = await Promise.all([
-        store.getJson(path.join('organizations', sourceInbox.organizationId, 'organization.json')),
-        store.getJson(path.join('humans', `${pendingRecord.humanId}.json`))
+    const plannedInboxId = store.id('inbox');
+    const enrolled = await withInboxMutation(pendingRecord.inboxId, async writeAudit => {
+      const currentRecord = await store.getJson(tokenPath);
+      if (!currentRecord || currentRecord.usedAt || new Date(currentRecord.expiresAt) <= new Date()) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
+      const sourceInbox = await store.getJson(path.join('inboxes', currentRecord.inboxId, 'inbox.json'));
+      const localMembership = sourceInbox ? await getMembership(sourceInbox.organizationId, currentRecord.humanId) : null;
+      let issuerMembership = localMembership;
+      if (sourceInbox && auth.provider === 'workos') {
+        const [organization, owner] = await Promise.all([
+          store.getJson(path.join('organizations', sourceInbox.organizationId, 'organization.json')),
+          store.getJson(path.join('humans', `${currentRecord.humanId}.json`))
+        ]);
+        const providerMembership = organization?.workosOrganizationId && owner?.workosUserId
+          ? await auth.getOrganizationMembership(owner.workosUserId, organization.workosOrganizationId)
+          : null;
+        issuerMembership = localMembership ? { ...localMembership, providerMembership } : null;
+      }
+      if (!sourceInbox || !membershipCanManage(issuerMembership, auth.provider)) throw Object.assign(new Error('Enrollment owner is invalid'), { statusCode: 403 });
+      const agentName = String(input.name || currentRecord.agentProfile?.name || '').trim();
+      if (!agentName) throw Object.assign(new Error('Agent name is required'), { statusCode: 400 });
+      const record = await store.claimJson(tokenPath, 'usedAt', store.now());
+      if (!record) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
+      const baseSlug = slugify(input.slug || record.agentProfile?.slug || agentName) || store.id('agent').replace('agent_', '');
+      let slug = baseSlug;
+      let address = `${slug}@${agentDomain}`;
+      while (!(await reserveIdentity(address, { status: 'reserved' }))) { slug = `${baseSlug}-${store.id('slug').slice(-6)}`; address = `${slug}@${agentDomain}`; }
+      const createdAt = store.now();
+      const agent = { id: store.id('agent'), organizationId: sourceInbox.organizationId, name: agentName, slug, address, identity: publicIdentity(slug), principalHumanId: record.humanId, capabilities: input.capabilities || record.agentProfile?.capabilities || [], permissions: record.permissions, createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
+      const inbox = await createDedicatedAgentInbox({ sourceInbox, organizationId: sourceInbox.organizationId, ownerHumanId: record.humanId, agent, status: 'active', inboxId: plannedInboxId });
+      await store.putJsonBatch([
+        document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId: inbox.id, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: agent.status, verified: true }),
+        document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId: inbox.id, address: agent.address, status: agent.status, verified: true })
       ]);
-      providerOwnerMembership = Boolean(organization?.workosOrganizationId && owner?.workosUserId
-        && await auth.getOrganizationMembership(owner.workosUserId, organization.workosOrganizationId));
-    }
-    if (!sourceInbox || !localOwnerMembership || !providerOwnerMembership) return fail(res, 403, 'Enrollment owner is invalid');
-    const agentName = String(input.name || pendingRecord.agentProfile?.name || '').trim();
-    if (!agentName) return fail(res, 400, 'Agent name is required');
-    const record = await store.claimJson(tokenPath, 'usedAt', store.now());
-    if (!record) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
-    const baseSlug = slugify(input.slug || record.agentProfile?.slug || agentName) || store.id('agent').replace('agent_', '');
-    let slug = baseSlug;
-    let address = `${slug}@${agentDomain}`;
-    while (!(await reserveIdentity(address, { status: 'reserved' }))) { slug = `${baseSlug}-${store.id('slug').slice(-6)}`; address = `${slug}@${agentDomain}`; }
-    const createdAt = store.now();
-    const agent = { id: store.id('agent'), organizationId: sourceInbox.organizationId, name: agentName, slug, address, identity: publicIdentity(slug), principalHumanId: record.humanId, capabilities: input.capabilities || record.agentProfile?.capabilities || [], permissions: record.permissions, createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
-    const inbox = await createDedicatedAgentInbox({ sourceInbox, organizationId: sourceInbox.organizationId, ownerHumanId: record.humanId, agent, status: 'active' });
-    await store.putJsonBatch([
-      document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId: inbox.id, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: agent.status, verified: true }),
-      document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId: inbox.id, address: agent.address, status: agent.status, verified: true })
-    ]);
-    if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId: inbox.id, address: publicEmailAddressForAgent(agent), status: agent.status });
-    const credentials = await issueAgentCredentials(agent.id, inbox.id);
-    await audit(inbox.id, 'agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions, sourceInboxId: sourceInbox.id });
-    await audit(sourceInbox.id, 'agent.inbox_created', { agentId: agent.id, inboxId: inbox.id, humanId: record.humanId });
-    return json(res, 201, { agent: publicAgent(agent), ...credentials, inbox, nativeMessaging: 'ready' });
+      if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId: inbox.id, address: publicEmailAddressForAgent(agent), status: agent.status });
+      const credentials = await issueAgentCredentials(agent.id, inbox.id);
+      await writeAudit('agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions, sourceInboxId: sourceInbox.id }, createdAt, inbox.id);
+      await writeAudit('agent.inbox_created', { agentId: agent.id, inboxId: inbox.id, humanId: record.humanId }, createdAt, sourceInbox.id);
+      return { agent, credentials, inbox };
+    }, [plannedInboxId], [enrollmentMutationKey(tokenHash)]);
+    return json(res, 201, { agent: publicAgent(enrolled.agent), ...enrolled.credentials, inbox: enrolled.inbox, nativeMessaging: 'ready' });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/onboarding/agent-account') {
@@ -1830,7 +1857,11 @@ async function route(req, res) {
   if (req.method === 'GET' && suffix === 'human-view') {
     const human = await auth.getHuman(req);
     if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Workspace membership required');
-    return json(res, 200, await humanView(inboxId, inbox, parseHistoryCursors(url.searchParams.get('history'))));
+    const [view, requesterCanManage] = await Promise.all([
+      humanView(inboxId, inbox, parseHistoryCursors(url.searchParams.get('history'))),
+      canManageInbox(human, inbox)
+    ]);
+    return json(res, 200, { ...view, canManageInbox: requesterCanManage });
   }
 
   if (req.method === 'GET' && suffix === 'agent-view') {
@@ -2307,6 +2338,9 @@ async function route(req, res) {
         await store.putJson(acknowledgementIdempotencyPath, { principalId: principal.id, requestDigest: acknowledgementDigest, response: existingReceipt, createdAt: existingReceipt.createdAt });
         return { status: 200, receipt: existingReceipt };
       }
+      const currentRank = acknowledgementStateRank[currentMessage.status];
+      if (currentRank === undefined) throw Object.assign(new Error('Message has not been delivered'), { statusCode: 409 });
+      if (acknowledgementStateRank[state] < currentRank) throw Object.assign(new Error(`Message acknowledgement cannot regress from ${currentMessage.status} to ${state}`), { statusCode: 409 });
       const at = store.now();
       const updated = { ...currentMessage, status: state, [`${state}At`]: at, updatedAt: at };
       const receipt = { id: receiptId, type: 'delivery', messageId: currentMessage.id, senderAgentId: currentMessage.senderAgentId, recipientAgentId: currentMessage.recipientAgentId, state, idempotencyKeyHash: hashSecret(idempotencyKey), createdAt: at };
@@ -2383,6 +2417,7 @@ async function route(req, res) {
 
   if (req.method === 'POST' && suffix === 'messages') {
     const input = await body(req);
+    if (input.recipientAgentId != null) return fail(res, 400, 'Send by recipientEmail; raw recipient agent IDs are not accepted');
     if (!input.senderAgentId || !input.recipientEmail || !input.text) return fail(res, 400, 'senderAgentId, recipientEmail, and text are required');
     const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
     const senderAgentId = assertSafeIdentifier(String(input.senderAgentId), 'senderAgentId');
@@ -2398,96 +2433,92 @@ async function route(req, res) {
     const recipient = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'agents', `${recipientDirectory.agentId}.json`));
     if (!recipient || recipient.address !== recipientEmail || !hasPermission(recipient, 'receive_agent_messages')) return fail(res, 404, 'Recipient is unavailable');
     if (recipient.id === sender.id) return fail(res, 400, 'Sender and recipient must be different agents');
-    const senderContact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${recipient.id}.json`));
-    const recipientContact = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'contacts', `${sender.id}.json`));
-    if (senderContact?.blocked || recipientContact?.blocked) return fail(res, 403, 'The recipient is unavailable');
-    const invitationId = `invitation_${hashSecret(`${sender.id}:${recipient.id}`).slice(0, 40)}`;
-    const existingInvitation = await store.getJson(invitationPath(recipientDirectory.inboxId, invitationId));
-    if (existingInvitation?.state === 'declined') return fail(res, 403, 'The recipient is unavailable');
-    const relationshipApproved = senderContact?.approved === true && recipientContact?.approved === true;
     const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
     const requestedCaseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
     const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: requestedCaseId, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, authority: input.authority || null, artifactRefs: input.artifactRefs || [] }));
-    const existing = await store.getJson(messagePath(inboxId, messageId));
-    if (existing) {
-      const sameRequest = existing.requestHash ? existing.requestHash === requestHash : existing.recipientEmail === recipientEmail && existing.text === input.text && JSON.stringify(existing.payload) === JSON.stringify(input.payload || null);
-      return sameRequest ? json(res, 200, existing) : fail(res, 409, 'Idempotency key was already used for a different message');
-    }
-    if (!relationshipApproved && existingInvitation?.state === 'pending') {
-      const pendingMessage = await store.getJson(messagePath(inboxId, existingInvitation.messageId));
-      return json(res, 202, { invitation: existingInvitation, message: pendingMessage, contactState: 'pending' });
-    }
-    const createdAt = store.now();
-    const conversationId = requestedCaseId || senderContact?.conversationId || existingInvitation?.conversationId || existingInvitation?.pendingConversationId || store.id('conversation');
-    const protocol = createProtocolMessage({
-      messageId,
-      conversationId,
-      taskId: input.taskId || null,
-      correlationId: input.correlationId || null,
-      causationId: input.causationId || null,
-      from: { agentId: sender.id, address: sender.address },
-      to: [{ agentId: recipient.id, address: recipient.address }],
-      intent: input.intent || input.type || 'message',
-      text: input.text,
-      content: input.content,
-      proposal: input.proposal || input.payload?.proposal || null,
-      authority: input.authority,
-      artifactRefs: input.artifactRefs || [],
-      requiresAck: input.requiresAck !== false,
-      traceparent: req.headers.traceparent || input.traceparent || null,
-      signature: input.signature || null,
-      createdAt
-    });
-    const message = {
-      id: messageId,
-      ...protocol,
-      caseId: conversationId,
-      senderInboxId: inboxId,
-      recipientInboxId: recipientDirectory.inboxId,
-      senderType: 'agent',
-      senderAgentId,
-      recipientAgentId: recipient.id,
-      recipientEmail,
-      transport: 'native',
-      type: input.type || 'message',
-      text: input.text,
-      payload: input.payload || null,
-      requestHash,
-      createdAt,
-      queuedAt: createdAt,
-      status: relationshipApproved ? 'queued' : 'pendingContactApproval',
-      contactState: relationshipApproved ? 'accepted' : 'pending'
-    };
-    if (!relationshipApproved) {
-      const invitation = {
-        id: invitationId,
-        fromAddress: sender.address,
-        toAddress: recipient.address,
-        senderAgentId: sender.id,
-        recipientAgentId: recipient.id,
-        senderInboxId: inboxId,
-        recipientInboxId: recipientDirectory.inboxId,
-        state: 'pending',
-        conversationId: null,
-        pendingConversationId: conversationId,
-        messageId: message.id,
-        createdAt,
-        updatedAt: createdAt
-      };
-      const senderAudit = await auditRecord(inboxId, 'invitation.sent', { invitationId, fromAddress: sender.address, toAddress: recipient.address, messageId: message.id }, createdAt);
-      const recipientAudit = await auditRecord(recipientDirectory.inboxId, 'invitation.received', { invitationId, fromAddress: sender.address, toAddress: recipient.address, messageId: message.id }, createdAt);
-      await store.putJsonBatch([
-        document(messagePath(inboxId, message.id), { ...message, invitationId }),
-        document(invitationPath(inboxId, invitationId), invitation),
-        document(invitationPath(recipientDirectory.inboxId, invitationId), invitation),
-        senderAudit.document,
-        recipientAudit.document
+    const response = await withInboxMutation(inboxId, async writeAudit => {
+      const [currentSenderInbox, currentSender, currentPrincipal, currentRecipientDirectory] = await Promise.all([
+        store.getJson(path.join('inboxes', inboxId, 'inbox.json')),
+        store.getJson(path.join('inboxes', inboxId, 'agents', `${senderAgentId}.json`)),
+        getAgentPrincipal(req, inboxId),
+        store.getJson(nativeAddressDirectoryPath(recipientEmail))
       ]);
-      publish(inboxId, senderAudit.event);
-      publish(recipientDirectory.inboxId, recipientAudit.event);
-      return json(res, 202, { invitation, message: { ...message, invitationId }, contactState: 'pending' });
-    }
-    return json(res, 202, await enqueueNativeMessage(message, inbox, recipientDirectory.inboxId, 'message.queued', null, req));
+      if (!currentSenderInbox || !currentSender || !currentPrincipal || currentPrincipal.id !== currentSender.id) throw Object.assign(new Error('Valid sender agent credential required'), { statusCode: 401 });
+      if (!hasPermission(currentSender, 'send_agent_messages')) throw Object.assign(new Error('Agent is pending approval or lacks send_agent_messages permission'), { statusCode: 403 });
+      if (!currentRecipientDirectory || currentRecipientDirectory.inboxId !== recipientDirectory.inboxId || currentRecipientDirectory.status !== 'active' || currentRecipientDirectory.verified !== true) throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
+      const currentRecipient = await store.getJson(path.join('inboxes', currentRecipientDirectory.inboxId, 'agents', `${currentRecipientDirectory.agentId}.json`));
+      if (!currentRecipient || currentRecipient.address !== recipientEmail || !hasPermission(currentRecipient, 'receive_agent_messages')) throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
+      if (currentRecipient.id === currentSender.id) throw Object.assign(new Error('Sender and recipient must be different agents'), { statusCode: 400 });
+      const [senderContact, recipientContact] = await Promise.all([
+        store.getJson(path.join('inboxes', inboxId, 'contacts', `${currentRecipient.id}.json`)),
+        store.getJson(path.join('inboxes', currentRecipientDirectory.inboxId, 'contacts', `${currentSender.id}.json`))
+      ]);
+      if (senderContact?.blocked || recipientContact?.blocked || senderContact?.approved === false || recipientContact?.approved === false) throw Object.assign(new Error('The recipient is unavailable'), { statusCode: 403 });
+      const invitationId = `invitation_${hashSecret(`${currentSender.id}:${currentRecipient.id}`).slice(0, 40)}`;
+      const existingInvitation = await store.getJson(invitationPath(currentRecipientDirectory.inboxId, invitationId));
+      if (existingInvitation?.state === 'declined') throw Object.assign(new Error('The recipient is unavailable'), { statusCode: 403 });
+      const existing = await store.getJson(messagePath(inboxId, messageId));
+      if (existing) {
+        const sameRequest = existing.requestHash ? existing.requestHash === requestHash : existing.recipientEmail === recipientEmail && existing.text === input.text && JSON.stringify(existing.payload) === JSON.stringify(input.payload || null);
+        if (!sameRequest) throw Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409 });
+        if (existing.status === 'pendingContactApproval') {
+          const queued = await enqueueNativeMessage({ ...existing, requestHash }, currentSenderInbox, currentRecipientDirectory.inboxId, 'message.queued', writeAudit, req);
+          if (existingInvitation?.state === 'pending' && existingInvitation.messageId === existing.id) {
+            const superseded = { ...existingInvitation, state: 'superseded', updatedAt: store.now() };
+            await store.putJsonBatch([
+              document(invitationPath(inboxId, invitationId), superseded),
+              document(invitationPath(currentRecipientDirectory.inboxId, invitationId), superseded)
+            ]);
+          }
+          return { status: 202, payload: queued, queued: true };
+        }
+        return { status: 200, payload: existing, queued: false };
+      }
+      const createdAt = store.now();
+      const conversationId = requestedCaseId || senderContact?.conversationId || existingInvitation?.conversationId || existingInvitation?.pendingConversationId || store.id('conversation');
+      const protocol = createProtocolMessage({
+        messageId,
+        conversationId,
+        taskId: input.taskId || null,
+        correlationId: input.correlationId || null,
+        causationId: input.causationId || null,
+        from: { agentId: currentSender.id, address: currentSender.address },
+        to: [{ agentId: currentRecipient.id, address: currentRecipient.address }],
+        intent: input.intent || input.type || 'message',
+        text: input.text,
+        content: input.content,
+        proposal: input.proposal || input.payload?.proposal || null,
+        authority: input.authority,
+        artifactRefs: input.artifactRefs || [],
+        requiresAck: input.requiresAck !== false,
+        traceparent: req.headers.traceparent || input.traceparent || null,
+        signature: input.signature || null,
+        createdAt
+      });
+      const message = {
+        id: messageId,
+        ...protocol,
+        caseId: conversationId,
+        senderInboxId: inboxId,
+        recipientInboxId: currentRecipientDirectory.inboxId,
+        senderType: 'agent',
+        senderAgentId,
+        recipientAgentId: currentRecipient.id,
+        recipientEmail,
+        transport: 'native',
+        type: input.type || 'message',
+        text: input.text,
+        payload: input.payload || null,
+        requestHash,
+        createdAt,
+        queuedAt: createdAt,
+        status: 'queued'
+      };
+      const queued = await enqueueNativeMessage(message, currentSenderInbox, currentRecipientDirectory.inboxId, 'message.queued', writeAudit, req);
+      return { status: 202, payload: queued, queued: true };
+    }, [recipientDirectory.inboxId]);
+    if (response.queued) deliveryWorker.kick();
+    return json(res, response.status, response.payload);
   }
 
   if (req.method === 'POST' && suffix === 'human-messages') {

@@ -39,6 +39,7 @@ describe('closed beta onboarding', () => {
     const view = {
       inbox: { id: 'inbox_1', organizationId: 'org_1', name: 'Workspace', ownerAgentId: null, ownerHumanId: 'human_1', status: 'active', createdAt: '2026-09-27T16:00:00.000Z' },
       mode: 'human-observer' as const,
+      canManageInbox: false,
       capabilities: [], summary: { agents: 1, cases: 1, messages: 1, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 1, waiting: 0, completed: 0 },
       participantDirectory: { external_1: { id: 'external_1', type: 'externalAgent' as const, displayName: 'Known agent', accessState: 'active' as const } },
       agents: [{ id: 'agent_1', name: 'My agent', address: 'mine@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: [] }],
@@ -47,6 +48,10 @@ describe('closed beta onboarding', () => {
       assets: [], calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [], deliveryReceipts: [], recentEvents: []
     };
     expect(onboardingSteps(view).every(step => step.complete)).toBe(true);
+    const sourceView = { ...view, agents: [], summary: { ...view.summary, agents: 0 } };
+    const linkedAgentInbox = { ...view.inbox, id: 'inbox_agent_1', name: 'My agent inbox', ownerAgentId: 'agent_1', parentInboxId: view.inbox.id, kind: 'agent' as const };
+    expect(onboardingSteps(sourceView).find(step => step.id === 'enroll')?.complete).toBe(false);
+    expect(onboardingSteps(sourceView, [linkedAgentInbox]).filter(step => ['enroll', 'sdk', 'approve'].includes(step.id)).every(step => step.complete)).toBe(true);
   });
 });
 

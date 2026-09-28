@@ -5,6 +5,11 @@ function view(ids: string[], cursor = 'next'): HumanView {
   return { inbox: { id: 'one' }, cases: ids.map(id => ({ id })), caseQueue: ids.map(id => ({ id })), messages: [], assets: [], recentEvents: [], deliveryReceipts: [], invitations: [], contacts: [], history: { cases: { total: 200, hasMore: !!cursor, nextCursor: cursor || null } } } as unknown as HumanView;
 }
 describe('workspace history', () => {
+  it('updates authorization from the latest response while loading older history', () => {
+    const current = view(['new']); current.canManageInbox = true;
+    const older = view(['old']); older.canManageInbox = false;
+    expect(mergeHistory(current, older, { cases: 'next' }).canManageInbox).toBe(false);
+  });
   it('keeps loaded pages across live refresh while advancing only requested cursors', () => {
     const first = view(['c', 'b']);
     const older = mergeHistory(first, view(['b', 'a'], 'oldest'), olderCursors(first));

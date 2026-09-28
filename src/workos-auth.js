@@ -7,6 +7,10 @@ import { WorkOS } from '@workos-inc/node';
 export const providerMembershipCanManage = membership => membership?.status === 'active'
   && ['owner', 'admin'].includes(String(membership.role?.slug || '').toLowerCase());
 
+export const membershipCanManage = (membership, provider = 'local') => membership?.status === 'active'
+  && ['owner', 'admin'].includes(String(membership.role || '').toLowerCase())
+  && (provider !== 'workos' || providerMembershipCanManage(membership.providerMembership));
+
 const flowMinutes = Number(process.env.SINALOA_AUTH_FLOW_MINUTES || 10);
 const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
 const csrfCookie = process.env.SINALOA_CSRF_COOKIE_NAME || 'sinaloa_csrf';

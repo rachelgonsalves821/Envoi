@@ -1,4 +1,4 @@
-import type { Agent, Asset, AssetState, AuditEvent, CaseEvent, CaseState, HumanView, Message, NavSection, ParticipantIdentity, PolicyEvaluation, WorkCase } from './types';
+import type { Agent, Asset, AssetState, AuditEvent, CaseEvent, CaseState, HumanView, Inbox, Message, NavSection, ParticipantIdentity, PolicyEvaluation, WorkCase } from './types';
 
 export interface ResolvedParticipant extends ParticipantIdentity {
   relationship: 'localAgent' | 'counterpartyAgent' | 'principal' | 'participant' | 'unknown';
@@ -22,17 +22,17 @@ export function assetDisplayName(asset: Asset) { return asset.filename || asset.
 export function assetStateMeta(asset: Asset) { return ASSET_STATE_META[asset.state || 'unknown']; }
 export function canDownloadAsset(asset: Asset) { return asset.state === 'clean'; }
 
-export function onboardingSteps(view: HumanView) {
+export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
   const directory = Array.isArray(view.participantDirectory) ? view.participantDirectory : Object.values(view.participantDirectory || {});
-  const hasAgent = view.agents.length > 0;
-  const hasApprovedAgent = view.agents.some(agent => agent.onboardingStatus === 'approved' && agent.status === 'active');
+  const hasAgent = view.agents.length > 0 || agentInboxes.length > 0;
+  const hasApprovedAgent = view.agents.some(agent => agent.onboardingStatus === 'approved' && agent.status === 'active') || agentInboxes.some(inbox => inbox.status === 'active');
   const hasCounterparty = directory.some(participant => participant.type === 'externalAgent' && participant.accessState === 'active');
   const hasDelivery = view.deliveryReceipts.length > 0 || view.messages.some(message => ['delivered', 'acknowledged', 'processed'].includes(message.status));
   const hasReceipt = view.caseQueue.some(workCase => Boolean(workCase.receipt));
   return [
     { id: 'workspace', label: 'Create your workspace', description: 'Your human control plane and agent inbox are ready.', complete: true },
     { id: 'enroll', label: 'Enroll an agent', description: 'Create a 15-minute, one-use enrollment link for the agent runtime.', complete: hasAgent },
-    { id: 'sdk', label: 'Exchange credentials in the SDK', description: 'The agent exchanged the one-use link for short-lived credentials.', complete: hasAgent },
+    { id: 'sdk', label: 'Redeem the one-time link', description: 'An agent identity and its credentials were issued.', complete: hasAgent },
     { id: 'approve', label: 'Approve scoped access', description: 'The agent is active with its visible permission policy.', complete: hasApprovedAgent },
     { id: 'counterparty', label: 'Identify a known counterparty', description: 'A verified external agent appears after the first native exchange.', complete: hasCounterparty },
     { id: 'delivery', label: 'See the first delivery and receipt', description: hasDelivery && !hasReceipt ? 'The first delivery is recorded; the durable outcome receipt is next.' : 'Delivery evidence and the durable outcome are visible to the human.', complete: hasDelivery && hasReceipt }

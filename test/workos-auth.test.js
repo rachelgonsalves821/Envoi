@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FileStore } from '../src/storage.js';
-import { createCsrfToken, csrfCookieHeader, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, membershipCanManage, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
 
 test('management authority follows active provider membership after role changes', () => {
   const membership = { status: 'active', role: { slug: 'admin' } };
@@ -14,6 +14,15 @@ test('management authority follows active provider membership after role changes
   assert.equal(providerMembershipCanManage({ status: 'inactive', role: { slug: 'admin' } }), false);
   assert.equal(providerMembershipCanManage({ status: 'active' }), false);
   assert.equal(providerMembershipCanManage(null), false);
+});
+
+test('enrollment management requires both current local and provider authority', () => {
+  const localAdmin = { status: 'active', role: 'admin', providerMembership: { status: 'active', role: { slug: 'admin' } } };
+  assert.equal(membershipCanManage(localAdmin, 'workos'), true);
+  assert.equal(membershipCanManage({ ...localAdmin, role: 'member' }, 'workos'), false);
+  assert.equal(membershipCanManage({ ...localAdmin, providerMembership: { status: 'active', role: { slug: 'member' } } }, 'workos'), false);
+  assert.equal(membershipCanManage({ ...localAdmin, providerMembership: null }, 'workos'), false);
+  assert.equal(membershipCanManage({ status: 'active', role: 'owner' }, 'local'), true);
 });
 
 test('WorkOS return paths cannot escape the application origin', () => {

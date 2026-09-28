@@ -1,17 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
 import { BrowserSession } from './browser-session.js';
+import { createProtocolMessage } from '../src/protocol-v1.js';
+import { FileStore } from '../src/storage.js';
 
 const browserSession = new BrowserSession();
 
-async function startServer() {
+async function startServer(environment = {}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-test-'));
-  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_ENABLE_CALENDAR_WRITES: 'true', SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS: 'true', SINALOA_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR: '10000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_ENABLE_CALENDAR_WRITES: 'true', SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS: 'true', SINALOA_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR: '10000', ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10000);
     child.once('exit', code => reject(new Error(`Server exited with ${code}`)));
@@ -94,20 +97,65 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(started.status, 201);
   const throttled = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550123', displayName: 'Owner' } });
   assert.equal(throttled.status, 429);
-  const verified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
+  const concurrentPhoneVerification = await Promise.all([
+    request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } }),
+    request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } })
+  ]);
+  assert.deepEqual(concurrentPhoneVerification.map(result => result.status).sort(), [200, 400]);
+  const verified = concurrentPhoneVerification.find(result => result.status === 200);
   assert.equal(verified.status, 200);
   assert.equal(verified.payload.sessionToken, undefined);
+  assert.equal(verified.payload.secondFactorRequired, true);
+  assert.equal(verified.payload.mfaSetupRequired, true);
+  assert.equal('totpSecret' in verified.payload.human, false);
+  assert.equal('pendingTotpSecret' in verified.payload.human, false);
   const sessionToken = verified.payload.sessionToken;
+  const newHumanResume = await request(server.baseUrl, '/api/auth/me', { token: sessionToken });
+  assert.equal(newHumanResume.status, 200);
+  assert.equal(newHumanResume.payload.auth.assurance, 'phone');
+  assert.equal(newHumanResume.payload.mfaSetupRequired, true);
   const phoneOnlyWorkspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Denied' } });
   assert.equal(phoneOnlyWorkspace.status, 401);
   const totpSetup = await request(server.baseUrl, '/api/auth/totp/setup', { token: sessionToken, body: {} });
   assert.equal(totpSetup.status, 201);
+  const totpSetupReplay = await request(server.baseUrl, '/api/auth/totp/setup', { token: sessionToken, body: {} });
+  assert.equal(totpSetupReplay.status, 201);
+  assert.equal(totpSetupReplay.payload.secret, totpSetup.payload.secret);
   const totpCode = generateSync({ secret: totpSetup.payload.secret });
   const totpVerified = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: totpCode } });
   assert.equal(totpVerified.status, 200);
   assert.equal(totpVerified.payload.assurance, 'mfa');
   const replayedTotp = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: totpCode } });
   assert.equal(replayedTotp.status, 401);
+
+  const rateDirectory = path.join(server.dataDir, 'auth', 'phone-rate-limits');
+  const [rateFilename] = await readdir(rateDirectory);
+  await writeFile(path.join(rateDirectory, rateFilename), JSON.stringify({ starts: [] }, null, 2));
+  const returningStarted = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550123', displayName: 'Owner' } });
+  const returningVerified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: returningStarted.payload.challengeId, code: returningStarted.payload.developmentCode } });
+  assert.equal(returningVerified.status, 200);
+  assert.equal(returningVerified.payload.secondFactorRequired, true);
+  assert.equal(returningVerified.payload.mfaSetupRequired, false);
+  assert.equal('totpSecret' in returningVerified.payload.human, false);
+  assert.equal('pendingTotpSecret' in returningVerified.payload.human, false);
+  const returningHumanResume = await request(server.baseUrl, '/api/auth/me', { token: sessionToken });
+  assert.equal(returningHumanResume.status, 200);
+  assert.equal(returningHumanResume.payload.auth.assurance, 'phone');
+  assert.equal(returningHumanResume.payload.mfaSetupRequired, false);
+  const cookieOnlyHeaders = browserSession.headers(server.baseUrl, 'GET');
+  const missingCsrfResponse = await fetch(`${server.baseUrl}/api/auth/totp/setup`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: cookieOnlyHeaders.cookie }, body: '{}' });
+  assert.equal(missingCsrfResponse.status, 403);
+  assert.match((await missingCsrfResponse.json()).error, /CSRF/i);
+  const forbiddenReenrollment = await request(server.baseUrl, '/api/auth/totp/setup', { token: sessionToken, body: {} });
+  assert.equal(forbiddenReenrollment.status, 403);
+  assert.match(forbiddenReenrollment.payload.message, /Existing second factor/i);
+  const returningTotpCode = generateSync({ secret: totpSetup.payload.secret, epoch: Math.floor(Date.now() / 1000) + 30 });
+  const returningTotpVerified = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: returningTotpCode } });
+  assert.equal(returningTotpVerified.status, 200);
+  assert.equal(returningTotpVerified.payload.assurance, 'mfa');
+  const completedMfaProfile = await request(server.baseUrl, '/api/auth/me', { token: sessionToken });
+  assert.equal(completedMfaProfile.payload.auth.assurance, 'mfa');
+  assert.equal('mfaSetupRequired' in completedMfaProfile.payload, false);
   const workspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Owner workspace' } });
   assert.equal(workspace.status, 201);
   assert.ok(workspace.payload.organizationId.startsWith('org_'));
@@ -136,7 +184,12 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(organizationsAfterRace.payload.length, organizationsBeforeRace.payload.length + 1);
   const tokenResponse = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'] } });
   assert.equal(tokenResponse.status, 201);
-  const enrolled = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: tokenResponse.payload.enrollmentToken, name: 'Worker', slug: 'worker' } });
+  const concurrentEnrollment = await Promise.all([
+    request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: tokenResponse.payload.enrollmentToken, name: 'Worker', slug: 'worker' } }),
+    request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: tokenResponse.payload.enrollmentToken, name: 'Worker', slug: 'worker' } })
+  ]);
+  assert.deepEqual(concurrentEnrollment.map(result => result.status).sort(), [201, 401]);
+  const enrolled = concurrentEnrollment.find(result => result.status === 201);
   assert.equal(enrolled.status, 201);
   assert.equal(enrolled.payload.agent.address, 'worker@sinaloa.mail');
   assert.ok(enrolled.payload.agentApiToken.startsWith('sinaloa_agent_'));
@@ -163,32 +216,23 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.notEqual(recipientInboxId, recipientWorkspace.payload.id);
   const spoofed = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { headers: { 'Idempotency-Key': 'spoof-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: recipient.payload.agent.address, text: 'spoof' } });
   assert.equal(spoofed.status, 401);
+  const rawRecipientId = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'raw-id-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientAgentId: recipient.payload.agent.id, text: 'not address routed' } });
+  assert.equal(rawRecipientId.status, 400);
+  const mixedRecipientIdentifiers = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'mixed-id-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientAgentId: recipient.payload.agent.id, recipientEmail: recipient.payload.agent.address, text: 'not address only' } });
+  assert.equal(mixedRecipientIdentifiers.status, 400);
+  const unavailableRecipient = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'unknown-address-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: 'unknown@sinaloa.mail', text: 'unknown' } });
+  assert.equal(unavailableRecipient.status, 404);
   const messageBody = { senderAgentId: enrolled.payload.agent.id, recipientEmail: recipient.payload.agent.address, text: 'authenticated cross-inbox message' };
-  const invited = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-1' }, body: messageBody });
-  assert.equal(invited.status, 202);
-  assert.equal(invited.payload.contactState, 'pending');
-  assert.equal(invited.payload.message.status, 'pendingContactApproval');
-  const pendingRecipientView = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/human-view`, { token: sessionToken });
-  assert.equal(pendingRecipientView.status, 200);
-  assert.equal(pendingRecipientView.payload.invitations.length, 1);
-  assert.equal(pendingRecipientView.payload.invitations[0].id, invited.payload.invitation.id);
-  assert.equal(pendingRecipientView.payload.invitations[0].fromAddress, enrolled.payload.agent.address);
-  assert.equal(pendingRecipientView.payload.invitations[0].state, 'pending');
-  assert.equal(pendingRecipientView.payload.invitations[0].direction, 'incoming');
-  assert.equal(pendingRecipientView.payload.invitations[0].actionable, true);
-  assert.equal(pendingRecipientView.payload.navigation.needsMe, 1);
-  const pendingSenderView = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/human-view`, { token: sessionToken });
-  assert.equal(pendingSenderView.payload.invitations[0].direction, 'outgoing');
-  assert.equal(pendingSenderView.payload.invitations[0].actionable, false);
-  assert.equal(pendingRecipientView.payload.publicEmailTransport.enabled, false);
-  assert.equal(pendingRecipientView.payload.publicEmailTransport.ready, false);
-  assert.equal(pendingRecipientView.payload.publicEmailTransport.reason, 'disabledByConfiguration');
-  const acceptedInvitation = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/invitations/${invited.payload.invitation.id}/accept`, { token: sessionToken, body: {} });
-  assert.equal(acceptedInvitation.status, 201);
-  assert.equal(acceptedInvitation.payload.invitation.state, 'accepted');
-  assert.ok(acceptedInvitation.payload.invitation.conversationId);
-  const sent = { status: acceptedInvitation.status, payload: acceptedInvitation.payload.message };
+  const sent = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-1' }, body: messageBody });
+  assert.equal(sent.status, 202);
   assert.ok(['queued', 'delivered'].includes(sent.payload.status));
+  const firstRecipientView = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/human-view`, { token: sessionToken });
+  assert.equal(firstRecipientView.status, 200);
+  assert.equal(firstRecipientView.payload.canManageInbox, true);
+  assert.deepEqual(firstRecipientView.payload.invitations, []);
+  assert.equal(firstRecipientView.payload.publicEmailTransport.enabled, false);
+  assert.equal(firstRecipientView.payload.publicEmailTransport.ready, false);
+  assert.equal(firstRecipientView.payload.publicEmailTransport.reason, 'disabledByConfiguration');
   assert.equal(sent.payload.schemaVersion, '1.0');
   assert.equal(sent.payload.messageId, sent.payload.id);
   assert.equal(sent.payload.conversationId, sent.payload.caseId);
@@ -206,6 +250,8 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(conflict.status, 409);
   const hidden = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`);
   assert.equal(hidden.status, 401);
+  const wrongInboxCredential = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: recipient.payload.agentApiToken });
+  assert.equal(wrongInboxCredential.status, 401);
   const visible = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages`, { token: sessionToken });
   assert.equal(visible.status, 200);
   assert.equal(visible.payload.length, 1);
@@ -229,6 +275,17 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.ok(receipts.payload.some(receipt => receipt.messageId === sent.payload.id && receipt.state === 'processed'));
   const deliveries = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/deliveries`, { token: sessionToken });
   assert.ok(deliveries.payload.some(delivery => delivery.messageId === sent.payload.id && delivery.status === 'delivered'));
+  const credentialFamilyId = deliveries.payload.find(delivery => delivery.messageId === sent.payload.id).senderCredentialFamilyId;
+  assert.ok(credentialFamilyId);
+  const fixtureStore = new FileStore(server.dataDir);
+  const queueDelayedMessage = async (messageId, targetRecipient, delayMs = 1000) => {
+    const createdAt = new Date().toISOString();
+    const caseId = `case_${messageId}`;
+    const message = { ...sent.payload, id: messageId, messageId, caseId, conversationId: caseId, recipientAgentId: targetRecipient.agent.id, recipientInboxId: targetRecipient.inbox.id, recipientEmail: targetRecipient.agent.address, to: [{ agentId: targetRecipient.agent.id, address: targetRecipient.agent.address }], text: messageId, content: [{ type: 'text', text: messageId }], createdAt, queuedAt: createdAt, status: 'queued' };
+    const outbox = { id: `delivery_${messageId}`, kind: 'nativeAgentMessage', messageId, senderInboxId, recipientInboxId: targetRecipient.inbox.id, senderCredentialFamilyId: credentialFamilyId, orderingKey: caseId, status: 'queued', attempts: 0, maxAttempts: 5, availableAt: new Date(Date.now() + delayMs).toISOString(), createdAt, updatedAt: createdAt };
+    await fixtureStore.enqueueOutbox([{ path: path.join('inboxes', senderInboxId, 'messages', `${messageId}.json`), value: message }], outbox);
+    return outbox.id;
+  };
   const second = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-2' }, body: { ...messageBody, text: 'second message' } });
   assert.equal(second.status, 202);
   const incrementalDelta = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/events/delta?cursor=${encodeURIComponent(initialDelta.payload.nextCursor)}&limit=200`, { token: enrolled.payload.agentApiToken });
@@ -244,6 +301,12 @@ test('verified human issues a single-use permissioned agent enrollment', async t
     const response = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages`, { token: sessionToken });
     return response.payload.find(item => item.id === second.payload.id && item.status === 'delivered');
   });
+  const directlyProcessed = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages/${second.payload.id}/acknowledgements`, { token: recipient.payload.agentApiToken, headers: { 'Idempotency-Key': 'processed-message-2' }, body: { state: 'processed' } });
+  assert.equal(directlyProcessed.status, 201);
+  const regressiveAcknowledgement = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages/${second.payload.id}/acknowledgements`, { token: recipient.payload.agentApiToken, headers: { 'Idempotency-Key': 'late-ack-message-2' }, body: { state: 'acknowledged' } });
+  assert.equal(regressiveAcknowledgement.status, 409);
+  const messageAfterRegressiveAcknowledgement = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages`, { token: sessionToken });
+  assert.equal(messageAfterRegressiveAcknowledgement.payload.find(message => message.id === second.payload.id).status, 'processed');
   const firstPage = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages?limit=1`, { token: sessionToken });
   assert.equal(firstPage.payload.length, 1);
   assert.equal(firstPage.payload[0].id, second.payload.id);
@@ -254,20 +317,63 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(blocked.status, 200);
   const rejected = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-3' }, body: { ...messageBody, text: 'blocked message' } });
   assert.equal(rejected.status, 403);
+  const blockedDeliveryId = await queueDelayedMessage('msg_blocked_before_delivery', recipient.payload);
+  await waitFor(async () => (await fixtureStore.getOutbox(blockedDeliveryId))?.status === 'deadLettered');
+  const blockedRecipientMessages = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages`, { token: sessionToken });
+  assert.equal(blockedRecipientMessages.payload.some(message => message.id === 'msg_blocked_before_delivery'), false);
 
-  const declineWorkspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Decline workspace' } });
-  const declineToken = await request(server.baseUrl, `/api/inboxes/${declineWorkspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages'] } });
-  const declineRecipient = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: declineToken.payload.enrollmentToken, name: 'Decliner', slug: 'decliner' } });
-  const declineInvite = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'decline-message-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: declineRecipient.payload.agent.address, text: 'contact request that should remain supervised' } });
-  assert.equal(declineInvite.status, 202);
-  assert.equal(declineInvite.payload.message.status, 'pendingContactApproval');
-  const hiddenPendingMessage = await request(server.baseUrl, `/api/inboxes/${declineRecipient.payload.inbox.id}/messages`, { token: declineRecipient.payload.agentApiToken });
-  assert.deepEqual(hiddenPendingMessage.payload, []);
-  const declinedInvitation = await request(server.baseUrl, `/api/inboxes/${declineRecipient.payload.inbox.id}/invitations/${declineInvite.payload.invitation.id}/decline`, { token: sessionToken, body: {} });
-  assert.equal(declinedInvitation.status, 200);
-  assert.equal(declinedInvitation.payload.state, 'declined');
-  const declinedRetry = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'decline-message-2' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: declineRecipient.payload.agent.address, text: 'must remain declined' } });
-  assert.equal(declinedRetry.status, 403);
+  const raceWorkspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Concurrent message workspace' } });
+  const raceToken = await request(server.baseUrl, `/api/inboxes/${raceWorkspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages'] } });
+  const raceRecipient = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: raceToken.payload.enrollmentToken, name: 'Race Recipient', slug: 'race-recipient' } });
+  const concurrentMessages = await Promise.all([
+    request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'concurrent-message-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: raceRecipient.payload.agent.address, text: 'first concurrent contact' } }),
+    request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'concurrent-message-2' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: raceRecipient.payload.agent.address, text: 'second concurrent contact' } })
+  ]);
+  assert.deepEqual(concurrentMessages.map(result => result.status), [202, 202]);
+  assert.notEqual(concurrentMessages[0].payload.id, concurrentMessages[1].payload.id);
+  const duplicateFirstSend = await Promise.all([1, 2].map(() => request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'concurrent-message-duplicate' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: raceRecipient.payload.agent.address, text: 'same concurrent message' } })));
+  assert.deepEqual(duplicateFirstSend.map(result => result.status).sort(), [200, 202]);
+  assert.equal(duplicateFirstSend[0].payload.id, duplicateFirstSend[1].payload.id);
+  await waitFor(async () => {
+    const response = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { token: raceRecipient.payload.agentApiToken });
+    return [...concurrentMessages, duplicateFirstSend[0]].every(result => response.payload.some(message => message.id === result.payload.id && message.status === 'delivered'));
+  });
+  const raceInvitations = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/invitations`, { token: sessionToken });
+  assert.deepEqual(raceInvitations.payload, []);
+
+  const legacyKey = 'legacy-pending-1';
+  const legacyBody = { senderAgentId: enrolled.payload.agent.id, recipientEmail: raceRecipient.payload.agent.address, text: 'legacy pending message' };
+  const legacyMessageId = `msg_${crypto.createHash('sha256').update(`${enrolled.payload.agent.id}:${legacyKey}`).digest('hex').slice(0, 32)}`;
+  const legacyInvitationId = `invitation_${crypto.createHash('sha256').update(`${enrolled.payload.agent.id}:${raceRecipient.payload.agent.id}`).digest('hex').slice(0, 40)}`;
+  const legacyAt = new Date().toISOString();
+  const legacyMessage = {
+    id: legacyMessageId,
+    ...createProtocolMessage({ messageId: legacyMessageId, conversationId: 'conversation_legacy', from: { agentId: enrolled.payload.agent.id, address: enrolled.payload.agent.address }, to: [{ agentId: raceRecipient.payload.agent.id, address: raceRecipient.payload.agent.address }], text: legacyBody.text, createdAt: legacyAt }),
+    caseId: 'conversation_legacy', senderInboxId, recipientInboxId: raceRecipient.payload.inbox.id,
+    senderType: 'agent', senderAgentId: enrolled.payload.agent.id, recipientAgentId: raceRecipient.payload.agent.id,
+    recipientEmail: raceRecipient.payload.agent.address, transport: 'native', type: 'message', text: legacyBody.text,
+    payload: null, createdAt: legacyAt, status: 'pendingContactApproval', invitationId: legacyInvitationId
+  };
+  const legacyInvitation = { id: legacyInvitationId, senderAgentId: enrolled.payload.agent.id, recipientAgentId: raceRecipient.payload.agent.id, senderInboxId, recipientInboxId: raceRecipient.payload.inbox.id, state: 'pending', messageId: legacyMessageId, createdAt: legacyAt, updatedAt: legacyAt };
+  for (const targetInboxId of [senderInboxId, raceRecipient.payload.inbox.id]) {
+    const invitationDirectory = path.join(server.dataDir, 'inboxes', targetInboxId, 'invitations');
+    await mkdir(invitationDirectory, { recursive: true });
+    await writeFile(path.join(invitationDirectory, `${legacyInvitationId}.json`), JSON.stringify(legacyInvitation));
+  }
+  await writeFile(path.join(server.dataDir, 'inboxes', senderInboxId, 'messages', `${legacyMessageId}.json`), JSON.stringify(legacyMessage));
+  const resumedLegacy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': legacyKey }, body: legacyBody });
+  assert.equal(resumedLegacy.status, 202);
+  assert.equal(resumedLegacy.payload.id, legacyMessageId);
+  await waitFor(async () => {
+    const response = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { token: raceRecipient.payload.agentApiToken });
+    return response.payload.some(message => message.id === legacyMessageId && message.status === 'delivered');
+  });
+  const supersededInvitation = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/invitations`, { token: sessionToken });
+  assert.equal(supersededInvitation.payload.find(invitation => invitation.id === legacyInvitationId).state, 'superseded');
+  const declinedLegacy = { ...legacyInvitation, state: 'declined', updatedAt: new Date().toISOString() };
+  await writeFile(path.join(server.dataDir, 'inboxes', raceRecipient.payload.inbox.id, 'invitations', `${legacyInvitationId}.json`), JSON.stringify(declinedLegacy));
+  const declinedSend = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'declined-legacy-1' }, body: { ...legacyBody, text: 'must remain declined' } });
+  assert.equal(declinedSend.status, 403);
 
   const caseCreated = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases`, { token: enrolled.payload.agentApiToken, body: { objective: 'Schedule Q4 planning with Acme', collaborationMode: 'scheduling', participants: [recipient.payload.agent.id], constraints: { workingHoursEnd: '16:00', timezone: 'America/Toronto' }, deadline: '2026-10-03T03:59:00.000Z' } });
   assert.equal(caseCreated.status, 201);
@@ -288,6 +394,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   await writeFile(membershipPath, JSON.stringify({ ...ownerMembership, role: 'member' }, null, 2));
   const observerView = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/human-view`, { token: sessionToken });
   assert.equal(observerView.status, 200);
+  assert.equal(observerView.payload.canManageInbox, false);
   const observerIntervention = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: sessionToken, headers: { 'Idempotency-Key': 'observer-must-not-pause' }, body: { actionKey: 'pause' } });
   assert.equal(observerIntervention.status, 403);
   await writeFile(membershipPath, JSON.stringify(ownerMembership, null, 2));
@@ -383,9 +490,13 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const rejectedRecipientRefresh = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: recipient.payload.agentRefreshToken } });
   assert.equal(rejectedRecipientRefresh.status, 401);
 
+  const revokedDeliveryId = await queueDelayedMessage('msg_revoked_before_delivery', raceRecipient.payload, 1500);
   const revokedCredentials = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agents/${enrolled.payload.agent.id}/credentials/revoke`, { token: sessionToken, body: {} });
   assert.equal(revokedCredentials.status, 200);
   assert.ok(revokedCredentials.payload.credentialFamilyCount >= 1);
+  await waitFor(async () => (await fixtureStore.getOutbox(revokedDeliveryId))?.status === 'deadLettered');
+  const revokedRecipientMessages = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { token: sessionToken });
+  assert.equal(revokedRecipientMessages.payload.some(message => message.id === 'msg_revoked_before_delivery'), false);
   const rejectedAfterRevocation = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-revoked' }, body: { ...messageBody, text: 'must not send' } });
   assert.equal(rejectedAfterRevocation.status, 401);
 
@@ -393,4 +504,39 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(logout.status, 200);
   const afterLogout = await request(server.baseUrl, '/api/auth/me', { token: sessionToken });
   assert.equal(afterLogout.status, 401);
+});
+
+test('failed enrollment rolls back token claim and all account records', async t => {
+  const oversizedPublicDomain = `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(55)}.com`;
+  const server = await startServer({
+    SINALOA_ENABLE_EXTERNAL_EMAIL: 'true',
+    SINALOA_EMAIL_PROVIDER: 'resend',
+    SINALOA_PUBLIC_EMAIL_DOMAIN: oversizedPublicDomain,
+    SINALOA_EMAIL_DOMAIN_VERIFIED: 'true',
+    RESEND_API_KEY: 're_test_atomic_rollback',
+    RESEND_WEBHOOK_SECRET: 'whsec_test_atomic_rollback'
+  });
+  t.after(server.stop);
+  const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550999', displayName: 'Rollback Owner' } });
+  const verified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
+  const sessionToken = verified.payload.sessionToken;
+  const totpSetup = await request(server.baseUrl, '/api/auth/totp/setup', { token: sessionToken, body: {} });
+  const totpVerified = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: generateSync({ secret: totpSetup.payload.secret }) } });
+  assert.equal(totpVerified.status, 200);
+  const workspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Rollback workspace' } });
+  const enrollment = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages'], agentProfile: { name: 'Rollback Agent', slug: 'rollback-agent' } } });
+  const failed = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: enrollment.payload.enrollmentToken } });
+  assert.equal(failed.status, 500);
+
+  const tokenHash = crypto.createHash('sha256').update(enrollment.payload.enrollmentToken).digest('hex');
+  const tokenRecord = JSON.parse(await readFile(path.join(server.dataDir, 'auth', 'enrollment-tokens', `${tokenHash}.json`), 'utf8'));
+  assert.equal(tokenRecord.usedAt, null);
+  const listFiles = directory => readdir(directory).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error));
+  assert.deepEqual(await listFiles(path.join(server.dataDir, 'identities')), []);
+  assert.deepEqual(await listFiles(path.join(server.dataDir, 'directory', 'agents')), []);
+  assert.deepEqual(await listFiles(path.join(server.dataDir, 'directory', 'native-addresses')), []);
+  assert.deepEqual(await listFiles(path.join(server.dataDir, 'directory', 'email-addresses')), []);
+  assert.deepEqual(await listFiles(path.join(server.dataDir, 'auth', 'agent-credentials')), []);
+  assert.deepEqual(await listFiles(path.join(server.dataDir, 'auth', 'agent-refresh-credentials')), []);
+  assert.deepEqual(await listFiles(path.join(server.dataDir, 'organizations', workspace.payload.organizationId, 'workspaces')), [`${workspace.payload.id}.json`]);
 });

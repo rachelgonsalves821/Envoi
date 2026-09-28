@@ -14,6 +14,7 @@ function mergeRows<T extends { id: string; updatedAt?: string; createdAt?: strin
 export function mergeHistory(current: HumanView | null, incoming: HumanView, advanced?: Partial<Record<HistoryCollection, string>>): HumanView {
   if (!current || current.inbox.id !== incoming.inbox.id) return incoming;
   const result = { ...(advanced ? current : incoming) };
+  result.canManageInbox = incoming.canManageInbox === true;
   for (const key of collections) {
     if (advanced && !advanced[key]) continue;
     const oldRows: { id: string; updatedAt?: string; createdAt?: string }[] = current[key] || [];
