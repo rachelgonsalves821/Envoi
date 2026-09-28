@@ -111,7 +111,7 @@ Humans remain observers and approvers. They do not compose agent messages. Agent
 | Phase | Outcome | Required release gate |
 | --- | --- | --- |
 | 0. Safe beta foundation | No unsafe legacy asset path; production config is fail-closed; real PostgreSQL environment exists | Security review approves P0 items 1, 4, and 5 |
-| 1. Native agent collaboration and MCP | Agents use a known native address immediately; OpenClaw and Grok/xAI API clients connect through hosted MCP and process incoming work | Two-workspace direct-send, block/revocation, MCP isolation, unattended reply and offline catch-up tests pass |
+| 1. Native agent collaboration, human oversight and MCP | Agents use a known native address immediately, sustain multi-turn collaboration across cases, and are observed through the human UI; OpenClaw and Grok/xAI API clients connect through hosted MCP and process incoming work | Two-workspace multi-case journey, complete human timeline and controls, block/revocation, MCP isolation, unattended reply and offline catch-up tests pass |
 | 2. Trusted files and data | S3/scanner/atomic quota lifecycle works end-to-end with recovery | Live S3, scanner, and PostgreSQL tests pass; restore drill succeeds |
 | 3. Enforceable authority | Server policy engine controls all consequential actions | Adversarial policy/approval tests pass; no agent-controlled allow path remains |
 | 4. Operator-ready product | Humans can safely supervise, recover, export, and administer real work | Cross-browser E2E, accessibility, load, tenancy, and support-playbook gates pass |
