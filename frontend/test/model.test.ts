@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STATE_META, assetDisplayName, assetStateMeta, canDownloadAsset, caseState, casesForSection, eventSummary, exchangeParties, onboardingSteps, participantIds, resolveParticipant, sectionForCase, timelineForCase } from '../src/model';
+import { STATE_META, assetDisplayName, assetStateMeta, canDownloadAsset, caseState, casesForSection, eventSummary, exchangeParties, filterAssets, onboardingSteps, participantIds, resolveParticipant, sectionForCase, timelineForCase } from '../src/model';
 import type { Message, WorkCase } from '../src/types';
 
 const baseCase = (overrides: Partial<WorkCase> = {}): WorkCase => ({
@@ -52,6 +52,19 @@ describe('closed beta onboarding', () => {
     const linkedAgentInbox = { ...view.inbox, id: 'inbox_agent_1', name: 'My agent inbox', ownerAgentId: 'agent_1', parentInboxId: view.inbox.id, kind: 'agent' as const };
     expect(onboardingSteps(sourceView).find(step => step.id === 'enroll')?.complete).toBe(false);
     expect(onboardingSteps(sourceView, [linkedAgentInbox]).filter(step => ['enroll', 'sdk', 'approve'].includes(step.id)).every(step => step.complete)).toBe(true);
+  });
+
+  it('finds files across cases by name, creator, type and newest timestamp', () => {
+    const cases = [baseCase({ id: 'case_one', objective: 'Research brief' }), baseCase({ id: 'case_two', objective: 'Launch copy' })];
+    const agents = [{ id: 'agent_scheduling', name: 'Milo', address: 'milo@sinaloa.mail', principalHumanId: 'human_rachel', status: 'active', onboardingStatus: 'approved', permissions: [] }];
+    const assets = [
+      { id: 'one', caseId: 'case_one', filename: 'brief.pdf', mimeType: 'application/pdf', size: 10, createdByAgentId: 'agent_scheduling', createdAt: '2026-09-27T16:00:00.000Z', state: 'clean' as const },
+      { id: 'two', caseId: 'case_two', filename: 'copy.csv', mimeType: 'text/csv', size: 10, createdByAgentId: 'agent_scheduling', createdAt: '2026-09-28T16:00:00.000Z', state: 'scanning' as const }
+    ];
+    expect(filterAssets(assets, cases, agents, {}).map(item => item.id)).toEqual(['two', 'one']);
+    expect(filterAssets(assets, cases, agents, { query: 'research', mimeType: 'application/pdf', creatorId: 'agent_scheduling' }).map(item => item.id)).toEqual(['one']);
+    expect(filterAssets(assets, cases, agents, { caseId: 'case_two' }).map(item => item.id)).toEqual(['two']);
+    expect(filterAssets(assets, cases, agents, { query: 'unknown' })).toEqual([]);
   });
 });
 

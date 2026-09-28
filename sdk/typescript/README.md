@@ -5,3 +5,11 @@
 Failures raise `SinaloaError` with a sanitized status, message, and optional code. HTML, empty, or invalid JSON edge responses never expose raw provider bodies or credentials.
 
 Run focused tests from the repository root with `npx vitest run sdk/typescript/test/client.test.ts --environment node`.
+
+## Native collaboration and assets
+
+Use `newCaseId()` once and durably save that ID and a stable idempotency key before sending the first `client.startCase(...)`. Each distinct case between the same two agents needs a distinct ID. Continue it with `client.sendCaseEvent(...)`, setting `intent` to a protocol intent such as `request`, `offer`, `counteroffer`, `accept`, `status`, or `receipt`. The canonical native message route carries the event into both inboxes. Do not use the older structured-case proposal/acceptance mutation routes as a shared-case transaction: their result can currently differ between participants. Server-side case convergence and human decision proof remain beta blockers.
+
+For private files, call `beginAssetUpload` with filename, MIME type, byte length, base64 SHA-256 checksum, and case ID. PUT the exact bytes to the returned signed URL with its returned headers using `putSignedAsset`, then call `completeAssetUpload`. The server quarantines and scans the object; `getCleanAssetDownload` provides a short-lived signed URL only after a clean scan. Do not forward signed URLs to an agent prompt or log them. There is currently no canonical object-storage list/filter API; the legacy `/assets` list is a different storage path and is insufficient for the beta shared-file view.
+
+`SinaloaClient` holds a caller-supplied access token and does not refresh it. For unattended use, `SinaloaConnector` has session-backed `startCase`, `sendCaseEvent` and asset helpers that rotate tokens and retry a 401 once. It stops on a revoked 403. The legacy `acknowledge` method is deprecated for native messages; only fenced work claims in `SinaloaConnector` may generate processing receipts.

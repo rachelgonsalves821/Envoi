@@ -15,7 +15,7 @@ import { mergeHistory, olderCursors } from './history';
 import { subscribeReplayRecovery } from './event-replay';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
-  eventSummary, exchangeParties, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
+  eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
   sectionForCase, stateLabel, timelineForCase
 } from './model';
 import type {
@@ -24,7 +24,7 @@ import type {
 } from './types';
 
 const WORKSPACE_KEY = 'sinaloa.workspace';
-const caseSections: NavSection[] = ['inbox', 'needsMe', 'active', 'waiting', 'scheduled', 'documents', 'completed'];
+const caseSections: NavSection[] = ['inbox', 'needsMe', 'active', 'waiting', 'completed'];
 
 type BootState = 'loading' | 'signedOut' | 'setup' | 'ready' | 'error';
 
@@ -453,7 +453,6 @@ function AppShell(props: ShellProps) {
           <NavItem section="needsMe" label="Needs me" icon={<UserRound />} count={counts.needsMe} active={section === 'needsMe'} onClick={chooseSection} attention />
           <NavItem section="active" label="In motion" icon={<Zap />} count={counts.active} active={section === 'active'} onClick={chooseSection} />
           <NavItem section="waiting" label="Waiting" icon={<Clock3 />} count={counts.waiting} active={section === 'waiting'} onClick={chooseSection} />
-          <NavItem section="scheduled" label="Calendar" icon={<CalendarDays />} count={counts.scheduled} active={section === 'scheduled'} onClick={chooseSection} />
           <NavItem section="documents" label="Shared files" icon={<FileText />} count={counts.documents} active={section === 'documents'} onClick={chooseSection} />
           <NavItem section="completed" label="Done" icon={<CheckCircle2 />} count={counts.completed} active={section === 'completed'} onClick={chooseSection} />
           <div className="nav-separator" />
@@ -477,6 +476,7 @@ function AppShell(props: ShellProps) {
 
         {utilitySection ? (
           <main id="main-content" className="utility-content">
+            {section === 'documents' && <SharedFilesPage view={view} notify={setToast} />}
             {section === 'policies' && <PoliciesPage view={view} />}
             {section === 'integrations' && <IntegrationsPage view={view} workspace={workspace} agentInboxes={workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === workspace.id)} humanId={human.id} canManageInbox={canManageInbox} onSelectWorkspace={onSelectWorkspace} onRefresh={onRefresh} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} />}
@@ -590,7 +590,6 @@ function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRailToggle,
           {events.length ? <ol className="timeline">{events.map((event, index) => <TimelineEvent key={event.id} event={event} last={index === events.length - 1} view={view} workCase={workCase} onPolicy={item => setDrawer({ type: 'policy', item })} />)}</ol> : <div className="empty-panel"><Activity size={22} /><strong>The conversation is just getting started</strong><span>Messages, offers, shared context, and completed actions will appear here.</span></div>}
         </section>
 
-        {canAct && !workCase.decision && <div className="case-footer-actions"><button className="button tertiary" onClick={() => setConfirm('takeOver')}><UserRound size={16} />Take over</button><button className="button tertiary" onClick={() => setConfirm('pause')}><Pause size={16} />Pause conversation</button></div>}
       </article>
 
       {railOpen && <ContextRail workCase={workCase} view={view} onPolicy={item => setDrawer({ type: 'policy', item })} onEvidence={item => setDrawer({ type: 'evidence', item })} notify={notify} />}
@@ -634,15 +633,17 @@ export function DecisionCard({ workCase, view, events, policy, canManageInbox, b
   const option = proposal?.options.find(item => !item.expired);
   const parties = proposal ? proposalParties(workCase, proposal.id, events, view) : null;
   const optionParty = proposal?.status === 'countered' ? parties?.counterparty : parties?.originator;
-  const availableActions = workCase.decision?.availableActions || [];
+  // Pause/resume and takeover are not enforced by the current server. Do not
+  // offer a button whose effect would only be a recorded case label.
+  const availableActions = (workCase.decision?.availableActions || []).filter(action => !['pause', 'takeOver'].includes(action));
   return (
     <section className="decision-card" aria-labelledby="decision-title">
       <div className="decision-accent"><Sparkles size={18} /></div>
       <div className="decision-copy"><p className="eyebrow">{canManageInbox ? 'Your judgment is required' : 'Workspace administrator review'}</p><h2 id="decision-title">{decisionQuestion(workCase, option)}</h2>
         {option && <ProposalOptionView option={option} expiresAt={proposal?.expiresAt || null} stageLabel={proposal?.status === 'countered' ? 'Counteroffer' : 'Offer'} partyLabel={optionParty?.displayName} />}
-        <button className="authority-link" onClick={onPolicy} disabled={!policy}><AuthoritySeal decision={policy?.decision || 'needsHuman'} /> <span>Authorized by: {policy?.matchedPolicyId ? humanize(policy.matchedPolicyId) : 'Human approval required'}</span></button>
+        <button className="authority-link" onClick={onPolicy} disabled={!policy}><AuthoritySeal decision={policy?.decision || 'needsHuman'} /> <span>Recorded policy: {policy?.matchedPolicyId ? humanize(policy.matchedPolicyId) : 'Human approval required'}</span></button>
       </div>
-      {canManageInbox && <div className="decision-actions">{availableActions.map((action, index) => <button key={action} className={`button ${index === 0 ? 'primary' : index === 1 ? 'secondary' : 'quiet'}`} disabled={Boolean(busy)} onClick={() => onAction(action)}>{busy === action ? 'Recording…' : action === 'pause' ? 'Pause conversation' : humanize(action)}</button>)}</div>}
+      {canManageInbox && availableActions.length > 0 && <div className="decision-actions">{availableActions.map((action, index) => <button key={action} className={`button ${index === 0 ? 'primary' : index === 1 ? 'secondary' : 'quiet'}`} disabled={Boolean(busy)} onClick={() => onAction(action)}>{busy === action ? 'Recording…' : humanize(action)}</button>)}</div>}
     </section>
   );
 }
@@ -807,8 +808,34 @@ function RailEmpty({ children }: { children: ReactNode }) { return <p className=
 function ReceiptCard({ workCase }: { workCase: WorkCase }) {
   const receipt = workCase.receipt!;
   return (
-    <section className="receipt-card"><div className="receipt-mark"><ReceiptText size={24} /></div><div className="receipt-content"><p className="eyebrow">Outcome receipt</p><h2>{receipt.result}</h2><div className="receipt-grid"><div><span>Completed</span><strong>{formatAbsolute(receipt.createdAt || workCase.updatedAt || workCase.createdAt)}</strong></div><div><span>Human approval</span><strong>{humanize(receipt.humanApprovalStatus)}</strong></div><div><span>Authority basis</span><strong>{humanize(receipt.authorityBasis)}</strong></div>{receipt.counterparties?.length ? <div><span>Counterparties</span><strong>{receipt.counterparties.join(', ')}</strong></div> : null}{receipt.evidenceRefs?.length ? <div><span>Evidence</span><strong>{receipt.evidenceRefs.join(', ')}</strong></div> : null}{Object.entries(receipt.externalIds || {}).map(([key, value]) => <div key={key}><span>{humanize(key)}</span><code>{String(value)}</code></div>)}</div></div><button className="button secondary" onClick={() => window.print()}>Print receipt</button></section>
+    <section className="receipt-card"><div className="receipt-mark"><ReceiptText size={24} /></div><div className="receipt-content"><p className="eyebrow">Agent-reported outcome receipt</p><h2>{receipt.result}</h2><div className="receipt-grid"><div><span>Recorded</span><strong>{formatAbsolute(receipt.createdAt || workCase.updatedAt || workCase.createdAt)}</strong></div><div><span>Reported human approval</span><strong>{humanize(receipt.humanApprovalStatus)}</strong></div><div><span>Reported authority basis</span><strong>{humanize(receipt.authorityBasis)}</strong></div>{receipt.counterparties?.length ? <div><span>Counterparties</span><strong>{receipt.counterparties.join(', ')}</strong></div> : null}{receipt.evidenceRefs?.length ? <div><span>Evidence</span><strong>{receipt.evidenceRefs.join(', ')}</strong></div> : null}{Object.entries(receipt.externalIds || {}).map(([key, value]) => <div key={key}><span>{humanize(key)}</span><code>{String(value)}</code></div>)}</div></div><button className="button secondary" onClick={() => window.print()}>Print receipt</button></section>
   );
+}
+
+function SharedFilesPage({ view, notify }: { view: HumanView; notify: (message: string) => void }) {
+  const [query, setQuery] = useState('');
+  const [caseId, setCaseId] = useState('');
+  const [creatorId, setCreatorId] = useState('');
+  const [mimeType, setMimeType] = useState('');
+  const files = filterAssets(view.assets, view.caseQueue, view.agents, { query, caseId, creatorId, mimeType });
+  const caseOptions = view.caseQueue.filter(item => view.assets.some(asset => asset.caseId === item.id));
+  const creators = view.agents.filter(agent => view.assets.some(asset => asset.createdByAgentId === agent.id));
+  const types = [...new Set(view.assets.map(asset => asset.mimeType))].sort();
+  return <PageFrame eyebrow="Agent artifacts" title="Shared files" description="Files exchanged by your agents. Only files that passed the safety scan can be downloaded.">
+    {view.history?.assets?.hasMore && <InlineNotice title="More files may exist" body="Filters cover the files currently loaded. Load older history to search earlier files." tone="attention" />}
+    <div className="file-filters">
+      <label><span>Search files</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Name, case, creator, or type" /></label>
+      <label><span>Case</span><select value={caseId} onChange={event => setCaseId(event.target.value)}><option value="">All cases</option>{caseOptions.map(item => <option key={item.id} value={item.id}>{item.objective || item.id}</option>)}</select></label>
+      <label><span>Creator</span><select value={creatorId} onChange={event => setCreatorId(event.target.value)}><option value="">All creators</option>{creators.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label>
+      <label><span>Type</span><select value={mimeType} onChange={event => setMimeType(event.target.value)}><option value="">All types</option>{types.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+    </div>
+    <p className="file-count">{files.length} of {view.assets.length} loaded files</p>
+    {files.length ? <div className="shared-file-grid">{files.map(asset => {
+      const workCase = view.caseQueue.find(item => item.id === asset.caseId);
+      const creator = view.agents.find(item => item.id === asset.createdByAgentId);
+      return <article className="shared-file-card" key={asset.id}><div><strong>{workCase?.objective || asset.caseId || 'No case assigned'}</strong><small>Created by {creator?.name || asset.createdByAgentId || 'Unknown agent'} · {formatAbsolute(asset.createdAt)}</small></div><AssetRow asset={asset} inboxId={view.inbox.id} notify={notify} /></article>;
+    })}</div> : <PageEmpty icon={<FileText />} title={view.assets.length ? 'No files match these filters' : 'No shared files yet'} body={view.assets.length ? 'Try another name, case, creator, or file type.' : 'Agent-created files will appear here after they are exchanged.'} />}
+  </PageFrame>;
 }
 
 function PoliciesPage({ view }: { view: HumanView }) {
@@ -819,51 +846,10 @@ function PoliciesPage({ view }: { view: HumanView }) {
 function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInbox, onSelectWorkspace, onRefresh, notify }: { view: HumanView; workspace: Workspace; agentInboxes: Workspace[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const [enrollment, setEnrollment] = useState<{ enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null>(null);
   const [open, setOpen] = useState(false);
-  const [emailTransport, setEmailTransport] = useState<EmailTransportStatus | null>(null);
-  const [emailError, setEmailError] = useState('');
-  const [invitations, setInvitations] = useState<AgentConnectionInvitation[]>(view.invitations);
-  const [invitationError, setInvitationError] = useState('');
-  const loadInvitations = useCallback(async () => {
-    if (workspace.id === previewWorkspace.id) {
-      setInvitations(previewView.invitations);
-      setInvitationError('');
-      return;
-    }
-    setInvitationError('');
-    try { setInvitations(await api.invitations(workspace.id)); }
-    catch (caught) { setInvitationError(errorMessage(caught)); }
-  }, [workspace.id]);
-  const loadEmailTransport = useCallback(async () => {
-    if (workspace.id === previewWorkspace.id) {
-      setEmailTransport({ provider: 'resend', ready: true, publicDomain: 'agents.example.com', domainVerified: true, reason: null, internalAgentDomain: 'sinaloa.mail', agents: [{ agentId: 'agent_milo', platformAddress: 'milo@sinaloa.mail', publicEmailAddress: 'milo@agents.example.com', permitted: true }], contacts: [] });
-      setEmailError('');
-      return;
-    }
-    setEmailError('');
-    try { setEmailTransport(await api.emailTransport(workspace.id)); }
-    catch (caught) { setEmailError(errorMessage(caught)); }
-  }, [workspace.id]);
-  useEffect(() => {
-    setInvitations(view.invitations);
-    setInvitationError('');
-  }, [view.invitations]);
-  useEffect(() => {
-    let active = true;
-    if (view.publicEmailTransport) {
-      setEmailTransport({ ...view.publicEmailTransport, contacts: view.contacts || view.publicEmailTransport.contacts || [] });
-      setEmailError('');
-      return () => { active = false; };
-    }
-    if (workspace.id === previewWorkspace.id) { void loadEmailTransport(); return () => { active = false; }; }
-    setEmailTransport(null); setEmailError('');
-    void api.emailTransport(workspace.id).then(value => { if (active) setEmailTransport(value); }).catch(caught => { if (active) setEmailError(errorMessage(caught)); });
-    return () => { active = false; };
-  }, [loadEmailTransport, view.contacts, view.publicEmailTransport, workspace.id]);
   const steps = onboardingSteps(view, agentInboxes);
   const completeCount = steps.filter(step => step.complete).length;
-  const calendarConfigured = Object.values(view.calendarProviders).some(provider => provider.configured);
   return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Bring one agent online, share its native address, and watch direct agent exchanges reach durable receipts.">
-    {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages enrollment and approved public email contacts. You can observe your agent’s conversations." tone="attention" />}
+    {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages agent enrollment. You can observe your agent’s conversations." tone="attention" />}
     <section className="onboarding-card" aria-labelledby="onboarding-title">
       <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
       <div className="progress-track" aria-label={`${completeCount} of ${steps.length} onboarding steps complete`}><span style={{ width: `${(completeCount / steps.length) * 100}%` }} /></div>
@@ -871,17 +857,14 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
     </section>
     {agentInboxes.length > 0 && <section className="agent-inbox-list" aria-label="Your agent inboxes"><div className="section-heading"><div><p className="eyebrow">Agent inboxes</p><h2>Each agent has its own view</h2></div><span>{agentInboxes.length} inboxes</span></div><div className="data-list">{agentInboxes.map(agentInbox => <article className="data-row" key={agentInbox.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{agentInbox.name}</strong><span>Separate conversation history and permissions</span></div><StatusText value={agentInbox.status} /><button type="button" className="button secondary compact" onClick={() => void onSelectWorkspace(agentInbox)}>Open inbox</button></article>)}</div></section>}
     <section className="beta-safeguards" aria-labelledby="safeguards-title">
-      <div className="section-heading"><div><p className="eyebrow">Beta safeguards</p><h2 id="safeguards-title">Native messages only</h2></div><span>Closed beta</span></div>
+      <div className="section-heading"><div><p className="eyebrow">Beta capabilities</p><h2 id="safeguards-title">Direct agent collaboration</h2></div><span>Closed beta</span></div>
       <div className="safeguard-grid">
-        <SafeguardCard icon={<Inbox size={18} />} title="Agent-to-agent messaging" status="Beta path" body="Use a known Sinaloa agent address to begin a conversation directly. Delivery and acknowledgement states remain visible here." />
-        <SafeguardCard icon={<Link2 size={18} />} title="Public email" status={emailTransport?.ready ? 'Ready' : emailTransport ? 'Unavailable' : 'Checking'} body={emailTransport?.ready ? `Verified on ${emailTransport.publicDomain}. Agents may email approved contacts only; humans remain observers and approvers.` : emailTransport ? `Not available: ${emailTransport.reason || 'provider configuration is incomplete'}. No public email action is offered.` : emailError || 'Checking the configured transport and verified domain.'} />
-        <SafeguardCard icon={<CalendarDays size={18} />} title="Calendar actions" status={calendarConfigured ? 'Configured, gated' : 'Unavailable'} body={calendarConfigured ? 'A provider is configured, but connect and booking actions remain gated during the closed beta.' : 'No calendar provider is configured, and calendar actions remain gated during the closed beta.'} />
-        <SafeguardCard icon={<FileText size={18} />} title="Attachment upload" status="Disabled" body="Human uploads are unavailable. Agent files stay locked until the safety scan reports clean." />
+        <SafeguardCard icon={<Inbox size={18} />} title="Direct messaging" status="Beta requirement" body="An agent can message another agent immediately using its exact known Sinaloa address. No first-contact approval is needed." />
+        <SafeguardCard icon={<Link2 size={18} />} title="Remote MCP" status="Beta requirement" body="Connect a supported external agent runtime to the hosted MCP endpoint. Keep credentials in the runtime’s secret store." />
+        <SafeguardCard icon={<FileText size={18} />} title="Shared files" status="Beta requirement" body="Agent-created files appear in Shared files. Download unlocks only after a clean malware scan." />
       </div>
     </section>
-    {invitations.length > 0 && <ConnectionInvitations invitations={invitations} error={invitationError} workspace={workspace} canManageInbox={canManageInbox} onReload={loadInvitations} onRefresh={onRefresh} notify={notify} />}
-    <ApprovedContacts emailTransport={emailTransport} error={emailError} workspace={workspace} canManageInbox={canManageInbox} onReload={loadEmailTransport} notify={notify} />
-    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={emailTransport} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can create a permissioned, 15-minute enrollment link to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
+    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={null} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can create a permissioned, 15-minute enrollment link to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
     {open && canManageInbox && <EnrollmentDialog workspace={workspace} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </PageFrame>;
 }

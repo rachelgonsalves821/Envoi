@@ -18,6 +18,51 @@ function memoryStore(initial: ConnectorSession | null = null) {
 }
 
 describe('Sinaloa outbound connector', () => {
+  it('refreshes case operations and stops after credential revocation', async () => {
+    const memory = memoryStore(session());
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith('/api/agent-token')) return new Response(JSON.stringify({
+        agentApiToken: 'access-two', agentRefreshToken: 'refresh-two',
+        agentTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString()
+      }), { status: 200 });
+      const auth = new Headers(init?.headers).get('authorization');
+      if (auth === 'Bearer access-one') return new Response(JSON.stringify({ error: 'Expired' }), { status: 401 });
+      if (String(url).includes('/asset-uploads')) return new Response(JSON.stringify({ error: 'Revoked' }), { status: 403 });
+      const body = JSON.parse(String(init?.body));
+      expect(body.senderAgentId).toBe('agent_one');
+      expect(body.caseId).toBe('case_new');
+      return new Response(JSON.stringify({ caseId: 'case_new', status: 'queued' }), { status: 202 });
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
+    await connector.startCase('stable-case-key', { caseId: 'case_new', recipientEmail: 'peer@sinaloa.mail', text: 'Hello' });
+    expect(memory.current()?.agentRefreshToken).toBe('refresh-two');
+    await expect(connector.beginAssetUpload({ filename: 'a.txt', mimeType: 'text/plain', size: 1, checksumSha256: 'abc' })).rejects.toMatchObject({ status: 403 });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it('preserves a refresh token rotated inside an event callback when saving the cursor', async () => {
+    const memory = memoryStore(session());
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/api/agent-token')) return new Response(JSON.stringify({
+        agentApiToken: 'access-two', agentRefreshToken: 'refresh-two',
+        agentTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString()
+      }), { status: 200 });
+      if (String(url).includes('/events/delta')) return new Response(JSON.stringify({ events: [{ id: 'evt_one', type: 'message.delivered', cursor: '0001' }], nextCursor: '0001', hasMore: false }), { status: 200 });
+      return new Response(JSON.stringify({ status: 'queued' }), { status: 202 });
+    });
+    let connector: SinaloaConnector;
+    connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, onEvent: async () => {
+      const current = memory.current();
+      if (!current) throw new Error('Session missing');
+      await memory.store.save({ ...current, agentTokenExpiresAt: new Date(Date.now() - 1_000).toISOString() });
+      await connector.sendCaseEvent('callback-key', { caseId: 'case_one', recipientEmail: 'peer@sinaloa.mail', text: 'Reply' });
+    } });
+    await connector.pollOnce();
+    expect(memory.current()).toMatchObject({ agentRefreshToken: 'refresh-two', cursor: '0001' });
+  });
+
   it('redeems the existing one-use code and persists credentials before returning', async () => {
     const memory = memoryStore();
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

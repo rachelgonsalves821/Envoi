@@ -5,7 +5,7 @@ export interface ResolvedParticipant extends ParticipantIdentity {
 }
 
 export const STATE_META: Record<CaseState, { label: string; tone: 'neutral' | 'attention' | 'waiting' | 'success' | 'danger' | 'unknown' | 'tentative'; description: string }> = {
-  new: { label: 'New', tone: 'neutral', description: 'Ready to be classified' }, classifying: { label: 'Classifying', tone: 'neutral', description: 'Agent is identifying the work' }, inProgress: { label: 'In progress', tone: 'neutral', description: 'Agent is advancing the objective' }, waitingForExternalParty: { label: 'Waiting for external party', tone: 'waiting', description: 'Another participant needs to respond' }, waitingForHuman: { label: 'Waiting for human', tone: 'attention', description: 'Your judgment is required' }, tentativeHold: { label: 'Tentative hold', tone: 'tentative', description: 'Reserved but not confirmed' }, authorized: { label: 'Authorized', tone: 'success', description: 'Authority has been granted' }, executing: { label: 'Executing', tone: 'neutral', description: 'An approved action is underway' }, sent: { label: 'Sent', tone: 'neutral', description: 'Sent to the external party' }, received: { label: 'Received', tone: 'waiting', description: 'The external party received it' }, accepted: { label: 'Accepted', tone: 'success', description: 'The outcome was accepted' }, completed: { label: 'Completed', tone: 'success', description: 'A durable receipt is available' }, failed: { label: 'Failed', tone: 'danger', description: 'The action did not succeed' }, unknownExternalResult: { label: 'Unknown external result', tone: 'unknown', description: 'The external system did not confirm a result' }, expired: { label: 'Expired', tone: 'danger', description: 'The available action is no longer valid' }, paused: { label: 'Paused', tone: 'tentative', description: 'Conversation paused by a human' }, revoked: { label: 'Revoked', tone: 'danger', description: 'Authority has been withdrawn' }, disputed: { label: 'Disputed', tone: 'danger', description: 'The outcome is under dispute' }
+  new: { label: 'New', tone: 'neutral', description: 'Ready to be classified' }, classifying: { label: 'Classifying', tone: 'neutral', description: 'Agent is identifying the work' }, inProgress: { label: 'In progress', tone: 'neutral', description: 'Agent is advancing the objective' }, waitingForExternalParty: { label: 'Waiting for external party', tone: 'waiting', description: 'Another participant needs to respond' }, waitingForHuman: { label: 'Waiting for human', tone: 'attention', description: 'Your judgment is required' }, tentativeHold: { label: 'Tentative hold', tone: 'tentative', description: 'Reserved but not confirmed' }, authorized: { label: 'Authorized', tone: 'success', description: 'Authority has been granted' }, executing: { label: 'Executing', tone: 'neutral', description: 'An approved action is underway' }, sent: { label: 'Sent', tone: 'neutral', description: 'Sent to the external party' }, received: { label: 'Received', tone: 'waiting', description: 'The external party received it' }, accepted: { label: 'Accepted', tone: 'success', description: 'The outcome was accepted' }, completed: { label: 'Completed', tone: 'success', description: 'A durable receipt is available' }, failed: { label: 'Failed', tone: 'danger', description: 'The action did not succeed' }, unknownExternalResult: { label: 'Unknown external result', tone: 'unknown', description: 'The external system did not confirm a result' }, expired: { label: 'Expired', tone: 'danger', description: 'The available action is no longer valid' }, paused: { label: 'Pause recorded', tone: 'tentative', description: 'A human pause was recorded; delivery enforcement is not yet verified' }, revoked: { label: 'Revoke recorded', tone: 'danger', description: 'Revocation was recorded; delivery enforcement is not yet verified' }, disputed: { label: 'Disputed', tone: 'danger', description: 'The outcome is under dispute' }
 };
 
 export const ASSET_STATE_META: Record<AssetState | 'unknown', { label: string; description: string; tone: 'waiting' | 'success' | 'danger' | 'unknown' }> = {
@@ -21,6 +21,18 @@ export const ASSET_STATE_META: Record<AssetState | 'unknown', { label: string; d
 export function assetDisplayName(asset: Asset) { return asset.filename || asset.name || 'Untitled file'; }
 export function assetStateMeta(asset: Asset) { return ASSET_STATE_META[asset.state || 'unknown']; }
 export function canDownloadAsset(asset: Asset) { return asset.state === 'clean'; }
+
+export function filterAssets(assets: Asset[], cases: WorkCase[], agents: Agent[], filters: { query?: string; caseId?: string; creatorId?: string; mimeType?: string }) {
+  const query = (filters.query || '').trim().toLowerCase();
+  return assets.filter(asset => {
+    const workCase = cases.find(item => item.id === asset.caseId);
+    const creator = agents.find(item => item.id === asset.createdByAgentId);
+    return (!filters.caseId || asset.caseId === filters.caseId)
+      && (!filters.creatorId || asset.createdByAgentId === filters.creatorId)
+      && (!filters.mimeType || asset.mimeType === filters.mimeType)
+      && (!query || `${assetDisplayName(asset)} ${workCase?.objective || asset.caseId || ''} ${creator?.name || asset.createdByAgentId || ''} ${asset.mimeType}`.toLowerCase().includes(query));
+  }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
 
 export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
   const directory = Array.isArray(view.participantDirectory) ? view.participantDirectory : Object.values(view.participantDirectory || {});
@@ -164,11 +176,11 @@ export function caseCounts(view: HumanView) {
   const cases = view.caseQueue;
   const counts: Record<NavSection, number> = { inbox: cases.length, needsMe: view.navigation.needsMe, active: view.navigation.activeWork, waiting: view.navigation.waiting, scheduled: 0, documents: 0, completed: view.navigation.completed, policies: 0, integrations: view.agents.length, activity: view.recentEvents.length };
   counts.scheduled = casesForSection(cases, 'scheduled').length;
-  counts.documents = casesForSection(cases, 'documents', view.assets).length;
+  counts.documents = view.assets.length;
   if (view.history) {
     // Category badges describe loaded results; workspace totals are displayed
     // separately beside the history control rather than inferred from a page.
-    counts.needsMe = casesForSection(cases, 'needsMe').length + view.invitations.filter(item => item.actionable).length;
+    counts.needsMe = casesForSection(cases, 'needsMe').length;
     counts.active = casesForSection(cases, 'active').length;
     counts.waiting = casesForSection(cases, 'waiting').length;
     counts.completed = casesForSection(cases, 'completed').length;

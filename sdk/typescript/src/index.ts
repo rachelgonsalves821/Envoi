@@ -45,6 +45,26 @@ export interface NativeMessageInput {
   requiresAck?: boolean;
 }
 
+export interface CaseMessageInput extends Omit<NativeMessageInput, 'caseId'> {
+  caseId: string;
+}
+
+export interface AssetRecord {
+  id: string;
+  caseId: string | null;
+  filename: string;
+  mimeType: string;
+  size: number;
+  checksumSha256: string;
+  createdByAgentId: string;
+  state: 'quarantine' | 'clean' | 'infected' | 'error';
+  createdAt: string;
+  scannedAt: string | null;
+}
+
+export interface SignedAssetRequest { url: string; method: 'PUT' | 'GET'; headers?: Record<string, string> }
+export interface AssetUploadInput { filename: string; mimeType: string; size: number; checksumSha256: string; caseId?: string }
+
 export interface ClientOptions {
   timeoutMs?: number;
   fetch?: typeof fetch;
@@ -113,6 +133,9 @@ export interface ContactInvitation {
 
 export type SendMessageResult = AgentMessage & { status: DeliveryState; transport: 'native'; recipientEmail: string };
 
+/** Generate once and persist before the first send; retries must reuse this ID. */
+export function newCaseId(): string { return `case_${globalThis.crypto.randomUUID().replaceAll('-', '')}`; }
+
 export class SinaloaClient {
   private readonly requestTimeoutMs: number;
   private readonly fetcher: typeof fetch;
@@ -140,6 +163,49 @@ export class SinaloaClient {
     });
   }
 
+  /** Starts a distinct native case with the first message. Persist caseId and key before retrying. */
+  startCase(inboxId: string, idempotencyKey: string, input: CaseMessageInput) {
+    if (!input.caseId) throw new TypeError('A persisted caseId is required to start a case');
+    return this.sendMessage(inboxId, idempotencyKey, { ...input, intent: input.intent || 'request' });
+  }
+
+  /** Sends a typed event on the canonical native message path visible to both owners. */
+  sendCaseEvent(inboxId: string, idempotencyKey: string, input: CaseMessageInput) {
+    if (!input.caseId) throw new TypeError('A caseId is required for a case event');
+    return this.sendMessage(inboxId, idempotencyKey, input);
+  }
+
+  listCases(inboxId: string, limit = 50, before?: string) {
+    const query = new URLSearchParams({ limit: String(limit), ...(before ? { before } : {}) });
+    return this.request<Record<string, unknown>>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases?${query}`);
+  }
+
+  getCase(inboxId: string, caseId: string) {
+    return this.request<Record<string, unknown>>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases/${encodeURIComponent(caseId)}`);
+  }
+
+  listCaseMessages(inboxId: string, caseId: string, limit = 50, before?: string) {
+    const query = new URLSearchParams({ caseId, limit: String(limit), ...(before ? { before } : {}) });
+    return this.request<Record<string, unknown>>(`/api/inboxes/${encodeURIComponent(inboxId)}/messages?${query}`);
+  }
+
+  beginAssetUpload(inboxId: string, input: AssetUploadInput) {
+    return this.request<{ object: AssetRecord; upload: SignedAssetRequest }>(`/api/inboxes/${encodeURIComponent(inboxId)}/asset-uploads`, {
+      method: 'POST', body: JSON.stringify(input)
+    });
+  }
+
+  completeAssetUpload(inboxId: string, assetId: string) {
+    return this.request<AssetRecord>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/complete`, { method: 'POST', body: '{}' });
+  }
+
+  /** The server issues a download URL only when the asset passed its malware scan. */
+  getCleanAssetDownload(inboxId: string, assetId: string) {
+    return this.request<{ object: AssetRecord; download: SignedAssetRequest }>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/download`);
+  }
+
+  /** Legacy route. Native processing must use the connector's fenced work claim. */
+  /** @deprecated Native messages return 410; use SinaloaConnector with a work handler. */
   acknowledge(inboxId: string, messageId: string, state: 'acknowledged' | 'processed', idempotencyKey: string) {
     return this.request(`/api/inboxes/${encodeURIComponent(inboxId)}/messages/${encodeURIComponent(messageId)}/acknowledgements`, {
       method: 'POST',
@@ -152,6 +218,19 @@ export class SinaloaClient {
     const query = new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}) });
     return this.request<{ events: Array<Record<string, unknown>>; nextCursor: string | null; hasMore: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/events/delta?${query}`);
   }
+}
+
+/** Sends bytes only to the server-provided signed target, without agent credentials. */
+export async function putSignedAsset(upload: SignedAssetRequest, body: Uint8Array | Blob, options: ClientOptions = {}): Promise<void> {
+  if (upload.method !== 'PUT') throw new TypeError('Signed upload must use PUT');
+  const target = new URL(upload.url);
+  if (target.protocol !== 'https:' && !(target.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname))) {
+    throw new TypeError('Signed upload URL must use HTTPS');
+  }
+  const response = await fetchWithTimeout(options.fetch || fetch, target.toString(), {
+    method: 'PUT', headers: upload.headers || {}, body: body as BodyInit, redirect: 'error'
+  }, timeoutMs(options.timeoutMs));
+  if (!response.ok) throw new SinaloaError(`Signed upload failed with HTTP ${response.status}`, response.status);
 }
 
 export async function rotateAgentToken(baseUrl: string, agentRefreshToken: string, options: ClientOptions = {}): Promise<AgentTokens> {

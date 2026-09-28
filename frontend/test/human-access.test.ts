@@ -24,7 +24,7 @@ describe('agent permission review', () => {
 describe('human action visibility', () => {
   const workCase = {
     id: 'case_1', objective: 'Approve the deposit', state: 'waitingForHuman',
-    decision: { question: 'Approve the deposit?', availableActions: ['approveOnce', 'pause'] }
+    decision: { question: 'Approve the deposit?', availableActions: ['approveOnce', 'pause', 'takeOver'] }
   } as WorkCase;
   const view = { agents: [], participantDirectory: {}, messages: [] } as unknown as HumanView;
 
@@ -44,7 +44,9 @@ describe('human action visibility', () => {
   it('shows decision actions to authorized workspace managers', () => {
     const markup = renderDecision(true);
     expect(markup).toContain('class="decision-actions"');
-    expect(markup).toContain('Pause conversation');
+    expect(markup).toContain('Approve Once');
+    expect(markup).not.toContain('Pause conversation');
+    expect(markup).not.toContain('Take Over');
   });
 
   it('lets a linked human review their pending agent without exposing other agents', () => {

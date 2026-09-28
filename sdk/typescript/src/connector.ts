@@ -1,4 +1,4 @@
-import { rotateAgentToken, SinaloaClient, SinaloaError, type AgentTokens, type ClientOptions, type NativeMessageInput } from './index';
+import { rotateAgentToken, SinaloaClient, SinaloaError, type AgentTokens, type AssetUploadInput, type CaseMessageInput, type ClientOptions, type NativeMessageInput } from './index';
 
 /** Persist the whole record atomically, including each replacement refresh token. */
 export interface ConnectorSession extends AgentTokens {
@@ -177,6 +177,50 @@ export class SinaloaConnector {
     try { return await this.refreshInFlight; } finally { this.refreshInFlight = null; }
   }
 
+  private async withFreshClient<T>(operation: (client: SinaloaClient, session: ConnectorSession) => Promise<T>): Promise<T> {
+    const run = (session: ConnectorSession) => operation(new SinaloaClient(this.origin, session.agentApiToken, this.options), session);
+    const session = await this.freshSession();
+    try { return await run(session); }
+    catch (error) {
+      if (!(error instanceof SinaloaError) || error.status !== 401) throw error;
+      const current = validSession(await this.store.load());
+      return run(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
+    }
+  }
+
+  /** First message of a new case; persist the ID and idempotency key before calling. */
+  startCase(idempotencyKey: string, input: Omit<CaseMessageInput, 'senderAgentId'>) {
+    return this.withFreshClient((client, session) => client.startCase(session.inboxId, idempotencyKey, { ...input, senderAgentId: session.agentId }));
+  }
+
+  sendCaseEvent(idempotencyKey: string, input: Omit<CaseMessageInput, 'senderAgentId'>) {
+    return this.withFreshClient((client, session) => client.sendCaseEvent(session.inboxId, idempotencyKey, { ...input, senderAgentId: session.agentId }));
+  }
+
+  listCases(limit = 50, before?: string) {
+    return this.withFreshClient((client, session) => client.listCases(session.inboxId, limit, before));
+  }
+
+  getCase(caseId: string) {
+    return this.withFreshClient((client, session) => client.getCase(session.inboxId, caseId));
+  }
+
+  listCaseMessages(caseId: string, limit = 50, before?: string) {
+    return this.withFreshClient((client, session) => client.listCaseMessages(session.inboxId, caseId, limit, before));
+  }
+
+  beginAssetUpload(input: AssetUploadInput) {
+    return this.withFreshClient((client, session) => client.beginAssetUpload(session.inboxId, input));
+  }
+
+  completeAssetUpload(assetId: string) {
+    return this.withFreshClient((client, session) => client.completeAssetUpload(session.inboxId, assetId));
+  }
+
+  getCleanAssetDownload(assetId: string) {
+    return this.withFreshClient((client, session) => client.getCleanAssetDownload(session.inboxId, assetId));
+  }
+
   private async postWork<T>(path: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
     const send = async (accessToken: string): Promise<T> => {
       const controller = new AbortController();
@@ -219,17 +263,10 @@ export class SinaloaConnector {
 
   private async reply(message: WorkMessage, text: string, idempotencyKey: string, extra: Omit<NativeMessageInput, 'senderAgentId' | 'recipientEmail' | 'text' | 'caseId'> = {}): Promise<unknown> {
     if (!idempotencyKey || !message.from?.address) throw new TypeError('A stable reply idempotency key and sender address are required');
-    const send = async (session: ConnectorSession) => new SinaloaClient(this.origin, session.agentApiToken, this.options).sendMessage(
+    return this.withFreshClient((client, session) => client.sendMessage(
       session.inboxId, idempotencyKey,
       { ...extra, senderAgentId: session.agentId, recipientEmail: message.from.address, text, ...(message.caseId ? { caseId: message.caseId } : {}) }
-    );
-    const session = await this.freshSession();
-    try { return await send(session); }
-    catch (error) {
-      if (!(error instanceof SinaloaError) || error.status !== 401) throw error;
-      const current = validSession(await this.store.load());
-      return send(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
-    }
+    ));
   }
 
   /** Claims and processes one canonical message. Requires the server's fenced work routes. */
@@ -329,7 +366,11 @@ export class SinaloaConnector {
       const event = eventFrom(raw);
       if (session.cursor && event.cursor <= session.cursor) throw new SinaloaError('Sinaloa event cursor did not advance');
       await this.options.onEvent?.(event);
-      session = { ...session, cursor: event.cursor };
+      // An event callback may send a reply and rotate credentials. Preserve its
+      // new refresh token when committing the observation cursor.
+      const current = validSession(await this.store.load());
+      if (current.agentId !== session.agentId || current.inboxId !== session.inboxId) throw new SinaloaError('Connector session changed while reading events');
+      session = { ...current, cursor: event.cursor };
       await this.store.save(session);
       count += 1;
     }

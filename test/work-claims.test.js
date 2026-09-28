@@ -80,6 +80,11 @@ test('claims are exclusive and fenced completion creates one replayable processe
   const work = granted[0];
   assert.equal(work.workId, state.message.id);
   assert.deepEqual(work.message, state.message);
+  const unfencedLegacySettlement = await request(state.server.baseUrl, `/api/inboxes/${state.recipient.inbox.id}/messages/${work.workId}/acknowledgements`, {
+    token: state.recipient.agentApiToken, headers: { 'Idempotency-Key': 'legacy-bypass-attempt' }, body: { state: 'processed' }
+  });
+  assert.equal(unfencedLegacySettlement.status, 410);
+  assert.equal((await state.fixtureStore.getJson(path.join('inboxes', state.recipient.inbox.id, 'messages', `${work.workId}.json`))).status, 'delivered');
 
   const alternateFamilyId = 'credential_family_alternate';
   const alternateToken = 'sinaloa_agent_access_alternate_family';
@@ -123,8 +128,8 @@ test('claims are exclusive and fenced completion creates one replayable processe
   assert.equal((await state.claim()).payload.work, null);
 });
 
-test('expired leases are reclaimed under a new fence and retry failures return to the queue', async t => {
-  const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000' });
+test('expired leases are reclaimed under a new fence and retry failures observe backoff', async t => {
+  const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000', SINALOA_AGENT_WORK_RETRY_BASE_MS: '40' });
   const first = (await state.claim()).payload.work;
   await new Promise(resolve => setTimeout(resolve, 1050));
   const reclaimed = (await state.claim()).payload.work;
@@ -136,6 +141,8 @@ test('expired leases are reclaimed under a new fence and retry failures return t
   assert.equal(acknowledged.status, 201);
   const retryable = await state.work('fail', reclaimed.workId, state.recipient.agentApiToken, { leaseToken: reclaimed.leaseToken, retryable: true, reasonCode: 'temporary' });
   assert.deepEqual(retryable.payload, { workId: state.message.id, status: 'retryable' });
+  assert.equal((await state.claim()).payload.work, null);
+  await new Promise(resolve => setTimeout(resolve, 120));
   const retryClaim = (await state.claim()).payload.work;
   assert.ok(retryClaim);
   assert.notEqual(retryClaim.leaseToken, reclaimed.leaseToken);
@@ -150,6 +157,34 @@ test('expired leases are reclaimed under a new fence and retry failures return t
   const terminal = await state.work('fail', terminalWork.workId, state.recipient.agentApiToken, { leaseToken: terminalWork.leaseToken, retryable: false, reasonCode: 'permanent' });
   assert.equal(terminal.payload.status, 'failed');
   assert.equal((await state.claim()).payload.work, null);
+  for (const inboxId of [state.sender.inbox.id, state.recipient.inbox.id]) {
+    const failedMessage = await state.fixtureStore.getJson(path.join('inboxes', inboxId, 'messages', `${terminalMessage.id}.json`));
+    const receipt = await state.fixtureStore.getJson(path.join('inboxes', inboxId, 'delivery-receipts', `delivery_receipt_${terminalMessage.id}_failed.json`));
+    assert.equal(failedMessage.status, 'failed');
+    assert.equal(receipt.state, 'failed');
+    assert.equal(receipt.reasonCode, 'permanent');
+  }
+});
+
+test('retry attempts are capped and an expired final lease fails visibly to both humans', async t => {
+  const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000', SINALOA_AGENT_WORK_MAX_ATTEMPTS: '2', SINALOA_AGENT_WORK_RETRY_BASE_MS: '20' });
+  const first = (await state.claim()).payload.work;
+  const firstFailure = await state.work('fail', first.workId, state.recipient.agentApiToken, { leaseToken: first.leaseToken, retryable: true, reasonCode: 'temporary' });
+  assert.equal(firstFailure.payload.status, 'retryable');
+  assert.equal((await state.claim()).payload.work, null);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const second = (await state.claim()).payload.work;
+  assert.ok(second);
+  assert.notEqual(second.leaseToken, first.leaseToken);
+  await new Promise(resolve => setTimeout(resolve, 1050));
+  assert.equal((await state.claim()).payload.work, null);
+  for (const inboxId of [state.sender.inbox.id, state.recipient.inbox.id]) {
+    const failedMessage = await state.fixtureStore.getJson(path.join('inboxes', inboxId, 'messages', `${state.message.id}.json`));
+    const receipt = await state.fixtureStore.getJson(path.join('inboxes', inboxId, 'delivery-receipts', `delivery_receipt_${state.message.id}_failed.json`));
+    assert.equal(failedMessage.status, 'failed');
+    assert.equal(receipt.reasonCode, 'MAX_ATTEMPTS_EXCEEDED');
+    assert.equal(receipt.attempts, 2);
+  }
 });
 
 test('claims persist across restart and settlement rejects revoked credentials or lost receive permission', async t => {

@@ -1,7 +1,39 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SinaloaClient, SinaloaError, rotateAgentToken } from '../src/index';
+import { SinaloaClient, SinaloaError, newCaseId, putSignedAsset, rotateAgentToken } from '../src/index';
 
 describe('Sinaloa TypeScript client', () => {
+  it('starts two separate cases with caller-persisted IDs and sends typed follow-up events', async () => {
+    const calls: Array<{ url: string; body: Record<string, unknown>; key: string | null }> = [];
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)), key: new Headers(init?.headers).get('idempotency-key') });
+      return new Response(JSON.stringify({ caseId: calls.at(-1)?.body.caseId, status: 'queued' }), { status: 202 });
+    });
+    const client = new SinaloaClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
+    const first = newCaseId();
+    const second = newCaseId();
+    expect(first).not.toBe(second);
+    const input = { senderAgentId: 'agent_one', recipientEmail: 'peer@sinaloa.mail', text: 'Need input' };
+    await client.startCase('inbox_one', 'first-case-key', { ...input, caseId: first });
+    await client.startCase('inbox_one', 'second-case-key', { ...input, caseId: second });
+    await client.sendCaseEvent('inbox_one', 'first-offer-key', { ...input, caseId: first, intent: 'offer', payload: { proposal: { price: 3 } } });
+    expect(calls.map(call => call.body.caseId)).toEqual([first, second, first]);
+    expect(calls.map(call => call.body.intent)).toEqual(['request', 'request', 'offer']);
+    expect(calls.map(call => call.key)).toEqual(['first-case-key', 'second-case-key', 'first-offer-key']);
+    expect(calls[0].url).toBe('https://api.example/api/inboxes/inbox_one/messages');
+    expect(() => client.startCase('inbox_one', 'unsafe-key', { ...input, caseId: '' })).toThrow('persisted caseId');
+  });
+
+  it('uses the signed asset target without sending agent credentials', async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get('authorization')).toBeNull();
+      expect(init?.redirect).toBe('error');
+      return new Response(null, { status: 200 });
+    });
+    await putSignedAsset({ url: 'https://r2.example/signed', method: 'PUT', headers: { 'content-type': 'text/plain' } }, new Uint8Array([1, 2]), { fetch: fetcher as typeof fetch });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await expect(putSignedAsset({ url: 'http://r2.example/signed', method: 'PUT' }, new Uint8Array([1]))).rejects.toThrow('HTTPS');
+  });
+
   it('encodes path segments and parses JSON', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ events: [], nextCursor: null, hasMore: false }), { status: 200 }));
     const client = new SinaloaClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });

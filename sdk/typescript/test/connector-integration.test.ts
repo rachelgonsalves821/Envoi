@@ -24,7 +24,7 @@ async function startServer() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-connector-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir },
+    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_AGENT_WORK_RETRY_BASE_MS: '50' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const baseUrl = await new Promise<string>((resolve, reject) => {
@@ -133,7 +133,9 @@ describe('customer-hosted connector against the real local API', () => {
       }
     }, onEvent: event => { observedEvents.push(event.id); } });
     await expect(recipientConnector.processWorkOnce()).rejects.toThrow('simulated runtime crash');
-    expect(await recipientConnector.processWorkOnce()).toBe(true);
+    // A retryable failure remains unavailable until its bounded server backoff expires.
+    expect(await recipientConnector.processWorkOnce()).toBe(false);
+    expect(await eventually(async () => await recipientConnector.processWorkOnce() || null)).toBe(true);
     expect(processed).toEqual([`admitted:${sent.id}`, `processed:${sent.id}`, `admitted:${sent.id}`, `processed:${sent.id}`]);
     const replayed = await recipientConnector.pollOnce();
     expect(replayed.count).toBeGreaterThan(0);

@@ -66,6 +66,10 @@ const agentAccessTokenTtlSeconds = Math.max(60, Number(process.env.SINALOA_AGENT
 const agentRefreshTokenTtlDays = Math.max(1, Number(process.env.SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS || 30));
 const configuredAgentWorkLeaseMs = Number(process.env.SINALOA_AGENT_WORK_LEASE_MS || 60_000);
 const agentWorkLeaseMs = Number.isFinite(configuredAgentWorkLeaseMs) ? Math.max(1_000, Math.min(300_000, configuredAgentWorkLeaseMs)) : 60_000;
+const configuredAgentWorkMaxAttempts = Number(process.env.SINALOA_AGENT_WORK_MAX_ATTEMPTS || 5);
+const agentWorkMaxAttempts = Number.isSafeInteger(configuredAgentWorkMaxAttempts) && configuredAgentWorkMaxAttempts > 0 ? Math.min(20, configuredAgentWorkMaxAttempts) : 5;
+const configuredAgentWorkRetryBaseMs = Number(process.env.SINALOA_AGENT_WORK_RETRY_BASE_MS || 5_000);
+const agentWorkRetryBaseMs = Number.isSafeInteger(configuredAgentWorkRetryBaseMs) && configuredAgentWorkRetryBaseMs > 0 ? configuredAgentWorkRetryBaseMs : 5_000;
 const calendarProviders = Object.freeze({
   google: {
     label: 'Google Calendar',
@@ -461,6 +465,32 @@ const audit = (inboxId, type, data) => withInboxMutation(inboxId, writeAudit => 
 const document = (relative, value) => ({ path: relative, value });
 const messagePath = (inboxId, messageId) => path.join('inboxes', inboxId, 'messages', `${messageId}.json`);
 const deliveryReceiptPath = (inboxId, receiptId) => path.join('inboxes', inboxId, 'delivery-receipts', `${receiptId}.json`);
+const agentWorkAttempts = claim => Number(claim?.attempts || claim?.fence || 0);
+const agentWorkRetryDelay = attempts => Math.min(15 * 60_000, agentWorkRetryBaseMs * 2 ** Math.min(20, Math.max(0, attempts - 1)));
+async function failAgentWorkPermanently(message, claim, reasonCode, at, writeAudit) {
+  claim.status = 'failed';
+  claim.failure = { retryable: false, reasonCode, createdAt: at };
+  claim.leaseExpiresAt = null;
+  claim.retryAt = null;
+  claim.updatedAt = at;
+  const failed = { ...message, status: 'failed', failedAt: at, updatedAt: at };
+  const receipt = {
+    id: `delivery_receipt_${message.id}_failed`, type: 'delivery', messageId: message.id,
+    senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId,
+    state: 'failed', reasonCode, attempts: agentWorkAttempts(claim), createdAt: at
+  };
+  const documents = [document(workClaimPath(claim.inboxId, message.id), claim)];
+  for (const targetInboxId of new Set([message.senderInboxId, message.recipientInboxId])) {
+    const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
+    if (!targetInbox) continue;
+    const currentCase = await ensureStructuredCase(targetInbox, { ...failed, caseId: failed.caseId }, failed.senderAgentId, failed.createdAt);
+    const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), failed, 'failed', at);
+    documents.push(document(messagePath(targetInboxId, message.id), failed), document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
+    await writeAudit('message.failed', { messageId: message.id, caseId: message.caseId, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId, reasonCode }, at, targetInboxId);
+  }
+  await store.putJsonBatch(documents);
+  return receipt;
+}
 const auditRecord = async (inboxId, type, data, createdAt = store.now()) => {
   const event = { id: store.id('evt'), type, createdAt, sequence: await store.nextEventSequence(inboxId), ...data };
   event.cursor = eventCursor(event);
@@ -1394,6 +1424,7 @@ async function route(req, res) {
     const workId = workSettlementRoute ? assertSafeIdentifier(workSettlementRoute[1], 'workId') : null;
     const action = workSettlementRoute?.[2] || 'claim';
     const requestedMessage = workSettlementRoute ? await store.getJson(messagePath(identity.inboxId, workId)) : null;
+    const claimCandidates = action === 'claim' ? await store.listJson(path.join('inboxes', identity.inboxId, 'messages')) : [];
     if (action !== 'claim' && (typeof input.leaseToken !== 'string' || !input.leaseToken)) return fail(res, 400, 'leaseToken is required');
     if (action === 'fail' && typeof input.retryable !== 'boolean') return fail(res, 400, 'retryable must be a boolean');
     let idempotencyKey = null;
@@ -1411,10 +1442,12 @@ async function route(req, res) {
       }
       if (!hasPermission(currentIdentity.agent, 'receive_agent_messages')) throw Object.assign(new Error('Agent is not approved to receive messages'), { statusCode: 403 });
       if (action === 'claim') {
-        const messages = (await store.listJson(path.join('inboxes', identity.inboxId, 'messages')))
+        const messages = claimCandidates
           .filter(message => message.senderInboxId && message.senderAgentId && message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status))
           .sort((left, right) => String(left.deliveredAt || left.createdAt).localeCompare(String(right.deliveredAt || right.createdAt)) || String(left.id).localeCompare(String(right.id)));
-        for (const message of messages) {
+        for (const candidate of messages) {
+          const message = await store.getJson(messagePath(identity.inboxId, candidate.id));
+          if (!message || !['delivered', 'acknowledged'].includes(message.status) || message.senderInboxId !== candidate.senderInboxId) continue;
           const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
           const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
           if (senderContact?.blocked || senderContact?.approved === false || recipientContact?.blocked || recipientContact?.approved === false) continue;
@@ -1423,6 +1456,11 @@ async function route(req, res) {
           if (currentClaim && ['completed', 'failed'].includes(currentClaim.status)) continue;
           if (currentClaim && ['claimed', 'acknowledged'].includes(currentClaim.status) && new Date(currentClaim.leaseExpiresAt) > new Date()) continue;
           const now = store.now();
+          if (currentClaim?.status === 'retryable' && new Date(currentClaim.retryAt) > new Date(now)) continue;
+          if (currentClaim && agentWorkAttempts(currentClaim) >= agentWorkMaxAttempts) {
+            await failAgentWorkPermanently(message, currentClaim, 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
+            continue;
+          }
           const leaseToken = crypto.randomBytes(32).toString('base64url');
           const leaseExpiresAt = new Date(Date.now() + agentWorkLeaseMs).toISOString();
           const claim = {
@@ -1432,8 +1470,10 @@ async function route(req, res) {
             inboxId: identity.inboxId,
             credentialFamilyId: identity.familyId,
             fence: Number(currentClaim?.fence || 0) + 1,
+            attempts: agentWorkAttempts(currentClaim) + 1,
             leaseTokenHash: hashSecret(leaseToken),
             leaseExpiresAt,
+            retryAt: null,
             status: 'claimed',
             createdAt: currentClaim?.createdAt || now,
             updatedAt: now
@@ -1477,12 +1517,16 @@ async function route(req, res) {
       }
       if (action === 'fail') {
         const reasonCode = input.reasonCode == null ? null : String(input.reasonCode).slice(0, 120);
-        claim.status = input.retryable ? 'retryable' : 'failed';
-        claim.failure = { retryable: input.retryable, reasonCode, createdAt: now };
-        claim.leaseExpiresAt = null;
-        claim.updatedAt = now;
-        await store.putJson(claimPath, claim);
-        await writeAudit('agent.work_failed', { workId, agentId: identity.agent.id, retryable: input.retryable, reasonCode }, now);
+        const retryable = input.retryable && agentWorkAttempts(claim) < agentWorkMaxAttempts;
+        if (retryable) {
+          claim.status = 'retryable';
+          claim.failure = { retryable: true, reasonCode, createdAt: now };
+          claim.retryAt = new Date(Date.now() + agentWorkRetryDelay(agentWorkAttempts(claim))).toISOString();
+          claim.leaseExpiresAt = null;
+          claim.updatedAt = now;
+          await store.putJson(claimPath, claim);
+        } else await failAgentWorkPermanently(currentMessage, claim, reasonCode || 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
+        await writeAudit('agent.work_failed', { workId, agentId: identity.agent.id, retryable, reasonCode }, now);
         return { status: 200, payload: { workId, status: claim.status } };
       }
 
@@ -1541,7 +1585,7 @@ async function route(req, res) {
       await store.putJson(claimPath, claim);
       if (idempotencyPath) await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
       return { status: 201, payload: response };
-    }, [identity.inboxId, requestedMessage?.senderInboxId].filter(Boolean));
+    }, [requestedMessage?.senderInboxId, ...claimCandidates.filter(message => message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status)).map(message => message.senderInboxId)].filter(Boolean));
     return json(res, result.status, result.payload);
   }
 
@@ -2495,6 +2539,7 @@ async function route(req, res) {
     const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
     const message = await store.getJson(messagePath(inboxId, acknowledgementRoute[1]));
     if (!message || message.recipientAgentId !== principal.id) return fail(res, 404, 'Delivered message not found for this agent');
+    if (message.senderInboxId && message.senderAgentId) return fail(res, 410, 'Native agent messages require a fenced work claim and /api/agent/work/:workId settlement');
     const state = input.state || 'acknowledged';
     if (!['acknowledged', 'processed'].includes(state)) return fail(res, 400, 'Acknowledgement state must be acknowledged or processed');
     if (!['delivered', 'acknowledged', 'processed'].includes(message.status)) return fail(res, 409, 'Message has not been delivered');
