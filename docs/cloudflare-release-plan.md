@@ -19,13 +19,19 @@ The original `Sinaloa` checkout remains the preservation checkout. Its uncommitt
 ## Required Cloudflare resources
 
 1. Workers Paid subscription with Containers enabled.
-2. Worker named consistently with the committed Wrangler configuration.
+2. Worker named `sinaloa`, matching the connected Workers Builds project and the committed Wrangler configuration.
 3. Container application built by Workers Builds from the repository Dockerfile.
 4. Private R2 bucket with public access disabled.
 5. R2 API credentials scoped only to the beta bucket.
 6. Custom domain route for `sinaloa-inbox.com`, added only after the Worker URL passes acceptance tests.
 7. Runtime secrets configured under Worker settings, not build variables.
 8. Observability enabled for Worker and Container logs.
+
+### Workers Builds container access
+
+Cloudflare's automatically created Workers Builds API token does not include the `Containers Edit` permission. Before deploying this Worker, confirm the connected account has an active Workers Paid subscription and select a user API token in the Worker's **Settings > Build > API token** with `Account > Containers Edit` for that account, as well as permission to deploy the `sinaloa` Worker. Keep this token in Cloudflare; do not commit it or add it as a runtime secret. Retry the failed build after saving the build settings.
+
+If the image builds and Worker upload succeeds but deployment fails at `/accounts/.../containers/me`, check the Workers Paid subscription and build token permissions in Cloudflare. A Wrangler dry-run cannot verify either account entitlement or token access.
 
 ## External resources
 
