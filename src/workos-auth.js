@@ -24,6 +24,8 @@ export function parseCookies(header = '') {
   }));
 }
 
+export function sessionCookieName() { return sessionCookie; }
+
 export function sessionCookieHeader(value, { clear = false } = {}) {
   const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
   const configuredSameSite = process.env.SINALOA_COOKIE_SAMESITE || 'Lax';
@@ -55,7 +57,12 @@ export function verifyCsrfRequest(req) {
   const headerBytes = Buffer.from(headerToken);
   if (cookieBytes.length !== headerBytes.length || !crypto.timingSafeEqual(cookieBytes, headerBytes)) return false;
   try {
-    const expectedOrigin = new URL(process.env.SINALOA_PUBLIC_URL).origin;
+    const expectedOrigin = process.env.SINALOA_PUBLIC_URL
+      ? new URL(process.env.SINALOA_PUBLIC_URL).origin
+      : process.env.SINALOA_AUTH_MODE !== 'production' && req.headers.host
+        ? `http://${req.headers.host}`
+        : null;
+    if (!expectedOrigin) return false;
     return String(req.headers.origin || '') === expectedOrigin;
   } catch {
     return false;
@@ -118,6 +125,7 @@ export class WorkOSAuthService {
       session: { sealSession: true, cookiePassword: this.cookiePassword }
     });
     if (!authentication.sealedSession) throw Object.assign(new Error('Authentication provider did not return a sealed session'), { statusCode: 502 });
+    if (!authentication.user?.emailVerified) throw Object.assign(new Error('A verified email address is required'), { statusCode: 403 });
     const human = await this.upsertHuman(authentication.user);
     return { human: publicHuman(human), sealedSession: authentication.sealedSession, returnTo: flow.returnTo };
   }
@@ -127,14 +135,16 @@ export class WorkOSAuthService {
     const index = await this.store.getJson(indexPath);
     const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
     const now = this.store.now();
+    const emailVerified = Boolean(user.emailVerified);
+    const previouslyVerified = Boolean(existing?.emailVerified && existing?.verifiedAt);
     const human = {
       ...(existing || { id: this.store.id('human'), createdAt: this.store.now() }),
       workosUserId: user.id,
       email: user.email,
-      emailVerified: Boolean(user.emailVerified),
+      emailVerified: emailVerified || previouslyVerified,
       displayName: user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
       authProvider: 'workos',
-      verifiedAt: existing?.verifiedAt || now,
+      verifiedAt: emailVerified ? (existing?.verifiedAt || now) : (previouslyVerified ? existing.verifiedAt : null),
       updatedAt: now
     };
     await this.store.putJson(path.join('humans', `${human.id}.json`), human);
@@ -152,7 +162,7 @@ export class WorkOSAuthService {
 
   async getHuman(req) {
     const session = await this.getSession(req);
-    if (!session) return null;
+    if (!session || !session.user?.emailVerified) return null;
     const human = await this.upsertHuman(session.user);
     return { ...publicHuman(human), providerUserId: session.user.id, organizationId: session.organizationId || null, role: session.role || null, permissions: session.permissions || [] };
   }

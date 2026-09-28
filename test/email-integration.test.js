@@ -8,6 +8,9 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
+import { BrowserSession } from './browser-session.js';
+
+const browserSession = new BrowserSession();
 
 const webhookKey = Buffer.alloc(32, 7);
 const webhookSecret = `whsec_${webhookKey.toString('base64')}`;
@@ -68,8 +71,10 @@ async function startSinaloa(providerUrl) {
   return { baseUrl, stop: () => new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); }) };
 }
 
-async function request(baseUrl, pathname, { token, body, headers = {}, method = body ? 'POST' : 'GET' } = {}) {
-  const response = await fetch(`${baseUrl}${pathname}`, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
+async function request(baseUrl, pathname, options = {}) {
+  const { token, body, headers = {}, method = body ? 'POST' : 'GET' } = options;
+  const response = await fetch(`${baseUrl}${pathname}`, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(Object.hasOwn(options, 'token') && !token ? browserSession.headers(baseUrl, method) : {}), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
+  browserSession.capture(response);
   return { status: response.status, payload: await response.json() };
 }
 

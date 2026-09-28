@@ -5,6 +5,9 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
+import { BrowserSession } from './browser-session.js';
+
+const browserSession = new BrowserSession();
 
 async function startServer() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-test-'));
@@ -17,8 +20,10 @@ async function startServer() {
   return { baseUrl, stop: () => new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); }) };
 }
 
-async function request(baseUrl, pathname, { token, body, headers = {}, method = body ? 'POST' : 'GET' } = {}) {
-  const response = await fetch(`${baseUrl}${pathname}`, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
+async function request(baseUrl, pathname, options = {}) {
+  const { token, body, headers = {}, method = body ? 'POST' : 'GET' } = options;
+  const response = await fetch(`${baseUrl}${pathname}`, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(Object.hasOwn(options, 'token') && !token ? browserSession.headers(baseUrl, method) : {}), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
+  browserSession.capture(response);
   const payload = await response.json();
   return { status: response.status, payload };
 }
@@ -79,6 +84,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(throttled.status, 429);
   const verified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
   assert.equal(verified.status, 200);
+  assert.equal(verified.payload.sessionToken, undefined);
   const sessionToken = verified.payload.sessionToken;
   const phoneOnlyWorkspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Denied' } });
   assert.equal(phoneOnlyWorkspace.status, 401);

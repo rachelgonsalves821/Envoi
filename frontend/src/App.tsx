@@ -9,6 +9,7 @@ import {
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
 import { ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl } from './api';
+import { previewRequested } from './preview';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
   eventSummary, exchangeParties, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
@@ -90,7 +91,7 @@ previewView.caseQueue = previewView.cases.map(workCase => {
   return { ...workCase, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
 });
 export default function App() {
-  const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('preview');
+  const isPreview = typeof window !== 'undefined' && previewRequested(window.location.search, import.meta.env.DEV);
   const [boot, setBoot] = useState<BootState>('loading');
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [human, setHuman] = useState<Human | null>(null);

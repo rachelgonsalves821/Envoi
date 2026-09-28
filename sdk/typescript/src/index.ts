@@ -45,6 +45,62 @@ export interface NativeMessageInput {
   requiresAck?: boolean;
 }
 
+export interface ClientOptions {
+  timeoutMs?: number;
+  fetch?: typeof fetch;
+}
+
+export class SinaloaError extends Error {
+  constructor(message: string, public readonly status?: number, public readonly code?: string) {
+    super(message);
+    this.name = 'SinaloaError';
+  }
+}
+
+const timeoutMs = (value = 30_000) => {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 300_000) throw new RangeError('timeoutMs must be an integer from 1 to 300000');
+  return value;
+};
+
+const safePayload = (text: string): Record<string, unknown> | null => {
+  if (!text) return null;
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+};
+
+async function responsePayload<T>(response: Response, fallback: string): Promise<T> {
+  const text = await response.text();
+  const payload = safePayload(text);
+  if (!response.ok) {
+    const remoteMessage = typeof payload?.error === 'string' ? payload.error : typeof payload?.message === 'string' ? payload.message : null;
+    const message = remoteMessage && remoteMessage.length <= 500 ? remoteMessage : `${fallback} with HTTP ${response.status}`;
+    throw new SinaloaError(message, response.status, typeof payload?.code === 'string' ? payload.code : undefined);
+  }
+  if (!text) throw new SinaloaError('Sinaloa returned an empty response', response.status);
+  if (payload === null) throw new SinaloaError('Sinaloa returned an invalid JSON response', response.status);
+  return payload as T;
+}
+
+async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: RequestInit, duration: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs(duration));
+  const onAbort = () => controller.abort();
+  init.signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    return await fetcher(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted && !init.signal?.aborted) throw new SinaloaError('Sinaloa request timed out');
+    throw new SinaloaError('Sinaloa could not be reached');
+  } finally {
+    clearTimeout(timer);
+    init.signal?.removeEventListener('abort', onAbort);
+  }
+}
+
 export interface ContactInvitation {
   id: string;
   fromAddress: string;
@@ -62,18 +118,22 @@ export type SendMessageResult = (AgentMessage & { status: DeliveryState; transpo
 };
 
 export class SinaloaClient {
-  constructor(private readonly baseUrl: string, private accessToken: string) {}
+  private readonly requestTimeoutMs: number;
+  private readonly fetcher: typeof fetch;
+
+  constructor(private readonly baseUrl: string, private accessToken: string, options: ClientOptions = {}) {
+    this.requestTimeoutMs = timeoutMs(options.timeoutMs);
+    this.fetcher = options.fetch || fetch;
+  }
 
   setAccessToken(accessToken: string) { this.accessToken = accessToken; }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}${path}`, {
+    const response = await fetchWithTimeout(this.fetcher, `${this.baseUrl.replace(/\/$/, '')}${path}`, {
       ...init,
       headers: { 'content-type': 'application/json', authorization: `Bearer ${this.accessToken}`, ...init.headers }
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || `Sinaloa request failed with ${response.status}`);
-    return payload as T;
+    }, this.requestTimeoutMs);
+    return responsePayload<T>(response, 'Sinaloa request failed');
   }
 
   sendMessage(inboxId: string, idempotencyKey: string, input: NativeMessageInput) {
@@ -98,13 +158,11 @@ export class SinaloaClient {
   }
 }
 
-export async function rotateAgentToken(baseUrl: string, agentRefreshToken: string): Promise<AgentTokens> {
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/agent-token`, {
+export async function rotateAgentToken(baseUrl: string, agentRefreshToken: string, options: ClientOptions = {}): Promise<AgentTokens> {
+  const response = await fetchWithTimeout(options.fetch || fetch, `${baseUrl.replace(/\/$/, '')}/api/agent-token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ grantType: 'refresh_token', agentRefreshToken })
-  });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || `Sinaloa token rotation failed with ${response.status}`);
-  return payload as AgentTokens;
+  }, timeoutMs(options.timeoutMs));
+  return responsePayload<AgentTokens>(response, 'Sinaloa token rotation failed');
 }

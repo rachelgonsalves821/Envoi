@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { generateSecret, generateSync, generateURI, verifySync } from 'otplib';
+import { parseCookies, sessionCookieName } from './workos-auth.js';
 
 const mode = process.env.SINALOA_AUTH_MODE || 'development';
 const challengeMinutes = Number(process.env.SINALOA_OTP_EXPIRY_MINUTES || 10);
@@ -80,12 +81,11 @@ export class AuthService {
     const sessionToken = token();
     const session = { id: this.store.id('session'), tokenHash: hash(sessionToken), humanId: human.id, assurance: 'phone', createdAt: this.store.now(), expiresAt: new Date(Date.now() + sessionHours * 3_600_000).toISOString() };
     await this.store.putJson(path.join('auth', 'sessions', `${session.tokenHash}.json`), session);
-    return { human: publicHuman(human), sessionToken, expiresAt: session.expiresAt, secondFactorRequired: true };
+    return { human: publicHuman(human), sessionCookieValue: sessionToken, expiresAt: session.expiresAt, secondFactorRequired: true };
   }
 
   async getSession(req) {
-    const header = req.headers.authorization || '';
-    const raw = header.startsWith('Bearer ') ? header.slice(7) : null;
+    const raw = parseCookies(req.headers.cookie)[sessionCookieName()] || null;
     if (!raw) return null;
     const session = await this.store.getJson(path.join('auth', 'sessions', `${hash(raw)}.json`));
     if (session && new Date(session.expiresAt) <= new Date()) return null;
@@ -135,8 +135,7 @@ export class AuthService {
   }
 
   async logout(req) {
-    const header = req.headers.authorization || '';
-    const raw = header.startsWith('Bearer ') ? header.slice(7) : null;
+    const raw = parseCookies(req.headers.cookie)[sessionCookieName()] || null;
     if (!raw) return false;
     return this.store.deleteJson(path.join('auth', 'sessions', `${hash(raw)}.json`));
   }

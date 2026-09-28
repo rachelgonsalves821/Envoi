@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
 import { createHumanAuth } from './human-auth.js';
-import { createCsrfToken, csrfCookieHeader, parseCookies, sessionCookieHeader, verifyCsrfRequest } from './workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
 import { DeliveryWorker } from './delivery-worker.js';
 import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
@@ -1144,9 +1144,11 @@ async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   req.setTimeout(requestTimeoutMs);
   if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
-  const sessionCookieName = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
-  const csrfExempt = url.pathname === '/api/email-webhooks/resend' || url.pathname.startsWith('/api/object-storage/local-upload/');
-  if (auth.provider === 'workos' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfExempt && parseCookies(req.headers.cookie)[sessionCookieName] && !verifyCsrfRequest(req)) return fail(res, 403, 'CSRF validation failed');
+  const csrfExempt = url.pathname === '/api/email-webhooks/resend'
+    || url.pathname.startsWith('/api/object-storage/local-upload/')
+    || url.pathname === '/api/auth/phone/start'
+    || url.pathname === '/api/auth/phone/verify';
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfExempt && parseCookies(req.headers.cookie)[sessionCookieName()] && !verifyCsrfRequest(req)) return fail(res, 403, 'CSRF validation failed');
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/'))) {
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice('/web/'.length);
     const safePath = path.normalize(relative).replace(/^\.\.[\\/]/, '');
@@ -1249,7 +1251,11 @@ async function route(req, res) {
     if (auth.provider !== 'local') return fail(res, 404, 'Phone authentication is managed by WorkOS');
     const input = await body(req);
     if (!input.challengeId || !input.code) return fail(res, 400, 'challengeId and code are required');
-    return json(res, 200, await auth.verifyPhone(input.challengeId, input.code));
+    const result = await auth.verifyPhone(input.challengeId, input.code);
+    const csrfToken = createCsrfToken();
+    res.setHeader('set-cookie', [sessionCookieHeader(result.sessionCookieValue), csrfCookieHeader(csrfToken)]);
+    const { sessionCookieValue: _sessionCookieValue, ...publicResult } = result;
+    return json(res, 200, publicResult);
   }
 
   if (req.method === 'GET' && url.pathname === '/api/auth/me') {
@@ -1275,7 +1281,7 @@ async function route(req, res) {
     const result = await auth.logout(req);
     const revoked = typeof result === 'boolean' ? result : result.revoked;
     if (!revoked) return fail(res, 401, 'Authenticated session required');
-    if (auth.provider === 'workos') res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true })]);
+    res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true })]);
     return json(res, 200, typeof result === 'boolean' ? { revoked: true } : result);
   }
 
