@@ -22,6 +22,7 @@ function liveR2Adapter() {
     region: 'auto',
     accessKeyId: process.env.SINALOA_LIVE_R2_ACCESS_KEY_ID,
     secretAccessKey: process.env.SINALOA_LIVE_R2_SECRET_ACCESS_KEY,
+    sessionToken: process.env.SINALOA_LIVE_R2_SESSION_TOKEN,
     requestTimeoutMs: 15_000
   });
 }

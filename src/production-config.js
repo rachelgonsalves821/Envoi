@@ -57,6 +57,7 @@ export function validateProductionConfiguration(env = process.env) {
   if (typeof policySigningKeys?.[policyActiveKeyId] !== 'string' || policySigningKeys[policyActiveKeyId].length < 32) errors.push('The active policy signing key must be at least 32 characters');
   for (const [keyId, value] of Object.entries(policySigningKeys || {})) {
     if (!/^[A-Za-z0-9._:-]{1,64}$/.test(keyId) || typeof value !== 'string' || value.length < 32) errors.push('Every policy signing key ID and value must be valid');
+    if (typeof value === 'string' && /development|changeme|example/i.test(value)) errors.push('Policy signing keys must not use development or example values');
   }
   const policyTtl = Number(env.SINALOA_POLICY_DECISION_TTL_SECONDS || 600);
   if (!Number.isSafeInteger(policyTtl) || policyTtl < 30 || policyTtl > 3600) errors.push('SINALOA_POLICY_DECISION_TTL_SECONDS must be an integer from 30 to 3600');

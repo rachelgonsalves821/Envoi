@@ -35,6 +35,7 @@ jobs:
       - run: npm test
       - run: npm run test:frontend
       - run: npm run test:sdk:typescript
+      - run: npx vitest run --config integrations/vitest.config.ts
       - run: npm run test:sdk:python
       - run: npm run build
       - run: npm run cf:check

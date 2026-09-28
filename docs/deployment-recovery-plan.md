@@ -2,6 +2,8 @@
 
 Owner: integration coordinator. Started 2026-09-28 from `cc86af3` on `codex/deployment-recovery`.
 
+> Historical implementation log. Its older commit IDs, test counts, first-contact acceptance steps and uncommitted-work statements describe earlier snapshots. For the current beta scope and branch handoff, use the [two-owner execution plan](beta-two-owner-execution-plan.md) and [handoff audit](beta-handoff-audit.md). Direct exact-address messaging requires no first-contact request.
+
 ## Outcome
 
 Prepare a tested release candidate for Cloudflare Workers Paid + Containers, the selected first-beta architecture following Rachel's stated upgrade intention. Rachel still needs to complete the actual account/billing action; no subscription change is implied by this document. Application startup additionally requires real PostgreSQL, WorkOS, R2, scanner, and runtime secrets; code changes cannot substitute for provisioning those services. The [two-owner execution plan](beta-two-owner-execution-plan.md) assigns the remaining product and platform work.

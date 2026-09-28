@@ -101,6 +101,8 @@ test('production requires complete same-origin calendar OAuth when writes are en
 
 test('production validates policy key rotation and strict policy bounds', () => {
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_SIGNING_KEY: '', SINALOA_POLICY_ACTIVE_KEY_ID: 'missing' })), /active policy signing key/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_SIGNING_KEY: 'example-signing-key'.padEnd(32, 'x') })), /Policy signing keys must not use development or example values/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_SIGNING_KEY: '', SINALOA_POLICY_SIGNING_KEYS: JSON.stringify({ primary: 'changeme'.padEnd(32, 'x') }) })), /Policy signing keys must not use development or example values/);
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_DECISION_TTL_SECONDS: '1', SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS: 'NaN' })), /SINALOA_POLICY_DECISION_TTL_SECONDS[\s\S]*SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS/);
   const rotated = validateProductionConfiguration(validProduction({
     SINALOA_POLICY_SIGNING_KEY: '',
