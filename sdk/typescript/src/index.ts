@@ -82,11 +82,11 @@ const timeoutMs = (value = 30_000) => {
   return value;
 };
 
-const safePayload = (text: string): Record<string, unknown> | null => {
+const safePayload = (text: string): Record<string, unknown> | unknown[] | null => {
   if (!text) return null;
   try {
     const value = JSON.parse(text);
-    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+    return value && typeof value === 'object' ? value as Record<string, unknown> | unknown[] : null;
   } catch {
     return null;
   }
@@ -96,9 +96,10 @@ async function responsePayload<T>(response: Response, fallback: string): Promise
   const text = await response.text();
   const payload = safePayload(text);
   if (!response.ok) {
-    const remoteMessage = typeof payload?.error === 'string' ? payload.error : typeof payload?.message === 'string' ? payload.message : null;
+    const errorBody = payload && !Array.isArray(payload) ? payload : null;
+    const remoteMessage = typeof errorBody?.error === 'string' ? errorBody.error : typeof errorBody?.message === 'string' ? errorBody.message : null;
     const message = remoteMessage && remoteMessage.length <= 500 ? remoteMessage : `${fallback} with HTTP ${response.status}`;
-    throw new SinaloaError(message, response.status, typeof payload?.code === 'string' ? payload.code : undefined);
+    throw new SinaloaError(message, response.status, typeof errorBody?.code === 'string' ? errorBody.code : undefined);
   }
   if (!text) throw new SinaloaError('Sinaloa returned an empty response', response.status);
   if (payload === null) throw new SinaloaError('Sinaloa returned an invalid JSON response', response.status);
@@ -177,7 +178,7 @@ export class SinaloaClient {
 
   listCases(inboxId: string, limit = 50, before?: string) {
     const query = new URLSearchParams({ limit: String(limit), ...(before ? { before } : {}) });
-    return this.request<Record<string, unknown>>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases?${query}`);
+    return this.request<Array<Record<string, unknown>>>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases?${query}`);
   }
 
   getCase(inboxId: string, caseId: string) {
@@ -186,7 +187,7 @@ export class SinaloaClient {
 
   listCaseMessages(inboxId: string, caseId: string, limit = 50, before?: string) {
     const query = new URLSearchParams({ caseId, limit: String(limit), ...(before ? { before } : {}) });
-    return this.request<Record<string, unknown>>(`/api/inboxes/${encodeURIComponent(inboxId)}/messages?${query}`);
+    return this.request<Array<Record<string, unknown>>>(`/api/inboxes/${encodeURIComponent(inboxId)}/messages?${query}`);
   }
 
   beginAssetUpload(inboxId: string, input: AssetUploadInput) {

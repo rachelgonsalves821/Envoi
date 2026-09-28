@@ -41,6 +41,13 @@ describe('Sinaloa TypeScript client', () => {
     expect(fetcher.mock.calls[0][0]).toContain('/api/inboxes/inbox%2F..%2F..%2Fother/events/delta');
   });
 
+  it('reads array-shaped case and message lists from the canonical REST API', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify([{ id: 'case_one' }]), { status: 200 }));
+    const client = new SinaloaClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
+    expect(await client.listCases('inbox_one')).toEqual([{ id: 'case_one' }]);
+    expect(await client.listCaseMessages('inbox_one', 'case_one')).toEqual([{ id: 'case_one' }]);
+  });
+
   it('sanitizes HTML and empty error bodies', async () => {
     const fetcher = vi.fn(async () => new Response('<html>provider secret</html>', { status: 502 }));
     const client = new SinaloaClient('https://api.example', 'do-not-leak', { fetch: fetcher as typeof fetch });
