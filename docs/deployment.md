@@ -45,7 +45,9 @@ The backend can run as one or more external service instances. Each instance run
 
 Use one or more backend instances behind TLS with PostgreSQL and private S3-compatible object storage. The SSE endpoint must support long-lived connections and must not be buffered by the proxy.
 
-The backend exposes `/health` for liveness and `/ready` for deployment readiness metadata. It handles `SIGTERM` by stopping quota cleanup and delivery workers, closing SSE connections, and closing the HTTP server cleanly.
+The backend exposes `/health` for liveness and `/ready` for dependency readiness. In production, readiness fails with HTTP `503` if PostgreSQL, private object storage, the malware scanner, or an enabled public-email transport is unavailable. Checks are bounded by `SINALOA_READINESS_TIMEOUT_MS` and return only sanitized reasons. It handles `SIGTERM` by stopping quota cleanup and delivery workers, closing SSE connections, and closing the HTTP server cleanly.
+
+Run `npm run db:migrate` as a release job before switching traffic. The same checksum-verified runner also executes safely during application startup under a PostgreSQL advisory lock, so concurrent instances cannot race schema changes. Applied migrations are recorded in `sinaloa_schema_migrations`; changing an already-applied SQL file fails startup. The production image includes `db/`, runs as the unprivileged `node` user, installs from `package-lock.json`, and uses `/ready` for its container health check.
 
 ## Before production or multiple instances
 

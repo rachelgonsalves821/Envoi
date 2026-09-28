@@ -15,8 +15,8 @@ import {
   sectionForCase, stateLabel, timelineForCase
 } from './model';
 import type {
-  Agent, Asset, AuthConfig, CaseEvent, CaseState, EmailTransportStatus, EvidenceItem, Human, HumanActionKey, HumanView,
-  Inbox as Workspace, NavSection, Organization, PolicyEvaluation, ProposalOption, WorkCase
+  Agent, AgentConnectionInvitation, ApprovedEmailContact, Asset, AuthConfig, CaseEvent, CaseState, EmailTransportStatus, EvidenceItem, Human, HumanActionKey,
+  HumanView, Inbox as Workspace, NavSection, Organization, PolicyEvaluation, ProposalOption, WorkCase
 } from './types';
 
 const WORKSPACE_KEY = 'sinaloa.workspace';
@@ -37,6 +37,7 @@ const previewView: HumanView = {
   summary: { agents: 1, cases: 4, messages: 0, assets: 2, needsMe: 1 },
   navigation: { needsMe: 1, activeWork: 1, waiting: 1, completed: 1 },
   agents: previewAgents,
+  invitations: [{ id: 'invitation_luma', fromAddress: 'hello@luma.events', toAddress: 'milo@sinaloa.mail', senderAgentId: 'agent_luma', recipientAgentId: 'agent_milo', direction: 'incoming', actionable: true, state: 'pending', createdAt: '2026-09-27T15:55:00.000Z', updatedAt: '2026-09-27T15:55:00.000Z' }],
   participantDirectory: {
     agent_milo: { id: 'agent_milo', type: 'internalAgent', displayName: 'Milo', address: 'milo@sinaloa.mail', accessState: 'active' },
     agent_luma: { id: 'agent_luma', type: 'externalAgent', displayName: 'Luma Events agent', address: 'hello@luma.events', accessState: 'active' },
@@ -767,6 +768,32 @@ function IntegrationsPage({ view, workspace, onRefresh, notify }: { view: HumanV
   const [open, setOpen] = useState(false);
   const [emailTransport, setEmailTransport] = useState<EmailTransportStatus | null>(null);
   const [emailError, setEmailError] = useState('');
+  const [invitations, setInvitations] = useState<AgentConnectionInvitation[]>(view.invitations);
+  const [invitationError, setInvitationError] = useState('');
+  const loadInvitations = useCallback(async () => {
+    if (workspace.id === previewWorkspace.id) {
+      setInvitations(previewView.invitations);
+      setInvitationError('');
+      return;
+    }
+    setInvitationError('');
+    try { setInvitations(await api.invitations(workspace.id)); }
+    catch (caught) { setInvitationError(errorMessage(caught)); }
+  }, [workspace.id]);
+  const loadEmailTransport = useCallback(async () => {
+    if (workspace.id === previewWorkspace.id) {
+      setEmailTransport({ provider: 'resend', ready: true, publicDomain: 'agents.example.com', domainVerified: true, reason: null, internalAgentDomain: 'sinaloa.mail', agents: [{ agentId: 'agent_milo', platformAddress: 'milo@sinaloa.mail', publicEmailAddress: 'milo@agents.example.com', permitted: true }], contacts: [] });
+      setEmailError('');
+      return;
+    }
+    setEmailError('');
+    try { setEmailTransport(await api.emailTransport(workspace.id)); }
+    catch (caught) { setEmailError(errorMessage(caught)); }
+  }, [workspace.id]);
+  useEffect(() => {
+    setInvitations(view.invitations);
+    setInvitationError('');
+  }, [view.invitations]);
   useEffect(() => {
     let active = true;
     if (view.publicEmailTransport) {
@@ -774,14 +801,11 @@ function IntegrationsPage({ view, workspace, onRefresh, notify }: { view: HumanV
       setEmailError('');
       return () => { active = false; };
     }
-    if (workspace.id === previewWorkspace.id) {
-      setEmailTransport({ provider: 'resend', ready: true, publicDomain: 'agents.example.com', domainVerified: true, reason: null, internalAgentDomain: 'sinaloa.mail', agents: [{ agentId: 'agent_milo', internalAddress: 'milo@sinaloa.mail', externalAddress: 'milo@agents.example.com', permitted: true }], contacts: [] });
-      return () => { active = false; };
-    }
+    if (workspace.id === previewWorkspace.id) { void loadEmailTransport(); return () => { active = false; }; }
     setEmailTransport(null); setEmailError('');
     void api.emailTransport(workspace.id).then(value => { if (active) setEmailTransport(value); }).catch(caught => { if (active) setEmailError(errorMessage(caught)); });
     return () => { active = false; };
-  }, [view.contacts, view.publicEmailTransport, workspace.id]);
+  }, [loadEmailTransport, view.contacts, view.publicEmailTransport, workspace.id]);
   const steps = onboardingSteps(view);
   const completeCount = steps.filter(step => step.complete).length;
   const calendarConfigured = Object.values(view.calendarProviders).some(provider => provider.configured);
@@ -801,8 +825,8 @@ function IntegrationsPage({ view, workspace, onRefresh, notify }: { view: HumanV
         <SafeguardCard icon={<FileText size={18} />} title="Attachment upload" status="Disabled" body="Human uploads are unavailable. Agent files stay locked until the safety scan reports clean." />
       </div>
     </section>
-    <ConnectionInvitations view={view} />
-    <ApprovedContacts emailTransport={emailTransport} error={emailError} />
+    <ConnectionInvitations invitations={invitations} error={invitationError} workspace={workspace} onReload={loadInvitations} onRefresh={onRefresh} notify={notify} />
+    <ApprovedContacts emailTransport={emailTransport} error={emailError} workspace={workspace} onReload={loadEmailTransport} notify={notify} />
     {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Connected agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} emailTransport={emailTransport} onRefresh={onRefresh} notify={notify} />)}</div></> : <PageEmpty icon={<PlugZap />} title="No agents are connected" body="Create a permissioned, 15-minute enrollment link to add the first agent." action={<button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button>} />}
     {open && <EnrollmentDialog workspace={workspace} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </PageFrame>;
@@ -812,21 +836,68 @@ function SafeguardCard({ icon, title, status, body }: { icon: ReactNode; title: 
   return <article className="safeguard-card"><span className="safeguard-icon">{icon}</span><div><header><strong>{title}</strong><span>{status}</span></header><p>{body}</p></div></article>;
 }
 
-function ConnectionInvitations({ view }: { view: HumanView }) {
-  const invitations = view.invitations || view.connectionInvitations;
-  return <section className="connection-invitations" aria-labelledby="invitations-title"><div className="section-heading"><div><p className="eyebrow">Discovery layer</p><h2 id="invitations-title">Connection invitations</h2></div><span>{invitations?.filter(item => item.state === 'pending').length || 0} pending</span></div>{invitations === undefined ? <InlineNotice title="Invitation feed unavailable" body="This server has not published connection-invitation state yet. No approval or decline action is shown until that contract is available." tone="unknown" /> : invitations.length ? <div className="invitation-list">{invitations.map(item => <article key={item.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{item.senderName}</strong><code>{item.senderAddress}</code><small>Received {formatAbsolute(item.createdAt)}</small></div><StatusText value={item.state} /></article>)}</div> : <div className="compact-empty"><CheckCircle2 size={18} /><span><strong>No incoming invitations</strong><small>First-time agent requests will appear here for human approval or decline.</small></span></div>}</section>;
+export function ConnectionInvitations({ invitations, error, workspace, onReload, onRefresh, notify }: { invitations: AgentConnectionInvitation[]; error: string; workspace: Workspace; onReload: () => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+
+  async function decide(invitationId: string, decision: 'accept' | 'decline') {
+    setBusyId(invitationId);
+    setActionError('');
+    try {
+      if (decision === 'accept') await api.acceptInvitation(workspace.id, invitationId);
+      else await api.declineInvitation(workspace.id, invitationId);
+      notify(decision === 'accept' ? 'Agent connection accepted. The conversation is now active.' : 'Agent connection declined. No messages were delivered.');
+      await onRefresh();
+      await onReload();
+    } catch (caught) {
+      const message = errorMessage(caught);
+      setActionError(message);
+      notify(message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const actionableCount = invitations.filter(item => item.state === 'pending' && item.actionable === true).length;
+  return <section className="connection-invitations" aria-labelledby="invitations-title" aria-live="polite"><div className="section-heading"><div><p className="eyebrow">Discovery layer</p><h2 id="invitations-title">Connection invitations</h2></div><span>{actionableCount} need review</span></div>{error || actionError ? <div className="recoverable-state"><InlineNotice title="Invitation feed unavailable" body={actionError || error} tone="unknown" /><button type="button" className="button secondary compact" onClick={() => void onReload()}>Try again</button></div> : invitations.length ? <div className="invitation-list">{invitations.map(item => {
+    const busy = busyId === item.id;
+    const incoming = item.direction === 'incoming';
+    const counterpartAddress = incoming ? item.fromAddress : item.toAddress;
+    return <article key={item.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{counterpartAddress}</strong><code>{incoming ? `To ${item.toAddress}` : `From ${item.fromAddress}`}</code><small>{incoming ? 'Received' : 'Sent'} {formatAbsolute(item.createdAt)} · exact address match</small></div>{item.state === 'pending' && item.actionable === true ? <div className="invitation-decision-actions"><button type="button" className="button secondary compact" disabled={busy} aria-label={`Decline connection invitation from ${item.fromAddress}`} onClick={() => void decide(item.id, 'decline')}>{busy ? 'Working…' : 'Decline'}</button><button type="button" className="button primary compact" disabled={busy} aria-label={`Accept connection invitation from ${item.fromAddress}`} onClick={() => void decide(item.id, 'accept')}>{busy ? 'Working…' : 'Accept'}</button></div> : item.state === 'pending' && item.direction === 'outgoing' ? <div className="invitation-pending-status"><StatusText value="pending" /><small>Awaiting recipient approval</small></div> : <StatusText value={item.state} />}</article>;
+  })}</div> : <div className="compact-empty"><CheckCircle2 size={18} /><span><strong>No incoming invitations</strong><small>Share your agent’s exact platform address. First-contact requests appear here before any message is delivered.</small></span></div>}</section>;
 }
 
-function ApprovedContacts({ emailTransport, error }: { emailTransport: EmailTransportStatus | null; error: string }) {
-  return <section className="approved-contacts" aria-labelledby="approved-contacts-title"><div className="section-heading"><div><p className="eyebrow">Public email boundary</p><h2 id="approved-contacts-title">Approved contacts</h2></div><span>Agent-owned sending</span></div>{error ? <InlineNotice title="Contact state unavailable" body={error} tone="unknown" /> : !emailTransport ? <div className="compact-empty"><CircleDashed size={18} /><span><strong>Checking public email readiness</strong><small>No external action is enabled until configuration and contact state are confirmed.</small></span></div> : emailTransport.contacts.length ? <div className="contact-list">{emailTransport.contacts.map(contact => { const state = contact.blocked ? 'blocked' : contact.approved ? 'approved' : 'pending'; return <article key={contact.id}><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{contact.displayName}</strong><code>{contact.email}</code><small>{humanize(contact.direction)} email · updated {formatAbsolute(contact.updatedAt)}</small></div><StatusText value={state} /></article>; })}</div> : <div className="compact-empty"><ShieldCheck size={18} /><span><strong>No approved public contacts</strong><small>Agents cannot send arbitrary external email. Approved-contact state will appear here.</small></span></div>}</section>;
+function ApprovedContacts({ emailTransport, error, workspace, onReload, notify }: { emailTransport: EmailTransportStatus | null; error: string; workspace: Workspace; onReload: () => Promise<void>; notify: (message: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const canManage = Boolean(emailTransport?.ready);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setBusyId('new'); setActionError('');
+    try {
+      await api.approveExternalContact(workspace.id, { email: String(data.get('email') || ''), displayName: String(data.get('displayName') || ''), direction: String(data.get('direction') || 'both') as ApprovedEmailContact['direction'] });
+      form.reset(); setOpen(false); notify('External contact approved for the selected email direction.'); await onReload();
+    } catch (caught) { const message = errorMessage(caught); setActionError(message); notify(message); }
+    finally { setBusyId(null); }
+  }
+  async function setBlocked(contact: ApprovedEmailContact, blocked: boolean) {
+    setBusyId(contact.id); setActionError('');
+    try { await api.setExternalContactBlocked(workspace.id, contact.id, blocked); notify(blocked ? 'External contact blocked.' : 'External contact restored.'); await onReload(); }
+    catch (caught) { const message = errorMessage(caught); setActionError(message); notify(message); }
+    finally { setBusyId(null); }
+  }
+  return <section className="approved-contacts" aria-labelledby="approved-contacts-title"><div className="section-heading"><div><p className="eyebrow">Public email boundary</p><h2 id="approved-contacts-title">Approved contacts</h2></div><div className="section-actions"><span>Agent-owned sending</span>{canManage && <button type="button" className="button tertiary compact" onClick={() => setOpen(current => !current)}>{open ? 'Cancel' : 'Approve contact'}</button>}</div></div>{open && <form className="contact-approval-form" onSubmit={submit}><Field label="Contact name" name="displayName" placeholder="Jordan Lee" required /><Field label="Email address" name="email" type="email" autoComplete="email" placeholder="jordan@example.com" required /><label className="field"><span>Email direction</span><select name="direction" defaultValue="both"><option value="both">Send and receive</option><option value="outbound">Send only</option><option value="inbound">Receive only</option></select></label><button className="button primary" disabled={busyId === 'new'}>{busyId === 'new' ? 'Approving…' : 'Approve exact email'}</button></form>}{actionError && <InlineNotice title="Contact update failed" body={actionError} tone="unknown" />}{error ? <div className="recoverable-state"><InlineNotice title="Contact state unavailable" body={error} tone="unknown" /><button type="button" className="button secondary compact" onClick={() => void onReload()}>Try again</button></div> : !emailTransport ? <div className="compact-empty muted"><CircleDashed size={18} /><span><strong>Checking public email readiness</strong><small>No external action is enabled until configuration and contact state are confirmed.</small></span></div> : emailTransport.contacts.length ? <div className="contact-list">{emailTransport.contacts.map(contact => { const state = contact.blocked ? 'blocked' : contact.approved ? 'approved' : 'pending'; return <article key={contact.id}><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{contact.displayName}</strong><code>{contact.email}</code><small>{humanize(contact.direction)} email · updated {formatAbsolute(contact.updatedAt)}</small></div><div className="contact-actions"><StatusText value={state} /><button type="button" className="button quiet compact" disabled={busyId === contact.id} onClick={() => void setBlocked(contact, !contact.blocked)}>{busyId === contact.id ? 'Saving…' : contact.blocked ? 'Unblock' : 'Block'}</button></div></article>; })}</div> : <div className="compact-empty"><ShieldCheck size={18} /><span><strong>No approved public contacts</strong><small>Agents cannot send arbitrary external email. Approve an exact address before enabling contact.</small></span></div>}</section>;
 }
 
 function AgentCard({ agent, workspace, emailTransport, onRefresh, notify }: { agent: Agent; workspace: Workspace; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const pending = agent.onboardingStatus === 'pending_approval';
   const [credential, setCredential] = useState('');
   const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
-  const platformAddress = agent.platformAddress || transportAgent?.internalAddress || agent.address;
-  const publicEmailAddress = agent.publicEmailAddress || agent.identity?.externalAddress || transportAgent?.externalAddress || null;
+  const platformAddress = agent.platformAddress || transportAgent?.platformAddress || transportAgent?.internalAddress || agent.address;
+  const publicEmailAddress = agent.publicEmailAddress || agent.identity?.externalAddress || transportAgent?.publicEmailAddress || transportAgent?.externalAddress || null;
   return <article className="integration-card"><div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.status} /></div>{emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}<div className="capability-list">{agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div><dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Verified and active' : 'Pending approval'}</dd></div><div><dt>Access</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>{credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}{pending && <button className="button primary" onClick={async () => { try { const result = await api.approveAgent(workspace.id, agent.id, permissions); if (result.agentApiToken) setCredential(result.agentApiToken); notify('Agent approved with scoped execution permissions.'); await onRefresh(); } catch (caught) { notify(errorMessage(caught)); } }}>Approve agent</button>}</article>;
 }
 

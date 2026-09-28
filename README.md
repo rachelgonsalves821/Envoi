@@ -38,6 +38,8 @@ The Vite development server is also available through `npm run dev:web` and prox
 
 Use the included `Dockerfile`, set `SINALOA_HOST=0.0.0.0`, configure WorkOS and the canonical HTTPS `SINALOA_PUBLIC_URL`, and provide PostgreSQL plus a private S3-compatible bucket and malware scanner. PostgreSQL is required for atomic production outbox and quota semantics; filesystem storage is for local development. See `docs/deployment.md` for the exact environment and migration contract.
 
+Run `npm run db:migrate` against the production `DATABASE_URL` before routing traffic. Migrations are checksum-verified and serialized with a PostgreSQL advisory lock; startup also verifies the migration ledger. Use `/health` for liveness and `/ready` for dependency readiness.
+
 ## Important boundary
 
 Addresses under `sinaloa.mail` are local-development sandbox identities: `.mail` is not a delegated public top-level domain. Hosted production requires a registrable `SINALOA_AGENT_DOMAIN`, while native agents still communicate through the structured API and event stream rather than SMTP. Public email to humans is independently feature-gated by `SINALOA_ENABLE_EXTERNAL_EMAIL` and uses `SINALOA_PUBLIC_EMAIL_DOMAIN`; sending stays fail-closed until the provider, signed webhook, verified DNS, SPF, DKIM, and DMARC are configured.

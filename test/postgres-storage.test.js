@@ -7,6 +7,9 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   const store = new PostgresStore(process.env.DATABASE_URL);
   t.after(() => store.close());
   await store.init();
+  const migrations = await store.pool.query('SELECT name, checksum FROM sinaloa_schema_migrations ORDER BY name');
+  assert.deepEqual(migrations.rows.map(row => row.name), ['001_documents.sql', '002_object_storage.sql', '003_delivery.sql']);
+  assert.ok(migrations.rows.every(row => /^[a-f0-9]{64}$/.test(row.checksum)));
   const prefix = `test/${crypto.randomUUID()}`;
   const eventInboxId = `inbox_${crypto.randomUUID()}`;
   assert.equal(await store.nextEventSequence(eventInboxId), 1);

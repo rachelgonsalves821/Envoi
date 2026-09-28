@@ -10,6 +10,7 @@ import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
 import { createObjectStorageAdapter, DocumentObjectMetadataStore, FailClosedScanner, HttpMalwareScanner, ObjectStorageService, PersistentQuotaLedger } from './object-storage.js';
 import { validateProductionConfiguration } from './production-config.js';
+import { evaluateReadiness } from './readiness.js';
 import {
   acceptProposal,
   addPolicyEvaluation,
@@ -83,6 +84,42 @@ const objectStorageAdapter = createObjectStorageAdapter(objectStorageProvider ==
 } : { provider: 'local', root: path.join(dataDir, 'object-storage'), maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
 const objectScanner = process.env.SINALOA_MALWARE_SCANNER_URL ? new HttpMalwareScanner({ endpoint: process.env.SINALOA_MALWARE_SCANNER_URL, token: process.env.SINALOA_MALWARE_SCANNER_TOKEN || null }) : new FailClosedScanner();
 const objectStorage = new ObjectStorageService({ adapter: objectStorageAdapter, metadataStore: new DocumentObjectMetadataStore(store), quotaLedger: new PersistentQuotaLedger(store, { defaultQuotaBytes: objectQuotaBytes }), scanner: objectScanner, maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
+const readinessTimeoutMs = Number(process.env.SINALOA_READINESS_TIMEOUT_MS || 5_000);
+
+async function readinessReport() {
+  const production = process.env.SINALOA_AUTH_MODE === 'production';
+  const checks = [
+    { name: 'database', run: async () => { await store.queryJson('readiness-probe', { limit: 1 }); } },
+    {
+      name: 'objectStorage',
+      critical: production,
+      run: async () => {
+        if (objectStorageProvider !== 's3') return;
+        await objectStorageAdapter.headObject('__sinaloa_readiness_probe__');
+      }
+    },
+    {
+      name: 'malwareScanner',
+      critical: production,
+      run: async signal => {
+        if (!process.env.SINALOA_MALWARE_SCANNER_URL) throw new Error('Malware scanner is not configured');
+        const response = await fetch(process.env.SINALOA_MALWARE_SCANNER_URL, {
+          method: 'HEAD',
+          signal,
+          headers: process.env.SINALOA_MALWARE_SCANNER_TOKEN ? { authorization: `Bearer ${process.env.SINALOA_MALWARE_SCANNER_TOKEN}` } : {}
+        });
+        if (response.status >= 500 || [401, 403].includes(response.status)) throw new Error(`Malware scanner health check returned ${response.status}`);
+      }
+    },
+    {
+      name: 'publicEmail',
+      critical: externalEmailEnabled,
+      run: async () => { if (externalEmailEnabled) emailTransport.assertReady(); }
+    }
+  ];
+  const report = await evaluateReadiness(checks, { timeoutMs: readinessTimeoutMs, at: store.now() });
+  return { ...report, service: 'sinaloa', mode: productionConfig.mode, configurationValidated: productionConfig.validated };
+}
 
 const rateIdentity = req => hashSecret(String(req.headers.authorization || req.headers.cookie || clientIp(req))).slice(0, 32);
 const ratePolicy = (req, pathname) => {
@@ -189,6 +226,18 @@ const publicEmailTransportStatus = () => ({
   enabled: externalEmailEnabled,
   ready: externalEmailEnabled && emailTransport.ready,
   reason: !externalEmailEnabled ? 'disabledByConfiguration' : emailTransport.ready ? null : emailTransport.status().reason || 'providerNotReady'
+});
+const publicEmailTransportProjection = (agents, contacts) => ({
+  ...emailTransport.status(),
+  ...publicEmailTransportStatus(),
+  internalAgentDomain: agentDomain,
+  agents: agents.map(agent => ({
+    agentId: agent.id,
+    platformAddress: agent.address,
+    publicEmailAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null,
+    permitted: hasPermission(agent, 'use_email_transport')
+  })),
+  contacts: contacts.sort((left, right) => String(left.email).localeCompare(String(right.email)))
 });
 const publicAgent = agent => {
   const value = {
@@ -1019,23 +1068,33 @@ async function participantDirectoryForHuman(inbox, agents, cases) {
 }
 
 async function humanView(inboxId, inbox) {
-  const [agents, cases, messages, assets, events, deliveryReceipts, calendarConnectors] = await Promise.all([
+  const [agents, cases, messages, assets, events, deliveryReceipts, calendarConnectors, invitations, externalContacts] = await Promise.all([
     store.listJson(path.join('inboxes', inboxId, 'agents')),
     listCases(inboxId),
     listMessages(inboxId),
     store.listJson(path.join('inboxes', inboxId, 'assets')),
     store.listJson(path.join('inboxes', inboxId, 'events')),
     store.listJson(path.join('inboxes', inboxId, 'delivery-receipts')),
-    store.listJson(path.join('inboxes', inboxId, 'calendar-connectors'))
+    store.listJson(path.join('inboxes', inboxId, 'calendar-connectors')),
+    store.listJson(path.join('inboxes', inboxId, 'invitations')),
+    store.listJson(path.join('inboxes', inboxId, 'external-contacts'))
   ]);
   const projection = projectWorkspaceForHuman(cases);
   const participantDirectory = await participantDirectoryForHuman(inbox, agents, cases);
+  const projectedInvitations = invitations
+    .map(invitation => ({
+      ...invitation,
+      direction: invitation.recipientInboxId === inboxId ? 'incoming' : 'outgoing',
+      actionable: invitation.recipientInboxId === inboxId && invitation.state === 'pending'
+    }))
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  const pendingInvitations = projectedInvitations.filter(invitation => invitation.actionable).length;
   return {
     inbox,
     mode: 'human-observer',
     capabilities: ['observe_agent_communications', 'receive_agent_messages', 'reply_to_approved_agents', 'review_assets', 'manage_calendar_connectors'],
-    summary: { agents: agents.length, cases: cases.length, messages: messages.length, assets: assets.length, needsMe: projection.counts.needsMe },
-    navigation: projection.counts,
+    summary: { agents: agents.length, cases: cases.length, messages: messages.length, assets: assets.length, needsMe: projection.counts.needsMe + pendingInvitations },
+    navigation: { ...projection.counts, needsMe: projection.counts.needsMe + pendingInvitations },
     caseQueue: projection.cases,
     participantDirectory,
     agents: agents.map(publicAgent),
@@ -1044,6 +1103,9 @@ async function humanView(inboxId, inbox) {
     assets,
     calendarProviders: calendarProviderStatus(),
     calendarConnectors: calendarConnectors.map(publicCalendarConnector),
+    invitations: projectedInvitations,
+    contacts: externalContacts.sort((left, right) => String(left.email).localeCompare(String(right.email))),
+    publicEmailTransport: publicEmailTransportProjection(agents, externalContacts),
     deliveryReceipts: deliveryReceipts.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     recentEvents: events.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100)
   };
@@ -1101,7 +1163,10 @@ async function route(req, res) {
     catch (error) { if (error.code === 'ENOENT') return fail(res, 404, 'Web asset not found'); throw error; }
   }
   if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now(), mode: productionConfig.mode, configurationValidated: productionConfig.validated });
-  if (req.method === 'GET' && url.pathname === '/ready') return json(res, 200, { ready: true, service: 'sinaloa', productionConfigurationValidated: productionConfig.validated, storage: objectStorageProvider, email: externalEmailEnabled ? emailTransport.status().state : 'disabled' });
+  if (req.method === 'GET' && url.pathname === '/ready') {
+    const readiness = await readinessReport();
+    return json(res, readiness.ready ? 200 : 503, readiness);
+  }
   if (req.method === 'GET' && url.pathname === '/api/email-transport/status') return json(res, 200, { ...emailTransport.status(), enabled: externalEmailEnabled, internalAgentDomain: agentDomain, internalIdentityOnly: agentDomain === 'sinaloa.mail' });
 
   if (req.method === 'POST' && url.pathname === '/api/email-webhooks/resend') {
@@ -1433,13 +1498,7 @@ async function route(req, res) {
   if (req.method === 'GET' && suffix === 'email-transport') {
     const contacts = await store.listJson(path.join('inboxes', inboxId, 'external-contacts'));
     const agents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
-    return json(res, 200, {
-      ...emailTransport.status(),
-      publicEmailTransport: publicEmailTransportStatus(),
-      internalAgentDomain: agentDomain,
-      agents: agents.map(agent => ({ agentId: agent.id, platformAddress: agent.address, publicEmailAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, permitted: hasPermission(agent, 'use_email_transport') })),
-      contacts: contacts.sort((left, right) => String(left.email).localeCompare(String(right.email)))
-    });
+    return json(res, 200, publicEmailTransportProjection(agents, contacts));
   }
 
   if (req.method === 'GET' && suffix === 'external-contacts') {

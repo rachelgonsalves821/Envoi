@@ -1,4 +1,4 @@
-import type { Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
+import type { AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
 
 export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
 
@@ -83,6 +83,9 @@ export const api = {
   workspaces: (organizationId: string) => request<Inbox[]>(`/api/organizations/${organizationId}/workspaces`),
   createWorkspace: (name: string, organizationId?: string) => request<Inbox>('/api/inboxes', { method: 'POST', body: JSON.stringify({ name, organizationId }) }),
   humanView: (inboxId: string) => request<HumanView>(`/api/inboxes/${inboxId}/human-view`),
+  invitations: (inboxId: string) => request<AgentConnectionInvitation[]>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations`),
+  acceptInvitation: (inboxId: string, invitationId: string) => request<AgentConnectionInvitationDecision>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations/${encodeURIComponent(invitationId)}/accept`, { method: 'POST' }),
+  declineInvitation: (inboxId: string, invitationId: string) => request<AgentConnectionInvitation>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations/${encodeURIComponent(invitationId)}/decline`, { method: 'POST' }),
   action: (inboxId: string, caseId: string, actionKey: HumanActionKey, externalRefs: Record<string, unknown> = {}) => request<{ case: unknown; action: unknown; replay?: boolean }>(`/api/inboxes/${inboxId}/cases/${caseId}/actions`, {
     method: 'POST',
     headers: { 'Idempotency-Key': `${actionKey}-${caseId}-${crypto.randomUUID()}` },
@@ -95,6 +98,8 @@ export const api = {
   approveAgent: (inboxId: string, agentId: string, permissions: string[]) => request<{ agent: unknown; agentApiToken?: string }>(`/api/inboxes/${inboxId}/agent-onboarding/${agentId}/approve`, { method: 'POST', body: JSON.stringify({ permissions }) })
   ,downloadAsset: (inboxId: string, assetId: string) => request<{ object: Asset; download: { url: string; method: 'GET'; headers?: Record<string, string> } }>(`/api/inboxes/${inboxId}/assets/${assetId}/download`)
   ,emailTransport: (inboxId: string) => request<EmailTransportStatus>(`/api/inboxes/${inboxId}/email-transport`)
+  ,approveExternalContact: (inboxId: string, input: { email: string; displayName: string; direction: ApprovedEmailContact['direction'] }) => request<ApprovedEmailContact>(`/api/inboxes/${encodeURIComponent(inboxId)}/external-contacts`, { method: 'POST', body: JSON.stringify(input) })
+  ,setExternalContactBlocked: (inboxId: string, contactId: string, blocked: boolean) => request<ApprovedEmailContact>(`/api/inboxes/${encodeURIComponent(inboxId)}/external-contacts/${encodeURIComponent(contactId)}/${blocked ? 'block' : 'unblock'}`, { method: 'POST', body: '{}' })
   ,calendarConnectors: (inboxId: string) => request<{ providers: Record<CalendarProvider['id'], CalendarProvider>; connectors: CalendarConnector[] }>(`/api/inboxes/${inboxId}/calendar-connectors`)
   ,connectCalendar: (inboxId: string, provider: CalendarProvider['id']) => request<{ provider: CalendarProvider['id']; authorizationUrl: string; expiresAt: string }>(`/api/inboxes/${inboxId}/calendar-connectors/${provider}/connect`, { method: 'POST', body: '{}' })
   ,disconnectCalendar: (inboxId: string, provider: CalendarProvider['id']) => request<CalendarConnector>(`/api/inboxes/${inboxId}/calendar-connectors/${provider}/disconnect`, { method: 'POST', body: '{}' })

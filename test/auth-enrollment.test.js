@@ -68,6 +68,11 @@ async function readSseEvent(baseUrl, pathname, { token, lastEventId, matches, ti
 test('verified human issues a single-use permissioned agent enrollment', async t => {
   const server = await startServer();
   t.after(server.stop);
+  const readiness = await request(server.baseUrl, '/ready');
+  assert.equal(readiness.status, 200);
+  assert.equal(readiness.payload.ready, true);
+  assert.equal(readiness.payload.checks.database.ready, true);
+  assert.equal(readiness.payload.checks.malwareScanner.critical, false);
   const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550123', displayName: 'Owner' } });
   assert.equal(started.status, 201);
   const throttled = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550123', displayName: 'Owner' } });
@@ -129,8 +134,25 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(invited.status, 202);
   assert.equal(invited.payload.contactState, 'pending');
   assert.equal(invited.payload.message.status, 'pendingContactApproval');
+  const pendingRecipientView = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/human-view`, { token: sessionToken });
+  assert.equal(pendingRecipientView.status, 200);
+  assert.equal(pendingRecipientView.payload.invitations.length, 1);
+  assert.equal(pendingRecipientView.payload.invitations[0].id, invited.payload.invitation.id);
+  assert.equal(pendingRecipientView.payload.invitations[0].fromAddress, enrolled.payload.agent.address);
+  assert.equal(pendingRecipientView.payload.invitations[0].state, 'pending');
+  assert.equal(pendingRecipientView.payload.invitations[0].direction, 'incoming');
+  assert.equal(pendingRecipientView.payload.invitations[0].actionable, true);
+  assert.equal(pendingRecipientView.payload.navigation.needsMe, 1);
+  const pendingSenderView = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/human-view`, { token: sessionToken });
+  assert.equal(pendingSenderView.payload.invitations[0].direction, 'outgoing');
+  assert.equal(pendingSenderView.payload.invitations[0].actionable, false);
+  assert.equal(pendingRecipientView.payload.publicEmailTransport.enabled, false);
+  assert.equal(pendingRecipientView.payload.publicEmailTransport.ready, false);
+  assert.equal(pendingRecipientView.payload.publicEmailTransport.reason, 'disabledByConfiguration');
   const acceptedInvitation = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/invitations/${invited.payload.invitation.id}/accept`, { token: sessionToken, body: {} });
   assert.equal(acceptedInvitation.status, 201);
+  assert.equal(acceptedInvitation.payload.invitation.state, 'accepted');
+  assert.ok(acceptedInvitation.payload.invitation.conversationId);
   const sent = { status: acceptedInvitation.status, payload: acceptedInvitation.payload.message };
   assert.ok(['queued', 'delivered'].includes(sent.payload.status));
   assert.equal(sent.payload.schemaVersion, '1.0');
@@ -198,6 +220,20 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(blocked.status, 200);
   const rejected = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-3' }, body: { ...messageBody, text: 'blocked message' } });
   assert.equal(rejected.status, 403);
+
+  const declineWorkspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Decline workspace' } });
+  const declineToken = await request(server.baseUrl, `/api/inboxes/${declineWorkspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages'] } });
+  const declineRecipient = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: declineToken.payload.enrollmentToken, name: 'Decliner', slug: 'decliner' } });
+  const declineInvite = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'decline-message-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: declineRecipient.payload.agent.address, text: 'contact request that should remain supervised' } });
+  assert.equal(declineInvite.status, 202);
+  assert.equal(declineInvite.payload.message.status, 'pendingContactApproval');
+  const hiddenPendingMessage = await request(server.baseUrl, `/api/inboxes/${declineRecipient.payload.inbox.id}/messages`, { token: declineRecipient.payload.agentApiToken });
+  assert.deepEqual(hiddenPendingMessage.payload, []);
+  const declinedInvitation = await request(server.baseUrl, `/api/inboxes/${declineRecipient.payload.inbox.id}/invitations/${declineInvite.payload.invitation.id}/decline`, { token: sessionToken, body: {} });
+  assert.equal(declinedInvitation.status, 200);
+  assert.equal(declinedInvitation.payload.state, 'declined');
+  const declinedRetry = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'decline-message-2' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: declineRecipient.payload.agent.address, text: 'must remain declined' } });
+  assert.equal(declinedRetry.status, 403);
 
   const caseCreated = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases`, { token: enrolled.payload.agentApiToken, body: { objective: 'Schedule Q4 planning with Acme', collaborationMode: 'scheduling', participants: [recipient.payload.agent.id], constraints: { workingHoursEnd: '16:00', timezone: 'America/Toronto' }, deadline: '2026-10-03T03:59:00.000Z' } });
   assert.equal(caseCreated.status, 201);

@@ -212,8 +212,31 @@ export interface Asset {
 }
 export interface AuditEvent { id: string; type: string; createdAt: string; [key: string]: unknown }
 export interface DeliveryReceipt { id: string; type: 'delivery' | 'email'; transport?: 'native' | 'email'; messageId: string; senderAgentId?: string; recipientAgentId?: string; senderEmail?: string; recipientEmail?: string; state: DeliveryState | EmailDeliveryState; provider?: string; providerMessageId?: string; attempt?: number; error?: string; createdAt: string }
-export interface AgentConnectionInvitation { id: string; senderAgentId: string; senderName: string; senderAddress: string; state: 'pending' | 'approved' | 'blocked' | 'declined'; createdAt: string }
-export interface EmailTransportAgent { agentId: string; internalAddress: string; externalAddress: string | null; permitted: boolean }
+export interface AgentConnectionInvitation {
+  id: string;
+  fromAddress: string;
+  toAddress: string;
+  senderAgentId: string;
+  recipientAgentId: string;
+  direction: 'incoming' | 'outgoing';
+  actionable: boolean;
+  state: 'pending' | 'accepted' | 'declined';
+  conversationId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface AgentConnectionInvitationDecision {
+  invitation: AgentConnectionInvitation;
+  message?: Message;
+}
+export interface EmailTransportAgent {
+  agentId: string;
+  platformAddress?: string;
+  publicEmailAddress?: string | null;
+  internalAddress?: string;
+  externalAddress?: string | null;
+  permitted: boolean;
+}
 export interface ApprovedEmailContact { id: string; email: string; displayName: string; direction: 'inbound' | 'outbound' | 'both'; approved: boolean; blocked: boolean; blockedReason?: string | null; updatedAt: string }
 export interface EmailTransportStatus { provider: string; ready: boolean; publicDomain: string | null; domainVerified: boolean; reason: string | null; internalAgentDomain: string; agents: EmailTransportAgent[]; contacts: ApprovedEmailContact[] }
 export interface CalendarProvider { id: 'google' | 'outlook'; label: string; configured: boolean }
@@ -234,8 +257,7 @@ export interface HumanView {
   calendarProviders: Record<CalendarProvider['id'], CalendarProvider>;
   calendarConnectors: CalendarConnector[];
   deliveryReceipts: DeliveryReceipt[];
-  connectionInvitations?: AgentConnectionInvitation[];
-  invitations?: AgentConnectionInvitation[];
+  invitations: AgentConnectionInvitation[];
   contacts?: ApprovedEmailContact[];
   publicEmailTransport?: EmailTransportStatus;
   recentEvents: AuditEvent[];
