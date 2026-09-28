@@ -9,6 +9,7 @@ import { DeliveryWorker } from './delivery-worker.js';
 import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
 import { createObjectStorageAdapter, DocumentObjectMetadataStore, FailClosedScanner, HttpMalwareScanner, ObjectStorageService, PersistentQuotaLedger } from './object-storage.js';
+import { PostgresMalwareScanJobStore } from './object-scan-lifecycle.js';
 import { validateProductionConfiguration } from './production-config.js';
 import { evaluateReadiness } from './readiness.js';
 import { clientIp, publicHttpError } from './http-security.js';
@@ -87,6 +88,10 @@ const maxSsePerPrincipal = Number(process.env.SINALOA_MAX_SSE_PER_PRINCIPAL || 1
 const objectStorageProvider = process.env.SINALOA_OBJECT_STORAGE_PROVIDER || 'local';
 const objectMaxBytes = Number(process.env.SINALOA_OBJECT_MAX_BYTES || 25 * 1024 * 1024);
 const objectQuotaBytes = Number(process.env.SINALOA_WORKSPACE_OBJECT_QUOTA_BYTES || 1024 * 1024 * 1024);
+const objectScanWorkerIntervalMs = Number(process.env.SINALOA_SCAN_WORKER_INTERVAL_MS || 1_000);
+const objectScanRetentionIntervalMs = Number(process.env.SINALOA_SCAN_RETENTION_INTERVAL_MS || 60_000);
+if (!Number.isSafeInteger(objectScanWorkerIntervalMs) || objectScanWorkerIntervalMs < 1) throw new TypeError('SINALOA_SCAN_WORKER_INTERVAL_MS must be a positive integer');
+if (!Number.isSafeInteger(objectScanRetentionIntervalMs) || objectScanRetentionIntervalMs < 1) throw new TypeError('SINALOA_SCAN_RETENTION_INTERVAL_MS must be a positive integer');
 const objectAllowedMimeTypes = (process.env.SINALOA_OBJECT_ALLOWED_MIME_TYPES || 'application/pdf,image/jpeg,image/png,text/plain,text/csv,application/json').split(',').map(value => value.trim()).filter(Boolean);
 const objectStorageAdapter = createObjectStorageAdapter(objectStorageProvider === 's3' ? {
   provider: 's3',
@@ -100,8 +105,36 @@ const objectStorageAdapter = createObjectStorageAdapter(objectStorageProvider ==
   allowedMimeTypes: objectAllowedMimeTypes
 } : { provider: 'local', root: path.join(dataDir, 'object-storage'), maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
 const objectScanner = process.env.SINALOA_MALWARE_SCANNER_URL ? new HttpMalwareScanner({ endpoint: process.env.SINALOA_MALWARE_SCANNER_URL, token: process.env.SINALOA_MALWARE_SCANNER_TOKEN || null }) : new FailClosedScanner();
-const objectStorage = new ObjectStorageService({ adapter: objectStorageAdapter, metadataStore: new DocumentObjectMetadataStore(store), quotaLedger: new PersistentQuotaLedger(store, { defaultQuotaBytes: objectQuotaBytes }), scanner: objectScanner, maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
+const scanJobStore = process.env.DATABASE_URL ? new PostgresMalwareScanJobStore(store) : null;
+const objectStorage = new ObjectStorageService({ adapter: objectStorageAdapter, metadataStore: new DocumentObjectMetadataStore(store), quotaLedger: new PersistentQuotaLedger(store, { defaultQuotaBytes: objectQuotaBytes }), scanner: objectScanner, scanJobStore, maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
+if (scanJobStore && !['processNextScan', 'reapScanRetention'].every(method => typeof objectStorage[method] === 'function')) throw new TypeError('Object storage durable scan lifecycle is not configured');
 const readinessTimeoutMs = Number(process.env.SINALOA_READINESS_TIMEOUT_MS || 5_000);
+
+let scanLifecycleStopping = false;
+let objectScanRun = null;
+let objectScanRetentionRun = null;
+const scanWorkerId = `scan-${process.pid}-${crypto.randomUUID()}`;
+const scanRetentionWorkerId = `scan-retention-${process.pid}-${crypto.randomUUID()}`;
+
+function runObjectScans() {
+  if (!scanJobStore || scanLifecycleStopping || objectScanRun) return objectScanRun;
+  const run = (async () => {
+    while (!scanLifecycleStopping && await objectStorage.processNextScan(scanWorkerId)) {}
+  })().catch(error => console.error('Object scan worker failed', { name: error?.name || 'Error', code: error?.code || 'SCAN_FAILED' }))
+    .finally(() => { if (objectScanRun === run) objectScanRun = null; });
+  objectScanRun = run;
+  return run;
+}
+
+function runObjectScanRetention() {
+  if (!scanJobStore || scanLifecycleStopping || objectScanRetentionRun) return objectScanRetentionRun;
+  const run = (async () => {
+    while (!scanLifecycleStopping && await objectStorage.reapScanRetention(scanRetentionWorkerId)) {}
+  })().catch(error => console.error('Object scan retention worker failed', { name: error?.name || 'Error', code: error?.code || 'SCAN_RETENTION_FAILED' }))
+    .finally(() => { if (objectScanRetentionRun === run) objectScanRetentionRun = null; });
+  objectScanRetentionRun = run;
+  return run;
+}
 
 async function readinessReport() {
   const production = process.env.SINALOA_AUTH_MODE === 'production';
@@ -2281,6 +2314,14 @@ await synchronizePublicEmailDirectory();
 deliveryWorker.start();
 const objectQuotaReaper = setInterval(() => objectStorage.quotaLedger.reclaimExpired?.().catch(error => console.error('Object quota reaper failed', error)), Number(process.env.SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
 objectQuotaReaper.unref?.();
+const objectScanWorker = scanJobStore ? setInterval(() => { void runObjectScans(); }, objectScanWorkerIntervalMs) : null;
+const objectScanRetentionWorker = scanJobStore ? setInterval(() => { void runObjectScanRetention(); }, objectScanRetentionIntervalMs) : null;
+objectScanWorker?.unref?.();
+objectScanRetentionWorker?.unref?.();
+if (scanJobStore) {
+  void runObjectScans();
+  void runObjectScanRetention();
+}
 const server = http.createServer((req, res) => route(req, res).catch((error) => {
   const requestId = String(req.headers['x-request-id'] || crypto.randomUUID()).slice(0, 128);
   const response = publicHttpError(error, requestId);
@@ -2291,13 +2332,20 @@ server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 server.listen(port, host, () => console.log(`Sinaloa backend listening on http://${host}:${server.address().port}`));
 
+let shutdownStarted = false;
 const shutdown = () => {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  scanLifecycleStopping = true;
   clearInterval(objectQuotaReaper);
+  if (objectScanWorker) clearInterval(objectScanWorker);
+  if (objectScanRetentionWorker) clearInterval(objectScanRetentionWorker);
   for (const set of streams.values()) for (const subscription of set) {
     clearInterval(subscription.heartbeat);
     subscription.res.end();
   }
   server.close(async () => {
+    await Promise.allSettled([objectScanRun, objectScanRetentionRun].filter(Boolean));
     await deliveryWorker.stop();
     if (store.close) await store.close();
     process.exit(0);
