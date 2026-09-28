@@ -52,6 +52,21 @@ describe('human API sessions', () => {
   });
 });
 
+describe('agent credential controls', () => {
+  it('revokes the selected agent with the human session and CSRF token', async () => {
+    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-revoke' });
+    const response = { revoked: true, agentId: 'agent/1', credentialFamilyCount: 1, revokedAt: '2026-09-28T18:00:00.000Z' };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.revokeAgentCredentials('inbox one', 'agent/1')).resolves.toEqual(response);
+    expect(fetchMock).toHaveBeenCalledWith('/api/inboxes/inbox%20one/agents/agent%2F1/credentials/revoke', expect.objectContaining({ method: 'POST', credentials: 'same-origin' }));
+    const options = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(new Headers(options.headers).get('x-sinaloa-csrf')).toBe('csrf-revoke');
+    expect(new Headers(options.headers).has('authorization')).toBe(false);
+  });
+});
+
 describe('signed downloads', () => {
   it('allows relative, http development, and https provider URLs', () => {
     expect(safeDownloadUrl('/api/object-storage/local-download/token', 'http://127.0.0.1:8787/')).toBe('http://127.0.0.1:8787/api/object-storage/local-download/token');

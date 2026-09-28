@@ -578,7 +578,7 @@ function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRailToggle,
 
         {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => ['decline', 'takeOver'].includes(key) ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
         {state === 'unknownExternalResult' && <InlineNotice title="External result is unconfirmed" body="The external system did not return a success or failure response. Retry only with the original idempotency key." tone="unknown" />}
-        {state === 'revoked' && <InlineNotice title="Authority revoked" body="This conversation is preserved for your records, but the agents cannot take further action under the revoked authority." tone="danger" />}
+        {state === 'revoked' && <InlineNotice title="Revocation recorded" body="This conversation remains visible. Agent delivery enforcement for this case has not yet been verified." tone="danger" />}
         {workCase.receipt && <ReceiptCard workCase={workCase} />}
 
         <ProposalHistory workCase={workCase} view={view} events={events} />
@@ -633,9 +633,9 @@ export function DecisionCard({ workCase, view, events, policy, canManageInbox, b
   const option = proposal?.options.find(item => !item.expired);
   const parties = proposal ? proposalParties(workCase, proposal.id, events, view) : null;
   const optionParty = proposal?.status === 'countered' ? parties?.counterparty : parties?.originator;
-  // Pause/resume and takeover are not enforced by the current server. Do not
+  // Pause, case revocation and takeover are not enforced by the current server. Do not
   // offer a button whose effect would only be a recorded case label.
-  const availableActions = (workCase.decision?.availableActions || []).filter(action => !['pause', 'takeOver'].includes(action));
+  const availableActions = (workCase.decision?.availableActions || []).filter(action => !['pause', 'revoke', 'takeOver'].includes(action));
   return (
     <section className="decision-card" aria-labelledby="decision-title">
       <div className="decision-accent"><Sparkles size={18} /></div>
@@ -698,7 +698,7 @@ function TimelineEvent({ event, last, view, workCase, onPolicy }: { event: CaseE
       <div className="event-body">{isExchangeEvent(event)
         ? <ExchangeLedgerEvent event={event} view={view} workCase={workCase} />
         : <><div className="event-meta"><span className={`identity-label ${actorIsAgent ? 'agent' : 'system'}`}>{actorIsAgent ? <Bot size={13} /> : <Database size={13} />}{actor}<small>{participantRole(participant)}</small></span><time dateTime={event.createdAt}>{formatAbsolute(event.createdAt)}</time></div><p>{eventSummary(event)}</p></>}
-        {policy && <button className="authority-link compact" onClick={() => onPolicy(policy)}><AuthoritySeal decision={policy.decision} /><span>Authorized by {humanize(policy.matchedPolicyId || policy.reasonCode)}</span></button>}
+        {policy && <button className="authority-link compact" onClick={() => onPolicy(policy)}><AuthoritySeal decision={policy.decision} /><span>Linked policy record: {humanize(policy.matchedPolicyId || policy.reasonCode)}</span></button>}
       </div>
     </li>
   );
@@ -753,7 +753,7 @@ function ContextRail({ workCase, view, onPolicy, onEvidence, notify }: { workCas
   const deliveries = view.deliveryReceipts.filter(item => timelineForCase(workCase, view.messages).some(event => event.payload.messageId === item.messageId));
   return (
     <aside className="context-rail" aria-label="Conversation details">
-      <RailSection title="Authority" icon={<ShieldCheck size={16} />}>
+      <RailSection title="Recorded policy evaluations" icon={<ShieldCheck size={16} />}>
         {workCase.policyEvaluations?.length ? workCase.policyEvaluations.map(item => <button key={item.id} className="rail-row interactive" onClick={() => onPolicy(item)}><AuthoritySeal decision={item.decision} /><span><strong>{humanize(item.requestedAction)}</strong><small>{humanize(item.grantType)} · {humanize(item.decision)}</small></span><ChevronDown size={14} /></button>) : <RailEmpty>No special permission has been requested.</RailEmpty>}
       </RailSection>
       <RailSection title="Evidence" icon={<FileCheck2 size={16} />}>
@@ -840,7 +840,7 @@ function SharedFilesPage({ view, notify }: { view: HumanView; notify: (message: 
 
 function PoliciesPage({ view }: { view: HumanView }) {
   const policies = view.caseQueue.flatMap(item => item.policyEvaluations || []).sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt));
-  return <PageFrame eyebrow="Authority" title="Policies" description="The rules that let agents prepare, propose, or commit actions on your behalf."><div className="policy-summary"><Metric value={policies.filter(item => item.decision === 'allow').length} label="Allowed evaluations" /><Metric value={policies.filter(item => item.decision === 'needsHuman').length} label="Asked for judgment" /><Metric value={policies.filter(item => item.decision === 'deny').length} label="Denied" /></div>{policies.length ? <div className="data-list">{policies.map(item => <article key={item.id} className="data-row"><AuthoritySeal decision={item.decision} /><div><strong>{humanize(item.requestedAction)}</strong><span>{humanize(item.matchedPolicyId || 'No matching grant')} · {humanize(item.grantType)}</span></div><StatusText value={item.decision} /><time>{formatAbsolute(item.effectiveAt)}</time></article>)}</div> : <PageEmpty icon={<ShieldCheck />} title="No policy evaluations yet" body="Authority checks will appear here as agents attempt consequential actions." />}</PageFrame>;
+  return <PageFrame eyebrow="Authority" title="Policy evaluations" description="Recorded policy decisions for agent work. This view does not independently verify agent-reported authority or outcome claims."><div className="policy-summary"><Metric value={policies.filter(item => item.decision === 'allow').length} label="Allowed evaluations" /><Metric value={policies.filter(item => item.decision === 'needsHuman').length} label="Asked for judgment" /><Metric value={policies.filter(item => item.decision === 'deny').length} label="Denied" /></div>{policies.length ? <div className="data-list">{policies.map(item => <article key={item.id} className="data-row"><AuthoritySeal decision={item.decision} /><div><strong>{humanize(item.requestedAction)}</strong><span>{humanize(item.matchedPolicyId || 'No matching grant')} · {humanize(item.grantType)}</span></div><StatusText value={item.decision} /><time>{formatAbsolute(item.effectiveAt)}</time></article>)}</div> : <PageEmpty icon={<ShieldCheck />} title="No policy evaluations yet" body="Authority checks will appear here as agents attempt consequential actions." />}</PageFrame>;
 }
 
 function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInbox, onSelectWorkspace, onRefresh, notify }: { view: HumanView; workspace: Workspace; agentInboxes: Workspace[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
@@ -936,6 +936,10 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [approvalError, setApprovalError] = useState('');
+  const [revokeOpen, setRevokeOpen] = useState(false);
+  const [revokeBusy, setRevokeBusy] = useState(false);
+  const [revokeError, setRevokeError] = useState('');
+  const [revokeResult, setRevokeResult] = useState<{ revokedAt: string; credentialFamilyCount: number } | null>(null);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
   const platformAddress = agent.platformAddress || transportAgent?.platformAddress || transportAgent?.internalAddress || agent.address;
@@ -952,18 +956,39 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     } catch (caught) { setApprovalError(errorMessage(caught)); }
     finally { setApprovalBusy(false); }
   }
+  async function revokeCredentials() {
+    setRevokeBusy(true);
+    setRevokeError('');
+    try {
+      const result = await api.revokeAgentCredentials(workspace.id, agent.id);
+      setCredential('');
+      setRevokeResult(result);
+      setRevokeOpen(false);
+      notify(`Credentials revoked for ${agent.name}.`);
+      try { await onRefresh(); }
+      catch { notify(`Credentials revoked for ${agent.name}. Refresh the workspace to see the latest audit event.`); }
+    } catch (caught) { setRevokeError(errorMessage(caught)); }
+    finally { setRevokeBusy(false); }
+  }
   return <article className="integration-card">
-    <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.status} /></div>
+    <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.onboardingStatus === 'approved' ? 'enrolled' : agent.status} /></div>
     {emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}
     <div className="capability-list">{agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div>
-    <dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Verified and active' : 'Pending approval'}</dd></div><div><dt>Access</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>
+    <dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Enrolled identity' : 'Pending approval'}</dd></div><div><dt>Permissions</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>
+    {revokeResult && <InlineNotice title="Credential revocation completed" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. The agent identity and past conversations remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
     {pending && canApproveAgent && <button className="button primary" onClick={() => setApprovalOpen(true)}>Review agent access</button>}
+    {canManageInbox && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent credentials</button>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
       <FormError message={approvalError} />
       <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setApprovalOpen(false)}>Cancel</button><button className="button primary" disabled={approvalBusy} onClick={() => void approve()}>{approvalBusy ? 'Approving…' : 'Approve with selected access'}</button></div>
+    </Modal>}
+    {revokeOpen && canManageInbox && <Modal title={`Revoke ${agent.name}'s credentials?`} onClose={() => setRevokeOpen(false)} dismissible={!revokeBusy}>
+      <p className="dialog-copy">This revokes the agent's current access and refresh credentials and disconnects its live stream. The agent identity and conversation history remain visible.</p>
+      <FormError message={revokeError} />
+      <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep credentials</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Revoking…' : 'Revoke credentials'}</button></div>
     </Modal>}
   </article>;
 }
@@ -1013,7 +1038,7 @@ function PageEmpty({ icon, title, body, action }: { icon: ReactNode; title: stri
 
 function DetailDrawer({ drawer, onClose }: { drawer: { type: 'policy' | 'evidence'; item?: PolicyEvaluation | EvidenceItem }; onClose: () => void }) {
   const item = drawer.item;
-  return <><button className="drawer-scrim" aria-label="Close details" onClick={onClose} /><aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title"><header><div><p className="eyebrow">{drawer.type === 'policy' ? 'Authority basis' : 'Evidence provenance'}</p><h2 id="drawer-title">{item && 'title' in item ? item.title : item && 'requestedAction' in item ? humanize(item.requestedAction) : 'Details'}</h2></div><button className="icon-button" aria-label="Close details" onClick={onClose}><X size={18} /></button></header>{item && 'decision' in item ? <dl className="detail-list"><Detail term="Decision" value={humanize(item.decision)} /><Detail term="Matched policy" value={humanize(item.matchedPolicyId || 'No matching policy')} /><Detail term="Grant type" value={humanize(item.grantType)} /><Detail term="Reason" value={humanize(item.reasonCode)} /><Detail term="Effective" value={formatAbsolute(item.effectiveAt)} /><Detail term="Expires" value={item.expiresAt ? formatAbsolute(item.expiresAt) : 'No expiration'} /></dl> : item && 'provenance' in item ? <dl className="detail-list"><Detail term="Type" value={humanize(item.kind)} /><Detail term="Source" value={provenanceLabel(item.provenance)} /><Detail term="Reference" value={item.id} /></dl> : null}</aside></>;
+  return <><button className="drawer-scrim" aria-label="Close details" onClick={onClose} /><aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title"><header><div><p className="eyebrow">{drawer.type === 'policy' ? 'Recorded policy evaluation' : 'Evidence provenance'}</p><h2 id="drawer-title">{item && 'title' in item ? item.title : item && 'requestedAction' in item ? humanize(item.requestedAction) : 'Details'}</h2></div><button className="icon-button" aria-label="Close details" onClick={onClose}><X size={18} /></button></header>{item && 'decision' in item ? <dl className="detail-list"><Detail term="Decision" value={humanize(item.decision)} /><Detail term="Matched policy" value={humanize(item.matchedPolicyId || 'No matching policy')} /><Detail term="Grant type" value={humanize(item.grantType)} /><Detail term="Reason" value={humanize(item.reasonCode)} /><Detail term="Effective" value={formatAbsolute(item.effectiveAt)} /><Detail term="Expires" value={item.expiresAt ? formatAbsolute(item.expiresAt) : 'No expiration'} /></dl> : item && 'provenance' in item ? <dl className="detail-list"><Detail term="Type" value={humanize(item.kind)} /><Detail term="Source" value={provenanceLabel(item.provenance)} /><Detail term="Reference" value={item.id} /></dl> : null}</aside></>;
 }
 
 function Detail({ term, value }: { term: string; value: string }) { return <div><dt>{term}</dt><dd>{value}</dd></div>; }
@@ -1058,7 +1083,7 @@ function caseType(workCase: WorkCase) { return `${humanize(workCase.collaboratio
 function decisionQuestion(workCase: WorkCase, option?: ProposalOption) { if (workCase.decision?.question) return workCase.decision.question; if (option?.outOfPolicyFlags?.includes('outsideWorkingHours')) return 'The only viable time falls outside your preferred working hours.'; const policy = decisionPolicy(workCase); return policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.'; }
 function actionPastTense(action: HumanActionKey) { return ({ approveOnce: 'Approved once. The agent can continue.', decline: 'Declined. The conversation has been updated.', editProposal: 'Proposal edits requested.', pause: 'Conversation paused.', revoke: 'Authority revoked.', takeOver: 'You took over this conversation.' })[action]; }
 function confirmTitle(action: HumanActionKey) { return ({ decline: 'Decline this proposal?', revoke: 'Revoke authority?', takeOver: 'Take over this conversation?', pause: 'Pause this conversation?', approveOnce: 'Approve once?', editProposal: 'Request edits?' })[action]; }
-function confirmBody(action: HumanActionKey) { return ({ decline: 'The current proposal will no longer be actionable. The decision remains in the audit record.', revoke: 'The agent will no longer be able to act under this authority.', takeOver: 'Agent work will pause while you handle this conversation directly.', pause: 'The agents will stop advancing this conversation until new authority is provided.', approveOnce: 'This grants one-time authority for the current action.', editProposal: 'The agent will be asked to prepare a revised option.' })[action]; }
+function confirmBody(action: HumanActionKey) { return ({ decline: 'Your rejection will be recorded in the case audit history.', revoke: 'A revocation will be recorded in the case history.', takeOver: 'A takeover request will be recorded in the case history.', pause: 'A pause request will be recorded in the case history.', approveOnce: 'This grants one-time authority for the current action.', editProposal: 'A request for a revised option will be recorded.' })[action]; }
 function conversationTags(workCase: WorkCase) {
   const state = caseState(workCase);
   const mode = workCase.collaborationMode;

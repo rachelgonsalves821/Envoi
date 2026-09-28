@@ -58,4 +58,16 @@ describe('human action visibility', () => {
     expect(linked).toContain('Review agent access');
     expect(unrelated).not.toContain('Review agent access');
   });
+
+  it('offers credential revocation only to workspace managers, without claiming the agent is online', () => {
+    const agent = { id: 'agent_1', name: 'Milo', address: 'milo@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: ['send_agent_messages'] } as Agent;
+    const workspace = { id: 'inbox_1', ownerHumanId: 'human_1' } as Inbox;
+    const props = { agent, workspace, emailTransport: null, humanId: 'human_1', onRefresh: vi.fn(), notify: vi.fn() };
+    const manager = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: true }));
+    const observer = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: false }));
+    expect(manager).toContain('Revoke agent credentials');
+    expect(observer).not.toContain('Revoke agent credentials');
+    expect(manager).toContain('Enrolled');
+    expect(manager).not.toContain('Verified and active');
+  });
 });
