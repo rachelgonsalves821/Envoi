@@ -30,6 +30,8 @@ const normalTransitions = {
 const exceptionStates = new Set(['failed', 'unknownExternalResult', 'expired', 'paused', 'revoked', 'disputed']);
 const terminalStates = new Set(['completed', 'failed', 'unknownExternalResult', 'expired', 'revoked']);
 
+export const isActiveCase = value => Boolean(value?.schemaVersion && CASE_STATES.includes(value.state) && !terminalStates.has(value.state));
+
 const domainError = (message, statusCode = 400, details) => Object.assign(new Error(message), { statusCode, details });
 const clone = value => structuredClone(value);
 

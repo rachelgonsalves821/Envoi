@@ -214,6 +214,9 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const recipient = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: recipientToken.payload.enrollmentToken, name: 'Recipient', slug: 'recipient' } });
   const recipientInboxId = recipient.payload.inbox.id;
   assert.notEqual(recipientInboxId, recipientWorkspace.payload.id);
+  const recipientAgentView = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/agent-view?agentId=${recipient.payload.agent.id}`, { token: recipient.payload.agentApiToken });
+  assert.equal(recipientAgentView.status, 200);
+  assert.deepEqual(recipientAgentView.payload.capabilities.sort(), ['receive_agent_messages', 'send_agent_messages']);
   const spoofed = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { headers: { 'Idempotency-Key': 'spoof-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: recipient.payload.agent.address, text: 'spoof' } });
   assert.equal(spoofed.status, 401);
   const rawRecipientId = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'raw-id-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientAgentId: recipient.payload.agent.id, text: 'not address routed' } });
@@ -387,6 +390,10 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const progress = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'case-progress-1' }, body: { actionKey: 'case.classify', outcome: 'ok', nextState: 'inProgress' } });
   assert.equal(progress.status, 201);
   assert.equal(progress.payload.case.state, 'inProgress');
+  const activeAgentView = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agent-view?agentId=${enrolled.payload.agent.id}`, { token: enrolled.payload.agentApiToken });
+  assert.equal(activeAgentView.status, 200);
+  assert.ok(activeAgentView.payload.queue.activeCases.some(item => item.id === caseCreated.payload.id));
+  assert.deepEqual(activeAgentView.payload.capabilities.sort(), ['create_assets', 'execute_cases', 'receive_agent_messages', 'send_agent_messages']);
   const concurrentEvents = await Promise.all([
     request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/events`, { token: enrolled.payload.agentApiToken, body: { type: 'message', payload: { marker: 'concurrent-a' } } }),
     request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/events`, { token: enrolled.payload.agentApiToken, body: { type: 'message', payload: { marker: 'concurrent-b' } } })
@@ -490,6 +497,9 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const rejectedRecipient = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/agent-onboarding/${recipient.payload.agent.id}/reject`, { token: sessionToken, body: {} });
   assert.equal(rejectedRecipient.status, 200);
   assert.equal(rejectedRecipient.payload.agent.status, 'rejected');
+  const rejectedAgentView = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/agent-view?agentId=${recipient.payload.agent.id}`, { token: sessionToken });
+  assert.equal(rejectedAgentView.status, 200);
+  assert.deepEqual(rejectedAgentView.payload.capabilities, []);
   assert.equal(await waitForStreamClose(recipientReader), true);
   const rejectedRecipientRead = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/events/delta`, { token: recipient.payload.agentApiToken });
   assert.equal(rejectedRecipientRead.status, 401);

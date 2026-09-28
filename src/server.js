@@ -40,6 +40,7 @@ import {
   completeCase,
   counterProposal,
   createCase as createAgentCase,
+  isActiveCase,
   transitionCase
 } from './agent-interface.js';
 import { projectWorkspaceForHuman } from './human-projection.js';
@@ -1377,11 +1378,14 @@ async function agentView(inboxId, inbox, agentId) {
     inbox,
     mode: 'agent-operator',
     agent: publicAgent(agent),
-    capabilities: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', ...(calendarConnectors.some(item => item.status === 'connected') ? ['use_connected_calendar'] : [])],
+    capabilities: [...new Set((Array.isArray(agent.permissions) ? agent.permissions : [])
+      .filter(permission => allowedPermissions.has(permission) && hasPermission(agent, permission)))],
     queue: {
       assignedMessages: messages.filter((item) => item.recipientAgentId === agentId),
       authoredMessages: messages.filter((item) => item.senderAgentId === agentId),
-      activeCases: cases.filter((item) => item.status === 'active' && item.participantAgentIds?.includes(agentId)),
+      activeCases: cases.filter(item => item.schemaVersion
+        ? isActiveCase(item) && isCaseParticipant(item, agentId)
+        : item.status === 'active' && item.participantAgentIds?.includes(agentId)),
       createdAssets: assets.filter((item) => item.createdByAgentId === agentId),
       calendarConnectors: calendarConnectors.map(publicCalendarConnector),
       deliveryReceipts: deliveryReceipts.filter(item => item.senderAgentId === agentId || item.recipientAgentId === agentId)
