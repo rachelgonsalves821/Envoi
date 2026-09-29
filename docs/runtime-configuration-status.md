@@ -1,6 +1,18 @@
 # Cloudflare runtime configuration status
 
-The Worker `sinaloa` Production settings were checked in a signed-in Cloudflare dashboard on 2026-09-28. Historical observations below describe that snapshot; current subscription status was checked again on 2026-09-28.
+The Worker `sinaloa` Production settings were checked in a signed-in Cloudflare dashboard on 2026-09-28. Historical observations below describe that snapshot. The fresh account check below is the current evidence; older staging instructions in this file predate Rachel's choice of one invite-only beta environment at `beta.sinaloa-inbox.com`.
+
+## Fresh account check — 2026-09-29
+
+- Rachel authorized Neon Console's read-only GitHub email access, and a new **Neon `sinaloa-beta` PostgreSQL project** was created in AWS US East 2 (Ohio), project ID `dry-tooth-12968475`. Its default `production` branch contains database `sinaloa_beta` on PostgreSQL 18. The project is on Neon's Free plan with a **6-hour history retention** window. Its connection secret has not been entered into Cloudflare, migrations have not run, and a restore test is still open. A longer retention/backup policy is needed before real-user beta signoff.
+- Cloudflare R2 still opens the subscription page, not a bucket list. The page offers activation at $0 due now and $0 base monthly, with usage charges beyond its allowance and automatic renewal. Activation is awaiting Rachel's action-time approval; no R2 bucket, S3 credential, or live object test exists.
+- The Workers & Pages dashboard shows only `sinaloa`, with its latest deployment failed and no active route or Worker invocations. The Containers page is accessible but lists no deployed Containers. Paid/Containers access is therefore visible, while a working rollout is unproven.
+- The failed `sinaloa` build produced a Container image and uploaded the Worker, then failed during the Cloudflare Containers API deployment step. That build used `main` at `cc86af3`, before the current partner/R1/R2 integration work. Retrying that old build would not validate the release candidate.
+- The active `sinaloa build token` lists `Account.Containers` among 25 permissions, but the dashboard list does not reveal whether that permission is **Edit**. Token scope and a fresh exact-head deployment remain unverified.
+- `sinaloa-inbox.com` is active in this Cloudflare account, with full DNS setup and Workers Paid listed. Its zone overview reports **no Workers connected**; public DNS has no `beta.sinaloa-inbox.com` record yet. The hostname can be bound only after the beta Worker serves the reviewed release.
+- The signed-in WorkOS dashboard has a `Sinaloa Beta` application in its **Staging** environment. Its callback, homepage, initiate-login, and sign-out URLs all use `https://beta.sinaloa-inbox.com`; an existing `sk_test_…` API key is listed. The full key has not been revealed or transferred, and neither a live sign-in nor beta Worker secret configuration has been verified.
+- There is still no verified beta Worker, malware scanner, beta runtime secret table, or live database/WorkOS/R2/provider acceptance. The current process has no provider credentials; this is not evidence that credentials do not exist in the owners' accounts.
+- The release target is one isolated invite-only **beta** environment at `beta.sinaloa-inbox.com`, with native addresses under `agents.sinaloa-inbox.com`. The old `staging` Wrangler environment and per-environment instructions below must be reconciled with that decision before deployment. Keep the existing `sinaloa` Production Worker and its data untouched until the reviewed beta candidate is ready.
 
 ## Current account check — 2026-09-28
 
