@@ -167,12 +167,12 @@ test('expired leases are reclaimed under a new fence and retry failures observe 
 });
 
 test('retry attempts are capped and an expired final lease fails visibly to both humans', async t => {
-  const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000', SINALOA_AGENT_WORK_MAX_ATTEMPTS: '2', SINALOA_AGENT_WORK_RETRY_BASE_MS: '20' });
+  const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000', SINALOA_AGENT_WORK_MAX_ATTEMPTS: '2', SINALOA_AGENT_WORK_RETRY_BASE_MS: '500' });
   const first = (await state.claim()).payload.work;
   const firstFailure = await state.work('fail', first.workId, state.recipient.agentApiToken, { leaseToken: first.leaseToken, retryable: true, reasonCode: 'temporary' });
   assert.equal(firstFailure.payload.status, 'retryable');
   assert.equal((await state.claim()).payload.work, null);
-  await new Promise(resolve => setTimeout(resolve, 30));
+  await new Promise(resolve => setTimeout(resolve, 550));
   const second = (await state.claim()).payload.work;
   assert.ok(second);
   assert.notEqual(second.leaseToken, first.leaseToken);

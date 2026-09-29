@@ -688,12 +688,13 @@ function ProposalOptionView({ option, expiresAt, stageLabel, partyLabel, muted =
   const start = typeof option.value.start === 'string' ? option.value.start : null;
   const end = typeof option.value.end === 'string' ? option.value.end : null;
   const timezone = String(option.value.timezone || 'UTC');
+  const terms = Object.entries(option.value).filter(([key]) => !['title', 'start', 'end', 'timezone'].includes(key));
   return (
-    <div className={`proposal-option ${muted ? 'is-superseded' : ''}`}><CalendarDays size={18} /><div>{stageLabel && <span className="proposal-party">{stageLabel}{partyLabel ? ` · ${partyLabel}` : ''}</span>}<strong>{start ? `${formatDate(start)} · ${formatTime(start)}${end ? `–${formatTime(end)}` : ''}` : humanize(option.value.title || 'Proposed option')}</strong><span>{timezone} · {provenanceLabel(option.sourceConfidence)}</span>{expiresAt && !muted && <small>Tentative hold expires {formatAbsolute(expiresAt)}</small>}{muted && <small>Superseded by a counteroffer</small>}</div>{option.outOfPolicyFlags?.map(flag => <span key={flag} className="risk-label"><AlertCircle size={12} />{humanize(flag)}</span>)}</div>
+    <div className={`proposal-option ${muted ? 'is-superseded' : ''}`}><CalendarDays size={18} /><div>{stageLabel && <span className="proposal-party">{stageLabel}{partyLabel ? ` · ${partyLabel}` : ''}</span>}<strong>{start ? `${formatDate(start)} · ${formatTime(start)}${end ? `–${formatTime(end)}` : ''}` : humanize(option.value.title || 'Proposed option')}</strong>{start && <span>{timezone} · {provenanceLabel(option.sourceConfidence)}</span>}{!start && <span>{provenanceLabel(option.sourceConfidence)}</span>}{terms.length > 0 && <dl className="proposal-terms">{terms.map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl>}{expiresAt && !muted && <small>Tentative hold expires {formatAbsolute(expiresAt)}</small>}{muted && <small>Superseded by a counteroffer</small>}</div>{option.outOfPolicyFlags?.map(flag => <span key={flag} className="risk-label"><AlertCircle size={12} />{humanize(flag)}</span>)}</div>
   );
 }
 
-function ProposalHistory({ workCase, view, events }: { workCase: WorkCase; view: HumanView; events: CaseEvent[] }) {
+export function ProposalHistory({ workCase, view, events }: { workCase: WorkCase; view: HumanView; events: CaseEvent[] }) {
   if (!workCase.proposals?.length) return null;
   return (
     <section className="proposal-history" aria-labelledby="proposal-history-title">
@@ -740,7 +741,7 @@ function TimelineEvent({ event, last, view, workCase, onPolicy }: { event: CaseE
   );
 }
 
-function ExchangeLedgerEvent({ event, view, workCase }: { event: CaseEvent; view: HumanView; workCase: WorkCase }) {
+export function ExchangeLedgerEvent({ event, view, workCase }: { event: CaseEvent; view: HumanView; workCase: WorkCase }) {
   const exchange = exchangeParties(workCase, event, view.agents, view.participantDirectory);
   const label = exchangeEventLabel(event);
   return (
@@ -771,6 +772,8 @@ function exchangeEventLabel(event: CaseEvent) {
   if (messageType === 'request') return 'Request';
   if (messageType === 'acceptance') return 'Acceptance';
   if (messageType === 'rejection') return 'Rejection';
+  if (messageType === 'decision') return `Decision: ${humanize(event.payload.data?.decision?.kind || 'recorded')}`;
+  if (messageType === 'completion') return 'Completion';
   return 'Message';
 }
 
@@ -841,10 +844,10 @@ function AssetRow({ asset, inboxId, notify }: { asset: Asset; inboxId: string; n
 function RailSection({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) { return <section className="rail-section"><h3>{icon}{title}</h3>{children}</section>; }
 function RailEmpty({ children }: { children: ReactNode }) { return <p className="rail-empty">{children}</p>; }
 
-function ReceiptCard({ workCase }: { workCase: WorkCase }) {
+export function ReceiptCard({ workCase }: { workCase: WorkCase }) {
   const receipt = workCase.receipt!;
   return (
-    <section className="receipt-card"><div className="receipt-mark"><ReceiptText size={24} /></div><div className="receipt-content"><p className="eyebrow">Agent-reported outcome receipt</p><h2>{receipt.result}</h2><div className="receipt-grid"><div><span>Recorded</span><strong>{formatAbsolute(receipt.createdAt || workCase.updatedAt || workCase.createdAt)}</strong></div><div><span>Reported human approval</span><strong>{humanize(receipt.humanApprovalStatus)}</strong></div><div><span>Reported authority basis</span><strong>{humanize(receipt.authorityBasis)}</strong></div>{receipt.counterparties?.length ? <div><span>Counterparties</span><strong>{receipt.counterparties.join(', ')}</strong></div> : null}{receipt.evidenceRefs?.length ? <div><span>Evidence</span><strong>{receipt.evidenceRefs.join(', ')}</strong></div> : null}{Object.entries(receipt.externalIds || {}).map(([key, value]) => <div key={key}><span>{humanize(key)}</span><code>{String(value)}</code></div>)}</div></div><button className="button secondary" onClick={() => window.print()}>Print receipt</button></section>
+    <section className="receipt-card"><div className="receipt-mark"><ReceiptText size={24} /></div><div className="receipt-content"><p className="eyebrow">Case outcome receipt</p><h2>{receipt.result}</h2><div className="receipt-grid"><div><span>Recorded</span><strong>{formatAbsolute(receipt.createdAt || workCase.updatedAt || workCase.createdAt)}</strong></div><div><span>Human approval</span><strong>{humanize(receipt.humanApprovalStatus)}</strong></div><div><span>Authority basis</span><strong>{humanize(receipt.authorityBasis)}</strong></div>{receipt.counterparties?.length ? <div><span>Counterparties</span><strong>{receipt.counterparties.join(', ')}</strong></div> : null}{receipt.evidenceRefs?.length ? <div><span>Evidence</span><strong>{receipt.evidenceRefs.join(', ')}</strong></div> : null}{Object.entries(receipt.externalIds || {}).map(([key, value]) => <div key={key}><span>{humanize(key)}</span><code>{String(value)}</code></div>)}</div></div><button className="button secondary" onClick={() => window.print()}>Print receipt</button></section>
   );
 }
 

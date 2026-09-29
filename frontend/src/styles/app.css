@@ -195,6 +195,10 @@ kbd { color: var(--text-tertiary); font-size: var(--text-micro-size); border: va
 .case-control-actions { display: flex; gap: var(--space-8); flex-wrap: wrap; margin: var(--space-16) 0; }
 .proposal-option { display: grid; grid-template-columns: var(--space-24) minmax(0, 1fr) auto; gap: var(--space-12); padding: var(--space-16); border: var(--border-width-hairline) dashed var(--status-tentative-fg); border-radius: var(--radius-md); background: var(--status-tentative-bg); }
 .proposal-option strong, .proposal-option span, .proposal-option small { display: block; }
+.proposal-terms { display: grid; gap: var(--space-4); margin: var(--space-8) 0 0; }
+.proposal-terms div { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.proposal-terms dt { color: var(--text-tertiary); }
+.proposal-terms dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .proposal-option span, .proposal-option small { color: var(--text-tertiary); font-size: var(--text-small-size); }
 .proposal-option .proposal-party { color: var(--status-tentative-fg); font-size: var(--text-micro-size); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-bottom: var(--space-2); }
 .proposal-option.is-superseded { background: var(--surface-sunken); border-color: var(--border-subtle); opacity: .78; }

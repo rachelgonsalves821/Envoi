@@ -35,7 +35,7 @@ export async function shareCaseAsset(options: ShareCaseAssetOptions) {
   if (asset.state !== 'clean' || asset.caseId !== options.caseId) {
     throw new Error('Asset was not cleared for this case');
   }
-  const grant = await options.connector.grantCaseAsset(asset.id, options.recipientAgentId, `${options.idempotencyKey}:grant`);
+  const grant = await options.connector.grantCaseAsset(asset.id, options.caseId, options.recipientAgentId, `${options.idempotencyKey}:grant`);
   const message = await options.connector.sendCaseEvent(`${options.idempotencyKey}:announce`, {
     caseId: options.caseId, recipientEmail: options.recipientAddress, text: options.text,
     intent: 'message', artifactRefs: [asset.id]

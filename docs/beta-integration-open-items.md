@@ -23,11 +23,14 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 ## Required before combining scopes
 
 - [ ] Freeze and document the exact server/client fixture for two owners, two agents, two concurrent cases, typed offer/decision, clean file grant, pause/resume, block/unblock, revoke, and human approval.
-- [x] Local partner contract mirrors typed native outcomes and one final receipt to both owners; the two-owner fixture checks equality.
+- [x] Local canonical shared case mirrors structured proposals, decisions, and one final receipt to both owners; the two-owner fixture checks equality.
+- [x] Both local human projections retain the exact structured terms, decision, state, and receipt. Frontend rendering checks those terms and the accepted decision in each owner view. Hosted browser acceptance remains open.
 - [x] Local granted-file projection shows the clean asset to the recipient human, and the copied recipient download URL stops working after a block.
 - [x] Local manager pause/resume and native block/unblock controls call enforcing routes; focused frontend and two-owner server tests pass.
 - [x] Local chosen-address test verifies exact lowercase address, atomic collision denial, parent redemption audit marker and two-active-agent cap. Hosted configuration remains open.
-- [ ] Run backend, frontend, TypeScript SDK, Python SDK, bridge, Worker, typecheck, production build, Docker build, PostgreSQL, and both Wrangler dry-runs on the combined candidate.
+- [x] Local backend (99 pass, 8 live-provider/PostgreSQL skips), frontend (58), TypeScript SDK (37), Python SDK (4), bridge (25), Worker (6), typecheck, and production web build pass on the combined working tree.
+- [x] Both Wrangler dry-runs pass outside the local filesystem sandbox for the root Worker and isolated `staging` environment.
+- [ ] Docker build and PostgreSQL tests need an available local or CI runtime; Docker is not installed on this host and no test database is configured.
 - [ ] Commit all combined changes, push `codex/r1-r2-integration`, open or update the integration PR, and require green GitHub CI for the exact head SHA.
 
 ## WorkOS beta account configuration reported from the product setup chat
@@ -69,7 +72,7 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 
 ## Current blockers
 
-1. The combined integration changes are still under active test and are not yet pushed.
+1. The combined integration changes pass the available local tests but are not yet pushed or CI-verified.
 2. Isolated staging PostgreSQL, WorkOS, and scanner resources and secrets are not yet verified.
 3. R2 subscription and live object-storage acceptance remain outstanding.
 4. Real hosted OpenClaw/xAI and two-human browser acceptance cannot run until deployment is healthy.

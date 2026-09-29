@@ -303,8 +303,8 @@ export class SinaloaConnector {
     return this.withFreshClient((client, session) => client.completeAssetUpload(session.inboxId, assetId));
   }
 
-  grantCaseAsset(assetId: string, recipientAgentId: string, idempotencyKey: string) {
-    return this.withFreshClient((client, session) => client.grantCaseAsset(session.inboxId, assetId, recipientAgentId, idempotencyKey));
+  grantCaseAsset(assetId: string, caseId: string, recipientAgentId: string, idempotencyKey: string) {
+    return this.withFreshClient((client, session) => client.grantCaseAsset(session.inboxId, assetId, caseId, recipientAgentId, idempotencyKey));
   }
 
   listAssets() {

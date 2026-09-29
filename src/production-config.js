@@ -38,6 +38,11 @@ export function validateProductionConfiguration(env = process.env) {
   required(env, 'WORKOS_CLIENT_ID', errors);
   required(env, 'WORKOS_API_KEY', errors);
   required(env, 'WORKOS_COOKIE_PASSWORD', errors, 32);
+  const invitedEmails = required(env, 'SINALOA_BETA_INVITED_EMAILS', errors).split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+  if (invitedEmails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) errors.push('SINALOA_BETA_INVITED_EMAILS must contain exact email addresses');
+  required(env, 'SINALOA_TWILIO_ACCOUNT_SID', errors);
+  required(env, 'SINALOA_TWILIO_AUTH_TOKEN', errors);
+  required(env, 'SINALOA_TWILIO_VERIFY_SERVICE_SID', errors);
   const redirectUri = httpsUrl(required(env, 'WORKOS_REDIRECT_URI', errors), 'WORKOS_REDIRECT_URI', errors);
   if (publicUrl && redirectUri && publicUrl.origin !== redirectUri.origin) errors.push('WORKOS_REDIRECT_URI must use the SINALOA_PUBLIC_URL origin');
   const encryptionKey = required(env, 'SINALOA_DATA_ENCRYPTION_KEY', errors, 32);

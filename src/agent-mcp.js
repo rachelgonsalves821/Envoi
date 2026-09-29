@@ -28,10 +28,11 @@ export const agentMcpTools = Object.freeze([
   { name: 'sinaloa_send_message', description: 'Send a native agent message in an existing case to an exact known Sinaloa address.', inputSchema: schema({ ...sendFields, caseId: identifier }, ['recipientAddress', 'text', 'caseId', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'sinaloa_send_proposal', description: 'Send a structured, agent-authored proposal in an existing shared case. This is a native collaboration message, not a server-attested approval.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, proposal: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'proposal', 'idempotencyKey']), permission: 'send_agent_messages' },
   { name: 'sinaloa_send_decision', description: 'Send a structured, agent-authored accept, reject, counteroffer, or clarification message in an existing shared case. This does not execute an external action.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, decision: { type: 'string', enum: ['accept', 'reject', 'counteroffer', 'clarify'] }, proposalMessageId: identifier, details: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'decision', 'idempotencyKey']), permission: 'send_agent_messages' },
-  { name: 'sinaloa_list_assets', description: 'List asset metadata in this agent’s own inbox, including scan state. No binary content is returned.', inputSchema: empty, permission: 'read' },
+  { name: 'sinaloa_send_completion', description: 'Send a typed completion in an existing shared case. The canonical server validates any claimed human decision and creates the shared receipt.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, result: text, authorityBasis: identifier, evidenceRefs: { type: 'array', items: identifier, maxItems: 32 }, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'result', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'sinaloa_list_assets', description: 'List grant-filtered asset metadata in this agent’s own inbox, optionally for one case. No binary content is returned.', inputSchema: schema({ caseId: identifier }), permission: 'read' },
   { name: 'sinaloa_begin_asset_upload', description: 'Reserve a quarantined asset and return a short-lived signed binary PUT URL. Upload bytes directly to that URL, then complete the asset. Reuse the idempotency key for a retry.', inputSchema: schema({ filename: { type: 'string', minLength: 1, maxLength: 255 }, mimeType: { type: 'string', minLength: 1, maxLength: 128 }, size: { type: 'integer', minimum: 1, maximum: 26214400 }, checksumSha256: { type: 'string', pattern: '^[A-Za-z0-9+/]{43}=$' }, caseId: identifier, idempotencyKey }, ['filename', 'mimeType', 'size', 'checksumSha256', 'idempotencyKey']), permission: 'create_assets' },
   { name: 'sinaloa_complete_asset_upload', description: 'Verify an uploaded asset and run the configured malware scan. Only a clean result can be downloaded.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'create_assets' },
-  { name: 'sinaloa_grant_asset', description: 'Grant a clean, case-scoped asset created by this agent to the other participant agent. The server verifies the case, recipient and scan state.', inputSchema: schema({ assetId: identifier, recipientAgentId: identifier }, ['assetId', 'recipientAgentId']), permission: 'create_assets' },
+  { name: 'sinaloa_grant_asset', description: 'Grant an uploaded case asset to the exact counterparty agent. The REST server validates creator, case, tenant, block and recipient scope; a signed URL is not a grant.', inputSchema: schema({ assetId: identifier, caseId: identifier, recipientAgentId: identifier, idempotencyKey }, ['assetId', 'caseId', 'recipientAgentId', 'idempotencyKey']), permission: 'create_assets' },
   { name: 'sinaloa_asset_download', description: 'Return a short-lived signed download URL for a clean asset in this agent’s own inbox.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'read' },
   { name: 'sinaloa_claim_work', description: 'Claim one incoming message under a fenced lease. An empty work field means no work is available.', inputSchema: empty, permission: 'receive_agent_messages' },
   { name: 'sinaloa_renew_work', description: 'Extend the current work lease; requires its opaque fence token.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 } }, ['workId', 'leaseToken']), permission: 'receive_agent_messages' },
@@ -75,28 +76,33 @@ async function invokeTool(name, args, identity, callRest) {
   if (name === 'sinaloa_list_cases') return callRest('GET', `${base}/cases${query(args)}`);
   if (name === 'sinaloa_read_case') return callRest('GET', `${base}/cases/${args.caseId}`);
   if (name === 'sinaloa_list_messages') return callRest('GET', `${base}/messages${query(args)}`);
-  if (name === 'sinaloa_list_assets') return callRest('GET', `${base}/assets`);
+  if (name === 'sinaloa_list_assets') return callRest('GET', `${base}/assets${query(args)}`);
   if (name === 'sinaloa_begin_asset_upload') {
     const { idempotencyKey: key, ...metadata } = args;
     return callRest('POST', `${base}/asset-uploads`, metadata, key);
   }
   if (name === 'sinaloa_complete_asset_upload') return callRest('POST', `${base}/assets/${args.assetId}/complete`, {});
-  if (name === 'sinaloa_grant_asset') return callRest('POST', `${base}/assets/${args.assetId}/grants`, { recipientAgentId: args.recipientAgentId });
+  if (name === 'sinaloa_grant_asset') return callRest('POST', `${base}/assets/${args.assetId}/grants`, { caseId: args.caseId, recipientAgentId: args.recipientAgentId }, args.idempotencyKey);
   if (name === 'sinaloa_asset_download') return callRest('GET', `${base}/assets/${args.assetId}/download`);
-  if (['sinaloa_start_case', 'sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision'].includes(name)) {
+  if (['sinaloa_start_case', 'sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision', 'sinaloa_send_completion'].includes(name)) {
     const caseId = name === 'sinaloa_start_case'
       ? `case_${crypto.createHash('sha256').update(`${identity.agent.id}:${args.idempotencyKey}`).digest('hex').slice(0, 32)}`
       : args.caseId;
     const isProposal = name === 'sinaloa_send_proposal';
     const isDecision = name === 'sinaloa_send_decision';
+    const isCompletion = name === 'sinaloa_send_completion';
+    const isCounterproposal = isDecision && args.decision === 'counteroffer';
     const { status, payload } = await callRest('POST', `${base}/messages`, {
       senderAgentId: identity.agent.id,
       recipientEmail: args.recipientAddress,
       text: args.text,
-      intent: isProposal ? 'offer' : isDecision ? args.decision : args.intent || 'message',
+      intent: name === 'sinaloa_start_case' ? args.intent || 'request' : isProposal ? 'offer' : isDecision ? args.decision : isCompletion ? 'receipt' : args.intent || 'message',
       caseId,
+      ...(name === 'sinaloa_start_case' ? { type: 'request' } : {}),
       ...(isProposal ? { type: 'proposal', payload: { proposal: args.proposal } } : {}),
-      ...(isDecision ? { type: 'decision', payload: { decision: { kind: args.decision, proposalMessageId: args.proposalMessageId || null, details: args.details || null } } } : {})
+      ...(isCounterproposal ? { type: 'counterproposal', payload: { counterproposal: { ...(args.details || {}), proposalMessageId: args.proposalMessageId || null } } } : {}),
+      ...(isDecision && !isCounterproposal ? { type: 'decision', payload: { decision: { kind: args.decision, proposalMessageId: args.proposalMessageId || null, details: args.details || null } } } : {}),
+      ...(isCompletion ? { type: 'completion', payload: { completion: { result: args.result, authorityBasis: args.authorityBasis || null, evidenceRefs: args.evidenceRefs || [] } } } : {})
     }, args.idempotencyKey);
     return { status, payload: { ...payload, caseId: payload?.caseId || caseId } };
   }

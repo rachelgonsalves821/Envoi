@@ -218,11 +218,11 @@ export class SinaloaClient {
   }
 
   /** Grant one clean case asset to the other bound case participant. Reuse the key on retry. */
-  grantCaseAsset(inboxId: string, assetId: string, recipientAgentId: string, idempotencyKey: string) {
+  grantCaseAsset(inboxId: string, assetId: string, caseId: string, recipientAgentId: string, idempotencyKey: string) {
     if (!idempotencyKey) throw new TypeError('An asset grant idempotency key is required');
     return this.request<AssetGrant>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/grants`, {
       method: 'POST', headers: { 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({ recipientAgentId })
+      body: JSON.stringify({ caseId, recipientAgentId })
     });
   }
 

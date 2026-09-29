@@ -24,9 +24,9 @@ async function startServer(environment = {}) {
 }
 
 async function request(baseUrl, pathname, options = {}) {
-  const { token, body, headers = {}, method = body ? 'POST' : 'GET' } = options;
-  const response = await fetch(`${baseUrl}${pathname}`, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(Object.hasOwn(options, 'token') && !token ? browserSession.headers(baseUrl, method) : {}), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
-  browserSession.capture(response);
+  const { token, body, headers = {}, session = browserSession, method = body ? 'POST' : 'GET' } = options;
+  const response = await fetch(`${baseUrl}${pathname}`, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(Object.hasOwn(options, 'token') && !token ? session.headers(baseUrl, method) : {}), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
+  session.capture(response);
   const payload = await response.json();
   return { status: response.status, payload };
 }
@@ -331,8 +331,15 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const blockedRecipientMessages = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/messages`, { token: sessionToken });
   assert.equal(blockedRecipientMessages.payload.some(message => message.id === 'msg_blocked_before_delivery'), false);
 
-  const raceWorkspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Concurrent message workspace' } });
-  const raceToken = await request(server.baseUrl, `/api/inboxes/${raceWorkspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages'] } });
+  const thirdToken = await request(server.baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { token: sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages'] } });
+  assert.equal(thirdToken.status, 409);
+  const raceSession = new BrowserSession();
+  const racePhone = await request(server.baseUrl, '/api/auth/phone/start', { session: raceSession, body: { phoneNumber: '+14165550124', displayName: 'Race owner' } });
+  const raceVerified = await request(server.baseUrl, '/api/auth/phone/verify', { session: raceSession, body: { challengeId: racePhone.payload.challengeId, code: racePhone.payload.developmentCode } });
+  const raceSetup = await request(server.baseUrl, '/api/auth/totp/setup', { session: raceSession, token: raceVerified.payload.sessionToken, body: {} });
+  await request(server.baseUrl, '/api/auth/totp/verify', { session: raceSession, token: raceVerified.payload.sessionToken, body: { code: generateSync({ secret: raceSetup.payload.secret }) } });
+  const raceWorkspace = await request(server.baseUrl, '/api/inboxes', { session: raceSession, token: raceVerified.payload.sessionToken, body: { name: 'Concurrent message workspace' } });
+  const raceToken = await request(server.baseUrl, `/api/inboxes/${raceWorkspace.payload.id}/agent-enrollment-tokens`, { session: raceSession, token: raceVerified.payload.sessionToken, body: { permissions: ['send_agent_messages', 'receive_agent_messages'] } });
   const raceRecipient = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: raceToken.payload.enrollmentToken, name: 'Race Recipient', slug: 'race-recipient' } });
   const concurrentMessages = await Promise.all([
     request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'concurrent-message-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: raceRecipient.payload.agent.address, text: 'first concurrent contact' } }),
@@ -347,7 +354,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
     const response = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { token: raceRecipient.payload.agentApiToken });
     return [...concurrentMessages, duplicateFirstSend[0]].every(result => response.payload.some(message => message.id === result.payload.id && message.status === 'delivered'));
   });
-  const raceInvitations = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/invitations`, { token: sessionToken });
+  const raceInvitations = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/invitations`, { session: raceSession, token: raceVerified.payload.sessionToken });
   assert.deepEqual(raceInvitations.payload, []);
 
   const legacyKey = 'legacy-pending-1';
@@ -377,13 +384,14 @@ test('verified human issues a single-use permissioned agent enrollment', async t
     const response = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { token: raceRecipient.payload.agentApiToken });
     return response.payload.some(message => message.id === legacyMessageId && message.status === 'delivered');
   });
-  const supersededInvitation = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/invitations`, { token: sessionToken });
+  const supersededInvitation = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/invitations`, { session: raceSession, token: raceVerified.payload.sessionToken });
   assert.equal(supersededInvitation.payload.find(invitation => invitation.id === legacyInvitationId).state, 'superseded');
   const declinedLegacy = { ...legacyInvitation, state: 'declined', updatedAt: new Date().toISOString() };
   await writeFile(path.join(server.dataDir, 'inboxes', raceRecipient.payload.inbox.id, 'invitations', `${legacyInvitationId}.json`), JSON.stringify(declinedLegacy));
-  const declinedSend = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'declined-legacy-1' }, body: { ...legacyBody, text: 'must remain declined' } });
-  // A legacy declined invitation is historical state; exact-address native sends no longer require a first-contact invitation.
+  await writeFile(path.join(server.dataDir, 'inboxes', raceRecipient.payload.inbox.id, 'contacts', `${enrolled.payload.agent.id}.json`), JSON.stringify({ agentId: enrolled.payload.agent.id, state: 'declined', approved: false, blocked: false }));
+  const declinedSend = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'declined-legacy-1' }, body: { ...legacyBody, text: 'direct send remains valid' } });
   assert.equal(declinedSend.status, 202);
+  // A historical declined invitation does not block an exact-address native send.
   await waitFor(async () => {
     const response = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { token: raceRecipient.payload.agentApiToken });
     return response.payload.some(message => message.id === declinedSend.payload.id && message.status === 'delivered');
@@ -516,7 +524,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(revokedCredentials.status, 200);
   assert.ok(revokedCredentials.payload.credentialFamilyCount >= 1);
   await waitFor(async () => (await fixtureStore.getOutbox(revokedDeliveryId))?.status === 'deadLettered');
-  const revokedRecipientMessages = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { token: sessionToken });
+  const revokedRecipientMessages = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { session: raceSession, token: raceVerified.payload.sessionToken });
   assert.equal(revokedRecipientMessages.payload.some(message => message.id === 'msg_revoked_before_delivery'), false);
   const rejectedAfterRevocation = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-revoked' }, body: { ...messageBody, text: 'must not send' } });
   assert.equal(rejectedAfterRevocation.status, 401);
