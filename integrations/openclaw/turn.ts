@@ -10,6 +10,28 @@ export interface OpenClawTurnOptions {
   history?: History;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  allowSinaloaMcpWrites?: boolean;
+}
+
+export function mcpReplyMessageId(name: string, args: Record<string, unknown>): string | null {
+  if (!['sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision'].includes(name)) return null;
+  const key = args.idempotencyKey;
+  const match = typeof key === 'string' ? /^bridge:([A-Za-z0-9][A-Za-z0-9_-]{0,127}):reply:1$/.exec(key) : null;
+  return match?.[1] ?? null;
+}
+
+/** A completed MCP reply wins over Gateway text or a transient Gateway failure. */
+export function withRecordedMcpReply(turn: AgentTurn, wasSent: (messageId: string) => Promise<boolean>): AgentTurn {
+  return async (message, signal) => {
+    if (await wasSent(message.id)) return { stop: true };
+    try {
+      const reply = await turn(message, signal);
+      return await wasSent(message.id) ? { stop: true } : reply;
+    } catch (error) {
+      if (await wasSent(message.id)) return { stop: true };
+      throw error;
+    }
+  };
 }
 
 function gatewayOrigin(value: string): string {
@@ -53,7 +75,7 @@ export function openClawTurn(options: OpenClawTurnOptions): AgentTurn {
           model: `openclaw/${options.agentId}`,
           user: `sinaloa:${message.caseId || message.id}`,
           stream: false,
-          messages: [{ role: 'user', content: workPrompt(message, history) }]
+          messages: [{ role: 'user', content: workPrompt(message, history, { allowSinaloaMcpWrites: options.allowSinaloaMcpWrites }) }]
         })
       });
       if (!response.ok) throw new Error(`OpenClaw turn failed with HTTP ${response.status}`);

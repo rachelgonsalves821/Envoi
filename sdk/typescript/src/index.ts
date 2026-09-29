@@ -60,6 +60,22 @@ export interface AssetRecord {
   state: 'quarantine' | 'clean' | 'infected' | 'error';
   createdAt: string;
   scannedAt: string | null;
+  /** Present when this asset is visible through a cross-owner case grant. */
+  grant?: AssetGrant;
+}
+
+export interface AssetGrant {
+  id: string;
+  assetId: string;
+  caseId: string;
+  ownerInboxId: string;
+  recipientInboxId: string;
+  createdByAgentId: string;
+  recipientAgentId: string;
+  grantedBy: string;
+  grantedAt: string;
+  revokedAt: string | null;
+  updatedAt: string;
 }
 
 export interface SignedAssetRequest { url: string; method: 'PUT' | 'GET'; headers?: Record<string, string> }
@@ -190,14 +206,28 @@ export class SinaloaClient {
     return this.request<Array<Record<string, unknown>>>(`/api/inboxes/${encodeURIComponent(inboxId)}/messages?${query}`);
   }
 
-  beginAssetUpload(inboxId: string, input: AssetUploadInput) {
+  /** Reuse the same key and input after an uncertain upload reservation response. */
+  beginAssetUpload(inboxId: string, idempotencyKey: string, input: AssetUploadInput) {
     return this.request<{ object: AssetRecord; upload: SignedAssetRequest }>(`/api/inboxes/${encodeURIComponent(inboxId)}/asset-uploads`, {
-      method: 'POST', body: JSON.stringify(input)
+      method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(input)
     });
   }
 
   completeAssetUpload(inboxId: string, assetId: string) {
     return this.request<AssetRecord>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/complete`, { method: 'POST', body: '{}' });
+  }
+
+  /** Grant one clean case asset to the other bound case participant. Reuse the key on retry. */
+  grantCaseAsset(inboxId: string, assetId: string, recipientAgentId: string, idempotencyKey: string) {
+    if (!idempotencyKey) throw new TypeError('An asset grant idempotency key is required');
+    return this.request<AssetGrant>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/grants`, {
+      method: 'POST', headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ recipientAgentId })
+    });
+  }
+
+  listAssets(inboxId: string) {
+    return this.request<AssetRecord[]>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets`);
   }
 
   /** The server issues a download URL only when the asset passed its malware scan. */

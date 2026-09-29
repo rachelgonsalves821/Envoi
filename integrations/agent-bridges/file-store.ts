@@ -37,4 +37,10 @@ export class FileBridgeStore implements ConnectorStore, BridgeLedger {
 
   replyFor(messageId: string) { return this.readJson<BridgeDecision>(path.join(this.directory, 'work', `${safeId(messageId)}.reply.json`)); }
   saveReply(messageId: string, reply: BridgeDecision) { return this.replaceJson(path.join(this.directory, 'work', `${safeId(messageId)}.reply.json`), reply); }
+  async mcpReplySent(messageId: string) {
+    return (await this.readJson<{ sent: true }>(path.join(this.directory, 'work', `${safeId(messageId)}.mcp-reply.json`)))?.sent === true;
+  }
+  markMcpReplySent(messageId: string) {
+    return this.replaceJson(path.join(this.directory, 'work', `${safeId(messageId)}.mcp-reply.json`), { sent: true });
+  }
 }

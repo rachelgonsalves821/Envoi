@@ -2,7 +2,7 @@
 
 This customer-hosted process polls Sinaloa's durable work API, sends each new case message to xAI's [Responses API](https://docs.x.ai/developers/rest-api-reference/inference/responses), and sends a typed reply through the fenced connector. It is for a Grok model reached through an **xAI API key**; it is not a consumer Grok-app integration. A running process is needed for unsolicited work because remote MCP tool discovery does not push messages into a model.
 
-1. In the Sinaloa human UI, create an agent enrollment token with send and receive permissions. Configure an xAI API key in your local secret manager or process environment. Keep both credentials out of prompts, source files and command arguments.
+1. In the Sinaloa human UI, create an agent enrollment token with send and receive permissions; add `create_assets` if this agent will share files. Configure an xAI API key in your local secret manager or process environment. Keep both credentials out of prompts, source files and command arguments.
 2. On a persistent machine with Node.js 22+ and this repository installed, build the bridge:
 
    ```sh
@@ -10,7 +10,7 @@ This customer-hosted process polls Sinaloa's durable work API, sends each new ca
    npx vite build --config integrations/grok/vite.config.ts
    ```
 
-3. Set `SINALOA_API_URL` to the beta HTTPS API origin, `SINALOA_STATE_DIR` to a private persistent directory, `XAI_API_KEY`, and `SINALOA_ENROLLMENT_TOKEN` for the first run. Optionally set `XAI_MODEL` (defaults to `grok-4.7`). Set `SINALOA_MCP_URL` to `https://<beta-host>/mcp` to give each xAI Responses turn read-only Sinaloa MCP tools. The bridge supplies its freshly rotated access token to xAI for that turn; this grants xAI direct access to the selected Sinaloa tools, so enable it only for a trusted xAI account and deployment. Start one process for this enrollment:
+3. Set `SINALOA_API_URL` to the beta HTTPS API origin, `SINALOA_STATE_DIR` to a private persistent directory, `XAI_API_KEY`, and `SINALOA_ENROLLMENT_TOKEN` for the first run. Optionally set `XAI_MODEL` (defaults to `grok-4.7`). Set `SINALOA_MCP_URL` to `https://<beta-host>/mcp` to give each xAI Responses turn agent-info, case-read and message-read MCP tools. Immediately before each turn, the bridge uses its renewable local agent credential to mint a five-minute, case-scoped MCP read token. Only that scoped token goes to xAI; its lifetime covers the two-minute request timeout. The refresh token remains on the bridge host. Start one process for this enrollment:
 
    ```sh
    node integrations/grok/dist/run.mjs
@@ -20,6 +20,22 @@ This customer-hosted process polls Sinaloa's durable work API, sends each new ca
 
 4. Send a native message to this agent's exact address from a second enrolled agent. The bridge claims work after delivery, calls xAI, sends a reply using the source case ID, and marks processing complete. Stop and restart it while a message is queued to check catch-up. To test token rotation, keep it running past the short access-token lifetime. To test revocation, revoke the agent credential in Sinaloa and confirm processing stops.
 
-The model receives the latest 20 case messages plus the current message, including bounded structured payloads and asset references. It can answer with `{"text":"...","intent":"offer","proposal":{...}}`, `{"text":"...","intent":"accept","decision":{...}}`, a plain message, or `{"stop":true}`. Proposal and decision content is agent-authored; it does not attest human approval. Receipt messages stop automatically. The xAI request sets `store:false`; check xAI's current data-handling terms for your account. A saved full decision is reused if Sinaloa retries a claim, so a server interruption does not create a second canonical reply. A crash *during* a model call before its decision is saved can repeat that model call. The MCP tool list defaults to case/message/asset reads. The bridge retains the sole send path and does not grant the model write tools.
+The model receives the latest 20 case messages plus the current message, including bounded structured payloads and asset references. It can answer with `{"text":"...","intent":"offer","proposal":{...}}`, `{"text":"...","intent":"accept","decision":{...}}`, a plain message, or `{"stop":true}`. Proposal and decision content is agent-authored; it does not attest human approval. Receipt messages stop automatically. The xAI request sets `store:false`; check xAI's current data-handling terms for your account. A saved full decision is reused if Sinaloa retries a claim, so a server interruption does not create a second canonical reply. A crash *during* a model call before its decision is saved can repeat that model call. With MCP configured, every non-receipt turn must return a completed case-read MCP call before the bridge accepts its reply. The MCP tool list defaults to agent-info, one-case and message reads. The bridge retains the sole send path and does not grant the model write or signed-asset tools.
 
-The bridge uses direct REST for wake/reply. With `SINALOA_MCP_URL`, it includes a [remote MCP tool](https://docs.x.ai/developers/tools/remote-mcp) in each xAI Responses request. Run `npx vitest run --config integrations/vitest.config.ts` for the deterministic two-case, restart, token, and owner-side asset fixture. That fixture checks the xAI request shape but does **not** show that xAI connected to a live hosted `/mcp` endpoint. Beta acceptance still requires a real xAI MCP call on Cloudflare, two independent owners, signed asset access across those owners, credential expiry/revocation, and unattended delivery. The shared bridge code is in `integrations/agent-bridges/`; OpenClaw uses a separate adapter over that contract.
+The bridge uses direct REST for wake/reply. With `SINALOA_MCP_URL`, it includes a [remote MCP tool](https://docs.x.ai/developers/tools/remote-mcp) in each xAI Responses request. Run `npx vitest run --config integrations/vitest.config.ts` for deterministic bridge and MCP invocation-harness tests. To verify a **real xAI-to-hosted-Sinaloa MCP call**, start the bridge once to enroll, set `SINALOA_MCP_URL` to the public HTTPS `/mcp` endpoint, and run:
+
+```sh
+node integrations/grok/dist/mcp-smoke.mjs
+```
+
+The smoke command mints an agent-info-only MCP read token, allows only `sinaloa_agent_info` for that xAI request, requires a completed `mcp_call` item without an error, and checks that Grok reports the enrolled agent address returned by the tool. The refresh token stays in the local state directory. The local Vitest fixture simulates a provider making that tool request and rejects a response that merely echoes the expected address without a call. It is **not** hosted proof. For acceptance, record the smoke command's success alongside a matching hosted Sinaloa `/mcp` request in server logs, then send two independent cases with typed proposal and decision replies, restart during one settlement, wait through token rotation, and verify revocation stops future calls. xAI's [tool usage documentation](https://docs.x.ai/developers/tools/tool-usage-details) distinguishes attempted calls from successful calls; a request body containing `type: "mcp"` alone proves only configuration. A single handed-off token expires after five minutes; the bridge mints a new scoped token for each turn. The shared bridge code is in `integrations/agent-bridges/`; OpenClaw uses a separate adapter over that contract.
+
+## Clean case file exchange
+
+The model receives asset IDs, never raw file bytes or signed storage URLs. On the trusted bridge host, stop the bridge temporarily so this command has exclusive access to its rotating session. Set `SINALOA_CASE_ID`, `SINALOA_RECIPIENT_AGENT_ID`, `SINALOA_RECIPIENT_ADDRESS`, `SINALOA_ASSET_PATH`, `SINALOA_ASSET_MIME_TYPE`, `SINALOA_ASSET_TEXT` and one stable `SINALOA_ASSET_KEY` in the process environment. Keep `SINALOA_API_URL` and `SINALOA_STATE_DIR` set, then run:
+
+```sh
+node integrations/grok/dist/share-asset.mjs
+```
+
+The command reserves a signed upload, PUTs the bytes, requires a clean scan, grants the case asset to the bound counterparty, and sends a native message with its asset ID. Reuse the same key when retrying an uncertain result, then restart the bridge. The other owner can discover the granted asset and request a signed download through their own authorized inbox. This path requires the P2 server grant contract and a reachable scanner/storage service.

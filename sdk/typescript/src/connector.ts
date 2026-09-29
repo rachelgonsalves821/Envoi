@@ -13,6 +13,14 @@ export interface ConnectorStore {
   save(session: ConnectorSession): Promise<void>;
 }
 
+export interface McpReadToken {
+  mcpAccessToken: string;
+  tokenType: 'Bearer';
+  scope: 'case_read';
+  caseId: string | null;
+  expiresAt: string;
+}
+
 export interface InboxEvent {
   id: string;
   type: string;
@@ -186,8 +194,7 @@ export class SinaloaConnector {
     try { return await this.refreshInFlight; } finally { this.refreshInFlight = null; }
   }
 
-  private async withFreshClient<T>(operation: (client: SinaloaClient, session: ConnectorSession) => Promise<T>): Promise<T> {
-    const run = (session: ConnectorSession) => operation(new SinaloaClient(this.origin, session.agentApiToken, this.options), session);
+  private async withFreshSession<T>(run: (session: ConnectorSession) => Promise<T>): Promise<T> {
     const session = await this.freshSession();
     try { return await run(session); }
     catch (error) {
@@ -195,6 +202,76 @@ export class SinaloaConnector {
       const current = validSession(await this.store.load());
       return run(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
     }
+  }
+
+  private withFreshClient<T>(operation: (client: SinaloaClient, session: ConnectorSession) => Promise<T>): Promise<T> {
+    return this.withFreshSession(session => operation(new SinaloaClient(this.origin, session.agentApiToken, this.options), session));
+  }
+
+  /** Trusted bridge code may pass only this short-lived access token to a remote MCP provider. */
+  async currentAccessToken(minValidityMs = this.refreshSkewMs): Promise<string> {
+    if (!Number.isSafeInteger(minValidityMs) || minValidityMs < 0 || minValidityMs > 300_000) {
+      throw new RangeError('minValidityMs must be an integer from 0 to 300000');
+    }
+    let session = await this.freshSession();
+    if (Date.parse(session.agentTokenExpiresAt) <= Date.now() + minValidityMs) session = await this.freshSession(true);
+    if (Date.parse(session.agentTokenExpiresAt) <= Date.now() + minValidityMs) {
+      throw new ConnectorCredentialsError();
+    }
+    return session.agentApiToken;
+  }
+
+  /** Mint a short-lived MCP read credential for a single provider turn. Never send refresh credentials to a provider. */
+  mintMcpReadToken(caseId: string | null = null): Promise<McpReadToken> {
+    if (caseId !== null && (typeof caseId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(caseId))) {
+      throw new TypeError('A safe case ID is required for an MCP read token');
+    }
+    return this.withFreshSession(async session => {
+      const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
+      let response: Response;
+      try {
+        response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/mcp-read-token`, {
+          method: 'POST', redirect: 'error', signal: timeout,
+          headers: { authorization: `Bearer ${session.agentApiToken}`, 'content-type': 'application/json' },
+          body: JSON.stringify(caseId === null ? {} : { caseId })
+        });
+      } catch { throw new SinaloaError(timeout.aborted ? 'Sinaloa MCP token request timed out' : 'Sinaloa MCP token service could not be reached'); }
+      if (!response.ok) throw new SinaloaError('Sinaloa MCP read credential was denied', response.status);
+      let payload: Record<string, unknown>;
+      try { payload = await response.json() as Record<string, unknown>; }
+      catch { throw new SinaloaError('Sinaloa returned an invalid MCP read credential'); }
+      if (!payload || typeof payload.mcpAccessToken !== 'string' || !payload.mcpAccessToken ||
+          payload.tokenType !== 'Bearer' || payload.scope !== 'case_read' || payload.caseId !== caseId ||
+          typeof payload.expiresAt !== 'string' || Date.parse(payload.expiresAt) <= Date.now() + 120_000) {
+        throw new SinaloaError('Sinaloa returned an invalid or short-lived MCP read credential');
+      }
+      return payload as unknown as McpReadToken;
+    });
+  }
+
+  /** Trusted host only: forwards MCP JSON-RPC without exposing the rotating refresh token. */
+  forwardMcpRequest(body: string, { protocolVersion, signal }: { protocolVersion?: string; signal?: AbortSignal } = {}): Promise<Response> {
+    if (protocolVersion && !/^\d{4}-\d{2}-\d{2}$/.test(protocolVersion)) throw new TypeError('Invalid MCP protocol version');
+    return this.withFreshSession(async session => {
+      const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
+      const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      let response: Response;
+      try {
+        response = await (this.options.fetch || fetch)(`${this.origin}/mcp`, {
+          method: 'POST', redirect: 'error', signal: requestSignal, body,
+          headers: {
+            authorization: `Bearer ${session.agentApiToken}`,
+            accept: 'application/json, text/event-stream',
+            'content-type': 'application/json',
+            ...(protocolVersion ? { 'mcp-protocol-version': protocolVersion } : {})
+          }
+        });
+      } catch {
+        throw new SinaloaError(requestSignal.aborted ? 'Sinaloa MCP request timed out or canceled' : 'Sinaloa MCP could not be reached');
+      }
+      if (response.status === 401) throw new SinaloaError('Sinaloa MCP credential was rejected', 401);
+      return response;
+    });
   }
 
   /** First message of a new case; persist the ID and idempotency key before calling. */
@@ -218,12 +295,20 @@ export class SinaloaConnector {
     return this.withFreshClient((client, session) => client.listCaseMessages(session.inboxId, caseId, limit, before));
   }
 
-  beginAssetUpload(input: AssetUploadInput) {
-    return this.withFreshClient((client, session) => client.beginAssetUpload(session.inboxId, input));
+  beginAssetUpload(idempotencyKey: string, input: AssetUploadInput) {
+    return this.withFreshClient((client, session) => client.beginAssetUpload(session.inboxId, idempotencyKey, input));
   }
 
   completeAssetUpload(assetId: string) {
     return this.withFreshClient((client, session) => client.completeAssetUpload(session.inboxId, assetId));
+  }
+
+  grantCaseAsset(assetId: string, recipientAgentId: string, idempotencyKey: string) {
+    return this.withFreshClient((client, session) => client.grantCaseAsset(session.inboxId, assetId, recipientAgentId, idempotencyKey));
+  }
+
+  listAssets() {
+    return this.withFreshClient((client, session) => client.listAssets(session.inboxId));
   }
 
   getCleanAssetDownload(assetId: string) {

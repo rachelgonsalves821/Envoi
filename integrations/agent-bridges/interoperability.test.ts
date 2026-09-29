@@ -22,6 +22,7 @@ class MockHost {
   readonly replies = new Map<string, Record<string, unknown>>();
   readonly providerCalls: string[] = [];
   readonly xaiMcpTools: Array<Record<string, unknown>> = [];
+  readonly mcpReadTokens: Array<{ token: string; caseId: string | null }> = [];
   readonly calls: Array<{ method: string; path: string; token: string | null }> = [];
   readonly signedBytes = new Map<string, Uint8Array>();
   readonly objects = new Map<string, Record<string, unknown>>();
@@ -32,6 +33,7 @@ class MockHost {
   failCompletionOnceFor: string | null = null;
   private readonly claims = new Map<string, { leaseToken: string; state: 'claimed' | 'acknowledged' | 'retryable' | 'processed'; attempt: number }>();
   private readonly sentByKey = new Map<string, Record<string, unknown>>();
+  private readonly uploadsByKey = new Map<string, Record<string, unknown>>();
 
   queue(message: WorkMessage) { this.messages.push(message); }
 
@@ -60,7 +62,10 @@ class MockHost {
       const answer = messageId === 'msg_a'
         ? { text: 'Grok proposal for A', intent: 'offer', proposal: { value: 'A' } }
         : { text: 'Grok decision for B', intent: 'accept', decision: { proposalMessageId: 'msg_prior_b' } };
-      return json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(answer) }] }] });
+      return json({ status: 'completed', output: [
+        { type: 'mcp_call', name: 'sinaloa.sinaloa_read_case', server_label: 'sinaloa', status: 'completed' },
+        { type: 'message', content: [{ type: 'output_text', text: JSON.stringify(answer) }] }
+      ] });
     }
     if (url.hostname === 'signed.example.test') {
       const assetId = url.pathname.slice(1);
@@ -81,6 +86,13 @@ class MockHost {
       return json({ agentApiToken: this.accessToken, agentRefreshToken: this.refreshToken, agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
     }
     if (this.revoked || token !== this.accessToken) return json({ error: 'Agent credential is revoked or expired' }, 401);
+    if (url.pathname === '/api/agent/mcp-read-token' && method === 'POST') {
+      const caseId = JSON.parse(String(init.body)).caseId || null;
+      const issued = `mcp-read-${this.mcpReadTokens.length + 1}`;
+      this.mcpReadTokens.push({ token: issued, caseId });
+      return json({ mcpAccessToken: issued, tokenType: 'Bearer', scope: 'case_read', caseId,
+        expiresAt: new Date(Date.now() + 300_000).toISOString() }, 201);
+    }
     if (url.pathname === '/api/agent/work/claim' && method === 'POST') {
       const message = this.messages.find(candidate => !this.claims.has(candidate.id) || this.claims.get(candidate.id)?.state === 'retryable');
       if (!message) return json({ work: null });
@@ -124,11 +136,17 @@ class MockHost {
       return json(reply, 202);
     }
     if (url.pathname === '/api/inboxes/inbox_bridge/asset-uploads' && method === 'POST') {
+      const key = headers.get('idempotency-key');
+      if (!key) return json({ error: 'Idempotency key required' }, 400);
+      const existing = this.uploadsByKey.get(key);
+      if (existing) return json(existing);
       const body = JSON.parse(String(init.body));
       const id = `obj_${this.objects.size + 1}`;
       const object = { id, workspaceId: 'inbox_bridge', ...body, state: 'quarantine' };
       this.objects.set(id, object);
-      return json({ object, upload: { method: 'PUT', url: `https://signed.example.test/${id}`, headers: { 'content-type': body.mimeType } } }, 201);
+      const result = { object, upload: { method: 'PUT', url: `https://signed.example.test/${id}`, headers: { 'content-type': body.mimeType } } };
+      this.uploadsByKey.set(key, result);
+      return json(result, 201);
     }
     const assetRoute = url.pathname.match(/^\/api\/inboxes\/inbox_bridge\/assets\/([^/]+)\/(complete|download)$/);
     if (assetRoute) {
@@ -176,7 +194,8 @@ async function exerciseBridge(provider: 'openclaw' | 'xai') {
     const turn = provider === 'openclaw'
       ? openClawTurn({ gatewayUrl: 'https://gateway.example.test', gatewayToken: 'gateway-secret', agentId: 'bridge-agent', fetch: state.host.fetch, history: caseId => connector.listCaseMessages(caseId) })
       : xaiTurn({ apiKey: 'xai-secret', model: 'grok-test', fetch: state.host.fetch, history: caseId => connector.listCaseMessages(caseId),
-        mcp: { serverUrl: 'https://sinaloa.example.test/mcp', accessToken: async () => (await state.store.load())!.agentApiToken } });
+        mcp: { serverUrl: 'https://sinaloa.example.test/mcp', accessToken: async caseId =>
+          (await connector.mintMcpReadToken(caseId)).mcpAccessToken } });
     connector = new SinaloaConnector('https://sinaloa.example.test', state.store, { ...options, handler: bridgeHandler(state.store, turn) });
     await expect(connector.processWorkOnce()).rejects.toThrow('Temporary settlement failure');
     expect(state.host.rotationCount).toBe(1);
@@ -194,8 +213,10 @@ async function exerciseBridge(provider: 'openclaw' | 'xai') {
     expect(state.host.providerCalls).toEqual([`${provider}:msg_a`, `${provider}:msg_b`]);
     if (provider === 'xai') {
       expect(state.host.xaiMcpTools).toHaveLength(2);
-      expect(state.host.xaiMcpTools[0]).toMatchObject({ type: 'mcp', server_url: 'https://sinaloa.example.test/mcp', authorization: `Bearer ${state.host.accessToken}` });
-      expect(state.host.xaiMcpTools[0].allowed_tools).not.toContain('sinaloa_send_message');
+      expect(state.host.mcpReadTokens.map(item => item.caseId)).toEqual(['case_a', 'case_b']);
+      expect(state.host.xaiMcpTools[0]).toMatchObject({ type: 'mcp', server_url: 'https://sinaloa.example.test/mcp', authorization: 'Bearer mcp-read-1' });
+      expect(state.host.xaiMcpTools[1]).toMatchObject({ authorization: 'Bearer mcp-read-2' });
+      expect(state.host.xaiMcpTools[0].allowed_tools).toEqual(['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']);
     }
     const replies = [...state.host.replies.values()];
     expect(replies.map(reply => reply.caseId).sort()).toEqual(['case_a', 'case_b']);
@@ -215,13 +236,25 @@ describe('A4 bridge interoperability with deterministic hosts', () => {
   it('OpenClaw handles two unsolicited cases, reuses a persisted typed reply on restart, rotates credentials and stops on revoke', async () => exerciseBridge('openclaw'));
   it('Grok through xAI Responses handles the same two-case and credential fixture', async () => exerciseBridge('xai'));
 
+  it('does not send a Grok reply when xAI only claims to have read Sinaloa MCP', async () => {
+    const turn = xaiTurn({ apiKey: 'xai-secret', model: 'grok-test',
+      mcp: { serverUrl: 'https://sinaloa.example.test/mcp', accessToken: async () => 'scoped-read-token' },
+      fetch: async () => json({ status: 'completed', output: [
+        { type: 'message', content: [{ type: 'output_text', text: '{"text":"I checked","intent":"message"}' }] }
+      ] }) });
+    await expect(turn(workMessage('msg_a', 'case_a'), new AbortController().signal))
+      .rejects.toThrow('did not complete the required Sinaloa MCP sinaloa_read_case call');
+  });
+
   it('uses SDK asset helpers for owner-side signed upload and scanner-gated download without proxying bytes through the model', async () => {
     const state = await fixture();
     try {
       const connector = new SinaloaConnector('https://sinaloa.example.test', state.store, { fetch: state.host.fetch });
       const bytes = new TextEncoder().encode('safe owner-side asset');
       const checksumSha256 = crypto.createHash('sha256').update(bytes).digest('base64');
-      const begun = await connector.beginAssetUpload({ filename: 'answer.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256, caseId: 'case_a' });
+      const begun = await connector.beginAssetUpload('asset-case-a-answer-1', { filename: 'answer.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256, caseId: 'case_a' });
+      const replay = await connector.beginAssetUpload('asset-case-a-answer-1', { filename: 'answer.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256, caseId: 'case_a' });
+      expect(replay.object.id).toBe(begun.object.id);
       await expect(connector.getCleanAssetDownload(begun.object.id)).rejects.toThrow('quarantined');
       await putSignedAsset(begun.upload, bytes, { fetch: state.host.fetch });
       const clean = await connector.completeAssetUpload(begun.object.id);
