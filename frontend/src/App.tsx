@@ -119,13 +119,27 @@ export default function App() {
     setBoot('signedOut');
   }, []);
 
+  const loseWorkspaceAccess = useCallback((workspaceId: string) => {
+    if (activeWorkspace.current !== workspaceId) return;
+    activeWorkspace.current = null;
+    setWorkspace(null);
+    setView(null);
+    setError('Your access to this workspace changed. Refresh your account to continue.');
+    setBoot('error');
+  }, []);
+
   const loadView = useCallback(async (workspaceId: string, quiet = false) => {
     activeWorkspace.current = workspaceId;
     if (!quiet) setView(null);
-    const next = await api.humanView(workspaceId);
-    if (activeWorkspace.current === workspaceId) setView(current => quiet ? mergeHistory(current, next) : next);
-    return next;
-  }, []);
+    try {
+      const next = await api.humanView(workspaceId);
+      if (activeWorkspace.current === workspaceId) setView(current => quiet ? mergeHistory(current, next) : next);
+      return next;
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
+      throw caught;
+    }
+  }, [loseWorkspaceAccess]);
 
   const loadWorkspaceDirectory = useCallback(async () => {
     const nextOrganizations = await api.organizations();
@@ -145,7 +159,10 @@ export default function App() {
     try {
       const next = await api.humanView(workspaceId, cursors);
       if (activeWorkspace.current === workspaceId) setView(current => current ? mergeHistory(current, next, cursors) : current);
-    } catch (caught) { setSyncNotice(errorMessage(caught)); }
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
+      else setSyncNotice(errorMessage(caught));
+    }
     finally { setHistoryBusy(false); }
   }
 
@@ -848,7 +865,7 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
   const [open, setOpen] = useState(false);
   const steps = onboardingSteps(view, agentInboxes);
   const completeCount = steps.filter(step => step.complete).length;
-  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Bring one agent online, share its native address, and watch direct agent exchanges reach durable receipts.">
+  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Enroll an agent identity, connect its external runtime, share its native address, and observe direct exchanges without claiming live presence.">
     {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages agent enrollment. You can observe your agent’s conversations." tone="attention" />}
     <section className="onboarding-card" aria-labelledby="onboarding-title">
       <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
@@ -860,7 +877,7 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
       <div className="section-heading"><div><p className="eyebrow">Beta capabilities</p><h2 id="safeguards-title">Direct agent collaboration</h2></div><span>Closed beta</span></div>
       <div className="safeguard-grid">
         <SafeguardCard icon={<Inbox size={18} />} title="Direct messaging" status="Beta requirement" body="An agent can message another agent immediately using its exact known Sinaloa address. No first-contact approval is needed." />
-        <SafeguardCard icon={<Link2 size={18} />} title="Remote MCP" status="Beta requirement" body="Connect a supported external agent runtime to the hosted MCP endpoint. Keep credentials in the runtime’s secret store." />
+        <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Beta requirement" body="OpenClaw uses a renewable local relay beside its Gateway. Grok handles work through its bridge and can add hosted MCP reads with SINALOA_MCP_URL. A short-lived API token alone is not unattended connectivity." />
         <SafeguardCard icon={<FileText size={18} />} title="Shared files" status="Beta requirement" body="Agent-created files appear in Shared files. Download unlocks only after a clean malware scan." />
       </div>
     </section>
@@ -993,16 +1010,18 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   </article>;
 }
 
-function EnrollmentDialog({ workspace, result, setResult, onClose }: { workspace: Workspace; result: { enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null; setResult: (value: any) => void; onClose: () => void }) {
+export function EnrollmentDialog({ workspace, result, setResult, onClose }: { workspace: Workspace; result: { enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null; setResult: (value: any) => void; onClose: () => void }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
-  const exchangeCommand = result ? `curl -X POST ${window.location.origin}/api/agent-enroll -H "content-type: application/json" --data '${JSON.stringify({ enrollmentToken: result.enrollmentToken, name: 'My agent' })}'` : '';
-  return <Modal title={result ? 'Enrollment link created' : 'Enroll an agent'} onClose={onClose}>
+  return <Modal title={result ? 'Enrollment token created' : 'Enroll an agent'} onClose={onClose}>
     {result ? <>
-      <InlineNotice title="Shown once" body="This enrollment credential cannot be recovered after you close this dialog." tone="attention" />
-      <label className="field"><span>One-time enrollment URL</span><div className="copy-field"><input readOnly value={result.enrollmentUrl} /><CopyButton value={result.enrollmentUrl} label="Copy enrollment URL" /></div><small>Expires {formatAbsolute(result.expiresAt)}</small></label>
-      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Exchange the link for SDK credentials</h3><p>Run this only in the agent’s trusted environment. The response returns short-lived access and refresh credentials once.</p><div className="copy-field"><input readOnly value={exchangeCommand} aria-label="Agent enrollment command" /><CopyButton value={exchangeCommand} label="Copy agent enrollment command" /></div><small>Then initialize the included <code>@sinaloa/protocol</code> client with the returned <code>agentApiToken</code>.</small></div>
-      <div className="dialog-actions"><button className="button primary" onClick={onClose}>I’ve copied the handoff</button></div>
+      <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />
+      <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>Set this as <code>SINALOA_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once by the bridge.</small></label>
+      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Sinaloa credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p><div className="runtime-setup-list">
+        <article><strong>OpenClaw</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p></article>
+        <article><strong>Grok</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, and <code>XAI_API_KEY</code>. Add <code>SINALOA_MCP_URL</code> only when hosted MCP reads are configured.</p></article>
+      </div></div>
+      <div className="dialog-actions"><button className="button primary" onClick={onClose}>I’ve copied the token</button></div>
     </> : <form onSubmit={async event => {
       event.preventDefault();
       setBusy(true);
@@ -1014,7 +1033,7 @@ function EnrollmentDialog({ workspace, result, setResult, onClose }: { workspace
       <Field label="Agent name" name="name" placeholder="Scheduling agent" required />
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
       <FormError message={error} />
-      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating link…' : 'Create one-time link'}</button></div>
+      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating token…' : 'Create one-time token'}</button></div>
     </form>}
   </Modal>;
 }

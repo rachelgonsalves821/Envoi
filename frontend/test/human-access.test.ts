@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { AgentCard, AgentPermissionPicker, DecisionCard } from '../src/App';
+import { AgentCard, AgentPermissionPicker, DecisionCard, EnrollmentDialog } from '../src/App';
 import { DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from '../src/agent-permissions';
 import type { Agent, HumanView, Inbox, WorkCase } from '../src/types';
 
@@ -18,6 +18,29 @@ describe('agent permission review', () => {
   it('includes elevated access only when explicitly selected', () => {
     expect(selectedAgentPermissions(['execute_cases'])).toEqual(['receive_agent_messages', 'execute_cases']);
     expect(selectedAgentPermissions(['create_assets', 'send_agent_messages'])).toEqual(['receive_agent_messages', 'send_agent_messages', 'create_assets']);
+  });
+});
+
+describe('external runtime enrollment handoff', () => {
+  it('hands the unredeemed token to supported bridges without consuming it in the UI', () => {
+    const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
+      workspace: { id: 'inbox_1' } as Inbox,
+      result: { enrollmentToken: 'enroll_once_secret', enrollmentUrl: '/?enroll=enroll_once_secret', expiresAt: '2026-09-28T12:00:00.000Z' },
+      setResult: vi.fn(),
+      onClose: vi.fn()
+    }));
+
+    expect(markup).toContain('Raw enrollment token');
+    expect(markup).toContain('enroll_once_secret');
+    expect(markup).toContain('SINALOA_ENROLLMENT_TOKEN');
+    expect(markup).toContain('OPENCLAW_GATEWAY_TOKEN');
+    expect(markup).toContain('XAI_API_KEY');
+    expect(markup).toContain('SINALOA_MCP_URL');
+    expect(markup).toContain('Provider secrets stay on the external host');
+    expect(markup).not.toContain('/api/agent-enroll');
+    expect(markup).not.toContain('agentApiToken');
+    expect(markup).not.toContain('One-time enrollment URL');
+    expect(markup).not.toContain('/?enroll=');
   });
 });
 

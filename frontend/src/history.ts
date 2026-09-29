@@ -13,25 +13,24 @@ function mergeRows<T extends { id: string; updatedAt?: string; createdAt?: strin
 // the latest summary and replaces only the cursors that were advanced.
 export function mergeHistory(current: HumanView | null, incoming: HumanView, advanced?: Partial<Record<HistoryCollection, string>>): HumanView {
   if (!current || current.inbox.id !== incoming.inbox.id) return incoming;
-  const result = { ...(advanced ? current : incoming) };
+  // A history response also carries current authorization and agent state.
+  // Keep those projections fresh while merging the paged collections below.
+  const result = { ...incoming };
   result.canManageInbox = incoming.canManageInbox === true;
   for (const key of collections) {
-    if (advanced && !advanced[key]) continue;
     const oldRows: { id: string; updatedAt?: string; createdAt?: string }[] = current[key] || [];
     const newRows: typeof oldRows = incoming[key] || [];
-    Object.assign(result, { [key]: advanced ? mergeRows(newRows, oldRows) : mergeRows(oldRows, newRows) });
+    Object.assign(result, { [key]: advanced?.[key] ? mergeRows(newRows, oldRows) : mergeRows(oldRows, newRows) });
   }
-  result.caseQueue = advanced ? (advanced.cases ? mergeRows(incoming.caseQueue, current.caseQueue) : current.caseQueue) : mergeRows(current.caseQueue, incoming.caseQueue);
+  result.caseQueue = advanced?.cases ? mergeRows(incoming.caseQueue, current.caseQueue) : mergeRows(current.caseQueue, incoming.caseQueue);
   const directoryById = (directory: HumanView['participantDirectory']) => Object.fromEntries(Object.values(directory || {}).map(person => [person.id, person]));
-  result.participantDirectory = advanced
-    ? { ...directoryById(incoming.participantDirectory), ...directoryById(current.participantDirectory) }
-    : { ...directoryById(current.participantDirectory), ...directoryById(incoming.participantDirectory) };
+  result.participantDirectory = { ...directoryById(current.participantDirectory), ...directoryById(incoming.participantDirectory) };
   const history: HistoryMetadata = { ...current.history };
   for (const key of collections) {
     const fresh = incoming.history?.[key];
     if (!fresh) continue;
-    if (advanced) {
-      history[key] = advanced[key] ? fresh : current.history?.[key];
+    if (advanced?.[key]) {
+      history[key] = fresh;
     } else {
       const loadedIds = new Set((current[key] || []).map(row => row.id));
       const overlaps = (incoming[key] || []).some(row => loadedIds.has(row.id));
