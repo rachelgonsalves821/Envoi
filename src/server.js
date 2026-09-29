@@ -32,6 +32,7 @@ import {
 } from './policy-engine.js';
 import {
   acceptProposal,
+  advanceNativeCase,
   addPolicyEvaluation,
   addProposal,
   appendEvent,
@@ -41,7 +42,8 @@ import {
   counterProposal,
   createCase as createAgentCase,
   isActiveCase,
-  transitionCase
+  transitionCase,
+  verifiedHumanCaseDecision
 } from './agent-interface.js';
 import { projectWorkspaceForHuman } from './human-projection.js';
 
@@ -490,13 +492,11 @@ async function failAgentWorkPermanently(message, claim, reasonCode, at, writeAud
     senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId,
     state: 'failed', reasonCode, attempts: agentWorkAttempts(claim), createdAt: at
   };
-  const documents = [document(workClaimPath(claim.inboxId, message.id), claim)];
+  const documents = [document(workClaimPath(claim.inboxId, message.id), claim), ...(await nativeCaseDocuments(failed, 'failed', at, { revealRecipient: true })).documents];
   for (const targetInboxId of new Set([message.senderInboxId, message.recipientInboxId])) {
     const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
     if (!targetInbox) continue;
-    const currentCase = await ensureStructuredCase(targetInbox, { ...failed, caseId: failed.caseId }, failed.senderAgentId, failed.createdAt);
-    const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), failed, 'failed', at);
-    documents.push(document(messagePath(targetInboxId, message.id), failed), document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
+    documents.push(document(messagePath(targetInboxId, message.id), failed), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
     await writeAudit('message.failed', { messageId: message.id, caseId: message.caseId, senderAgentId: message.senderAgentId, recipientAgentId: message.recipientAgentId, reasonCode }, at, targetInboxId);
   }
   await store.putJsonBatch(documents);
@@ -509,6 +509,7 @@ const auditRecord = async (inboxId, type, data, createdAt = store.now()) => {
 };
 
 const inboxMutationKey = inboxId => `inbox:${inboxId}:mutations`;
+const caseMutationKey = caseId => `case:${caseId}:mutations`;
 const enrollmentMutationKey = tokenHash => `enrollment:${tokenHash}:mutations`;
 async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = []) {
   const committedEvents = [];
@@ -523,6 +524,18 @@ async function withInboxMutation(inboxId, operation, relatedInboxIds = [], addit
     : await run();
   for (const committed of committedEvents) publish(committed.inboxId, committed.event);
   return result;
+}
+
+async function withCaseMutation(inboxId, caseId, operation) {
+  const binding = await store.getJson(caseBindingPath(caseId));
+  const related = binding?.inboxIds?.filter(id => id !== inboxId) || [];
+  return withInboxMutation(inboxId, async writeAudit => {
+    const current = await store.getJson(caseBindingPath(caseId));
+    if (current && current.inboxIds.some(id => id !== inboxId && !related.includes(id))) {
+      throw Object.assign(new Error('Case participants changed while acquiring the mutation lock; retry'), { statusCode: 409 });
+    }
+    return operation(writeAudit);
+  }, related, [caseMutationKey(caseId)]);
 }
 
 async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedAt = store.now()) {
@@ -727,9 +740,29 @@ async function listCases(inboxId, { limit = 100, before = null } = {}) {
 }
 
 const caseRecordPath = (inboxId, caseId) => path.join('inboxes', inboxId, 'cases', `${caseId}.json`);
-const saveCase = (inboxId, value) => store.putJson(caseRecordPath(inboxId, value.id), value);
+const caseBindingPath = caseId => path.join('shared-case-bindings', `${caseId}.json`);
+const sharedCasePath = caseId => path.join('shared-cases', `${caseId}.json`);
+const pairIds = ids => [...new Set(ids)].sort();
+const caseParticipantMismatch = () => Object.assign(new Error('Case ID belongs to another participant pair'), { statusCode: 403, code: 'CASE_PARTICIPANT_MISMATCH' });
+const nativeIdempotencyConflict = () => Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409, code: 'IDEMPOTENCY_CONFLICT' });
+const matchesCasePair = (binding, message) => JSON.stringify(binding.agentIds) === JSON.stringify(pairIds([message.senderAgentId, message.recipientAgentId]))
+  && JSON.stringify(binding.inboxIds) === JSON.stringify(pairIds([message.senderInboxId, message.recipientInboxId]));
+async function saveCase(inboxId, value) {
+  const binding = await store.getJson(caseBindingPath(value.id));
+  if (!binding) return store.putJson(caseRecordPath(inboxId, value.id), value);
+  if (!binding.inboxIds.includes(inboxId) || JSON.stringify(pairIds(value.participants)) !== JSON.stringify(binding.agentIds)) throw caseParticipantMismatch();
+  const documents = [document(sharedCasePath(value.id), value)];
+  for (const participantInboxId of binding.inboxIds) {
+    if (participantInboxId === inboxId || await store.getJson(caseRecordPath(participantInboxId, value.id))) documents.push(document(caseRecordPath(participantInboxId, value.id), value));
+  }
+  await store.putJsonBatch(documents);
+}
 const getCase = async (inboxId, caseId) => {
-  const value = await store.getJson(caseRecordPath(inboxId, caseId));
+  const local = await store.getJson(caseRecordPath(inboxId, caseId));
+  if (!local) return null;
+  const binding = await store.getJson(caseBindingPath(caseId));
+  const value = binding?.inboxIds?.includes(inboxId) ? await store.getJson(sharedCasePath(caseId)) : local;
+  if (!value) throw Object.assign(new Error('Bound case has no canonical record'), { statusCode: 409 });
   return value?.schemaVersion && !value.collaborationMode ? { ...value, collaborationMode: 'collaboration' } : value;
 };
 const isCaseParticipant = (value, agentId) => Boolean(agentId && (value?.actingAgent === agentId || value?.participants?.includes(agentId)));
@@ -946,11 +979,45 @@ async function ensureStructuredCase(inbox, input, actorAgentId, at) {
   return value;
 }
 
+async function nativeCaseDocuments(message, state, at, { revealRecipient = false } = {}) {
+  const bindingPath = caseBindingPath(message.caseId);
+  let binding = await store.getJson(bindingPath);
+  if (binding && !matchesCasePair(binding, message)) throw caseParticipantMismatch();
+  let current = binding ? await store.getJson(sharedCasePath(message.caseId)) : null;
+  if (binding && !current) throw Object.assign(new Error('Bound case has no canonical record'), { statusCode: 409 });
+  if (!binding) {
+    const [senderCase, recipientCase, senderInbox] = await Promise.all([
+      store.getJson(caseRecordPath(message.senderInboxId, message.caseId)),
+      store.getJson(caseRecordPath(message.recipientInboxId, message.caseId)),
+      store.getJson(path.join('inboxes', message.senderInboxId, 'inbox.json'))
+    ]);
+    const legacy = senderCase || recipientCase;
+    if (legacy && (JSON.stringify(pairIds(legacy.participants || [])) !== JSON.stringify(pairIds([message.senderAgentId, message.recipientAgentId]))
+      || senderCase && recipientCase && JSON.stringify(senderCase) !== JSON.stringify(recipientCase))) throw caseParticipantMismatch();
+    current = legacy || createAgentCase({
+      id: message.caseId,
+      objective: message.text?.slice(0, 160) || 'Agent communication',
+      collaborationMode: ['proposal', 'counterproposal', 'decision'].includes(message.type) ? 'negotiation' : 'collaboration',
+      principal: senderInbox.ownerHumanId,
+      actingAgent: message.senderAgentId,
+      participants: [message.senderAgentId, message.recipientAgentId],
+      createdAt: message.createdAt
+    });
+    binding = { caseId: message.caseId, agentIds: pairIds([message.senderAgentId, message.recipientAgentId]), inboxIds: pairIds([message.senderInboxId, message.recipientInboxId]), createdAt: at };
+  }
+  const updated = advanceNativeCase(current, message, state, at);
+  const documents = [document(bindingPath, binding), document(sharedCasePath(message.caseId), updated), document(caseRecordPath(message.senderInboxId, message.caseId), updated)];
+  if (revealRecipient || await store.getJson(caseRecordPath(message.recipientInboxId, message.caseId))) {
+    documents.push(document(caseRecordPath(message.recipientInboxId, message.caseId), updated));
+  }
+  return { case: updated, documents };
+}
+
 const permanentDeliveryError = message => Object.assign(new Error(message), { permanent: true });
 
 async function enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType = 'message.queued', writeAudit = null, agentRequest = null) {
   if (!writeAudit) {
-    const queued = await withInboxMutation(senderInbox.id, auditWriter => enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType, auditWriter, agentRequest), [recipientInboxId]);
+    const queued = await withInboxMutation(senderInbox.id, auditWriter => enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType, auditWriter, agentRequest), [recipientInboxId], [caseMutationKey(message.caseId)]);
     deliveryWorker.kick();
     return queued;
   }
@@ -972,13 +1039,12 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
   if (!senderCredentialFamilyId) throw Object.assign(new Error('An active sender agent credential is required'), { statusCode: 401 });
   const existing = await store.getJson(messagePath(senderInbox.id, message.id));
   if (existing) {
-    if (existing.requestHash && existing.requestHash !== message.requestHash) throw Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409 });
+    if (existing.requestHash && existing.requestHash !== message.requestHash) throw nativeIdempotencyConflict();
     if (existing.status !== 'pendingContactApproval') return existing;
   }
   const queuedAt = store.now();
   const queued = { ...message, recipientInboxId, status: 'queued', queuedAt, updatedAt: queuedAt };
-  const currentCase = await ensureStructuredCase(senderInbox, { ...queued, caseId: queued.caseId }, queued.senderAgentId, queued.createdAt);
-  const queuedCase = setCaseMessageDeliveryState(structuredClone(currentCase), queued, 'queued', queuedAt);
+  const shared = await nativeCaseDocuments(queued, 'queued', queuedAt);
   const auditData = {
     messageId: queued.id,
     caseId: queued.caseId,
@@ -1007,9 +1073,9 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
   };
   const delivery = await store.enqueueOutbox([
     document(messagePath(senderInbox.id, queued.id), queued),
-    document(caseRecordPath(senderInbox.id, queuedCase.id), queuedCase)
+    ...shared.documents
   ], outbox);
-  if (delivery.requestHash && delivery.requestHash !== queued.requestHash) throw Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409 });
+  if (delivery.requestHash && delivery.requestHash !== queued.requestHash) throw nativeIdempotencyConflict();
   await writeAudit(eventType, auditData, queuedAt);
   return delivery.enqueueCreated ? queued : await store.getJson(messagePath(senderInbox.id, queued.id), queued);
 }
@@ -1048,11 +1114,10 @@ async function deliverNativeAgentMessage(outbox) {
   };
   const documents = [];
   const events = [];
+  documents.push(...(await nativeCaseDocuments(delivered, 'delivered', deliveredAt, { revealRecipient: true })).documents);
   for (const targetInboxId of new Set([outbox.senderInboxId, outbox.recipientInboxId])) {
     const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
     if (!targetInbox) throw permanentDeliveryError('Delivery target workspace no longer exists');
-    const currentCase = await ensureStructuredCase(targetInbox, { ...delivered, caseId: delivered.caseId }, delivered.senderAgentId, delivered.createdAt);
-    const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), delivered, 'delivered', deliveredAt);
     const auditEntry = await auditRecord(targetInboxId, 'message.delivered', {
       messageId: delivered.id,
       caseId: delivered.caseId,
@@ -1064,7 +1129,6 @@ async function deliverNativeAgentMessage(outbox) {
     }, deliveredAt);
     documents.push(
       document(messagePath(targetInboxId, delivered.id), delivered),
-      document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase),
       document(deliveryReceiptPath(targetInboxId, receipt.id), receipt),
       auditEntry.document
     );
@@ -1123,6 +1187,10 @@ const emailEventState = type => ({
 }[type] || null);
 
 async function prepareEmailDelivery(outbox) {
+  if (outbox.kind === 'nativeAgentMessage') {
+    const message = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
+    return { lockKeys: message?.caseId ? [caseMutationKey(message.caseId)] : [] };
+  }
   if (outbox.kind !== 'emailWebhook') return {};
   const event = outbox.emailEvent;
   if (!event?.type) throw permanentDeliveryError('Email webhook event is invalid');
@@ -1254,9 +1322,12 @@ async function recordDeliveryFailure(outbox, error, { attempt, deadLettered }) {
   const events = [];
   const senderInbox = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'inbox.json'));
   if (senderInbox) {
-    const currentCase = await ensureStructuredCase(senderInbox, { ...failed, caseId: failed.caseId }, failed.senderAgentId, failed.createdAt);
-    const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), failed, state, at);
-    documents.push(document(caseRecordPath(outbox.senderInboxId, updatedCase.id), updatedCase));
+    if (outbox.kind === 'nativeAgentMessage') documents.push(...(await nativeCaseDocuments(failed, state, at)).documents);
+    else {
+      const currentCase = await ensureStructuredCase(senderInbox, { ...failed, caseId: failed.caseId }, failed.senderAgentId, failed.createdAt);
+      const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), failed, state, at);
+      documents.push(document(caseRecordPath(outbox.senderInboxId, updatedCase.id), updatedCase));
+    }
   }
   const auditEntry = await auditRecord(outbox.senderInboxId, deadLettered ? 'message.dead_lettered' : 'message.retry_scheduled', {
     messageId: failed.id,
@@ -1608,13 +1679,11 @@ async function route(req, res) {
         state,
         createdAt: now
       };
-      const documents = [];
+      const documents = (await nativeCaseDocuments(updated, state, now, { revealRecipient: true })).documents;
       for (const targetInboxId of new Set([currentMessage.senderInboxId, currentMessage.recipientInboxId])) {
         const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
         if (!targetInbox) continue;
-        const currentCase = await ensureStructuredCase(targetInbox, { ...updated, caseId: updated.caseId }, updated.senderAgentId, updated.createdAt);
-        const updatedCase = setCaseMessageDeliveryState(structuredClone(currentCase), updated, state, now);
-        documents.push(document(messagePath(targetInboxId, currentMessage.id), updated), document(caseRecordPath(targetInboxId, updatedCase.id), updatedCase), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
+        documents.push(document(messagePath(targetInboxId, currentMessage.id), updated), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
         await writeAudit(`message.${state}`, { messageId: currentMessage.id, caseId: currentMessage.caseId, senderAgentId: currentMessage.senderAgentId, recipientAgentId: currentMessage.recipientAgentId }, now, targetInboxId);
       }
       claim.status = state === 'processed' ? 'completed' : 'acknowledged';
@@ -1625,7 +1694,7 @@ async function route(req, res) {
       await store.putJson(claimPath, claim);
       if (idempotencyPath) await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
       return { status: 201, payload: response };
-    }, [requestedMessage?.senderInboxId, ...claimCandidates.filter(message => message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status)).map(message => message.senderInboxId)].filter(Boolean));
+    }, [requestedMessage?.senderInboxId, ...claimCandidates.filter(message => message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status)).map(message => message.senderInboxId)].filter(Boolean), requestedMessage?.caseId ? [caseMutationKey(requestedMessage.caseId)] : []);
     return json(res, result.status, result.payload);
   }
 
@@ -2286,7 +2355,7 @@ async function route(req, res) {
     if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!['message', 'error'].includes(input.type)) return fail(res, 400, 'Direct event writes support only message or error; use actions for stateful work');
-    const event = await withInboxMutation(inboxId, async writeAudit => {
+    const event = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
       if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
@@ -2307,7 +2376,7 @@ async function route(req, res) {
     if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!input.requestedAction) return fail(res, 400, 'requestedAction is required');
-    const evaluation = await withInboxMutation(inboxId, async writeAudit => {
+    const evaluation = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
       if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
@@ -2318,7 +2387,8 @@ async function route(req, res) {
       const evaluated = await evaluateServerPolicy(inboxId, currentPrincipal, value, { ...input, id: evaluationId }, { id: evaluationId });
       const created = policyEvaluationFromInput({ id: evaluationId, requestedAction: input.requestedAction, decision: evaluated.decision, matchedPolicyId: evaluated.matchedPolicyId, grantType: 'oneTime', expiresAt: evaluated.expiresAt, reasonCode: evaluated.reasonCode }, currentPrincipal.id, now);
       const updated = addPolicyEvaluation(value, created, { at: now });
-      await store.putJsonBatch([document(caseRecordPath(inboxId, updated.id), updated), document(policyBindingPath(inboxId, created.id), evaluated.binding)]);
+      await saveCase(inboxId, updated);
+      await store.putJson(policyBindingPath(inboxId, created.id), evaluated.binding);
       await writeAudit('policy.evaluated', { caseId: value.id, policyEvaluationId: created.id, requestedAction: created.requestedAction, decision: created.decision, reasonCode: created.reasonCode });
       return created;
     });
@@ -2329,7 +2399,7 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
-    const proposal = await withInboxMutation(inboxId, async writeAudit => {
+    const proposal = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
       if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
@@ -2353,7 +2423,9 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     const humanCanManage = human ? await canManageInbox(human, inbox) : false;
     if (!humanCanManage && (!principal || !hasPermission(principal, 'execute_cases'))) return fail(res, 403, 'Workspace administrator or agent credential with execute_cases permission required');
-    const response = await withInboxMutation(inboxId, async writeAudit => {
+    const response = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
+      const currentHuman = humanCanManage ? await auth.getHuman(req) : null;
+      if (humanCanManage && (!currentHuman || currentHuman.id !== human.id || !await canManageInbox(currentHuman, inbox))) throw Object.assign(new Error('Authenticated workspace administrator required'), { statusCode: 403 });
       const currentPrincipal = humanCanManage ? null : await getAgentPrincipal(req, inboxId);
       if (!humanCanManage && (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases'))) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
@@ -2369,15 +2441,21 @@ async function route(req, res) {
           return { status: 200, result: { case: value, action: replayAction, replay: true } };
         }
         if (input.actionKey === 'approveOnce') {
-          const evaluationId = input.externalRefs?.policyEvaluationId;
-          const evaluation = value.policyEvaluations.find(item => item.id === evaluationId);
-          const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluationId)) : null;
-          await policyDecisionChain(inboxId);
-          if (!evaluationId || !evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) throw Object.assign(new Error('A current needsHuman policy evaluation is required for one-time approval'), { statusCode: 409 });
+          if (input.externalRefs?.requestedAction === 'case.complete') {
+            if (value.state !== 'waitingForHuman' || typeof input.externalRefs?.result !== 'string' || !input.externalRefs.result.trim()) throw Object.assign(new Error('A pending case decision and result are required'), { statusCode: 409 });
+          } else {
+            const evaluationId = input.externalRefs?.policyEvaluationId;
+            const evaluation = value.policyEvaluations.find(item => item.id === evaluationId);
+            const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluationId)) : null;
+            await policyDecisionChain(inboxId);
+            if (!evaluationId || !evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) throw Object.assign(new Error('A current needsHuman policy evaluation is required for one-time approval'), { statusCode: 409 });
+          }
         }
-        result = applyHumanAction(value, { id: store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: { ...(input.externalRefs || {}), requestDigest }, reasonCode: input.reasonCode || null }, { at: now });
+        const { serverAuthenticatedHuman: _ignoredHumanClaim, ...suppliedRefs } = input.externalRefs || {};
+        result = applyHumanAction(value, { id: store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: { ...suppliedRefs, caseId: value.id, serverAuthenticatedHuman: true, requestDigest }, reasonCode: input.reasonCode || null }, { at: now });
       } else {
         if (currentPrincipal.id !== value.actingAgent || !isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
+        if (value.state === 'waitingForHuman' && input.nextState && input.nextState !== 'waitingForHuman') throw Object.assign(new Error('Authenticated human case decision is required'), { statusCode: 409 });
         const requestDigest = actionRequestDigest({ ...input, actor: currentPrincipal.id });
         const replayEvent = value.events.find(event => event.payload?.action?.idempotencyKey === idempotencyKey);
         if (replayEvent) {
@@ -2385,7 +2463,8 @@ async function route(req, res) {
           if (replayAction.actor !== currentPrincipal.id || replayAction.externalRefs?.requestDigest !== requestDigest) throw Object.assign(new Error('Idempotency key was already used for a different action'), { statusCode: 409 });
           return { status: 200, result: { case: value, action: replayAction, replay: true } };
         }
-        let policyExternalRefs = { ...(input.externalRefs || {}), requestDigest };
+        const { serverAuthenticatedHuman: _ignoredAgentClaim, ...agentRefs } = input.externalRefs || {};
+        let policyExternalRefs = { ...agentRefs, requestDigest };
         const actionId = store.id('action');
         if (requiresPolicyEvaluation(input.actionKey)) {
           if (!input.policyEvaluationId) throw Object.assign(new Error('policyEvaluationId is required for policy-controlled or unknown agent actions'), { statusCode: 400 });
@@ -2406,7 +2485,7 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
-    const response = await withInboxMutation(inboxId, async writeAudit => {
+    const response = await withCaseMutation(inboxId, proposalRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
       if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, proposalRoute[1]);
@@ -2448,14 +2527,17 @@ async function route(req, res) {
     if (!principal || principal.id === undefined || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!input.result || !input.authorityBasis) return fail(res, 400, 'Receipt result and authorityBasis are required');
-    const receipt = await withInboxMutation(inboxId, async writeAudit => {
+    const receipt = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
       if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
       if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
       const now = store.now();
-      const created = { id: store.id('receipt'), result: input.result, counterparties: input.counterparties || [], externalIds: input.externalIds || {}, authorityBasis: input.authorityBasis, humanApprovalStatus: input.humanApprovalStatus || 'notRequired', evidenceRefs: input.evidenceRefs || [], createdAt: now };
+      const verifiedDecision = verifiedHumanCaseDecision(value, input.authorityBasis, input.result);
+      const approvalRequired = value.events.some(event => event.type === 'decision' && event.payload?.messageType === 'decision' && event.payload?.data?.decision?.kind === 'accept');
+      if ((approvalRequired || value.state === 'waitingForHuman' || input.humanApprovalStatus === 'approved') && !verifiedDecision) throw Object.assign(new Error('Authenticated human case decision is required'), { statusCode: 409 });
+      const created = { id: store.id('receipt'), result: input.result, counterparties: input.counterparties || [], externalIds: input.externalIds || {}, authorityBasis: verifiedDecision?.id || input.authorityBasis, humanApprovalStatus: verifiedDecision ? 'approved' : 'notRequired', evidenceRefs: input.evidenceRefs || [], createdAt: now };
       const updated = completeCase(value, created, { actor: currentPrincipal.id, at: now });
       await saveCase(inboxId, updated);
       await writeAudit('case.completed', { caseId: value.id, receiptId: created.id, actor: currentPrincipal.id });
@@ -2492,6 +2574,7 @@ async function route(req, res) {
     const existingDelivery = await store.getOutbox(retryDeliveryRoute[1]);
     if (!existingDelivery || ![existingDelivery.senderInboxId, existingDelivery.recipientInboxId].includes(inboxId)) return fail(res, 404, 'Delivery not found');
     if (existingDelivery.status !== 'deadLettered') return fail(res, 409, 'Only dead-lettered deliveries can be retried');
+    const existingMessage = await store.getJson(messagePath(existingDelivery.senderInboxId, existingDelivery.messageId));
     const retried = await withInboxMutation(existingDelivery.senderInboxId, async writeAudit => {
       const currentDelivery = await store.getOutbox(existingDelivery.id);
       if (!currentDelivery || currentDelivery.status !== 'deadLettered') throw Object.assign(new Error('Only dead-lettered deliveries can be retried'), { statusCode: 409 });
@@ -2499,7 +2582,8 @@ async function route(req, res) {
       const at = store.now();
       const queued = message ? { ...message, status: 'queued', queuedAt: at, updatedAt: at, lastDeliveryError: null, deliveryAttempts: 0 } : null;
       const documents = queued ? [document(messagePath(currentDelivery.senderInboxId, queued.id), queued)] : [];
-      if (queued) {
+      if (queued && currentDelivery.kind === 'nativeAgentMessage') documents.push(...(await nativeCaseDocuments(queued, 'queued', at)).documents);
+      else if (queued) {
         const senderInbox = await store.getJson(path.join('inboxes', currentDelivery.senderInboxId, 'inbox.json'));
         if (senderInbox) {
           const currentCase = await ensureStructuredCase(senderInbox, { ...queued, caseId: queued.caseId }, queued.senderAgentId, queued.createdAt);
@@ -2511,7 +2595,7 @@ async function route(req, res) {
       if (!value) throw Object.assign(new Error('Delivery could not be retried'), { statusCode: 409 });
       await writeAudit('message.dead_letter_requeued', { messageId: currentDelivery.messageId, deliveryId: currentDelivery.id, actor: human.id }, at);
       return value;
-    }, [existingDelivery.recipientInboxId].filter(Boolean));
+    }, [existingDelivery.recipientInboxId].filter(Boolean), existingDelivery.kind === 'nativeAgentMessage' && existingMessage?.caseId ? [caseMutationKey(existingMessage.caseId)] : []);
     deliveryWorker.kick();
     return json(res, 202, retried);
   }
@@ -2695,7 +2779,9 @@ async function route(req, res) {
     if (recipient.id === sender.id) return fail(res, 400, 'Sender and recipient must be different agents');
     const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
     const requestedCaseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
-    const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: requestedCaseId, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, authority: input.authority || null, artifactRefs: input.artifactRefs || [] }));
+    const requestHash = hashSecret(JSON.stringify({ senderAgentId, recipientEmail, caseId: requestedCaseId, taskId: input.taskId || null, correlationId: input.correlationId || null, causationId: input.causationId || null, intent: input.intent || input.type || 'message', text: input.text, content: input.content || null, payload: input.payload || null, proposal: input.proposal || null, authority: input.authority || null, signature: input.signature || null, artifactRefs: input.artifactRefs || [] }));
+    const priorMessage = await store.getJson(messagePath(inboxId, messageId));
+    const candidateCaseId = requestedCaseId || priorMessage?.caseId || store.id('case');
     const response = await withInboxMutation(inboxId, async writeAudit => {
       const [currentSenderInbox, currentSender, currentPrincipal, currentRecipientDirectory] = await Promise.all([
         store.getJson(path.join('inboxes', inboxId, 'inbox.json')),
@@ -2720,7 +2806,7 @@ async function route(req, res) {
       const existing = await store.getJson(messagePath(inboxId, messageId));
       if (existing) {
         const sameRequest = existing.requestHash ? existing.requestHash === requestHash : existing.recipientEmail === recipientEmail && existing.text === input.text && JSON.stringify(existing.payload) === JSON.stringify(input.payload || null);
-        if (!sameRequest) throw Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409 });
+        if (!sameRequest) throw nativeIdempotencyConflict();
         if (existing.status === 'pendingContactApproval') {
           const queued = await enqueueNativeMessage({ ...existing, requestHash }, currentSenderInbox, currentRecipientDirectory.inboxId, 'message.queued', writeAudit, req);
           if (existingInvitation?.state === 'pending' && existingInvitation.messageId === existing.id) {
@@ -2735,7 +2821,7 @@ async function route(req, res) {
         return { status: 200, payload: existing, queued: false };
       }
       const createdAt = store.now();
-      const conversationId = requestedCaseId || senderContact?.conversationId || existingInvitation?.conversationId || existingInvitation?.pendingConversationId || store.id('conversation');
+      const conversationId = candidateCaseId;
       const protocol = createProtocolMessage({
         messageId,
         conversationId,
@@ -2748,11 +2834,11 @@ async function route(req, res) {
         text: input.text,
         content: input.content,
         proposal: input.proposal || input.payload?.proposal || null,
-        authority: input.authority,
+        authority: { scope: 'message.send', humanApproval: 'notRequired', policyEvaluationId: null },
         artifactRefs: input.artifactRefs || [],
         requiresAck: input.requiresAck !== false,
         traceparent: req.headers.traceparent || input.traceparent || null,
-        signature: input.signature || null,
+        signature: null,
         createdAt
       });
       const message = {
@@ -2767,6 +2853,8 @@ async function route(req, res) {
         recipientEmail,
         transport: 'native',
         type: input.type || 'message',
+        unverifiedAuthorityClaim: input.authority || null,
+        unverifiedSignatureClaim: input.signature || null,
         text: input.text,
         payload: input.payload || null,
         requestHash,
@@ -2776,7 +2864,7 @@ async function route(req, res) {
       };
       const queued = await enqueueNativeMessage(message, currentSenderInbox, currentRecipientDirectory.inboxId, 'message.queued', writeAudit, req);
       return { status: 202, payload: queued, queued: true };
-    }, [recipientDirectory.inboxId]);
+    }, [recipientDirectory.inboxId], [caseMutationKey(candidateCaseId)]);
     if (response.queued) deliveryWorker.kick();
     return json(res, response.status, response.payload);
   }
