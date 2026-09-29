@@ -957,6 +957,8 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState('');
   const [revokeResult, setRevokeResult] = useState<{ revokedAt: string; credentialFamilyCount: number } | null>(null);
+  const [pauseBusy, setPauseBusy] = useState(false);
+  const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
   const platformAddress = agent.platformAddress || transportAgent?.platformAddress || transportAgent?.internalAddress || agent.address;
@@ -987,14 +989,26 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     } catch (caught) { setRevokeError(errorMessage(caught)); }
     finally { setRevokeBusy(false); }
   }
+  async function setPaused(paused: boolean) {
+    setPauseBusy(true);
+    setPauseError('');
+    try {
+      await api.setAgentPaused(workspace.id, agent.id, paused);
+      notify(`${agent.name} ${paused ? 'paused' : 'resumed'}.`);
+      await onRefresh();
+    } catch (caught) { setPauseError(errorMessage(caught)); }
+    finally { setPauseBusy(false); }
+  }
   return <article className="integration-card">
-    <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.onboardingStatus === 'approved' ? 'enrolled' : agent.status} /></div>
+    <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.pausedAt ? 'paused' : agent.onboardingStatus === 'approved' ? 'enrolled' : agent.status} /></div>
     {emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}
     <div className="capability-list">{agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div>
     <dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Enrolled identity' : 'Pending approval'}</dd></div><div><dt>Permissions</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>
     {revokeResult && <InlineNotice title="Credential revocation completed" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. The agent identity and past conversations remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
     {pending && canApproveAgent && <button className="button primary" onClick={() => setApprovalOpen(true)}>Review agent access</button>}
+    {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
+    {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{pauseBusy ? 'Saving…' : agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}
     {canManageInbox && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent credentials</button>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>

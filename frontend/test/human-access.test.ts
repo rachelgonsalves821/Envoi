@@ -90,7 +90,13 @@ describe('human action visibility', () => {
     const observer = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: false }));
     expect(manager).toContain('Revoke agent credentials');
     expect(observer).not.toContain('Revoke agent credentials');
+    expect(manager).toContain('Pause agent');
+    expect(observer).not.toContain('Pause agent');
     expect(manager).toContain('Enrolled');
     expect(manager).not.toContain('Verified and active');
+    const paused = renderToStaticMarkup(createElement(AgentCard, { ...props, agent: { ...agent, pausedAt: '2026-09-28T12:00:00Z' }, canManageInbox: true }));
+    expect(paused).toContain('Resume agent');
+    expect(paused).not.toContain('Pause agent');
+    expect(paused).toContain('Paused');
   });
 });

@@ -47,6 +47,7 @@ export interface Agent {
   permissions: string[];
   capabilities?: string[];
   approvedAt?: string;
+  pausedAt?: string | null;
 }
 
 export interface ParticipantIdentity {

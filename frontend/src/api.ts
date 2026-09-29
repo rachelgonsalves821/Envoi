@@ -1,4 +1,4 @@
-import type { AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
+import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
 
 export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
 let configuredCsrfCookieName = 'sinaloa_csrf';
@@ -106,6 +106,7 @@ export const api = {
   }),
   approveAgent: (inboxId: string, agentId: string, permissions: string[]) => request<{ agent: unknown; agentApiToken?: string }>(`/api/inboxes/${inboxId}/agent-onboarding/${agentId}/approve`, { method: 'POST', body: JSON.stringify({ permissions }) })
   ,revokeAgentCredentials: (inboxId: string, agentId: string) => request<{ revoked: boolean; agentId: string; credentialFamilyCount: number; revokedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/revoke`, { method: 'POST', body: '{}' })
+  ,setAgentPaused: (inboxId: string, agentId: string, paused: boolean) => request<Agent>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/${paused ? 'pause' : 'resume'}`, { method: 'POST', body: '{}' })
   ,downloadAsset: (inboxId: string, assetId: string) => request<{ object: Asset; download: { url: string; method: 'GET'; headers?: Record<string, string> } }>(`/api/inboxes/${inboxId}/assets/${assetId}/download`)
   ,emailTransport: (inboxId: string) => request<EmailTransportStatus>(`/api/inboxes/${inboxId}/email-transport`)
   ,approveExternalContact: (inboxId: string, input: { email: string; displayName: string; direction: ApprovedEmailContact['direction'] }) => request<ApprovedEmailContact>(`/api/inboxes/${encodeURIComponent(inboxId)}/external-contacts`, { method: 'POST', body: JSON.stringify(input) })
