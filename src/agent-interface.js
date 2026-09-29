@@ -12,7 +12,7 @@ const validateActionSchema = ajv.compile({ $ref: `${schema.$id}#/definitions/Act
 export const CASE_STATES = Object.freeze(schema.definitions.caseState.enum);
 export const COLLABORATION_MODES = Object.freeze(schema.definitions.collaborationMode.enum);
 export const EVENT_TYPES = Object.freeze(schema.definitions.Event.properties.type.enum);
-export const HUMAN_ACTIONS = Object.freeze(['approveOnce', 'decline', 'editProposal', 'pause', 'revoke', 'takeOver']);
+export const HUMAN_ACTIONS = Object.freeze(['approveOnce', 'decline', 'editProposal', 'pause', 'resume', 'revoke', 'takeOver']);
 
 const normalTransitions = {
   new: ['classifying', 'inProgress'],
@@ -72,6 +72,7 @@ export function createCase({ id, objective, collaborationMode = 'collaboration',
 export function canTransition(from, to) {
   if (from === to) return true;
   if (terminalStates.has(from)) return false;
+  if (from === 'paused') return to !== 'paused' && !terminalStates.has(to) && CASE_STATES.includes(to);
   return Boolean(normalTransitions[from]?.includes(to) || exceptionStates.has(to));
 }
 
@@ -188,6 +189,13 @@ export function applyHumanAction(caseInput, actionInput, { at }) {
   const existing = value.events.find(event => event.payload?.action?.idempotencyKey === action.idempotencyKey);
   if (existing) return { case: value, action: existing.payload.action, replay: true };
   const targetState = { approveOnce: 'authorized', pause: 'paused', revoke: 'revoked', takeOver: 'paused', decline: 'revoked' }[action.actionKey];
+  if (value.state === 'paused' && action.actionKey !== 'resume' && action.actionKey !== 'revoke') throw domainError('Paused case requires an authenticated human resume', 409);
+  if (action.actionKey === 'resume') {
+    if (value.state !== 'paused') throw domainError('Case is not paused', 409);
+    const pauseEvent = [...value.events].reverse().find(event => event.type === 'stateChange' && event.payload?.to === 'paused');
+    if (!pauseEvent || !pauseEvent.payload?.from) throw domainError('Paused case has no previous state', 409);
+    value = transitionCase(value, pauseEvent.payload.from, { actor: action.actor, at, reasonCode: 'resume' });
+  }
   if (targetState) value = transitionCase(value, targetState, { actor: action.actor, at, reasonCode: action.actionKey });
   appendEvent(value, {
     id: `evt_${crypto.randomUUID()}`,
@@ -203,6 +211,7 @@ export function applyHumanAction(caseInput, actionInput, { at }) {
 
 export function applyAgentAction(caseInput, actionInput, { at, nextState = null }) {
   if (HUMAN_ACTIONS.includes(actionInput.actionKey)) throw domainError('Human action requires an authenticated human session', 403);
+  if (caseInput.state === 'paused' || caseInput.state === 'revoked') throw domainError('Case is paused or revoked', 409);
   const action = assertValidAction({ ...actionInput, reasonCode: actionInput.reasonCode || null, externalRefs: actionInput.externalRefs || {}, createdAt: at });
   let value = clone(caseInput);
   const existing = value.events.find(event => event.payload?.action?.idempotencyKey === action.idempotencyKey);

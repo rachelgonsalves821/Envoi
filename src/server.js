@@ -6,7 +6,7 @@ import { FileStore } from './storage.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
-import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest, workosAssuranceCookieHeader } from './workos-auth.js';
 import { DeliveryWorker } from './delivery-worker.js';
 import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
@@ -511,6 +511,20 @@ const auditRecord = async (inboxId, type, data, createdAt = store.now()) => {
 const inboxMutationKey = inboxId => `inbox:${inboxId}:mutations`;
 const caseMutationKey = caseId => `case:${caseId}:mutations`;
 const enrollmentMutationKey = tokenHash => `enrollment:${tokenHash}:mutations`;
+const humanAgentLimitKey = humanId => `human:${humanId}:active-agents`;
+async function assertActiveAgentSlot(humanId, excludingAgentId = null) {
+  const directories = await store.listJson(path.join('directory', 'agents'));
+  let active = 0;
+  for (const directory of directories) {
+    if (!['active', 'paused'].includes(directory.status) || directory.agentId === excludingAgentId) continue;
+    const agent = await store.getJson(path.join('inboxes', directory.inboxId, 'agents', `${directory.agentId}.json`));
+    if (agent?.principalHumanId === humanId && ['active', 'paused'].includes(agent.status)) {
+      const families = await store.listJson(path.join('auth', 'agent-credential-families', directory.inboxId, agent.id));
+      if (!families.length || families.some(family => !family.revokedAt && new Date(family.refreshExpiresAt) > new Date())) active += 1;
+    }
+  }
+  if (active >= 2) throw Object.assign(new Error('Beta limit of two active agents per human reached'), { statusCode: 409, code: 'ACTIVE_AGENT_LIMIT' });
+}
 async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = []) {
   const committedEvents = [];
   const run = () => operation(async (type, data, createdAt = store.now(), targetInboxId = inboxId) => {
@@ -526,7 +540,7 @@ async function withInboxMutation(inboxId, operation, relatedInboxIds = [], addit
   return result;
 }
 
-async function withCaseMutation(inboxId, caseId, operation) {
+async function withCaseMutation(inboxId, caseId, operation, { allowPaused = false } = {}) {
   const binding = await store.getJson(caseBindingPath(caseId));
   const related = binding?.inboxIds?.filter(id => id !== inboxId) || [];
   return withInboxMutation(inboxId, async writeAudit => {
@@ -534,8 +548,13 @@ async function withCaseMutation(inboxId, caseId, operation) {
     if (current && current.inboxIds.some(id => id !== inboxId && !related.includes(id))) {
       throw Object.assign(new Error('Case participants changed while acquiring the mutation lock; retry'), { statusCode: 409 });
     }
+    if (!allowPaused) await assertCaseProgressAllowed(inboxId, caseId);
     return operation(writeAudit);
   }, related, [caseMutationKey(caseId)]);
+}
+async function assertCaseProgressAllowed(inboxId, caseId) {
+  const value = await getCase(inboxId, caseId);
+  if (value?.state === 'paused' || value?.state === 'revoked') throw Object.assign(new Error('Case is paused or revoked'), { statusCode: 409, code: 'CASE_CONTROLLED' });
 }
 
 async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedAt = store.now()) {
@@ -742,11 +761,63 @@ async function listCases(inboxId, { limit = 100, before = null } = {}) {
 const caseRecordPath = (inboxId, caseId) => path.join('inboxes', inboxId, 'cases', `${caseId}.json`);
 const caseBindingPath = caseId => path.join('shared-case-bindings', `${caseId}.json`);
 const sharedCasePath = caseId => path.join('shared-cases', `${caseId}.json`);
+const assetGrantPath = (recipientInboxId, assetId) => path.join('inboxes', recipientInboxId, 'asset-grants', `${assetId}.json`);
+const objectMetadataPath = assetId => path.join('object-storage', 'metadata', `${assetId}.json`);
 const pairIds = ids => [...new Set(ids)].sort();
 const caseParticipantMismatch = () => Object.assign(new Error('Case ID belongs to another participant pair'), { statusCode: 403, code: 'CASE_PARTICIPANT_MISMATCH' });
 const nativeIdempotencyConflict = () => Object.assign(new Error('Idempotency key was already used for a different message'), { statusCode: 409, code: 'IDEMPOTENCY_CONFLICT' });
 const matchesCasePair = (binding, message) => JSON.stringify(binding.agentIds) === JSON.stringify(pairIds([message.senderAgentId, message.recipientAgentId]))
   && JSON.stringify(binding.inboxIds) === JSON.stringify(pairIds([message.senderInboxId, message.recipientInboxId]));
+async function sharedCaseForAsset(caseId) {
+  const [binding, value] = await Promise.all([store.getJson(caseBindingPath(caseId)), store.getJson(sharedCasePath(caseId))]);
+  return binding?.agentIds?.length === 2 && binding?.inboxIds?.length === 2 && value?.id === caseId
+    && JSON.stringify(pairIds(value.participants || [])) === JSON.stringify(binding.agentIds) ? { binding, value } : null;
+}
+async function agentControlState(inboxId, agent) {
+  const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agent.id));
+  return { ...publicAgent(agent), paused: agent.status === 'paused', credentialRevoked: families.length > 0 && !families.some(family => !family.revokedAt && new Date(family.refreshExpiresAt) > new Date()) };
+}
+async function assetPair(asset, recipientAgentId, recipientInboxId) {
+  if (!asset?.key || !asset.caseId || !asset.workspaceId || !asset.createdByAgentId || asset.createdByAgentId === recipientAgentId) return null;
+  const shared = await sharedCaseForAsset(asset.caseId);
+  if (!shared || !matchesCasePair(shared.binding, { senderAgentId: asset.createdByAgentId, recipientAgentId, senderInboxId: asset.workspaceId, recipientInboxId })) return null;
+  const [ownerDirectory, recipientDirectory] = await Promise.all([
+    store.getJson(path.join('directory', 'agents', `${asset.createdByAgentId}.json`)),
+    store.getJson(path.join('directory', 'agents', `${recipientAgentId}.json`))
+  ]);
+  return ownerDirectory?.inboxId === asset.workspaceId && recipientDirectory?.inboxId === recipientInboxId ? shared : null;
+}
+async function assetRelationshipBlocked(asset, recipientAgentId, recipientInboxId) {
+  const [ownerContact, recipientContact] = await Promise.all([
+    store.getJson(path.join('inboxes', asset.workspaceId, 'contacts', `${recipientAgentId}.json`)),
+    store.getJson(path.join('inboxes', recipientInboxId, 'contacts', `${asset.createdByAgentId}.json`))
+  ]);
+  return Boolean(ownerContact?.blocked || recipientContact?.blocked);
+}
+async function assetReader(req, inbox) {
+  const [human, agent] = await Promise.all([auth.getHuman(req), getAgentPrincipal(req, inbox.id)]);
+  return { agent, manager: await canManageInbox(human, inbox) };
+}
+async function assetReadAccess(asset, inbox, reader) {
+  if (!asset) return { allowed: false };
+  if (asset.caseId) {
+    const shared = await sharedCaseForAsset(asset.caseId);
+    if (!shared || shared.value.state === 'paused' || shared.value.state === 'revoked') return { allowed: false };
+    const agents = await Promise.all(shared.binding.agentIds.map(async id => {
+      const directory = await store.getJson(path.join('directory', 'agents', `${id}.json`));
+      return directory ? store.getJson(path.join('inboxes', directory.inboxId, 'agents', `${id}.json`)) : null;
+    }));
+    if (agents.some(agent => !agent || agent.status !== 'active')) return { allowed: false };
+  }
+  if ((asset.workspaceId || asset.inboxId) === inbox.id) return { allowed: Boolean(reader.manager || reader.agent?.id === asset.createdByAgentId && hasPermission(reader.agent, 'create_assets')), owner: true };
+  const grant = await store.getJson(assetGrantPath(inbox.id, asset.id));
+  if (!grant || grant.assetId !== asset.id || grant.caseId !== asset.caseId || grant.ownerInboxId !== asset.workspaceId
+    || grant.ownerAgentId !== asset.createdByAgentId || grant.recipientInboxId !== inbox.id
+    || !reader.manager && (reader.agent?.id !== grant.recipientAgentId || !hasPermission(reader.agent, 'receive_agent_messages'))
+    || !await assetPair(asset, grant.recipientAgentId, inbox.id)) return { allowed: false };
+  if (await assetRelationshipBlocked(asset, grant.recipientAgentId, inbox.id)) return { allowed: false, blocked: true };
+  return { allowed: true, owner: false, grant };
+}
 async function saveCase(inboxId, value) {
   const binding = await store.getJson(caseBindingPath(value.id));
   if (!binding) return store.putJson(caseRecordPath(inboxId, value.id), value);
@@ -1095,10 +1166,9 @@ async function deliverNativeAgentMessage(outbox) {
   if (!recipient || !hasPermission(recipient, 'receive_agent_messages')) throw permanentDeliveryError('Recipient is not approved to receive messages');
   const contact = await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${queued.senderAgentId}.json`));
   const senderContact = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'contacts', `${queued.recipientAgentId}.json`));
-  if (contact?.blocked || senderContact?.blocked || contact?.approved === false || senderContact?.approved === false) throw permanentDeliveryError('The agent relationship is blocked for delivery');
-  const invitationId = `invitation_${hashSecret(`${queued.senderAgentId}:${queued.recipientAgentId}`).slice(0, 40)}`;
-  const invitation = await store.getJson(invitationPath(outbox.recipientInboxId, invitationId));
-  if (invitation?.state === 'declined') throw permanentDeliveryError('The agent relationship is declined');
+  if (contact?.blocked || senderContact?.blocked) throw permanentDeliveryError('The agent relationship is blocked for delivery');
+  try { await assertCaseProgressAllowed(outbox.senderInboxId, queued.caseId); }
+  catch (error) { throw permanentDeliveryError(error.message); }
 
   const deliveredAt = store.now();
   const delivered = { ...queued, status: 'delivered', deliveredAt };
@@ -1421,7 +1491,7 @@ async function humanView(inboxId, inbox, cursors = {}) {
     navigation: { ...projection.counts, needsMe: projection.counts.needsMe + pendingInvitations },
     caseQueue: projection.cases,
     participantDirectory,
-    agents: agents.map(publicAgent),
+    agents: await Promise.all(agents.map(agent => agentControlState(inboxId, agent))),
     cases,
     messages,
     assets,
@@ -1559,9 +1629,13 @@ async function route(req, res) {
         for (const candidate of messages) {
           const message = await store.getJson(messagePath(identity.inboxId, candidate.id));
           if (!message || !['delivered', 'acknowledged'].includes(message.status) || message.senderInboxId !== candidate.senderInboxId) continue;
+          const caseRecord = await getCase(identity.inboxId, message.caseId);
+          if (caseRecord?.state === 'paused' || caseRecord?.state === 'revoked') continue;
+          const senderAgent = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
+          if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) continue;
           const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
           const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
-          if (senderContact?.blocked || senderContact?.approved === false || recipientContact?.blocked || recipientContact?.approved === false) continue;
+          if (senderContact?.blocked || recipientContact?.blocked) continue;
           const claimPath = workClaimPath(identity.inboxId, message.id);
           const currentClaim = await store.getJson(claimPath);
           if (currentClaim && ['completed', 'failed'].includes(currentClaim.status)) continue;
@@ -1600,9 +1674,12 @@ async function route(req, res) {
       if (!currentMessage || currentMessage.recipientInboxId !== identity.inboxId || currentMessage.recipientAgentId !== identity.agent.id) {
         throw Object.assign(new Error('Work was not found for this agent'), { statusCode: 404 });
       }
+      await assertCaseProgressAllowed(identity.inboxId, currentMessage.caseId);
+      const senderAgent = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'agents', `${currentMessage.senderAgentId}.json`));
+      if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is paused or unavailable'), { statusCode: 403 });
       const senderContact = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'contacts', `${identity.agent.id}.json`));
       const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${currentMessage.senderAgentId}.json`));
-      if (senderContact?.blocked || senderContact?.approved === false || recipientContact?.blocked || recipientContact?.approved === false) {
+      if (senderContact?.blocked || recipientContact?.blocked) {
         throw Object.assign(new Error('Message receive permission was lost'), { statusCode: 403 });
       }
       const claimPath = workClaimPath(identity.inboxId, workId);
@@ -1768,6 +1845,20 @@ async function route(req, res) {
     return redirect(res, result.returnTo, { 'set-cookie': [sessionCookieHeader(result.sealedSession), csrfCookieHeader(csrfToken)] });
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/auth/workos/phone/start') {
+    if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
+    const input = await body(req);
+    return json(res, 200, await auth.startPhoneVerification(req, input.phoneNumber));
+  }
+  if (req.method === 'POST' && url.pathname === '/api/auth/workos/phone/verify') {
+    if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
+    const input = await body(req);
+    const result = await auth.verifyPhone(req, input.challengeId, input.code);
+    res.setHeader('set-cookie', workosAssuranceCookieHeader(result.sessionCookieValue));
+    const { sessionCookieValue: _secret, ...publicResult } = result;
+    return json(res, 200, publicResult);
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/auth/phone/start') {
     if (auth.provider !== 'local') return fail(res, 404, 'Phone authentication is managed by WorkOS');
     const input = await body(req);
@@ -1797,12 +1888,10 @@ async function route(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/totp/setup') {
-    if (auth.provider !== 'local') return fail(res, 404, 'Second-factor authentication is managed by WorkOS');
     return json(res, 201, await auth.startTotp(req));
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/totp/verify') {
-    if (auth.provider !== 'local') return fail(res, 404, 'Second-factor authentication is managed by WorkOS');
     const input = await body(req);
     if (!input.code) return fail(res, 400, 'Authenticator code is required');
     return json(res, 200, await auth.verifyTotp(req, input.code));
@@ -1812,7 +1901,7 @@ async function route(req, res) {
     const result = await auth.logout(req);
     const revoked = typeof result === 'boolean' ? result : result.revoked;
     if (!revoked) return fail(res, 401, 'Authenticated session required');
-    res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true })]);
+    res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true }), ...(auth.provider === 'workos' ? [workosAssuranceCookieHeader('', { clear: true })] : [])]);
     return json(res, 200, typeof result === 'boolean' ? { revoked: true } : result);
   }
 
@@ -1912,6 +2001,7 @@ async function route(req, res) {
       if (!sourceInbox || !membershipCanManage(issuerMembership, auth.provider)) throw Object.assign(new Error('Enrollment owner is invalid'), { statusCode: 403 });
       const agentName = String(input.name || currentRecord.agentProfile?.name || '').trim();
       if (!agentName) throw Object.assign(new Error('Agent name is required'), { statusCode: 400 });
+      await assertActiveAgentSlot(currentRecord.humanId);
       const record = await store.claimJson(tokenPath, 'usedAt', store.now());
       if (!record) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
       const baseSlug = slugify(input.slug || record.agentProfile?.slug || agentName) || store.id('agent').replace('agent_', '');
@@ -1930,7 +2020,7 @@ async function route(req, res) {
       await writeAudit('agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions, sourceInboxId: sourceInbox.id }, createdAt, inbox.id);
       await writeAudit('agent.inbox_created', { agentId: agent.id, inboxId: inbox.id, humanId: record.humanId }, createdAt, sourceInbox.id);
       return { agent, credentials, inbox };
-    }, [plannedInboxId], [enrollmentMutationKey(tokenHash)]);
+    }, [plannedInboxId], [enrollmentMutationKey(tokenHash), humanAgentLimitKey(pendingRecord.humanId)]);
     return json(res, 201, { agent: publicAgent(enrolled.agent), ...enrolled.credentials, inbox: enrolled.inbox, nativeMessaging: 'ready' });
   }
 
@@ -2235,18 +2325,55 @@ async function route(req, res) {
     return json(res, 201, { agent: publicAgent(agent), inbox: agentInbox, next: { nativeMessaging: 'pending_human_approval', humanApproval: { required: true, humanId: input.humanId }, externalEmail: 'requires_email_transport_configuration' } });
   }
 
-  if (req.method === 'GET' && suffix === 'agents') return json(res, 200, (await store.listJson(path.join('inboxes', inboxId, 'agents'))).map(publicAgent));
+  if (req.method === 'GET' && suffix === 'agents') return json(res, 200, await Promise.all((await store.listJson(path.join('inboxes', inboxId, 'agents'))).map(agent => agentControlState(inboxId, agent))));
+
+  const agentControlMatch = suffix.match(/^agents\/([^/]+)\/(pause|resume)$/);
+  if (req.method === 'POST' && agentControlMatch) {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Authenticated workspace administrator required');
+    const agentId = assertSafeIdentifier(agentControlMatch[1], 'agentId');
+    const action = agentControlMatch[2];
+    const result = await withInboxMutation(inboxId, async writeAudit => {
+      if (!await canManageInbox(await auth.getHuman(req), inbox)) throw Object.assign(new Error('Authenticated workspace administrator required'), { statusCode: 403 });
+      const agentPath = path.join('inboxes', inboxId, 'agents', `${agentId}.json`);
+      const agent = await store.getJson(agentPath);
+      if (!agent || inbox.ownerAgentId !== agentId) throw Object.assign(new Error('Owned agent not found'), { statusCode: 404 });
+      if (action === 'pause' && !['active', 'paused'].includes(agent.status) || action === 'resume' && agent.status !== 'paused') throw Object.assign(new Error('Agent control transition is unavailable'), { statusCode: 409 });
+      if (action === 'resume') {
+        const state = await agentControlState(inboxId, agent);
+        if (state.credentialRevoked) throw Object.assign(new Error('Revoked credentials cannot be resumed'), { statusCode: 409 });
+      }
+      const status = action === 'pause' ? 'paused' : 'active';
+      if (agent.status !== status) {
+        agent.status = status;
+        agent.updatedAt = store.now();
+        await store.putJsonBatch([
+          document(agentPath, agent),
+          document(path.join('directory', 'agents', `${agentId}.json`), { agentId, inboxId, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status, verified: true }),
+          document(nativeAddressDirectoryPath(agent.address), { agentId, inboxId, address: agent.address, status, verified: true })
+        ]);
+        await writeAudit(`agent.${action}d`, { agentId, humanId: human.id, status });
+      }
+      return agentControlState(inboxId, agent);
+    });
+    if (action === 'pause') disconnectAgentStreams(inboxId, agentId);
+    return json(res, 200, result);
+  }
 
   const blockMatch = suffix.match(/^contacts\/([^/]+)\/(block|unblock)$/);
   if (req.method === 'POST' && blockMatch) {
     const human = await auth.getHuman(req);
-    const principal = await getAgentPrincipal(req, inboxId);
-    if (!await canManageInbox(human, inbox) && principal?.id !== inbox.ownerAgentId) return fail(res, 403, 'Workspace administrator or inbox-owning agent required');
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Authenticated workspace administrator required');
     const [, agentId, action] = blockMatch;
-    const existing = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`), { agentId, approved: true });
-    const contact = { ...existing, agentId, blocked: action === 'block', updatedAt: store.now() };
-    await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`), contact);
-    await audit(inboxId, `contact.${action}ed`, { agentId, actor: human?.id || principal.id });
+    const directory = await store.getJson(path.join('directory', 'agents', `${agentId}.json`));
+    const contact = await withInboxMutation(inboxId, async writeAudit => {
+      if (!await canManageInbox(await auth.getHuman(req), inbox)) throw Object.assign(new Error('Authenticated workspace administrator required'), { statusCode: 403 });
+      const existing = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`), { agentId, approved: true });
+      const updated = { ...existing, agentId, blocked: action === 'block', updatedAt: store.now() };
+      await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`), updated);
+      await writeAudit(`contact.${action}ed`, { agentId, actorType: 'human', actorHumanId: human.id });
+      return updated;
+    }, directory?.inboxId ? [directory.inboxId] : []);
     return json(res, 200, contact);
   }
 
@@ -2256,7 +2383,8 @@ async function route(req, res) {
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
     const [, agentId] = approveMatch;
     if (!await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`))) return fail(res, 404, 'Agent not found');
-    const contact = { agentId, approved: true, blocked: false, updatedAt: store.now() };
+    const existing = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`));
+    const contact = { ...existing, agentId, approved: true, blocked: existing?.blocked === true, updatedAt: store.now() };
     await store.putJson(path.join('inboxes', inboxId, 'contacts', `${agentId}.json`), contact);
     await audit(inboxId, 'contact.approved', { agentId });
     return json(res, 200, contact);
@@ -2275,6 +2403,7 @@ async function route(req, res) {
     const result = await withInboxMutation(inboxId, async writeAudit => {
       const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
       if (!agent) throw Object.assign(new Error('Agent not found'), { statusCode: 404 });
+      if (decision === 'approve' && agent.status !== 'pending_approval') throw Object.assign(new Error('Agent onboarding is already decided'), { statusCode: 409 });
       let credentials = null;
       if (decision === 'reject') {
         agent.status = 'rejected';
@@ -2287,6 +2416,7 @@ async function route(req, res) {
         ]);
         if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId, address: publicEmailAddressForAgent(agent), status: agent.status });
       } else {
+        await assertActiveAgentSlot(agent.principalHumanId || inbox.ownerHumanId);
         const permissions = Array.isArray(input.permissions) ? input.permissions.filter((permission) => allowedPermissions.has(permission)) : ['send_agent_messages', 'receive_agent_messages'];
         if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
         agent.status = 'active';
@@ -2305,7 +2435,7 @@ async function route(req, res) {
       await store.putJson(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), agent);
       await writeAudit(`agent.onboarding_${decision}ed`, { agentId: agent.id, humanId: human.id, permissions: agent.permissions });
       return { agent, credentials };
-    });
+    }, [], [humanAgentLimitKey(existingAgent.principalHumanId || inbox.ownerHumanId)]);
     if (decision === 'reject') disconnectAgentStreams(inboxId, agentId);
     return json(res, 200, { agent: publicAgent(result.agent), ...(result.credentials || {}) });
   }
@@ -2430,6 +2560,8 @@ async function route(req, res) {
       if (!humanCanManage && (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases'))) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
+      const replayingAction = value.events.some(event => event.payload?.action?.idempotencyKey === idempotencyKey);
+      if ((value.state === 'paused' || value.state === 'revoked') && !(humanCanManage && ['resume', 'revoke'].includes(input.actionKey)) && !replayingAction) throw Object.assign(new Error('Case is paused or revoked'), { statusCode: 409, code: 'CASE_CONTROLLED' });
       const now = store.now();
       let result;
       if (humanCanManage) {
@@ -2476,7 +2608,7 @@ async function route(req, res) {
       await saveCase(inboxId, result.case);
       if (!result.replay) await writeAudit('case.action_recorded', { caseId: value.id, actionId: result.action.id, actionKey: result.action.actionKey, actor: result.action.actor, outcome: result.action.outcome });
       return { status: result.replay ? 200 : 201, result };
-    });
+    }, { allowPaused: true });
     return json(res, response.status, response.result);
   }
 
@@ -2630,16 +2762,17 @@ async function route(req, res) {
         await store.putJsonBatch([
           document(invitationPath(inboxId, currentInvitation.id), declined),
           document(invitationPath(currentInvitation.senderInboxId, currentInvitation.id), declined),
-          document(messagePath(currentInvitation.senderInboxId, message.id), message),
-          document(path.join('inboxes', inboxId, 'contacts', `${currentInvitation.senderAgentId}.json`), { agentId: currentInvitation.senderAgentId, email: currentInvitation.fromAddress, state: 'declined', approved: false, blocked: false, updatedAt: now })
+          document(messagePath(currentInvitation.senderInboxId, message.id), message)
         ]);
         await writeAudit('invitation.declined', { invitationId: currentInvitation.id, senderAgentId: currentInvitation.senderAgentId, humanId: human.id });
         return { status: 200, result: declined, queued: false };
       }
       const conversationId = currentInvitation.conversationId || currentInvitation.pendingConversationId || store.id('conversation');
       const accepted = { ...currentInvitation, state: 'accepted', conversationId, acceptedAt: currentInvitation.acceptedAt || now, decidedByHumanId: human.id, updatedAt: now };
-      const senderContact = { agentId: currentInvitation.recipientAgentId, email: currentInvitation.toAddress, state: 'accepted', approved: true, blocked: false, conversationId, updatedAt: now };
-      const recipientContact = { agentId: currentInvitation.senderAgentId, email: currentInvitation.fromAddress, state: 'accepted', approved: true, blocked: false, conversationId, updatedAt: now };
+      const previousSenderContact = await store.getJson(path.join('inboxes', currentInvitation.senderInboxId, 'contacts', `${currentInvitation.recipientAgentId}.json`));
+      const previousRecipientContact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${currentInvitation.senderAgentId}.json`));
+      const senderContact = { ...previousSenderContact, agentId: currentInvitation.recipientAgentId, email: currentInvitation.toAddress, state: 'accepted', approved: true, blocked: previousSenderContact?.blocked === true, conversationId, updatedAt: now };
+      const recipientContact = { ...previousRecipientContact, agentId: currentInvitation.senderAgentId, email: currentInvitation.fromAddress, state: 'accepted', approved: true, blocked: previousRecipientContact?.blocked === true, conversationId, updatedAt: now };
       await store.putJsonBatch([
         document(invitationPath(inboxId, currentInvitation.id), accepted),
         document(invitationPath(currentInvitation.senderInboxId, currentInvitation.id), accepted),
@@ -2799,10 +2932,10 @@ async function route(req, res) {
         store.getJson(path.join('inboxes', inboxId, 'contacts', `${currentRecipient.id}.json`)),
         store.getJson(path.join('inboxes', currentRecipientDirectory.inboxId, 'contacts', `${currentSender.id}.json`))
       ]);
-      if (senderContact?.blocked || recipientContact?.blocked || senderContact?.approved === false || recipientContact?.approved === false) throw Object.assign(new Error('The recipient is unavailable'), { statusCode: 403 });
+      if (senderContact?.blocked || recipientContact?.blocked) throw Object.assign(new Error('The recipient is unavailable'), { statusCode: 403 });
       const invitationId = `invitation_${hashSecret(`${currentSender.id}:${currentRecipient.id}`).slice(0, 40)}`;
       const existingInvitation = await store.getJson(invitationPath(currentRecipientDirectory.inboxId, invitationId));
-      if (existingInvitation?.state === 'declined') throw Object.assign(new Error('The recipient is unavailable'), { statusCode: 403 });
+      await assertCaseProgressAllowed(inboxId, candidateCaseId);
       const existing = await store.getJson(messagePath(inboxId, messageId));
       if (existing) {
         const sameRequest = existing.requestHash ? existing.requestHash === requestHash : existing.recipientEmail === recipientEmail && existing.text === input.text && JSON.stringify(existing.payload) === JSON.stringify(input.payload || null);
@@ -2897,15 +3030,22 @@ async function route(req, res) {
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || !hasPermission(principal, 'create_assets')) return fail(res, 403, 'Agent credential with create_assets permission required');
     if (input.createdByAgentId && input.createdByAgentId !== principal.id) return fail(res, 403, 'createdByAgentId must match the authenticated agent');
+    const caseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
+    if (caseId) {
+      const [shared, directory] = await Promise.all([sharedCaseForAsset(caseId), store.getJson(path.join('directory', 'agents', `${principal.id}.json`))]);
+      if (!shared || !shared.binding.agentIds.includes(principal.id) || !shared.binding.inboxIds.includes(inboxId)
+        || directory?.inboxId !== inboxId || inbox.ownerAgentId !== principal.id) return fail(res, 403, 'CASE_PARTICIPANT_MISMATCH');
+      await assertCaseProgressAllowed(inboxId, caseId);
+    }
     const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey);
     const idempotencyPath = idempotencyKey ? scopedIdempotencyPath('asset-upload', inboxId, principal.id, idempotencyKey) : null;
-    const requestDigest = idempotencyPath ? semanticDigest({ filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null }) : null;
+    const requestDigest = idempotencyPath ? semanticDigest({ filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId }) : null;
     const claimed = idempotencyPath ? await claimIdempotency(store, idempotencyPath, { principalId: principal.id, requestDigest, createdAt: store.now() }) : null;
     if (claimed?.replay) return json(res, 200, claimed.replay);
     let persisted = false;
     let started;
     try {
-      started = await objectStorage.beginUpload({ workspaceId: inboxId, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null, createdByAgentId: principal.id });
+      started = await objectStorage.beginUpload({ workspaceId: inboxId, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId, createdByAgentId: principal.id });
       const response = { object: started.object, upload: browserObjectUrl(started.upload, req) };
       if (idempotencyPath) await completeIdempotency(store, idempotencyPath, { principalId: principal.id, requestDigest, response, createdAt: store.now() });
       persisted = true;
@@ -2930,10 +3070,62 @@ async function route(req, res) {
     return json(res, 200, scanned);
   }
 
+  const grantAsset = suffix.match(/^assets\/([^/]+)\/grants$/);
+  if (req.method === 'POST' && grantAsset) {
+    const input = await body(req);
+    const principal = await getAgentPrincipal(req, inboxId);
+    if (!principal || !hasPermission(principal, 'create_assets')) return fail(res, 403, 'Asset creator credential with create_assets permission required');
+    const caseId = assertSafeIdentifier(input.caseId, 'caseId');
+    const recipientAgentId = assertSafeIdentifier(input.recipientAgentId, 'recipientAgentId');
+    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
+    const requestDigest = semanticDigest({ assetId: grantAsset[1], caseId, recipientAgentId });
+    const keyPath = scopedIdempotencyPath('asset-grant', inboxId, principal.id, idempotencyKey);
+    const priorRequest = await store.getJson(keyPath);
+    if (priorRequest && (priorRequest.principalId !== principal.id || priorRequest.requestDigest !== requestDigest)) throw nativeIdempotencyConflict();
+    const asset = await store.getJson(objectMetadataPath(grantAsset[1]));
+    if (!asset || asset.workspaceId !== inboxId) return fail(res, 404, 'ASSET_NOT_FOUND');
+    if (asset.createdByAgentId !== principal.id || asset.caseId !== caseId) return fail(res, 403, 'Asset creator and case membership required');
+    const recipientDirectory = await store.getJson(path.join('directory', 'agents', `${recipientAgentId}.json`));
+    if (!recipientDirectory?.inboxId || !await assetPair(asset, recipientAgentId, recipientDirectory.inboxId)) return fail(res, 403, 'CASE_PARTICIPANT_MISMATCH');
+    const recipientInboxId = recipientDirectory.inboxId;
+    const grantPath = assetGrantPath(recipientInboxId, asset.id);
+    const result = await withInboxMutation(inboxId, async writeAudit => {
+      await assertCaseProgressAllowed(inboxId, caseId);
+      const [currentPrincipal, currentAsset, currentRecipient, currentRecipientDirectory] = await Promise.all([
+        getAgentPrincipal(req, inboxId), store.getJson(objectMetadataPath(asset.id)),
+        store.getJson(path.join('inboxes', recipientInboxId, 'agents', `${recipientAgentId}.json`)),
+        store.getJson(path.join('directory', 'agents', `${recipientAgentId}.json`))
+      ]);
+      if (currentPrincipal?.id !== principal.id || !hasPermission(currentPrincipal, 'create_assets')) throw Object.assign(new Error('Asset creator credential required'), { statusCode: 403 });
+      if (!currentAsset || currentAsset.workspaceId !== inboxId || currentAsset.createdByAgentId !== principal.id || currentAsset.caseId !== caseId) throw Object.assign(new Error('Asset creator and case membership required'), { statusCode: 403 });
+      if (currentRecipientDirectory?.inboxId !== recipientInboxId || !currentRecipient || !hasPermission(currentRecipient, 'receive_agent_messages')
+        || !await assetPair(currentAsset, recipientAgentId, recipientInboxId)) throw caseParticipantMismatch();
+      if (await assetRelationshipBlocked(currentAsset, recipientAgentId, recipientInboxId)) throw Object.assign(new Error('The agent relationship is blocked'), { statusCode: 403, code: 'AGENT_BLOCKED' });
+      const priorKey = await store.getJson(keyPath);
+      if (priorKey && (priorKey.principalId !== principal.id || priorKey.requestDigest !== requestDigest)) throw nativeIdempotencyConflict();
+      let grant = await store.getJson(grantPath);
+      if (priorKey && (!grant || grant.id !== priorKey.grantId)) throw Object.assign(new Error('Grant retry has no matching durable record'), { statusCode: 409 });
+      if (grant && (grant.assetId !== asset.id || grant.caseId !== caseId || grant.ownerInboxId !== inboxId
+        || grant.ownerAgentId !== principal.id || grant.recipientInboxId !== recipientInboxId || grant.recipientAgentId !== recipientAgentId)) throw nativeIdempotencyConflict();
+      const created = !grant;
+      if (!grant) {
+        grant = { id: `grant_${hashSecret(`${asset.id}:${caseId}:${recipientAgentId}`).slice(0, 40)}`, schemaVersion: '1.0', assetId: asset.id, caseId, ownerInboxId: inboxId, ownerAgentId: principal.id, recipientInboxId, recipientAgentId, grantedByAgentId: principal.id, createdAt: store.now() };
+        if (!await store.putJsonIfAbsent(grantPath, grant)) throw Object.assign(new Error('Asset grant was created concurrently; retry'), { statusCode: 409 });
+      }
+      if (!priorKey) await store.putJson(keyPath, { principalId: principal.id, requestDigest, grantId: grant.id, createdAt: store.now() });
+      if (created) await writeAudit('asset.granted', { assetId: asset.id, caseId, grantId: grant.id, recipientAgentId, recipientInboxId, actorAgentId: principal.id });
+      return { status: created ? 201 : 200, grant: { ...grant, active: currentAsset.state === 'clean' } };
+    }, [recipientInboxId], [`asset-grant:${asset.id}`]);
+    return json(res, result.status, result.grant);
+  }
+
   const downloadAsset = suffix.match(/^assets\/([^/]+)\/download$/);
   if (req.method === 'GET' && downloadAsset) {
-    const asset = await objectStorage.getObject(downloadAsset[1]);
-    if (asset.workspaceId !== inboxId) return fail(res, 404, 'Asset not found');
+    const asset = await store.getJson(objectMetadataPath(downloadAsset[1]));
+    const access = await assetReadAccess(asset, inbox, await assetReader(req, inbox));
+    if (access.blocked) return fail(res, 403, 'AGENT_BLOCKED');
+    if (!access.allowed) return fail(res, 404, 'ASSET_NOT_FOUND');
+    if (asset.state !== 'clean') return fail(res, 423, 'ASSET_NOT_CLEAN');
     return json(res, 200, { object: asset, download: browserObjectUrl(await objectStorage.createDownload(asset.id), req) });
   }
 
@@ -2942,6 +3134,7 @@ async function route(req, res) {
   if (req.method === 'POST' && suffix === 'assets') {
     if (objectStorageProvider === 's3') return fail(res, 410, 'Direct asset uploads are disabled; use asset-uploads and signed URLs');
     const input = await body(req);
+    if (input.caseId) return fail(res, 410, 'Case assets require scanner-gated asset-uploads');
     if (!input.name || !input.contentBase64 || !input.createdByAgentId) return fail(res, 400, 'name, contentBase64, and createdByAgentId are required');
     const createdByAgentId = assertSafeIdentifier(input.createdByAgentId, 'createdByAgentId');
     const assetAgent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${createdByAgentId}.json`));
@@ -2956,11 +3149,27 @@ async function route(req, res) {
     return json(res, 201, asset);
   }
 
-  if (req.method === 'GET' && suffix === 'assets') return json(res, 200, await store.listJson(path.join('inboxes', inboxId, 'assets')));
+  if (req.method === 'GET' && suffix === 'assets') {
+    const reader = await assetReader(req, inbox);
+    const caseId = url.searchParams.get('caseId');
+    if (caseId) assertSafeIdentifier(caseId, 'caseId');
+    const own = await store.listJson(path.join('inboxes', inboxId, 'assets'));
+    const grants = await store.listJson(path.join('inboxes', inboxId, 'asset-grants'));
+    const shared = await Promise.all(grants.map(grant => store.getJson(objectMetadataPath(grant.assetId))));
+    const visible = [];
+    for (const asset of [...own, ...shared.filter(Boolean)]) {
+      if (caseId && asset.caseId !== caseId || visible.some(item => item.id === asset.id)) continue;
+      const access = await assetReadAccess(asset, inbox, reader);
+      if (access.allowed && (access.owner || asset.state === 'clean')) visible.push(asset);
+    }
+    return json(res, 200, visible);
+  }
   const assetMatch = suffix.match(/^assets\/([^/]+)\/content$/);
   if (req.method === 'GET' && assetMatch) {
     const asset = await store.getJson(path.join('inboxes', inboxId, 'assets', `${assetMatch[1]}.json`));
     if (!asset) return fail(res, 404, 'Asset not found');
+    const access = await assetReadAccess(asset, inbox, await assetReader(req, inbox));
+    if (!access.allowed || !access.owner) return fail(res, 404, 'ASSET_NOT_FOUND');
     if (asset.key || process.env.SINALOA_AUTH_MODE === 'production') return fail(res, 410, 'Use the scanner-gated signed download endpoint');
     res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${asset.name.replace(/"/g, '')}"`, 'x-content-type-options': 'nosniff' });
     return res.end(await readFile(resolvePathWithin(dataDir, 'inboxes', inboxId, 'assets', asset.id, 'content.bin')));
