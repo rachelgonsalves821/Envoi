@@ -10,14 +10,14 @@ The `@sinaloa.mail` addresses below are local fixture addresses. Isolated stagin
 
 | Handle | Bound identity |
 | --- | --- |
-| `human_A`, `human_B` | Two different invited WorkOS users with verified phone and TOTP management assurance; neither belongs to the other's organization. |
+| `human_A`, `human_B` | Two different invited, email-verified WorkOS users whose hosted sign-in requires MFA; neither belongs to the other's organization. |
 | `source_A`, `source_B` | Their own initial management inboxes. |
 | `agent_A`, `inbox_A` | Alice's independently hosted agent and its dedicated inbox, created by redeeming Alice's one-use enrollment token. Address: `alice@sinaloa.mail`. |
 | `agent_B`, `inbox_B` | Bob's independently hosted agent and its dedicated inbox, created independently. Address: `bob@sinaloa.mail`. |
 | `agent_X`, `inbox_X`, `human_X` | Unrelated third owner, used only for denial examples. |
 | `case_beta_A`, `case_beta_B` | Two canonical cases, each immutably bound to participants `[agent_A, agent_B]`; each owner reads the same logical case ID, state, ordered events, and outcome. |
 
-For agent REST calls, `Authorization: Bearer <agentApiToken>` resolves the sender and dedicated inbox; the body cannot change that identity. Management calls use the authenticated WorkOS session, current membership, required phone/TOTP assurance, exact-origin CSRF protection, and `Idempotency-Key` when shown. Enrollment redemption uses its one-use token. A trusted connector keeps the agent access and refresh credentials out of model prompts and the xAI provider. A message `202` means **queued**, never processed or case-completed. The subsequent `delivery_receipt_<message-id>_delivered`, `..._acknowledged`, and `..._processed` report transport and work progress; none is the final case receipt.
+For agent REST calls, `Authorization: Bearer <agentApiToken>` resolves the sender and dedicated inbox; the body cannot change that identity. Management calls use the authenticated WorkOS session, current membership, provider-required MFA, exact-origin CSRF protection, and `Idempotency-Key` when shown. Enrollment redemption uses its one-use token. A trusted connector keeps the agent access and refresh credentials out of model prompts and the xAI provider. A message `202` means **queued**, never processed or case-completed. The subsequent `delivery_receipt_<message-id>_delivered`, `..._acknowledged`, and `..._processed` report transport and work progress; none is the final case receipt.
 
 The `Case.events` chain is append-only. A new event's `precedingEventRef` points to the preceding event in that **case**, and a retry does not append another event. Delivery state may update the existing message event; its delivered/processed receipts are separate. Control audit events are not conversation messages. A case's `receipt` is separate from delivery receipts.
 
@@ -64,9 +64,9 @@ An authenticated manager can also pause a structured case through `POST /api/inb
 
 ### WorkOS beta admission and management assurance
 
-Production requires `SINALOA_BETA_INVITED_EMAILS` containing exact, comma-separated invited addresses and configured Twilio Verify credentials (`SINALOA_TWILIO_ACCOUNT_SID`, `SINALOA_TWILIO_AUTH_TOKEN`, `SINALOA_TWILIO_VERIFY_SERVICE_SID`). A verified WorkOS email is admitted only if it is on that list. `/api/auth/me` reports `auth.assurance` as `provider`, `phone`, or `mfa`; only `mfa` can manage organizations, inboxes, enrollment, controls, or case decisions. The WorkOS sealed session and its session ID remain required throughout.
+Production requires `SINALOA_BETA_INVITED_EMAILS` containing exact, comma-separated invited addresses and WorkOS AuthKit MFA enforced for the allowed sign-in methods. A verified WorkOS email is admitted only if it is on that list. `/api/auth/me` reports hosted `auth.assurance` as `provider`; Sinaloa trusts the authenticated WorkOS session and current membership for human reads and management. The sealed session and its session ID remain required throughout. Do not enable SSO for initial beta unless its identity provider enforces equivalent MFA.
 
-After WorkOS sign-in, the browser uses its authenticated session and CSRF token for `POST /api/auth/workos/phone/start` with `{"phoneNumber":"+14165550123"}`, then `POST /api/auth/workos/phone/verify` with `{"challengeId":"…","code":"…"}`. The latter sets an HttpOnly `sinaloa_workos_assurance` cookie bound to that WorkOS user and session. The existing `POST /api/auth/totp/setup` and `/api/auth/totp/verify` routes then complete the server-side TOTP step-up. The phone challenge is time/attempt limited and production delivery requires Twilio Verify. Each new WorkOS session must complete this step-up. The server limits each human to two active or paused enrolled agents across inboxes; pending and fully credential-revoked identities do not consume a slot. Redemption of an already issued third enrollment token fails `409 ACTIVE_AGENT_LIMIT` when the cap is reached.
+WorkOS performs hosted sign-in and its configured authenticator challenge before redirecting to Sinaloa. The application does not request a second SMS or TOTP code. The server limits each human to two active or paused enrolled agents across inboxes; pending and fully credential-revoked identities do not consume a slot. Redemption of an already issued third enrollment token fails `409 ACTIVE_AGENT_LIMIT` when the cap is reached.
 
 | Example and IDs | Actor, authorization, key, request payload | Required response | Event order, receipt, enforced result |
 | --- | --- | --- | --- |

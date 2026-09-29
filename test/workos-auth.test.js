@@ -3,9 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { generateSync } from 'otplib';
 import { FileStore } from '../src/storage.js';
-import { createCsrfToken, csrfCookieHeader, membershipCanManage, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, workosAssuranceCookieHeader, WorkOSAuthService } from '../src/workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, membershipCanManage, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
 
 test('management authority follows active provider membership after role changes', () => {
   const membership = { status: 'active', role: { slug: 'admin' } };
@@ -84,22 +83,17 @@ test('WorkOS auth uses one-time PKCE state and maps provider users to stable hum
   await assert.rejects(() => auth.completeAuthorization({ code: 'code_1', state: 'state_1' }), /already used/);
 
   const cookie = sessionCookieHeader('sealed_session_1');
-  assert.equal(await auth.getHuman({ headers: { cookie } }), null);
-  const phone = await auth.startPhoneVerification({ headers: { cookie } }, '+14165550123');
-  const verified = await auth.verifyPhone({ headers: { cookie } }, phone.challengeId, phone.developmentCode);
-  const assuredCookie = `${cookie.split(';')[0]}; ${workosAssuranceCookieHeader(verified.sessionCookieValue).split(';')[0]}`;
-  assert.equal(await auth.getHuman({ headers: { cookie: assuredCookie } }), null);
-  const setup = await auth.startTotp({ headers: { cookie: assuredCookie } });
-  await auth.verifyTotp({ headers: { cookie: assuredCookie } }, generateSync({ secret: setup.secret }));
-  const human = await auth.getHuman({ headers: { cookie: assuredCookie } });
+  const human = await auth.getHuman({ headers: { cookie } });
   assert.equal(human.id, completed.human.id);
   assert.equal(human.providerUserId, 'user_workos_1');
   assert.equal(human.organizationId, 'org_workos_1');
   assert.equal(human.role, 'admin');
-  assert.equal((await auth.getSession({ headers: { cookie: assuredCookie } })).assurance, 'mfa');
-  assert.equal(await auth.getHuman({ headers: { cookie: assuredCookie.replace('sealed_session_1', 'invalid_session') } }), null);
+  assert.equal((await auth.getSession({ headers: { cookie } })).assurance, 'provider');
+  assert.equal(await auth.getHuman({ headers: { cookie: cookie.replace('sealed_session_1', 'invalid_session') } }), null);
   user.id = 'user_other';
-  assert.equal(await auth.getHuman({ headers: { cookie: assuredCookie } }), null);
+  const otherHuman = await auth.getHuman({ headers: { cookie } });
+  assert.notEqual(otherHuman.id, human.id);
+  assert.equal(otherHuman.providerUserId, 'user_other');
   user.id = 'user_workos_1';
   const providerMembership = await auth.getOrganizationMembership(human.providerUserId, human.organizationId);
   assert.equal(providerMembership.status, 'active');
@@ -120,6 +114,5 @@ test('WorkOS email verification alone does not admit an uninvited human', async 
   } };
   const auth = new WorkOSAuthService(store, { clientId: 'client_1', apiKey: 'sk_test_1', cookiePassword: '12345678901234567890123456789012', redirectUri: 'https://sinaloa.test/callback', workos, invitedEmails: 'rachel@example.com' });
   const req = { headers: { cookie: 'sinaloa_session=sealed' } };
-  assert.equal(await auth.getHuman(req, { requireMfa: false }), null);
-  await assert.rejects(() => auth.startPhoneVerification(req, '+14165550199'), /Invited WorkOS session required/);
+  assert.equal(await auth.getHuman(req), null);
 });

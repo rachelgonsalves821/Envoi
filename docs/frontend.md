@@ -13,7 +13,7 @@ Sinaloa’s browser UI is a React + TypeScript application under `frontend/`. Vi
 
 The UI authenticates through `/api/auth/config` and preserves both supported human flows:
 
-- Production: WorkOS-hosted sign-in/sign-up and cookie-backed sessions.
+- Production: invited WorkOS-hosted sign-in with provider-managed MFA and a cookie-backed session; no second application authenticator challenge.
 - Development: phone verification followed by TOTP, with the bearer session kept in browser local storage.
 
 After authentication, it discovers organizations and workspaces, reads `/api/inboxes/:id/human-view`, and renders the machine-facing Case/Event/Proposal/PolicyEvaluation/Receipt objects. Human decisions are posted to `/api/inboxes/:id/cases/:caseId/actions` as `approveOnce`, `decline`, `editProposal`, `pause`, `revoke`, or `takeOver`. Agent enrollment uses the 15-minute, one-time token endpoint.

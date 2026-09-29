@@ -14,7 +14,6 @@ const normalizePhone = value => {
   if (!/^\+[1-9]\d{7,14}$/.test(phone)) throw Object.assign(new Error('Phone number must use E.164 format, for example +14165551234'), { statusCode: 400 });
   return phone;
 };
-const twilioConfigured = () => Boolean(process.env.SINALOA_TWILIO_ACCOUNT_SID && process.env.SINALOA_TWILIO_AUTH_TOKEN && process.env.SINALOA_TWILIO_VERIFY_SERVICE_SID);
 const encryptionKey = () => {
   const configured = process.env.SINALOA_DATA_ENCRYPTION_KEY;
   if (mode === 'production' && !configured) throw Object.assign(new Error('Data encryption key is not configured'), { statusCode: 503 });
@@ -36,19 +35,12 @@ const throwExpectedError = result => {
   return result.value;
 };
 
-async function twilioRequest(pathname, params) {
-  const auth = Buffer.from(`${process.env.SINALOA_TWILIO_ACCOUNT_SID}:${process.env.SINALOA_TWILIO_AUTH_TOKEN}`).toString('base64');
-  const response = await fetch(`https://verify.twilio.com/v2/Services/${process.env.SINALOA_TWILIO_VERIFY_SERVICE_SID}${pathname}`, { method: 'POST', headers: { authorization: `Basic ${auth}`, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
-  if (!response.ok) throw Object.assign(new Error('Phone verification provider request failed'), { statusCode: 502 });
-  return response.json();
-}
-
 export class AuthService {
   constructor(store) { this.store = store; }
 
   async startPhoneVerification(phoneInput, displayName) {
+    if (mode !== 'development') throw Object.assign(new Error('Local phone verification is disabled'), { statusCode: 404 });
     const phone = normalizePhone(phoneInput);
-    if (mode === 'production' && !twilioConfigured()) throw Object.assign(new Error('Phone verification is not configured'), { statusCode: 503 });
     const phoneHash = lookupHash(phone);
     const ratePath = path.join('auth', 'phone-rate-limits', `${phoneHash}.json`);
     const now = Date.now();
@@ -59,15 +51,15 @@ export class AuthService {
     rate.starts.push(new Date(now).toISOString());
     await this.store.putJson(ratePath, rate);
     const challengeId = this.store.id('challenge');
-    const challenge = { id: challengeId, phoneEncrypted: encrypt(phone), phoneHash, phoneLast4: phone.slice(-4), displayName: displayName || null, expiresAt: new Date(Date.now() + challengeMinutes * 60_000).toISOString(), attempts: 0, status: 'pending', provider: twilioConfigured() ? 'twilio-verify' : 'development' };
-    let developmentCode;
-    if (twilioConfigured()) await twilioRequest('/Verifications', { To: phone, Channel: 'sms' });
-    else { developmentCode = String(crypto.randomInt(100000, 1000000)); challenge.codeHash = hash(developmentCode); }
+    const challenge = { id: challengeId, phoneHash, phoneLast4: phone.slice(-4), displayName: displayName || null, expiresAt: new Date(Date.now() + challengeMinutes * 60_000).toISOString(), attempts: 0, status: 'pending', provider: 'development' };
+    const developmentCode = String(crypto.randomInt(100000, 1000000));
+    challenge.codeHash = hash(developmentCode);
     await this.store.putJson(path.join('auth', 'challenges', `${challengeId}.json`), challenge);
     return { challengeId, expiresAt: challenge.expiresAt, delivery: challenge.provider, ...(mode === 'development' && developmentCode ? { developmentCode } : {}) };
   }
 
   async verifyPhone(challengeId, code) {
+    if (mode !== 'development') throw Object.assign(new Error('Local phone verification is disabled'), { statusCode: 404 });
     const relative = path.join('auth', 'challenges', `${challengeId}.json`);
     const pending = await this.store.getJson(relative);
     if (!pending?.phoneHash) throw Object.assign(new Error('Verification challenge is invalid'), { statusCode: 400 });
@@ -76,7 +68,6 @@ export class AuthService {
       if (!challenge || challenge.status !== 'pending') return expectedError(400, 'Verification challenge is invalid');
       if (new Date(challenge.expiresAt) < new Date()) {
         challenge.status = 'expired';
-        delete challenge.phoneEncrypted;
         delete challenge.codeHash;
         await this.store.putJson(relative, challenge);
         return expectedError(400, 'Verification challenge has expired');
@@ -84,16 +75,11 @@ export class AuthService {
       challenge.attempts += 1;
       if (challenge.attempts > 5) {
         challenge.status = 'locked';
-        delete challenge.phoneEncrypted;
         delete challenge.codeHash;
         await this.store.putJson(relative, challenge);
         return expectedError(429, 'Too many verification attempts');
       }
-      let approved = false;
-      if (challenge.provider === 'twilio-verify') {
-        const result = await twilioRequest('/VerificationCheck', { To: decrypt(challenge.phoneEncrypted), Code: code });
-        approved = result.status === 'approved';
-      } else approved = hash(String(code)) === challenge.codeHash;
+      const approved = hash(String(code)) === challenge.codeHash;
       if (!approved) {
         await this.store.putJson(relative, challenge);
         return expectedError(401, 'Incorrect verification code');
@@ -106,7 +92,6 @@ export class AuthService {
       human.verifiedAt = verifiedAt;
       challenge.status = 'verified';
       challenge.verifiedAt = verifiedAt;
-      delete challenge.phoneEncrypted;
       delete challenge.codeHash;
       const sessionToken = token();
       const session = { id: this.store.id('session'), tokenHash: hash(sessionToken), humanId: human.id, assurance: 'phone', mfaSetupRequired, createdAt: verifiedAt, expiresAt: new Date(Date.now() + sessionHours * 3_600_000).toISOString() };

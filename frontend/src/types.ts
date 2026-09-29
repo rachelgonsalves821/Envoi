@@ -15,6 +15,7 @@ export type HumanActionKey = 'approveOnce' | 'decline' | 'editProposal' | 'pause
 export interface AuthConfig {
   provider: 'local' | 'workos';
   hosted: boolean;
+  inviteOnly?: boolean;
   phoneVerification?: boolean;
   totp?: boolean;
   signInPath?: string;

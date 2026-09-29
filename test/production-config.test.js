@@ -14,9 +14,6 @@ const validProduction = (overrides = {}) => ({
   WORKOS_COOKIE_PASSWORD: 'a'.repeat(32),
   WORKOS_REDIRECT_URI: 'https://app.sinaloa.example/api/auth/workos/callback',
   SINALOA_BETA_INVITED_EMAILS: 'alice@example.com,bob@example.com',
-  SINALOA_TWILIO_ACCOUNT_SID: 'AC123',
-  SINALOA_TWILIO_AUTH_TOKEN: 'twilio-secret',
-  SINALOA_TWILIO_VERIFY_SERVICE_SID: 'VA123',
   SINALOA_DATA_ENCRYPTION_KEY: 'b'.repeat(32),
   SINALOA_POLICY_ACTIVE_KEY_ID: 'primary',
   SINALOA_POLICY_SIGNING_KEY: 'c'.repeat(32),
@@ -35,9 +32,10 @@ const validProduction = (overrides = {}) => ({
   ...overrides
 });
 
-test('production requires an exact invite list and phone verification provider', () => {
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_BETA_INVITED_EMAILS: '', SINALOA_TWILIO_VERIFY_SERVICE_SID: '' })), /SINALOA_BETA_INVITED_EMAILS is required[\s\S]*SINALOA_TWILIO_VERIFY_SERVICE_SID is required/);
+test('production requires an exact invite list without SMS credentials', () => {
+  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_BETA_INVITED_EMAILS: '' })), /SINALOA_BETA_INVITED_EMAILS is required/);
   assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_BETA_INVITED_EMAILS: 'example.com' })), /exact email addresses/);
+  assert.equal(validateProductionConfiguration(validProduction()).validated, true);
 });
 
 test('development configuration remains local while production fails unsafe dependencies closed', () => {

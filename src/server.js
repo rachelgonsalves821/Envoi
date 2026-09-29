@@ -6,7 +6,7 @@ import { FileStore } from './storage.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
-import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest, workosAssuranceCookieHeader } from './workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
 import { DeliveryWorker } from './delivery-worker.js';
 import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
@@ -1914,28 +1914,14 @@ async function route(req, res) {
     return redirect(res, result.returnTo, { 'set-cookie': [sessionCookieHeader(result.sealedSession), csrfCookieHeader(csrfToken)] });
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/auth/workos/phone/start') {
-    if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
-    const input = await body(req);
-    return json(res, 200, await auth.startPhoneVerification(req, input.phoneNumber));
-  }
-  if (req.method === 'POST' && url.pathname === '/api/auth/workos/phone/verify') {
-    if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
-    const input = await body(req);
-    const result = await auth.verifyPhone(req, input.challengeId, input.code);
-    res.setHeader('set-cookie', workosAssuranceCookieHeader(result.sessionCookieValue));
-    const { sessionCookieValue: _secret, ...publicResult } = result;
-    return json(res, 200, publicResult);
-  }
-
   if (req.method === 'POST' && url.pathname === '/api/auth/phone/start') {
-    if (auth.provider !== 'local') return fail(res, 404, 'Phone authentication is managed by WorkOS');
+    if (auth.provider !== 'local') return fail(res, 404, 'Phone authentication is unavailable for hosted sign-in');
     const input = await body(req);
     return json(res, 201, await auth.startPhoneVerification(input.phoneNumber, input.displayName));
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/phone/verify') {
-    if (auth.provider !== 'local') return fail(res, 404, 'Phone authentication is managed by WorkOS');
+    if (auth.provider !== 'local') return fail(res, 404, 'Phone authentication is unavailable for hosted sign-in');
     const input = await body(req);
     if (!input.challengeId || !input.code) return fail(res, 400, 'challengeId and code are required');
     const result = await auth.verifyPhone(input.challengeId, input.code);
@@ -1950,17 +1936,20 @@ async function route(req, res) {
     if (!human) return fail(res, 401, 'Authenticated human session required');
     const session = await auth.getSession(req);
     const assurance = session?.assurance || 'provider';
-    const mfaSetupRequired = assurance === 'phone' && typeof auth.getMfaSetupRequired === 'function'
+    const pendingStepUp = assurance === 'phone';
+    const mfaSetupRequired = pendingStepUp && typeof auth.getMfaSetupRequired === 'function'
       ? await auth.getMfaSetupRequired(req)
       : null;
-    return json(res, 200, { ...human, auth: { provider: auth.provider, assurance }, ...(assurance === 'phone' ? { mfaSetupRequired } : {}) });
+    return json(res, 200, { ...human, auth: { provider: auth.provider, assurance }, ...(pendingStepUp ? { mfaSetupRequired } : {}) });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/totp/setup') {
+    if (auth.provider !== 'local') return fail(res, 404, 'Hosted authentication is managed by WorkOS');
     return json(res, 201, await auth.startTotp(req));
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/totp/verify') {
+    if (auth.provider !== 'local') return fail(res, 404, 'Hosted authentication is managed by WorkOS');
     const input = await body(req);
     if (!input.code) return fail(res, 400, 'Authenticator code is required');
     return json(res, 200, await auth.verifyTotp(req, input.code));
@@ -1970,7 +1959,7 @@ async function route(req, res) {
     const result = await auth.logout(req);
     const revoked = typeof result === 'boolean' ? result : result.revoked;
     if (!revoked) return fail(res, 401, 'Authenticated session required');
-    res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true }), ...(auth.provider === 'workos' ? [workosAssuranceCookieHeader('', { clear: true })] : [])]);
+    res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true })]);
     return json(res, 200, typeof result === 'boolean' ? { revoked: true } : result);
   }
 

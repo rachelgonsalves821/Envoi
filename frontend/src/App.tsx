@@ -359,9 +359,9 @@ function AuthScreen({ config, notice, resumePhoneSession, onAuthenticated }: { c
           {config.provider === 'workos' ? (
             <>
               <p className="eyebrow">Secure workspace</p><h2>Continue to Sinaloa</h2>
-              <p className="supporting">Sign in through your organization’s secure identity provider.</p>
+              <p className="supporting">Sign in with your invitation. WorkOS handles your authenticator check.</p>
               <a className="button primary wide" href={config.signInPath || '/api/auth/workos/sign-in'}>Sign in securely</a>
-              <a className="button secondary wide" href={config.signUpPath || '/api/auth/workos/sign-up'}>Create an account</a>
+              {!config.inviteOnly && <a className="button secondary wide" href={config.signUpPath || '/api/auth/workos/sign-up'}>Create an account</a>}
             </>
           ) : step === 'phone' ? (
             <form onSubmit={submitPhone}>

@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { WorkOS } from '@workos-inc/node';
-import { AuthService } from './auth.js';
 
 // Authorization must follow current provider membership, including demotions.
 // Sealed-session role/permission claims can outlive a membership change.
@@ -15,7 +14,6 @@ export const membershipCanManage = (membership, provider = 'local') => membershi
 const flowMinutes = Number(process.env.SINALOA_AUTH_FLOW_MINUTES || 10);
 const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
 const csrfCookie = process.env.SINALOA_CSRF_COOKIE_NAME || 'sinaloa_csrf';
-const assuranceCookie = 'sinaloa_workos_assurance';
 const requestHuman = Symbol('workos-request-human');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 export const safeReturnPath = value => {
@@ -49,12 +47,6 @@ export function parseCookies(header = '') {
 }
 
 export function sessionCookieName() { return sessionCookie; }
-export function workosAssuranceCookieName() { return assuranceCookie; }
-export function workosAssuranceCookieHeader(value, { clear = false } = {}) {
-  const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
-  return [`${assuranceCookie}=${clear ? '' : encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', ...(secure ? ['Secure'] : []), ...(clear ? ['Max-Age=0'] : [])].join('; ');
-}
-
 export function sessionCookieHeader(value, { clear = false } = {}) {
   const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
   const configuredSameSite = process.env.SINALOA_COOKIE_SAMESITE || 'Lax';
@@ -112,76 +104,15 @@ export class WorkOSAuthService {
     }
     if (this.cookiePassword.length < 32) throw new Error('WORKOS_COOKIE_PASSWORD must be at least 32 characters');
     this.workos = options.workos || new WorkOS(this.apiKey, { clientId: this.clientId, issuer: this.issuer });
-    this.stepUp = new AuthService(store);
     this.invitedEmails = new Set(String(options.invitedEmails ?? process.env.SINALOA_BETA_INVITED_EMAILS ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
   }
 
   config() {
-    return { provider: 'workos', hosted: true, inviteOnly: true, signInPath: '/api/auth/workos/sign-in', signUpPath: '/api/auth/workos/sign-up', csrfCookieName: csrfCookie, assurance: 'phone+totp' };
+    return { provider: 'workos', hosted: true, inviteOnly: true, signInPath: '/api/auth/workos/sign-in', signUpPath: '/api/auth/workos/sign-up', csrfCookieName: csrfCookie, assurance: 'provider' };
   }
 
   admitted(user) {
     return Boolean(user?.emailVerified && this.invitedEmails.has(String(user.email || '').trim().toLowerCase()));
-  }
-
-  localRequest(req) {
-    const raw = parseCookies(req.headers.cookie)[assuranceCookie];
-    return { headers: { cookie: raw ? `${sessionCookie}=${encodeURIComponent(raw)}` : '' } };
-  }
-
-  async assurance(req, providerSession) {
-    if (!providerSession?.authenticated || !providerSession.sessionId || !this.admitted(providerSession.user)) return null;
-    const raw = parseCookies(req.headers.cookie)[assuranceCookie];
-    if (!raw) return null;
-    const binding = await this.store.getJson(path.join('auth', 'workos-assurance', `${hash(raw)}.json`));
-    if (!binding || binding.userId !== providerSession.user.id || binding.sessionId !== providerSession.sessionId) return null;
-    const localSession = await this.stepUp.getSession(this.localRequest(req));
-    if (!localSession || localSession.humanId !== binding.localHumanId) return null;
-    const localHuman = await this.store.getJson(path.join('humans', `${binding.localHumanId}.json`));
-    if (localHuman?.workosUserId !== providerSession.user.id) return null;
-    return localSession;
-  }
-
-  async startPhoneVerification(req, phoneNumber) {
-    const session = await this.getProviderSession(req);
-    if (!session?.authenticated || !session.sessionId || !this.admitted(session.user)) throw Object.assign(new Error('Invited WorkOS session required'), { statusCode: 403 });
-    return this.stepUp.startPhoneVerification(phoneNumber, session.user.name || session.user.email);
-  }
-
-  async verifyPhone(req, challengeId, code) {
-    const session = await this.getProviderSession(req);
-    if (!session?.authenticated || !session.sessionId || !this.admitted(session.user)) throw Object.assign(new Error('Invited WorkOS session required'), { statusCode: 403 });
-    const result = await this.stepUp.verifyPhone(challengeId, code);
-    const localHumanPath = path.join('humans', `${result.human.id}.json`);
-    const bind = async () => {
-      const localHuman = await this.store.getJson(localHumanPath);
-      if (!localHuman || localHuman.workosUserId && localHuman.workosUserId !== session.user.id) throw Object.assign(new Error('Phone is linked to another WorkOS identity'), { statusCode: 403 });
-      await this.store.putJsonBatch([
-        { path: localHumanPath, value: { ...localHuman, workosUserId: session.user.id } },
-        { path: path.join('auth', 'workos-assurance', `${hash(result.sessionCookieValue)}.json`), value: { userId: session.user.id, sessionId: session.sessionId, localHumanId: result.human.id, createdAt: this.store.now() } }
-      ]);
-    };
-    if (typeof this.store.withTransaction === 'function') await this.store.withTransaction([`auth:workos-phone:${result.human.id}`], bind);
-    else await bind();
-    return result;
-  }
-
-  async startTotp(req) {
-    const providerSession = await this.getProviderSession(req);
-    if (!await this.assurance(req, providerSession)) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
-    return this.stepUp.startTotp(this.localRequest(req));
-  }
-
-  async verifyTotp(req, code) {
-    const providerSession = await this.getProviderSession(req);
-    if (!await this.assurance(req, providerSession)) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
-    return this.stepUp.verifyTotp(this.localRequest(req), code);
-  }
-
-  async getMfaSetupRequired(req) {
-    const providerSession = await this.getProviderSession(req);
-    if (!await this.assurance(req, providerSession)) return null;
-    return this.stepUp.getMfaSetupRequired(this.localRequest(req));
   }
 
   async startAuthorization({ screenHint = 'sign-in', returnTo = '/' } = {}) {
@@ -258,19 +189,18 @@ export class WorkOSAuthService {
   async getSession(req) {
     const session = await this.getProviderSession(req);
     if (!session || !this.admitted(session.user)) return null;
-    const localSession = await this.assurance(req, session);
-    return { ...session, assurance: localSession?.assurance || 'provider', phoneVerified: Boolean(localSession) };
+    return { ...session, assurance: 'provider' };
   }
 
-  async getHuman(req, { requireMfa = true } = {}) {
-    if (requireMfa && req[requestHuman]) return req[requestHuman];
+  async getHuman(req) {
+    if (req[requestHuman]) return req[requestHuman];
     const pending = (async () => {
       const session = await this.getSession(req);
-      if (!session || (requireMfa && session.assurance !== 'mfa')) return null;
+      if (!session) return null;
       const human = await this.upsertHuman(session.user);
       return { ...publicHuman(human), providerUserId: session.user.id, organizationId: session.organizationId || null, role: session.role || null, permissions: session.permissions || [] };
     })();
-    if (requireMfa) Object.defineProperty(req, requestHuman, { value: pending, enumerable: false });
+    Object.defineProperty(req, requestHuman, { value: pending, enumerable: false });
     return pending;
   }
 

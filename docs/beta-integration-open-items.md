@@ -48,7 +48,7 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Session policy: 7-day maximum, 1-day inactivity timeout, 5-minute access token.
 - [x] Hosted invitation and password-reset URLs remain at WorkOS defaults.
 - [x] Configure a separate staging WorkOS application, callback, and credentials for the isolated staging origin.
-- [ ] Verify invite-only admission, Twilio phone verification, and TOTP with two separate human accounts in staging.
+- [ ] Verify invite-only WorkOS admission and provider MFA with two separate human accounts in staging; SMS and application TOTP are not required.
 
 ## Provider and deployment gates not blocked by R2
 
@@ -56,7 +56,7 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [ ] Verify the deployed application connects to staging PostgreSQL with certificate-verified TLS and passes live CRUD/restart checks. Define a durable beta backup policy before real-user signoff.
 - [ ] Provision the HTTPS malware scanner and verify clean, infected, timeout, redirect, and negative-health behavior.
 - [ ] Verify the Cloudflare build token has `Containers Edit` permission.
-- [ ] Complete the staging Worker's non-R2 variables and encrypted secrets. Database, WorkOS, application keys, and the two-human invite allowlist are saved; scanner and Twilio Verify remain.
+- [ ] Complete the staging Worker's non-R2 variables and encrypted secrets. Database, WorkOS, application keys, and the two-human invite allowlist are saved; scanner endpoint verification remains.
 - [ ] Bind a dedicated staging HTTPS hostname only when the reviewed Worker is ready to serve it. Keep `beta.sinaloa-inbox.com` for later promotion.
 - [ ] Run configuration preflight, Container/Wrangler dry-run, and all tests that do not require live object storage.
 
