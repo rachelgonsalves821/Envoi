@@ -37,23 +37,43 @@ export function filterAssets(assets: Asset[], cases: WorkCase[], agents: Agent[]
 export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
   const directory = Array.isArray(view.participantDirectory) ? view.participantDirectory : Object.values(view.participantDirectory || {});
   const hasAgent = view.agents.length > 0 || agentInboxes.length > 0;
-  const hasApprovedAgent = view.agents.some(agent => agent.onboardingStatus === 'approved' && agent.status === 'active') || agentInboxes.some(inbox => inbox.status === 'active');
+  const hasRedeemedEnrollment = view.recentEvents.some(event => event.type === 'agent.enrolled');
+  const hasApprovedAgent = view.agents.some(agent => agent.onboardingStatus === 'approved' && agent.status === 'active');
+  const hasRuntimeActivity = view.deliveryReceipts.some(receipt => ['acknowledged', 'processed'].includes(receipt.state))
+    || view.messages.some(message => ['acknowledged', 'processed'].includes(message.status));
   const hasCounterparty = directory.some(participant => participant.type === 'externalAgent' && participant.accessState === 'active');
-  const hasDelivery = view.deliveryReceipts.length > 0 || view.messages.some(message => ['delivered', 'acknowledged', 'processed'].includes(message.status));
-  const hasReceipt = view.caseQueue.some(workCase => Boolean(workCase.receipt))
-    || view.deliveryReceipts.some(receipt => receipt.state === 'processed');
-  const deliveryDescription = hasDelivery && !hasReceipt
-    ? view.history?.deliveryReceipts?.hasMore
-      ? 'Older receipt history is not loaded yet. Load older history to verify the durable outcome.'
-      : 'The first delivery is recorded; the durable outcome receipt is next.'
-    : 'Delivery evidence and the durable outcome are visible to the human.';
+  const deliveryStates = ['delivered', 'acknowledged', 'processed', 'received'];
+  const hasDelivery = view.deliveryReceipts.some(receipt => deliveryStates.includes(receipt.state))
+    || view.messages.some(message => deliveryStates.includes(message.status));
+  const deliveredMessageIds = new Set(view.deliveryReceipts.filter(receipt => deliveryStates.includes(receipt.state)).map(receipt => receipt.messageId));
+  const hasCompletedCaseOutcome = view.caseQueue.some(workCase => caseState(workCase) === 'completed'
+    && Boolean(workCase.receipt)
+    && view.messages.some(message => message.caseId === workCase.id
+      && (deliveredMessageIds.has(message.id) || ['delivered', 'acknowledged', 'processed'].includes(message.status))));
+  const redemptionDescription = hasRedeemedEnrollment
+    ? 'The one-time link was redeemed and runtime credentials were issued.'
+    : hasAgent && view.history?.recentEvents?.hasMore
+      ? 'An agent identity exists, but older activity is not loaded, so token redemption is not confirmed.'
+      : 'An agent identity alone does not confirm that its one-time link was redeemed.';
+  const runtimeDescription = hasRuntimeActivity
+    ? 'A runtime acknowledged or processed work. This does not claim it is currently online.'
+    : 'No runtime activity is visible yet. Enrollment alone does not prove a runtime is online.';
+  const hasOlderExchangeHistory = Boolean(view.history?.cases?.hasMore || view.history?.messages?.hasMore || view.history?.deliveryReceipts?.hasMore);
+  const deliveryDescription = hasCompletedCaseOutcome
+    ? 'Delivery evidence and a completed case outcome are visible to the human.'
+    : hasDelivery && hasOlderExchangeHistory
+      ? 'Delivery is visible, but older history is not loaded. Load it to verify a completed case outcome.'
+      : hasDelivery
+        ? 'Delivery is visible; a completed case with its own outcome receipt is still required.'
+        : 'No delivery evidence or completed case outcome is visible yet.';
   return [
     { id: 'workspace', label: 'Create your workspace', description: 'Your human control plane and agent inbox are ready.', complete: true },
-    { id: 'enroll', label: 'Enroll an agent', description: 'Create a 15-minute, one-use enrollment link for the agent runtime.', complete: hasAgent },
-    { id: 'sdk', label: 'Redeem the one-time link', description: 'An agent identity and its credentials were issued.', complete: hasAgent },
+    { id: 'enroll', label: 'Enroll an agent identity', description: hasAgent ? 'An agent identity and dedicated inbox are visible.' : 'Create a one-time link and wait for the dedicated identity and inbox to appear.', complete: hasAgent },
+    { id: 'sdk', label: 'Redeem the one-time link', description: redemptionDescription, complete: hasRedeemedEnrollment },
     { id: 'approve', label: 'Approve scoped access', description: 'The agent is active with its visible permission policy.', complete: hasApprovedAgent },
+    { id: 'runtime', label: 'Observe runtime activity', description: runtimeDescription, complete: hasRuntimeActivity },
     { id: 'counterparty', label: 'Identify a known counterparty', description: 'A verified external agent appears after the first native exchange.', complete: hasCounterparty },
-    { id: 'delivery', label: 'See the first delivery and receipt', description: deliveryDescription, complete: hasDelivery && hasReceipt }
+    { id: 'delivery', label: 'See a delivery and completed case outcome', description: deliveryDescription, complete: hasCompletedCaseOutcome }
   ];
 }
 
