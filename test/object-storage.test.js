@@ -225,3 +225,15 @@ test('HTTP scanner enforces a bounded response time', async t => {
   const content = Buffer.from('harmless');
   await assert.rejects(() => scanner.scan({ body: content, object: { id: 'obj_timeout', mimeType: 'text/plain', checksumSha256: checksum(content) } }), error => error.name === 'TimeoutError' || error.name === 'AbortError');
 });
+
+test('HTTP scanner rejects redirects before sending a scan to another endpoint', async t => {
+  const scannerServer = http.createServer((_request, response) => {
+    response.writeHead(302, { location: 'http://127.0.0.1:9/redirected' });
+    response.end();
+  });
+  await new Promise(resolve => scannerServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => scannerServer.close(resolve)));
+  const scanner = new HttpMalwareScanner({ endpoint: `http://127.0.0.1:${scannerServer.address().port}/scan`, token: 'test-only-token' });
+  const content = Buffer.from('harmless');
+  await assert.rejects(() => scanner.scan({ body: content, object: { id: 'obj_redirect', mimeType: 'text/plain', checksumSha256: checksum(content) } }));
+});

@@ -165,6 +165,7 @@ export class HttpMalwareScanner {
   async scan({ body, object }) {
     const response = await fetch(this.endpoint, {
       method: 'POST',
+      redirect: 'error',
       signal: AbortSignal.timeout(this.timeoutMs),
       headers: {
         'content-type': object.mimeType,
