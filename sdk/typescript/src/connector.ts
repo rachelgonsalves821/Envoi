@@ -186,8 +186,7 @@ export class SinaloaConnector {
     try { return await this.refreshInFlight; } finally { this.refreshInFlight = null; }
   }
 
-  private async withFreshClient<T>(operation: (client: SinaloaClient, session: ConnectorSession) => Promise<T>): Promise<T> {
-    const run = (session: ConnectorSession) => operation(new SinaloaClient(this.origin, session.agentApiToken, this.options), session);
+  private async withFreshSession<T>(run: (session: ConnectorSession) => Promise<T>): Promise<T> {
     const session = await this.freshSession();
     try { return await run(session); }
     catch (error) {
@@ -195,6 +194,40 @@ export class SinaloaConnector {
       const current = validSession(await this.store.load());
       return run(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
     }
+  }
+
+  private withFreshClient<T>(operation: (client: SinaloaClient, session: ConnectorSession) => Promise<T>): Promise<T> {
+    return this.withFreshSession(session => operation(new SinaloaClient(this.origin, session.agentApiToken, this.options), session));
+  }
+
+  /** Trusted bridge code may pass only this short-lived access token to a remote MCP provider. */
+  async currentAccessToken(): Promise<string> {
+    return (await this.freshSession()).agentApiToken;
+  }
+
+  /** Trusted host only: forwards MCP JSON-RPC without exposing the rotating refresh token. */
+  forwardMcpRequest(body: string, { protocolVersion, signal }: { protocolVersion?: string; signal?: AbortSignal } = {}): Promise<Response> {
+    if (protocolVersion && !/^\d{4}-\d{2}-\d{2}$/.test(protocolVersion)) throw new TypeError('Invalid MCP protocol version');
+    return this.withFreshSession(async session => {
+      const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
+      const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      let response: Response;
+      try {
+        response = await (this.options.fetch || fetch)(`${this.origin}/mcp`, {
+          method: 'POST', redirect: 'error', signal: requestSignal, body,
+          headers: {
+            authorization: `Bearer ${session.agentApiToken}`,
+            accept: 'application/json, text/event-stream',
+            'content-type': 'application/json',
+            ...(protocolVersion ? { 'mcp-protocol-version': protocolVersion } : {})
+          }
+        });
+      } catch {
+        throw new SinaloaError(requestSignal.aborted ? 'Sinaloa MCP request timed out or canceled' : 'Sinaloa MCP could not be reached');
+      }
+      if (response.status === 401) throw new SinaloaError('Sinaloa MCP credential was rejected', 401);
+      return response;
+    });
   }
 
   /** First message of a new case; persist the ID and idempotency key before calling. */
@@ -218,8 +251,8 @@ export class SinaloaConnector {
     return this.withFreshClient((client, session) => client.listCaseMessages(session.inboxId, caseId, limit, before));
   }
 
-  beginAssetUpload(input: AssetUploadInput) {
-    return this.withFreshClient((client, session) => client.beginAssetUpload(session.inboxId, input));
+  beginAssetUpload(idempotencyKey: string, input: AssetUploadInput) {
+    return this.withFreshClient((client, session) => client.beginAssetUpload(session.inboxId, idempotencyKey, input));
   }
 
   completeAssetUpload(assetId: string) {

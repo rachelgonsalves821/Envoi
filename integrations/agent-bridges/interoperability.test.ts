@@ -32,6 +32,7 @@ class MockHost {
   failCompletionOnceFor: string | null = null;
   private readonly claims = new Map<string, { leaseToken: string; state: 'claimed' | 'acknowledged' | 'retryable' | 'processed'; attempt: number }>();
   private readonly sentByKey = new Map<string, Record<string, unknown>>();
+  private readonly uploadsByKey = new Map<string, Record<string, unknown>>();
 
   queue(message: WorkMessage) { this.messages.push(message); }
 
@@ -124,11 +125,17 @@ class MockHost {
       return json(reply, 202);
     }
     if (url.pathname === '/api/inboxes/inbox_bridge/asset-uploads' && method === 'POST') {
+      const key = headers.get('idempotency-key');
+      if (!key) return json({ error: 'Idempotency key required' }, 400);
+      const existing = this.uploadsByKey.get(key);
+      if (existing) return json(existing);
       const body = JSON.parse(String(init.body));
       const id = `obj_${this.objects.size + 1}`;
       const object = { id, workspaceId: 'inbox_bridge', ...body, state: 'quarantine' };
       this.objects.set(id, object);
-      return json({ object, upload: { method: 'PUT', url: `https://signed.example.test/${id}`, headers: { 'content-type': body.mimeType } } }, 201);
+      const result = { object, upload: { method: 'PUT', url: `https://signed.example.test/${id}`, headers: { 'content-type': body.mimeType } } };
+      this.uploadsByKey.set(key, result);
+      return json(result, 201);
     }
     const assetRoute = url.pathname.match(/^\/api\/inboxes\/inbox_bridge\/assets\/([^/]+)\/(complete|download)$/);
     if (assetRoute) {
@@ -221,7 +228,9 @@ describe('A4 bridge interoperability with deterministic hosts', () => {
       const connector = new SinaloaConnector('https://sinaloa.example.test', state.store, { fetch: state.host.fetch });
       const bytes = new TextEncoder().encode('safe owner-side asset');
       const checksumSha256 = crypto.createHash('sha256').update(bytes).digest('base64');
-      const begun = await connector.beginAssetUpload({ filename: 'answer.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256, caseId: 'case_a' });
+      const begun = await connector.beginAssetUpload('asset-case-a-answer-1', { filename: 'answer.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256, caseId: 'case_a' });
+      const replay = await connector.beginAssetUpload('asset-case-a-answer-1', { filename: 'answer.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256, caseId: 'case_a' });
+      expect(replay.object.id).toBe(begun.object.id);
       await expect(connector.getCleanAssetDownload(begun.object.id)).rejects.toThrow('quarantined');
       await putSignedAsset(begun.upload, bytes, { fetch: state.host.fetch });
       const clean = await connector.completeAssetUpload(begun.object.id);
