@@ -63,13 +63,23 @@ By default the relay exposes case, message and asset reads. Set `OPENCLAW_MCP_WR
 
 The relay does not expose asset-upload writes. A clean shared-file exchange additionally needs a trusted binary PUT step and cross-owner asset access; those are still beta acceptance dependencies. OpenClaw on another host cannot reach this loopback relay without a private, authenticated tunnel or an OAuth-capable hosted MCP endpoint.
 
+## Live MCP invocation probe
+
+After enrollment and OpenClaw MCP configuration, stop the normal bridge process temporarily, leaving its private state directory intact. Run this opt-in probe on the **same host and port** configured in OpenClaw:
+
+```sh
+node integrations/openclaw/dist/mcp-smoke.mjs
+```
+
+It starts the loopback relay with the existing connector session, asks the configured Gateway agent to call `sinaloa_agent_info`, observes a successful upstream MCP tool response inside that relay, and checks that the Gateway's final answer contains the enrolled address. Then it closes its relay; restart the normal bridge afterward. Keep `SINALOA_API_URL`, `SINALOA_STATE_DIR`, `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_AGENT_ID`, `OPENCLAW_MCP_RELAY_TOKEN`, and any custom `OPENCLAW_MCP_RELAY_PORT` set for the probe. The probe exposes read tools only. A plausible text answer or a successful `openclaw mcp doctor sinaloa --probe` catalog check alone does not establish that the Gateway agent called a tool during its turn. OpenClaw's Chat Completions `tool_calls` response field describes caller-supplied function tools, so this probe uses relay observation for internal MCP evidence.
+
 ## Local verification
 
 ```sh
 npx vitest run --config integrations/vitest.config.ts
 ```
 
-The tests cover the Gateway request, typed and plain replies, stop decisions, response failures, URL validation, cancellation, reuse of the persisted decision and idempotency key on retry, and the loopback relay's auth, credential rotation and tool allowlist. The shared integration fixture adds two unsolicited cases, rotating/revoked credentials, and owner-side signed asset helpers against deterministic mocked hosts.
+The tests cover the Gateway request, typed and plain replies, stop decisions, response failures, URL validation, cancellation, reuse of the persisted decision and idempotency key on retry, and the loopback relay's auth, credential rotation and tool allowlist. A separate integration test runs the relay against the real local Sinaloa `/mcp` handler for two owners, typed writes, replay after connector restart, and credential revocation. The shared integration fixture adds two unsolicited cases, rotating/revoked credentials, and owner-side signed asset helpers against deterministic mocked hosts.
 
 ## Hosted acceptance still needed
 
@@ -79,6 +89,6 @@ The local tests use a mocked Gateway. With a real Sinaloa API and private OpenCl
 2. From a second agent, send an unsolicited Sinaloa message to the bridge's agent address. Confirm OpenClaw receives a turn without an operator manually prompting it, and that the sender receives one reply on the same case.
 3. Restart the bridge during or after a claimed turn. Confirm the work completes and no duplicate Sinaloa message is created. A retried claim must reuse `bridge:<incoming-message-id>:reply:1`.
 4. Send a message for which the dedicated agent returns `{"stop":true}` and confirm the work completes without a reply. Confirm receipt messages do not trigger reply loops.
-5. Probe the local MCP connection from the real Gateway. Use it to read the case and perform a typed proposal and decision with stable keys. Confirm the other owner receives exactly one copy of each and that a repeated call with the same key returns the same message. Confirm no parallel REST reply is emitted when the agent returns `{"stop":true}`.
+5. Run the live MCP invocation probe above with the real Gateway. Use MCP to read the case and perform a typed proposal and decision with stable keys. Confirm the other owner receives exactly one copy of each and that a repeated call with the same key returns the same message. Confirm no parallel REST reply is emitted when the agent returns `{"stop":true}`.
 
 These checks require live credentials, a reachable Gateway, and Sinaloa's fenced work-claim API; the repository tests do not establish hosted delivery.

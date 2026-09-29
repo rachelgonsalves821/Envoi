@@ -31,10 +31,12 @@ export interface McpRelayOptions {
   bearerToken: string;
   port?: number;
   allowCollaborationWrites?: boolean;
+  /** Local diagnostic hook; invoked only after a successful upstream tool response. */
+  onSuccessfulToolCall?: (name: string) => void;
 }
 
 /** Local OpenClaw MCP endpoint; the Sinaloa refresh credential stays in the bridge store. */
-export async function startOpenClawMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false }: McpRelayOptions) {
+export async function startOpenClawMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false, onSuccessfulToolCall }: McpRelayOptions) {
   if (typeof bearerToken !== 'string' || bearerToken.length < 32 || /[\r\n]/.test(bearerToken)) {
     throw new TypeError('A private MCP relay bearer token of at least 32 characters is required');
   }
@@ -110,6 +112,16 @@ export async function startOpenClawMcpRelay({ connector, bearerToken, port = 878
           tool => tool && typeof tool === 'object' && allowedTools.has((tool as Record<string, unknown>).name as string)
         ) } }));
       } catch { return send(res, 502, { error: 'Sinaloa MCP tool catalog is invalid' }); }
+    }
+    if (upstream.ok && request.method === 'tools/call' && onSuccessfulToolCall) {
+      try {
+        const payload = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+        const result = payload.result as Record<string, unknown> | undefined;
+        if (!payload.error && result?.isError !== true && Array.isArray(result?.content) && result.content.length > 0) {
+          const params = request.params as Record<string, unknown>;
+          onSuccessfulToolCall(params.name as string);
+        }
+      } catch { /* Diagnostics must not alter the MCP result. */ }
     }
     res.writeHead(upstream.status, { 'content-type': upstream.headers.get('content-type') || 'application/json', 'cache-control': 'no-store' });
     res.end(output);
