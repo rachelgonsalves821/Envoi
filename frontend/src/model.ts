@@ -37,7 +37,9 @@ export function filterAssets(assets: Asset[], cases: WorkCase[], agents: Agent[]
 export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
   const directory = Array.isArray(view.participantDirectory) ? view.participantDirectory : Object.values(view.participantDirectory || {});
   const hasAgent = view.agents.length > 0 || agentInboxes.length > 0;
-  const hasRedeemedEnrollment = view.recentEvents.some(event => event.type === 'agent.enrolled');
+  // Redemption is audited in the new agent inbox, while its creation is
+  // audited in the parent workspace after credentials have been issued.
+  const hasRedeemedEnrollment = view.recentEvents.some(event => ['agent.enrolled', 'agent.inbox_created'].includes(event.type));
   const hasApprovedAgent = view.agents.some(agent => agent.onboardingStatus === 'approved' && agent.status === 'active');
   const hasRuntimeActivity = view.deliveryReceipts.some(receipt => ['acknowledged', 'processed'].includes(receipt.state))
     || view.messages.some(message => ['acknowledged', 'processed'].includes(message.status));

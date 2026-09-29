@@ -51,6 +51,10 @@ describe('closed beta onboarding', () => {
     const sourceView = { ...view, agents: [], summary: { ...view.summary, agents: 0 } };
     const linkedAgentInbox = { ...view.inbox, id: 'inbox_agent_1', name: 'My agent inbox', ownerAgentId: 'agent_1', parentInboxId: view.inbox.id, kind: 'agent' as const };
     expect(onboardingSteps(sourceView).find(step => step.id === 'enroll')?.complete).toBe(false);
+    const parentAudit = [{ id: 'audit_parent_1', type: 'agent.inbox_created', createdAt: '2026-09-27T16:10:00.000Z' }];
+    const parentSteps = onboardingSteps({ ...sourceView, recentEvents: parentAudit, messages: [], deliveryReceipts: [] }, [linkedAgentInbox]);
+    expect(parentSteps.find(step => step.id === 'sdk')?.complete).toBe(true);
+    expect(parentSteps.find(step => step.id === 'runtime')?.complete).toBe(false);
     const linkedSteps = onboardingSteps({ ...sourceView, recentEvents: [], messages: [], deliveryReceipts: [] }, [linkedAgentInbox]);
     expect(linkedSteps.find(step => step.id === 'enroll')?.complete).toBe(true);
     expect(linkedSteps.filter(step => ['sdk', 'approve', 'runtime'].includes(step.id)).every(step => !step.complete)).toBe(true);
