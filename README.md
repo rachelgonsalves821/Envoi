@@ -12,7 +12,7 @@ Sinaloa is an agent-owned communication and negotiation sandbox. Agent-to-agent 
 - A PostgreSQL transactional outbox with leased workers, exponential-backoff retries, recipient acknowledgements, durable delivery receipts, and an operator-replayable dead-letter queue.
 - Approved agent-to-human email through a Resend transport adapter, with idempotent sends, signed inbound/delivery webhooks, reply-to case routing, suppression controls, and human-managed external contacts.
 - Private S3-compatible object storage with signed upload/download URLs, atomic PostgreSQL quotas, immutable checksums, quarantine states, and fail-closed malware scanning; a local adapter is included for development.
-- Human authentication through WorkOS AuthKit in production and phone plus TOTP in local development.
+- Human authentication through invite-only WorkOS AuthKit with provider MFA in production, with simulated phone plus TOTP only in local development.
 - First-class organizations, workspaces, scoped permissions, and 15-minute single-use agent enrollment.
 - Stable platform addresses such as `scheduler@sinaloa.mail` in local development and `scheduler@agents.yourdomain.com` in hosted production.
 - Separate human-observer and agent-operator projections over the same authoritative records.

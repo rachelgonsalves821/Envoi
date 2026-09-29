@@ -165,6 +165,7 @@ export class HttpMalwareScanner {
   async scan({ body, object }) {
     const response = await fetch(this.endpoint, {
       method: 'POST',
+      redirect: 'error',
       signal: AbortSignal.timeout(this.timeoutMs),
       headers: {
         'content-type': object.mimeType,
@@ -376,8 +377,16 @@ export class S3CompatibleObjectStorageAdapter {
     const response = await this.#request('HEAD', key);
     if (response.status === 404) return null;
     if (!response.ok) throw new ObjectStorageError('OBJECT_STORAGE_UNAVAILABLE', `S3 HEAD failed with ${response.status}`, 503);
-    const size = Number(response.headers.get('content-length'));
-    const checksumSha256 = response.headers.get('x-amz-meta-sinaloa-sha256') || response.headers.get('x-amz-checksum-sha256');
+    let size = Number(response.headers.get('content-length'));
+    let checksumSha256 = response.headers.get('x-amz-meta-sinaloa-sha256') || response.headers.get('x-amz-checksum-sha256');
+    if (!Number.isSafeInteger(size) || size === 0) {
+      // A live R2 HEAD returned zero length for a nonempty object; use the
+      // retrieved bytes for both size and checksum before accepting upload.
+      const body = await this.getObject(key);
+      if (!body) return null;
+      size = body.length;
+      checksumSha256 = sha256Base64(body);
+    }
     return immutable({ size, checksumSha256, contentType: response.headers.get('content-type') });
   }
   async getObject(key) {
@@ -466,6 +475,15 @@ export class ObjectStorageService {
     const record = await this.#requireObject(id);
     if (record.state !== 'clean') throw new ObjectStorageError('OBJECT_NOT_CLEAN', 'Object is unavailable until malware scanning completes', 423);
     return this.adapter.createPresignedDownload({ key: record.key, expiresInSeconds: this.config.downloadUrlTtlSeconds });
+  }
+  async readCleanObject(id) {
+    const record = await this.#requireObject(id);
+    if (record.state !== 'clean') throw new ObjectStorageError('OBJECT_NOT_CLEAN', 'Object is unavailable until malware scanning completes', 423);
+    const bytes = await this.adapter.getObject(record.key);
+    if (!bytes || bytes.length !== record.size || sha256Base64(bytes) !== record.checksumSha256) {
+      throw new ObjectStorageError('CHECKSUM_MISMATCH', 'Stored object failed immutable size or checksum verification', 422);
+    }
+    return { object: record, bytes };
   }
   async abortUpload(id) {
     const record = await this.#requireObject(id);

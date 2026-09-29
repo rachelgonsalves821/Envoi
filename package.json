@@ -15,10 +15,17 @@
     "test:sdk:python": "cd sdk/python && python -m unittest discover -s tests -p test_*.py",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test:postgres": "node --test test/postgres-storage.test.js",
+    "test:storage:live": "node --test test/object-storage-live.test.js",
+    "preflight:config": "node scripts/preflight.mjs",
+    "smoke:deployment": "node scripts/smoke-deployment.mjs",
+    "cf:config-check": "node scripts/check-deployment.mjs",
     "test:cloudflare": "node --test worker/*.test.js",
-    "cf:check": "npm run test:cloudflare && wrangler deploy --dry-run --containers-rollout=none",
+    "cf:check": "npm run cf:config-check && npm run test:cloudflare && wrangler deploy --dry-run --containers-rollout=none --env staging && wrangler deploy --dry-run --containers-rollout=none --env beta && wrangler deploy --dry-run --containers-rollout=none --config scanner/wrangler.beta.jsonc",
     "cf:dev": "wrangler dev",
-    "cf:deploy": "wrangler deploy"
+    "cf:deploy": "node -e \"throw new Error('Choose cf:deploy:staging or cf:deploy:beta; an unqualified deploy targets the old production Worker')\"",
+    "cf:deploy:staging": "npm run cf:config-check && wrangler deploy --env staging",
+    "cf:deploy:beta": "npm run cf:config-check && wrangler deploy --env beta",
+    "cf:deploy:scanner:beta": "npm run cf:config-check && wrangler deploy --config scanner/wrangler.beta.jsonc"
   },
   "dependencies": {
     "@fontsource-variable/commissioner": "^5.3.0",
@@ -42,6 +49,6 @@
     "vite": "^8.3.1",
     "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^5.0.2",
-    "wrangler": "^4.142.0"
+    "wrangler": "^4.144.0"
   }
 }

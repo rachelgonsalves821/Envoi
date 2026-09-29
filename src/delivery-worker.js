@@ -6,6 +6,7 @@ export class DeliveryWorker {
   constructor({
     store,
     deliver,
+    prepare = async () => ({}),
     onFailure = async () => ({ documents: [] }),
     onSettled = () => {},
     workerId = `delivery_${crypto.randomUUID()}`,
@@ -16,6 +17,7 @@ export class DeliveryWorker {
   }) {
     this.store = store;
     this.deliver = deliver;
+    this.prepare = prepare;
     this.onFailure = onFailure;
     this.onSettled = onSettled;
     this.workerId = workerId;
@@ -75,18 +77,33 @@ export class DeliveryWorker {
   async processOne() {
     const record = await this.store.claimOutbox(this.workerId, this.leaseMs);
     if (!record) return false;
+    let lockKeys = [record.senderInboxId, record.recipientInboxId].filter(Boolean).map(inboxId => `inbox:${inboxId}:mutations`);
+    let context;
+    let notification;
     try {
-      const outcome = await this.deliver(record);
-      const settled = await this.store.completeOutbox(record.id, outcome.documents || [], outcome.result || {});
-      await this.onSettled(settled, outcome.events || []);
+      const prepared = await this.prepare(record);
+      lockKeys = [...new Set([...lockKeys, ...(prepared.lockKeys || [])])].sort();
+      context = prepared.context;
+      notification = await this.store.withTransaction(lockKeys, async () => {
+        const outcome = await this.deliver(record, context);
+        const settled = await this.store.completeOutbox(record.id, outcome.documents || [], outcome.result || {}, record);
+        return { settled, events: outcome.events || [] };
+      });
     } catch (error) {
+      if (error?.code === 'LEASE_LOST') return true;
       const attempt = Number(record.attempts || 0) + 1;
       const deadLettered = Boolean(error?.permanent) || attempt >= Number(record.maxAttempts || 5);
-      const failure = await this.onFailure(record, error, { attempt, deadLettered });
       const nextAttemptAt = new Date(Date.now() + this.retryDelay(attempt)).toISOString();
-      const settled = await this.store.failOutbox(record.id, failure.documents || [], { error: safeError(error), nextAttemptAt, forceDeadLetter: Boolean(error?.permanent) });
-      await this.onSettled(settled, failure.events || []);
+      try {
+        notification = await this.store.withTransaction(lockKeys, async () => {
+          const failure = await this.onFailure(record, error, { attempt, deadLettered, context });
+          const settled = await this.store.failOutbox(record.id, failure.documents || [], { error: safeError(error), nextAttemptAt, forceDeadLetter: Boolean(error?.permanent), lease: record });
+          return { settled, events: failure.events || [] };
+        });
+      }
+      catch (failureError) { if (failureError?.code === 'LEASE_LOST') return true; throw failureError; }
     }
+    await this.onSettled(notification.settled, notification.events);
     return true;
   }
 

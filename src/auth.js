@@ -14,7 +14,6 @@ const normalizePhone = value => {
   if (!/^\+[1-9]\d{7,14}$/.test(phone)) throw Object.assign(new Error('Phone number must use E.164 format, for example +14165551234'), { statusCode: 400 });
   return phone;
 };
-const twilioConfigured = () => Boolean(process.env.SINALOA_TWILIO_ACCOUNT_SID && process.env.SINALOA_TWILIO_AUTH_TOKEN && process.env.SINALOA_TWILIO_VERIFY_SERVICE_SID);
 const encryptionKey = () => {
   const configured = process.env.SINALOA_DATA_ENCRYPTION_KEY;
   if (mode === 'production' && !configured) throw Object.assign(new Error('Data encryption key is not configured'), { statusCode: 503 });
@@ -24,20 +23,24 @@ const lookupHash = value => crypto.createHmac('sha256', encryptionKey()).update(
 const encrypt = value => { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(), iv); const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]); return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') }; };
 const decrypt = value => { const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(value.iv, 'base64')); decipher.setAuthTag(Buffer.from(value.tag, 'base64')); return Buffer.concat([decipher.update(Buffer.from(value.ciphertext, 'base64')), decipher.final()]).toString('utf8'); };
 const publicHuman = human => { const value = { ...human }; delete value.totpSecret; delete value.pendingTotpSecret; delete value.phoneHash; return value; };
-
-async function twilioRequest(pathname, params) {
-  const auth = Buffer.from(`${process.env.SINALOA_TWILIO_ACCOUNT_SID}:${process.env.SINALOA_TWILIO_AUTH_TOKEN}`).toString('base64');
-  const response = await fetch(`https://verify.twilio.com/v2/Services/${process.env.SINALOA_TWILIO_VERIFY_SERVICE_SID}${pathname}`, { method: 'POST', headers: { authorization: `Basic ${auth}`, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
-  if (!response.ok) throw Object.assign(new Error('Phone verification provider request failed'), { statusCode: 502 });
-  return response.json();
-}
+const mfaEnrollmentState = human => {
+  const hasSecret = Boolean(human?.totpSecret);
+  const hasEnabledAt = Boolean(human?.mfaEnabledAt);
+  if (hasSecret !== hasEnabledAt) throw Object.assign(new Error('Second-factor enrollment state requires administrator recovery'), { statusCode: 503 });
+  return { enrolled: hasSecret, setupRequired: !hasSecret };
+};
+const expectedError = (statusCode, message) => ({ error: { statusCode, message } });
+const throwExpectedError = result => {
+  if (result?.error) throw Object.assign(new Error(result.error.message), { statusCode: result.error.statusCode });
+  return result.value;
+};
 
 export class AuthService {
   constructor(store) { this.store = store; }
 
   async startPhoneVerification(phoneInput, displayName) {
+    if (mode !== 'development') throw Object.assign(new Error('Local phone verification is disabled'), { statusCode: 404 });
     const phone = normalizePhone(phoneInput);
-    if (mode === 'production' && !twilioConfigured()) throw Object.assign(new Error('Phone verification is not configured'), { statusCode: 503 });
     const phoneHash = lookupHash(phone);
     const ratePath = path.join('auth', 'phone-rate-limits', `${phoneHash}.json`);
     const now = Date.now();
@@ -48,40 +51,62 @@ export class AuthService {
     rate.starts.push(new Date(now).toISOString());
     await this.store.putJson(ratePath, rate);
     const challengeId = this.store.id('challenge');
-    const challenge = { id: challengeId, phoneEncrypted: encrypt(phone), phoneHash, phoneLast4: phone.slice(-4), displayName: displayName || null, expiresAt: new Date(Date.now() + challengeMinutes * 60_000).toISOString(), attempts: 0, status: 'pending', provider: twilioConfigured() ? 'twilio-verify' : 'development' };
-    let developmentCode;
-    if (twilioConfigured()) await twilioRequest('/Verifications', { To: phone, Channel: 'sms' });
-    else { developmentCode = String(crypto.randomInt(100000, 1000000)); challenge.codeHash = hash(developmentCode); }
+    const challenge = { id: challengeId, phoneHash, phoneLast4: phone.slice(-4), displayName: displayName || null, expiresAt: new Date(Date.now() + challengeMinutes * 60_000).toISOString(), attempts: 0, status: 'pending', provider: 'development' };
+    const developmentCode = String(crypto.randomInt(100000, 1000000));
+    challenge.codeHash = hash(developmentCode);
     await this.store.putJson(path.join('auth', 'challenges', `${challengeId}.json`), challenge);
     return { challengeId, expiresAt: challenge.expiresAt, delivery: challenge.provider, ...(mode === 'development' && developmentCode ? { developmentCode } : {}) };
   }
 
   async verifyPhone(challengeId, code) {
+    if (mode !== 'development') throw Object.assign(new Error('Local phone verification is disabled'), { statusCode: 404 });
     const relative = path.join('auth', 'challenges', `${challengeId}.json`);
-    const challenge = await this.store.getJson(relative);
-    if (!challenge || challenge.status !== 'pending') throw Object.assign(new Error('Verification challenge is invalid'), { statusCode: 400 });
-    if (new Date(challenge.expiresAt) < new Date()) throw Object.assign(new Error('Verification challenge has expired'), { statusCode: 400 });
-    challenge.attempts += 1;
-    if (challenge.attempts > 5) { challenge.status = 'locked'; await this.store.putJson(relative, challenge); throw Object.assign(new Error('Too many verification attempts'), { statusCode: 429 }); }
-    let approved = false;
-    if (challenge.provider === 'twilio-verify') {
-      const result = await twilioRequest('/VerificationCheck', { To: decrypt(challenge.phoneEncrypted), Code: code });
-      approved = result.status === 'approved';
-    } else approved = hash(String(code)) === challenge.codeHash;
-    if (!approved) { await this.store.putJson(relative, challenge); throw Object.assign(new Error('Incorrect verification code'), { statusCode: 401 }); }
-    challenge.status = 'verified'; await this.store.putJson(relative, challenge);
-    const index = await this.store.getJson(path.join('auth', 'phone-index', `${challenge.phoneHash}.json`));
-    const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
-    const human = existing || { id: this.store.id('human'), phoneHash: challenge.phoneHash, phoneLast4: challenge.phoneLast4, displayName: challenge.displayName, createdAt: this.store.now() };
-    human.verifiedAt = this.store.now();
-    await this.store.putJson(path.join('humans', `${human.id}.json`), human);
-    await this.store.putJson(path.join('auth', 'phone-index', `${challenge.phoneHash}.json`), { humanId: human.id });
-    delete challenge.phoneEncrypted;
-    await this.store.putJson(relative, challenge);
-    const sessionToken = token();
-    const session = { id: this.store.id('session'), tokenHash: hash(sessionToken), humanId: human.id, assurance: 'phone', createdAt: this.store.now(), expiresAt: new Date(Date.now() + sessionHours * 3_600_000).toISOString() };
-    await this.store.putJson(path.join('auth', 'sessions', `${session.tokenHash}.json`), session);
-    return { human: publicHuman(human), sessionCookieValue: sessionToken, expiresAt: session.expiresAt, secondFactorRequired: true };
+    const pending = await this.store.getJson(relative);
+    if (!pending?.phoneHash) throw Object.assign(new Error('Verification challenge is invalid'), { statusCode: 400 });
+    const verify = async () => {
+      const challenge = await this.store.getJson(relative);
+      if (!challenge || challenge.status !== 'pending') return expectedError(400, 'Verification challenge is invalid');
+      if (new Date(challenge.expiresAt) < new Date()) {
+        challenge.status = 'expired';
+        delete challenge.codeHash;
+        await this.store.putJson(relative, challenge);
+        return expectedError(400, 'Verification challenge has expired');
+      }
+      challenge.attempts += 1;
+      if (challenge.attempts > 5) {
+        challenge.status = 'locked';
+        delete challenge.codeHash;
+        await this.store.putJson(relative, challenge);
+        return expectedError(429, 'Too many verification attempts');
+      }
+      const approved = hash(String(code)) === challenge.codeHash;
+      if (!approved) {
+        await this.store.putJson(relative, challenge);
+        return expectedError(401, 'Incorrect verification code');
+      }
+      const index = await this.store.getJson(path.join('auth', 'phone-index', `${challenge.phoneHash}.json`));
+      const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
+      const human = existing || { id: this.store.id('human'), phoneHash: challenge.phoneHash, phoneLast4: challenge.phoneLast4, displayName: challenge.displayName, createdAt: this.store.now() };
+      const { setupRequired: mfaSetupRequired } = mfaEnrollmentState(human);
+      const verifiedAt = this.store.now();
+      human.verifiedAt = verifiedAt;
+      challenge.status = 'verified';
+      challenge.verifiedAt = verifiedAt;
+      delete challenge.codeHash;
+      const sessionToken = token();
+      const session = { id: this.store.id('session'), tokenHash: hash(sessionToken), humanId: human.id, assurance: 'phone', mfaSetupRequired, createdAt: verifiedAt, expiresAt: new Date(Date.now() + sessionHours * 3_600_000).toISOString() };
+      await this.store.putJsonBatch([
+        { path: path.join('humans', `${human.id}.json`), value: human },
+        { path: path.join('auth', 'phone-index', `${challenge.phoneHash}.json`), value: { humanId: human.id } },
+        { path: relative, value: challenge },
+        { path: path.join('auth', 'sessions', `${session.tokenHash}.json`), value: session }
+      ]);
+      return { value: { human: publicHuman(human), sessionCookieValue: sessionToken, expiresAt: session.expiresAt, secondFactorRequired: true, mfaSetupRequired } };
+    };
+    const result = typeof this.store.withTransaction === 'function'
+      ? await this.store.withTransaction([`auth:phone:${pending.phoneHash}`, `auth:phone-challenge:${challengeId}`], verify)
+      : await verify();
+    return throwExpectedError(result);
   }
 
   async getSession(req) {
@@ -99,39 +124,77 @@ export class AuthService {
     return human ? publicHuman(human) : null;
   }
 
-  async startTotp(req) {
+  async getMfaSetupRequired(req) {
     const session = await this.getSession(req);
-    if (!session) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
+    if (!session || session.assurance !== 'phone') return null;
     const human = await this.store.getJson(path.join('humans', `${session.humanId}.json`));
-    if (human.mfaEnabledAt && session.assurance !== 'mfa') throw Object.assign(new Error('Existing second factor must be verified before replacement'), { statusCode: 403 });
-    const secret = generateSecret();
-    human.pendingTotpSecret = encrypt(secret);
-    await this.store.putJson(path.join('humans', `${human.id}.json`), human);
-    return {
-      secret,
-      otpauthUri: generateURI({ issuer: 'Sinaloa', label: human.displayName || human.id, secret }),
-      ...(mode === 'development' ? { developmentCode: generateSync({ secret }) } : {})
+    if (!human) throw Object.assign(new Error('Verified human account required'), { statusCode: 401 });
+    return mfaEnrollmentState(human).setupRequired;
+  }
+
+  async startTotp(req) {
+    const pendingSession = await this.getSession(req);
+    if (!pendingSession) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
+    const setup = async () => {
+      const session = await this.getSession(req);
+      if (!session || session.humanId !== pendingSession.humanId) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
+      const human = await this.store.getJson(path.join('humans', `${session.humanId}.json`));
+      if (!human) throw Object.assign(new Error('Verified human account required'), { statusCode: 401 });
+      const { enrolled } = mfaEnrollmentState(human);
+      if (enrolled && session.assurance !== 'mfa') throw Object.assign(new Error('Existing second factor must be verified before replacement'), { statusCode: 403 });
+      const secret = human.pendingTotpSecret ? decrypt(human.pendingTotpSecret) : generateSecret();
+      if (!human.pendingTotpSecret) {
+        human.pendingTotpSecret = encrypt(secret);
+        await this.store.putJson(path.join('humans', `${human.id}.json`), human);
+      }
+      return {
+        secret,
+        otpauthUri: generateURI({ issuer: 'Sinaloa', label: human.displayName || human.id, secret }),
+        ...(mode === 'development' ? { developmentCode: generateSync({ secret }) } : {})
+      };
     };
+    return typeof this.store.withTransaction === 'function'
+      ? this.store.withTransaction([`auth:human:${pendingSession.humanId}:mfa`], setup)
+      : setup();
   }
 
   async verifyTotp(req, code) {
-    const session = await this.getSession(req);
-    if (!session) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
-    const human = await this.store.getJson(path.join('humans', `${session.humanId}.json`));
-    const encrypted = human.pendingTotpSecret || human.totpSecret;
-    if (!encrypted) throw Object.assign(new Error('TOTP setup has not been started'), { statusCode: 400 });
-    const result = verifySync({ token: String(code), secret: decrypt(encrypted), epochTolerance: 1 });
-    if (!result.valid) throw Object.assign(new Error('Incorrect authenticator code'), { statusCode: 401 });
-    if (human.lastTotpTimeStep != null && result.timeStep <= human.lastTotpTimeStep) throw Object.assign(new Error('Authenticator code has already been used'), { statusCode: 401 });
-    human.totpSecret = encrypted;
-    delete human.pendingTotpSecret;
-    human.mfaEnabledAt = this.store.now();
-    human.lastTotpTimeStep = result.timeStep;
-    session.assurance = 'mfa';
-    session.mfaVerifiedAt = this.store.now();
-    await this.store.putJson(path.join('humans', `${human.id}.json`), human);
-    await this.store.putJson(path.join('auth', 'sessions', `${session.tokenHash}.json`), session);
-    return { human: publicHuman(human), assurance: session.assurance };
+    const pendingSession = await this.getSession(req);
+    if (!pendingSession) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
+    const verify = async () => {
+      const session = await this.getSession(req);
+      if (!session || session.humanId !== pendingSession.humanId) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
+      const human = await this.store.getJson(path.join('humans', `${session.humanId}.json`));
+      if (!human) throw Object.assign(new Error('Verified human account required'), { statusCode: 401 });
+      const { enrolled } = mfaEnrollmentState(human);
+      const completingSetup = !enrolled;
+      const completingReplacement = enrolled && session.assurance === 'mfa' && Boolean(human.pendingTotpSecret);
+      const encrypted = completingSetup || completingReplacement ? human.pendingTotpSecret : human.totpSecret;
+      if (!encrypted) throw Object.assign(new Error('TOTP setup has not been started'), { statusCode: 400 });
+      const result = verifySync({ token: String(code), secret: decrypt(encrypted), epochTolerance: 30 });
+      if (!result.valid) throw Object.assign(new Error('Incorrect authenticator code'), { statusCode: 401 });
+      if (human.lastTotpTimeStep != null && result.timeStep <= human.lastTotpTimeStep) throw Object.assign(new Error('Authenticator code has already been used'), { statusCode: 401 });
+      const verifiedAt = this.store.now();
+      if (completingSetup || completingReplacement) {
+        human.totpSecret = encrypted;
+        human.mfaEnabledAt = verifiedAt;
+        delete human.pendingTotpSecret;
+      } else if (session.assurance === 'phone') {
+        delete human.pendingTotpSecret;
+      }
+      human.lastTotpTimeStep = result.timeStep;
+      session.assurance = 'mfa';
+      session.mfaSetupRequired = false;
+      session.mfaVerifiedAt = verifiedAt;
+      await this.store.putJsonBatch([
+        { path: path.join('humans', `${human.id}.json`), value: human },
+        { path: path.join('auth', 'sessions', `${session.tokenHash}.json`), value: session }
+      ]);
+      return { human: publicHuman(human), assurance: session.assurance };
+    };
+    return typeof this.store.withTransaction === 'function'
+      ? this.store.withTransaction([`auth:human:${pendingSession.humanId}:mfa`], verify)
+      : verify();
   }
 
   async logout(req) {

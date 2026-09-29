@@ -7,6 +7,7 @@ function copy(value) { return structuredClone(value); }
 function frozen(value) { return Object.freeze(copy(value)); }
 function iso(value) { return (value instanceof Date ? value : new Date(value)).toISOString(); }
 function jobPath(id) { return `${JOB_PREFIX}${id}.json`; }
+function leaseLost() { return Object.assign(new Error('Malware scan job lease was lost'), { code: 'SCAN_LEASE_LOST' }); }
 
 function positiveInteger(value, name, minimum = 1) {
   if (!Number.isSafeInteger(value) || value < minimum) throw new TypeError(`${name} must be an integer of at least ${minimum}`);
@@ -27,6 +28,20 @@ function isRetryable(error) {
 
 export class InMemoryMalwareScanJobStore {
   #jobs = new Map();
+  #locks = new Map();
+
+  async #locked(id, operation) {
+    const previous = this.#locks.get(id) ?? Promise.resolve();
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    this.#locks.set(id, pending);
+    await previous;
+    try { return await operation(); }
+    finally {
+      release();
+      if (this.#locks.get(id) === pending) this.#locks.delete(id);
+    }
+  }
 
   async enqueue(job) {
     const current = this.#jobs.get(job.id);
@@ -38,29 +53,30 @@ export class InMemoryMalwareScanJobStore {
   async get(id) { return this.#jobs.has(id) ? frozen(this.#jobs.get(id)) : null; }
 
   async claim(id, workerId, leaseMs, now = new Date()) {
-    const job = this.#jobs.get(id);
-    if (!job || !this.#claimable(job, now)) return null;
-    return this.#lease(job, workerId, leaseMs, now);
+    return this.#locked(id, () => {
+      const job = this.#jobs.get(id);
+      return job && this.#claimable(job, now) ? this.#lease(job, workerId, leaseMs, now) : null;
+    });
   }
 
   async claimNext(workerId, leaseMs, now = new Date()) {
     const next = [...this.#jobs.values()]
       .filter(job => this.#claimable(job, now))
       .sort((a, b) => String(a.availableAt).localeCompare(String(b.availableAt)) || String(a.createdAt).localeCompare(String(b.createdAt)))[0];
-    return next ? this.#lease(next, workerId, leaseMs, now) : null;
+    return next ? this.claim(next.id, workerId, leaseMs, now) : null;
   }
 
-  async complete(id, workerId, outcome) {
-    const job = this.#owned(id, workerId, 'processing');
-    Object.assign(job, outcome, { lockedBy: null, lockedAt: null, leaseExpiresAt: null, updatedAt: outcome.completedAt });
-    return frozen(job);
+  async settleProcessing(claimed, workerId, outcome, metadataStore, scan = null) {
+    return this.#locked(claimed.id, async () => {
+      const job = this.#owned(claimed.id, workerId, claimed.leaseToken, 'processing');
+      if (scan) await metadataStore.updateScan(job.objectId, scan);
+      Object.assign(job, outcome, { lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseToken: null, updatedAt: outcome.completedAt ?? outcome.failedAt });
+      return frozen(job);
+    });
   }
 
-  async fail(id, workerId, failure) {
-    const job = this.#owned(id, workerId, 'processing');
-    Object.assign(job, failure, { lockedBy: null, lockedAt: null, leaseExpiresAt: null, updatedAt: failure.failedAt });
-    return frozen(job);
-  }
+  complete(id, workerId, outcome, leaseToken) { return this.settleProcessing({ id, leaseToken }, workerId, outcome, null); }
+  fail(id, workerId, failure, leaseToken) { return this.settleProcessing({ id, leaseToken }, workerId, failure, null); }
 
   async claimRetention(workerId, leaseMs, now = new Date()) {
     const nowMs = new Date(now).getTime();
@@ -69,20 +85,30 @@ export class InMemoryMalwareScanJobStore {
         || (job.status === 'retentionProcessing' && job.leaseExpiresAt && new Date(job.leaseExpiresAt).getTime() <= nowMs))
       .sort((a, b) => String(a.retentionUntil).localeCompare(String(b.retentionUntil)))[0];
     if (!next) return null;
-    next.statusBeforeRetention = next.status === 'retentionProcessing' ? next.statusBeforeRetention : next.status;
-    return this.#lease(next, workerId, leaseMs, now, 'retentionProcessing');
+    return this.#locked(next.id, () => {
+      const job = this.#jobs.get(next.id);
+      const nowMs = new Date(now).getTime();
+      if (!job || !(job.status === 'retentionProcessing' && new Date(job.leaseExpiresAt).getTime() <= nowMs)
+        && !(['clean', 'infected', 'deadLettered'].includes(job.status) && job.retentionUntil && new Date(job.retentionUntil).getTime() <= nowMs)) return null;
+      job.statusBeforeRetention = job.status === 'retentionProcessing' ? job.statusBeforeRetention : job.status;
+      return this.#lease(job, workerId, leaseMs, now, 'retentionProcessing');
+    });
   }
 
-  async finishRetention(id, workerId) {
-    this.#owned(id, workerId, 'retentionProcessing');
-    this.#jobs.delete(id);
-    return true;
+  async finishRetention(id, workerId, leaseToken) {
+    return this.#locked(id, () => {
+      this.#owned(id, workerId, leaseToken, 'retentionProcessing');
+      this.#jobs.delete(id);
+      return true;
+    });
   }
 
-  async deferRetention(id, workerId, retentionUntil, error) {
-    const job = this.#owned(id, workerId, 'retentionProcessing');
-    Object.assign(job, { status: job.statusBeforeRetention, statusBeforeRetention: null, retentionUntil, retentionError: safeError(error), lockedBy: null, lockedAt: null, leaseExpiresAt: null, updatedAt: iso(new Date()) });
-    return frozen(job);
+  async deferRetention(id, workerId, retentionUntil, error, leaseToken) {
+    return this.#locked(id, () => {
+      const job = this.#owned(id, workerId, leaseToken, 'retentionProcessing');
+      Object.assign(job, { status: job.statusBeforeRetention, statusBeforeRetention: null, retentionUntil, retentionError: safeError(error), lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseToken: null, updatedAt: iso(new Date()) });
+      return frozen(job);
+    });
   }
 
   #claimable(job, now) {
@@ -93,31 +119,34 @@ export class InMemoryMalwareScanJobStore {
 
   #lease(job, workerId, leaseMs, now, status = 'processing') {
     const timestamp = iso(now);
-    Object.assign(job, { status, lockedBy: workerId, lockedAt: timestamp, leaseExpiresAt: iso(new Date(new Date(now).getTime() + leaseMs)), updatedAt: timestamp });
+    Object.assign(job, { status, lockedBy: workerId, leaseToken: crypto.randomUUID(), lockedAt: timestamp, leaseExpiresAt: iso(new Date(new Date(now).getTime() + leaseMs)), updatedAt: timestamp });
     return frozen(job);
   }
 
-  #owned(id, workerId, status) {
+  #owned(id, workerId, leaseToken, status) {
     const job = this.#jobs.get(id);
-    if (!job || job.status !== status || job.lockedBy !== workerId) throw new Error('Malware scan job lease was lost');
+    if (!job || job.status !== status || job.lockedBy !== workerId || !leaseToken || job.leaseToken !== leaseToken) throw leaseLost();
     return job;
   }
 }
 
 export class PostgresMalwareScanJobStore {
   constructor(storeOrPool) {
+    this.store = storeOrPool?.withTransaction ? storeOrPool : null;
     this.pool = storeOrPool?.pool ?? storeOrPool;
     if (!this.pool || typeof this.pool.query !== 'function') throw new TypeError('A PostgreSQL pool or PostgresStore is required');
   }
 
+  query(statement, values) { return (this.store ?? this.pool).query(statement, values); }
+
   async enqueue(job) {
-    const result = await this.pool.query(`INSERT INTO sinaloa_documents(path, value) VALUES($1, $2)
+    const result = await this.query(`INSERT INTO sinaloa_documents(path, value) VALUES($1, $2)
       ON CONFLICT(path) DO UPDATE SET value = sinaloa_documents.value RETURNING value`, [jobPath(job.id), job]);
     return frozen(result.rows[0].value);
   }
 
   async get(id) {
-    const result = await this.pool.query('SELECT value FROM sinaloa_documents WHERE path = $1', [jobPath(id)]);
+    const result = await this.query('SELECT value FROM sinaloa_documents WHERE path = $1', [jobPath(id)]);
     return result.rows[0] ? frozen(result.rows[0].value) : null;
   }
 
@@ -135,59 +164,74 @@ export class PostgresMalwareScanJobStore {
   async #claimWhere(where, trailingValues, workerId, leaseMs, now) {
     const timestamp = iso(now);
     const leaseExpiresAt = iso(new Date(new Date(now).getTime() + leaseMs));
-    const result = await this.pool.query(`UPDATE sinaloa_documents SET value = value || jsonb_build_object(
-        'status', 'processing', 'lockedBy', $1::text, 'lockedAt', $2::text, 'leaseExpiresAt', $3::text, 'updatedAt', $2::text), updated_at = NOW()
+    const leaseToken = crypto.randomUUID();
+    const result = await this.query(`UPDATE sinaloa_documents SET value = value || jsonb_build_object(
+        'status', 'processing', 'lockedBy', $1::text, 'lockedAt', $2::text, 'leaseExpiresAt', $3::text, 'updatedAt', $2::text, 'leaseToken', $5::text), updated_at = NOW()
       WHERE ${where}
         AND (((value->>'status') IN ('queued', 'retrying') AND (value->>'availableAt')::timestamptz <= $2::timestamptz)
           OR ((value->>'status') = 'processing' AND (value->>'leaseExpiresAt')::timestamptz <= $2::timestamptz))
-      RETURNING value`, [workerId, timestamp, leaseExpiresAt, ...trailingValues]);
+      RETURNING value`, [workerId, timestamp, leaseExpiresAt, ...trailingValues, leaseToken]);
     return result.rows[0] ? frozen(result.rows[0].value) : null;
   }
 
-  async complete(id, workerId, outcome) { return this.#finish(id, workerId, 'processing', outcome); }
-  async fail(id, workerId, failure) { return this.#finish(id, workerId, 'processing', failure); }
+  async settleProcessing(claimed, workerId, outcome, metadataStore, scan = null) {
+    if (!this.store || (scan && metadataStore.store !== this.store)) throw new TypeError('Atomic scan settlement requires a shared PostgresStore');
+    return this.store.withTransaction([`scan-job:${claimed.id}`], async () => {
+      const result = await this.query('SELECT value FROM sinaloa_documents WHERE path = $1 FOR UPDATE', [jobPath(claimed.id)]);
+      const current = result.rows[0]?.value;
+      if (!current || current.status !== 'processing' || current.lockedBy !== workerId || !claimed.leaseToken || current.leaseToken !== claimed.leaseToken) throw leaseLost();
+      if (scan) await metadataStore.updateScan(current.objectId, scan);
+      return this.#finish(claimed.id, workerId, 'processing', outcome, claimed.leaseToken);
+    });
+  }
 
-  async #finish(id, workerId, expectedStatus, patch) {
-    const value = { ...patch, lockedBy: null, lockedAt: null, leaseExpiresAt: null, updatedAt: patch.completedAt ?? patch.failedAt ?? patch.updatedAt };
-    const result = await this.pool.query(`UPDATE sinaloa_documents SET value = value || $3::jsonb, updated_at = NOW()
-      WHERE path = $1 AND value->>'status' = $4 AND value->>'lockedBy' = $2 RETURNING value`, [jobPath(id), workerId, JSON.stringify(value), expectedStatus]);
-    if (!result.rows[0]) throw new Error('Malware scan job lease was lost');
+  async complete(id, workerId, outcome, leaseToken) { return this.#finish(id, workerId, 'processing', outcome, leaseToken); }
+  async fail(id, workerId, failure, leaseToken) { return this.#finish(id, workerId, 'processing', failure, leaseToken); }
+
+  async #finish(id, workerId, expectedStatus, patch, leaseToken) {
+    if (!leaseToken) throw leaseLost();
+    const value = { ...patch, lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseToken: null, updatedAt: patch.completedAt ?? patch.failedAt ?? patch.updatedAt };
+    const result = await this.query(`UPDATE sinaloa_documents SET value = value || $3::jsonb, updated_at = NOW()
+      WHERE path = $1 AND value->>'status' = $4 AND value->>'lockedBy' = $2 AND value->>'leaseToken' = $5 RETURNING value`, [jobPath(id), workerId, JSON.stringify(value), expectedStatus, leaseToken]);
+    if (!result.rows[0]) throw leaseLost();
     return frozen(result.rows[0].value);
   }
 
   async claimRetention(workerId, leaseMs, now = new Date()) {
     const timestamp = iso(now);
     const leaseExpiresAt = iso(new Date(new Date(now).getTime() + leaseMs));
-    const result = await this.pool.query(`WITH candidate AS (
+    const leaseToken = crypto.randomUUID();
+    const result = await this.query(`WITH candidate AS (
         SELECT path FROM sinaloa_documents WHERE path LIKE $1
           AND (((value->>'status') IN ('clean', 'infected', 'deadLettered') AND (value->>'retentionUntil')::timestamptz <= $2::timestamptz)
             OR ((value->>'status') = 'retentionProcessing' AND (value->>'leaseExpiresAt')::timestamptz <= $2::timestamptz))
         ORDER BY (value->>'retentionUntil')::timestamptz FOR UPDATE SKIP LOCKED LIMIT 1)
       UPDATE sinaloa_documents AS document SET value = document.value || jsonb_build_object(
         'statusBeforeRetention', CASE WHEN document.value->>'status' = 'retentionProcessing' THEN document.value->>'statusBeforeRetention' ELSE document.value->>'status' END,
-        'status', 'retentionProcessing', 'lockedBy', $3::text,
+        'status', 'retentionProcessing', 'lockedBy', $3::text, 'leaseToken', $5::text,
         'lockedAt', $2::text, 'leaseExpiresAt', $4::text, 'updatedAt', $2::text), updated_at = NOW()
-      FROM candidate WHERE document.path = candidate.path RETURNING document.value`, [`${JOB_PREFIX}%`, timestamp, workerId, leaseExpiresAt]);
+      FROM candidate WHERE document.path = candidate.path RETURNING document.value`, [`${JOB_PREFIX}%`, timestamp, workerId, leaseExpiresAt, leaseToken]);
     return result.rows[0] ? frozen(result.rows[0].value) : null;
   }
 
-  async finishRetention(id, workerId) {
-    const result = await this.pool.query(`DELETE FROM sinaloa_documents WHERE path = $1
-      AND value->>'status' = 'retentionProcessing' AND value->>'lockedBy' = $2 RETURNING path`, [jobPath(id), workerId]);
-    if (!result.rowCount) throw new Error('Malware scan retention lease was lost');
+  async finishRetention(id, workerId, leaseToken) {
+    if (!leaseToken) throw leaseLost();
+    const result = await this.query(`DELETE FROM sinaloa_documents WHERE path = $1
+      AND value->>'status' = 'retentionProcessing' AND value->>'lockedBy' = $2 AND value->>'leaseToken' = $3 RETURNING path`, [jobPath(id), workerId, leaseToken]);
+    if (!result.rowCount) throw leaseLost();
     return true;
   }
 
-  async deferRetention(id, workerId, retentionUntil, error) {
+  async deferRetention(id, workerId, retentionUntil, error, leaseToken) {
     const job = await this.get(id);
-    if (!job || job.status !== 'retentionProcessing' || job.lockedBy !== workerId) throw new Error('Malware scan retention lease was lost');
+    if (!job || job.status !== 'retentionProcessing' || job.lockedBy !== workerId || !leaseToken || job.leaseToken !== leaseToken) throw leaseLost();
     return this.#finish(id, workerId, 'retentionProcessing', {
       status: job.statusBeforeRetention,
       statusBeforeRetention: null,
       retentionUntil,
       retentionError: safeError(error),
       updatedAt: iso(new Date())
-    });
+    }, leaseToken);
   }
 }
 
@@ -198,7 +242,7 @@ export class DurableMalwareScanLifecycle {
     deadLetterRetentionMs = 7 * 24 * 60 * 60_000, completedJobRetentionMs = 90 * 24 * 60 * 60_000,
     retentionRetryMs = 60 * 60_000, clock = () => new Date(), random = Math.random
   } = {}) {
-    if (!jobStore || !['enqueue', 'get', 'claim', 'claimNext', 'complete', 'fail', 'claimRetention', 'finishRetention', 'deferRetention'].every(method => typeof jobStore[method] === 'function')) throw new TypeError('A durable malware scan job store is required');
+    if (!jobStore || !['enqueue', 'get', 'claim', 'claimNext', 'settleProcessing', 'claimRetention', 'finishRetention', 'deferRetention'].every(method => typeof jobStore[method] === 'function')) throw new TypeError('A durable malware scan job store is required');
     if (!adapter || !['getObject', 'deleteObject'].every(method => typeof adapter[method] === 'function')) throw new TypeError('An object adapter is required');
     if (!metadataStore || !['get', 'updateScan'].every(method => typeof metadataStore[method] === 'function')) throw new TypeError('An object metadata store is required');
     if (!quotaLedger || typeof quotaLedger.deleteCommitted !== 'function') throw new TypeError('A quota ledger with committed-byte deletion is required');
@@ -249,7 +293,7 @@ export class DurableMalwareScanLifecycle {
       const object = await this.metadataStore.get(job.objectId);
       if (!object) throw Object.assign(new Error('Object metadata was not found'), { code: 'OBJECT_NOT_FOUND' });
       if (TERMINAL_SCAN_STATES.has(object.state)) {
-        await this.jobStore.complete(job.id, workerId, this.#completion(object.state, now));
+        await this.jobStore.settleProcessing(job, workerId, this.#completion(object.state, now), this.metadataStore);
         return object;
       }
       const body = await this.adapter.getObject(object.key);
@@ -260,10 +304,11 @@ export class DurableMalwareScanLifecycle {
       const result = await this.scanner.scan({ body, object });
       if (!result || !TERMINAL_SCAN_STATES.has(result.status)) throw Object.assign(new Error('Scanner returned an invalid result'), { code: 'INVALID_SCAN_RESULT' });
       const scannedAt = iso(now);
-      const updated = await this.metadataStore.updateScan(object.id, { state: result.status, scannedAt, result: { status: result.status, engine: result.engine ?? null, signature: result.signature ?? null } });
-      await this.jobStore.complete(job.id, workerId, this.#completion(result.status, now, scannedAt));
-      return updated;
+      await this.jobStore.settleProcessing(job, workerId, this.#completion(result.status, now, scannedAt), this.metadataStore,
+        { state: result.status, scannedAt, result: { status: result.status, engine: result.engine ?? null, signature: result.signature ?? null } });
+      return this.metadataStore.get(object.id);
     } catch (error) {
+      if (error.code === 'SCAN_LEASE_LOST') throw error;
       const attempts = Number(job.attempts || 0) + 1;
       const retryable = isRetryable(error);
       const deadLettered = !retryable || attempts >= Number(job.maxAttempts || this.config.maxAttempts);
@@ -275,8 +320,7 @@ export class DurableMalwareScanLifecycle {
         status: deadLettered ? 'deadLettered' : 'retrying', attempts, availableAt: deadLettered ? job.availableAt : nextAttemptAt,
         failedAt, deadLetteredAt: deadLettered ? failedAt : null, retentionUntil, lastError: safeError(error)
       };
-      await this.jobStore.fail(job.id, workerId, failure);
-      await this.metadataStore.updateScan(job.objectId, {
+      await this.jobStore.settleProcessing(job, workerId, failure, this.metadataStore, {
         state: 'error', scannedAt: failedAt,
         result: { status: 'error', ...safeError(error), attempts, retryable: !deadLettered, nextAttemptAt: deadLettered ? null : nextAttemptAt, deadLetteredAt: deadLettered ? failedAt : null }
       });
@@ -300,10 +344,10 @@ export class DurableMalwareScanLifecycle {
           });
         }
       }
-      await this.jobStore.finishRetention(job.id, workerId);
+      await this.jobStore.finishRetention(job.id, workerId, job.leaseToken);
       return frozen({ id: job.id, objectId: job.objectId, action: job.statusBeforeRetention === 'clean' ? 'purged-job' : 'deleted-object' });
     } catch (error) {
-      await this.jobStore.deferRetention(job.id, workerId, iso(new Date(this.clock().getTime() + this.config.retentionRetryMs)), error);
+      await this.jobStore.deferRetention(job.id, workerId, iso(new Date(this.clock().getTime() + this.config.retentionRetryMs)), error, job.leaseToken);
       throw error;
     }
   }

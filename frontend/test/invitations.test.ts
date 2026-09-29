@@ -30,11 +30,12 @@ function invitation(overrides: Partial<AgentConnectionInvitation> = {}): AgentCo
   };
 }
 
-function renderInvitations(invitations: AgentConnectionInvitation[]) {
+function renderInvitations(invitations: AgentConnectionInvitation[], canManageInbox = true) {
   return renderToStaticMarkup(createElement(ConnectionInvitations, {
     invitations,
     error: '',
     workspace,
+    canManageInbox,
     onReload: vi.fn(),
     onRefresh: vi.fn(),
     notify: vi.fn()
@@ -46,7 +47,8 @@ describe('human invitation supervision', () => {
     const markup = renderInvitations([
       invitation(),
       invitation({ id: 'invitation_accepted', fromAddress: 'accepted@sinaloa.example', state: 'accepted', conversationId: 'conversation_1' }),
-      invitation({ id: 'invitation_declined', fromAddress: 'declined@sinaloa.example', state: 'declined' })
+      invitation({ id: 'invitation_declined', fromAddress: 'declined@sinaloa.example', state: 'declined' }),
+      invitation({ id: 'invitation_superseded', fromAddress: 'retried@sinaloa.example', state: 'superseded' })
     ]);
 
     expect(markup).toContain('1 need review');
@@ -56,6 +58,7 @@ describe('human invitation supervision', () => {
     expect(markup).toContain('>Decline</button>');
     expect(markup).not.toContain('Accept connection invitation from accepted@sinaloa.example');
     expect(markup).not.toContain('Decline connection invitation from declined@sinaloa.example');
+    expect(markup).not.toContain('Accept connection invitation from retried@sinaloa.example');
   });
 
   it('renders outgoing pending invitations as non-actionable status', () => {
@@ -75,6 +78,15 @@ describe('human invitation supervision', () => {
     const markup = renderInvitations([]);
 
     expect(markup).toContain('No incoming invitations');
+    expect(markup).not.toContain('>Accept</button>');
+    expect(markup).not.toContain('>Decline</button>');
+  });
+
+  it('keeps incoming invitations visible but not actionable for read-only members', () => {
+    const markup = renderInvitations([invitation()], false);
+
+    expect(markup).toContain('sender@sinaloa.example');
+    expect(markup).toContain('0 need review');
     expect(markup).not.toContain('>Accept</button>');
     expect(markup).not.toContain('>Decline</button>');
   });

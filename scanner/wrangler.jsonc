@@ -1,0 +1,22 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "sinaloa-scanner-staging",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-29",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "containers": [
+    {
+      "name": "sinaloa-clamav-staging",
+      "class_name": "ClamAVContainer",
+      "image": "docker.io/clamav/clamav:stable",
+      "max_instances": 1,
+      "instance_type": "standard-1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "CLAMAV_CONTAINER", "class_name": "ClamAVContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClamAVContainer"] }]
+}

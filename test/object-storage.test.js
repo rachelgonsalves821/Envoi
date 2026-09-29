@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -8,6 +9,7 @@ import { FileStore } from '../src/storage.js';
 import {
   InMemoryMetadataStore,
   InMemoryQuotaLedger,
+  HttpMalwareScanner,
   LocalObjectStorageAdapter,
   ObjectStorageError,
   ObjectStorageService,
@@ -171,11 +173,34 @@ test('R2 mode uses region auto and metadata-bound SHA-256 without unsupported fu
   await assert.rejects(() => adapter.createPresignedDownload({ key: 'valid/key', expiresInSeconds: 604_801 }), error => error.code === 'INVALID_PRESIGN_TTL');
 });
 
+test('S3 adapter verifies object bytes when HEAD reports zero length', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const body = Buffer.from('nonempty R2 object');
+  const requests = [];
+  globalThis.fetch = async (_url, options) => {
+    requests.push(options.method);
+    if (options.method === 'HEAD') return new Response(null, { status: 200, headers: { 'content-length': '0', 'x-amz-meta-sinaloa-sha256': checksum(Buffer.from('different')) } });
+    if (options.method === 'GET') return new Response(body, { status: 200 });
+    throw new Error('Unexpected storage request');
+  };
+  const adapter = new S3CompatibleObjectStorageAdapter({
+    provider: 'r2', endpoint: 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com',
+    bucket: 'private-bucket', accessKeyId: 'R2EXAMPLE', secretAccessKey: 'secret-value'
+  });
+  const head = await adapter.headObject('workspaces/workspace_a/objects/obj_1');
+  assert.equal(head.size, body.length);
+  assert.equal(head.checksumSha256, checksum(body));
+  assert.deepEqual(requests, ['HEAD', 'GET']);
+});
+
 test('S3 adapter bounds transport time and sanitizes timeout failures', async t => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   globalThis.fetch = (_url, options) => new Promise((_, reject) => {
-    options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+    // Model the live socket that keeps a real request pending on Node 22.
+    const pendingRequest = setTimeout(() => reject(new Error('Mock request did not abort')), 1000);
+    options.signal.addEventListener('abort', () => { clearTimeout(pendingRequest); reject(options.signal.reason); }, { once: true });
   });
   const adapter = new S3CompatibleObjectStorageAdapter({
     provider: 's3', endpoint: 'https://s3.example.test', bucket: 'private-bucket', region: 'ca-central-1',
@@ -188,4 +213,27 @@ test('S3 adapter bounds transport time and sanitizes timeout failures', async t 
     assert.equal(error.message.includes('s3.example.test'), false);
     return true;
   });
+});
+
+test('HTTP scanner enforces a bounded response time', async t => {
+  const scannerServer = http.createServer((_request, response) => {
+    setTimeout(() => { if (!response.destroyed) response.end(JSON.stringify({ status: 'clean' })); }, 100);
+  });
+  await new Promise(resolve => scannerServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => scannerServer.close(resolve)));
+  const scanner = new HttpMalwareScanner({ endpoint: `http://127.0.0.1:${scannerServer.address().port}/scan`, timeoutMs: 5 });
+  const content = Buffer.from('harmless');
+  await assert.rejects(() => scanner.scan({ body: content, object: { id: 'obj_timeout', mimeType: 'text/plain', checksumSha256: checksum(content) } }), error => error.name === 'TimeoutError' || error.name === 'AbortError');
+});
+
+test('HTTP scanner rejects redirects before sending a scan to another endpoint', async t => {
+  const scannerServer = http.createServer((_request, response) => {
+    response.writeHead(302, { location: 'http://127.0.0.1:9/redirected' });
+    response.end();
+  });
+  await new Promise(resolve => scannerServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => scannerServer.close(resolve)));
+  const scanner = new HttpMalwareScanner({ endpoint: `http://127.0.0.1:${scannerServer.address().port}/scan`, token: 'test-only-token' });
+  const content = Buffer.from('harmless');
+  await assert.rejects(() => scanner.scan({ body: content, object: { id: 'obj_redirect', mimeType: 'text/plain', checksumSha256: checksum(content) } }));
 });

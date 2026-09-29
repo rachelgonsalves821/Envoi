@@ -1,10 +1,14 @@
 # Cloudflare Beta Release Plan
 
+The current implementation and verification status is tracked in [deployment recovery plan](deployment-recovery-plan.md). Use [Worker deployment instructions](../worker/README.md) for the current commands and runtime configuration contract.
+
 ## Deployment target
 
 Sinaloa will run as a Cloudflare Container behind a Worker on the Workers Paid plan. The Worker owns public routing and forwards application traffic to a named beta container built from the repository Dockerfile. Cloudflare DNS will serve `sinaloa-inbox.com` only after the container deployment and readiness checks pass.
 
-The beta still requires managed PostgreSQL, WorkOS, Resend, and a malware-scanner service. Cloudflare R2 supplies private object storage. No production secret, Cloudflare account identifier, resource identifier, or provider credential is committed to Git.
+The repository defines a separate `staging` Wrangler environment. `wrangler deploy --env staging` targets the `sinaloa-staging` Worker and its own Container/Durable Object binding; the top-level `wrangler deploy` targets `sinaloa`. A local staging dry-run validates the shape of this configuration but does not prove account entitlement, resources, secrets or a running Container. Stage with test-only humans, a separate PostgreSQL database, private R2 bucket, scanner credentials and WorkOS callback. Set `SINALOA_PUBLIC_URL`, CORS origin, edge allowed hosts, WorkOS redirect and R2 CORS to the **actual** staging `workers.dev` origin after it is known. Do not reuse production data, keys or credentials. Dashboard variables and secrets are per Worker and must be checked for both environments.
+
+The beta requires managed PostgreSQL, WorkOS, and a malware-scanner service. Cloudflare R2 supplies private object storage. Resend is required only when external email is enabled. No production secret or provider credential is committed to Git.
 
 ## Isolated workstreams
 
@@ -37,8 +41,9 @@ If the image builds and Worker upload succeeds but deployment fails at `/account
 
 1. Managed PostgreSQL with TLS, automated backups, and a connection limit suitable for the configured pool.
 2. WorkOS production environment with `https://sinaloa-inbox.com/api/auth/workos/callback` registered.
-3. Resend sending and inbound domains using a dedicated subdomain such as `mail.sinaloa-inbox.com`.
-4. A malware-scanner endpoint that fails closed and is reachable from the container.
+3. A malware-scanner endpoint that fails closed and is reachable from the container, with authenticated binary scan POST and a positive JSON `/health` response.
+
+Resend sending and inbound domains are post-beta resources while external email stays disabled.
 
 ## Runtime configuration
 
@@ -51,47 +56,45 @@ The release must configure at least these values as runtime variables or secrets
 - `SINALOA_PUBLIC_URL=https://sinaloa-inbox.com`
 - `SINALOA_CORS_ORIGIN=https://sinaloa-inbox.com`
 - `SINALOA_AGENT_DOMAIN=agents.sinaloa-inbox.com`
-- `SINALOA_PUBLIC_EMAIL_DOMAIN=mail.sinaloa-inbox.com`
 - `DATABASE_URL`
 - `SINALOA_DB_SSL_MODE=verify-full`
 - `SINALOA_DB_CA` only when the provider CA is not trusted by the base image
 - WorkOS client, API, cookie, redirect, and issuer values
 - R2 S3 endpoint, bucket, region, access key, and secret key values
 - Malware-scanner URL and token
-- Resend API and signed-webhook values
 - Strong data-encryption and policy-signing keys
 
 External email stays disabled until Resend DNS, webhook verification, complaint handling, and approved-contact tests pass.
 
 ## Pre-deployment gates
 
-1. Working tree contains only reviewed Cloudflare changes merged from the isolated worktrees.
+1. The exact release commit is reviewed on the recovery branch; the working tree is clean and the two-owner beta plan's product and security gates are assigned.
 2. `npm ci` succeeds from the lockfile.
 3. `npm test` passes with no cancellation or failure.
 4. `npm run test:frontend` passes.
-5. `npm run build` and both TypeScript checks pass.
+5. TypeScript/Python SDK and Worker tests, `npm run build` and both TypeScript checks pass.
 6. Live PostgreSQL test and migration ledger pass against a disposable database.
 7. Credential-gated R2 and scanner tests pass.
 8. `npm audit --omit=dev` reports no known production vulnerabilities.
-9. `wrangler deploy --dry-run` succeeds and reports the expected Worker, Container, Durable Object, and asset configuration.
+9. Both top-level and `--env staging` Wrangler dry-runs succeed and report the expected separate Worker, Container and Durable Object configurations.
 10. No secret or real Cloudflare resource identifier appears in the Git diff.
 
 ## Post-deployment acceptance
 
-Run these checks first on the generated `workers.dev` URL, then repeat them on `sinaloa-inbox.com`:
+Run these checks first on the isolated staging `workers.dev` URL. Only after they pass, merge the exact reviewed commit to `main`, deploy the production Worker, and repeat the critical journey on the beta hostname:
 
 1. `/health` returns success without dependency details.
-2. `/ready` returns success only when PostgreSQL, R2, scanner, WorkOS, and enabled email dependencies are ready.
+2. `/ready` verifies PostgreSQL connectivity, limited R2 access and positive scanner health. It does not prove a private bucket upload/download, WorkOS sign-in or case correctness; exercise those separately below.
 3. The human UI loads over HTTPS without console errors or mixed content.
 4. WorkOS sign-in, callback, secure cookies, origin validation, and CSRF mutations work behind the Worker proxy.
-5. A friend creates an organization and workspace and enrolls one agent.
-6. A second user enrolls another agent and receives an exact-address invitation.
-7. Accept, decline, retry, and block states match in both human views.
-8. Agent messages remain hidden before approval and appear after acceptance.
-9. SSE events stream without buffering and reconnect without duplicating events.
-10. R2 uploads remain quarantined until a clean scan; infected/error objects never receive download URLs.
-11. Approved external email sends, delivery webhooks, replies, bounces, complaints, and suppression states are durable.
-12. Revoked credentials immediately stop API and delivery access.
+5. An invited human creates a workspace and enrolls an agent; an uninvited verified human and a low-assurance session cannot manage agents.
+6. A second independently owned human enrolls an agent. Knowing the exact active native address is enough for direct communication; no first-contact invitation or approval is required.
+7. OpenClaw and a Grok/xAI API-backed runner connect through the hosted MCP endpoint and durable inbox bridge. Both receive unsolicited work, reply, survive token renewal and offline restart, and stop after credential revocation.
+8. The two agents keep two simultaneous multi-turn cases separate. Both humans see the same typed messages, proposal/decision outcomes, actors, delivery/processing/failure receipts and complete paginated timelines.
+9. Pause/resume, native block/unblock, permission changes and internal-case human decisions take effect on the server; unauthorized or forged authority does not show as verified.
+10. SSE events stream without buffering and reconnect without missing or duplicating events.
+11. A signed private R2 PUT/GET/DELETE and clean/infected scanner check pass. Files remain quarantined until clean; infected/error objects never receive download URLs, and both humans can inspect safe metadata.
+12. Restart the Container and verify queued work, cases and assets persist. Exercise a PostgreSQL/R2/keys restoration and record recovery time; verify logs and alerts for readiness, failed jobs and backup status.
 
 ## DNS cutover
 

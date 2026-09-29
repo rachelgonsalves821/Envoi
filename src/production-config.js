@@ -1,3 +1,6 @@
+import { scannerHealthUrl } from './dependency-readiness.js';
+import { createPostgresOptions } from './postgres-options.js';
+
 const required = (env, name, errors, minimumLength = 1) => {
   const value = String(env[name] || '').trim();
   if (value.length < minimumLength) errors.push(`${name} is required${minimumLength > 1 ? ` and must be at least ${minimumLength} characters` : ''}`);
@@ -8,6 +11,7 @@ const httpsUrl = (value, name, errors) => {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== 'https:') errors.push(`${name} must use HTTPS`);
+    if (parsed.username || parsed.password) errors.push(`${name} must not contain embedded credentials`);
     return parsed;
   } catch {
     errors.push(`${name} must be a valid HTTPS URL`);
@@ -20,12 +24,22 @@ export function validateProductionConfiguration(env = process.env) {
   const errors = [];
   const publicUrl = httpsUrl(required(env, 'SINALOA_PUBLIC_URL', errors), 'SINALOA_PUBLIC_URL', errors);
   const databaseUrl = required(env, 'DATABASE_URL', errors);
-  if (databaseUrl && !/^postgres(?:ql)?:\/\//i.test(databaseUrl)) errors.push('DATABASE_URL must be a PostgreSQL connection URL');
+  if (databaseUrl) {
+    try {
+      // Use the same parser and TLS rules as startup, before a container is built.
+      const options = createPostgresOptions(databaseUrl, env);
+      if (!new URL(options.connectionString).hostname) errors.push('DATABASE_URL must include a PostgreSQL hostname');
+    } catch (error) {
+      errors.push(error.code === 'ERR_INVALID_URL' ? 'DATABASE_URL must be a valid PostgreSQL connection URL' : error.message);
+    }
+  }
   if ((env.SINALOA_DB_SSL_MODE || (env.SINALOA_DB_SSL === 'true' ? 'verify-full' : 'disable')) !== 'verify-full') errors.push('SINALOA_DB_SSL_MODE must be verify-full in production');
   if ((env.SINALOA_HUMAN_AUTH_PROVIDER || 'workos') !== 'workos') errors.push('SINALOA_HUMAN_AUTH_PROVIDER must be workos in production');
   required(env, 'WORKOS_CLIENT_ID', errors);
   required(env, 'WORKOS_API_KEY', errors);
   required(env, 'WORKOS_COOKIE_PASSWORD', errors, 32);
+  const invitedEmails = required(env, 'SINALOA_BETA_INVITED_EMAILS', errors).split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+  if (invitedEmails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) errors.push('SINALOA_BETA_INVITED_EMAILS must contain exact email addresses');
   const redirectUri = httpsUrl(required(env, 'WORKOS_REDIRECT_URI', errors), 'WORKOS_REDIRECT_URI', errors);
   if (publicUrl && redirectUri && publicUrl.origin !== redirectUri.origin) errors.push('WORKOS_REDIRECT_URI must use the SINALOA_PUBLIC_URL origin');
   const encryptionKey = required(env, 'SINALOA_DATA_ENCRYPTION_KEY', errors, 32);
@@ -45,6 +59,7 @@ export function validateProductionConfiguration(env = process.env) {
   if (typeof policySigningKeys?.[policyActiveKeyId] !== 'string' || policySigningKeys[policyActiveKeyId].length < 32) errors.push('The active policy signing key must be at least 32 characters');
   for (const [keyId, value] of Object.entries(policySigningKeys || {})) {
     if (!/^[A-Za-z0-9._:-]{1,64}$/.test(keyId) || typeof value !== 'string' || value.length < 32) errors.push('Every policy signing key ID and value must be valid');
+    if (typeof value === 'string' && /development|changeme|example/i.test(value)) errors.push('Policy signing keys must not use development or example values');
   }
   const policyTtl = Number(env.SINALOA_POLICY_DECISION_TTL_SECONDS || 600);
   if (!Number.isSafeInteger(policyTtl) || policyTtl < 30 || policyTtl > 3600) errors.push('SINALOA_POLICY_DECISION_TTL_SECONDS must be an integer from 30 to 3600');
@@ -70,6 +85,10 @@ export function validateProductionConfiguration(env = process.env) {
   required(env, 'SINALOA_S3_ACCESS_KEY_ID', errors);
   required(env, 'SINALOA_S3_SECRET_ACCESS_KEY', errors);
   httpsUrl(required(env, 'SINALOA_MALWARE_SCANNER_URL', errors), 'SINALOA_MALWARE_SCANNER_URL', errors);
+  if (env.SINALOA_MALWARE_SCANNER_HEALTH_URL) {
+    httpsUrl(env.SINALOA_MALWARE_SCANNER_HEALTH_URL, 'SINALOA_MALWARE_SCANNER_HEALTH_URL', errors);
+    try { scannerHealthUrl(env); } catch { errors.push('SINALOA_MALWARE_SCANNER_HEALTH_URL must use the scanner origin without embedded credentials'); }
+  }
 
   const validDomain = value => /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(value) && !value.endsWith('.mail');
   const platformDomain = required(env, 'SINALOA_AGENT_DOMAIN', errors).toLowerCase();

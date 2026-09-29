@@ -1,11 +1,11 @@
-import type { Agent, Asset, AssetState, AuditEvent, CaseEvent, CaseState, HumanView, Message, NavSection, ParticipantIdentity, PolicyEvaluation, WorkCase } from './types';
+import type { Agent, Asset, AssetState, AuditEvent, CaseEvent, CaseState, HumanView, Inbox, Message, NavSection, ParticipantIdentity, PolicyEvaluation, WorkCase } from './types';
 
 export interface ResolvedParticipant extends ParticipantIdentity {
   relationship: 'localAgent' | 'counterpartyAgent' | 'principal' | 'participant' | 'unknown';
 }
 
 export const STATE_META: Record<CaseState, { label: string; tone: 'neutral' | 'attention' | 'waiting' | 'success' | 'danger' | 'unknown' | 'tentative'; description: string }> = {
-  new: { label: 'New', tone: 'neutral', description: 'Ready to be classified' }, classifying: { label: 'Classifying', tone: 'neutral', description: 'Agent is identifying the work' }, inProgress: { label: 'In progress', tone: 'neutral', description: 'Agent is advancing the objective' }, waitingForExternalParty: { label: 'Waiting for external party', tone: 'waiting', description: 'Another participant needs to respond' }, waitingForHuman: { label: 'Waiting for human', tone: 'attention', description: 'Your judgment is required' }, tentativeHold: { label: 'Tentative hold', tone: 'tentative', description: 'Reserved but not confirmed' }, authorized: { label: 'Authorized', tone: 'success', description: 'Authority has been granted' }, executing: { label: 'Executing', tone: 'neutral', description: 'An approved action is underway' }, sent: { label: 'Sent', tone: 'neutral', description: 'Sent to the external party' }, received: { label: 'Received', tone: 'waiting', description: 'The external party received it' }, accepted: { label: 'Accepted', tone: 'success', description: 'The outcome was accepted' }, completed: { label: 'Completed', tone: 'success', description: 'A durable receipt is available' }, failed: { label: 'Failed', tone: 'danger', description: 'The action did not succeed' }, unknownExternalResult: { label: 'Unknown external result', tone: 'unknown', description: 'The external system did not confirm a result' }, expired: { label: 'Expired', tone: 'danger', description: 'The available action is no longer valid' }, paused: { label: 'Paused', tone: 'tentative', description: 'Conversation paused by a human' }, revoked: { label: 'Revoked', tone: 'danger', description: 'Authority has been withdrawn' }, disputed: { label: 'Disputed', tone: 'danger', description: 'The outcome is under dispute' }
+  new: { label: 'New', tone: 'neutral', description: 'Ready to be classified' }, classifying: { label: 'Classifying', tone: 'neutral', description: 'Agent is identifying the work' }, inProgress: { label: 'In progress', tone: 'neutral', description: 'Agent is advancing the objective' }, waitingForExternalParty: { label: 'Waiting for external party', tone: 'waiting', description: 'Another participant needs to respond' }, waitingForHuman: { label: 'Waiting for human', tone: 'attention', description: 'Your judgment is required' }, tentativeHold: { label: 'Tentative hold', tone: 'tentative', description: 'Reserved but not confirmed' }, authorized: { label: 'Authorized', tone: 'success', description: 'Authority has been granted' }, executing: { label: 'Executing', tone: 'neutral', description: 'An approved action is underway' }, sent: { label: 'Sent', tone: 'waiting', description: 'Sent to the external party' }, received: { label: 'Received', tone: 'waiting', description: 'The external party received it' }, accepted: { label: 'Accepted', tone: 'success', description: 'The outcome was accepted' }, completed: { label: 'Completed', tone: 'success', description: 'A durable receipt is available' }, failed: { label: 'Failed', tone: 'danger', description: 'The action did not succeed' }, unknownExternalResult: { label: 'Unknown external result', tone: 'unknown', description: 'The external system did not confirm a result' }, expired: { label: 'Expired', tone: 'danger', description: 'The available action is no longer valid' }, paused: { label: 'Paused', tone: 'tentative', description: 'Agent work is paused for this case' }, revoked: { label: 'Revoked', tone: 'danger', description: 'New agent work is blocked for this case' }, disputed: { label: 'Disputed', tone: 'danger', description: 'The outcome is under dispute' }
 };
 
 export const ASSET_STATE_META: Record<AssetState | 'unknown', { label: string; description: string; tone: 'waiting' | 'success' | 'danger' | 'unknown' }> = {
@@ -22,20 +22,62 @@ export function assetDisplayName(asset: Asset) { return asset.filename || asset.
 export function assetStateMeta(asset: Asset) { return ASSET_STATE_META[asset.state || 'unknown']; }
 export function canDownloadAsset(asset: Asset) { return asset.state === 'clean'; }
 
-export function onboardingSteps(view: HumanView) {
+export function filterAssets(assets: Asset[], cases: WorkCase[], agents: Agent[], filters: { query?: string; caseId?: string; creatorId?: string; mimeType?: string }) {
+  const query = (filters.query || '').trim().toLowerCase();
+  return assets.filter(asset => {
+    const workCase = cases.find(item => item.id === asset.caseId);
+    const creator = agents.find(item => item.id === asset.createdByAgentId);
+    return (!filters.caseId || asset.caseId === filters.caseId)
+      && (!filters.creatorId || asset.createdByAgentId === filters.creatorId)
+      && (!filters.mimeType || asset.mimeType === filters.mimeType)
+      && (!query || `${assetDisplayName(asset)} ${workCase?.objective || asset.caseId || ''} ${creator?.name || asset.createdByAgentId || ''} ${asset.mimeType}`.toLowerCase().includes(query));
+  }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
   const directory = Array.isArray(view.participantDirectory) ? view.participantDirectory : Object.values(view.participantDirectory || {});
-  const hasAgent = view.agents.length > 0;
+  const hasAgent = view.agents.length > 0 || agentInboxes.length > 0;
+  // An inbox-created event also exists for legacy pending-agent creation;
+  // only the agent inbox's enrollment event proves one-use redemption.
+  const hasRedeemedEnrollment = view.recentEvents.some(event => event.type === 'agent.enrolled');
   const hasApprovedAgent = view.agents.some(agent => agent.onboardingStatus === 'approved' && agent.status === 'active');
+  const hasRuntimeActivity = view.deliveryReceipts.some(receipt => ['acknowledged', 'processed'].includes(receipt.state))
+    || view.messages.some(message => ['acknowledged', 'processed'].includes(message.status));
   const hasCounterparty = directory.some(participant => participant.type === 'externalAgent' && participant.accessState === 'active');
-  const hasDelivery = view.deliveryReceipts.length > 0 || view.messages.some(message => ['delivered', 'acknowledged', 'processed'].includes(message.status));
-  const hasReceipt = view.caseQueue.some(workCase => Boolean(workCase.receipt));
+  const deliveryStates = ['delivered', 'acknowledged', 'processed', 'received'];
+  const hasDelivery = view.deliveryReceipts.some(receipt => deliveryStates.includes(receipt.state))
+    || view.messages.some(message => deliveryStates.includes(message.status));
+  const deliveredMessageIds = new Set(view.deliveryReceipts.filter(receipt => deliveryStates.includes(receipt.state)).map(receipt => receipt.messageId));
+  const hasCompletedCaseOutcome = view.caseQueue.some(workCase => caseState(workCase) === 'completed'
+    && Boolean(workCase.receipt)
+    && view.messages.some(message => message.caseId === workCase.id
+      && (deliveredMessageIds.has(message.id) || ['delivered', 'acknowledged', 'processed'].includes(message.status))));
+  const redemptionDescription = hasRedeemedEnrollment
+    ? 'The one-time token was redeemed and runtime credentials were issued.'
+    : hasAgent && view.history?.recentEvents?.hasMore
+      ? 'An agent identity exists, but older activity is not loaded, so token redemption is not confirmed.'
+      : agentInboxes.length > 0
+        ? 'Open the agent inbox to verify its enrollment audit. Inbox creation alone does not confirm that a one-time token was redeemed.'
+      : 'An agent identity alone does not confirm that its one-time token was redeemed.';
+  const runtimeDescription = hasRuntimeActivity
+    ? 'A runtime acknowledged or processed work. This does not claim it is currently online.'
+    : 'No runtime activity is visible yet. Enrollment alone does not prove a runtime is online.';
+  const hasOlderExchangeHistory = Boolean(view.history?.cases?.hasMore || view.history?.messages?.hasMore || view.history?.deliveryReceipts?.hasMore);
+  const deliveryDescription = hasCompletedCaseOutcome
+    ? 'Delivery evidence and a completed case outcome are visible to the human.'
+    : hasDelivery && hasOlderExchangeHistory
+      ? 'Delivery is visible, but older history is not loaded. Load it to verify a completed case outcome.'
+      : hasDelivery
+        ? 'Delivery is visible; a completed case with its own outcome receipt is still required.'
+        : 'No delivery evidence or completed case outcome is visible yet.';
   return [
     { id: 'workspace', label: 'Create your workspace', description: 'Your human control plane and agent inbox are ready.', complete: true },
-    { id: 'enroll', label: 'Enroll an agent', description: 'Create a 15-minute, one-use enrollment link for the agent runtime.', complete: hasAgent },
-    { id: 'sdk', label: 'Exchange credentials in the SDK', description: 'The agent exchanged the one-use link for short-lived credentials.', complete: hasAgent },
+    { id: 'enroll', label: 'Enroll an agent identity', description: hasAgent ? 'An agent identity and dedicated inbox are visible.' : 'Create a one-time token and wait for the dedicated identity and inbox to appear.', complete: hasAgent },
+    { id: 'sdk', label: 'Redeem the one-time token', description: redemptionDescription, complete: hasRedeemedEnrollment },
     { id: 'approve', label: 'Approve scoped access', description: 'The agent is active with its visible permission policy.', complete: hasApprovedAgent },
+    { id: 'runtime', label: 'Observe runtime activity', description: runtimeDescription, complete: hasRuntimeActivity },
     { id: 'counterparty', label: 'Identify a known counterparty', description: 'A verified external agent appears after the first native exchange.', complete: hasCounterparty },
-    { id: 'delivery', label: 'See the first delivery and receipt', description: hasDelivery && !hasReceipt ? 'The first delivery is recorded; the durable outcome receipt is next.' : 'Delivery evidence and the durable outcome are visible to the human.', complete: hasDelivery && hasReceipt }
+    { id: 'delivery', label: 'See a delivery and completed case outcome', description: deliveryDescription, complete: hasCompletedCaseOutcome }
   ];
 }
 
@@ -135,7 +177,7 @@ export function eventSummary(event: CaseEvent): string {
   if (event.summary) return event.summary;
   const action = event.payload.action;
   if (action?.actionKey) {
-    const labels: Record<string, string> = { approveOnce: 'Approved once', decline: 'Declined', editProposal: 'Requested proposal edits', pause: 'Paused conversation', revoke: 'Revoked authority', takeOver: 'Took over this conversation', acceptProposal: 'Attempted to accept the proposal' };
+    const labels: Record<string, string> = { approveOnce: 'Approved once', decline: 'Declined', editProposal: 'Requested proposal edits', pause: 'Paused conversation', resume: 'Resumed conversation', revoke: 'Revoked authority', takeOver: 'Took over this conversation', acceptProposal: 'Attempted to accept the proposal' };
     const outcome = action.outcome === 'unknown' ? ' The external result is unknown.' : action.outcome === 'failed' ? ' The action failed.' : '';
     return `${labels[action.actionKey] || action.actionKey}.${outcome}`;
   }
@@ -164,6 +206,14 @@ export function caseCounts(view: HumanView) {
   const cases = view.caseQueue;
   const counts: Record<NavSection, number> = { inbox: cases.length, needsMe: view.navigation.needsMe, active: view.navigation.activeWork, waiting: view.navigation.waiting, scheduled: 0, documents: 0, completed: view.navigation.completed, policies: 0, integrations: view.agents.length, activity: view.recentEvents.length };
   counts.scheduled = casesForSection(cases, 'scheduled').length;
-  counts.documents = casesForSection(cases, 'documents', view.assets).length;
+  counts.documents = view.assets.length;
+  if (view.history) {
+    // Category badges describe loaded results; workspace totals are displayed
+    // separately beside the history control rather than inferred from a page.
+    counts.needsMe = casesForSection(cases, 'needsMe').length;
+    counts.active = casesForSection(cases, 'active').length;
+    counts.waiting = casesForSection(cases, 'waiting').length;
+    counts.completed = casesForSection(cases, 'completed').length;
+  }
   return counts;
 }

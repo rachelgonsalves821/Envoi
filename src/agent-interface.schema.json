@@ -22,6 +22,19 @@
     "proposals": { "type": "array", "items": { "$ref": "#/definitions/Proposal" } },
     "policyEvaluations": { "type": "array", "items": { "$ref": "#/definitions/PolicyEvaluation" } },
     "receipt": { "anyOf": [{ "$ref": "#/definitions/Receipt" }, { "type": "null" }] },
+    "nativeOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "messageId", "proposalMessageId", "actorAgentId", "humanApprovalStatus", "updatedAt"],
+      "properties": {
+        "status": { "enum": ["proposed", "accepted", "rejected", "countered", "completed"] },
+        "messageId": { "$ref": "#/definitions/ref" },
+        "proposalMessageId": { "type": ["string", "null"] },
+        "actorAgentId": { "$ref": "#/definitions/ref" },
+        "humanApprovalStatus": { "enum": ["unverified", "verified"] },
+        "updatedAt": { "$ref": "#/definitions/timestamp" }
+      }
+    },
     "createdAt": { "$ref": "#/definitions/timestamp" },
     "updatedAt": { "$ref": "#/definitions/timestamp" }
   },
@@ -97,7 +110,7 @@
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/definitions/ref" },
-        "type": { "enum": ["message", "decision", "policyEvaluation", "toolAction", "humanAction", "stateChange", "error", "receipt"] },
+        "type": { "enum": ["message", "proposal", "decision", "policyEvaluation", "toolAction", "humanAction", "stateChange", "error", "receipt"] },
         "actor": { "$ref": "#/definitions/ref" },
         "createdAt": { "$ref": "#/definitions/timestamp" },
         "payload": { "type": "object" },

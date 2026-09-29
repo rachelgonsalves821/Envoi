@@ -10,11 +10,12 @@ export type DeliveryState = 'queued' | 'retrying' | 'delivered' | 'acknowledged'
 export type EmailDeliveryState = 'accepted' | 'delivered' | 'delivery_delayed' | 'bounced' | 'complained' | 'failed' | 'suppressed' | 'received';
 
 export type EventType = 'message' | 'decision' | 'policyEvaluation' | 'toolAction' | 'humanAction' | 'stateChange' | 'error' | 'receipt';
-export type HumanActionKey = 'approveOnce' | 'decline' | 'editProposal' | 'pause' | 'revoke' | 'takeOver';
+export type HumanActionKey = 'approveOnce' | 'decline' | 'editProposal' | 'pause' | 'resume' | 'revoke' | 'takeOver';
 
 export interface AuthConfig {
   provider: 'local' | 'workos';
   hosted: boolean;
+  inviteOnly?: boolean;
   phoneVerification?: boolean;
   totp?: boolean;
   signInPath?: string;
@@ -27,6 +28,7 @@ export interface Human {
   displayName: string;
   email?: string;
   phoneNumber?: string;
+  mfaSetupRequired?: boolean;
   auth?: { provider: string; assurance: string };
 }
 
@@ -46,6 +48,7 @@ export interface Agent {
   permissions: string[];
   capabilities?: string[];
   approvedAt?: string;
+  pausedAt?: string | null;
 }
 
 export interface ParticipantIdentity {
@@ -221,7 +224,7 @@ export interface AgentConnectionInvitation {
   recipientAgentId: string;
   direction: 'incoming' | 'outgoing';
   actionable: boolean;
-  state: 'pending' | 'accepted' | 'declined';
+  state: 'pending' | 'accepted' | 'declined' | 'superseded';
   conversationId?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -243,9 +246,13 @@ export interface EmailTransportStatus { provider: string; ready: boolean; public
 export interface CalendarProvider { id: 'google' | 'outlook'; label: string; configured: boolean }
 export interface CalendarConnector { id: string; provider: CalendarProvider['id']; label: string; status: 'connected' | 'disconnected'; accountLabel: string | null; scopes: string[]; expiresAt: string | null; refreshTokenPresent: boolean; connectedByHumanId: string; connectedAt: string; updatedAt: string; disconnectedAt?: string }
 
+export type HistoryCollection = 'cases' | 'messages' | 'assets' | 'recentEvents' | 'deliveryReceipts' | 'invitations' | 'contacts';
+export type HistoryMetadata = Partial<Record<HistoryCollection, { total: number; hasMore: boolean; nextCursor: string | null }>>;
 export interface HumanView {
+  history?: HistoryMetadata;
   inbox: Inbox;
   mode: 'human-observer';
+  canManageInbox: boolean;
   capabilities: string[];
   summary: { agents: number; cases: number; messages: number; assets: number; needsMe: number };
   navigation: { needsMe: number; activeWork: number; waiting: number; completed: number };

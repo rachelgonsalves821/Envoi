@@ -1,40 +1,83 @@
 import pg from 'pg';
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { runMigrations } from './migrations.js';
 import { createPostgresOptions } from './postgres-options.js';
 import { normalizeDocumentPath } from './path-safety.js';
 
 const { Pool } = pg;
 const likePrefix = relative => `${normalizeDocumentPath(relative).replace(/[\\%_]/g, value => `\\${value}`)}/%`;
+const addHistoryScope = (relativeDir, values, conditions) => {
+  const segments = normalizeDocumentPath(relativeDir).split('/');
+  if (segments.length !== 3 || segments[0] !== 'inboxes') return;
+  values.push(segments[1], segments[2]);
+  conditions.push("path LIKE 'inboxes/%'");
+  // Match the partial cursor index predicate explicitly, including prepared plans.
+  if (segments[2] === 'events') conditions.push("path LIKE 'inboxes/%/events/%'");
+  conditions.push(`split_part(path, '/', 2) = $${values.length - 1}`);
+  conditions.push(`split_part(path, '/', 3) = $${values.length}`);
+};
 
 export class PostgresStore {
-  constructor(connectionString) { this.pool = new Pool(createPostgresOptions(connectionString)); }
+  constructor(connectionString) { this.pool = new Pool(createPostgresOptions(connectionString)); this.transactionContext = new AsyncLocalStorage(); }
+  query(statement, values) {
+    const current = this.transactionContext.getStore();
+    if (current && !current.active) throw new Error('Transaction is no longer active');
+    return (current?.client ?? this.pool).query(statement, values);
+  }
+  async withTransaction(keys, operation) {
+    if (!Array.isArray(keys) || keys.some(key => typeof key !== 'string' || !key || key.length > 512) || typeof operation !== 'function') throw new TypeError('Transaction keys and callback are required');
+    const orderedKeys = [...new Set(keys)].sort();
+    const current = this.transactionContext.getStore();
+    if (current) {
+      if (!current.active) throw new Error('Transaction is no longer active');
+      if (orderedKeys.some(key => !current.keys.has(key))) throw new Error('Nested transaction cannot acquire additional keys');
+      return operation();
+    }
+    const client = await this.pool.connect();
+    const context = { client, keys: new Set(orderedKeys), active: true };
+    let active = false;
+    try {
+      await client.query('BEGIN');
+      active = true;
+      for (const key of orderedKeys) await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [key]);
+      const result = await this.transactionContext.run(context, operation);
+      await client.query('COMMIT');
+      active = false;
+      context.active = false;
+      return result;
+    } catch (error) {
+      if (active) await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      context.active = false;
+      client.release();
+    }
+  }
+  async transactional(operation) {
+    const current = this.transactionContext.getStore();
+    if (current) {
+      if (!current.active) throw new Error('Transaction is no longer active');
+      return operation(current.client);
+    }
+    return this.withTransaction([], () => operation(this.transactionContext.getStore().client));
+  }
   async init() {
     await runMigrations(this.pool);
   }
   async ensureInbox() {}
   async nextEventSequence(inboxId) {
-    const result = await this.pool.query(`INSERT INTO sinaloa_event_sequences(inbox_id, value) VALUES($1, 1)
+    const result = await this.query(`INSERT INTO sinaloa_event_sequences(inbox_id, value) VALUES($1, 1)
       ON CONFLICT(inbox_id) DO UPDATE SET value = sinaloa_event_sequences.value + 1 RETURNING value`, [inboxId]);
     return Number(result.rows[0].value);
   }
-  async putJson(relative, value) { await this.pool.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()', [normalizeDocumentPath(relative), value]); }
+  async putJson(relative, value) { await this.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()', [normalizeDocumentPath(relative), value]); }
   async writeDocuments(client, documents) {
     for (const document of documents) {
       await client.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()', [normalizeDocumentPath(document.path), document.value]);
     }
   }
-  async putJsonBatch(documents) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await this.writeDocuments(client, documents);
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
-  }
+  async putJsonBatch(documents) { return this.transactional(client => this.writeDocuments(client, documents)); }
   rowToOutbox(row) {
     if (!row) return null;
     return {
@@ -54,34 +97,29 @@ export class PostgresStore {
     };
   }
   async enqueueOutbox(documents, record) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return this.transactional(async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [record.id]);
       const existing = await client.query('SELECT * FROM sinaloa_outbox WHERE id = $1', [record.id]);
-      if (existing.rowCount) { await client.query('ROLLBACK'); return { ...this.rowToOutbox(existing.rows[0]), enqueueCreated: false }; }
+      if (existing.rowCount) return { ...this.rowToOutbox(existing.rows[0]), enqueueCreated: false };
       await this.writeDocuments(client, documents);
       const result = await client.query(`INSERT INTO sinaloa_outbox(id, value, status, attempts, max_attempts, available_at, created_at, updated_at)
         VALUES($1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`, [record.id, record, record.status, record.attempts || 0, record.maxAttempts || 5, record.availableAt, record.createdAt]);
-      await client.query('COMMIT');
       return { ...this.rowToOutbox(result.rows[0]), enqueueCreated: true };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
+    });
   }
-  async getOutbox(id) { const result = await this.pool.query('SELECT * FROM sinaloa_outbox WHERE id = $1', [id]); return this.rowToOutbox(result.rows[0]); }
+  async getOutbox(id) { const result = await this.query('SELECT * FROM sinaloa_outbox WHERE id = $1', [id]); return this.rowToOutbox(result.rows[0]); }
   async queryOutbox({ inboxId = null, status = null, limit = 100 } = {}) {
     const values = [];
     const conditions = [];
     if (inboxId) { values.push(inboxId); conditions.push(`(value->>'senderInboxId' = $${values.length} OR value->>'recipientInboxId' = $${values.length})`); }
     if (status) { values.push(status); conditions.push(`status = $${values.length}`); }
     values.push(Math.max(1, Math.min(Number(limit) || 100, 200)));
-    const result = await this.pool.query(`SELECT * FROM sinaloa_outbox ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT $${values.length}`, values);
+    const result = await this.query(`SELECT * FROM sinaloa_outbox ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT $${values.length}`, values);
     return result.rows.map(row => this.rowToOutbox(row));
   }
   async claimOutbox(workerId, leaseMs = 30_000) {
-    const result = await this.pool.query(`WITH candidate AS (
+    const leaseToken = crypto.randomUUID();
+    const result = await this.query(`WITH candidate AS (
       SELECT pending.id FROM sinaloa_outbox AS pending
       WHERE ((pending.status IN ('queued', 'retrying') AND pending.available_at <= NOW())
         OR (pending.status = 'processing' AND pending.locked_at <= NOW() - ($2::bigint * INTERVAL '1 millisecond')))
@@ -96,59 +134,50 @@ export class PostgresStore {
       FOR UPDATE SKIP LOCKED LIMIT 1
     )
     UPDATE sinaloa_outbox AS outbox
-    SET status = 'processing', locked_at = NOW(), locked_by = $1, updated_at = NOW()
-    FROM candidate WHERE outbox.id = candidate.id RETURNING outbox.*`, [workerId, leaseMs]);
+    SET status = 'processing', locked_at = NOW(), locked_by = $1, updated_at = NOW(), value = value || jsonb_build_object('leaseToken', $3::text)
+    FROM candidate WHERE outbox.id = candidate.id RETURNING outbox.*`, [workerId, leaseMs, leaseToken]);
     return this.rowToOutbox(result.rows[0]);
   }
-  async completeOutbox(id, documents, resultValue = {}) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await this.writeDocuments(client, documents);
-      const result = await client.query(`UPDATE sinaloa_outbox SET status = 'delivered', delivered_at = NOW(), updated_at = NOW(), locked_at = NULL, locked_by = NULL, last_error = NULL, value = value || $2::jsonb WHERE id = $1 RETURNING *`, [id, JSON.stringify({ result: resultValue })]);
-      await client.query('COMMIT');
-      return this.rowToOutbox(result.rows[0]);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
+  async assertOutboxLease(client, id, lease) {
+    const result = await client.query('SELECT * FROM sinaloa_outbox WHERE id = $1 FOR UPDATE', [id]);
+    const record = this.rowToOutbox(result.rows[0]);
+    if (!record || record.status !== 'processing' || !lease?.leaseToken || record.leaseToken !== lease.leaseToken || record.lockedBy !== lease.lockedBy) {
+      throw Object.assign(new Error('Delivery lease was lost'), { code: 'LEASE_LOST', statusCode: 409 });
+    }
   }
-  async failOutbox(id, documents, { error, nextAttemptAt, forceDeadLetter = false }) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+  async completeOutbox(id, documents, resultValue = {}, lease = null) {
+    return this.transactional(async client => {
+      await this.assertOutboxLease(client, id, lease);
+      await this.writeDocuments(client, documents);
+      const result = await client.query(`UPDATE sinaloa_outbox SET status = 'delivered', delivered_at = NOW(), updated_at = NOW(), locked_at = NULL, locked_by = NULL, last_error = NULL, value = value || $2::jsonb WHERE id = $1 RETURNING *`, [id, JSON.stringify({ result: resultValue, leaseToken: null })]);
+      return this.rowToOutbox(result.rows[0]);
+    });
+  }
+  async failOutbox(id, documents, { error, nextAttemptAt, forceDeadLetter = false, lease = null }) {
+    return this.transactional(async client => {
+      await this.assertOutboxLease(client, id, lease);
       await this.writeDocuments(client, documents);
       const result = await client.query(`UPDATE sinaloa_outbox SET
         attempts = attempts + 1,
         status = CASE WHEN $4 OR attempts + 1 >= max_attempts THEN 'deadLettered' ELSE 'retrying' END,
         available_at = CASE WHEN $4 OR attempts + 1 >= max_attempts THEN available_at ELSE $3 END,
         dead_lettered_at = CASE WHEN $4 OR attempts + 1 >= max_attempts THEN NOW() ELSE NULL END,
-        updated_at = NOW(), locked_at = NULL, locked_by = NULL, last_error = $2
+        updated_at = NOW(), locked_at = NULL, locked_by = NULL, last_error = $2, value = value || jsonb_build_object('leaseToken', NULL::text)
         WHERE id = $1 RETURNING *`, [id, error, nextAttemptAt, forceDeadLetter]);
-      await client.query('COMMIT');
       return this.rowToOutbox(result.rows[0]);
-    } catch (caught) {
-      await client.query('ROLLBACK');
-      throw caught;
-    } finally { client.release(); }
+    });
   }
   async retryOutbox(id, documents = []) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return this.transactional(async client => {
+      const current = await client.query("SELECT id FROM sinaloa_outbox WHERE id = $1 AND status = 'deadLettered' FOR UPDATE", [id]);
+      if (!current.rowCount) return null;
       await this.writeDocuments(client, documents);
-      const result = await client.query(`UPDATE sinaloa_outbox SET status = 'queued', attempts = 0, available_at = NOW(), updated_at = NOW(), locked_at = NULL, locked_by = NULL, last_error = NULL, dead_lettered_at = NULL WHERE id = $1 AND status = 'deadLettered' RETURNING *`, [id]);
-      await client.query('COMMIT');
+      const result = await client.query(`UPDATE sinaloa_outbox SET status = 'queued', attempts = 0, available_at = NOW(), updated_at = NOW(), locked_at = NULL, locked_by = NULL, last_error = NULL, dead_lettered_at = NULL, value = value || jsonb_build_object('leaseToken', NULL::text) WHERE id = $1 RETURNING *`, [id]);
       return this.rowToOutbox(result.rows[0]);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
+    });
   }
   async reserveObjectQuota(workspaceId, bytes, quotaBytes, reservationTtlMs = 1_200_000) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return this.transactional(async client => {
       await client.query(`INSERT INTO sinaloa_object_quota_usage(workspace_id, quota_bytes) VALUES($1, $2)
         ON CONFLICT(workspace_id) DO UPDATE SET quota_bytes = EXCLUDED.quota_bytes, updated_at = NOW()`, [workspaceId, quotaBytes]);
       const usage = await client.query('SELECT * FROM sinaloa_object_quota_usage WHERE workspace_id = $1 FOR UPDATE', [workspaceId]);
@@ -163,44 +192,38 @@ export class PostgresStore {
       const reservation = { id: `quota_${crypto.randomUUID()}`, workspaceId, bytes, state: 'reserved', createdAt: createdAt.toISOString(), expiresAt: new Date(createdAt.getTime() + reservationTtlMs).toISOString() };
       await client.query('UPDATE sinaloa_object_quota_usage SET reserved_bytes = reserved_bytes + $2, updated_at = NOW() WHERE workspace_id = $1', [workspaceId, bytes]);
       await client.query('INSERT INTO sinaloa_object_quota_reservations(id, workspace_id, bytes, status, created_at, expires_at, updated_at) VALUES($1, $2, $3, $4, $5, $6, $5)', [reservation.id, workspaceId, bytes, reservation.state, reservation.createdAt, reservation.expiresAt]);
-      await client.query('COMMIT');
       return reservation;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
+    });
+  }
+  async lockObjectQuotaReservation(client, reservationId) {
+    const lookup = await client.query('SELECT workspace_id FROM sinaloa_object_quota_reservations WHERE id = $1', [reservationId]);
+    if (!lookup.rowCount) throw Object.assign(new Error('Unknown object quota reservation'), { code: 'UNKNOWN_RESERVATION', statusCode: 400 });
+    // Reserve/reaping acquire the workspace usage row first. Follow that same
+    // order before locking the reservation, and re-read its state under lock.
+    await client.query('SELECT workspace_id FROM sinaloa_object_quota_usage WHERE workspace_id = $1 FOR UPDATE', [lookup.rows[0].workspace_id]);
+    const result = await client.query('SELECT * FROM sinaloa_object_quota_reservations WHERE id = $1 FOR UPDATE', [reservationId]);
+    if (!result.rowCount) throw Object.assign(new Error('Unknown object quota reservation'), { code: 'UNKNOWN_RESERVATION', statusCode: 400 });
+    return result.rows[0];
   }
   async settleObjectQuota(reservationId, commit) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await client.query('SELECT * FROM sinaloa_object_quota_reservations WHERE id = $1 FOR UPDATE', [reservationId]);
-      const reservation = result.rows[0];
-      if (!reservation) throw Object.assign(new Error('Unknown object quota reservation'), { code: 'UNKNOWN_RESERVATION', statusCode: 400 });
+    const settlement = await this.transactional(async client => {
+      const reservation = await this.lockObjectQuotaReservation(client, reservationId);
       const expired = reservation.status === 'reserved' && reservation.expires_at && new Date(reservation.expires_at) <= new Date();
       if (reservation.status === 'reserved') {
-        await client.query(`UPDATE sinaloa_object_quota_usage SET reserved_bytes = GREATEST(0, reserved_bytes - $2), used_bytes = used_bytes + $3, updated_at = NOW() WHERE workspace_id = $1`, [reservation.workspace_id, Number(reservation.bytes), commit ? Number(reservation.bytes) : 0]);
+        await client.query(`UPDATE sinaloa_object_quota_usage SET reserved_bytes = GREATEST(0, reserved_bytes - $2), used_bytes = used_bytes + $3, updated_at = NOW() WHERE workspace_id = $1`, [reservation.workspace_id, Number(reservation.bytes), commit && !expired ? Number(reservation.bytes) : 0]);
         await client.query('UPDATE sinaloa_object_quota_reservations SET status = $2, updated_at = NOW() WHERE id = $1', [reservationId, expired ? 'released' : commit ? 'committed' : 'released']);
         reservation.status = expired ? 'released' : commit ? 'committed' : 'released';
       }
-      await client.query('COMMIT');
-      if (expired && commit) throw Object.assign(new Error('Object quota reservation has expired'), { code: 'QUOTA_RESERVATION_EXPIRED', statusCode: 409 });
-      if (commit && reservation.status === 'released') throw Object.assign(new Error('Object quota reservation has expired'), { code: 'QUOTA_RESERVATION_EXPIRED', statusCode: 409 });
-      return { id: reservation.id, workspaceId: reservation.workspace_id, bytes: Number(reservation.bytes), state: reservation.status, createdAt: new Date(reservation.created_at).toISOString() };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
+      return { expired: Boolean(expired), reservation: { id: reservation.id, workspaceId: reservation.workspace_id, bytes: Number(reservation.bytes), state: reservation.status, createdAt: new Date(reservation.created_at).toISOString() } };
+    });
+    if (commit && settlement.reservation.state === 'released') throw Object.assign(new Error('Object quota reservation has expired'), { code: 'QUOTA_RESERVATION_EXPIRED', statusCode: 409 });
+    return settlement.reservation;
   }
   commitObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, true); }
   releaseObjectQuota(reservationId) { return this.settleObjectQuota(reservationId, false); }
   async deleteCommittedObjectQuota(reservationId) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await client.query('SELECT * FROM sinaloa_object_quota_reservations WHERE id = $1 FOR UPDATE', [reservationId]);
-      const reservation = result.rows[0];
-      if (!reservation) throw Object.assign(new Error('Unknown object quota reservation'), { code: 'UNKNOWN_RESERVATION', statusCode: 400 });
+    return this.transactional(async client => {
+      const reservation = await this.lockObjectQuotaReservation(client, reservationId);
       if (reservation.status === 'committed') {
         await client.query('UPDATE sinaloa_object_quota_usage SET used_bytes = GREATEST(0, used_bytes - $2), updated_at = NOW() WHERE workspace_id = $1', [reservation.workspace_id, Number(reservation.bytes)]);
         await client.query("UPDATE sinaloa_object_quota_reservations SET status = 'released', updated_at = NOW() WHERE id = $1", [reservationId]);
@@ -208,21 +231,13 @@ export class PostgresStore {
       } else if (reservation.status !== 'released') {
         throw Object.assign(new Error('Object quota is not committed'), { code: 'QUOTA_NOT_COMMITTED', statusCode: 409 });
       }
-      await client.query('COMMIT');
       return { id: reservation.id, workspaceId: reservation.workspace_id, bytes: Number(reservation.bytes), state: reservation.status, createdAt: new Date(reservation.created_at).toISOString() };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
   async reclaimExpiredObjectQuota(now = new Date()) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return this.transactional(async client => {
       const workspaces = await client.query(`SELECT DISTINCT workspace_id FROM sinaloa_object_quota_reservations
-        WHERE status = 'reserved' AND expires_at IS NOT NULL AND expires_at <= $1`, [now]);
+        WHERE status = 'reserved' AND expires_at IS NOT NULL AND expires_at <= $1 ORDER BY workspace_id`, [now]);
       let releasedReservations = 0;
       let releasedBytes = 0;
       for (const { workspace_id: workspaceId } of workspaces.rows) {
@@ -234,39 +249,60 @@ export class PostgresStore {
         releasedReservations += expired.rowCount;
         releasedBytes += bytes;
       }
-      await client.query('COMMIT');
       return { releasedReservations, releasedBytes };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
+    });
   }
   async objectQuotaUsage(workspaceId, quotaBytes) {
-    const result = await this.pool.query('SELECT * FROM sinaloa_object_quota_usage WHERE workspace_id = $1', [workspaceId]);
+    const result = await this.query('SELECT * FROM sinaloa_object_quota_usage WHERE workspace_id = $1', [workspaceId]);
     const row = result.rows[0];
     return row ? { workspaceId, used: Number(row.used_bytes), reserved: Number(row.reserved_bytes), quota: Number(row.quota_bytes) } : { workspaceId, used: 0, reserved: 0, quota: quotaBytes };
   }
-  async putJsonIfAbsent(relative, value) { const result = await this.pool.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO NOTHING RETURNING path', [normalizeDocumentPath(relative), value]); return result.rowCount === 1; }
+  async putJsonIfAbsent(relative, value) { const result = await this.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO NOTHING RETURNING path', [normalizeDocumentPath(relative), value]); return result.rowCount === 1; }
   async claimJson(relative, field, value) {
     if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(field)) throw new Error('Invalid claim field');
-    const result = await this.pool.query(`UPDATE sinaloa_documents SET value = jsonb_set(value, $2, to_jsonb($3::text)), updated_at = NOW() WHERE path = $1 AND (value->>$4) IS NULL RETURNING value`, [normalizeDocumentPath(relative), `{${field}}`, value, field]);
+    const result = await this.query(`UPDATE sinaloa_documents SET value = jsonb_set(value, $2, to_jsonb($3::text)), updated_at = NOW() WHERE path = $1 AND (value->>$4) IS NULL RETURNING value`, [normalizeDocumentPath(relative), `{${field}}`, value, field]);
     return result.rows[0]?.value ?? null;
   }
-  async getJson(relative, fallback = null) { const result = await this.pool.query('SELECT value FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rows[0]?.value ?? fallback; }
-  async deleteJson(relative) { const result = await this.pool.query('DELETE FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rowCount === 1; }
-  async listJson(relativeDir) { const result = await this.pool.query("SELECT value FROM sinaloa_documents WHERE path LIKE $1 ESCAPE '\\\\' ORDER BY path", [likePrefix(relativeDir)]); return result.rows.filter((row) => row.value && typeof row.value === 'object' && !Array.isArray(row.value)).map((row) => row.value); }
-  async queryJson(relativeDir, { limit = 100, before = null, filters = {}, sortField = 'createdAt' } = {}) {
-    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(sortField)) throw new Error('Invalid sort field');
+  async getJson(relative, fallback = null) { const result = await this.query('SELECT value FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rows[0]?.value ?? fallback; }
+  async deleteJson(relative) { const result = await this.query('DELETE FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rowCount === 1; }
+  async listJson(relativeDir) { const result = await this.query("SELECT value FROM sinaloa_documents WHERE path LIKE $1 ESCAPE E'\\\\' ORDER BY path", [likePrefix(relativeDir)]); return result.rows.filter((row) => row.value && typeof row.value === 'object' && !Array.isArray(row.value)).map((row) => row.value); }
+  async countJson(relativeDir, { filters = {} } = {}) {
     const values = [likePrefix(relativeDir)];
-    const conditions = ["path LIKE $1 ESCAPE '\\\\'"];
+    const conditions = ["path LIKE $1 ESCAPE E'\\\\'"];
+    addHistoryScope(relativeDir, values, conditions);
     for (const [key, value] of Object.entries(filters)) {
       if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)) throw new Error('Invalid filter field');
       values.push(key, String(value));
       conditions.push(`value->>$${values.length - 1} = $${values.length}`);
     }
-    if (before) { values.push(sortField, before); conditions.push(`value->>$${values.length - 1} < $${values.length}`); }
+    const result = await this.query(`SELECT COUNT(*)::bigint AS count FROM sinaloa_documents WHERE ${conditions.join(' AND ')}`, values);
+    return Number(result.rows[0].count);
+  }
+  async queryJson(relativeDir, { limit = 100, before = null, after = null, filters = {}, sortField = 'createdAt', order = 'desc' } = {}) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(sortField)) throw new Error('Invalid sort field');
+    if (!['asc', 'desc'].includes(order) || (before && after)) throw new TypeError('Invalid query cursor or order');
+    const values = [likePrefix(relativeDir)];
+    const conditions = ["path LIKE $1 ESCAPE E'\\\\'"];
+    addHistoryScope(relativeDir, values, conditions);
+    const sortExpression = `COALESCE(value->>'${sortField}', '')`;
+    for (const [key, value] of Object.entries(filters)) {
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)) throw new Error('Invalid filter field');
+      values.push(key, String(value));
+      conditions.push(`value->>$${values.length - 1} = $${values.length}`);
+    }
+    const cursor = before || after;
+    const comparator = after ? '>' : '<';
+    if (cursor && typeof cursor === 'object') {
+      if (typeof cursor.value !== 'string' || typeof cursor.id !== 'string') throw new TypeError('Invalid compound cursor');
+      values.push(cursor.value, cursor.id);
+      conditions.push(`(${sortExpression}, COALESCE(value->>'id', '')) ${comparator} ($${values.length - 1}::text, $${values.length}::text)`);
+    } else if (cursor) {
+      values.push(String(cursor));
+      conditions.push(`${sortExpression} ${comparator} $${values.length}`);
+    }
     values.push(Math.max(1, Math.min(Number(limit) || 100, 200)));
-    const result = await this.pool.query(`SELECT value FROM sinaloa_documents WHERE ${conditions.join(' AND ')} ORDER BY value->>'${sortField}' DESC LIMIT $${values.length}`, values);
+    const direction = order.toUpperCase();
+    const result = await this.query(`SELECT value FROM sinaloa_documents WHERE ${conditions.join(' AND ')} ORDER BY ${sortExpression} ${direction}, COALESCE(value->>'id', '') ${direction} LIMIT $${values.length}`, values);
     return result.rows.map(row => row.value);
   }
   id(prefix) { return `${prefix}_${crypto.randomUUID()}`; }

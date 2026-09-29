@@ -27,7 +27,12 @@ test('calendar OAuth creates RFC 7636 S256 proof and binds the verifier during e
 test('calendar OAuth bounds provider latency and sanitizes provider failures', async () => {
   await assert.rejects(() => exchangeCalendarAuthorizationCode({
     provider, code: 'code', redirectUri: 'https://app.example/callback', codeVerifier: createPkcePair().verifier, timeoutMs: 5,
-    fetcher: (_url, options) => new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }))
+    fetcher: (_url, options) => new Promise((_, reject) => {
+      // A real in-flight request owns a socket. Keep this mock alive too, since
+      // AbortSignal.timeout intentionally uses an unreferenced timer in Node 22.
+      const pendingRequest = setTimeout(() => reject(new Error('Mock request did not abort')), 1000);
+      options.signal.addEventListener('abort', () => { clearTimeout(pendingRequest); reject(options.signal.reason); }, { once: true });
+    })
   }), error => error.code === 'CALENDAR_OAUTH_UNAVAILABLE' && !error.message.includes(provider.clientSecret) && !error.message.includes(provider.tokenUrl));
   await assert.rejects(() => exchangeCalendarAuthorizationCode({
     provider, code: 'code', redirectUri: 'https://app.example/callback', codeVerifier: createPkcePair().verifier,

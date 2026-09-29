@@ -9,11 +9,22 @@ import {
   completeCase,
   counterProposal,
   createCase,
+  isActiveCase,
   transitionCase
 } from '../src/agent-interface.js';
 
 const at = minute => `2026-10-01T${String(13 + Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}:00.000Z`;
 const option = (id, start, flags = []) => ({ id, value: { start, end: start.replace('20:30', '21:00'), timezone: 'America/Toronto' }, sourceConfidence: 'fromVerifiedProfile', expired: false, outOfPolicyFlags: flags });
+
+test('active case classification follows the structured state machine', () => {
+  const work = createCase({ id: 'case_active', objective: 'Coordinate work', principal: 'human_rachel', actingAgent: 'agent_worker', createdAt: at(0) });
+  for (const state of ['new', 'inProgress', 'waitingForHuman', 'paused', 'disputed']) {
+    assert.equal(isActiveCase({ ...work, state }), true, state);
+  }
+  for (const state of ['completed', 'failed', 'unknownExternalResult', 'expired', 'revoked', 'invalid']) {
+    assert.equal(isActiveCase({ ...work, state }), false, state);
+  }
+});
 
 test('agent interface executes an approval-gated scheduling negotiation end to end', () => {
   let work = createCase({

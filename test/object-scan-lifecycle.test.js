@@ -55,6 +55,30 @@ test('lease expiry makes abandoned work claimable by another worker', async () =
   assert.equal((await state.jobStore.claim(job.id, 'recovery-worker', 1_000, new Date('2026-01-01T00:00:01.000Z'))).lockedBy, 'recovery-worker');
 });
 
+test('reclaimed scan lease fences an old clean verdict even when worker ID is reused', async () => {
+  let releaseFirstScan;
+  let scanStarted;
+  const started = new Promise(resolve => { scanStarted = resolve; });
+  const pendingScan = new Promise(resolve => { releaseFirstScan = resolve; });
+  let calls = 0;
+  const state = await setup({ scanner: { scan: async () => {
+    calls += 1;
+    if (calls === 1) { scanStarted(); return pendingScan; }
+    return { status: 'clean' };
+  } } });
+  const lifecycle = new DurableMalwareScanLifecycle(state.lifecycleOptions);
+  const oldAttempt = lifecycle.processObject(state.object.id, 'reused-worker');
+  await started;
+  const oldClaim = await state.jobStore.get(`scan_${state.object.id}`);
+  const replacement = await state.jobStore.claim(oldClaim.id, 'reused-worker', 1_000, new Date('2026-01-01T00:00:01.000Z'));
+  assert.notEqual(oldClaim.leaseToken, replacement.leaseToken);
+  releaseFirstScan({ status: 'clean' });
+  await assert.rejects(oldAttempt, error => error.code === 'SCAN_LEASE_LOST');
+  assert.equal((await state.metadataStore.get(state.object.id)).state, 'quarantine');
+  state.setNow('2026-01-01T00:00:02.000Z');
+  assert.equal((await lifecycle.processNext('recovery-worker')).state, 'clean');
+});
+
 test('retention lease expiry makes abandoned cleanup claimable', async () => {
   const state = await setup({ scanner: { scan: async () => ({ status: 'infected', engine: 'test' }) }, infectedRetentionMs: 1_000 });
   const lifecycle = new DurableMalwareScanLifecycle(state.lifecycleOptions);
@@ -64,6 +88,7 @@ test('retention lease expiry makes abandoned cleanup claimable', async () => {
   const recovered = await state.jobStore.claimRetention('recovery-worker', 1_000, new Date('2026-01-01T00:00:02.000Z'));
   assert.equal(recovered.statusBeforeRetention, 'infected');
   assert.equal(recovered.lockedBy, 'recovery-worker');
+  await assert.rejects(() => state.jobStore.finishRetention(first.id, 'crashed-retention-worker', first.leaseToken), error => error.code === 'SCAN_LEASE_LOST');
 });
 
 test('immutable checksum failures dead-letter immediately and retention deletes the binary', async () => {

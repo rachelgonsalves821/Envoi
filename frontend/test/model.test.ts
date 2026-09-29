@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STATE_META, assetDisplayName, assetStateMeta, canDownloadAsset, caseState, casesForSection, eventSummary, exchangeParties, onboardingSteps, participantIds, resolveParticipant, sectionForCase, timelineForCase } from '../src/model';
+import { STATE_META, assetDisplayName, assetStateMeta, canDownloadAsset, caseState, casesForSection, eventSummary, exchangeParties, filterAssets, onboardingSteps, participantIds, resolveParticipant, sectionForCase, timelineForCase } from '../src/model';
 import type { Message, WorkCase } from '../src/types';
 
 const baseCase = (overrides: Partial<WorkCase> = {}): WorkCase => ({
@@ -35,18 +35,93 @@ describe('asset safety model', () => {
 
 describe('closed beta onboarding', () => {
   it('derives completion only from observable server state', () => {
-    const workCase = baseCase({ receipt: { id: 'receipt_1', result: 'Done', authorityBasis: 'policy_1', humanApprovalStatus: 'notRequired', createdAt: '2026-09-27T17:00:00.000Z' } });
+    const workCase = baseCase({ state: 'completed', receipt: { id: 'receipt_1', result: 'Done', authorityBasis: 'policy_1', humanApprovalStatus: 'notRequired', createdAt: '2026-09-27T17:00:00.000Z' } });
     const view = {
       inbox: { id: 'inbox_1', organizationId: 'org_1', name: 'Workspace', ownerAgentId: null, ownerHumanId: 'human_1', status: 'active', createdAt: '2026-09-27T16:00:00.000Z' },
       mode: 'human-observer' as const,
+      canManageInbox: false,
+      capabilities: [], summary: { agents: 1, cases: 1, messages: 1, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 1, waiting: 0, completed: 0 },
+      participantDirectory: { external_1: { id: 'external_1', type: 'externalAgent' as const, displayName: 'Known agent', accessState: 'active' as const } },
+      agents: [{ id: 'agent_1', name: 'My agent', address: 'mine@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: [] }],
+      caseQueue: [workCase], cases: [workCase],
+      messages: [{ id: 'message_1', caseId: workCase.id, senderType: 'agent' as const, senderAgentId: 'agent_1', type: 'message', text: 'Processed', createdAt: '2026-09-27T16:30:00.000Z', status: 'processed' }],
+      assets: [], calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [], deliveryReceipts: [], recentEvents: [{ id: 'audit_1', type: 'agent.enrolled', createdAt: '2026-09-27T16:10:00.000Z' }]
+    };
+    expect(onboardingSteps(view).every(step => step.complete)).toBe(true);
+    const sourceView = { ...view, agents: [], summary: { ...view.summary, agents: 0 } };
+    const linkedAgentInbox = { ...view.inbox, id: 'inbox_agent_1', name: 'My agent inbox', ownerAgentId: 'agent_1', parentInboxId: view.inbox.id, kind: 'agent' as const };
+    expect(onboardingSteps(sourceView).find(step => step.id === 'enroll')?.complete).toBe(false);
+    const parentAudit = [{ id: 'audit_parent_1', type: 'agent.inbox_created', createdAt: '2026-09-27T16:10:00.000Z' }];
+    const parentSteps = onboardingSteps({ ...sourceView, recentEvents: parentAudit, messages: [], deliveryReceipts: [] }, [linkedAgentInbox]);
+    expect(parentSteps.find(step => step.id === 'sdk')).toMatchObject({ complete: false, description: 'Open the agent inbox to verify its enrollment audit. Inbox creation alone does not confirm that a one-time token was redeemed.' });
+    expect(parentSteps.find(step => step.id === 'runtime')?.complete).toBe(false);
+    const linkedSteps = onboardingSteps({ ...sourceView, recentEvents: [], messages: [], deliveryReceipts: [] }, [linkedAgentInbox]);
+    expect(linkedSteps.find(step => step.id === 'enroll')?.complete).toBe(true);
+    expect(linkedSteps.filter(step => ['sdk', 'approve', 'runtime'].includes(step.id)).every(step => !step.complete)).toBe(true);
+  });
+
+  it('treats a processed message receipt as runtime activity, not a completed case outcome', () => {
+    const workCase = baseCase({ receipt: null });
+    const view = {
+      inbox: { id: 'inbox_1', organizationId: 'org_1', name: 'Agent inbox', ownerAgentId: 'agent_1', ownerHumanId: 'human_1', status: 'active', createdAt: '2026-09-27T16:00:00.000Z' },
+      mode: 'human-observer' as const,
+      canManageInbox: false,
+      capabilities: [], summary: { agents: 1, cases: 1, messages: 1, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 1, waiting: 0, completed: 0 },
+      participantDirectory: { external_1: { id: 'external_1', type: 'externalAgent' as const, displayName: 'Known agent', accessState: 'active' as const } },
+      agents: [{ id: 'agent_1', name: 'My agent', address: 'mine@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: [] }],
+      caseQueue: [workCase], cases: [workCase],
+      messages: [{ id: 'message_1', caseId: workCase.id, senderType: 'agent' as const, senderAgentId: 'agent_1', type: 'message', text: 'Processed', createdAt: '2026-09-27T16:30:00.000Z', status: 'processed' }],
+      assets: [], calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [],
+      deliveryReceipts: [{ id: 'delivery_receipt_1', type: 'delivery' as const, messageId: 'message_1', state: 'processed' as const, createdAt: '2026-09-27T16:35:00.000Z' }], recentEvents: []
+    };
+    expect(onboardingSteps(view).find(step => step.id === 'runtime')).toMatchObject({ complete: true, description: 'A runtime acknowledged or processed work. This does not claim it is currently online.' });
+    expect(onboardingSteps(view).find(step => step.id === 'delivery')).toMatchObject({ complete: false, description: 'Delivery is visible; a completed case with its own outcome receipt is still required.' });
+  });
+
+  it('does not infer token redemption or live presence from an enrolled identity', () => {
+    const workCase = baseCase();
+    const view = {
+      inbox: { id: 'inbox_1', organizationId: 'org_1', name: 'Agent inbox', ownerAgentId: 'agent_1', ownerHumanId: 'human_1', status: 'active', createdAt: '2026-09-27T16:00:00.000Z' },
+      mode: 'human-observer' as const,
+      canManageInbox: true,
+      capabilities: [], summary: { agents: 1, cases: 1, messages: 0, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 1, waiting: 0, completed: 0 },
+      participantDirectory: {},
+      agents: [{ id: 'agent_1', name: 'My agent', address: 'mine@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: [] }],
+      caseQueue: [workCase], cases: [workCase], messages: [], assets: [],
+      calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [], deliveryReceipts: [], recentEvents: []
+    };
+    expect(onboardingSteps(view).find(step => step.id === 'sdk')).toMatchObject({ complete: false, description: 'An agent identity alone does not confirm that its one-time token was redeemed.' });
+    expect(onboardingSteps(view).find(step => step.id === 'runtime')).toMatchObject({ complete: false, description: 'No runtime activity is visible yet. Enrollment alone does not prove a runtime is online.' });
+  });
+
+  it('discloses when the completed case outcome may be outside loaded history', () => {
+    const workCase = baseCase({ receipt: null });
+    const view = {
+      inbox: { id: 'inbox_1', organizationId: 'org_1', name: 'Agent inbox', ownerAgentId: 'agent_1', ownerHumanId: 'human_1', status: 'active', createdAt: '2026-09-27T16:00:00.000Z' },
+      mode: 'human-observer' as const,
+      canManageInbox: true,
       capabilities: [], summary: { agents: 1, cases: 1, messages: 1, assets: 0, needsMe: 0 }, navigation: { needsMe: 0, activeWork: 1, waiting: 0, completed: 0 },
       participantDirectory: { external_1: { id: 'external_1', type: 'externalAgent' as const, displayName: 'Known agent', accessState: 'active' as const } },
       agents: [{ id: 'agent_1', name: 'My agent', address: 'mine@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: [] }],
       caseQueue: [workCase], cases: [workCase],
       messages: [{ id: 'message_1', caseId: workCase.id, senderType: 'agent' as const, senderAgentId: 'agent_1', type: 'message', text: 'Delivered', createdAt: '2026-09-27T16:30:00.000Z', status: 'delivered' }],
-      assets: [], calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [], deliveryReceipts: [], recentEvents: []
+      assets: [], calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [], deliveryReceipts: [], recentEvents: [],
+      history: { cases: { total: 80, hasMore: true, nextCursor: 'case_cursor' } }
     };
-    expect(onboardingSteps(view).every(step => step.complete)).toBe(true);
+    expect(onboardingSteps(view).find(step => step.id === 'delivery')).toMatchObject({ complete: false, description: 'Delivery is visible, but older history is not loaded. Load it to verify a completed case outcome.' });
+  });
+
+  it('finds files across cases by name, creator, type and newest timestamp', () => {
+    const cases = [baseCase({ id: 'case_one', objective: 'Research brief' }), baseCase({ id: 'case_two', objective: 'Launch copy' })];
+    const agents = [{ id: 'agent_scheduling', name: 'Milo', address: 'milo@sinaloa.mail', principalHumanId: 'human_rachel', status: 'active', onboardingStatus: 'approved', permissions: [] }];
+    const assets = [
+      { id: 'one', caseId: 'case_one', filename: 'brief.pdf', mimeType: 'application/pdf', size: 10, createdByAgentId: 'agent_scheduling', createdAt: '2026-09-27T16:00:00.000Z', state: 'clean' as const },
+      { id: 'two', caseId: 'case_two', filename: 'copy.csv', mimeType: 'text/csv', size: 10, createdByAgentId: 'agent_scheduling', createdAt: '2026-09-28T16:00:00.000Z', state: 'scanning' as const }
+    ];
+    expect(filterAssets(assets, cases, agents, {}).map(item => item.id)).toEqual(['two', 'one']);
+    expect(filterAssets(assets, cases, agents, { query: 'research', mimeType: 'application/pdf', creatorId: 'agent_scheduling' }).map(item => item.id)).toEqual(['one']);
+    expect(filterAssets(assets, cases, agents, { caseId: 'case_two' }).map(item => item.id)).toEqual(['two']);
+    expect(filterAssets(assets, cases, agents, { query: 'unknown' })).toEqual([]);
   });
 });
 

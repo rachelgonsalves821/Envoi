@@ -1,6 +1,7 @@
-import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolvePathWithin } from './path-safety.js';
 
 export class FileStore {
@@ -10,6 +11,8 @@ export class FileStore {
     this.outboxMutation = Promise.resolve();
     this.objectQuotaMutation = Promise.resolve();
     this.eventSequenceMutation = Promise.resolve();
+    this.transactionContext = new AsyncLocalStorage();
+    this.transactionTail = Promise.resolve();
   }
 
   async init() {
@@ -32,18 +35,74 @@ export class FileStore {
   inboxDir(inboxId) { return this.file('inboxes', inboxId); }
   file(...parts) { return resolvePathWithin(this.root, ...parts); }
 
+  currentTransaction() {
+    const context = this.transactionContext.getStore();
+    if (context && !context.active) throw new Error('Transaction context is closed');
+    return context;
+  }
+
+  async writeAtomic(target, content) {
+    await mkdir(path.dirname(target), { recursive: true });
+    const temporary = `${target}.${crypto.randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, content, { flag: 'wx' });
+      await rename(temporary, target);
+    } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+  }
+
+  async withTransaction(keys, operation) {
+    if (!Array.isArray(keys) || keys.some(key => typeof key !== 'string' || !key || key.length > 512) || typeof operation !== 'function') throw new TypeError('Transaction keys and callback are required');
+    const orderedKeys = [...new Set(keys)].sort();
+    const current = this.currentTransaction();
+    if (current) {
+      if (orderedKeys.some(key => !current.keys.has(key))) throw new Error('Nested transaction cannot acquire additional keys');
+      return operation();
+    }
+    const previous = this.transactionTail;
+    let release;
+    this.transactionTail = previous.then(() => new Promise(resolve => { release = resolve; }));
+    await previous;
+    const context = { keys: new Set(orderedKeys), writes: new Map(), active: true };
+    try {
+      const result = await this.transactionContext.run(context, operation);
+      const originals = new Map();
+      const applied = [];
+      try {
+        for (const [target, content] of context.writes) {
+          try { originals.set(target, await readFile(target)); }
+          catch (error) { if (error.code !== 'ENOENT') throw error; originals.set(target, null); }
+          if (content === null) await unlink(target).catch(error => { if (error.code !== 'ENOENT') throw error; });
+          else await this.writeAtomic(target, content);
+          applied.push(target);
+        }
+      } catch (error) {
+        for (const target of applied.reverse()) {
+          const original = originals.get(target);
+          if (original === null) await unlink(target).catch(() => {});
+          else await this.writeAtomic(target, original);
+        }
+        throw error;
+      }
+      return result;
+    } finally { context.active = false; release(); }
+  }
+
   async putJson(relative, value) {
     const target = this.file(relative);
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, JSON.stringify(value, null, 2));
+    const current = this.currentTransaction();
+    if (current) { current.writes.set(target, JSON.stringify(value, null, 2)); return; }
+    return this.withTransaction([], () => this.putJson(relative, value));
   }
 
   async putJsonBatch(documents) {
-    await Promise.all(documents.map(({ path: relative, value }) => this.putJson(relative, value)));
+    const current = this.currentTransaction();
+    if (!current) return this.withTransaction([], () => this.putJsonBatch(documents));
+    for (const { path: relative, value } of documents) await this.putJson(relative, value);
   }
 
   async withOutboxMutation(operation) {
-    const pending = this.outboxMutation.then(operation, operation);
+    if (this.currentTransaction()) return operation();
+    const pending = this.outboxMutation.then(() => this.withTransaction([], operation), () => this.withTransaction([], operation));
     this.outboxMutation = pending.catch(() => {});
     return pending;
   }
@@ -56,7 +115,8 @@ export class FileStore {
       await this.putJson(relative, { value });
       return value;
     };
-    const pending = this.eventSequenceMutation.then(operation, operation);
+    if (this.currentTransaction()) return operation();
+    const pending = this.eventSequenceMutation.then(() => this.withTransaction([], operation), () => this.withTransaction([], operation));
     this.eventSequenceMutation = pending.catch(() => {});
     return pending;
   }
@@ -102,28 +162,29 @@ export class FileStore {
       next.status = 'processing';
       next.lockedAt = this.now();
       next.lockedBy = workerId;
+      next.leaseToken = crypto.randomUUID();
       next.updatedAt = next.lockedAt;
       await this.putJson(path.join('outbox', `${next.id}.json`), next);
       return next;
     });
   }
 
-  async completeOutbox(id, documents, result = {}) {
+  async completeOutbox(id, documents, result = {}, lease = null) {
     return this.withOutboxMutation(async () => {
       const record = await this.getOutbox(id);
-      if (!record) return null;
+      if (!record || record.status !== 'processing' || !lease?.leaseToken || record.leaseToken !== lease.leaseToken || record.lockedBy !== lease.lockedBy) throw Object.assign(new Error('Delivery lease was lost'), { code: 'LEASE_LOST', statusCode: 409 });
       const now = this.now();
       await this.putJsonBatch(documents);
-      Object.assign(record, { status: 'delivered', deliveredAt: now, updatedAt: now, lockedAt: null, lockedBy: null, lastError: null, result });
+      Object.assign(record, { status: 'delivered', deliveredAt: now, updatedAt: now, lockedAt: null, lockedBy: null, leaseToken: null, lastError: null, result });
       await this.putJson(path.join('outbox', `${id}.json`), record);
       return record;
     });
   }
 
-  async failOutbox(id, documents, { error, nextAttemptAt, forceDeadLetter = false }) {
+  async failOutbox(id, documents, { error, nextAttemptAt, forceDeadLetter = false, lease = null }) {
     return this.withOutboxMutation(async () => {
       const record = await this.getOutbox(id);
-      if (!record) return null;
+      if (!record || record.status !== 'processing' || !lease?.leaseToken || record.leaseToken !== lease.leaseToken || record.lockedBy !== lease.lockedBy) throw Object.assign(new Error('Delivery lease was lost'), { code: 'LEASE_LOST', statusCode: 409 });
       const now = this.now();
       const attempts = Number(record.attempts || 0) + 1;
       const deadLettered = forceDeadLetter || attempts >= Number(record.maxAttempts || 5);
@@ -136,6 +197,7 @@ export class FileStore {
         updatedAt: now,
         lockedAt: null,
         lockedBy: null,
+        leaseToken: null,
         lastError: error
       });
       await this.putJson(path.join('outbox', `${id}.json`), record);
@@ -149,14 +211,15 @@ export class FileStore {
       if (!record || record.status !== 'deadLettered') return null;
       const now = this.now();
       await this.putJsonBatch(documents);
-      Object.assign(record, { status: 'queued', attempts: 0, availableAt: now, updatedAt: now, lockedAt: null, lockedBy: null, lastError: null, deadLetteredAt: null });
+      Object.assign(record, { status: 'queued', attempts: 0, availableAt: now, updatedAt: now, lockedAt: null, lockedBy: null, leaseToken: null, lastError: null, deadLetteredAt: null });
       await this.putJson(path.join('outbox', `${id}.json`), record);
       return record;
     });
   }
 
   async withObjectQuotaMutation(operation) {
-    const pending = this.objectQuotaMutation.then(operation, operation);
+    if (this.currentTransaction()) return operation();
+    const pending = this.objectQuotaMutation.then(() => this.withTransaction([], operation), () => this.withTransaction([], operation));
     this.objectQuotaMutation = pending.catch(() => {});
     return pending;
   }
@@ -258,9 +321,13 @@ export class FileStore {
 
   async putJsonIfAbsent(relative, value) {
     const target = this.file(relative);
-    await mkdir(path.dirname(target), { recursive: true });
-    try { await writeFile(target, JSON.stringify(value, null, 2), { flag: 'wx' }); return true; }
-    catch (error) { if (error.code === 'EEXIST') return false; throw error; }
+    const current = this.currentTransaction();
+    if (!current) return this.withTransaction([], () => this.putJsonIfAbsent(relative, value));
+    if (current.writes.has(target)) return current.writes.get(target) === null ? (current.writes.set(target, JSON.stringify(value, null, 2)), true) : false;
+    try { await readFile(target); return false; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    current.writes.set(target, JSON.stringify(value, null, 2));
+    return true;
   }
 
   async claimJson(relative, field, value) {
@@ -276,26 +343,67 @@ export class FileStore {
   }
 
   async getJson(relative, fallback = null) {
-    try { return JSON.parse(await readFile(this.file(relative), 'utf8')); }
+    const current = this.currentTransaction();
+    if (!current) await this.transactionTail;
+    const target = this.file(relative);
+    if (current?.writes.has(target)) return current.writes.get(target) === null ? fallback : JSON.parse(current.writes.get(target));
+    try { return JSON.parse(await readFile(target, 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
   }
 
-  async deleteJson(relative) { try { await unlink(this.file(relative)); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } }
-
-  async listJson(relativeDir) {
-    try {
-      const names = await readdir(this.file(relativeDir));
-      return Promise.all(names.filter((name) => name.endsWith('.json')).map((name) => this.getJson(path.join(relativeDir, name))));
-    } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  async deleteJson(relative) {
+    const current = this.currentTransaction();
+    if (!current) return this.withTransaction([], () => this.deleteJson(relative));
+    const target = this.file(relative);
+    if (current.writes.has(target)) { const existed = current.writes.get(target) !== null; current.writes.set(target, null); return existed; }
+    try { await readFile(target); current.writes.set(target, null); return true; }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
   }
 
-  async queryJson(relativeDir, { limit = 100, before = null, filters = {}, sortField = 'createdAt' } = {}) {
+  async listJson(relativeDir) {
+    const current = this.currentTransaction();
+    if (!current) await this.transactionTail;
+    const directory = this.file(relativeDir);
+    try {
+      const names = await readdir(directory);
+      const visible = new Set(names.filter(name => name.endsWith('.json')));
+      if (current) for (const [target, content] of current.writes) if (path.dirname(target) === directory && target.endsWith('.json')) {
+        if (content === null) visible.delete(path.basename(target));
+        else visible.add(path.basename(target));
+      }
+      return Promise.all([...visible].map(name => this.getJson(path.join(relativeDir, name))));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      if (!current) return [];
+      return [...current.writes].filter(([target, content]) => path.dirname(target) === directory && target.endsWith('.json') && content !== null).map(([, content]) => JSON.parse(content));
+    }
+  }
+
+  async queryJson(relativeDir, { limit = 100, before = null, after = null, filters = {}, sortField = 'createdAt', order = 'desc' } = {}) {
     const items = await this.listJson(relativeDir);
+    if (!['asc', 'desc'].includes(order) || (before && after)) throw new TypeError('Invalid query cursor or order');
+    const cursor = before || after;
+    if (cursor && typeof cursor === 'object' && (typeof cursor.value !== 'string' || typeof cursor.id !== 'string')) throw new TypeError('Invalid compound cursor');
     return items
       .filter(item => Object.entries(filters).every(([key, value]) => item[key] === value))
-      .filter(item => !before || String(item[sortField] || '') < before)
-      .sort((a, b) => String(b[sortField] || '').localeCompare(String(a[sortField] || '')))
+      .filter(item => {
+        if (!cursor) return true;
+        const sortValue = String(item[sortField] ?? '');
+        if (typeof cursor !== 'object') return after ? sortValue > String(cursor) : sortValue < String(cursor);
+        return after
+          ? sortValue > cursor.value || (sortValue === cursor.value && String(item.id ?? '') > cursor.id)
+          : sortValue < cursor.value || (sortValue === cursor.value && String(item.id ?? '') < cursor.id);
+      })
+      .sort((first, second) => {
+        const comparison = String(first[sortField] ?? '').localeCompare(String(second[sortField] ?? '')) || String(first.id ?? '').localeCompare(String(second.id ?? ''));
+        return order === 'asc' ? comparison : -comparison;
+      })
       .slice(0, Math.max(1, Math.min(Number(limit) || 100, 200)));
+  }
+
+  async countJson(relativeDir, { filters = {} } = {}) {
+    const items = await this.listJson(relativeDir);
+    return items.filter(item => Object.entries(filters).every(([key, value]) => item[key] === value)).length;
   }
 
   id(prefix) { return `${prefix}_${crypto.randomUUID()}`; }
