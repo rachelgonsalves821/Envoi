@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
@@ -13,10 +15,11 @@ import { shareCaseAsset } from './asset-exchange';
 const serverEntry = process.env.SINALOA_P2_SERVER_ENTRY;
 const test = serverEntry ? it : it.skip;
 
-async function startServer(dataDir: string): Promise<{ baseUrl: string; child: ChildProcess }> {
+async function startServer(dataDir: string, scannerUrl: string): Promise<{ baseUrl: string; child: ChildProcess }> {
   const child = spawn(process.execPath, [serverEntry!], {
     cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0',
-      SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir }, stdio: ['ignore', 'pipe', 'pipe']
+      SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir,
+      SINALOA_MALWARE_SCANNER_URL: scannerUrl }, stdio: ['ignore', 'pipe', 'pipe']
   });
   try {
     const baseUrl = await new Promise<string>((resolve, reject) => {
@@ -41,6 +44,17 @@ async function request(baseUrl: string, pathname: string, session: BrowserSessio
   });
   session.capture(response);
   return { status: response.status, payload: await response.json() as Record<string, any> };
+}
+
+async function humanAction(baseUrl: string, inboxId: string, caseId: string, session: BrowserSession,
+  actionKey: 'pause' | 'resume') {
+  const response = await fetch(`${baseUrl}/api/inboxes/${inboxId}/cases/${caseId}/actions`, {
+    method: 'POST', headers: { ...session.headers(baseUrl, 'POST'), 'content-type': 'application/json',
+      'Idempotency-Key': `test-${actionKey}-${caseId}` },
+    body: JSON.stringify({ actionKey })
+  });
+  session.capture(response);
+  return response;
 }
 
 async function owner(baseUrl: string, suffix: string, root: string, permissions: string[]) {
@@ -70,10 +84,19 @@ describe('P2 clean case asset exchange against a real local server', () => {
   test('grants only the bound recipient a clean file and replays its grant safely', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sinaloa-p2-client-'));
     let app: Awaited<ReturnType<typeof startServer>> | null = null;
+    const scanner = http.createServer(async (req, res) => {
+      for await (const _chunk of req) { /* consume the uploaded bytes */ }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ status: 'clean', engine: 'test-scanner' }));
+    });
     try {
-      app = await startServer(path.join(root, 'server'));
+      scanner.listen(0, '127.0.0.1');
+      await once(scanner, 'listening');
+      const address = scanner.address();
+      if (!address || typeof address === 'string') throw new Error('Test scanner address unavailable');
+      app = await startServer(path.join(root, 'server'), `http://127.0.0.1:${address.port}/scan`);
       const alice = await owner(app.baseUrl, '8101', root,
-        ['send_agent_messages', 'receive_agent_messages', 'create_assets']);
+        ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases']);
       const bob = await owner(app.baseUrl, '8102', root,
         ['send_agent_messages', 'receive_agent_messages']);
       const stranger = await owner(app.baseUrl, '8103', root,
@@ -81,6 +104,39 @@ describe('P2 clean case asset exchange against a real local server', () => {
       const caseId = newCaseId();
       await alice.connector.startCase('p2-case-start', { caseId,
         recipientEmail: bob.address, text: 'Please review the attached result' });
+      const deadline = Date.now() + 10_000;
+      while (!(await bob.connector.listCaseMessages(caseId)).some(message => message.status === 'delivered')) {
+        if (Date.now() > deadline) throw new Error('Case start was not delivered before file exchange');
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      const offer = await bob.connector.sendCaseEvent('p1-offer-one', { caseId,
+        recipientEmail: alice.address, intent: 'offer', text: 'I propose the clean result',
+        payload: { proposal: { answer: 'clean result' } } });
+      while ((await alice.connector.getCase(caseId) as any).nativeOutcome?.status !== 'proposed') {
+        if (Date.now() > deadline) throw new Error('Typed offer was not delivered');
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      await alice.connector.sendCaseEvent('p1-accept-one', { caseId,
+        recipientEmail: bob.address, intent: 'accept', text: 'Accepted',
+        payload: { decision: { proposalMessageId: offer.id } } });
+      while ((await bob.connector.getCase(caseId) as any).nativeOutcome?.status !== 'accepted') {
+        if (Date.now() > deadline) throw new Error('Typed decision was not delivered');
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      const aliceCase = await alice.connector.getCase(caseId) as any;
+      const bobCase = await bob.connector.getCase(caseId) as any;
+      expect(aliceCase.nativeOutcome).toEqual(bobCase.nativeOutcome);
+      expect(aliceCase.events.filter((event: { id: string }) => event.id.endsWith('_typed')))
+        .toEqual(bobCase.events.filter((event: { id: string }) => event.id.endsWith('_typed')));
+      await expect(stranger.connector.sendCaseEvent('p1-inject-one', { caseId,
+        recipientEmail: alice.address, text: 'Third-party injection' })).rejects.toMatchObject({ status: 409 });
+      const secondCaseId = newCaseId();
+      await alice.connector.startCase('p1-second-case', { caseId: secondCaseId,
+        recipientEmail: bob.address, text: 'A separate active case' });
+      while (!(await bob.connector.listCaseMessages(secondCaseId)).some(message => message.status === 'delivered')) {
+        if (Date.now() > deadline) throw new Error('Second case was not delivered');
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
       const bytes = new TextEncoder().encode('clean two-owner case evidence');
       const result = await shareCaseAsset({ connector: alice.connector, caseId,
         recipientAgentId: bob.agentId, recipientAddress: bob.address,
@@ -93,16 +149,63 @@ describe('P2 clean case asset exchange against a real local server', () => {
       expect(replay.id).toBe(result.grant.id);
       const visible = await bob.connector.listAssets();
       expect(visible.find(asset => asset.id === result.asset.id)?.grant?.recipientAgentId).toBe(bob.agentId);
+      const aliceView = await request(app.baseUrl, `/api/inboxes/${alice.inboxId}/human-view`, alice.session);
+      const bobView = await request(app.baseUrl, `/api/inboxes/${bob.inboxId}/human-view`, bob.session);
+      expect(aliceView.payload.assets.some((asset: { id: string }) => asset.id === result.asset.id)).toBe(true);
+      expect(aliceView.payload.recentEvents.filter((event: { type: string; assetId?: string }) => event.type === 'asset.granted' && event.assetId === result.asset.id)).toHaveLength(1);
+      expect(bobView.payload.assets.find((asset: { id: string }) => asset.id === result.asset.id)?.grant?.recipientAgentId).toBe(bob.agentId);
+      expect(bobView.payload.history.assets.total).toBeGreaterThanOrEqual(1);
       const download = await bob.connector.getCleanAssetDownload(result.asset.id);
-      const actual = await fetch(download.download.url);
+      const actual = await fetch(download.download.url, { headers: download.download.headers });
       expect(new Uint8Array(await actual.arrayBuffer())).toEqual(bytes);
+      const blocked = await request(app.baseUrl, `/api/inboxes/${bob.inboxId}/contacts/${alice.agentId}/block`, bob.session, {});
+      expect(blocked.status).toBe(200);
+      expect(blocked.payload.blocked).toBe(true);
+      expect((await bob.connector.listAssets()).some(asset => asset.id === result.asset.id)).toBe(false);
+      await expect(bob.connector.getCleanAssetDownload(result.asset.id)).rejects.toMatchObject({ status: 404 });
+      expect((await fetch(download.download.url, { headers: download.download.headers })).status).toBe(404);
+      await expect(alice.connector.getCase(caseId)).rejects.toMatchObject({ status: 403 });
+      await expect(alice.connector.sendCaseEvent('p3-blocked-send', { caseId,
+        recipientEmail: bob.address, text: 'This must be blocked' })).rejects.toMatchObject({ status: 403 });
+      const unblocked = await request(app.baseUrl, `/api/inboxes/${bob.inboxId}/contacts/${alice.agentId}/unblock`, bob.session, {});
+      expect(unblocked.status).toBe(200);
+      expect((await alice.connector.getCase(caseId) as any).nativeOutcome.status).toBe('accepted');
+      expect((await bob.connector.listAssets()).some(asset => asset.id === result.asset.id)).toBe(true);
+      expect((await humanAction(app.baseUrl, alice.inboxId, caseId, alice.session, 'pause')).status).toBe(201);
+      const pausedView = await request(app.baseUrl, `/api/inboxes/${bob.inboxId}/human-view`, bob.session);
+      expect(pausedView.payload.cases.find((item: { id: string }) => item.id === caseId).state).toBe('paused');
+      await expect(bob.connector.getCase(caseId)).rejects.toMatchObject({ status: 403 });
+      await expect(alice.connector.sendCaseEvent('p3-paused-send', { caseId,
+        recipientEmail: bob.address, text: 'This must be paused' })).rejects.toMatchObject({ status: 403 });
+      await expect(bob.connector.getCleanAssetDownload(result.asset.id)).rejects.toMatchObject({ status: 404 });
+      expect((await humanAction(app.baseUrl, alice.inboxId, caseId, alice.session, 'resume')).status).toBe(201);
+      expect((await bob.connector.getCase(caseId) as any).state).toBe('inProgress');
+      expect((await bob.connector.listAssets()).some(asset => asset.id === result.asset.id)).toBe(true);
       expect((await stranger.connector.listAssets()).some(asset => asset.id === result.asset.id)).toBe(false);
+      const strangerView = await request(app.baseUrl, `/api/inboxes/${stranger.inboxId}/human-view`, stranger.session);
+      expect(strangerView.payload.assets.some((asset: { id: string }) => asset.id === result.asset.id)).toBe(false);
       await expect(stranger.connector.getCleanAssetDownload(result.asset.id)).rejects.toMatchObject({ status: 404 });
+      const completed = await fetch(`${app.baseUrl}/api/inboxes/${alice.inboxId}/cases/${caseId}/receipt`, {
+        method: 'POST', headers: { authorization: `Bearer ${alice.agentApiToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ result: 'Clean result agreed', authorityBasis: 'agent-reported agreement',
+          humanApprovalStatus: 'approved' })
+      });
+      expect(completed.status).toBe(201);
+      const receipt = await completed.json() as { id: string; humanApprovalStatus: string };
+      expect(receipt.humanApprovalStatus).toBe('pending');
+      const finishedA = await alice.connector.getCase(caseId) as any;
+      const finishedB = await bob.connector.getCase(caseId) as any;
+      expect(finishedA.state).toBe('completed');
+      expect(finishedB.state).toBe('completed');
+      expect(finishedA.receipt).toEqual(finishedB.receipt);
+      expect(finishedA.nativeOutcome.status).toBe('completed');
+      expect((await bob.connector.getCase(secondCaseId) as any).state).toBe('inProgress');
     } finally {
       if (app?.child && app.child.exitCode === null) {
         const child = app.child;
         await new Promise<void>(resolve => { child.once('exit', () => resolve()); child.kill('SIGTERM'); });
       }
+      await new Promise<void>(resolve => scanner.close(() => resolve()));
       if (path.dirname(path.resolve(root)) !== path.resolve(tmpdir())) throw new Error('Unsafe test cleanup path');
       await rm(root, { recursive: true, force: true });
     }

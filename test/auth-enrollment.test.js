@@ -527,6 +527,46 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(afterLogout.status, 401);
 });
 
+test('chosen beta agent addresses are exact, unique, and capped per human', async t => {
+  const server = await startServer({ SINALOA_AGENT_DOMAIN: 'agents.sinaloa-inbox.com', SINALOA_ENFORCE_BETA_AGENT_LIMIT: '1' });
+  t.after(server.stop);
+  const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550991', displayName: 'Address Owner' } });
+  const verified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
+  assert.equal(verified.status, 200);
+  const sessionToken = verified.payload.sessionToken;
+  const browserRequest = (pathname, options = {}) => request(server.baseUrl, pathname, { token: sessionToken, ...options });
+  const setup = await browserRequest('/api/auth/totp/setup', { body: {} });
+  assert.equal(setup.status, 201, JSON.stringify(setup.payload));
+  assert.equal((await browserRequest('/api/auth/totp/verify', { body: { code: generateSync({ secret: setup.payload.secret }) } })).status, 200);
+  const workspace = await browserRequest('/api/inboxes', { body: { name: 'Address workspace' } });
+  assert.equal(workspace.status, 201);
+  const availabilityPath = `/api/inboxes/${workspace.payload.id}/agent-address-availability?localPart=MiLo`;
+  const available = await browserRequest(availabilityPath);
+  assert.deepEqual(available.payload, { localPart: 'milo', address: 'milo@agents.sinaloa-inbox.com', available: true });
+  assert.equal((await browserRequest(`/api/inboxes/${workspace.payload.id}/agent-address-availability?localPart=admin`)).status, 400);
+  const enroll = localPart => browserRequest(`/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, {
+    body: { permissions: ['send_agent_messages', 'receive_agent_messages'], agentProfile: { name: 'Milo', localPart } }
+  });
+  const [firstToken, competingToken] = await Promise.all([enroll('MiLo'), enroll('milo')]);
+  assert.equal(firstToken.status, 201);
+  assert.equal(competingToken.status, 201);
+  const attempts = await Promise.all([firstToken, competingToken].map(item => request(server.baseUrl, '/api/agent-enroll', {
+    body: { enrollmentToken: item.payload.enrollmentToken, name: 'Runtime supplied name', slug: 'cannot-override' }
+  })));
+  assert.deepEqual(attempts.map(item => item.status).sort(), [201, 409]);
+  const firstAgent = attempts.find(item => item.status === 201).payload;
+  assert.equal(firstAgent.agent.address, 'milo@agents.sinaloa-inbox.com');
+  assert.equal((await browserRequest(availabilityPath)).payload.available, false);
+  const parent = await browserRequest(`/api/inboxes/${workspace.payload.id}/human-view`);
+  assert.ok(parent.payload.recentEvents.some(event => event.type === 'agent.enrollment_redeemed' && event.agentId === firstAgent.agent.id));
+  const secondToken = await enroll('mira');
+  assert.equal(secondToken.status, 201);
+  const secondAgent = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: secondToken.payload.enrollmentToken } });
+  assert.equal(secondAgent.status, 201);
+  assert.equal(secondAgent.payload.agent.address, 'mira@agents.sinaloa-inbox.com');
+  assert.equal((await enroll('third')).status, 409);
+});
+
 test('failed enrollment rolls back token claim and all account records', async t => {
   const oversizedPublicDomain = `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(55)}.com`;
   const server = await startServer({

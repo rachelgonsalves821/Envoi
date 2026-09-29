@@ -467,6 +467,15 @@ export class ObjectStorageService {
     if (record.state !== 'clean') throw new ObjectStorageError('OBJECT_NOT_CLEAN', 'Object is unavailable until malware scanning completes', 423);
     return this.adapter.createPresignedDownload({ key: record.key, expiresInSeconds: this.config.downloadUrlTtlSeconds });
   }
+  async readCleanObject(id) {
+    const record = await this.#requireObject(id);
+    if (record.state !== 'clean') throw new ObjectStorageError('OBJECT_NOT_CLEAN', 'Object is unavailable until malware scanning completes', 423);
+    const bytes = await this.adapter.getObject(record.key);
+    if (!bytes || bytes.length !== record.size || sha256Base64(bytes) !== record.checksumSha256) {
+      throw new ObjectStorageError('CHECKSUM_MISMATCH', 'Stored object failed immutable size or checksum verification', 422);
+    }
+    return { object: record, bytes };
+  }
   async abortUpload(id) {
     const record = await this.#requireObject(id);
     if (record.state !== 'quarantine') throw new ObjectStorageError('OBJECT_NOT_ABORTABLE', 'Only quarantined objects may be aborted', 409);

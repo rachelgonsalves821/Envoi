@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { AgentCard, AgentPermissionPicker, DecisionCard, EnrollmentDialog } from '../src/App';
+import { AgentCard, AgentPermissionPicker, DecisionCard, EnrollmentDialog, ParticipantCard } from '../src/App';
 import { DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from '../src/agent-permissions';
 import type { Agent, HumanView, Inbox, WorkCase } from '../src/types';
 
@@ -25,12 +25,14 @@ describe('external runtime enrollment handoff', () => {
   it('hands the unredeemed token to supported bridges without consuming it in the UI', () => {
     const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
       workspace: { id: 'inbox_1' } as Inbox,
-      result: { enrollmentToken: 'enroll_once_secret', enrollmentUrl: '/?enroll=enroll_once_secret', expiresAt: '2026-09-28T12:00:00.000Z' },
+      result: { enrollmentToken: 'enroll_once_secret', enrollmentUrl: '/?enroll=enroll_once_secret', expiresAt: '2026-09-28T12:00:00.000Z', agentProfile: { localPart: 'milo' } },
       setResult: vi.fn(),
       onClose: vi.fn()
     }));
 
     expect(markup).toContain('Raw enrollment token');
+    expect(markup).toContain('milo@agents.sinaloa-inbox.com');
+    expect(markup).toContain('Copy chosen agent address');
     expect(markup).toContain('enroll_once_secret');
     expect(markup).toContain('SINALOA_ENROLLMENT_TOKEN');
     expect(markup).toContain('OPENCLAW_GATEWAY_TOKEN');
@@ -98,5 +100,17 @@ describe('human action visibility', () => {
     expect(paused).toContain('Resume agent');
     expect(paused).not.toContain('Pause agent');
     expect(paused).toContain('Paused');
+  });
+
+  it('shows native counterparty block state and manager-only controls', () => {
+    const participant = { id: 'agent_peer', type: 'externalAgent' as const, displayName: 'Peer',
+      address: 'peer@agents.sinaloa-inbox.com', accessState: 'blocked' as const,
+      relationship: 'counterpartyAgent' as const };
+    const observer = renderToStaticMarkup(createElement(ParticipantCard, { participant, label: 'Counterparty' }));
+    const manager = renderToStaticMarkup(createElement(ParticipantCard, { participant, label: 'Counterparty',
+      nativeControl: { inboxId: 'inbox_one', onRefresh: vi.fn(), notify: vi.fn() } }));
+    expect(observer).toContain('Blocked');
+    expect(observer).not.toContain('Unblock agent');
+    expect(manager).toContain('Unblock agent');
   });
 });

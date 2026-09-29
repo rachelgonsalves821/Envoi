@@ -231,8 +231,13 @@ export class SinaloaClient {
   }
 
   /** The server issues a download URL only when the asset passed its malware scan. */
-  getCleanAssetDownload(inboxId: string, assetId: string) {
-    return this.request<{ object: AssetRecord; download: SignedAssetRequest }>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/download`);
+  async getCleanAssetDownload(inboxId: string, assetId: string) {
+    const result = await this.request<{ object: AssetRecord; download: SignedAssetRequest }>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/download`);
+    const target = new URL(result.download.url);
+    if (target.origin === new URL(this.baseUrl).origin && target.pathname === `/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/content`) {
+      return { ...result, download: { ...result.download, headers: { ...result.download.headers, authorization: `Bearer ${this.accessToken}` } } };
+    }
+    return result;
   }
 
   /** Legacy route. Native processing must use the connector's fenced work claim. */

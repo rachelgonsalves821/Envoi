@@ -10,7 +10,7 @@ export type DeliveryState = 'queued' | 'retrying' | 'delivered' | 'acknowledged'
 export type EmailDeliveryState = 'accepted' | 'delivered' | 'delivery_delayed' | 'bounced' | 'complained' | 'failed' | 'suppressed' | 'received';
 
 export type EventType = 'message' | 'decision' | 'policyEvaluation' | 'toolAction' | 'humanAction' | 'stateChange' | 'error' | 'receipt';
-export type HumanActionKey = 'approveOnce' | 'decline' | 'editProposal' | 'pause' | 'revoke' | 'takeOver';
+export type HumanActionKey = 'approveOnce' | 'decline' | 'editProposal' | 'pause' | 'resume' | 'revoke' | 'takeOver';
 
 export interface AuthConfig {
   provider: 'local' | 'workos';

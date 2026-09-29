@@ -100,13 +100,15 @@ export const api = {
     headers: { 'Idempotency-Key': `${actionKey}-${caseId}-${crypto.randomUUID()}` },
     body: JSON.stringify({ actionKey, externalRefs })
   }),
-  enrollmentToken: (inboxId: string, name: string, permissions: string[]) => request<{ enrollmentToken: string; enrollmentUrl: string; expiresAt: string; permissions: string[] }>(`/api/inboxes/${inboxId}/agent-enrollment-tokens`, {
+  agentAddressAvailability: (inboxId: string, localPart: string) => request<{ localPart: string; address: string; available: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-address-availability?localPart=${encodeURIComponent(localPart)}`),
+  enrollmentToken: (inboxId: string, name: string, localPart: string, permissions: string[]) => request<{ enrollmentToken: string; enrollmentUrl: string; expiresAt: string; permissions: string[]; agentProfile: { name: string; localPart: string } }>(`/api/inboxes/${inboxId}/agent-enrollment-tokens`, {
     method: 'POST',
-    body: JSON.stringify({ permissions, agentProfile: { name, slug: name } })
+    body: JSON.stringify({ permissions, agentProfile: { name, localPart } })
   }),
   approveAgent: (inboxId: string, agentId: string, permissions: string[]) => request<{ agent: unknown; agentApiToken?: string }>(`/api/inboxes/${inboxId}/agent-onboarding/${agentId}/approve`, { method: 'POST', body: JSON.stringify({ permissions }) })
   ,revokeAgentCredentials: (inboxId: string, agentId: string) => request<{ revoked: boolean; agentId: string; credentialFamilyCount: number; revokedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/revoke`, { method: 'POST', body: '{}' })
   ,setAgentPaused: (inboxId: string, agentId: string, paused: boolean) => request<Agent>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/${paused ? 'pause' : 'resume'}`, { method: 'POST', body: '{}' })
+  ,setNativeContactBlocked: (inboxId: string, agentId: string, blocked: boolean) => request<{ agentId: string; blocked: boolean; updatedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/contacts/${encodeURIComponent(agentId)}/${blocked ? 'block' : 'unblock'}`, { method: 'POST', body: '{}' })
   ,downloadAsset: (inboxId: string, assetId: string) => request<{ object: Asset; download: { url: string; method: 'GET'; headers?: Record<string, string> } }>(`/api/inboxes/${inboxId}/assets/${assetId}/download`)
   ,emailTransport: (inboxId: string) => request<EmailTransportStatus>(`/api/inboxes/${inboxId}/email-transport`)
   ,approveExternalContact: (inboxId: string, input: { email: string; displayName: string; direction: ApprovedEmailContact['direction'] }) => request<ApprovedEmailContact>(`/api/inboxes/${encodeURIComponent(inboxId)}/external-contacts`, { method: 'POST', body: JSON.stringify(input) })

@@ -591,11 +591,15 @@ function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRailToggle,
           <StatusBadge workCase={workCase} />
         </header>
 
-        <NegotiationParticipants workCase={workCase} view={view} events={events} />
+        <NegotiationParticipants workCase={workCase} view={view} events={events} canManageInbox={canManageInbox} onRefresh={onRefresh} notify={notify} />
 
         {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => ['decline', 'takeOver'].includes(key) ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
         {state === 'unknownExternalResult' && <InlineNotice title="External result is unconfirmed" body="The external system did not return a success or failure response. Retry only with the original idempotency key." tone="unknown" />}
-        {state === 'revoked' && <InlineNotice title="Revocation recorded" body="This conversation remains visible. Agent delivery enforcement for this case has not yet been verified." tone="danger" />}
+        {state === 'revoked' && <InlineNotice title="Authority revoked" body="This conversation remains visible. New agent work for this case is blocked." tone="danger" />}
+        {canManageInbox && workCase.schemaVersion && !['completed', 'expired', 'revoked'].includes(state) && <div className="case-control-actions">
+          <button type="button" className="button secondary" disabled={Boolean(busy)} onClick={() => state === 'paused' ? void act('resume') : setConfirm('pause')}>{state === 'paused' ? 'Resume conversation' : 'Pause conversation'}</button>
+          <button type="button" className="button destructive" disabled={Boolean(busy)} onClick={() => setConfirm('revoke')}>Revoke case authority</button>
+        </div>}
         {workCase.receipt && <ReceiptCard workCase={workCase} />}
 
         <ProposalHistory workCase={workCase} view={view} events={events} />
@@ -616,7 +620,7 @@ function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRailToggle,
   );
 }
 
-function NegotiationParticipants({ workCase, view, events }: { workCase: WorkCase; view: HumanView; events: CaseEvent[] }) {
+function NegotiationParticipants({ workCase, view, events, canManageInbox, onRefresh, notify }: { workCase: WorkCase; view: HumanView; events: CaseEvent[]; canManageInbox: boolean; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const local = resolveParticipant(workCase, workCase.actingAgent, view.agents, view.participantDirectory);
   const counterpartIds = participantIds(workCase, events).filter(id => id !== workCase.actingAgent && id !== workCase.principal);
   const counterparties = counterpartIds.length
@@ -628,19 +632,34 @@ function NegotiationParticipants({ workCase, view, events }: { workCase: WorkCas
       <div className="participant-flow">
         <ParticipantCard participant={local} label="Your acting agent" />
         <div className="participant-connector" aria-hidden="true"><ArrowRight size={17} /><span>Negotiating with</span></div>
-        <div className="counterparty-stack">{counterparties.map(participant => <ParticipantCard key={participant.id} participant={participant} label={participant.relationship === 'unknown' ? 'Identity unavailable' : 'Counterparty'} />)}</div>
+        <div className="counterparty-stack">{counterparties.map(participant => <ParticipantCard key={participant.id} participant={participant} label={participant.relationship === 'unknown' ? 'Identity unavailable' : 'Counterparty'} nativeControl={canManageInbox && participant.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />)}</div>
       </div>
     </section>
   );
 }
 
-function ParticipantCard({ participant, label }: { participant: ReturnType<typeof resolveParticipant>; label: string }) {
+export function ParticipantCard({ participant, label, nativeControl }: { participant: ReturnType<typeof resolveParticipant>; label: string; nativeControl?: { inboxId: string; onRefresh: () => Promise<unknown>; notify: (message: string) => void } }) {
   const isAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent';
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function setBlocked() {
+    if (!nativeControl) return;
+    const blocked = participant.accessState !== 'blocked';
+    setBusy(true); setError('');
+    try {
+      await api.setNativeContactBlocked(nativeControl.inboxId, participant.id, blocked);
+      nativeControl.notify(blocked ? 'Counterparty blocked.' : 'Counterparty unblocked.');
+      await nativeControl.onRefresh();
+    } catch (caught) { setError(errorMessage(caught)); }
+    finally { setBusy(false); }
+  }
   return (
     <div className={`participant-card relationship-${participant.relationship}`}>
       <span className={`identity-mark ${isAgent ? 'agent' : 'human'}`}>{isAgent ? <Bot size={15} /> : <UserRound size={15} />}</span>
       <span className="participant-copy"><small>{label}</small><strong>{participant.displayName}</strong>{participant.address && <code>{participant.address}</code>}</span>
       <span className={`access-state state-${participant.accessState || 'unavailable'}`}>{humanize(participant.accessState || 'unavailable')}</span>
+      {nativeControl && <button type="button" className="button quiet compact" disabled={busy} onClick={() => void setBlocked()}>{busy ? 'Saving…' : participant.accessState === 'blocked' ? 'Unblock agent' : 'Block agent'}</button>}
+      {error && <span role="alert">{error}</span>}
     </div>
   );
 }
@@ -650,8 +669,8 @@ export function DecisionCard({ workCase, view, events, policy, canManageInbox, b
   const option = proposal?.options.find(item => !item.expired);
   const parties = proposal ? proposalParties(workCase, proposal.id, events, view) : null;
   const optionParty = proposal?.status === 'countered' ? parties?.counterparty : parties?.originator;
-  // Pause, case revocation and takeover are not enforced by the current server. Do not
-  // offer a button whose effect would only be a recorded case label.
+  // Case pause, resume and revocation are available in the dedicated controls above.
+  // Takeover still lacks an enforcing server contract.
   const availableActions = (workCase.decision?.availableActions || []).filter(action => !['pause', 'revoke', 'takeOver'].includes(action));
   return (
     <section className="decision-card" aria-labelledby="decision-title">
@@ -882,7 +901,7 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
       </div>
     </section>
     {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={null} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can create a permissioned, 15-minute enrollment link to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
-    {open && canManageInbox && <EnrollmentDialog workspace={workspace} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
+    {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.sinaloa-inbox.com'} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </PageFrame>;
 }
 
@@ -1024,12 +1043,30 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   </article>;
 }
 
-export function EnrollmentDialog({ workspace, result, setResult, onClose }: { workspace: Workspace; result: { enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null; setResult: (value: any) => void; onClose: () => void }) {
+const reservedAgentAddresses = new Set(['admin', 'administrator', 'agents', 'abuse', 'billing', 'contact', 'help', 'info', 'mail', 'noreply', 'no-reply', 'postmaster', 'root', 'security', 'support', 'system']);
+const validAgentLocalPart = (value: string) => value.length >= 3 && value.length <= 32 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(value) && !reservedAgentAddresses.has(value);
+
+export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbox.com', result, setResult, onClose }: { workspace: Workspace; agentDomain?: string; result: { enrollmentToken: string; enrollmentUrl: string; expiresAt: string; agentProfile?: { localPart?: string } } | null; setResult: (value: any) => void; onClose: () => void }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
+  const [localPartInput, setLocalPartInput] = useState('');
+  const [availability, setAvailability] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
+  const localPart = localPartInput.trim().toLowerCase();
+  useEffect(() => {
+    if (result || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
+    let cancelled = false;
+    setAvailability('checking');
+    const timer = setTimeout(() => {
+      void api.agentAddressAvailability(workspace.id, localPart)
+        .then(response => { if (!cancelled) setAvailability(response.available ? 'available' : 'taken'); })
+        .catch(() => { if (!cancelled) setAvailability('error'); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [workspace.id, localPart, result]);
   return <Modal title={result ? 'Enrollment token created' : 'Enroll an agent'} onClose={onClose}>
     {result ? <>
       <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />
+      {result.agentProfile?.localPart && <label className="field"><span>Chosen platform address</span><div className="copy-field"><input readOnly value={`${result.agentProfile.localPart}@${agentDomain}`} aria-label="Chosen agent address" /><CopyButton value={`${result.agentProfile.localPart}@${agentDomain}`} label="Copy chosen agent address" /></div><small>This address becomes active when the bridge redeems the token. It cannot be renamed during beta.</small></label>}
       <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>Set this as <code>SINALOA_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once by the bridge.</small></label>
       <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Sinaloa credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p><div className="runtime-setup-list">
         <article><strong>OpenClaw</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p></article>
@@ -1041,13 +1078,16 @@ export function EnrollmentDialog({ workspace, result, setResult, onClose }: { wo
       setBusy(true);
       setError('');
       try {
-        setResult(await api.enrollmentToken(workspace.id, String(new FormData(event.currentTarget).get('name')), selectedAgentPermissions(selectedPermissions)));
+        if (!validAgentLocalPart(localPart) || availability !== 'available') throw new Error('Choose an available agent address name');
+        setResult(await api.enrollmentToken(workspace.id, String(new FormData(event.currentTarget).get('name')), localPart, selectedAgentPermissions(selectedPermissions)));
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
       <Field label="Agent name" name="name" placeholder="Scheduling agent" required />
+      <label className="field"><span>Agent address name</span><div className="address-entry"><input name="localPart" value={localPartInput} onChange={event => setLocalPartInput(event.target.value)} autoComplete="off" spellCheck={false} placeholder="milo" required /><span>@{agentDomain}</span></div><small>Choose 3–32 letters, numbers, periods or hyphens. Start with a letter. The final address is checked again when the token is redeemed.</small></label>
+      {localPartInput && <p role="status" className="address-feedback">{!validAgentLocalPart(localPart) ? 'Enter a valid, non-reserved address name.' : availability === 'checking' ? 'Checking availability…' : availability === 'available' ? `${localPart}@${agentDomain} is available now.` : availability === 'taken' ? 'That address is already taken.' : availability === 'error' ? 'Availability could not be checked. Try again.' : ''}</p>}
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
       <FormError message={error} />
-      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating token…' : 'Create one-time token'}</button></div>
+      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || availability !== 'available'}>{busy ? 'Creating token…' : 'Create one-time token'}</button></div>
     </form>}
   </Modal>;
 }
@@ -1114,9 +1154,9 @@ function emptyTitle(section: NavSection) { return section === 'inbox' ? 'Your ag
 function emptyBody(section: NavSection) { return section === 'inbox' ? 'Agent-to-agent conversations will appear here as soon as they begin.' : section === 'needsMe' ? 'Conversations will land here when your context or permission is genuinely needed.' : 'Conversations will appear here when they reach this stage.'; }
 function caseType(workCase: WorkCase) { return `${humanize(workCase.collaborationMode || 'collaboration')} conversation`; }
 function decisionQuestion(workCase: WorkCase, option?: ProposalOption) { if (workCase.decision?.question) return workCase.decision.question; if (option?.outOfPolicyFlags?.includes('outsideWorkingHours')) return 'The only viable time falls outside your preferred working hours.'; const policy = decisionPolicy(workCase); return policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.'; }
-function actionPastTense(action: HumanActionKey) { return ({ approveOnce: 'Approved once. The agent can continue.', decline: 'Declined. The conversation has been updated.', editProposal: 'Proposal edits requested.', pause: 'Conversation paused.', revoke: 'Authority revoked.', takeOver: 'You took over this conversation.' })[action]; }
-function confirmTitle(action: HumanActionKey) { return ({ decline: 'Decline this proposal?', revoke: 'Revoke authority?', takeOver: 'Take over this conversation?', pause: 'Pause this conversation?', approveOnce: 'Approve once?', editProposal: 'Request edits?' })[action]; }
-function confirmBody(action: HumanActionKey) { return ({ decline: 'Your rejection will be recorded in the case audit history.', revoke: 'A revocation will be recorded in the case history.', takeOver: 'A takeover request will be recorded in the case history.', pause: 'A pause request will be recorded in the case history.', approveOnce: 'This grants one-time authority for the current action.', editProposal: 'A request for a revised option will be recorded.' })[action]; }
+function actionPastTense(action: HumanActionKey) { return ({ approveOnce: 'Approved once. The agent can continue.', decline: 'Declined. The conversation has been updated.', editProposal: 'Proposal edits requested.', pause: 'Conversation paused.', resume: 'Conversation resumed.', revoke: 'Authority revoked.', takeOver: 'You took over this conversation.' })[action]; }
+function confirmTitle(action: HumanActionKey) { return ({ decline: 'Decline this proposal?', revoke: 'Revoke authority?', takeOver: 'Take over this conversation?', pause: 'Pause this conversation?', resume: 'Resume this conversation?', approveOnce: 'Approve once?', editProposal: 'Request edits?' })[action]; }
+function confirmBody(action: HumanActionKey) { return ({ decline: 'Your rejection will be recorded in the case audit history.', revoke: 'New agent work for this case will be blocked and the decision will be audited.', takeOver: 'A takeover request will be recorded in the case history.', pause: 'New agent work for this case will pause until you resume it.', resume: 'Permitted agent work can continue.', approveOnce: 'This grants one-time authority for the current action.', editProposal: 'A request for a revised option will be recorded.' })[action]; }
 function conversationTags(workCase: WorkCase) {
   const state = caseState(workCase);
   const mode = workCase.collaborationMode;

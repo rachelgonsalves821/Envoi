@@ -226,7 +226,14 @@ export function completeCase(caseInput, receipt, { actor, at }) {
   if (caseInput.receipt) throw domainError('Case already has a receipt', 409);
   const withReceipt = clone(caseInput);
   withReceipt.receipt = receipt;
+  if (withReceipt.nativeOutcome?.status === 'accepted' && withReceipt.state === 'inProgress') {
+    withReceipt.state = 'accepted';
+    appendEvent(withReceipt, { id: `evt_${crypto.randomUUID()}`, type: 'stateChange', actor,
+      createdAt: at, payload: { from: 'inProgress', to: 'accepted', reasonCode: 'nativeProposalAccepted' },
+      linkedPolicyEvaluation: null, precedingEventRef: withReceipt.events.at(-1)?.id || null });
+  }
   let value = transitionCase(withReceipt, 'completed', { actor, at, reasonCode: 'receiptConfirmed' });
+  if (value.nativeOutcome?.status === 'accepted') value.nativeOutcome = { ...value.nativeOutcome, status: 'completed', updatedAt: at };
   appendEvent(value, { id: `evt_${crypto.randomUUID()}`, type: 'receipt', actor, createdAt: at, payload: { receipt }, linkedPolicyEvaluation: receipt.authorityBasis, precedingEventRef: value.events.at(-1)?.id || null });
   return assertValidCase(value);
 }

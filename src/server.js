@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
-import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
+import { workspaceHistory, parseHistoryCursors, decodeHistoryCursor } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
 import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
@@ -243,6 +243,25 @@ const json = (res, status, body) => {
 const redirect = (res, location, headers = {}) => { res.writeHead(302, { location, 'cache-control': 'no-store', ...headers }); res.end(); };
 const fail = (res, status, message) => json(res, status, { error: message });
 const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+const reservedAgentLocalParts = new Set(['admin', 'administrator', 'agents', 'abuse', 'billing', 'contact', 'help', 'info', 'mail', 'noreply', 'no-reply', 'postmaster', 'root', 'security', 'support', 'system']);
+function normalizeAgentLocalPart(value) {
+  if (typeof value !== 'string') throw Object.assign(new Error('Agent address name is required'), { statusCode: 400 });
+  const localPart = value.trim().toLowerCase();
+  if (localPart.length < 3 || localPart.length > 32 || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(localPart) || reservedAgentLocalParts.has(localPart)) {
+    throw Object.assign(new Error('Choose 3–32 letters, numbers, periods or hyphens; start with a letter and avoid reserved names'), { statusCode: 400 });
+  }
+  return localPart;
+}
+const agentAddressForLocalPart = localPart => `${localPart}@${agentDomain}`;
+async function activeAgentCountForHuman(humanId) {
+  const directory = await store.listJson(path.join('directory', 'agents'));
+  let active = 0;
+  for (const item of directory) {
+    const agent = item?.inboxId && item?.agentId ? await store.getJson(path.join('inboxes', item.inboxId, 'agents', `${item.agentId}.json`)) : null;
+    if (agent?.principalHumanId === humanId && agent.status === 'active') active += 1;
+  }
+  return active;
+}
 const identityKey = (address) => encodeURIComponent(address.toLowerCase());
 const normalizedEmail = value => String(value || '').trim().toLowerCase();
 const validEmail = value => /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(value) && value.length <= 254 && !/[\r\n]/.test(value);
@@ -549,6 +568,7 @@ const auditRecord = async (inboxId, type, data, createdAt = store.now()) => {
 
 const inboxMutationKey = inboxId => `inbox:${inboxId}:mutations`;
 const enrollmentMutationKey = tokenHash => `enrollment:${tokenHash}:mutations`;
+const humanEnrollmentMutationKey = humanId => `human:${humanId}:agent-enrollment`;
 async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = []) {
   const committedEvents = [];
   const run = () => operation(async (type, data, createdAt = store.now(), targetInboxId = inboxId) => {
@@ -611,21 +631,31 @@ function setCaseMessageDeliveryState(value, message, state, at) {
 
 function applyNativeCaseOutcome(value, message, at) {
   if (message.transport !== 'native') return;
-  const kind = message.type === 'proposal' ? 'proposed' : message.type === 'decision' ? message.payload?.decision?.kind : null;
-  if (!['proposed', 'accept', 'reject', 'counteroffer'].includes(kind)) return;
+  const status = { offer: 'proposed', counteroffer: 'countered', accept: 'accepted', reject: 'rejected' }[message.intent];
+  if (!status) return;
+  const proposal = message.proposal || message.payload?.proposal || null;
+  const decision = message.payload?.decision || null;
+  if (['proposed', 'countered'].includes(status) && (!proposal || typeof proposal !== 'object')) {
+    throw Object.assign(new Error('A typed offer requires a structured proposal'), { statusCode: 422 });
+  }
+  const referencedProposal = decision?.proposalMessageId || null;
+  if (['accepted', 'rejected'].includes(status) && (!referencedProposal || !value.events.some(event =>
+    event.type === 'proposal' && event.payload?.messageId === referencedProposal && event.actor !== message.senderAgentId))) {
+    throw Object.assign(new Error('The decision must refer to a counterparty proposal in this case'), { statusCode: 409 });
+  }
   appendEvent(value, {
     id: `evt_${message.id}_typed`,
-    type: kind === 'proposed' ? 'proposal' : 'decision',
+    type: ['proposed', 'countered'].includes(status) ? 'proposal' : 'decision',
     actor: message.senderAgentId,
     createdAt: message.createdAt,
-    payload: { messageId: message.id, caseId: message.caseId, kind, proposal: message.payload?.proposal || null, decision: message.payload?.decision || null, authorityVerified: false },
+    payload: { messageId: message.id, caseId: message.caseId, status, proposal, decision, authorityVerified: false },
     linkedPolicyEvaluation: null,
     precedingEventRef: value.events.at(-1)?.id || null
   });
   value.nativeOutcome = {
-    status: { proposed: 'proposed', accept: 'accepted', reject: 'rejected', counteroffer: 'countered' }[kind],
+    status,
     messageId: message.id,
-    proposalMessageId: message.payload?.decision?.proposalMessageId || (kind === 'proposed' ? message.id : null),
+    proposalMessageId: referencedProposal || (['proposed', 'countered'].includes(status) ? message.id : null),
     actorAgentId: message.senderAgentId,
     humanApprovalStatus: 'unverified',
     updatedAt: at
@@ -820,13 +850,32 @@ async function assertNativeCaseBinding(caseId, senderAgent, recipientAgent, send
   if (!await store.putJsonIfAbsent(pathName, value)) return assertNativeCaseBinding(caseId, senderAgent, recipientAgent, senderInboxId, recipientInboxId);
   return value;
 }
+async function canAgentReadNativeCase(inboxId, caseId, agent) {
+  if (!agent || agent.pausedAt) return false;
+  const binding = await store.getJson(nativeCaseBindingPath(caseId));
+  if (!binding) return true;
+  if (!binding.inboxIds?.includes(inboxId) || !binding.agentIds?.includes(agent.id) || binding.pausedAt || binding.revokedAt) return false;
+  const [first, second] = binding.agentIds;
+  const [firstDirectory, secondDirectory] = await Promise.all([
+    store.getJson(path.join('directory', 'agents', `${first}.json`)),
+    store.getJson(path.join('directory', 'agents', `${second}.json`))
+  ]);
+  if (!firstDirectory?.inboxId || !secondDirectory?.inboxId) return false;
+  const [firstContact, secondContact] = await Promise.all([
+    store.getJson(path.join('inboxes', firstDirectory.inboxId, 'contacts', `${second}.json`)),
+    store.getJson(path.join('inboxes', secondDirectory.inboxId, 'contacts', `${first}.json`))
+  ]);
+  return !firstContact?.blocked && !secondContact?.blocked;
+}
 async function assetGrantAccess(asset, inbox, req) {
   const human = await auth.getHuman(req);
   const principal = await getAgentPrincipal(req, inbox.id);
-  if (asset.workspaceId === inbox.id) return principal?.id === asset.createdByAgentId && !principal.pausedAt || await canManageInbox(human, inbox);
+  if (asset.workspaceId === inbox.id) return principal?.id === asset.createdByAgentId && !principal.pausedAt || await canAccessInbox(human, inbox);
   if (!asset.caseId) return false;
   const grant = await store.getJson(assetGrantPath(inbox.id, asset.id));
   if (!grant || grant.ownerInboxId !== asset.workspaceId || grant.recipientInboxId !== inbox.id || grant.caseId !== asset.caseId || grant.createdByAgentId !== asset.createdByAgentId || grant.revokedAt) return false;
+  const binding = await store.getJson(nativeCaseBindingPath(asset.caseId));
+  if (binding?.pausedAt || binding?.revokedAt) return false;
   const [ownerCase, recipientCase, creator, recipient, senderContact, recipientContact] = await Promise.all([
     getCase(asset.workspaceId, asset.caseId),
     getCase(inbox.id, asset.caseId),
@@ -840,7 +889,7 @@ async function assetGrantAccess(asset, inbox, req) {
     assertNativeCaseParticipants(ownerCase, creator.id, recipient.id);
     assertNativeCaseParticipants(recipientCase, creator.id, recipient.id);
   } catch { return false; }
-  return principal?.id === recipient.id || await canManageInbox(human, inbox);
+  return principal?.id === recipient.id || await canAccessInbox(human, inbox);
 }
 const isCaseParticipant = (value, agentId) => Boolean(agentId && (value?.actingAgent === agentId || value?.participants?.includes(agentId)));
 
@@ -1427,18 +1476,39 @@ async function participantDirectoryForHuman(inbox, agents, cases) {
     const directory = await store.getJson(path.join('directory', 'agents', `${id}.json`));
     if (!directory) return [id, { id, type: 'externalAgent', displayName: String(id), address: null, organizationId: null, inboxId: null, accessState: 'unavailable' }];
     const external = await store.getJson(path.join('inboxes', directory.inboxId, 'agents', `${id}.json`));
-    return [id, { id, type: directory.inboxId === inbox.id ? 'internalAgent' : 'externalAgent', displayName: external?.name || directory.address || String(id), address: external?.address || directory.address || null, organizationId: external?.organizationId || null, inboxId: directory.inboxId, accessState: directory.status === 'active' ? 'active' : 'unavailable' }];
+    const contact = await store.getJson(path.join('inboxes', inbox.id, 'contacts', `${id}.json`));
+    return [id, { id, type: directory.inboxId === inbox.id ? 'internalAgent' : 'externalAgent', displayName: external?.name || directory.address || String(id), address: external?.address || directory.address || null, organizationId: external?.organizationId || null, inboxId: directory.inboxId, accessState: contact?.blocked ? 'blocked' : directory.status === 'active' ? 'active' : 'unavailable' }];
   }));
   return Object.fromEntries(entries);
 }
 
-async function humanView(inboxId, inbox, cursors = {}) {
+async function humanView(inboxId, inbox, req, cursors = {}) {
   const [agents, calendarConnectors, page] = await Promise.all([
     store.listJson(path.join('inboxes', inboxId, 'agents')),
     store.listJson(path.join('inboxes', inboxId, 'calendar-connectors')),
     workspaceHistory(store, inboxId, cursors)
   ]);
-  const { items: { cases, messages, assets, recentEvents: events, deliveryReceipts, invitations, contacts: externalContacts }, history } = page;
+  const { items: { cases, messages, recentEvents: events, deliveryReceipts, invitations, contacts: externalContacts }, history } = page;
+  const [ownAssets, assetGrants] = await Promise.all([
+    store.listJson(path.join('inboxes', inboxId, 'assets')),
+    store.listJson(path.join('inboxes', inboxId, 'asset-grants'))
+  ]);
+  const grantedAssets = (await Promise.all(assetGrants.map(async grant => {
+    if (grant.revokedAt) return null;
+    const asset = await objectStorage.getObject(grant.assetId).catch(() => null);
+    return asset?.state === 'clean' && await assetGrantAccess(asset, inbox, req) ? { ...asset, grant } : null;
+  }))).filter(Boolean);
+  const allAssets = [...ownAssets, ...grantedAssets].sort((left, right) =>
+    String(right.createdAt).localeCompare(String(left.createdAt)) || String(right.id).localeCompare(String(left.id)));
+  const cursor = cursors.assets ? decodeHistoryCursor(cursors.assets) : null;
+  const remainingAssets = cursor ? allAssets.filter(item =>
+    String(item.createdAt).localeCompare(cursor.value) < 0 ||
+    (String(item.createdAt) === cursor.value && String(item.id).localeCompare(cursor.id) < 0)) : allAssets;
+  const assets = remainingAssets.slice(0, 50);
+  const lastAsset = assets.at(-1);
+  history.assets = { total: allAssets.length, hasMore: remainingAssets.length > assets.length,
+    nextCursor: remainingAssets.length > assets.length && lastAsset
+      ? Buffer.from(JSON.stringify({ value: String(lastAsset.createdAt), id: lastAsset.id })).toString('base64url') : null };
   const projection = projectWorkspaceForHuman(cases);
   const participantDirectory = await participantDirectoryForHuman(inbox, agents, cases);
   const projectedInvitations = invitations
@@ -1965,14 +2035,20 @@ async function route(req, res) {
         issuerMembership = localMembership ? { ...localMembership, providerMembership } : null;
       }
       if (!sourceInbox || !membershipCanManage(issuerMembership, auth.provider)) throw Object.assign(new Error('Enrollment owner is invalid'), { statusCode: 403 });
+      if ((productionConfig.mode === 'production' || process.env.SINALOA_ENFORCE_BETA_AGENT_LIMIT === '1') && await activeAgentCountForHuman(currentRecord.humanId) >= 2) throw Object.assign(new Error('The beta allows two active agents per human'), { statusCode: 409 });
       const agentName = String(input.name || currentRecord.agentProfile?.name || '').trim();
       if (!agentName) throw Object.assign(new Error('Agent name is required'), { statusCode: 400 });
       const record = await store.claimJson(tokenPath, 'usedAt', store.now());
       if (!record) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
-      const baseSlug = slugify(input.slug || record.agentProfile?.slug || agentName) || store.id('agent').replace('agent_', '');
+      const requestedLocalPart = record.agentProfile?.localPart;
+      const baseSlug = requestedLocalPart ? normalizeAgentLocalPart(requestedLocalPart) : slugify(input.slug || record.agentProfile?.slug || agentName) || store.id('agent').replace('agent_', '');
       let slug = baseSlug;
-      let address = `${slug}@${agentDomain}`;
-      while (!(await reserveIdentity(address, { status: 'reserved' }))) { slug = `${baseSlug}-${store.id('slug').slice(-6)}`; address = `${slug}@${agentDomain}`; }
+      let address = agentAddressForLocalPart(slug);
+      if (requestedLocalPart) {
+        if (!await reserveIdentity(address, { status: 'reserved' })) throw Object.assign(new Error('That agent address is already taken'), { statusCode: 409 });
+      } else {
+        while (!(await reserveIdentity(address, { status: 'reserved' }))) { slug = `${baseSlug}-${store.id('slug').slice(-6)}`; address = agentAddressForLocalPart(slug); }
+      }
       const createdAt = store.now();
       const agent = { id: store.id('agent'), organizationId: sourceInbox.organizationId, name: agentName, slug, address, identity: publicIdentity(slug), principalHumanId: record.humanId, capabilities: input.capabilities || record.agentProfile?.capabilities || [], permissions: record.permissions, createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
       const inbox = await createDedicatedAgentInbox({ sourceInbox, organizationId: sourceInbox.organizationId, ownerHumanId: record.humanId, agent, status: 'active', inboxId: plannedInboxId });
@@ -1983,9 +2059,10 @@ async function route(req, res) {
       if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId: inbox.id, address: publicEmailAddressForAgent(agent), status: agent.status });
       const credentials = await issueAgentCredentials(agent.id, inbox.id);
       await writeAudit('agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions, sourceInboxId: sourceInbox.id }, createdAt, inbox.id);
+      await writeAudit('agent.enrollment_redeemed', { enrollmentId: record.id, agentId: agent.id, agentInboxId: inbox.id, address: agent.address, humanId: record.humanId }, createdAt, sourceInbox.id);
       await writeAudit('agent.inbox_created', { agentId: agent.id, inboxId: inbox.id, humanId: record.humanId }, createdAt, sourceInbox.id);
       return { agent, credentials, inbox };
-    }, [plannedInboxId], [enrollmentMutationKey(tokenHash)]);
+    }, [plannedInboxId], [enrollmentMutationKey(tokenHash), humanEnrollmentMutationKey(pendingRecord.humanId)]);
     return json(res, 201, { agent: publicAgent(enrolled.agent), ...enrolled.credentials, inbox: enrolled.inbox, nativeMessaging: 'ready' });
   }
 
@@ -2065,15 +2142,30 @@ async function route(req, res) {
     if (!await canAccessInbox(human, inbox) && !agent) return fail(res, 401, 'Authenticated inbox participant required');
   }
 
+  if (req.method === 'GET' && suffix === 'agent-address-availability') {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const localPart = normalizeAgentLocalPart(url.searchParams.get('localPart'));
+    const address = agentAddressForLocalPart(localPart);
+    const available = !await store.getJson(path.join('identities', `${identityKey(address)}.json`));
+    return json(res, 200, { localPart, address, available });
+  }
+
   if (req.method === 'POST' && suffix === 'agent-enrollment-tokens') {
     const human = await auth.getHuman(req);
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    if ((productionConfig.mode === 'production' || process.env.SINALOA_ENFORCE_BETA_AGENT_LIMIT === '1') && await activeAgentCountForHuman(human.id) >= 2) return fail(res, 409, 'The beta allows two active agents per human');
     const input = await body(req);
     const requested = Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages'];
     const permissions = requested.filter(permission => allowedPermissions.has(permission));
     if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
     const profileName = String(input.agentProfile?.name || '').trim();
-    const agentProfile = profileName ? { name: profileName, slug: slugify(input.agentProfile?.slug || profileName), capabilities: Array.isArray(input.agentProfile?.capabilities) ? input.agentProfile.capabilities.slice(0, 20) : [] } : null;
+    const requestedLocalPart = input.agentProfile?.localPart;
+    if (productionConfig.mode === 'production' && !requestedLocalPart) return fail(res, 400, 'Choose an agent address before creating an enrollment token');
+    const localPart = requestedLocalPart ? normalizeAgentLocalPart(requestedLocalPart) : null;
+    if (localPart && !profileName) return fail(res, 400, 'Agent name is required with a chosen address');
+    if (localPart && await store.getJson(path.join('identities', `${identityKey(agentAddressForLocalPart(localPart))}.json`))) return fail(res, 409, 'That agent address is already taken');
+    const agentProfile = profileName ? { name: profileName, slug: localPart || slugify(input.agentProfile?.slug || profileName), ...(localPart ? { localPart } : {}), capabilities: Array.isArray(input.agentProfile?.capabilities) ? input.agentProfile.capabilities.slice(0, 20) : [] } : null;
     const rawToken = crypto.randomBytes(32).toString('base64url');
     const record = { id: store.id('enrollment'), tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
     await store.putJson(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record);
@@ -2241,7 +2333,7 @@ async function route(req, res) {
     const human = await auth.getHuman(req);
     if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Workspace membership required');
     const [view, requesterCanManage] = await Promise.all([
-      humanView(inboxId, inbox, parseHistoryCursors(url.searchParams.get('history'))),
+      humanView(inboxId, inbox, req, parseHistoryCursors(url.searchParams.get('history'))),
       canManageInbox(human, inbox)
     ]);
     return json(res, 200, { ...view, canManageInbox: requesterCanManage });
@@ -2423,7 +2515,10 @@ async function route(req, res) {
   const caseRoute = suffix.match(/^cases\/([^/]+)(?:\/(events|actions|policy-evaluations|proposals|receipt))?$/);
   if (req.method === 'GET' && caseRoute && !caseRoute[2]) {
     const value = await getCase(inboxId, caseRoute[1]);
-    return value ? json(res, 200, value) : fail(res, 404, 'Case not found');
+    if (!value) return fail(res, 404, 'Case not found');
+    const human = await auth.getHuman(req);
+    if (!human && !await canAgentReadNativeCase(inboxId, caseRoute[1], await getAgentPrincipal(req, inboxId))) return fail(res, 403, 'Case access is paused or blocked');
+    return json(res, 200, value);
   }
 
   if (req.method === 'POST' && caseRoute?.[2] === 'events') {
@@ -2611,24 +2706,56 @@ async function route(req, res) {
     if (!principal || principal.id === undefined || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!input.result || !input.authorityBasis) return fail(res, 400, 'Receipt result and authorityBasis are required');
+    const nativeBinding = await store.getJson(nativeCaseBindingPath(caseRoute[1]));
+    const relatedInboxIds = nativeBinding?.inboxIds?.includes(inboxId) ? nativeBinding.inboxIds.filter(id => id !== inboxId) : [];
     const receipt = await withInboxMutation(inboxId, async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
       if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
       if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
+      const currentBinding = nativeBinding ? await store.getJson(nativeCaseBindingPath(value.id)) : null;
+      if (nativeBinding && (!currentBinding || currentBinding.pausedAt || currentBinding.revokedAt || currentBinding.completedAt || value.nativeOutcome?.status !== 'accepted')) {
+        throw Object.assign(new Error('Native case requires an active accepted decision before completion'), { statusCode: 409 });
+      }
       const now = store.now();
-      const created = { id: store.id('receipt'), result: input.result, counterparties: input.counterparties || [], externalIds: input.externalIds || {}, authorityBasis: input.authorityBasis, humanApprovalStatus: input.humanApprovalStatus || 'notRequired', evidenceRefs: input.evidenceRefs || [], createdAt: now };
+      const verifiedApproval = value.events.some(event => event.type === 'humanAction' && event.payload?.action?.actionKey === 'approveOnce');
+      const created = { id: store.id('receipt'), result: input.result, counterparties: input.counterparties || [], externalIds: input.externalIds || {}, authorityBasis: input.authorityBasis, humanApprovalStatus: verifiedApproval ? 'approved' : input.humanApprovalStatus === 'notRequired' ? 'notRequired' : 'pending', evidenceRefs: input.evidenceRefs || [], createdAt: now };
       const updated = completeCase(value, created, { actor: currentPrincipal.id, at: now });
       await saveCase(inboxId, updated);
+      for (const otherInboxId of relatedInboxIds) {
+        const otherCase = await getCase(otherInboxId, value.id);
+        if (!otherCase?.schemaVersion || otherCase.nativeOutcome?.status !== 'accepted') throw Object.assign(new Error('Counterparty case is not ready for completion'), { statusCode: 409 });
+        assertNativeCaseParticipants(otherCase, currentBinding.agentIds[0], currentBinding.agentIds[1]);
+        const mirrored = completeCase(otherCase, created, { actor: currentPrincipal.id, at: now });
+        await saveCase(otherInboxId, mirrored);
+        await writeAudit('case.completed', { caseId: value.id, receiptId: created.id, actor: currentPrincipal.id }, now, otherInboxId);
+      }
+      if (currentBinding) await store.putJson(nativeCaseBindingPath(value.id), { ...currentBinding, completedAt: now, updatedAt: now });
       await writeAudit('case.completed', { caseId: value.id, receiptId: created.id, actor: currentPrincipal.id });
       return created;
-    });
+    }, relatedInboxIds);
     return json(res, 201, receipt);
   }
 
-  if (req.method === 'GET' && suffix === 'cases') return json(res, 200, await listCases(inboxId, { limit: url.searchParams.get('limit'), before: url.searchParams.get('before') }));
-  if (req.method === 'GET' && suffix === 'messages') return json(res, 200, await listMessages(inboxId, url.searchParams.get('caseId'), { limit: url.searchParams.get('limit'), before: url.searchParams.get('before') }));
+  if (req.method === 'GET' && suffix === 'cases') {
+    const cases = await listCases(inboxId, { limit: url.searchParams.get('limit'), before: url.searchParams.get('before') });
+    const human = await auth.getHuman(req);
+    const agent = human ? null : await getAgentPrincipal(req, inboxId);
+    return json(res, 200, human ? cases : (await Promise.all(cases.map(async value => await canAgentReadNativeCase(inboxId, value.id, agent) ? value : null))).filter(Boolean));
+  }
+  if (req.method === 'GET' && suffix === 'messages') {
+    const caseId = url.searchParams.get('caseId');
+    const human = await auth.getHuman(req);
+    const agent = human ? null : await getAgentPrincipal(req, inboxId);
+    if (caseId && !human) {
+      const binding = await store.getJson(nativeCaseBindingPath(caseId));
+      if (binding && !binding.inboxIds?.includes(inboxId)) return json(res, 200, []);
+    }
+    if (caseId && !human && !await canAgentReadNativeCase(inboxId, caseId, agent)) return fail(res, 403, 'Case access is paused or blocked');
+    const messages = await listMessages(inboxId, caseId, { limit: url.searchParams.get('limit'), before: url.searchParams.get('before') });
+    return json(res, 200, human || caseId ? messages : (await Promise.all(messages.map(async message => await canAgentReadNativeCase(inboxId, message.caseId, agent) ? message : null))).filter(Boolean));
+  }
   if (req.method === 'GET' && suffix === 'delivery-receipts') {
     const receipts = await store.listJson(path.join('inboxes', inboxId, 'delivery-receipts'));
     return json(res, 200, receipts.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));
@@ -3021,7 +3148,22 @@ async function route(req, res) {
   if (req.method === 'GET' && downloadAsset) {
     const asset = await objectStorage.getObject(assertSafeIdentifier(downloadAsset[1], 'assetId'));
     if (!await assetGrantAccess(asset, inbox, req)) return fail(res, 404, 'Asset not found');
+    if (asset.workspaceId !== inboxId) return json(res, 200, { object: asset, download: {
+      url: `${publicBaseUrl(req)}/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(asset.id)}/content`,
+      method: 'GET', headers: {}
+    } });
     return json(res, 200, { object: asset, download: browserObjectUrl(await objectStorage.createDownload(asset.id), req) });
+  }
+
+  const contentAsset = suffix.match(/^assets\/([^/]+)\/content$/);
+  if (req.method === 'GET' && contentAsset) {
+    const asset = await objectStorage.getObject(assertSafeIdentifier(contentAsset[1], 'assetId'));
+    if (!await assetGrantAccess(asset, inbox, req)) return fail(res, 404, 'Asset not found');
+    const { bytes } = await objectStorage.readCleanObject(asset.id);
+    res.writeHead(200, { 'content-type': asset.mimeType, 'content-length': String(bytes.length),
+      'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff',
+      'content-disposition': `attachment; filename="${String(asset.filename || 'download').replace(/[\r\n"\\]/g, '_').slice(0, 180)}"` });
+    return res.end(bytes);
   }
 
   const assetGrantRoute = suffix.match(/^assets\/([^/]+)\/grants(?:\/(revoke))?$/);
@@ -3053,6 +3195,7 @@ async function route(req, res) {
       const grantPath = assetGrantPath(directory.inboxId, assetId);
       const existing = await store.getJson(grantPath);
       if (existing && (existing.caseId !== asset.caseId || existing.recipientAgentId !== recipient.id || existing.ownerInboxId !== inboxId)) throw Object.assign(new Error('Asset grant already belongs to another counterparty'), { statusCode: 409 });
+      if (existing && Boolean(existing.revokedAt) === Boolean(assetGrantRoute[2])) return existing;
       const now = store.now();
       const grant = { id: `grant_${assetId}`, assetId, caseId: asset.caseId, ownerInboxId: inboxId, recipientInboxId: directory.inboxId, createdByAgentId: creator.id, recipientAgentId: recipient.id, grantedBy: principal?.id || human.id, grantedAt: existing?.grantedAt || now, revokedAt: assetGrantRoute[2] ? now : null, updatedAt: now };
       await store.putJson(grantPath, grant);
