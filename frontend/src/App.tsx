@@ -848,7 +848,7 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
   const [open, setOpen] = useState(false);
   const steps = onboardingSteps(view, agentInboxes);
   const completeCount = steps.filter(step => step.complete).length;
-  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Bring one agent online, share its native address, and watch direct agent exchanges reach durable receipts.">
+  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Enroll an agent identity, connect its external runtime, share its native address, and observe direct exchanges without claiming live presence.">
     {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages agent enrollment. You can observe your agent’s conversations." tone="attention" />}
     <section className="onboarding-card" aria-labelledby="onboarding-title">
       <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
