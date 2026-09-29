@@ -22,13 +22,27 @@ async function authorized(request, token) {
 }
 
 async function queryClamd(container, command, body = null) {
-  await container.startAndWaitForPorts({
-    ports: [CLAMD_PORT],
-    cancellationOptions: { portReadyTimeoutMS: 180_000 }
-  });
-  const socket = container.ctx.container.getTcpPort(CLAMD_PORT).connect('10.0.0.1:3310');
+  // Cloudflare's startAndWaitForPorts probes with HTTP, which clamd does not speak.
+  await container.start(undefined, { retries: 200, waitInterval: 300, portToCheck: CLAMD_PORT });
+  const deadline = Date.now() + 180_000;
+  let socket;
+  for (;;) {
+    let candidate;
+    try {
+      candidate = container.ctx.container.getTcpPort(CLAMD_PORT).connect('10.0.0.1:3310');
+      await Promise.race([
+        candidate.opened,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('ClamAV TCP connection timed out')), 3_000))
+      ]);
+      socket = candidate;
+      break;
+    } catch (error) {
+      try { candidate?.close(); } catch { /* Connection was never opened. */ }
+      if (Date.now() >= deadline) throw error;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
   try {
-    await socket.opened;
     const writer = socket.writable.getWriter();
     await writer.write(clamdCommand(command));
     if (command === 'INSTREAM') {
@@ -64,7 +78,7 @@ async function queryClamd(container, command, body = null) {
 
 export class ClamAVContainer extends Container {
   requiredPorts = [CLAMD_PORT];
-  sleepAfter = '5m';
+  sleepAfter = '10m';
   enableInternet = true;
 
   async fetch(request) {

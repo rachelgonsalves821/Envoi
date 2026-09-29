@@ -38,6 +38,9 @@
   "env": {
     "staging": {
       "workers_dev": true,
+      "vars": {
+        "SINALOA_MALWARE_SCANNER_URL": "https://sinaloa-scanner-staging.rachelgonsalves821.workers.dev/scan"
+      },
       "containers": [
         {
           "name": "sinaloa-beta-staging",
