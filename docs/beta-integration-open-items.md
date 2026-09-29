@@ -1,8 +1,8 @@
 # Beta integration open items
 
-Updated 2026-09-29. This file tracks the combined R1/R2 release candidate. Keep an item open until its evidence exists on the exact candidate commit. A local mock, skipped live-provider test, or UI visibility without matching server enforcement does not complete a hosted gate.
+Updated 2026-09-29. This file tracks the combined R1/R2 release candidate. Keep an item open until its evidence exists on the exact implementation commit. A later documentation-only tracker commit does not invalidate that evidence. A local mock, skipped live-provider test, or UI visibility without matching server enforcement does not complete a hosted gate.
 
-Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. The invite-only beta at `https://beta.sinaloa-inbox.com` is a later promotion target after staging passes. The native agent address domain is `agents.sinaloa-inbox.com`; staging must configure `SINALOA_AGENT_DOMAIN` accordingly. Keep staging provider data, secrets, storage, and callbacks separate from beta.
+Rachel chose **one lightweight invite-only beta environment**, not a separate staging stack. The release target is `https://beta.sinaloa-inbox.com`, and the native agent address domain is `agents.sinaloa-inbox.com`. Validate the exact reviewed commit on that beta origin before inviting the wider 20-person cohort.
 
 ## Ownership boundary
 
@@ -31,10 +31,10 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Local manager pause/resume and native block/unblock controls call enforcing routes; focused frontend and two-owner server tests pass.
 - [x] Local chosen-address test verifies exact lowercase address, atomic collision denial, parent redemption audit marker and two-active-agent cap. Hosted configuration remains open.
 - [x] Local backend (99 pass, 8 live-provider/PostgreSQL skips), frontend (58), TypeScript SDK (37), Python SDK (4), bridge (26), OpenClaw adapter (16), Worker (6), typecheck, production web build, and both agent adapter builds pass on the combined working tree.
-- [x] Wrangler dry-runs pass for the root Worker and isolated `staging` environment.
+- [x] Wrangler dry-runs pass for the root Worker and beta configuration.
 - [x] GitHub's `test` check passed at `98c5469`, including Docker build/startup, PostgreSQL tests, both Wrangler dry-runs, frontend, SDKs, backend, and the bridge suite with the real-server file fixture enabled.
-- [x] Integrated code is committed and pushed in draft PR #5. The exact remote branch head was verified at `98c5469` before this tracker update.
-- [ ] Require green checks for the final exact head SHA. Cloudflare's automatic branch Preview failed at `98c5469` after a successful build: its dashboard deploy command is `npx wrangler preview`, but `wrangler.jsonc` lacks a `previews` block. This is a separate Preview configuration issue; it does not establish staging readiness.
+- [x] Integrated code is committed and pushed in draft PR #5. The exact implementation and CI head is `98c5469`; this tracker update is documentation-only.
+- [ ] Cloudflare's automatic branch Preview failed at `98c5469` after a successful build because its dashboard command is `npx wrangler preview`, while `wrangler.jsonc` intentionally has no `previews` block. Disable that unused automatic Preview path and deploy the reviewed commit directly to the invite-only beta with the explicit beta deploy command.
 
 ## WorkOS beta account configuration reported from the product setup chat
 
@@ -45,25 +45,25 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Initiate login: `https://beta.sinaloa-inbox.com/api/auth/workos/sign-in`.
 - [x] Session policy: 7-day maximum, 1-day inactivity timeout, 5-minute access token.
 - [x] Hosted invitation and password-reset URLs remain at WorkOS defaults.
-- [ ] Configure a separate staging WorkOS callback and credentials for the isolated staging origin; verify invite-only admission and MFA there with two separate human accounts.
+- [ ] Verify invite-only admission and MFA end to end on the deployed beta origin with two separate human accounts.
 
 ## Provider and deployment gates not blocked by R2
 
 - [ ] Provision managed PostgreSQL with TLS, migrations, backups, and a restore test.
 - [ ] Provision the HTTPS malware scanner and verify clean, infected, timeout, redirect, and negative-health behavior.
 - [ ] Verify the Cloudflare build token has `Containers Edit` permission.
-- [ ] Configure the isolated staging Worker's non-R2 variables and encrypted secrets without printing or committing secret values.
-- [ ] Bind a dedicated staging HTTPS hostname only when the reviewed Worker is ready to serve it. Keep `beta.sinaloa-inbox.com` for later promotion.
+- [ ] Configure the beta Worker's non-R2 variables and encrypted secrets without printing or committing secret values.
+- [ ] Bind `beta.sinaloa-inbox.com` only to the reviewed beta Worker.
 - [ ] Run configuration preflight, Container/Wrangler dry-run, and all tests that do not require live object storage.
 
 ## R2-dependent gates
 
 - [ ] Activate the Cloudflare R2 subscription.
-- [ ] Create a private staging bucket, bucket-restricted S3 credentials, and exact-origin CORS.
-- [ ] Configure R2 endpoint, bucket, access key, and secret as staging runtime settings.
+- [ ] Create a private beta bucket, bucket-restricted S3 credentials, and exact-origin CORS.
+- [ ] Configure R2 endpoint, bucket, access key, and secret as beta runtime settings.
 - [ ] Prove signed PUT/GET, checksum, quota, clean scan, quarantine, recipient grant, denial, and restart persistence against live R2.
 
-## Isolated staging acceptance before beta promotion
+## Invite-only beta acceptance
 
 - [ ] Deploy the exact reviewed commit and obtain a positive `/ready` response.
 - [ ] Two invited humans complete WorkOS MFA and independently enroll one external agent each.
@@ -71,11 +71,11 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [ ] Complete two distinct multi-turn cases, typed offer/decision, a clean shared file, offline delivery, connector restart, and exactly-once reply behavior.
 - [ ] Exercise expired and revoked credentials, pause/resume, block/unblock, quarantine, cross-tenant denial, stale browser session, reload, and pagination.
 - [ ] Verify alerts, backup/restore, Container restart, and rollback to the previous image/commit.
-- [ ] Promote the verified commit to the invite-only beta and invite the 20 humans in small batches only after the critical journey passes on staging.
+- [ ] Invite the 20 humans in small batches only after the critical journey passes on the beta origin.
 
 ## Current blockers
 
-1. PR #5 remains draft. GitHub's `test` check passed at `98c5469` with the real-server fixture enabled. Cloudflare's automatic Preview still failed because `wrangler.jsonc` has no `previews` block; configure a fully isolated Preview or disable automatic Previews while using the separate staging Worker.
-2. Isolated staging PostgreSQL, WorkOS, runtime secrets, scanner, migrations, backup/restore, and readiness are not yet verified live.
+1. PR #5 remains draft. GitHub Backend CI passed at `98c5469` with the real-server fixture enabled. Cloudflare's unused automatic Preview path must be disabled before the beta branch can show green checks.
+2. Managed PostgreSQL, beta runtime secrets, scanner, migrations, backup/restore, and readiness are not yet verified live.
 3. R2 subscription and live object-storage acceptance remain outstanding.
 4. Real hosted OpenClaw/xAI and two-human browser acceptance cannot run until deployment is healthy.
