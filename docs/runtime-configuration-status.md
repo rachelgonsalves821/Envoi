@@ -1,6 +1,13 @@
 # Cloudflare runtime configuration status
 
-The Worker `sinaloa` Production settings were checked in a signed-in Cloudflare dashboard on 2026-09-28. A later read-only check on 2026-09-28 verified the repository and public endpoints but could not reopen the account dashboard. Dashboard observations below are therefore the **last confirmed account snapshot**, not a claim that the same settings are still present.
+The Worker `sinaloa` Production settings were checked in a signed-in Cloudflare dashboard on 2026-09-28. Historical observations below describe that snapshot; current subscription status was checked again on 2026-09-28.
+
+## Current account check — 2026-09-28
+
+- The signed-in account's **Workers Paid** card showed **Current plan**, and its highlights list Containers. This verifies the account entitlement, not a working deployment or the Builds token's `Containers Edit` permission.
+- R2 still redirected to `/r2/plans` and showed **Add R2 subscription to my account**. No R2 bucket or live signed-object test is available yet. The account owner must complete the billing/terms step personally before staging storage can be provisioned.
+- `wrangler whoami` still reported **not authenticated** on this computer. No staging Worker, Container, PostgreSQL database, WorkOS environment, scanner, or runtime secret was provisioned by this check. The local process environment did not contain the required provider credentials.
+- Use the separate `sinaloa-staging` Worker configuration and staging-only provider resources. Do not use the existing Production Worker or its data for beta acceptance.
 
 ## Follow-up verification — 2026-09-28
 
@@ -57,15 +64,15 @@ Optional provider-specific settings: `SINALOA_DB_CA` (secret, if the provider CA
 
 ## Provider evidence and blockers
 
-- **R2 was not activated at the last dashboard check.** Opening R2 Object Storage redirected to `/r2/plans`, showing “Get started with R2” and “Add R2 subscription to my account.” Activation requires accepting billing/terms. No subscription was purchased or terms accepted in that workstream. Recheck account state; after activation, create private staging and production buckets, restricted S3 credentials and app-origin CORS, then run live upload/download/quarantine tests.
+- **R2 was still inactive at the current dashboard check.** Opening R2 Object Storage redirected to `/r2/plans`, showing “Get started with R2” and “Add R2 subscription to my account.” Activation requires the account owner to accept billing/terms. After activation, create private staging and production buckets, restricted S3 credentials and app-origin CORS, then run live upload/download/quarantine tests.
 - **PostgreSQL, WorkOS and scanner provisioning remain unverified.** The relevant checkout contains environment examples, not configured production environment files. No credentials were invented or copied from unrelated projects. The local disposable PostgreSQL test instance is not a production service.
 - **Application secrets still need secure provisioning.** Store them directly as encrypted Worker runtime secrets using the owner’s approved secure process; do not paste them in chat or commit them. Keep encryption/signing keys backed up securely.
-- **Workers Paid, container entitlement and Builds permissions still need release verification.** The follow-up did not gain authenticated account access and did not retry the existing failed build. Confirm the intended build token has `Account > Containers Edit` in the correct Cloudflare account.
+- **Workers Paid and Containers entitlement are confirmed in the current dashboard.** The intended Builds token's `Account > Containers Edit` permission and an actual Container rollout remain unverified.
 - **Initial optional integrations stay disabled.** Resend email credentials/domain verification and Google/Microsoft calendar OAuth are not required while their feature flags are false. They require separate provider setup and acceptance before enablement.
 
 ## Completion sequence
 
-1. Owner checks Workers Paid/Containers entitlement, R2 activation and the Builds token's `Containers Edit` permission in the intended account; locate or provision managed PostgreSQL, the WorkOS environment and HTTPS scanner. Record resource names and owners without recording secret values.
+1. Owner activates R2 and verifies the Builds token's `Containers Edit` permission in the intended account; locate or provision managed PostgreSQL, the WorkOS environment and HTTPS scanner. Record resource names and owners without recording secret values.
 2. Partner sets up isolated staging and production resources, then fills each Worker's runtime entries with real provider values and independent application keys. Keep each environment's public URL, CORS, WorkOS callback and R2 CORS on its own exact origin.
 3. Run the ignored `.env.production` through `node --env-file=.env.production scripts/preflight.mjs`, without printing values. Passing preflight only validates configuration structure.
 4. Apply migrations and run live dependency acceptance. Confirm the reviewed deployment preserves the runtime table, then deploy the reviewed commit and verify smoke/end-to-end tests.
