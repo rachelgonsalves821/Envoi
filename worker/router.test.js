@@ -16,7 +16,8 @@ test('allowed hostnames are normalized and enforced', () => {
   ]);
   assert.equal(isAllowedHostname(new URL('https://sinaloa-inbox.com/api'), 'sinaloa-inbox.com'), true);
   assert.equal(isAllowedHostname(new URL('https://attacker.example/api'), 'sinaloa-inbox.com'), false);
-  assert.equal(isAllowedHostname(new URL('https://preview.workers.dev/api'), ''), true);
+  assert.equal(isAllowedHostname(new URL('https://preview.workers.dev/api'), ''), false);
+  assert.equal(isAllowedHostname(new URL('https://preview.workers.dev/api'), undefined), false);
 });
 
 test('only allowlisted non-empty environment values reach the container', () => {

@@ -64,6 +64,10 @@ The dashboard warns that Wrangler configuration must stay synchronized. The reco
 | `WORKOS_CLIENT_ID` | Variable | Intended WorkOS environment |
 | `WORKOS_API_KEY` | Secret | Same WorkOS environment; live membership/sign-in acceptance required |
 | `WORKOS_COOKIE_PASSWORD` | Secret | Independent strong application session secret, at least 32 characters |
+| `SINALOA_BETA_INVITED_EMAILS` | Variable | Exact invited staging human email addresses; do not include production invitees without explicit approval |
+| `SINALOA_TWILIO_ACCOUNT_SID` | Secret | Staging Twilio account identifier for management-session phone assurance |
+| `SINALOA_TWILIO_AUTH_TOKEN` | Secret | Corresponding staging Twilio credential |
+| `SINALOA_TWILIO_VERIFY_SERVICE_SID` | Secret | Staging Verify service identifier |
 | `SINALOA_DATA_ENCRYPTION_KEY` | Secret | Independent strong encryption key, at least 32 characters; retain securely for existing encrypted data |
 | `SINALOA_POLICY_SIGNING_KEY` | Secret | Independent signing key, at least 32 characters, corresponding to `primary`; alternatively use `SINALOA_POLICY_SIGNING_KEYS` JSON keyring |
 | `SINALOA_AGENT_DOMAIN` | Variable | Confirm controlled native-address domain; release-plan candidate is `agents.sinaloa-inbox.com`, not yet applied/verified |
