@@ -32,6 +32,8 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Local chosen-address test verifies exact lowercase address, atomic collision denial, parent redemption audit marker and two-active-agent cap. Hosted configuration remains open.
 - [x] Local backend (99 pass, 8 live-provider/PostgreSQL skips), frontend (58), TypeScript SDK (37), Python SDK (4), bridge (26), OpenClaw adapter (16), Worker (6), typecheck, production web build, and both agent adapter builds pass on the combined working tree.
 - [x] Wrangler dry-runs pass for the root Worker and isolated `staging` environment.
+- [x] Partner staging host admission fails closed on an absent or unlisted hostname, with Worker tests passing after integration.
+- [x] The bounded local stress harness passes with three owners, two cases, concurrent writes/reads/MCP calls, idempotent retries, and denied injection/spoof attempts. It found rotating invalid MCP bearer strings bypassed the per-token limiter; MCP requests now consume a source-IP limit before bearer lookup and a per-token limit after successful authentication. This is local FileStore evidence, not hosted load acceptance.
 - [x] GitHub's `test` check passed at `98c5469`, including Docker build/startup, PostgreSQL tests, both Wrangler dry-runs, frontend, SDKs, backend, and the bridge suite with the real-server file fixture enabled.
 - [x] Integrated code is committed and pushed in draft PR #5. The exact remote branch head was verified at `98c5469` before this tracker update.
 - [ ] Require green checks for the final exact head SHA. Cloudflare's automatic branch Preview failed at `98c5469` after a successful build: its dashboard deploy command is `npx wrangler preview`, but `wrangler.jsonc` lacks a `previews` block. This is a separate Preview configuration issue; it does not establish staging readiness.
@@ -54,7 +56,7 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [ ] Verify the deployed application connects to staging PostgreSQL with certificate-verified TLS and passes live CRUD/restart checks. Define a durable beta backup policy before real-user signoff.
 - [ ] Provision the HTTPS malware scanner and verify clean, infected, timeout, redirect, and negative-health behavior.
 - [ ] Verify the Cloudflare build token has `Containers Edit` permission.
-- [ ] Complete the staging Worker's non-R2 variables and encrypted secrets. Database, WorkOS, and application keys are saved; scanner, Twilio Verify, and exact invited-email allowlist remain.
+- [ ] Complete the staging Worker's non-R2 variables and encrypted secrets. Database, WorkOS, application keys, and the two-human invite allowlist are saved; scanner and Twilio Verify remain.
 - [ ] Bind a dedicated staging HTTPS hostname only when the reviewed Worker is ready to serve it. Keep `beta.sinaloa-inbox.com` for later promotion.
 - [ ] Run configuration preflight, Container/Wrangler dry-run, and all tests that do not require live object storage.
 

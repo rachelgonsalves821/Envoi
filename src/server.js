@@ -184,10 +184,10 @@ const ratePolicy = (req, pathname) => {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return { limit: 180, windowMs: 60_000 };
   return { limit: 1200, windowMs: 60_000 };
 };
-const consumeRateLimit = (req, res, pathname) => {
+const consumeRateLimit = (req, res, pathname, identityKey = rateIdentity(req)) => {
   const policy = ratePolicy(req, pathname);
   const now = Date.now();
-  const key = `${rateIdentity(req)}:${req.method}:${policy.limit}`;
+  const key = `${identityKey}:${req.method}:${policy.limit}`;
   let bucket = rateBuckets.get(key);
   if (!bucket || bucket.resetAt <= now) bucket = { count: 0, resetAt: now + policy.windowMs };
   bucket.count += 1;
@@ -1598,7 +1598,11 @@ async function route(req, res) {
   catch { return fail(res, 400, 'Invalid request path'); }
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   req.setTimeout(requestTimeoutMs);
-  if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
+  if (url.pathname === '/mcp') {
+    // Apply the source-IP bound before resolving an attacker-controlled bearer.
+    const ipKey = `mcp-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
+    if (!consumeRateLimit(req, res, url.pathname, ipKey)) return fail(res, 429, 'Request rate limit exceeded');
+  } else if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
   const csrfExempt = url.pathname === '/api/email-webhooks/resend'
     || url.pathname.startsWith('/api/object-storage/local-upload/')
     || url.pathname === '/api/auth/phone/start'
@@ -1610,6 +1614,7 @@ async function route(req, res) {
       res.setHeader('www-authenticate', 'Bearer realm="Sinaloa agent MCP"');
       return fail(res, 401, 'Active v1 agent credential required');
     }
+    if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
     const callRest = async (method, pathname, input, idempotencyKey) => {
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Local API is unavailable');
