@@ -9,7 +9,6 @@ export function parseAllowedHostnames(value) {
 
 export function isAllowedHostname(url, configuredHostnames) {
   const allowed = parseAllowedHostnames(configuredHostnames);
-  if (allowed.size === 0) return true;
   return allowed.has(normalizeHostname(url.hostname));
 }
 
