@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SinaloaConnector, type ConnectorSession, type ConnectorStore } from '../../sdk/typescript/src/connector';
 import { startOpenClawMcpRelay } from '../openclaw/mcp-relay';
-import { probeXaiMcp } from './mcp-smoke';
+import { probeXaiCaseAssetMcp, probeXaiMcp } from './mcp-smoke';
 
 const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
 
@@ -61,5 +61,41 @@ describe('xAI MCP invocation smoke path', () => {
         ] }), endpoint: 'http://127.0.0.1:8788/v1/responses' }))
         .rejects.toThrow('no successful sinaloa_agent_info MCP call');
     } finally { await relay.close(); }
+  });
+});
+
+describe('xAI case file MCP proof', () => {
+  const options = { apiKey: 'xai-test-key', model: 'grok-test',
+    mcpUrl: 'https://staging.example.test/mcp', accessToken: 'case-scoped-read-token',
+    caseId: 'case_one', expectedAssetId: 'asset_secret_123',
+    endpoint: 'http://127.0.0.1:8788/v1/responses' };
+
+  it('requires a completed message-read call and an asset ID hidden from the prompt', async () => {
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      expect(request.tools[0].allowed_tools).toEqual(['sinaloa_list_messages']);
+      expect(request.tools[0].authorization).toBe('Bearer case-scoped-read-token');
+      expect(request.input).toContain('case_one');
+      expect(JSON.stringify(request)).not.toContain(options.expectedAssetId);
+      return json({ status: 'completed', output: [
+        { type: 'mcp_call', name: 'sinaloa_list_messages', server_label: 'sinaloa', status: 'completed' },
+        { type: 'message', content: [{ type: 'output_text', text: `Shared asset ${options.expectedAssetId}` }] }
+      ] });
+    });
+    await expect(probeXaiCaseAssetMcp({ ...options, fetch: fetcher })).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a guessed ID or failed tool call', async () => {
+    const answer = { type: 'message', content: [{ type: 'output_text', text: options.expectedAssetId }] };
+    await expect(probeXaiCaseAssetMcp({ ...options, fetch: async () => json({ status: 'completed', output: [answer] }) }))
+      .rejects.toThrow('no successful sinaloa_list_messages MCP call');
+    await expect(probeXaiCaseAssetMcp({ ...options, fetch: async () => json({ status: 'completed', output: [
+      { type: 'mcp_call', name: 'sinaloa_list_messages', status: 'failed', error: 'forbidden' }, answer
+    ] }) })).rejects.toThrow('no successful sinaloa_list_messages MCP call');
+    await expect(probeXaiCaseAssetMcp({ ...options, fetch: async () => json({ status: 'completed', output: [
+      { type: 'mcp_call', name: 'sinaloa_list_messages', status: 'completed' },
+      { type: 'message', content: [{ type: 'output_text', text: 'No file found' }] }
+    ] }) })).rejects.toThrow('did not report the asset ID');
   });
 });

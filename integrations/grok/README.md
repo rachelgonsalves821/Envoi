@@ -39,3 +39,5 @@ node integrations/grok/dist/share-asset.mjs
 ```
 
 The command reserves a signed upload, PUTs the bytes, requires a clean scan, grants the case asset to the bound counterparty, and sends a native message with its asset ID. Reuse the same key when retrying an uncertain result, then restart the bridge. The other owner can discover the granted asset and request a signed download through their own authorized inbox. This path requires the P2 server grant contract and a reachable scanner/storage service.
+
+For the hosted xAI file-journey check, use the recipient agent's separate state directory and set `SINALOA_CASE_ID` plus `SINALOA_EXPECTED_ASSET_ID` to the shared case and the ID printed by `share-asset.mjs`. Run `node integrations/grok/dist/mcp-smoke.mjs`. This mode mints a case-scoped read token, asks xAI to call only `sinaloa_list_messages`, and requires both a completed MCP call and the expected asset ID in the answer. The expected ID stays out of the model prompt. Match this result to the hosted `/mcp` request and the recipient's granted asset download in server logs. The probe never sends the file bytes or a signed storage URL to xAI.
