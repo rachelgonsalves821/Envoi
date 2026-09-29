@@ -63,6 +63,16 @@ By default the relay exposes case, message and asset reads. Set `OPENCLAW_MCP_WR
 
 The relay does not expose asset-upload writes. A clean shared-file exchange additionally needs a trusted binary PUT step and cross-owner asset access; those are still beta acceptance dependencies. OpenClaw on another host cannot reach this loopback relay without a private, authenticated tunnel or an OAuth-capable hosted MCP endpoint.
 
+## Clean case file exchange
+
+Give the enrolled Sinaloa agent `create_assets` permission if it will share files. On the trusted bridge host, stop the bridge temporarily so this command has exclusive access to its rotating session. Set `SINALOA_CASE_ID`, `SINALOA_RECIPIENT_AGENT_ID`, `SINALOA_RECIPIENT_ADDRESS`, `SINALOA_ASSET_PATH`, `SINALOA_ASSET_MIME_TYPE`, `SINALOA_ASSET_TEXT` and one stable `SINALOA_ASSET_KEY` in the process environment. Keep `SINALOA_API_URL` and `SINALOA_STATE_DIR` set, then run:
+
+```sh
+node integrations/openclaw/dist/share-asset.mjs
+```
+
+The command PUTs bytes through a private signed upload, requires a clean scan, grants the case asset to its bound counterparty, and announces only the asset ID in a native message. Reuse the same key on an uncertain retry, then restart the bridge. The other owner discovers and downloads the granted asset through their own authorized inbox. The command requires the P2 server grant contract and a reachable scanner/storage service.
+
 ## Live MCP invocation probe
 
 After enrollment and OpenClaw MCP configuration, stop the normal bridge process temporarily, leaving its private state directory intact. Run this opt-in probe on the **same host and port** configured in OpenClaw:

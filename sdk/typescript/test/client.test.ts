@@ -34,6 +34,22 @@ describe('Sinaloa TypeScript client', () => {
     await expect(putSignedAsset({ url: 'http://r2.example/signed', method: 'PUT' }, new Uint8Array([1]))).rejects.toThrow('HTTPS');
   });
 
+  it('keeps a case asset grant scoped to one recipient and one retry key', async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://api.example/api/inboxes/owner_inbox/assets/asset_one/grants');
+      expect(init?.method).toBe('POST');
+      expect(new Headers(init?.headers).get('idempotency-key')).toBe('case-file-one:grant');
+      expect(JSON.parse(String(init?.body))).toEqual({ recipientAgentId: 'agent_peer' });
+      return new Response(JSON.stringify({ id: 'grant_asset_one', assetId: 'asset_one',
+        recipientAgentId: 'agent_peer' }), { status: 200 });
+    });
+    const client = new SinaloaClient('https://api.example', 'owner-token', { fetch: fetcher as typeof fetch });
+    const first = await client.grantCaseAsset('owner_inbox', 'asset_one', 'agent_peer', 'case-file-one:grant');
+    const replay = await client.grantCaseAsset('owner_inbox', 'asset_one', 'agent_peer', 'case-file-one:grant');
+    expect(replay.id).toBe(first.id);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it('encodes path segments and parses JSON', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ events: [], nextCursor: null, hasMore: false }), { status: 200 }));
     const client = new SinaloaClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
