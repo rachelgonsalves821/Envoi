@@ -376,8 +376,16 @@ export class S3CompatibleObjectStorageAdapter {
     const response = await this.#request('HEAD', key);
     if (response.status === 404) return null;
     if (!response.ok) throw new ObjectStorageError('OBJECT_STORAGE_UNAVAILABLE', `S3 HEAD failed with ${response.status}`, 503);
-    const size = Number(response.headers.get('content-length'));
-    const checksumSha256 = response.headers.get('x-amz-meta-sinaloa-sha256') || response.headers.get('x-amz-checksum-sha256');
+    let size = Number(response.headers.get('content-length'));
+    let checksumSha256 = response.headers.get('x-amz-meta-sinaloa-sha256') || response.headers.get('x-amz-checksum-sha256');
+    if (!Number.isSafeInteger(size) || size === 0) {
+      // A live R2 HEAD returned zero length for a nonempty object; use the
+      // retrieved bytes for both size and checksum before accepting upload.
+      const body = await this.getObject(key);
+      if (!body) return null;
+      size = body.length;
+      checksumSha256 = sha256Base64(body);
+    }
     return immutable({ size, checksumSha256, contentType: response.headers.get('content-type') });
   }
   async getObject(key) {
