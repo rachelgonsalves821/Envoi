@@ -312,6 +312,17 @@ const agentCredentialPath = tokenHash => path.join('auth', 'agent-credentials', 
 const agentRefreshCredentialPath = tokenHash => path.join('auth', 'agent-refresh-credentials', `${tokenHash}.json`);
 const agentCredentialFamilyPath = (inboxId, agentId, familyId) => path.join('auth', 'agent-credential-families', inboxId, agentId, `${familyId}.json`);
 const expiresAfter = milliseconds => new Date(Date.now() + milliseconds).toISOString();
+const mcpReadTokenTtlMs = 5 * 60_000;
+
+function scopedMcpReadRequest(req, inboxId, caseId) {
+  if (req.method !== 'GET' || !caseId) return false;
+  const url = new URL(req.url, 'http://localhost');
+  const base = `/api/inboxes/${inboxId}`;
+  if (url.pathname === `${base}/cases/${caseId}`) return url.search === '';
+  return url.pathname === `${base}/messages`
+    && url.searchParams.get('caseId') === caseId
+    && [...url.searchParams.keys()].every(key => ['caseId', 'limit', 'before'].includes(key));
+}
 
 async function issueAgentCredentials(agentId, inboxId, familyId = store.id('credential_family')) {
   const issuedAt = store.now();
@@ -361,6 +372,19 @@ async function rotateAgentCredentials(rawRefreshToken) {
   return typeof store.withTransaction === 'function' ? store.withTransaction([inboxMutationKey(pending.inboxId)], rotate) : rotate();
 }
 
+async function issueMcpReadToken(identity, caseId) {
+  if (identity.agent.pausedAt) throw Object.assign(new Error('Paused agents cannot issue MCP read tokens'), { statusCode: 403 });
+  if (caseId && !await getCase(identity.inboxId, caseId)) throw Object.assign(new Error('Case not found'), { statusCode: 404 });
+  const raw = `sinaloa_mcp_read_${crypto.randomBytes(32).toString('base64url')}`;
+  const expiresAt = expiresAfter(mcpReadTokenTtlMs);
+  await store.putJson(agentCredentialPath(hashSecret(raw)), {
+    tokenType: 'mcp_read', agentId: identity.agent.id, inboxId: identity.inboxId,
+    familyId: identity.familyId, caseId, issuedAt: store.now(), expiresAt, revokedAt: null
+  });
+  await audit(identity.inboxId, 'agent.mcp_read_token_issued', { agentId: identity.agent.id, caseId, expiresAt });
+  return { mcpAccessToken: raw, tokenType: 'Bearer', scope: 'case_read', caseId, expiresAt };
+}
+
 const getAgentPrincipal = async (req, inboxId) => {
   const raw = bearerToken(req);
   if (!raw) return null;
@@ -370,12 +394,13 @@ const getAgentPrincipal = async (req, inboxId) => {
   if (!index.tokenType) {
     if (process.env.SINALOA_AUTH_MODE === 'production') return null;
   } else {
-    if (index.tokenType !== 'access' || index.revokedAt || new Date(index.expiresAt) <= new Date()) return null;
+    if (!['access', 'mcp_read'].includes(index.tokenType) || index.revokedAt || new Date(index.expiresAt) <= new Date()) return null;
+    if (index.tokenType === 'mcp_read' && !scopedMcpReadRequest(req, inboxId, index.caseId)) return null;
     const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));
     if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
   }
   const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${index.agentId}.json`));
-  return agent?.status === 'active' && agent.onboardingStatus === 'approved' ? agent : null;
+  return agent?.status === 'active' && agent.onboardingStatus === 'approved' && !(index.tokenType === 'mcp_read' && agent.pausedAt) ? agent : null;
 };
 const workClaimPath = (inboxId, workId) => path.join('inboxes', inboxId, 'work-claims', `${workId}.json`);
 
@@ -389,6 +414,20 @@ async function getAgentWorkIdentity(req) {
   const agent = await store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`));
   if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') return null;
   return { agent, familyId: index.familyId, inboxId: index.inboxId };
+}
+
+async function getMcpIdentity(req) {
+  const full = await getAgentWorkIdentity(req);
+  if (full) return full.agent.pausedAt ? null : full;
+  const raw = bearerToken(req);
+  if (!raw?.startsWith('sinaloa_mcp_read_')) return null;
+  const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
+  if (!index || index.tokenType !== 'mcp_read' || index.revokedAt || new Date(index.expiresAt) <= new Date()) return null;
+  const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));
+  if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
+  const agent = await store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`));
+  if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved' || agent.pausedAt) return null;
+  return { agent, familyId: index.familyId, inboxId: index.inboxId, mcpScope: { caseId: index.caseId } };
 }
 const body = async (req) => {
   let raw = '';
@@ -1409,7 +1448,7 @@ async function route(req, res) {
     || url.pathname === '/api/auth/phone/verify';
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfExempt && parseCookies(req.headers.cookie)[sessionCookieName()] && !verifyCsrfRequest(req)) return fail(res, 403, 'CSRF validation failed');
   if (url.pathname === '/mcp') {
-    const identity = await getAgentWorkIdentity(req);
+    const identity = await getMcpIdentity(req);
     if (!identity) {
       res.setHeader('www-authenticate', 'Bearer realm="Sinaloa agent MCP"');
       return fail(res, 401, 'Active v1 agent credential required');
@@ -1675,6 +1714,17 @@ async function route(req, res) {
     const input = await body(req);
     if ((input.grantType || 'refresh_token') !== 'refresh_token') return fail(res, 400, 'Only refresh_token grant is supported');
     return json(res, 200, await rotateAgentCredentials(input.agentRefreshToken));
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/agent/mcp-read-token') {
+    const identity = await getAgentWorkIdentity(req);
+    if (!identity) return fail(res, 401, 'Active agent access credential required');
+    const input = await body(req);
+    if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some(key => key !== 'caseId')) {
+      return fail(res, 400, 'Only an optional caseId is accepted');
+    }
+    const caseId = input.caseId == null ? null : assertSafeIdentifier(input.caseId, 'caseId');
+    return json(res, 201, await issueMcpReadToken(identity, caseId));
   }
 
   if (req.method === 'GET' && ['/api/auth/workos/sign-in', '/api/auth/workos/sign-up'].includes(url.pathname)) {
