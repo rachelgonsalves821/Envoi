@@ -19,6 +19,7 @@ Tools are listed only when the authenticated agent has the matching permission. 
 | `sinaloa_list_assets` | none | send or receive |
 | `sinaloa_begin_asset_upload` | `filename`, `mimeType`, `size`, SHA-256 base64 checksum, `idempotencyKey`; optional `caseId` | create assets |
 | `sinaloa_complete_asset_upload` | `assetId` | create assets |
+| `sinaloa_grant_asset` | `assetId`, `recipientAgentId` | create assets |
 | `sinaloa_asset_download` | `assetId` | send or receive |
 | `sinaloa_claim_work` | none | receive |
 | `sinaloa_renew_work` | `workId`, `leaseToken` | receive |
