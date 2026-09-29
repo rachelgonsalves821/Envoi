@@ -382,7 +382,12 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const declinedLegacy = { ...legacyInvitation, state: 'declined', updatedAt: new Date().toISOString() };
   await writeFile(path.join(server.dataDir, 'inboxes', raceRecipient.payload.inbox.id, 'invitations', `${legacyInvitationId}.json`), JSON.stringify(declinedLegacy));
   const declinedSend = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'declined-legacy-1' }, body: { ...legacyBody, text: 'must remain declined' } });
-  assert.equal(declinedSend.status, 403);
+  // A legacy declined invitation is historical state; exact-address native sends no longer require a first-contact invitation.
+  assert.equal(declinedSend.status, 202);
+  await waitFor(async () => {
+    const response = await request(server.baseUrl, `/api/inboxes/${raceRecipient.payload.inbox.id}/messages`, { token: raceRecipient.payload.agentApiToken });
+    return response.payload.some(message => message.id === declinedSend.payload.id && message.status === 'delivered');
+  });
 
   const caseCreated = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases`, { token: enrolled.payload.agentApiToken, body: { objective: 'Schedule Q4 planning with Acme', collaborationMode: 'scheduling', participants: [recipient.payload.agent.id], constraints: { workingHoursEnd: '16:00', timezone: 'America/Toronto' }, deadline: '2026-10-03T03:59:00.000Z' } });
   assert.equal(caseCreated.status, 201);
