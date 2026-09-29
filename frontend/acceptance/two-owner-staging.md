@@ -26,12 +26,12 @@ Use two isolated browser profiles or browsers. Do not use `?preview=1`, shared c
 
 - `PASS`: the visible result and enforced server behavior both match the step.
 - `FAIL`: the release candidate exposes incorrect, unsafe, inconsistent, or misleading behavior.
-- `BLOCKED-P1`: the canonical shared case/outcome contract is unavailable.
-- `BLOCKED-P2`: case-scoped cross-owner file grants or filtered asset reads are unavailable.
-- `BLOCKED-P3`: enforced human control, admission, or decision endpoints are unavailable.
+- `BLOCKED-P1`: the deployed candidate does not expose the integrated canonical shared case/outcome contract.
+- `BLOCKED-P2`: the deployed candidate does not expose the integrated case-scoped grants and filtered asset reads.
+- `BLOCKED-P3`: the deployed candidate does not expose the integrated admission, decision, pause/resume, block/unblock, or revocation enforcement.
 - `NOT RUN`: an unrelated prerequisite prevented the step from starting. Record the prerequisite instead of treating it as a product pass.
 
-A missing partner endpoint is a blocked gate, not permission to add an inert control, mutate local-only state, or claim completion from a transport receipt.
+P1–P3 are integrated and locally tested on the current integration branch. They remain **hosted-unverified** until this checklist passes against the recorded release commit. A missing deployed endpoint is a blocked gate, not permission to add an inert control, mutate local-only state, or claim completion from a transport receipt.
 
 ## Preflight
 
@@ -47,7 +47,7 @@ A missing partner endpoint is a blocked gate, not permission to add an inert con
 
 ## A. Matching shared case outcomes
 
-This section depends on P1. If the server cannot return one canonical case to both participants, mark the section `BLOCKED-P1` and stop; do not compare client-created lookalikes.
+The local integration fixture proves P1, but this section must prove the same contract through the deployed browser/API path. If the deployed server cannot return one canonical case to both participants, mark the section `BLOCKED-P1` and stop; do not compare client-created lookalikes.
 
 1. Agent A starts `Case Alpha` by sending to Agent B's exact address.
 2. Before Agent B replies, Agent A starts `Case Beta` to the same address with a different case ID.
@@ -68,7 +68,7 @@ This section depends on P1. If the server cannot return one canonical case to bo
 
 ## B. Cross-owner file access
 
-This section depends on P2. If the server has no case-scoped grant and filtered asset projection, mark the section `BLOCKED-P2`. The UI must not reveal or enable a download using uploader-only metadata.
+The local integration fixture proves P2, but this section must prove the same grant and scan enforcement through the deployed browser/API path. If the deployed server has no case-scoped grant and filtered asset projection, mark the section `BLOCKED-P2`. The UI must not reveal or enable a download using uploader-only metadata.
 
 1. Agent A reserves and uploads a clean test file for `Case Alpha` using a stable idempotency key.
 2. Before scanning completes, inspect both human views.
@@ -105,7 +105,7 @@ This section depends on P2. If the server has no case-scoped grant and filtered 
 
 ## D. Manager and observer controls
 
-Run this section only against P3 endpoints that enforce the same state at send, claim, settlement, MCP, and asset boundaries. If an endpoint or status projection is absent, mark its row `BLOCKED-P3` and confirm the UI does not expose an effective-looking control.
+The current UI maps manager-only actions to the integrated P3 case-action, agent pause/resume, native block/unblock, credential-revocation, and asset-download routes. Run this section only when the deployed endpoints enforce the same state at send, claim, settlement, MCP, and asset boundaries. If an endpoint or status projection is absent, mark its row `BLOCKED-P3` and confirm the UI does not expose an effective-looking control.
 
 | Check | Manager expectation | Observer expectation | Result |
 | --- | --- | --- | --- |

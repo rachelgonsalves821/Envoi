@@ -24,6 +24,17 @@ describe('human API sessions', () => {
     expect(shouldNotifySessionExpired('/api/inboxes/inbox_1/human-view')).toBe(true);
   });
 
+  it('notifies the app when an authenticated workspace request returns 401', async () => {
+    const browserWindow = new EventTarget();
+    const expired = vi.fn();
+    browserWindow.addEventListener('sinaloa:session-expired', expired);
+    vi.stubGlobal('window', browserWindow);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'SESSION_EXPIRED' }), { status: 401 })));
+
+    await expect(request('/api/inboxes/inbox_1/human-view')).rejects.toMatchObject({ status: 401 });
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+
   it('adds CSRF protection to mutations without replacing explicit headers', () => {
     expect(csrfToken('theme=light; sinaloa_csrf=csrf%20value')).toBe('csrf value');
     expect(csrfHeaders('POST', 'sinaloa_csrf=csrf-token')).toEqual({ 'x-sinaloa-csrf': 'csrf-token' });
@@ -64,6 +75,36 @@ describe('agent credential controls', () => {
     const options = fetchMock.mock.calls[0][1] as RequestInit;
     expect(new Headers(options.headers).get('x-sinaloa-csrf')).toBe('csrf-revoke');
     expect(new Headers(options.headers).has('authorization')).toBe(false);
+  });
+});
+
+describe('enforced human controls', () => {
+  it('uses exact protected routes for case actions, pause, native block, and file access', async () => {
+    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-controls' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ case: {}, action: {} }), { status: 201, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'agent/1', pausedAt: '2026-09-29T12:00:00Z' }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ agentId: 'agent/peer', blocked: true }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ object: { id: 'asset/1' }, download: { url: '/download/once', method: 'GET' } }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.action('inbox one', 'case/1', 'approveOnce', { policyEvaluationId: 'policy_1' });
+    await api.setAgentPaused('inbox one', 'agent/1', true);
+    await api.setNativeContactBlocked('inbox one', 'agent/peer', true);
+    await api.downloadAsset('inbox one', 'asset/1');
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/inboxes/inbox%20one/cases/case%2F1/actions',
+      '/api/inboxes/inbox%20one/agents/agent%2F1/pause',
+      '/api/inboxes/inbox%20one/contacts/agent%2Fpeer/block',
+      '/api/inboxes/inbox%20one/assets/asset%2F1/download'
+    ]);
+    for (const [, options] of fetchMock.mock.calls.slice(0, 3)) {
+      expect((options as RequestInit).method).toBe('POST');
+      expect(new Headers((options as RequestInit).headers).get('x-sinaloa-csrf')).toBe('csrf-controls');
+    }
+    expect(new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers).get('idempotency-key')).toMatch(/^approveOnce-case\/1-/);
+    expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBeUndefined();
   });
 });
 

@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { AgentCard, AgentPermissionPicker, DecisionCard, EnrollmentDialog, ParticipantCard } from '../src/App';
+import { AgentCard, AgentPermissionPicker, CaseWorkspace, DecisionCard, EnrollmentDialog, ParticipantCard } from '../src/App';
 import { DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from '../src/agent-permissions';
 import type { Agent, HumanView, Inbox, WorkCase } from '../src/types';
 
@@ -112,5 +112,35 @@ describe('human action visibility', () => {
     expect(observer).toContain('Blocked');
     expect(observer).not.toContain('Unblock agent');
     expect(manager).toContain('Unblock agent');
+  });
+
+  it('renders case pause, resume, and revoke controls only from authoritative state for managers', () => {
+    const baseCase = {
+      id: 'case_controls', schemaVersion: '1.0', objective: 'Coordinate launch details', state: 'inProgress',
+      principal: 'human_1', actingAgent: 'agent_1', participants: ['agent_1', 'agent_2'], constraints: {}, authorityRefs: [],
+      events: [], evidence: [], proposals: [], policyEvaluations: [], receipt: null,
+      createdAt: '2026-09-29T10:00:00Z', updatedAt: '2026-09-29T11:00:00Z'
+    } as WorkCase;
+    const controlView = {
+      inbox: { id: 'inbox_1' }, messages: [], assets: [], deliveryReceipts: [], agents: [],
+      participantDirectory: {
+        agent_1: { id: 'agent_1', type: 'internalAgent', displayName: 'My agent', accessState: 'active' },
+        agent_2: { id: 'agent_2', type: 'externalAgent', displayName: 'Peer agent', accessState: 'active' }
+      }
+    } as unknown as HumanView;
+    const props = { view: controlView, railOpen: false, onRailToggle: vi.fn(), onBack: vi.fn(), onRefresh: vi.fn(), notify: vi.fn() };
+    const observer = renderToStaticMarkup(createElement(CaseWorkspace, { ...props, workCase: baseCase, canManageInbox: false }));
+    const manager = renderToStaticMarkup(createElement(CaseWorkspace, { ...props, workCase: baseCase, canManageInbox: true }));
+    const paused = renderToStaticMarkup(createElement(CaseWorkspace, { ...props, workCase: { ...baseCase, state: 'paused' }, canManageInbox: true }));
+    const completed = renderToStaticMarkup(createElement(CaseWorkspace, { ...props, workCase: { ...baseCase, state: 'completed' }, canManageInbox: true }));
+
+    expect(observer).not.toContain('Pause conversation');
+    expect(observer).not.toContain('Revoke case authority');
+    expect(manager).toContain('Pause conversation');
+    expect(manager).toContain('Revoke case authority');
+    expect(paused).toContain('Resume conversation');
+    expect(paused).not.toContain('Pause conversation');
+    expect(completed).not.toContain('Pause conversation');
+    expect(completed).not.toContain('Revoke case authority');
   });
 });
