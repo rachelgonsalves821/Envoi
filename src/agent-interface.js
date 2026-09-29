@@ -12,7 +12,7 @@ const validateActionSchema = ajv.compile({ $ref: `${schema.$id}#/definitions/Act
 export const CASE_STATES = Object.freeze(schema.definitions.caseState.enum);
 export const COLLABORATION_MODES = Object.freeze(schema.definitions.collaborationMode.enum);
 export const EVENT_TYPES = Object.freeze(schema.definitions.Event.properties.type.enum);
-export const HUMAN_ACTIONS = Object.freeze(['approveOnce', 'decline', 'editProposal', 'pause', 'revoke', 'takeOver']);
+export const HUMAN_ACTIONS = Object.freeze(['approveOnce', 'decline', 'editProposal', 'pause', 'resume', 'revoke', 'takeOver']);
 
 const normalTransitions = {
   new: ['classifying', 'inProgress'],
@@ -25,7 +25,8 @@ const normalTransitions = {
   executing: ['sent'],
   sent: ['received'],
   received: ['accepted'],
-  accepted: ['completed']
+  accepted: ['completed'],
+  paused: ['inProgress']
 };
 const exceptionStates = new Set(['failed', 'unknownExternalResult', 'expired', 'paused', 'revoked', 'disputed']);
 const terminalStates = new Set(['completed', 'failed', 'unknownExternalResult', 'expired', 'revoked']);
@@ -187,7 +188,7 @@ export function applyHumanAction(caseInput, actionInput, { at }) {
   let value = clone(caseInput);
   const existing = value.events.find(event => event.payload?.action?.idempotencyKey === action.idempotencyKey);
   if (existing) return { case: value, action: existing.payload.action, replay: true };
-  const targetState = { approveOnce: 'authorized', pause: 'paused', revoke: 'revoked', takeOver: 'paused', decline: 'revoked' }[action.actionKey];
+  const targetState = { approveOnce: 'authorized', pause: 'paused', resume: 'inProgress', revoke: 'revoked', takeOver: 'paused', decline: 'revoked' }[action.actionKey];
   if (targetState) value = transitionCase(value, targetState, { actor: action.actor, at, reasonCode: action.actionKey });
   appendEvent(value, {
     id: `evt_${crypto.randomUUID()}`,
