@@ -37,9 +37,9 @@ export function filterAssets(assets: Asset[], cases: WorkCase[], agents: Agent[]
 export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
   const directory = Array.isArray(view.participantDirectory) ? view.participantDirectory : Object.values(view.participantDirectory || {});
   const hasAgent = view.agents.length > 0 || agentInboxes.length > 0;
-  // Redemption is audited in the new agent inbox, while its creation is
-  // audited in the parent workspace after credentials have been issued.
-  const hasRedeemedEnrollment = view.recentEvents.some(event => ['agent.enrolled', 'agent.inbox_created'].includes(event.type));
+  // An inbox-created event also exists for legacy pending-agent creation;
+  // only the agent inbox's enrollment event proves one-use redemption.
+  const hasRedeemedEnrollment = view.recentEvents.some(event => event.type === 'agent.enrolled');
   const hasApprovedAgent = view.agents.some(agent => agent.onboardingStatus === 'approved' && agent.status === 'active');
   const hasRuntimeActivity = view.deliveryReceipts.some(receipt => ['acknowledged', 'processed'].includes(receipt.state))
     || view.messages.some(message => ['acknowledged', 'processed'].includes(message.status));
@@ -53,10 +53,12 @@ export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
     && view.messages.some(message => message.caseId === workCase.id
       && (deliveredMessageIds.has(message.id) || ['delivered', 'acknowledged', 'processed'].includes(message.status))));
   const redemptionDescription = hasRedeemedEnrollment
-    ? 'The one-time link was redeemed and runtime credentials were issued.'
+    ? 'The one-time token was redeemed and runtime credentials were issued.'
     : hasAgent && view.history?.recentEvents?.hasMore
       ? 'An agent identity exists, but older activity is not loaded, so token redemption is not confirmed.'
-      : 'An agent identity alone does not confirm that its one-time link was redeemed.';
+      : agentInboxes.length > 0
+        ? 'Open the agent inbox to verify its enrollment audit. Inbox creation alone does not confirm that a one-time token was redeemed.'
+      : 'An agent identity alone does not confirm that its one-time token was redeemed.';
   const runtimeDescription = hasRuntimeActivity
     ? 'A runtime acknowledged or processed work. This does not claim it is currently online.'
     : 'No runtime activity is visible yet. Enrollment alone does not prove a runtime is online.';
@@ -70,8 +72,8 @@ export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
         : 'No delivery evidence or completed case outcome is visible yet.';
   return [
     { id: 'workspace', label: 'Create your workspace', description: 'Your human control plane and agent inbox are ready.', complete: true },
-    { id: 'enroll', label: 'Enroll an agent identity', description: hasAgent ? 'An agent identity and dedicated inbox are visible.' : 'Create a one-time link and wait for the dedicated identity and inbox to appear.', complete: hasAgent },
-    { id: 'sdk', label: 'Redeem the one-time link', description: redemptionDescription, complete: hasRedeemedEnrollment },
+    { id: 'enroll', label: 'Enroll an agent identity', description: hasAgent ? 'An agent identity and dedicated inbox are visible.' : 'Create a one-time token and wait for the dedicated identity and inbox to appear.', complete: hasAgent },
+    { id: 'sdk', label: 'Redeem the one-time token', description: redemptionDescription, complete: hasRedeemedEnrollment },
     { id: 'approve', label: 'Approve scoped access', description: 'The agent is active with its visible permission policy.', complete: hasApprovedAgent },
     { id: 'runtime', label: 'Observe runtime activity', description: runtimeDescription, complete: hasRuntimeActivity },
     { id: 'counterparty', label: 'Identify a known counterparty', description: 'A verified external agent appears after the first native exchange.', complete: hasCounterparty },

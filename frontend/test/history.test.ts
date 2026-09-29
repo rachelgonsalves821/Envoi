@@ -10,6 +10,22 @@ describe('workspace history', () => {
     const older = view(['old']); older.canManageInbox = false;
     expect(mergeHistory(current, older, { cases: 'next' }).canManageInbox).toBe(false);
   });
+  it('refreshes agent and unrequested message state while an older case page loads', () => {
+    const current = view(['new']);
+    current.cases[0].createdAt = '2026-09-28T10:00:00Z';
+    current.caseQueue[0].createdAt = '2026-09-28T10:00:00Z';
+    current.agents = [{ id: 'agent_1', name: 'Agent', status: 'active' }] as HumanView['agents'];
+    current.messages = [{ id: 'message_1', status: 'delivered', createdAt: '2026-09-28T10:00:00Z' }] as HumanView['messages'];
+    const incoming = view(['old']);
+    incoming.cases[0].createdAt = '2026-09-27T10:00:00Z';
+    incoming.caseQueue[0].createdAt = '2026-09-27T10:00:00Z';
+    incoming.agents = [{ id: 'agent_1', name: 'Agent', status: 'revoked' }] as HumanView['agents'];
+    incoming.messages = [{ id: 'message_1', status: 'processed', createdAt: '2026-09-28T10:00:00Z' }] as HumanView['messages'];
+    const merged = mergeHistory(current, incoming, { cases: 'next' });
+    expect(merged.agents[0].status).toBe('revoked');
+    expect(merged.messages[0].status).toBe('processed');
+    expect(new Set(merged.cases.map(item => item.id))).toEqual(new Set(['new', 'old']));
+  });
   it('keeps loaded pages across live refresh while advancing only requested cursors', () => {
     const first = view(['c', 'b']);
     const older = mergeHistory(first, view(['b', 'a'], 'oldest'), olderCursors(first));
@@ -40,9 +56,10 @@ describe('workspace history', () => {
     const first = view(['b']);
     first.participantDirectory = [{ id: 'agent1', displayName: 'One' }] as HumanView['participantDirectory'];
     const next = view(['a']); next.history!.cases!.total = 2;
-    next.participantDirectory = [{ id: 'agent2', displayName: 'Two' }] as HumanView['participantDirectory'];
+    next.participantDirectory = [{ id: 'agent1', displayName: 'One updated' }, { id: 'agent2', displayName: 'Two' }] as HumanView['participantDirectory'];
     const merged = mergeHistory(first, next, olderCursors(first));
-    expect(Object.keys(merged.participantDirectory!)).toEqual(['agent2', 'agent1']);
+    expect(Object.keys(merged.participantDirectory!)).toEqual(['agent1', 'agent2']);
+    expect((merged.participantDirectory as Record<string, { displayName: string }>).agent1.displayName).toBe('One updated');
     expect(olderCursors(merged)).toEqual({});
   });
 });

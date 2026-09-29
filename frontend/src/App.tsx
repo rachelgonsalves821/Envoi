@@ -119,13 +119,27 @@ export default function App() {
     setBoot('signedOut');
   }, []);
 
+  const loseWorkspaceAccess = useCallback((workspaceId: string) => {
+    if (activeWorkspace.current !== workspaceId) return;
+    activeWorkspace.current = null;
+    setWorkspace(null);
+    setView(null);
+    setError('Your access to this workspace changed. Refresh your account to continue.');
+    setBoot('error');
+  }, []);
+
   const loadView = useCallback(async (workspaceId: string, quiet = false) => {
     activeWorkspace.current = workspaceId;
     if (!quiet) setView(null);
-    const next = await api.humanView(workspaceId);
-    if (activeWorkspace.current === workspaceId) setView(current => quiet ? mergeHistory(current, next) : next);
-    return next;
-  }, []);
+    try {
+      const next = await api.humanView(workspaceId);
+      if (activeWorkspace.current === workspaceId) setView(current => quiet ? mergeHistory(current, next) : next);
+      return next;
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
+      throw caught;
+    }
+  }, [loseWorkspaceAccess]);
 
   const loadWorkspaceDirectory = useCallback(async () => {
     const nextOrganizations = await api.organizations();
@@ -145,7 +159,10 @@ export default function App() {
     try {
       const next = await api.humanView(workspaceId, cursors);
       if (activeWorkspace.current === workspaceId) setView(current => current ? mergeHistory(current, next, cursors) : current);
-    } catch (caught) { setSyncNotice(errorMessage(caught)); }
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
+      else setSyncNotice(errorMessage(caught));
+    }
     finally { setHistoryBusy(false); }
   }
 

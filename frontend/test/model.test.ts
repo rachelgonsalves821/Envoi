@@ -53,7 +53,7 @@ describe('closed beta onboarding', () => {
     expect(onboardingSteps(sourceView).find(step => step.id === 'enroll')?.complete).toBe(false);
     const parentAudit = [{ id: 'audit_parent_1', type: 'agent.inbox_created', createdAt: '2026-09-27T16:10:00.000Z' }];
     const parentSteps = onboardingSteps({ ...sourceView, recentEvents: parentAudit, messages: [], deliveryReceipts: [] }, [linkedAgentInbox]);
-    expect(parentSteps.find(step => step.id === 'sdk')?.complete).toBe(true);
+    expect(parentSteps.find(step => step.id === 'sdk')).toMatchObject({ complete: false, description: 'Open the agent inbox to verify its enrollment audit. Inbox creation alone does not confirm that a one-time token was redeemed.' });
     expect(parentSteps.find(step => step.id === 'runtime')?.complete).toBe(false);
     const linkedSteps = onboardingSteps({ ...sourceView, recentEvents: [], messages: [], deliveryReceipts: [] }, [linkedAgentInbox]);
     expect(linkedSteps.find(step => step.id === 'enroll')?.complete).toBe(true);
@@ -90,7 +90,7 @@ describe('closed beta onboarding', () => {
       caseQueue: [workCase], cases: [workCase], messages: [], assets: [],
       calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [], deliveryReceipts: [], recentEvents: []
     };
-    expect(onboardingSteps(view).find(step => step.id === 'sdk')).toMatchObject({ complete: false, description: 'An agent identity alone does not confirm that its one-time link was redeemed.' });
+    expect(onboardingSteps(view).find(step => step.id === 'sdk')).toMatchObject({ complete: false, description: 'An agent identity alone does not confirm that its one-time token was redeemed.' });
     expect(onboardingSteps(view).find(step => step.id === 'runtime')).toMatchObject({ complete: false, description: 'No runtime activity is visible yet. Enrollment alone does not prove a runtime is online.' });
   });
 
