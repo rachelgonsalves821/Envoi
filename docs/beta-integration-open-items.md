@@ -19,11 +19,11 @@ Rachel chose **one lightweight invite-only beta environment**, not a separate st
 - [x] `f2f39a1` — renewable client asset exchange path and SDK support (`integrations/**`, `sdk/**`); already published on its feature branch.
 - [x] `b0337b9` — xAI case-file announcement through MCP (`integrations/grok/**`); published on the integration branch.
 - [x] `fd8b262` — trusted OpenClaw/xAI bridges can share only host-approved case files during normal agent turns; published on the integration branch.
-- [x] The `integrations/agent-bridges/real-assets.test.ts` fixture is committed with the matching partner `src/**` contract and passes with two owners, two cases, typed offer/decision, mirrored receipt, shared file, block/pause/resume and tenant denial.
+- [x] The `integrations/agent-bridges/real-assets.test.ts` fixture is committed with the matching partner `src/**` contract and passes locally against a real server and scanner with two owners, two cases, typed offer/decision, mirrored receipt, shared file, block/pause/resume and tenant denial.
 
 ## Required before combining scopes
 
-- [x] Freeze and document the exact server/client fixture for two owners, two agents, two concurrent cases, typed offer/decision, clean file grant, pause/resume, block/unblock, revoke, and human approval.
+- [x] The server/client fixture and expected authorization, case, file, and receipt behavior are documented in `docs/beta-backend-integration-contract.md` and exercised by local integration tests.
 - [x] Local canonical shared case mirrors structured proposals, decisions, and one final receipt to both owners; the two-owner fixture checks equality.
 - [x] Both local human projections retain the exact structured terms, decision, state, and receipt. Frontend rendering checks those terms and the accepted decision in each owner view. Hosted browser acceptance remains open.
 - [x] Local granted-file projection shows the clean asset to the recipient human, and the copied recipient download URL stops working after a block.
@@ -32,8 +32,9 @@ Rachel chose **one lightweight invite-only beta environment**, not a separate st
 - [x] Local chosen-address test verifies exact lowercase address, atomic collision denial, parent redemption audit marker and two-active-agent cap. Hosted configuration remains open.
 - [x] Local backend (99 pass, 8 live-provider/PostgreSQL skips), frontend (58), TypeScript SDK (37), Python SDK (4), bridge (26), OpenClaw adapter (16), Worker (6), typecheck, production web build, and both agent adapter builds pass on the combined working tree.
 - [x] Wrangler dry-runs pass for the root Worker and beta configuration.
-- [x] GitHub Backend CI run `36574638747` passes on exact head `fd8b262`, including all test suites, the production build, Wrangler check, production container build, fail-closed startup, PostgreSQL tests, and production dependency audit.
-- [x] Combined changes are committed and pushed to `codex/r1-r2-integration`; draft integration PR #5 targets `codex/deployment-recovery`.
+- [x] GitHub's `test` check passed at `fd8b262`, including Docker build/startup, PostgreSQL tests, both Wrangler dry-runs, frontend, SDKs, backend, and the bridge suite. The real-server file fixture was skipped because its opt-in entry variable was missing; the next CI candidate sets that variable.
+- [x] Integrated code is committed and pushed in draft PR #5. The exact remote branch head was verified at `fd8b262` before the subsequent tracker commit.
+- [ ] Require green GitHub CI for the final exact head SHA. Cloudflare Workers Builds failed at `fd8b262`; its GitHub check links to Cloudflare build `337374dc-cc2e-4867-aa9b-1e715a7102f8`, where the diagnostic log still needs review.
 
 ## WorkOS beta account configuration reported from the product setup chat
 
@@ -74,7 +75,7 @@ Rachel chose **one lightweight invite-only beta environment**, not a separate st
 
 ## Current blockers
 
-1. Cloudflare's automatic preview build failed on exact head `fd8b262`; diagnose that deployment configuration before the beta origin can serve the candidate.
+1. PR #5 remains draft. The GitHub test job passed at `fd8b262`, but Cloudflare Workers Builds failed; the real-server file fixture also needs the next CI run with its new entry variable.
 2. Managed PostgreSQL, beta runtime secrets, scanner, migrations, backup/restore, and readiness are not yet verified live.
-3. R2 subscription and live object-storage acceptance remain outstanding; all non-R2 implementation and CI work is already complete.
-4. Real hosted OpenClaw/xAI and two-human browser acceptance cannot run until the beta deployment is healthy.
+3. R2 subscription and live object-storage acceptance remain outstanding.
+4. Real hosted OpenClaw/xAI and two-human browser acceptance cannot run until deployment is healthy.

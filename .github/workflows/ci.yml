@@ -36,6 +36,8 @@ jobs:
       - run: npm run test:frontend
       - run: npm run test:sdk:typescript
       - run: npx vitest run --config integrations/vitest.config.ts
+        env:
+          SINALOA_P2_SERVER_ENTRY: ${{ github.workspace }}/src/server.js
       - run: npm run test:sdk:python
       - run: npm run build
       - run: npm run cf:check
