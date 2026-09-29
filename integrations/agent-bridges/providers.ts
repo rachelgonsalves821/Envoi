@@ -27,7 +27,7 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
       body.tools = [{
         type: 'mcp', server_url: options.mcp.serverUrl, server_label: 'sinaloa',
         authorization: `Bearer ${token}`,
-        allowed_tools: options.mcp.allowedTools || ['sinaloa_agent_info', 'sinaloa_list_cases', 'sinaloa_read_case', 'sinaloa_list_messages', 'sinaloa_list_assets', 'sinaloa_asset_download']
+        allowed_tools: options.mcp.allowedTools || ['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']
       }];
     }
     let response: Response;

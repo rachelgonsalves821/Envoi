@@ -53,6 +53,13 @@ describe('xAI MCP invocation smoke path', () => {
           { type: 'message', content: [{ type: 'output_text', text: session.address }] }
         ] }), endpoint: 'http://127.0.0.1:8788/v1/responses' }))
         .rejects.toThrow('no successful sinaloa_agent_info MCP call');
+      await expect(probeXaiMcp({ apiKey: 'xai-test-key', model: 'grok-test',
+        mcpUrl: relay.url, accessToken: session.agentApiToken, expectedAddress: session.address,
+        fetch: async () => json({ status: 'completed', output: [
+          { type: 'mcp_call', name: 'sinaloa_agent_info', server_label: 'sinaloa', status: 'failed', error: 'upstream unavailable' },
+          { type: 'message', content: [{ type: 'output_text', text: session.address }] }
+        ] }), endpoint: 'http://127.0.0.1:8788/v1/responses' }))
+        .rejects.toThrow('no successful sinaloa_agent_info MCP call');
     } finally { await relay.close(); }
   });
 });

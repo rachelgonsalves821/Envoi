@@ -74,7 +74,7 @@ describe('OpenClaw local MCP relay', () => {
       return json({ jsonrpc: '2.0', id: request.id, result: {} });
     });
     const connector = new SinaloaConnector('https://sinaloa.example.test', store, { fetch: upstream });
-    const relay = await startOpenClawMcpRelay({ connector, bearerToken: relayToken, port: 0, allowCollaborationWrites: true });
+    let relay = await startOpenClawMcpRelay({ connector, bearerToken: relayToken, port: 0, allowCollaborationWrites: true });
     const call = (body: unknown, headers: Record<string, string> = {}) => fetch(relay.url, {
       method: 'POST',
       headers: { authorization: `Bearer ${relayToken}`, 'content-type': 'application/json', 'mcp-protocol-version': '2025-11-25', ...headers },
@@ -85,6 +85,10 @@ describe('OpenClaw local MCP relay', () => {
       expect(unauthenticated.status).toBe(401);
       const browser = await call({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, { origin: 'https://outside.example.test' });
       expect(browser.status).toBe(403);
+      const unauthenticatedWrite = await call({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'sinaloa_send_message', arguments: { idempotencyKey: 'unauthorized-write' } } },
+      { authorization: 'Bearer wrong' });
+      expect(unauthenticatedWrite.status).toBe(401);
       expect(upstream).not.toHaveBeenCalled();
 
       const catalog = await call({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
@@ -115,6 +119,16 @@ describe('OpenClaw local MCP relay', () => {
       const denied = await call({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'sinaloa_begin_asset_upload', arguments: { idempotencyKey: 'asset-one' } } });
       expect(denied.status).toBe(403);
       expect(upstream).toHaveBeenCalledTimes(count);
+      await relay.close();
+      relay = await startOpenClawMcpRelay({ connector, bearerToken: relayToken, port: 0, allowCollaborationWrites: true });
+      const afterRestart = await call({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: {
+        name: 'sinaloa_send_proposal', arguments: { recipientAddress: 'peer@sinaloa.example',
+          caseId: 'case_one', text: 'A proposed plan', proposal: { plan: 'meet' },
+          idempotencyKey: 'openclaw-case-one-sinaloa_send_proposal' }
+      } });
+      expect(afterRestart.status).toBe(200);
+      expect((await afterRestart.json()).result.content[0].text).toBe('message-3');
+      expect(writes.size).toBe(4);
     } finally { await relay.close(); }
   });
 });

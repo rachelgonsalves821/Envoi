@@ -183,7 +183,7 @@ async function exerciseBridge(provider: 'openclaw' | 'xai') {
     const turn = provider === 'openclaw'
       ? openClawTurn({ gatewayUrl: 'https://gateway.example.test', gatewayToken: 'gateway-secret', agentId: 'bridge-agent', fetch: state.host.fetch, history: caseId => connector.listCaseMessages(caseId) })
       : xaiTurn({ apiKey: 'xai-secret', model: 'grok-test', fetch: state.host.fetch, history: caseId => connector.listCaseMessages(caseId),
-        mcp: { serverUrl: 'https://sinaloa.example.test/mcp', accessToken: async () => (await state.store.load())!.agentApiToken } });
+        mcp: { serverUrl: 'https://sinaloa.example.test/mcp', accessToken: () => connector.currentAccessToken(180_000) } });
     connector = new SinaloaConnector('https://sinaloa.example.test', state.store, { ...options, handler: bridgeHandler(state.store, turn) });
     await expect(connector.processWorkOnce()).rejects.toThrow('Temporary settlement failure');
     expect(state.host.rotationCount).toBe(1);
@@ -202,7 +202,7 @@ async function exerciseBridge(provider: 'openclaw' | 'xai') {
     if (provider === 'xai') {
       expect(state.host.xaiMcpTools).toHaveLength(2);
       expect(state.host.xaiMcpTools[0]).toMatchObject({ type: 'mcp', server_url: 'https://sinaloa.example.test/mcp', authorization: `Bearer ${state.host.accessToken}` });
-      expect(state.host.xaiMcpTools[0].allowed_tools).not.toContain('sinaloa_send_message');
+      expect(state.host.xaiMcpTools[0].allowed_tools).toEqual(['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']);
     }
     const replies = [...state.host.replies.values()];
     expect(replies.map(reply => reply.caseId).sort()).toEqual(['case_a', 'case_b']);
