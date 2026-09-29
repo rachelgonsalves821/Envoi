@@ -201,8 +201,16 @@ export class SinaloaConnector {
   }
 
   /** Trusted bridge code may pass only this short-lived access token to a remote MCP provider. */
-  async currentAccessToken(): Promise<string> {
-    return (await this.freshSession()).agentApiToken;
+  async currentAccessToken(minValidityMs = this.refreshSkewMs): Promise<string> {
+    if (!Number.isSafeInteger(minValidityMs) || minValidityMs < 0 || minValidityMs > 300_000) {
+      throw new RangeError('minValidityMs must be an integer from 0 to 300000');
+    }
+    let session = await this.freshSession();
+    if (Date.parse(session.agentTokenExpiresAt) <= Date.now() + minValidityMs) session = await this.freshSession(true);
+    if (Date.parse(session.agentTokenExpiresAt) <= Date.now() + minValidityMs) {
+      throw new ConnectorCredentialsError();
+    }
+    return session.agentApiToken;
   }
 
   /** Trusted host only: forwards MCP JSON-RPC without exposing the rotating refresh token. */

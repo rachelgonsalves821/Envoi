@@ -73,6 +73,23 @@ describe('Sinaloa outbound connector', () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
+  it('refreshes before handing xAI a token that could expire late in its turn', async () => {
+    const memory = memoryStore({ ...session(), agentTokenExpiresAt: new Date(Date.now() + 90_000).toISOString() });
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://api.example/api/agent-token');
+      expect(JSON.parse(String(init?.body)).agentRefreshToken).toBe('refresh-one');
+      return new Response(JSON.stringify({
+        agentApiToken: 'access-two', agentRefreshToken: 'refresh-two',
+        agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+        agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString()
+      }));
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
+    expect(await connector.currentAccessToken(180_000)).toBe('access-two');
+    expect(memory.current()?.agentRefreshToken).toBe('refresh-two');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves a refresh token rotated inside an event callback when saving the cursor', async () => {
     const memory = memoryStore(session());
     const fetcher = vi.fn(async (url: string | URL | Request) => {

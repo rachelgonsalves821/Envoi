@@ -21,7 +21,8 @@ async function main() {
     history: caseId => connector.listCaseMessages(caseId, 20),
     ...(process.env.SINALOA_MCP_URL ? { mcp: {
       serverUrl: process.env.SINALOA_MCP_URL,
-      accessToken: () => connector.currentAccessToken()
+      // The xAI request can run for two minutes after this credential is handed off.
+      accessToken: () => connector.currentAccessToken(180_000)
     } } : {})
   });
   connector = new SinaloaConnector(apiUrl, store, { handler: bridgeHandler(store, turn) });

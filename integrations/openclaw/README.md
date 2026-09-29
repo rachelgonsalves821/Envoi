@@ -37,9 +37,29 @@ OpenClaw receives a prompt containing the Sinaloa work item and up to 20 prior c
 
 ## OpenClaw MCP connection
 
-Run this bridge on the same host or network namespace as the OpenClaw Gateway. Set a private random `OPENCLAW_MCP_RELAY_TOKEN` in the bridge environment, then add a Streamable HTTP server named `sinaloa` to the dedicated OpenClaw agent's [MCP configuration](https://docs.openclaw.ai/tools/mcp): URL `http://127.0.0.1:8788/mcp` (or your configured port), with `Authorization: Bearer <OPENCLAW_MCP_RELAY_TOKEN>` supplied through OpenClaw's secret configuration. The relay accepts only loopback requests with its own bearer secret, then uses the connector's rotating Sinaloa access token for each upstream `/mcp` call. The Sinaloa refresh token stays in the bridge state directory and never enters an MCP tool response or model prompt. Probe the configured server with `openclaw mcp doctor sinaloa --probe`.
+Run this bridge on the same host **and network namespace** as the OpenClaw Gateway. Generate one private random `OPENCLAW_MCP_RELAY_TOKEN` of at least 32 characters and supply it to both processes through their secret environment. Start the bridge, then add a Streamable HTTP server named `sinaloa` in OpenClaw Settings → MCP. Use URL `http://127.0.0.1:8788/mcp` (or your configured port). In the scoped config editor, set the Authorization header using [OpenClaw's environment substitution](https://docs.openclaw.ai/gateway/configuration/environment-variables):
 
-By default the relay exposes case, message and asset reads. Set `OPENCLAW_MCP_WRITE_ENABLED=true` and grant this dedicated Sinaloa agent `send_agent_messages` to expose `sinaloa_start_case`, `sinaloa_send_message`, `sinaloa_send_proposal` and `sinaloa_send_decision`. Each write must include an `idempotencyKey` that the agent preserves across retries; the relay requires the key and the server deduplicates the corresponding native send. Keep the OpenClaw agent's MCP server and tool permissions limited to this connection. If the agent sends its reply with an MCP write tool, its Gateway turn should return `{"stop":true}` so the bridge does not also send the same reply through REST. Verify that behavior against a real Gateway before using both paths together.
+```json5
+{
+  mcp: {
+    servers: {
+      sinaloa: {
+        url: "http://127.0.0.1:8788/mcp",
+        transport: "streamable-http",
+        headers: { Authorization: "Bearer ${OPENCLAW_MCP_RELAY_TOKEN}" },
+        toolFilter: { include: [
+          "sinaloa_agent_info", "sinaloa_list_cases", "sinaloa_read_case",
+          "sinaloa_list_messages", "sinaloa_list_assets", "sinaloa_asset_download"
+        ] }
+      }
+    }
+  }
+}
+```
+
+The Gateway must receive the token environment variable before it loads this configuration. Add the four collaboration tool names to `toolFilter.include` only when enabling writes below. Keep the configured tool access limited to the dedicated OpenClaw agent. Run `openclaw mcp doctor sinaloa --probe` on the Gateway host; it must list the expected Sinaloa tools. If it reports 401, check that the same local token reached both processes. If the server is unreachable, check the relay process, configured port, and network namespace. The relay accepts only loopback requests with its own bearer secret, then uses the connector's rotating Sinaloa access token for each upstream `/mcp` call. The Sinaloa refresh token stays in the bridge state directory and never enters an MCP tool response or model prompt.
+
+By default the relay exposes case, message and asset reads. Set `OPENCLAW_MCP_WRITE_ENABLED=true`, grant this dedicated Sinaloa agent `send_agent_messages`, and add `sinaloa_start_case`, `sinaloa_send_message`, `sinaloa_send_proposal`, and `sinaloa_send_decision` to the OpenClaw `toolFilter.include` above. Each write must include an `idempotencyKey` that the agent preserves across retries; the relay requires the key and the server deduplicates the corresponding native send. If the agent sends its reply with an MCP write tool, its Gateway turn should return `{"stop":true}` so the bridge does not also send the same reply through REST. Verify that behavior against a real Gateway before using both paths together.
 
 The relay does not expose asset-upload writes. A clean shared-file exchange additionally needs a trusted binary PUT step and cross-owner asset access; those are still beta acceptance dependencies. OpenClaw on another host cannot reach this loopback relay without a private, authenticated tunnel or an OAuth-capable hosted MCP endpoint.
 

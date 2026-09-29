@@ -51,7 +51,7 @@ export async function probeXaiMcp(options: XaiMcpProbeOptions): Promise<void> {
   const invoked = calls.some(item =>
     typeof item.name === 'string' && /(^|\.)sinaloa_agent_info$/.test(item.name) &&
     (item.server_label === undefined || item.server_label === 'sinaloa') &&
-    !item.error && (item.status === undefined || item.status === 'completed')
+    item.error == null && item.status === 'completed'
   );
   if (!invoked) throw new Error('xAI returned no successful sinaloa_agent_info MCP call');
   const answer = output.filter(item => item.type === 'message' && Array.isArray(item.content))
@@ -72,7 +72,7 @@ async function main() {
   const store = new FileBridgeStore(stateDir);
   await store.init();
   const connector = new SinaloaConnector(apiUrl, store);
-  const accessToken = await connector.currentAccessToken();
+  const accessToken = await connector.currentAccessToken(180_000);
   const session = await store.load();
   if (!session?.address) throw new Error('Enrolled Sinaloa session is required');
   await probeXaiMcp({ apiKey, model: process.env.XAI_MODEL || 'grok-4.7', mcpUrl,
