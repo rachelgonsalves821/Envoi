@@ -26,9 +26,10 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Local canonical shared case mirrors structured proposals, decisions, and one final receipt to both owners; the two-owner fixture checks equality.
 - [x] Both local human projections retain the exact structured terms, decision, state, and receipt. Frontend rendering checks those terms and the accepted decision in each owner view. Hosted browser acceptance remains open.
 - [x] Local granted-file projection shows the clean asset to the recipient human, and the copied recipient download URL stops working after a block.
+- [x] OpenClaw and xAI bridge loops accept an agent-selected handle only from a host-approved exact-file manifest, then verify the file, grant it to the authenticated case sender, and announce the asset ID with one retry key. Hosted real-provider file acceptance remains open.
 - [x] Local manager pause/resume and native block/unblock controls call enforcing routes; focused frontend and two-owner server tests pass.
 - [x] Local chosen-address test verifies exact lowercase address, atomic collision denial, parent redemption audit marker and two-active-agent cap. Hosted configuration remains open.
-- [x] Local backend (99 pass, 8 live-provider/PostgreSQL skips), frontend (58), TypeScript SDK (37), Python SDK (4), bridge (25), Worker (6), typecheck, and production web build pass on the combined working tree.
+- [x] Local backend (99 pass, 8 live-provider/PostgreSQL skips), frontend (58), TypeScript SDK (37), Python SDK (4), bridge (26), OpenClaw adapter (16), Worker (6), typecheck, production web build, and both agent adapter builds pass on the combined working tree.
 - [x] Both Wrangler dry-runs pass outside the local filesystem sandbox for the root Worker and isolated `staging` environment.
 - [ ] Docker build and PostgreSQL tests need an available local or CI runtime; Docker is not installed on this host and no test database is configured.
 - [ ] Commit all combined changes, push `codex/r1-r2-integration`, open or update the integration PR, and require green GitHub CI for the exact head SHA.

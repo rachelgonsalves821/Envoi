@@ -5,7 +5,7 @@ type History = (caseId: string) => Promise<Array<Record<string, unknown>>>;
 
 type RemoteMcp = { serverUrl: string; accessToken: (caseId: string | null) => Promise<string>; allowedTools?: string[] };
 
-export function xaiTurn(options: { apiKey: string; model: string; history?: History; fetch?: typeof fetch; endpoint?: string; mcp?: RemoteMcp }): AgentTurn {
+export function xaiTurn(options: { apiKey: string; model: string; history?: History; fetch?: typeof fetch; endpoint?: string; mcp?: RemoteMcp; assetHandles?: Array<{ handle: string; filename: string }> }): AgentTurn {
   if (!options.apiKey || !options.model) throw new TypeError('xAI API key and model are required');
   const endpoint = options.endpoint || 'https://api.x.ai/v1/responses';
   const target = new URL(endpoint);
@@ -21,7 +21,7 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
   return async (message: WorkMessage, signal: AbortSignal) => {
     const history = message.caseId && options.history ? await options.history(message.caseId) : [];
     const requiredRead = message.caseId ? 'sinaloa_read_case' : 'sinaloa_agent_info';
-    const prompt = workPrompt(message, history);
+    const prompt = workPrompt(message, history, { assetHandles: options.assetHandles });
     const body: Record<string, unknown> = { model: options.model,
       input: options.mcp ? `${prompt}\n\nBefore responding, call ${requiredRead} through the Sinaloa MCP server${message.caseId ? ` for caseId ${JSON.stringify(message.caseId)}` : ''}. If the read fails, do not guess a reply.` : prompt,
       store: false };

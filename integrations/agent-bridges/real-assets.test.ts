@@ -1,16 +1,19 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
-import { describe, expect, it } from 'vitest';
-import { enrollConnector, SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { describe, expect, it, vi } from 'vitest';
+import { enrollConnector, SinaloaConnector, type WorkMessage } from '../../sdk/typescript/src/connector';
 import { newCaseId } from '../../sdk/typescript/src/index';
 import { BrowserSession } from '../../test/browser-session.js';
 import { FileBridgeStore } from './file-store';
 import { shareCaseAsset } from './asset-exchange';
+import { loadAssetManifest, manifestAssetExchange } from './asset-manifest';
+import { bridgeHandler, parseAgentReply, type BridgeDecision } from './bridge';
 
 const serverEntry = process.env.SINALOA_P2_SERVER_ENTRY;
 const test = serverEntry ? it : it.skip;
@@ -205,6 +208,36 @@ describe('P2 clean case asset exchange against a real local server', () => {
       expect(finishedA.receipt).toEqual(finishedB.receipt);
       expect(finishedA.receipt.humanApprovalStatus).toBe('approved');
       expect((await bob.connector.getCase(secondCaseId) as any).state).toBe('inProgress');
+      const approvedBytes = Buffer.from('agent selected approved report');
+      await writeFile(path.join(root, 'report.txt'), approvedBytes);
+      const manifestPath = path.join(root, 'approved-files.json');
+      await writeFile(manifestPath, JSON.stringify({ files: [{ handle: 'report', path: 'report.txt',
+        mimeType: 'text/plain', sha256: createHash('sha256').update(approvedBytes).digest('hex') }] }));
+      const manifest = await loadAssetManifest(manifestPath);
+      const requested = await bob.connector.sendCaseEvent('p2-request-approved-file', {
+        caseId: secondCaseId, recipientEmail: alice.address, text: 'Please share the approved report' });
+      const workMessage = { id: requested.id, caseId: secondCaseId, senderAgentId: bob.agentId,
+        recipientAgentId: alice.agentId, from: { agentId: bob.agentId, address: bob.address }, text: requested.text } as WorkMessage;
+      const saved = new Map<string, BridgeDecision>();
+      const turn = vi.fn(async () => parseAgentReply('{"text":"Approved report attached","intent":"message","assetHandle":"report"}'));
+      const handler = bridgeHandler({ admit: async () => {}, replyFor: async id => saved.get(id) || null,
+        saveReply: async (id, reply) => { saved.set(id, reply); } }, turn,
+      manifestAssetExchange(manifest, alice.connector));
+      const context = { signal: new AbortController().signal, reply: vi.fn() };
+      await handler.process(workMessage, context);
+      await handler.process(workMessage, context);
+      expect(turn).toHaveBeenCalledTimes(1);
+      expect(context.reply).not.toHaveBeenCalled();
+      const approvedAsset = (await bob.connector.listAssets()).find(asset => asset.filename === 'report.txt');
+      expect(approvedAsset?.state).toBe('clean');
+      let announcements = await bob.connector.listCaseMessages(secondCaseId);
+      const announcementDeadline = Date.now() + 10_000;
+      while (!announcements.some(message => message.artifactRefs?.includes(approvedAsset!.id))) {
+        if (Date.now() > announcementDeadline) throw new Error('Approved file announcement was not delivered');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        announcements = await bob.connector.listCaseMessages(secondCaseId);
+      }
+      expect(announcements.filter(message => message.artifactRefs?.includes(approvedAsset!.id))).toHaveLength(1);
     } finally {
       if (app?.child && app.child.exitCode === null) {
         const child = app.child;

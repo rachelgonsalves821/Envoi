@@ -1,5 +1,6 @@
 import { enrollConnector, SinaloaConnector } from '../../sdk/typescript/src/connector';
 import { bridgeHandler } from '../agent-bridges/bridge';
+import { loadAssetManifest, manifestAssetExchange } from '../agent-bridges/asset-manifest';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { startOpenClawMcpRelay } from './mcp-relay';
 import { mcpReplyMessageId, openClawTurn, withRecordedMcpReply } from './turn';
@@ -23,16 +24,19 @@ async function main() {
   }
 
   let connector: SinaloaConnector;
+  const approvedAssets = await loadAssetManifest(process.env.SINALOA_ASSET_MANIFEST_PATH);
   const writeEnabled = process.env.OPENCLAW_MCP_WRITE_ENABLED === 'true';
   const gatewayTurn = openClawTurn({
     gatewayUrl,
     gatewayToken,
     agentId,
     allowSinaloaMcpWrites: writeEnabled,
+    assetHandles: [...approvedAssets.values()].map(({ handle, filename }) => ({ handle, filename })),
     history: caseId => connector.listCaseMessages(caseId, 20)
   });
   const turn = writeEnabled ? withRecordedMcpReply(gatewayTurn, messageId => store.mcpReplySent(messageId)) : gatewayTurn;
-  connector = new SinaloaConnector(apiUrl, store, { handler: bridgeHandler(store, turn) });
+  connector = new SinaloaConnector(apiUrl, store, { handler: bridgeHandler(store, turn,
+    approvedAssets.size ? (message, reply, key, signal) => manifestAssetExchange(approvedAssets, connector)(message, reply, key, signal) : undefined) });
 
   const relayToken = process.env.OPENCLAW_MCP_RELAY_TOKEN;
   if (process.env.OPENCLAW_MCP_RELAY_PORT && !relayToken) throw new Error('OPENCLAW_MCP_RELAY_TOKEN is required when the relay port is configured');

@@ -30,8 +30,15 @@ export async function shareCaseAsset(options: ShareCaseAssetOptions) {
     filename: options.filename, mimeType: options.mimeType, size: options.bytes.byteLength,
     checksumSha256, caseId: options.caseId
   });
-  await putSignedAsset(begun.upload, options.bytes, { fetch: options.fetch });
-  const asset = await options.connector.completeAssetUpload(begun.object.id);
+  let asset = (await options.connector.listAssets()).find(item => item.id === begun.object.id);
+  if (asset?.state !== 'clean') {
+    let uploadError: unknown = null;
+    try { await putSignedAsset(begun.upload, options.bytes, { fetch: options.fetch }); }
+    catch (error) { uploadError = error; }
+    try { asset = await options.connector.completeAssetUpload(begun.object.id); }
+    catch (error) { throw uploadError || error; }
+  }
+  if (!asset) throw new Error('Asset reservation could not be found');
   if (asset.state !== 'clean' || asset.caseId !== options.caseId) {
     throw new Error('Asset was not cleared for this case');
   }

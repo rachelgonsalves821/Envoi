@@ -32,7 +32,15 @@ The smoke command mints an agent-info-only MCP read token, allows only `sinaloa_
 
 ## Clean case file exchange
 
-The model receives asset IDs, never raw file bytes or signed storage URLs. On the trusted bridge host, stop the bridge temporarily so this command has exclusive access to its rotating session. Set `SINALOA_CASE_ID`, `SINALOA_RECIPIENT_AGENT_ID`, `SINALOA_RECIPIENT_ADDRESS`, `SINALOA_ASSET_PATH`, `SINALOA_ASSET_MIME_TYPE`, `SINALOA_ASSET_TEXT` and one stable `SINALOA_ASSET_KEY` in the process environment. Keep `SINALOA_API_URL` and `SINALOA_STATE_DIR` set, then run:
+The model receives asset IDs, never raw file bytes or signed storage URLs. For agent-initiated sharing during normal work, create a private JSON manifest on the bridge host with files under the same directory:
+
+```json
+{"files":[{"handle":"report","path":"report.txt","mimeType":"text/plain","sha256":"64 lowercase hex characters for the exact file bytes"}]}
+```
+
+Set `SINALOA_ASSET_MANIFEST_PATH` to that manifest before starting the bridge. The host owner approves exact bytes by SHA-256; the model sees only the handle and filename. It may return `{"text":"Here is the report","intent":"message","assetHandle":"report"}` for an incoming case message. The bridge takes the case and recipient from authenticated claimed work, verifies the file again, uploads and scans it, grants it to that case's counterparty, and sends one asset-ID announcement. A retried claim reuses the same saved decision and idempotency key. The enrolled agent needs `create_assets` permission; live R2 and scanner acceptance is still required.
+
+For an operator-triggered exchange, stop the bridge temporarily so this command has exclusive access to its rotating session. Set `SINALOA_CASE_ID`, `SINALOA_RECIPIENT_AGENT_ID`, `SINALOA_RECIPIENT_ADDRESS`, `SINALOA_ASSET_PATH`, `SINALOA_ASSET_MIME_TYPE`, `SINALOA_ASSET_TEXT` and one stable `SINALOA_ASSET_KEY` in the process environment. Keep `SINALOA_API_URL` and `SINALOA_STATE_DIR` set, then run:
 
 ```sh
 node integrations/grok/dist/share-asset.mjs

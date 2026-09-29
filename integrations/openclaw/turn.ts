@@ -11,6 +11,7 @@ export interface OpenClawTurnOptions {
   fetch?: typeof fetch;
   timeoutMs?: number;
   allowSinaloaMcpWrites?: boolean;
+  assetHandles?: Array<{ handle: string; filename: string }>;
 }
 
 export function mcpReplyMessageId(name: string, args: Record<string, unknown>): string | null {
@@ -75,7 +76,7 @@ export function openClawTurn(options: OpenClawTurnOptions): AgentTurn {
           model: `openclaw/${options.agentId}`,
           user: `sinaloa:${message.caseId || message.id}`,
           stream: false,
-          messages: [{ role: 'user', content: workPrompt(message, history, { allowSinaloaMcpWrites: options.allowSinaloaMcpWrites }) }]
+          messages: [{ role: 'user', content: workPrompt(message, history, { allowSinaloaMcpWrites: options.allowSinaloaMcpWrites, assetHandles: options.assetHandles }) }]
         })
       });
       if (!response.ok) throw new Error(`OpenClaw turn failed with HTTP ${response.status}`);

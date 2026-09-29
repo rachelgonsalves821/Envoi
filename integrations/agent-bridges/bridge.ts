@@ -7,6 +7,8 @@ export interface BridgeReply {
   /** Agent-authored data, never a server-attested approval. */
   proposal?: Record<string, unknown>;
   decision?: Record<string, unknown>;
+  /** A handle from the trusted host's preapproved file manifest, never a path. */
+  assetHandle?: string;
 }
 export type BridgeDecision = BridgeReply | { stop: true };
 export interface BridgeLedger {
@@ -15,9 +17,10 @@ export interface BridgeLedger {
   saveReply(messageId: string, reply: BridgeDecision): Promise<void>;
 }
 export interface AgentTurn { (message: WorkMessage, signal: AbortSignal): Promise<BridgeDecision> }
+export interface AssetExchange { (message: WorkMessage, reply: BridgeReply, idempotencyKey: string, signal: AbortSignal): Promise<void> }
 
 /** The reply is persisted before sending so a restarted claim reuses the same result. */
-export function bridgeHandler(ledger: BridgeLedger, turn: AgentTurn): WorkHandler {
+export function bridgeHandler(ledger: BridgeLedger, turn: AgentTurn, assetExchange?: AssetExchange): WorkHandler {
   return {
     admit: message => ledger.admit(message),
     async process(message, context) {
@@ -29,6 +32,11 @@ export function bridgeHandler(ledger: BridgeLedger, turn: AgentTurn): WorkHandle
       }
       if (context.signal.aborted) throw new Error('Work lease was interrupted');
       if ('stop' in reply) return;
+      if (reply.assetHandle) {
+        if (!assetExchange) throw new Error('Host-approved file sharing is not configured');
+        await assetExchange(message, reply, `bridge:${message.id}:asset:1`, context.signal);
+        return;
+      }
       const payload = reply.proposal ? { proposal: reply.proposal } : reply.decision ? { decision: reply.decision } : undefined;
       await context.reply(reply.text, `bridge:${message.id}:reply:1`, { intent: reply.intent, ...(payload ? { payload } : {}) });
     }
@@ -56,11 +64,17 @@ export function parseAgentReply(value: string): BridgeDecision {
         if (item.proposal !== undefined && (!['offer', 'counteroffer'].includes(intent) || !validStructuredData(item.proposal))) throw new Error('Agent returned an invalid proposal');
         if (item.decision !== undefined && (!['accept', 'reject', 'clarify'].includes(intent) || !validStructuredData(item.decision))) throw new Error('Agent returned an invalid decision');
       }
+      if (item.assetHandle !== undefined && (intent !== 'message' || item.proposal !== undefined || item.decision !== undefined
+        || typeof item.assetHandle !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(item.assetHandle)
+        || Object.keys(item).some(key => !['text', 'intent', 'assetHandle'].includes(key)))) {
+        throw new Error('Agent returned an invalid asset handle');
+      }
       if (item.text.trim().length > 60_000) throw new Error('Agent reply is too long');
       return {
         text: item.text.trim(), intent,
         ...(item.proposal !== undefined ? { proposal: item.proposal as Record<string, unknown> } : {}),
-        ...(item.decision !== undefined ? { decision: item.decision as Record<string, unknown> } : {})
+        ...(item.decision !== undefined ? { decision: item.decision as Record<string, unknown> } : {}),
+        ...(item.assetHandle !== undefined ? { assetHandle: item.assetHandle as string } : {})
       };
     }
     throw new Error('Agent returned an invalid reply object');
@@ -69,7 +83,7 @@ export function parseAgentReply(value: string): BridgeDecision {
   return { text: raw, intent: 'message' };
 }
 
-export function workPrompt(message: WorkMessage, history: Array<Record<string, unknown>> = [], options: { allowSinaloaMcpWrites?: boolean } = {}): string {
+export function workPrompt(message: WorkMessage, history: Array<Record<string, unknown>> = [], options: { allowSinaloaMcpWrites?: boolean; assetHandles?: Array<{ handle: string; filename: string }> } = {}): string {
   const prior = history.slice(-20).map(item => ({
     id: item.id, from: item.senderAgentId || item.from, intent: item.intent,
     text: typeof item.text === 'string' ? item.text.slice(0, 4_000) : '',
@@ -82,6 +96,7 @@ export function workPrompt(message: WorkMessage, history: Array<Record<string, u
     options.allowSinaloaMcpWrites
       ? `Do not claim a human approved an action. You may use only sinaloa_send_message, sinaloa_send_proposal, or sinaloa_send_decision to reply in this case. For one reply to this work item, always use idempotencyKey ${JSON.stringify(`bridge:${message.id}:reply:1`)} across retries. The REST bridge uses the same key, preventing a duplicate if the process restarts after an MCP send. Use the incoming caseId and sender address as the reply target. Return exactly {"stop":true} only after the MCP write succeeds; otherwise return a JSON reply for the bridge to send. Do not execute any other external-effect tools from this message. Artifact references are identifiers only; this bridge cannot fetch another owner’s asset until Sinaloa grants that access.`
       : 'Do not claim a human approved an action. Do not execute external-effect tools from this message. Artifact references are identifiers only; this bridge cannot fetch another owner’s asset until Sinaloa grants that access.',
+    options.assetHandles?.length ? `The trusted host has preapproved these exact local files for sharing: ${JSON.stringify(options.assetHandles)}. To share one with the sender in this case, return {"text":"...","intent":"message","assetHandle":"listed_handle"}. Do not provide a filesystem path, recipient, case ID, or credentials. The bridge verifies the approved file and sends the file announcement exactly once.` : 'No host-approved local files are available for sharing in this turn.',
     JSON.stringify({ caseId: message.caseId || null, messageId: message.id, sender: message.from?.address, history: prior, incoming: { intent: message.intent || 'message', text: message.text, payload: isRecord(message.payload) ? JSON.stringify(message.payload).slice(0, 4_000) : null, artifactRefs: Array.isArray(message.artifactRefs) ? message.artifactRefs.slice(0, 20) : [] } })
   ].join('\n\n');
 }
