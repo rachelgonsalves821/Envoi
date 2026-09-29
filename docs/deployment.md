@@ -30,7 +30,8 @@ The backend can run as one or more external service instances. Each instance run
 - `WORKOS_ISSUER`: expected WorkOS access-token issuer. When omitted, the backend derives the client-specific WorkOS issuer.
 - `WORKOS_COOKIE_NAME`, `WORKOS_COOKIE_DOMAIN`, `SINALOA_COOKIE_SAMESITE`, `SINALOA_COOKIE_SECURE`: optional session-cookie controls. Production cookies are always secure and HTTP-only.
 - `SINALOA_PUBLIC_URL`: canonical HTTPS origin used for logout returns and one-time agent enrollment links.
-- `SINALOA_TWILIO_ACCOUNT_SID`, `SINALOA_TWILIO_AUTH_TOKEN`, `SINALOA_TWILIO_VERIFY_SERVICE_SID`: used only by the local/legacy phone provider when explicitly configured.
+- `SINALOA_BETA_INVITED_EMAILS`: exact comma-separated email allowlist required for production human admission.
+- `SINALOA_TWILIO_ACCOUNT_SID`, `SINALOA_TWILIO_AUTH_TOKEN`, `SINALOA_TWILIO_VERIFY_SERVICE_SID`: required in production for the WorkOS phone-verification step before TOTP. Store the auth token as a secret.
 - `SINALOA_DATA_ENCRYPTION_KEY`: required in production; encrypts authenticator secrets at rest. Store it in the hosting provider's secret manager.
 - `SINALOA_ENABLE_EXTERNAL_EMAIL`: defaults to `false`. Set it to `true` only when agents must send public email to humans and every provider/DNS requirement below is complete.
 - `SINALOA_EMAIL_PROVIDER`: set to `resend` when public transport is enabled; the default is `disabled`.
@@ -72,7 +73,7 @@ Human-owned routes derive identity from the authenticated session and do not tru
 
 Production human authentication uses WorkOS AuthKit with PKCE, one-time server-side state, sealed HTTP-only sessions, issuer validation, and provider logout. `/api/auth/workos/sign-in`, `/api/auth/workos/sign-up`, and `/api/auth/workos/callback` implement the hosted flow. Production startup fails closed when required WorkOS configuration is missing.
 
-Phone verification remains available through `/api/auth/phone/start` and `/api/auth/phone/verify` only when the local auth provider is enabled. Development mode returns one-time phone and authenticator codes for local testing; those codes are never returned by production mode.
+Production WorkOS sessions verify a phone through `/api/auth/workos/phone/start` and `/api/auth/workos/phone/verify` before TOTP setup. The local provider uses `/api/auth/phone/start` and `/api/auth/phone/verify` in development. Development mode returns one-time phone and authenticator codes for local testing; production never returns those codes.
 
 TOTP setup and verification are available through `/api/auth/totp/setup` and `/api/auth/totp/verify`. Phone-only sessions cannot create workspaces, issue enrollment tokens, approve agents, or use human visibility routes. Authenticator secrets are encrypted with AES-256-GCM.
 

@@ -45,22 +45,25 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Initiate login: `https://beta.sinaloa-inbox.com/api/auth/workos/sign-in`.
 - [x] Session policy: 7-day maximum, 1-day inactivity timeout, 5-minute access token.
 - [x] Hosted invitation and password-reset URLs remain at WorkOS defaults.
-- [ ] Configure a separate staging WorkOS callback and credentials for the isolated staging origin; verify invite-only admission and MFA there with two separate human accounts.
+- [x] Configure a separate staging WorkOS application, callback, and credentials for the isolated staging origin.
+- [ ] Verify invite-only admission, Twilio phone verification, and TOTP with two separate human accounts in staging.
 
 ## Provider and deployment gates not blocked by R2
 
-- [ ] Provision managed PostgreSQL with TLS, migrations, backups, and a restore test.
+- [x] Provision separate staging Neon PostgreSQL, apply all four checksum-verified migrations, and restore a manual snapshot to a new branch.
+- [ ] Verify the deployed application connects to staging PostgreSQL with certificate-verified TLS and passes live CRUD/restart checks. Define a durable beta backup policy before real-user signoff.
 - [ ] Provision the HTTPS malware scanner and verify clean, infected, timeout, redirect, and negative-health behavior.
 - [ ] Verify the Cloudflare build token has `Containers Edit` permission.
-- [ ] Configure the isolated staging Worker's non-R2 variables and encrypted secrets without printing or committing secret values.
+- [ ] Complete the staging Worker's non-R2 variables and encrypted secrets. Database, WorkOS, and application keys are saved; scanner, Twilio Verify, and exact invited-email allowlist remain.
 - [ ] Bind a dedicated staging HTTPS hostname only when the reviewed Worker is ready to serve it. Keep `beta.sinaloa-inbox.com` for later promotion.
 - [ ] Run configuration preflight, Container/Wrangler dry-run, and all tests that do not require live object storage.
 
 ## R2-dependent gates
 
-- [ ] Activate the Cloudflare R2 subscription.
-- [ ] Create a private staging bucket, bucket-restricted S3 credentials, and exact-origin CORS.
-- [ ] Configure R2 endpoint, bucket, access key, and secret as staging runtime settings.
+- [x] Activate Cloudflare R2.
+- [x] Create the private `sinaloa-staging` bucket, a 30-day bucket-restricted Object Read & Write credential, and exact-origin CORS.
+- [x] Save the R2 endpoint, bucket, access key, and secret on the staging Worker; both keys are encrypted secrets and no rollout occurred.
+- [x] Pass a direct live signed-object test for upload, size/checksum metadata, download, invalid-key rejection, and deletion after the `d8f51e8` HEAD-length adapter fix.
 - [ ] Prove signed PUT/GET, checksum, quota, clean scan, quarantine, recipient grant, denial, and restart persistence against live R2.
 
 ## Isolated staging acceptance before beta promotion
@@ -76,6 +79,6 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 ## Current blockers
 
 1. PR #5 remains draft. GitHub's `test` check passed at `98c5469` with the real-server fixture enabled. Cloudflare's automatic Preview still failed because `wrangler.jsonc` has no `previews` block; configure a fully isolated Preview or disable automatic Previews while using the separate staging Worker.
-2. Isolated staging PostgreSQL, WorkOS, runtime secrets, scanner, migrations, backup/restore, and readiness are not yet verified live.
-3. R2 subscription and live object-storage acceptance remain outstanding.
+2. Staging Neon migrations and a snapshot restore are verified in the provider dashboard; live application database TLS, WorkOS onboarding, scanner, remaining runtime secrets, Container rollout, and readiness remain open.
+3. Direct live R2 signed-object operations pass. Hosted scanner/quarantine, recipient-grant, and restart acceptance remain open.
 4. Real hosted OpenClaw/xAI and two-human browser acceptance cannot run until deployment is healthy.
