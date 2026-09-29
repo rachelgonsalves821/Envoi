@@ -5,7 +5,10 @@ export default defineConfig({
     target: 'node22',
     outDir: 'integrations/grok/dist',
     emptyOutDir: true,
-    lib: { entry: 'integrations/grok/run.ts', formats: ['es'], fileName: () => 'run.mjs' },
+    lib: {
+      entry: { run: 'integrations/grok/run.ts', 'mcp-smoke': 'integrations/grok/mcp-smoke.ts' },
+      formats: ['es'], fileName: (_format, entryName) => `${entryName}.mjs`
+    },
     rollupOptions: { external: [/^node:/] }
   }
 });

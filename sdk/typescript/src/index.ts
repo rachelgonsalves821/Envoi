@@ -190,9 +190,10 @@ export class SinaloaClient {
     return this.request<Array<Record<string, unknown>>>(`/api/inboxes/${encodeURIComponent(inboxId)}/messages?${query}`);
   }
 
-  beginAssetUpload(inboxId: string, input: AssetUploadInput) {
+  /** Reuse the same key and input after an uncertain upload reservation response. */
+  beginAssetUpload(inboxId: string, idempotencyKey: string, input: AssetUploadInput) {
     return this.request<{ object: AssetRecord; upload: SignedAssetRequest }>(`/api/inboxes/${encodeURIComponent(inboxId)}/asset-uploads`, {
-      method: 'POST', body: JSON.stringify(input)
+      method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(input)
     });
   }
 
