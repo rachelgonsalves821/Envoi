@@ -6,6 +6,46 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 const relayToken = 'local-openclaw-mcp-token-at-least-32-chars';
 
 describe('OpenClaw local MCP relay', () => {
+  it('records a native MCP write before acknowledging it and fails closed if the record cannot be saved', async () => {
+    const session: ConnectorSession = {
+      agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@sinaloa.mail', cursor: null,
+      agentApiToken: 'access', agentRefreshToken: 'private-refresh',
+      agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+      agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString()
+    };
+    const store: ConnectorStore = { load: async () => session, save: async () => {} };
+    const upstream = vi.fn<typeof fetch>(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return json({ jsonrpc: '2.0', id: request.id,
+        result: { content: [{ type: 'text', text: JSON.stringify({ status: 202, payload: { id: 'sent_1' } }) }] } });
+    });
+    const recorded: string[] = [];
+    let failSave = true;
+    const relay = await startOpenClawMcpRelay({
+      connector: new SinaloaConnector('https://sinaloa.example.test', store, { fetch: upstream }),
+      bearerToken: relayToken, port: 0, allowCollaborationWrites: true,
+      onSuccessfulWrite: async (_name, args) => {
+        if (failSave) throw new Error('disk unavailable');
+        recorded.push(String(args.idempotencyKey));
+      }
+    });
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+      name: 'sinaloa_send_message', arguments: { recipientAddress: 'peer@sinaloa.mail',
+        caseId: 'case_1', text: 'done', idempotencyKey: 'bridge:msg_1:reply:1' }
+    } });
+    try {
+      const call = () => fetch(relay.url, { method: 'POST', headers: {
+        authorization: `Bearer ${relayToken}`, 'content-type': 'application/json' }, body });
+      const failed = await call();
+      expect(failed.status).toBe(502);
+      expect(JSON.stringify(await failed.json())).not.toContain('disk unavailable');
+      failSave = false;
+      const success = await call();
+      expect(success.status).toBe(200);
+      expect(recorded).toEqual(['bridge:msg_1:reply:1']);
+    } finally { await relay.close(); }
+  });
+
   it('keeps collaboration writes disabled unless the operator opts in', async () => {
     const current: ConnectorSession = {
       agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@sinaloa.mail', cursor: null,

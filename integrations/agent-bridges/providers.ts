@@ -3,7 +3,7 @@ import { parseAgentReply, workPrompt, type AgentTurn } from './bridge';
 
 type History = (caseId: string) => Promise<Array<Record<string, unknown>>>;
 
-type RemoteMcp = { serverUrl: string; accessToken: () => Promise<string>; allowedTools?: string[] };
+type RemoteMcp = { serverUrl: string; accessToken: (caseId: string | null) => Promise<string>; allowedTools?: string[] };
 
 export function xaiTurn(options: { apiKey: string; model: string; history?: History; fetch?: typeof fetch; endpoint?: string; mcp?: RemoteMcp }): AgentTurn {
   if (!options.apiKey || !options.model) throw new TypeError('xAI API key and model are required');
@@ -20,14 +20,20 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
   }
   return async (message: WorkMessage, signal: AbortSignal) => {
     const history = message.caseId && options.history ? await options.history(message.caseId) : [];
-    const body: Record<string, unknown> = { model: options.model, input: workPrompt(message, history), store: false };
+    const requiredRead = message.caseId ? 'sinaloa_read_case' : 'sinaloa_agent_info';
+    const prompt = workPrompt(message, history);
+    const body: Record<string, unknown> = { model: options.model,
+      input: options.mcp ? `${prompt}\n\nBefore responding, call ${requiredRead} through the Sinaloa MCP server${message.caseId ? ` for caseId ${JSON.stringify(message.caseId)}` : ''}. If the read fails, do not guess a reply.` : prompt,
+      store: false };
     if (options.mcp) {
-      const token = await options.mcp.accessToken();
-      if (!token || /[\r\n]/.test(token)) throw new Error('Current Sinaloa access token is unavailable');
+      const token = await options.mcp.accessToken(message.caseId || null);
+      if (!token || /[\r\n]/.test(token)) throw new Error('Current Sinaloa MCP read token is unavailable');
       body.tools = [{
         type: 'mcp', server_url: options.mcp.serverUrl, server_label: 'sinaloa',
         authorization: `Bearer ${token}`,
-        allowed_tools: options.mcp.allowedTools || ['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']
+        allowed_tools: options.mcp.allowedTools || (message.caseId
+          ? ['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']
+          : ['sinaloa_agent_info'])
       }];
     }
     let response: Response;
@@ -43,6 +49,12 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
     try { data = await response.json() as Record<string, unknown>; }
     catch { throw new Error('xAI returned an invalid response'); }
     if (data.status !== 'completed' || !Array.isArray(data.output)) throw new Error('xAI response was not completed');
+    if (options.mcp && !(data.output as Array<Record<string, unknown>>).some(item =>
+      item.type === 'mcp_call' && (item.name === requiredRead || item.name === `sinaloa.${requiredRead}`) &&
+      (item.server_label === undefined || item.server_label === 'sinaloa') &&
+      item.status === 'completed' && item.error == null)) {
+      throw new Error(`xAI did not complete the required Sinaloa MCP ${requiredRead} call`);
+    }
     const text = (data.output as Array<Record<string, unknown>>)
       .filter(item => item.type === 'message' && Array.isArray(item.content))
       .flatMap(item => item.content as Array<Record<string, unknown>>)

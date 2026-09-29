@@ -13,6 +13,14 @@ export interface ConnectorStore {
   save(session: ConnectorSession): Promise<void>;
 }
 
+export interface McpReadToken {
+  mcpAccessToken: string;
+  tokenType: 'Bearer';
+  scope: 'case_read';
+  caseId: string | null;
+  expiresAt: string;
+}
+
 export interface InboxEvent {
   id: string;
   type: string;
@@ -211,6 +219,34 @@ export class SinaloaConnector {
       throw new ConnectorCredentialsError();
     }
     return session.agentApiToken;
+  }
+
+  /** Mint a short-lived MCP read credential for a single provider turn. Never send refresh credentials to a provider. */
+  mintMcpReadToken(caseId: string | null = null): Promise<McpReadToken> {
+    if (caseId !== null && (typeof caseId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(caseId))) {
+      throw new TypeError('A safe case ID is required for an MCP read token');
+    }
+    return this.withFreshSession(async session => {
+      const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
+      let response: Response;
+      try {
+        response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/mcp-read-token`, {
+          method: 'POST', redirect: 'error', signal: timeout,
+          headers: { authorization: `Bearer ${session.agentApiToken}`, 'content-type': 'application/json' },
+          body: JSON.stringify(caseId === null ? {} : { caseId })
+        });
+      } catch { throw new SinaloaError(timeout.aborted ? 'Sinaloa MCP token request timed out' : 'Sinaloa MCP token service could not be reached'); }
+      if (!response.ok) throw new SinaloaError('Sinaloa MCP read credential was denied', response.status);
+      let payload: Record<string, unknown>;
+      try { payload = await response.json() as Record<string, unknown>; }
+      catch { throw new SinaloaError('Sinaloa returned an invalid MCP read credential'); }
+      if (!payload || typeof payload.mcpAccessToken !== 'string' || !payload.mcpAccessToken ||
+          payload.tokenType !== 'Bearer' || payload.scope !== 'case_read' || payload.caseId !== caseId ||
+          typeof payload.expiresAt !== 'string' || Date.parse(payload.expiresAt) <= Date.now() + 120_000) {
+        throw new SinaloaError('Sinaloa returned an invalid or short-lived MCP read credential');
+      }
+      return payload as unknown as McpReadToken;
+    });
   }
 
   /** Trusted host only: forwards MCP JSON-RPC without exposing the rotating refresh token. */

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkMessage } from '../../sdk/typescript/src/connector';
 import { bridgeHandler, parseAgentReply, workPrompt, type BridgeDecision, type BridgeLedger } from '../agent-bridges/bridge';
-import { openClawTurn } from './turn';
+import { mcpReplyMessageId, openClawTurn, withRecordedMcpReply } from './turn';
 
 const message: WorkMessage = {
   id: 'msg_1',
@@ -50,6 +50,46 @@ describe('OpenClaw turn', () => {
   it('accepts a stop decision and plain text', async () => {
     await expect(turn(vi.fn(async () => completed('{"stop":true}')))(message, new AbortController().signal)).resolves.toEqual({ stop: true });
     await expect(turn(vi.fn(async () => completed('Hello there')))(message, new AbortController().signal)).resolves.toEqual({ text: 'Hello there', intent: 'message' });
+  });
+
+  it('gives write-enabled turns a stable MCP reply key while preserving the read-only default', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => completed('{"stop":true}'));
+    const options = { gatewayUrl: 'https://gateway.example.test', gatewayToken: 'gateway-token',
+      agentId: 'sinaloa-agent', fetch: fetcher };
+    await openClawTurn(options)(message, new AbortController().signal);
+    let prompt = JSON.parse(String(fetcher.mock.calls[0][1]?.body)).messages[0].content as string;
+    expect(prompt).toContain('Do not execute external-effect tools');
+    expect(prompt).not.toContain('bridge:msg_1:reply:1');
+    await openClawTurn({ ...options, allowSinaloaMcpWrites: true })(message, new AbortController().signal);
+    prompt = JSON.parse(String(fetcher.mock.calls[1][1]?.body)).messages[0].content as string;
+    expect(prompt).toContain('bridge:msg_1:reply:1');
+    expect(prompt).toContain('Return exactly {"stop":true} only after the MCP write succeeds');
+    expect(prompt).toContain('incoming caseId and sender address');
+  });
+
+  it('suppresses REST replies when a successful MCP reply was recorded, including after restart', async () => {
+    const sent = new Set<string>();
+    const gateway = vi.fn(async () => ({ text: 'Would duplicate the MCP send', intent: 'message' as const }));
+    const guarded = withRecordedMcpReply(gateway, async id => sent.has(id));
+    await expect(guarded(message, new AbortController().signal)).resolves.toEqual({ text: 'Would duplicate the MCP send', intent: 'message' });
+    const duringTurn = withRecordedMcpReply(async () => {
+      sent.add(message.id);
+      return { text: 'Would duplicate the MCP send', intent: 'message' };
+    }, async id => sent.has(id));
+    sent.clear();
+    await expect(duringTurn(message, new AbortController().signal)).resolves.toEqual({ stop: true });
+    await expect(guarded(message, new AbortController().signal)).resolves.toEqual({ stop: true });
+    expect(gateway).toHaveBeenCalledTimes(1);
+    const failedGateway = withRecordedMcpReply(async () => { sent.add(message.id); throw new Error('Gateway disconnected'); },
+      async id => sent.has(id));
+    sent.clear();
+    await expect(failedGateway(message, new AbortController().signal)).resolves.toEqual({ stop: true });
+  });
+
+  it('only treats a matching native reply key as a completed bridge reply', () => {
+    expect(mcpReplyMessageId('sinaloa_send_message', { idempotencyKey: 'bridge:msg_1:reply:1' })).toBe('msg_1');
+    expect(mcpReplyMessageId('sinaloa_start_case', { idempotencyKey: 'bridge:msg_1:reply:1' })).toBeNull();
+    expect(mcpReplyMessageId('sinaloa_send_message', { idempotencyKey: 'unrelated' })).toBeNull();
   });
 
   it('rejects incomplete, malformed and failed Gateway responses without exposing response bodies', async () => {

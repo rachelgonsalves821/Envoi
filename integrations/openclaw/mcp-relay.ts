@@ -33,10 +33,12 @@ export interface McpRelayOptions {
   allowCollaborationWrites?: boolean;
   /** Local diagnostic hook; invoked only after a successful upstream tool response. */
   onSuccessfulToolCall?: (name: string) => void;
+  /** Persist a completed native write before reporting success to OpenClaw. */
+  onSuccessfulWrite?: (name: string, arguments_: Record<string, unknown>) => Promise<void>;
 }
 
 /** Local OpenClaw MCP endpoint; the Sinaloa refresh credential stays in the bridge store. */
-export async function startOpenClawMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false, onSuccessfulToolCall }: McpRelayOptions) {
+export async function startOpenClawMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false, onSuccessfulToolCall, onSuccessfulWrite }: McpRelayOptions) {
   if (typeof bearerToken !== 'string' || bearerToken.length < 32 || /[\r\n]/.test(bearerToken)) {
     throw new TypeError('A private MCP relay bearer token of at least 32 characters is required');
   }
@@ -113,15 +115,26 @@ export async function startOpenClawMcpRelay({ connector, bearerToken, port = 878
         ) } }));
       } catch { return send(res, 502, { error: 'Sinaloa MCP tool catalog is invalid' }); }
     }
-    if (upstream.ok && request.method === 'tools/call' && onSuccessfulToolCall) {
+    if (upstream.ok && request.method === 'tools/call' && (onSuccessfulToolCall || onSuccessfulWrite)) {
+      let payload: Record<string, unknown> | null = null;
       try {
-        const payload = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
-        const result = payload.result as Record<string, unknown> | undefined;
-        if (!payload.error && result?.isError !== true && Array.isArray(result?.content) && result.content.length > 0) {
-          const params = request.params as Record<string, unknown>;
-          onSuccessfulToolCall(params.name as string);
+        payload = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+      } catch { /* Invalid upstream JSON remains visible to the MCP client. */ }
+      const result = payload?.result as Record<string, unknown> | undefined;
+      if (payload && !payload.error && result?.isError !== true && Array.isArray(result?.content) && result.content.length > 0) {
+        const params = request.params as Record<string, unknown>;
+        const name = params.name as string;
+        if (collaborationTools.has(name) && onSuccessfulWrite) {
+          try {
+            const content = result.content[0] as Record<string, unknown>;
+            const value = typeof content?.text === 'string' ? JSON.parse(content.text) as Record<string, unknown> : null;
+            if (typeof value?.status === 'number' && value.status >= 200 && value.status < 300) {
+              await onSuccessfulWrite(name, params.arguments as Record<string, unknown>);
+            }
+          } catch { return send(res, 502, { error: 'Sinaloa MCP write could not be recorded' }); }
         }
-      } catch { /* Diagnostics must not alter the MCP result. */ }
+        try { onSuccessfulToolCall?.(name); } catch { /* Diagnostics do not alter the MCP result. */ }
+      }
     }
     res.writeHead(upstream.status, { 'content-type': upstream.headers.get('content-type') || 'application/json', 'cache-control': 'no-store' });
     res.end(output);

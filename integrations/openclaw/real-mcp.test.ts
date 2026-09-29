@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
 import { describe, expect, it } from 'vitest';
-import { enrollConnector, SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { enrollConnector, SinaloaConnector, type WorkMessage } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { BrowserSession } from '../../test/browser-session.js';
 import { startOpenClawMcpRelay } from './mcp-relay';
+import { mcpReplyMessageId, withRecordedMcpReply } from './turn';
 
 type Session = InstanceType<typeof BrowserSession>;
 type Relay = Awaited<ReturnType<typeof startOpenClawMcpRelay>>;
@@ -90,8 +91,12 @@ describe('OpenClaw relay against the real Sinaloa MCP handler', () => {
       await Promise.all([aliceStore.init(), bobStore.init()]);
       const alice = await owner(app.baseUrl, '7101', aliceStore);
       const bob = await owner(app.baseUrl, '7102', bobStore);
+      const onSuccessfulWrite = async (name: string, args: Record<string, unknown>) => {
+        const messageId = mcpReplyMessageId(name, args);
+        if (messageId) await aliceStore.markMcpReplySent(messageId);
+      };
       aliceRelay = await startOpenClawMcpRelay({ connector: new SinaloaConnector(app.baseUrl, aliceStore),
-        bearerToken: relaySecret, port: 0, allowCollaborationWrites: true });
+        bearerToken: relaySecret, port: 0, allowCollaborationWrites: true, onSuccessfulWrite });
       bobRelay = await startOpenClawMcpRelay({ connector: new SinaloaConnector(app.baseUrl, bobStore),
         bearerToken: relaySecret, port: 0, allowCollaborationWrites: true });
 
@@ -119,12 +124,30 @@ describe('OpenClaw relay against the real Sinaloa MCP handler', () => {
         proposalMessageId: proposal.value.payload.id, idempotencyKey: 'relay-decision' });
       expect(decision.value.payload.payload.decision.proposalMessageId).toBe(proposal.value.payload.id);
 
+      const gatewayReplyArgs = { recipientAddress: bob.address, caseId: second.value.payload.caseId,
+        text: 'MCP reply for second case', idempotencyKey: 'bridge:gateway_reply:reply:1' };
+      const gatewayReply = await call(aliceRelay, 'sinaloa_send_message', gatewayReplyArgs);
+      expect(gatewayReply.value.status).toBe(202);
+      expect(await aliceStore.mcpReplySent('gateway_reply')).toBe(true);
+      let gatewayCalls = 0;
+      const guarded = withRecordedMcpReply(async () => { gatewayCalls += 1;
+        return { text: 'Would be a second send', intent: 'message' }; },
+      messageId => aliceStore.mcpReplySent(messageId));
+      const incoming = { id: 'gateway_reply', caseId: second.value.payload.caseId,
+        senderAgentId: bob.agentId, recipientAgentId: alice.agentId,
+        from: { agentId: bob.agentId, address: bob.address }, text: 'Reply once' } as WorkMessage;
+      expect(await guarded(incoming, new AbortController().signal)).toEqual({ stop: true });
+      expect(gatewayCalls).toBe(0);
+
       await aliceRelay.close();
       aliceRelay = null;
       const beforeRotation = await aliceStore.load();
       await aliceStore.save({ ...beforeRotation!, agentTokenExpiresAt: new Date(Date.now() - 1_000).toISOString() });
       aliceRelay = await startOpenClawMcpRelay({ connector: new SinaloaConnector(app.baseUrl, aliceStore),
-        bearerToken: relaySecret, port: 0, allowCollaborationWrites: true });
+        bearerToken: relaySecret, port: 0, allowCollaborationWrites: true, onSuccessfulWrite });
+      const gatewayReplay = await call(aliceRelay, 'sinaloa_send_message', gatewayReplyArgs);
+      expect(gatewayReplay.value.payload.id).toBe(gatewayReply.value.payload.id);
+      expect(await new FileBridgeStore(path.join(root, 'alice')).mcpReplySent('gateway_reply')).toBe(true);
       const replayAfterRestart = await call(aliceRelay, 'sinaloa_send_proposal', proposalArgs);
       expect(replayAfterRestart.value.payload.id).toBe(proposal.value.payload.id);
       expect((await aliceStore.load())?.agentRefreshToken).not.toBe(beforeRotation?.agentRefreshToken);

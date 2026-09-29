@@ -2,7 +2,7 @@ import { enrollConnector, SinaloaConnector } from '../../sdk/typescript/src/conn
 import { bridgeHandler } from '../agent-bridges/bridge';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { startOpenClawMcpRelay } from './mcp-relay';
-import { openClawTurn } from './turn';
+import { mcpReplyMessageId, openClawTurn, withRecordedMcpReply } from './turn';
 
 async function main() {
   const apiUrl = process.env.SINALOA_API_URL;
@@ -23,12 +23,15 @@ async function main() {
   }
 
   let connector: SinaloaConnector;
-  const turn = openClawTurn({
+  const writeEnabled = process.env.OPENCLAW_MCP_WRITE_ENABLED === 'true';
+  const gatewayTurn = openClawTurn({
     gatewayUrl,
     gatewayToken,
     agentId,
+    allowSinaloaMcpWrites: writeEnabled,
     history: caseId => connector.listCaseMessages(caseId, 20)
   });
+  const turn = writeEnabled ? withRecordedMcpReply(gatewayTurn, messageId => store.mcpReplySent(messageId)) : gatewayTurn;
   connector = new SinaloaConnector(apiUrl, store, { handler: bridgeHandler(store, turn) });
 
   const relayToken = process.env.OPENCLAW_MCP_RELAY_TOKEN;
@@ -39,7 +42,11 @@ async function main() {
     connector,
     bearerToken: relayToken,
     port: process.env.OPENCLAW_MCP_RELAY_PORT ? Number(process.env.OPENCLAW_MCP_RELAY_PORT) : 8788,
-    allowCollaborationWrites: process.env.OPENCLAW_MCP_WRITE_ENABLED === 'true'
+    allowCollaborationWrites: writeEnabled,
+    ...(writeEnabled ? { onSuccessfulWrite: async (name: string, args: Record<string, unknown>) => {
+      const messageId = mcpReplyMessageId(name, args);
+      if (messageId) await store.markMcpReplySent(messageId);
+    } } : {})
   }) : null;
 
   const stop = new AbortController();

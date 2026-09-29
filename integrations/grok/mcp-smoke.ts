@@ -72,7 +72,7 @@ async function main() {
   const store = new FileBridgeStore(stateDir);
   await store.init();
   const connector = new SinaloaConnector(apiUrl, store);
-  const accessToken = await connector.currentAccessToken(180_000);
+  const accessToken = (await connector.mintMcpReadToken()).mcpAccessToken;
   const session = await store.load();
   if (!session?.address) throw new Error('Enrolled Sinaloa session is required');
   await probeXaiMcp({ apiKey, model: process.env.XAI_MODEL || 'grok-4.7', mcpUrl,

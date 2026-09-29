@@ -90,6 +90,39 @@ describe('Sinaloa outbound connector', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('mints a case-scoped provider MCP credential after refreshing agent access', async () => {
+    const memory = memoryStore(session());
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith('/api/agent-token')) return new Response(JSON.stringify({
+        agentApiToken: 'access-two', agentRefreshToken: 'refresh-two',
+        agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+        agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString()
+      }));
+      expect(String(url)).toBe('https://api.example/api/agent/mcp-read-token');
+      expect(init?.method).toBe('POST');
+      expect(JSON.parse(String(init?.body))).toEqual({ caseId: 'case_one' });
+      const authorization = new Headers(init?.headers).get('authorization');
+      expect(JSON.stringify(init?.body)).not.toContain('refresh-one');
+      if (authorization === 'Bearer access-one') return new Response('{}', { status: 401 });
+      expect(authorization).toBe('Bearer access-two');
+      return new Response(JSON.stringify({ mcpAccessToken: 'mcp-read-one', tokenType: 'Bearer',
+        scope: 'case_read', caseId: 'case_one', expiresAt: new Date(Date.now() + 300_000).toISOString() }), { status: 201 });
+    });
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
+    expect((await connector.mintMcpReadToken('case_one')).mcpAccessToken).toBe('mcp-read-one');
+    expect(memory.current()?.agentRefreshToken).toBe('refresh-two');
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects a provider MCP credential with the wrong case or insufficient lifetime', async () => {
+    const memory = memoryStore(session());
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ mcpAccessToken: 'mcp-read-one',
+      tokenType: 'Bearer', scope: 'case_read', caseId: 'other_case',
+      expiresAt: new Date(Date.now() + 30_000).toISOString() }), { status: 201 }));
+    const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
+    await expect(connector.mintMcpReadToken('case_one')).rejects.toThrow('invalid or short-lived');
+  });
+
   it('preserves a refresh token rotated inside an event callback when saving the cursor', async () => {
     const memory = memoryStore(session());
     const fetcher = vi.fn(async (url: string | URL | Request) => {
