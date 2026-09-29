@@ -6,13 +6,13 @@ The Worker uses a stable Durable Object name and `max_instances: 1`, so every re
 
 ## Workers Builds
 
-Connect the GitHub repository under **Workers & Pages → sinaloa → Settings → Builds**.
+The old production Worker `sinaloa` is deliberately disconnected from Git Builds so pushing `main` cannot deploy it. Do not reconnect it for staging acceptance. The isolated `sinaloa-staging` Worker is connected under **Workers & Pages → sinaloa-staging → Settings → Builds**.
 
-- Production branch: `main`
+- Production branch for this staging Worker: `codex/staging-readiness`; preview-branch builds are off.
 - Root directory: `/`
 - Node version: 22, selected by the checked-in `.node-version` (also used by CI/Docker).
-- Build command: `npm run build && npm run test:cloudflare && npm run cf:config-check` (Workers Builds installs the lockfile dependencies first).
-- Deploy command: `npm run cf:deploy`
+- Build command: `npm run build` (Workers Builds installs the lockfile dependencies first; GitHub CI runs the broader suite).
+- Deploy command: `npx wrangler deploy --env staging`
 
 Container deployments must use `wrangler deploy`; `wrangler versions upload` does not publish updated container images.
 

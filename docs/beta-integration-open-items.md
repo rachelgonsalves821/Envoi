@@ -35,8 +35,8 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Partner staging host admission fails closed on an absent or unlisted hostname, with Worker tests passing after integration.
 - [x] The bounded local stress harness passes with three owners, two cases, concurrent writes/reads/MCP calls, idempotent retries, and denied injection/spoof attempts. It found rotating invalid MCP bearer strings bypassed the per-token limiter; MCP requests now consume a source-IP limit before bearer lookup and a per-token limit after successful authentication. This is local FileStore evidence, not hosted load acceptance.
 - [x] GitHub's `test` check passed at `98c5469`, including Docker build/startup, PostgreSQL tests, both Wrangler dry-runs, frontend, SDKs, backend, and the bridge suite with the real-server file fixture enabled.
-- [x] Integrated code is committed and pushed in draft PR #5. The exact remote branch head was verified at `98c5469` before this tracker update.
-- [ ] Require green checks for the final exact head SHA. Cloudflare's automatic branch Preview failed at `98c5469` after a successful build: its dashboard deploy command is `npx wrangler preview`, but `wrangler.jsonc` lacks a `previews` block. This is a separate Preview configuration issue; it does not establish staging readiness.
+- [x] Integrated code plus scanner are committed and pushed at `b68a7b9` on `codex/staging-readiness`; [PR #6](https://github.com/rachelgonsalves821/Sinaloa/pull/6) is draft against `codex/r1-r2-integration`. For one reviewed `main` merge, review the full `codex/staging-readiness` diff against `main` rather than merging the stacked branches independently.
+- [x] At `b68a7b9`, GitHub Backend CI and Cloudflare Builds for `sinaloa-staging` both passed. The old production Worker `sinaloa` was disconnected from Git Builds; the staging Worker follows `codex/staging-readiness` and has preview-branch builds off. Recheck both statuses on any new review SHA before `main`.
 
 ## WorkOS beta account configuration reported from the product setup chat
 
@@ -49,6 +49,7 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Hosted invitation and password-reset URLs remain at WorkOS defaults.
 - [x] Configure a separate staging WorkOS application, callback, and credentials for the isolated staging origin.
 - [ ] Verify invite-only WorkOS admission and provider MFA with two separate human accounts in staging; SMS and application TOTP are not required.
+- [x] On 2026-09-29, rechecked WorkOS Staging: hosted UI enabled, self-service sign-up disabled, and MFA required for non-SSO users. The `Sinaloa Staging` callback, homepage, initiate-login, and sign-out URLs match the staging Worker. Enterprise SSO is enabled at environment level, with one active built-in test connection for `example.com`; confirm beta testers cannot bypass MFA through SSO. The staging app now reaches the AuthKit invitation sign-in, but neither tester's live MFA/callback has been accepted yet.
 
 ## Provider and deployment gates not blocked by R2
 
@@ -80,7 +81,7 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 
 ## Current blockers
 
-1. PR #5 remains draft. GitHub's `test` check passed at `98c5469` with the real-server fixture enabled. Cloudflare's automatic Preview still failed because `wrangler.jsonc` has no `previews` block; configure a fully isolated Preview or disable automatic Previews while using the separate staging Worker.
-2. Staging Neon migrations and a snapshot restore are verified in the provider dashboard; live application database TLS, WorkOS onboarding, scanner, remaining runtime secrets, Container rollout, and readiness remain open.
-3. Direct live R2 signed-object operations pass. Hosted scanner/quarantine, recipient-grant, and restart acceptance remain open.
-4. Real hosted OpenClaw/xAI and two-human browser acceptance cannot run until deployment is healthy.
+1. The full `codex/staging-readiness` diff still needs partner review against `main` and a final exact-head check after documentation updates. The old production Worker's Git build is disconnected; staging preview-branch builds are off. A merge to `main` must not be mistaken for beta promotion.
+2. The staging application Container is running. `/health` and `/ready` return 200 with PostgreSQL, R2 read, and scanner ready, but no two-user WorkOS MFA/callback or live app CRUD/restart test has passed. SSO cannot be accepted without equivalent MFA.
+3. Direct live R2 and scanner tests pass separately. Hosted app quarantine, recipient-grant, browser CORS, infected-file denial, and restart acceptance remain open.
+4. Real hosted OpenClaw/xAI and the two-human/two-case browser journey remain untested on the deployed SHA.
