@@ -31,6 +31,7 @@ export const agentMcpTools = Object.freeze([
   { name: 'sinaloa_list_assets', description: 'List asset metadata in this agent’s own inbox, including scan state. No binary content is returned.', inputSchema: empty, permission: 'read' },
   { name: 'sinaloa_begin_asset_upload', description: 'Reserve a quarantined asset and return a short-lived signed binary PUT URL. Upload bytes directly to that URL, then complete the asset. Reuse the idempotency key for a retry.', inputSchema: schema({ filename: { type: 'string', minLength: 1, maxLength: 255 }, mimeType: { type: 'string', minLength: 1, maxLength: 128 }, size: { type: 'integer', minimum: 1, maximum: 26214400 }, checksumSha256: { type: 'string', pattern: '^[A-Za-z0-9+/]{43}=$' }, caseId: identifier, idempotencyKey }, ['filename', 'mimeType', 'size', 'checksumSha256', 'idempotencyKey']), permission: 'create_assets' },
   { name: 'sinaloa_complete_asset_upload', description: 'Verify an uploaded asset and run the configured malware scan. Only a clean result can be downloaded.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'create_assets' },
+  { name: 'sinaloa_grant_asset', description: 'Grant a clean, case-scoped asset created by this agent to the other participant agent. The server verifies the case, recipient and scan state.', inputSchema: schema({ assetId: identifier, recipientAgentId: identifier }, ['assetId', 'recipientAgentId']), permission: 'create_assets' },
   { name: 'sinaloa_asset_download', description: 'Return a short-lived signed download URL for a clean asset in this agent’s own inbox.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'read' },
   { name: 'sinaloa_claim_work', description: 'Claim one incoming message under a fenced lease. An empty work field means no work is available.', inputSchema: empty, permission: 'receive_agent_messages' },
   { name: 'sinaloa_renew_work', description: 'Extend the current work lease; requires its opaque fence token.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 } }, ['workId', 'leaseToken']), permission: 'receive_agent_messages' },
@@ -80,6 +81,7 @@ async function invokeTool(name, args, identity, callRest) {
     return callRest('POST', `${base}/asset-uploads`, metadata, key);
   }
   if (name === 'sinaloa_complete_asset_upload') return callRest('POST', `${base}/assets/${args.assetId}/complete`, {});
+  if (name === 'sinaloa_grant_asset') return callRest('POST', `${base}/assets/${args.assetId}/grants`, { recipientAgentId: args.recipientAgentId });
   if (name === 'sinaloa_asset_download') return callRest('GET', `${base}/assets/${args.assetId}/download`);
   if (['sinaloa_start_case', 'sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision'].includes(name)) {
     const caseId = name === 'sinaloa_start_case'
