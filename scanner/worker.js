@@ -82,6 +82,9 @@ export class ClamAVContainer extends Container {
   enableInternet = true;
 
   async fetch(request) {
+    // This handler uses raw TCP instead of Container.fetch(), so renew the
+    // activity timer that the base HTTP proxy would normally renew.
+    this.renewActivityTimeout();
     try {
       const path = new URL(request.url).pathname;
       if (path === '/health' && request.method === 'GET') {
