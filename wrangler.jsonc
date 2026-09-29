@@ -38,12 +38,54 @@
   "env": {
     "staging": {
       "workers_dev": true,
+      "triggers": {
+        "crons": ["* * * * *"]
+      },
       "vars": {
         "SINALOA_MALWARE_SCANNER_URL": "https://sinaloa-scanner-staging.rachelgonsalves821.workers.dev/scan"
       },
       "containers": [
         {
           "name": "sinaloa-beta-staging",
+          "class_name": "SinaloaContainer",
+          "image": "./Dockerfile.cloudflare",
+          "max_instances": 1,
+          "instance_type": "basic",
+          "rollout_active_grace_period": 60
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "SINALOA_CONTAINER",
+            "class_name": "SinaloaContainer"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["SinaloaContainer"]
+        }
+      ]
+    },
+    "beta": {
+      "workers_dev": true,
+      "vars": {
+        "SINALOA_MALWARE_SCANNER_URL": "https://sinaloa-scanner-beta.rachelgonsalves821.workers.dev/scan"
+      },
+      "routes": [
+        {
+          "pattern": "beta.sinaloa-inbox.com",
+          "custom_domain": true
+        }
+      ],
+      "triggers": {
+        "crons": ["* * * * *"]
+      },
+      "containers": [
+        {
+          "name": "sinaloa-beta-release",
           "class_name": "SinaloaContainer",
           "image": "./Dockerfile.cloudflare",
           "max_instances": 1,

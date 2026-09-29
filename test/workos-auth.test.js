@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FileStore } from '../src/storage.js';
-import { createCsrfToken, csrfCookieHeader, membershipCanManage, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
+import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
 
 test('management authority follows active provider membership after role changes', () => {
   const membership = { status: 'active', role: { slug: 'admin' } };
@@ -47,6 +47,11 @@ test('WorkOS cookie mutations require a matching CSRF token and exact origin', (
     if (previousPublicUrl === undefined) delete process.env.SINALOA_PUBLIC_URL;
     else process.env.SINALOA_PUBLIC_URL = previousPublicUrl;
   }
+});
+
+test('malformed cookies do not bypass admission or crash CSRF validation', () => {
+  assert.deepEqual(parseCookies('sinaloa_session=%E0%A4%A; sinaloa_csrf=valid'), { sinaloa_csrf: 'valid' });
+  assert.equal(verifyCsrfRequest({ headers: { cookie: 'sinaloa_session=%E0%A4%A; sinaloa_csrf=%E0%A4%A', origin: 'http://localhost:3000', host: 'localhost:3000', 'x-sinaloa-csrf': 'valid' } }), false);
 });
 
 test('WorkOS auth uses one-time PKCE state and maps provider users to stable humans', async () => {
@@ -110,9 +115,15 @@ test('WorkOS email verification alone does not admit an uninvited human', async 
   await store.init();
   const user = { id: 'user_uninvited', email: 'outsider@example.com', emailVerified: true };
   const workos = { userManagement: {
+    getAuthorizationUrlWithPKCE: async () => ({ url: 'https://auth.example.test/', state: 'state_uninvited', codeVerifier: 'verifier_uninvited' }),
+    authenticateWithCode: async () => ({ user, sealedSession: 'sealed_uninvited' }),
     loadSealedSession: () => ({ authenticate: async () => ({ authenticated: true, user, sessionId: 'session_uninvited' }) })
   } };
   const auth = new WorkOSAuthService(store, { clientId: 'client_1', apiKey: 'sk_test_1', cookiePassword: '12345678901234567890123456789012', redirectUri: 'https://sinaloa.test/callback', workos, invitedEmails: 'rachel@example.com' });
+  await auth.startAuthorization();
+  await assert.rejects(() => auth.completeAuthorization({ code: 'code_uninvited', state: 'state_uninvited' }), { statusCode: 403 });
+  assert.deepEqual(await store.listJson('humans'), []);
   const req = { headers: { cookie: 'sinaloa_session=sealed' } };
   assert.equal(await auth.getHuman(req), null);
+  assert.equal(await auth.getHuman({ headers: { cookie: 'sinaloa_session=%E0%A4%A' } }), null);
 });

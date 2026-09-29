@@ -124,8 +124,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 
 ### Human authentication
 
-- Hosted beta admits only invited, email-verified WorkOS users. WorkOS AuthKit MFA must be required for their sign-in method before creating or approving an agent.
-- Verify the actual WorkOS MFA challenge in staging rather than relying only on a dashboard setting. Do not enable SSO unless its identity provider enforces equivalent MFA.
+- Hosted beta admits only invited, email-verified WorkOS users. Rachel approved MFA Off for the invite-only beta; self-service signup remains disabled and an exact server-side invite allowlist must be enforced before creating or approving an agent.
+- Verify the actual WorkOS sign-in, callback, session and application admission with two users in staging and beta, including SSO if enabled. Keep the initial cohort capped at 20 people and exercise expiry, revocation and cross-user denial.
 - Local development may use a simulated phone challenge, but hosted beta does not require SMS or a phone number.
 - Local-development TOTP codes must be single-use per time step, and replacing an existing local authenticator requires an MFA-authenticated session.
 - Humans must be able to revoke their current session.

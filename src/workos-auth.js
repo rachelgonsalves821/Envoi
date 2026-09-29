@@ -40,9 +40,14 @@ const publicHuman = human => ({
 });
 
 export function parseCookies(header = '') {
-  return Object.fromEntries(header.split(';').map(value => value.trim()).filter(Boolean).map(value => {
+  return Object.fromEntries(header.split(';').map(value => value.trim()).filter(Boolean).flatMap(value => {
     const separator = value.indexOf('=');
-    return separator < 0 ? [value, ''] : [value.slice(0, separator), decodeURIComponent(value.slice(separator + 1))];
+    if (separator < 0) return [[value, '']];
+    try {
+      return [[value.slice(0, separator), decodeURIComponent(value.slice(separator + 1))]];
+    } catch {
+      return [];
+    }
   }));
 }
 

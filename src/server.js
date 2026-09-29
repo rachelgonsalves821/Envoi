@@ -7,6 +7,7 @@ import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
 import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
+import { operationalBacklogSnapshot } from './operational-backlog.js';
 import { DeliveryWorker } from './delivery-worker.js';
 import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
@@ -111,8 +112,10 @@ const objectQuotaBytes = Number(process.env.SINALOA_WORKSPACE_OBJECT_QUOTA_BYTES
 const objectStorageRequestTimeoutMs = Number(process.env.SINALOA_S3_REQUEST_TIMEOUT_MS || 30_000);
 const objectScanWorkerIntervalMs = Number(process.env.SINALOA_SCAN_WORKER_INTERVAL_MS || 1_000);
 const objectScanRetentionIntervalMs = Number(process.env.SINALOA_SCAN_RETENTION_INTERVAL_MS || 60_000);
+const operationalBacklogLogIntervalMs = Number(process.env.SINALOA_OPERATIONAL_BACKLOG_LOG_INTERVAL_MS || 60_000);
 if (!Number.isSafeInteger(objectScanWorkerIntervalMs) || objectScanWorkerIntervalMs < 1) throw new TypeError('SINALOA_SCAN_WORKER_INTERVAL_MS must be a positive integer');
 if (!Number.isSafeInteger(objectScanRetentionIntervalMs) || objectScanRetentionIntervalMs < 1) throw new TypeError('SINALOA_SCAN_RETENTION_INTERVAL_MS must be a positive integer');
+if (!Number.isSafeInteger(operationalBacklogLogIntervalMs) || operationalBacklogLogIntervalMs < 10_000) throw new TypeError('SINALOA_OPERATIONAL_BACKLOG_LOG_INTERVAL_MS must be an integer of at least 10000');
 const objectAllowedMimeTypes = (process.env.SINALOA_OBJECT_ALLOWED_MIME_TYPES || 'application/pdf,image/jpeg,image/png,text/plain,text/csv,application/json').split(',').map(value => value.trim()).filter(Boolean);
 const objectStorageAdapter = createObjectStorageAdapter(objectStorageProvider === 's3' ? {
   provider: 's3',
@@ -3276,6 +3279,12 @@ await objectStorage.init();
 await objectStorage.quotaLedger.reclaimExpired?.();
 await synchronizePublicEmailDirectory();
 deliveryWorker.start();
+const logOperationalBacklog = () => operationalBacklogSnapshot({ store, scanJobStore })
+  .then(snapshot => console.log(JSON.stringify(snapshot)))
+  .catch(() => console.error(JSON.stringify({ event: 'sinaloa.operational_backlog_error' })));
+const operationalBacklogLogger = setInterval(() => { void logOperationalBacklog(); }, operationalBacklogLogIntervalMs);
+operationalBacklogLogger.unref?.();
+void logOperationalBacklog();
 const objectQuotaReaper = setInterval(() => objectStorage.quotaLedger.reclaimExpired?.().catch(error => console.error('Object quota reaper failed', error)), Number(process.env.SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
 objectQuotaReaper.unref?.();
 const objectScanWorker = scanJobStore ? setInterval(() => { void runObjectScans(); }, objectScanWorkerIntervalMs) : null;
@@ -3302,6 +3311,7 @@ const shutdown = () => {
   shutdownStarted = true;
   scanLifecycleStopping = true;
   clearInterval(objectQuotaReaper);
+  clearInterval(operationalBacklogLogger);
   if (objectScanWorker) clearInterval(objectScanWorker);
   if (objectScanRetentionWorker) clearInterval(objectScanRetentionWorker);
   for (const set of streams.values()) for (const subscription of set) {
