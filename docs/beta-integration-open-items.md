@@ -2,7 +2,7 @@
 
 Updated 2026-09-29. This file tracks the combined R1/R2 release candidate. Keep an item open until its evidence exists on the exact candidate commit. A local mock, skipped live-provider test, or UI visibility without matching server enforcement does not complete a hosted gate.
 
-Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. The invite-only beta at `https://beta.sinaloa-inbox.com` is a later promotion target after staging passes. The chosen native agent address domain is `agents.sinaloa-inbox.com`; staging must configure `SINALOA_AGENT_DOMAIN` accordingly. Keep staging provider data, secrets, storage, and callbacks separate from beta.
+Rachel chose **one lightweight invite-only beta environment**, not a separate staging stack. The release target is `https://beta.sinaloa-inbox.com`, and the native agent address domain is `agents.sinaloa-inbox.com`. Validate the exact reviewed commit on that beta origin before inviting the wider 20-person cohort.
 
 ## Ownership boundary
 
@@ -17,12 +17,13 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] `79e7a40` — updated R1 enrollment interface bundle (`web/**`).
 - [x] `0739ce2` — manager pause/resume controls (`frontend/**`); already on the remote integration branch.
 - [x] `f2f39a1` — renewable client asset exchange path and SDK support (`integrations/**`, `sdk/**`); already published on its feature branch.
-- [x] `b0337b9` — xAI case-file announcement through MCP (`integrations/grok/**`); committed locally and may be pushed with the integration branch.
-- [x] The `integrations/agent-bridges/real-assets.test.ts` fixture is paired locally with the matching partner `src/**` contract. It passed against a real local server and scanner with two owners, two cases, typed offer/decision, mirrored receipt, shared file, block/pause/resume and tenant denial. Commit and push them together.
+- [x] `b0337b9` — xAI case-file announcement through MCP (`integrations/grok/**`); published on the integration branch.
+- [x] `fd8b262` — trusted OpenClaw/xAI bridges can share only host-approved case files during normal agent turns; published on the integration branch.
+- [x] The `integrations/agent-bridges/real-assets.test.ts` fixture is committed with the matching partner `src/**` contract and passes with two owners, two cases, typed offer/decision, mirrored receipt, shared file, block/pause/resume and tenant denial.
 
 ## Required before combining scopes
 
-- [ ] Freeze and document the exact server/client fixture for two owners, two agents, two concurrent cases, typed offer/decision, clean file grant, pause/resume, block/unblock, revoke, and human approval.
+- [x] Freeze and document the exact server/client fixture for two owners, two agents, two concurrent cases, typed offer/decision, clean file grant, pause/resume, block/unblock, revoke, and human approval.
 - [x] Local canonical shared case mirrors structured proposals, decisions, and one final receipt to both owners; the two-owner fixture checks equality.
 - [x] Both local human projections retain the exact structured terms, decision, state, and receipt. Frontend rendering checks those terms and the accepted decision in each owner view. Hosted browser acceptance remains open.
 - [x] Local granted-file projection shows the clean asset to the recipient human, and the copied recipient download URL stops working after a block.
@@ -30,9 +31,9 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Local manager pause/resume and native block/unblock controls call enforcing routes; focused frontend and two-owner server tests pass.
 - [x] Local chosen-address test verifies exact lowercase address, atomic collision denial, parent redemption audit marker and two-active-agent cap. Hosted configuration remains open.
 - [x] Local backend (99 pass, 8 live-provider/PostgreSQL skips), frontend (58), TypeScript SDK (37), Python SDK (4), bridge (26), OpenClaw adapter (16), Worker (6), typecheck, production web build, and both agent adapter builds pass on the combined working tree.
-- [x] Both Wrangler dry-runs pass outside the local filesystem sandbox for the root Worker and isolated `staging` environment.
-- [ ] Docker build and PostgreSQL tests need an available local or CI runtime; Docker is not installed on this host and no test database is configured.
-- [ ] Commit all combined changes, push `codex/r1-r2-integration`, open or update the integration PR, and require green GitHub CI for the exact head SHA.
+- [x] Wrangler dry-runs pass for the root Worker and beta configuration.
+- [x] GitHub Backend CI run `36574638747` passes on exact head `fd8b262`, including all test suites, the production build, Wrangler check, production container build, fail-closed startup, PostgreSQL tests, and production dependency audit.
+- [x] Combined changes are committed and pushed to `codex/r1-r2-integration`; draft integration PR #5 targets `codex/deployment-recovery`.
 
 ## WorkOS beta account configuration reported from the product setup chat
 
@@ -43,25 +44,25 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [x] Initiate login: `https://beta.sinaloa-inbox.com/api/auth/workos/sign-in`.
 - [x] Session policy: 7-day maximum, 1-day inactivity timeout, 5-minute access token.
 - [x] Hosted invitation and password-reset URLs remain at WorkOS defaults.
-- [ ] Configure a separate staging WorkOS callback and credentials for the isolated staging origin; verify invite-only admission and MFA there.
+- [ ] Verify invite-only admission and MFA end to end on the deployed beta origin with two separate human accounts.
 
 ## Provider and deployment gates not blocked by R2
 
 - [ ] Provision managed PostgreSQL with TLS, migrations, backups, and a restore test.
 - [ ] Provision the HTTPS malware scanner and verify clean, infected, timeout, redirect, and negative-health behavior.
 - [ ] Verify the Cloudflare build token has `Containers Edit` permission.
-- [ ] Configure the isolated staging Worker's non-R2 variables and encrypted secrets without printing or committing secret values.
-- [ ] Bind a dedicated staging HTTPS hostname only when the reviewed Worker is ready to serve it. Keep `beta.sinaloa-inbox.com` for later promotion.
+- [ ] Configure the beta Worker's non-R2 variables and encrypted secrets without printing or committing secret values.
+- [ ] Bind `beta.sinaloa-inbox.com` only to the reviewed beta Worker.
 - [ ] Run configuration preflight, Container/Wrangler dry-run, and all tests that do not require live object storage.
 
 ## R2-dependent gates
 
 - [ ] Activate the Cloudflare R2 subscription.
-- [ ] Create a private staging bucket, bucket-restricted S3 credentials, and exact-origin CORS.
-- [ ] Configure R2 endpoint, bucket, access key, and secret as staging runtime settings.
+- [ ] Create a private beta bucket, bucket-restricted S3 credentials, and exact-origin CORS.
+- [ ] Configure R2 endpoint, bucket, access key, and secret as beta runtime settings.
 - [ ] Prove signed PUT/GET, checksum, quota, clean scan, quarantine, recipient grant, denial, and restart persistence against live R2.
 
-## Isolated staging acceptance before beta promotion
+## Invite-only beta acceptance
 
 - [ ] Deploy the exact reviewed commit and obtain a positive `/ready` response.
 - [ ] Two invited humans complete WorkOS MFA and independently enroll one external agent each.
@@ -69,11 +70,11 @@ Rachel chose **a new isolated staging environment first** for R1/R2 acceptance. 
 - [ ] Complete two distinct multi-turn cases, typed offer/decision, a clean shared file, offline delivery, connector restart, and exactly-once reply behavior.
 - [ ] Exercise expired and revoked credentials, pause/resume, block/unblock, quarantine, cross-tenant denial, stale browser session, reload, and pagination.
 - [ ] Verify alerts, backup/restore, Container restart, and rollback to the previous image/commit.
-- [ ] Promote the verified commit to the invite-only beta and invite the 20 humans in small batches only after the critical journey passes on staging.
+- [ ] Invite the 20 humans in small batches only after the critical journey passes on the beta origin.
 
 ## Current blockers
 
-1. The combined integration changes pass the available local tests but are not yet pushed or CI-verified.
-2. Isolated staging PostgreSQL, WorkOS, and scanner resources and secrets are not yet verified.
-3. R2 subscription and live object-storage acceptance remain outstanding.
-4. Real hosted OpenClaw/xAI and two-human browser acceptance cannot run until deployment is healthy.
+1. Cloudflare's automatic preview build failed on exact head `fd8b262`; diagnose that deployment configuration before the beta origin can serve the candidate.
+2. Managed PostgreSQL, beta runtime secrets, scanner, migrations, backup/restore, and readiness are not yet verified live.
+3. R2 subscription and live object-storage acceptance remain outstanding; all non-R2 implementation and CI work is already complete.
+4. Real hosted OpenClaw/xAI and two-human browser acceptance cannot run until the beta deployment is healthy.
