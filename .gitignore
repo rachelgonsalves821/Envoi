@@ -15,5 +15,5 @@ frontend-render.png
 .dev.vars.*
 !.dev.vars.example
 .wrangler/
-scanner/.dry-run/
+.dry-run/
 coverage/
