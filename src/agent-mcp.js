@@ -45,6 +45,10 @@ const publicTool = ({ name, description, inputSchema }) => ({ name, description,
 const hasPermission = (identity, permission) => permission === null || (permission === 'read'
   ? identity.agent.permissions?.some(value => value === 'send_agent_messages' || value === 'receive_agent_messages')
   : identity.agent.permissions?.includes(permission));
+const scopedReadTools = new Set(['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']);
+const toolAvailable = (identity, tool) => hasPermission(identity, tool.permission)
+  && (!identity.mcpScope || (scopedReadTools.has(tool.name)
+    && (tool.name === 'sinaloa_agent_info' || Boolean(identity.mcpScope.caseId))));
 const rpcError = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
 const rpcResult = (id, result) => ({ jsonrpc: '2.0', id, result });
 const sendJson = (res, status, payload) => {
@@ -62,7 +66,11 @@ const query = args => {
 
 async function invokeTool(name, args, identity, callRest) {
   const base = `/api/inboxes/${identity.inboxId}`;
-  if (name === 'sinaloa_agent_info') return { agentId: identity.agent.id, inboxId: identity.inboxId, address: identity.agent.address, permissions: identity.agent.permissions };
+  if (name === 'sinaloa_agent_info') return {
+    agentId: identity.agent.id, inboxId: identity.inboxId, address: identity.agent.address,
+    permissions: identity.mcpScope ? ['mcp_read'] : identity.agent.permissions,
+    ...(identity.mcpScope ? { caseId: identity.mcpScope.caseId } : {})
+  };
   if (name === 'sinaloa_list_cases') return callRest('GET', `${base}/cases${query(args)}`);
   if (name === 'sinaloa_read_case') return callRest('GET', `${base}/cases/${args.caseId}`);
   if (name === 'sinaloa_list_messages') return callRest('GET', `${base}/messages${query(args)}`);
@@ -147,14 +155,17 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   if (request.method === 'ping') return sendJson(res, 200, rpcResult(id, {}));
   if (request.method === 'tools/list') {
     if (request.params?.cursor) return sendJson(res, 200, rpcError(id, -32602, 'Tool cursor is invalid'));
-    return sendJson(res, 200, rpcResult(id, { tools: agentMcpTools.filter(tool => hasPermission(identity, tool.permission)).map(publicTool) }));
+    return sendJson(res, 200, rpcResult(id, { tools: agentMcpTools.filter(tool => toolAvailable(identity, tool)).map(publicTool) }));
   }
   if (request.method !== 'tools/call') return sendJson(res, 200, rpcError(id, -32601, 'Method not found'));
   const name = request.params?.name;
   const tool = agentMcpTools.find(candidate => candidate.name === name);
-  if (!tool || !hasPermission(identity, tool.permission)) return sendJson(res, 200, rpcError(id, -32602, 'Tool not available to this agent'));
+  if (!tool || !toolAvailable(identity, tool)) return sendJson(res, 200, rpcError(id, -32602, 'Tool not available to this agent'));
   const args = request.params?.arguments ?? {};
   if (!validators.get(name)(args)) return sendJson(res, 200, rpcError(id, -32602, 'Invalid tool arguments'));
+  if (identity.mcpScope && name !== 'sinaloa_agent_info' && args.caseId !== identity.mcpScope.caseId) {
+    return sendJson(res, 200, rpcError(id, -32602, 'Case is outside this MCP token scope'));
+  }
   try {
     const response = await invokeTool(name, args, identity, callRest);
     if (response?.status && response.status >= 400) return sendJson(res, 200, rpcResult(id, toolResult({ status: response.status, ...response.payload }, true)));

@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
@@ -12,6 +12,7 @@ import { BrowserSession } from './browser-session.js';
 
 async function startServer(t, environment = {}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-mcp-'));
+  t.dataDir = dataDir;
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
     env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, ...environment },
@@ -201,6 +202,56 @@ test('MCP tools start two distinct cases, preserve send idempotency, and settle 
   const revoked = await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents/${bob.agent.id}/credentials/revoke`, { session: bob.session, body: {} });
   assert.equal(revoked.status, 200);
   assert.equal((await mcp(baseUrl, bob.agentApiToken, 'tools/list')).status, 401);
+});
+
+test('case-scoped provider tokens expose only MCP reads and stop after credential revocation', async t => {
+  const baseUrl = await startServer(t);
+  const alice = await owner(baseUrl, '1251');
+  const bob = await owner(baseUrl, '1252');
+  const first = content(await tool(baseUrl, alice.agentApiToken, 'sinaloa_start_case', {
+    recipientAddress: bob.agent.address, text: 'First scoped case', idempotencyKey: 'provider-scope-one'
+  }));
+  const second = content(await tool(baseUrl, alice.agentApiToken, 'sinaloa_start_case', {
+    recipientAddress: bob.agent.address, text: 'Second scoped case', idempotencyKey: 'provider-scope-two'
+  }));
+  const issued = await api(baseUrl, '/api/agent/mcp-read-token', { token: alice.agentApiToken, body: { caseId: first.payload.caseId } });
+  assert.equal(issued.status, 201);
+  assert.equal(issued.payload.scope, 'case_read');
+  assert.equal(issued.payload.caseId, first.payload.caseId);
+  assert.ok(issued.payload.mcpAccessToken.startsWith('sinaloa_mcp_read_'));
+  assert.ok(Date.parse(issued.payload.expiresAt) > Date.now() + 4 * 60_000);
+  const scoped = issued.payload.mcpAccessToken;
+  const names = (await mcp(baseUrl, scoped, 'tools/list')).payload.result.tools.map(item => item.name);
+  assert.deepEqual(names, ['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']);
+  const info = content(await tool(baseUrl, scoped, 'sinaloa_agent_info'));
+  assert.deepEqual(info.permissions, ['mcp_read']);
+  assert.equal(info.caseId, first.payload.caseId);
+  assert.equal(content(await tool(baseUrl, scoped, 'sinaloa_read_case', { caseId: first.payload.caseId })).payload.id, first.payload.caseId);
+  assert.equal((await tool(baseUrl, scoped, 'sinaloa_read_case', { caseId: second.payload.caseId })).payload.error.code, -32602);
+  assert.equal((await tool(baseUrl, scoped, 'sinaloa_list_messages')).payload.error.code, -32602);
+  assert.equal(content(await tool(baseUrl, scoped, 'sinaloa_list_messages', { caseId: first.payload.caseId })).status, 200);
+  assert.equal((await tool(baseUrl, scoped, 'sinaloa_send_message', {
+    recipientAddress: bob.agent.address, caseId: first.payload.caseId, text: 'Denied', idempotencyKey: 'scoped-write'
+  })).payload.error.code, -32602);
+  assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${first.payload.caseId}`, { token: scoped })).status, 200);
+  assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${second.payload.caseId}`, { token: scoped })).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent/mcp-read-token', { token: scoped, body: {} })).status, 401);
+  const tokenHash = crypto.createHash('sha256').update(scoped).digest('hex');
+  const recordPath = path.join(t.dataDir, 'auth', 'agent-credentials', `${tokenHash}.json`);
+  const record = JSON.parse(await readFile(recordPath, 'utf8'));
+  await writeFile(recordPath, JSON.stringify({ ...record, expiresAt: new Date(Date.now() - 1000).toISOString() }));
+  assert.equal((await mcp(baseUrl, scoped, 'tools/list')).status, 401);
+  const replacement = await api(baseUrl, '/api/agent/mcp-read-token', { token: alice.agentApiToken, body: { caseId: first.payload.caseId } });
+  assert.equal(replacement.status, 201);
+  const agentPath = path.join(t.dataDir, 'inboxes', alice.inbox.id, 'agents', `${alice.agent.id}.json`);
+  const agentRecord = JSON.parse(await readFile(agentPath, 'utf8'));
+  await writeFile(agentPath, JSON.stringify({ ...agentRecord, pausedAt: new Date().toISOString() }));
+  assert.equal((await mcp(baseUrl, replacement.payload.mcpAccessToken, 'tools/list')).status, 401);
+  assert.equal((await mcp(baseUrl, alice.agentApiToken, 'tools/list')).status, 401);
+  await writeFile(agentPath, JSON.stringify(agentRecord));
+  const revoked = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/credentials/revoke`, { session: alice.session, body: {} });
+  assert.equal(revoked.status, 200);
+  assert.equal((await mcp(baseUrl, replacement.payload.mcpAccessToken, 'tools/list')).status, 401);
 });
 
 test('MCP asset tools use signed binary URLs and enforce scanner state, permission and workspace boundaries', async t => {
