@@ -4,7 +4,7 @@
 
 Reviewed merged `origin/main` baseline **`fc2e1d8b72280789e365e9f8b8e399717933ccb6`**, PR #6, against the user-supplied closed-beta launch audit. Work is isolated on **`codex/beta-launch-readiness`**, with distinct agent file ownership. The original checkout was preserved. The audit's operational instructions were treated as evidence and proposed gates; no deployment, invitation or provider mutation was performed here.
 
-Baseline [GitHub CI run 36644026164](https://github.com/rachelgonsalves821/Sinaloa/actions/runs/36644026164) succeeded. It predates these changes. Review/merge and CI for the final readiness commit remain required. Record that full SHA from Git and use it on both environments; this document does not identify the readiness branch as an accepted release.
+Baseline [GitHub CI run 36644026164](https://github.com/rachelgonsalves821/Sinaloa/actions/runs/36644026164) predates these changes. The readiness implementation commit `cef2909ccbefcb4ca176d089e4ab043cef12cc34` is published in draft [PR #7](https://github.com/rachelgonsalves821/Sinaloa/pull/7). Its [CI run 36663216467](https://github.com/rachelgonsalves821/Sinaloa/actions/runs/36663216467) completed successfully, including actual production Docker build, fail-closed startup and all six disposable PostgreSQL regressions with zero skips. Review and merge remain required; any subsequent candidate commit must also pass CI. Record that full SHA from Git and use it on both environments; this document does not identify the readiness branch as an accepted release.
 
 ## Changes and reproduced failures
 
@@ -38,7 +38,7 @@ The TypeScript SDK fixture also dropped a timing-dependent assertion that expect
 | `npm audit --omit=dev` | **0 vulnerabilities** |
 | Scanner/server syntax and `git diff --check` | Passed |
 
-The ten backend skips are six PostgreSQL regressions and four live R2/scanner regressions. No disposable PostgreSQL URL, private live storage/scanner credentials, or Docker runtime was available. CI must exercise its disposable PostgreSQL and actual production Docker build/fail-closed-startup gates; Rachel must run the opted-in live provider tests on isolated test resources. Unit/fixture bridges do not prove real OpenClaw Gateway or xAI provider behavior. The populated restore helper was tested with fixtures, not hosted restored data.
+The ten backend skips are six PostgreSQL regressions and four live R2/scanner regressions. No disposable PostgreSQL URL, private live storage/scanner credentials, or Docker runtime was available. CI subsequently passed its disposable PostgreSQL and actual production Docker build/fail-closed-startup gates on the implementation commit above; Rachel must still run the opted-in live provider tests on isolated test resources. Unit/fixture bridges do not prove real OpenClaw Gateway or xAI provider behavior. The populated restore helper was tested with fixtures, not hosted restored data.
 
 ## Migration byte identity
 
@@ -53,7 +53,7 @@ The ten backend skips are six PostgreSQL regressions and four live R2/scanner re
 
 Fresh HTTPS fetches returned staging health 200 (production config validated), readiness 200 (ready) and auth config 200 (WorkOS). The responses did not include releaseSha, so deployed main/candidate identity is unproven. Beta health returned 500; unauthenticated beta scanner health returned 401. No authenticated beta scanner proof is available from this session.
 
-The user confirms staging-only secrets, Rachel executing hosted commands and alerts reaching both owners. Local Wrangler selects a different account; no local deployment is authorized through that identity. GitHub CLI is not authenticated on this machine. Alert destinations, primary responder and R2 renewal owner remain undecided. The previously recorded R2 expiry is 2026-10-29 and requires private provider confirmation/renewal planning.
+The user confirms staging-only secrets, Rachel executing hosted commands and alerts reaching both owners. Local Wrangler selects a different account; no local deployment is authorized through that identity. GitHub CLI had no configured login, but the existing Git credential authenticated branch publication and draft PR creation privately after the connector returned insufficient PR permission. No credential value was logged. Alert destinations, primary responder and R2 renewal owner remain undecided. The previously recorded R2 expiry is 2026-10-29 and requires private provider confirmation/renewal planning.
 
 ## Rachel's next execution gates
 
