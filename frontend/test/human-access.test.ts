@@ -38,6 +38,8 @@ describe('external runtime enrollment handoff', () => {
     expect(markup).toContain('OPENCLAW_GATEWAY_TOKEN');
     expect(markup).toContain('XAI_API_KEY');
     expect(markup).toContain('SINALOA_MCP_URL');
+    expect(markup).toContain('Hermes Agent · Windows');
+    expect(markup).toContain('connect-windows.ps1');
     expect(markup).toContain('Provider secrets stay on the external host');
     expect(markup).not.toContain('/api/agent-enroll');
     expect(markup).not.toContain('agentApiToken');

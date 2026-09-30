@@ -23,8 +23,10 @@ async function main() {
     if (!token) throw new Error('SINALOA_ENROLLMENT_TOKEN is required for first enrollment');
     await enrollConnector(apiUrl, token, store, { name: process.env.SINALOA_AGENT_NAME || 'Hermes bridge' });
   }
+  delete process.env.SINALOA_ENROLLMENT_TOKEN;
   const session = await store.load();
   if (!session) throw new Error('Sinaloa enrollment did not create a connector session');
+  process.stdout.write(`Hermes connected to Sinaloa as ${session.address}. Listening for work.\n`);
   const runs = new HermesRunStore(stateDir);
   const approvedAssets = await loadAssetManifest(process.env.SINALOA_ASSET_MANIFEST_PATH);
   const relayToken = process.env.HERMES_MCP_RELAY_TOKEN;
