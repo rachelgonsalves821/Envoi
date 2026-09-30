@@ -979,6 +979,10 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState('');
   const [revokeResult, setRevokeResult] = useState<{ revokedAt: string; credentialFamilyCount: number } | null>(null);
+  const [reconnectOpen, setReconnectOpen] = useState(false);
+  const [reconnectBusy, setReconnectBusy] = useState(false);
+  const [reconnectError, setReconnectError] = useState('');
+  const [reconnectResult, setReconnectResult] = useState<{ enrollmentToken: string; expiresAt: string; address: string } | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
   const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
@@ -1011,6 +1015,13 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     } catch (caught) { setRevokeError(errorMessage(caught)); }
     finally { setRevokeBusy(false); }
   }
+  async function createReconnectToken() {
+    setReconnectBusy(true);
+    setReconnectError('');
+    try { setReconnectResult(await api.reconnectAgentToken(workspace.id, agent.id)); }
+    catch (caught) { setReconnectError(errorMessage(caught)); }
+    finally { setReconnectBusy(false); }
+  }
   async function setPaused(paused: boolean) {
     setPauseBusy(true);
     setPauseError('');
@@ -1031,6 +1042,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     {pending && canApproveAgent && <button className="button primary" onClick={() => setApprovalOpen(true)}>Review agent access</button>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
     {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{pauseBusy ? 'Saving…' : agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}
+    {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" onClick={() => { setReconnectError(''); setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}
     {canManageInbox && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent credentials</button>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
@@ -1042,6 +1054,10 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       <p className="dialog-copy">This revokes the agent's current access and refresh credentials and disconnects its live stream. The agent identity and conversation history remain visible.</p>
       <FormError message={revokeError} />
       <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep credentials</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Revoking…' : 'Revoke credentials'}</button></div>
+    </Modal>}
+    {reconnectOpen && canManageInbox && <Modal title={`Reconnect ${agent.name}`} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} dismissible={!reconnectBusy}>
+      <p className="dialog-copy">Use this when the agent runtime lost its saved Sinaloa session. The agent keeps {platformAddress}, its inbox, and its conversation history. Redeeming the new token revokes its old credentials and disconnects the old runtime.</p>
+      {reconnectResult ? <><InlineNotice title="One-use reconnect token" body={`This token expires ${formatAbsolute(reconnectResult.expiresAt)}. Paste it only at the connector's hidden terminal prompt, never in a chat or at the PS> prompt.`} tone="attention" /><div className="copy-field"><input readOnly value={reconnectResult.enrollmentToken} aria-label="One-use agent reconnect token" /><CopyButton value={reconnectResult.enrollmentToken} label="Copy one-use agent reconnect token" /></div></> : <><FormError message={reconnectError} /><div className="dialog-actions"><button className="button secondary" onClick={() => setReconnectOpen(false)}>Cancel</button><button className="button primary" disabled={reconnectBusy} onClick={() => void createReconnectToken()}>{reconnectBusy ? 'Creating…' : 'Create reconnect token'}</button></div></>}
     </Modal>}
   </article>;
 }

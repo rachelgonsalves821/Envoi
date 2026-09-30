@@ -153,7 +153,8 @@ $env:HERMES_MCP_WRITE_ENABLED = 'true'
 try {
   if (-not (Test-Path -LiteralPath $session)) {
     Write-Host "No saved Sinaloa session was found at $StateDir."
-    Write-Host 'Create a fresh token in Sinaloa > Agent connections > Enroll an agent. Do not paste it into a chat or at the PS> prompt.'
+    Write-Host 'For an existing agent, use Agent connections > Reconnect runtime. For a new agent, use Enroll an agent.'
+    Write-Host 'Do not paste the token into a chat or at the PS> prompt.'
     $enteredToken = ''
     for ($attempt = 0; $attempt -lt 3 -and -not $enteredToken; $attempt++) {
       $secureToken = Read-Host 'Paste the one-use token now (input hidden), then press Enter' -AsSecureString
