@@ -153,12 +153,20 @@ $env:HERMES_MCP_WRITE_ENABLED = 'true'
 try {
   if (-not (Test-Path -LiteralPath $session)) {
     Write-Host "No saved Sinaloa session was found at $StateDir."
-    Write-Host 'Create a fresh token in Sinaloa > Agent connections > Enroll an agent.'
-    $secureToken = Read-Host 'Paste the one-use enrollment token here' -AsSecureString
-    $handle = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-    try { $env:SINALOA_ENROLLMENT_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($handle) }
-    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($handle) }
-    if (-not $env:SINALOA_ENROLLMENT_TOKEN) { throw 'An enrollment token is required.' }
+    Write-Host 'Create a fresh token in Sinaloa > Agent connections > Enroll an agent. Do not paste it into a chat or at the PS> prompt.'
+    $enteredToken = ''
+    for ($attempt = 0; $attempt -lt 3 -and -not $enteredToken; $attempt++) {
+      $secureToken = Read-Host 'Paste the one-use token now (input hidden), then press Enter' -AsSecureString
+      $handle = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+      try { $enteredToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($handle) }
+      finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($handle) }
+      if (-not $enteredToken -and $attempt -lt 2) {
+        Write-Host 'Nothing was entered. The script is still waiting for a token; paste at the next hidden-input prompt.'
+      }
+    }
+    if (-not $enteredToken) { throw 'No token was entered after three prompts. Run this script again when you have a fresh token.' }
+    $env:SINALOA_ENROLLMENT_TOKEN = $enteredToken
+    $enteredToken = ''
   } else { Write-Host "Resuming the saved Sinaloa agent for $($origin.Host)." }
   Write-Host 'Connecting Hermes to Sinaloa. Keep this terminal open while testing.'
   Write-Host 'In an already-open Hermes chat, run /reload-mcp after this bridge reports that MCP send tools are ready.'
