@@ -6,7 +6,7 @@ import { startMcpRelay } from '../agent-bridges/mcp-relay';
 import { HermesRunStore } from './run-store';
 import { hermesTurn } from './turn';
 import type { WorkMessage } from '../../sdk/typescript/src/connector';
-import { authorizedHermesReply } from './lease-write';
+import { authorizedHermesWrite } from './lease-write';
 
 async function main() {
   const apiUrl = process.env.SINALOA_API_URL;
@@ -26,7 +26,6 @@ async function main() {
   delete process.env.SINALOA_ENROLLMENT_TOKEN;
   const session = await store.load();
   if (!session) throw new Error('Sinaloa enrollment did not create a connector session');
-  process.stdout.write(`Hermes connected to Sinaloa as ${session.address}. Listening for work.\n`);
   const runs = new HermesRunStore(stateDir);
   const approvedAssets = await loadAssetManifest(process.env.SINALOA_ASSET_MANIFEST_PATH);
   const relayToken = process.env.HERMES_MCP_RELAY_TOKEN;
@@ -53,8 +52,8 @@ async function main() {
     connector, bearerToken: relayToken,
     port: process.env.HERMES_MCP_RELAY_PORT ? Number(process.env.HERMES_MCP_RELAY_PORT) : 8789,
     allowCollaborationWrites: writeEnabled,
-    collaborationToolNames: ['sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision'],
-    authorizeWrite: (name, args) => authorizedHermesReply(active, name, args),
+    collaborationToolNames: ['sinaloa_start_case', 'sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision'],
+    authorizeWrite: (name, args) => authorizedHermesWrite(active, name, args),
     onSuccessfulWrite: async (name, args) => {
       const id = mcpReplyMessageId(name, args);
       if (id) await store.markMcpReplySent(id);
@@ -63,11 +62,27 @@ async function main() {
   const stop = new AbortController();
   process.once('SIGINT', () => stop.abort());
   process.once('SIGTERM', () => stop.abort());
-  try { await connector.run(stop.signal); }
+  try {
+    if (relay && writeEnabled) {
+      const catalog = await connector.forwardMcpRequest(JSON.stringify({ jsonrpc: '2.0', id: 'hermes-setup', method: 'tools/list' }));
+      if (!catalog.ok) throw new Error(`Sinaloa MCP tool check failed with HTTP ${catalog.status}`);
+      const payload = await catalog.json() as { result?: { tools?: Array<{ name?: string }> } };
+      const names = new Set(payload.result?.tools?.map(tool => tool.name));
+      if (!names.has('sinaloa_start_case') || !names.has('sinaloa_send_message')) {
+        throw new Error('This enrolled agent lacks Sinaloa send permission. Enable Send agent messages for it before reconnecting.');
+      }
+    }
+    process.stdout.write(`Hermes connected to Sinaloa as ${session.address}. Listening for work.${relay ? ' MCP send tools ready on loopback.' : ''}\n`);
+    await connector.run(stop.signal);
+  }
   finally { await relay?.close(); }
 }
 
-main().catch(() => {
-  process.stderr.write('Hermes bridge stopped; inspect local configuration, Hermes readiness and credential status.\n');
+main().catch(error => {
+  const message = error instanceof Error ? error.message : '';
+  const reason = message.startsWith('This enrolled agent lacks Sinaloa send permission')
+    || /^Sinaloa MCP tool check failed with HTTP \d{3}$/.test(message)
+    ? ` ${message}` : '';
+  process.stderr.write(`Hermes bridge stopped; inspect local configuration, Hermes readiness and credential status.${reason}\n`);
   process.exitCode = 1;
 });
