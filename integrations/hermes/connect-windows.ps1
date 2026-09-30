@@ -180,7 +180,7 @@ try {
     $enteredToken = ''
   } else { Write-Host "Resuming the saved Sinaloa agent for $($origin.Host)." }
   Write-Host 'Connecting Hermes to Sinaloa. Keep this terminal open while testing.'
-  Write-Host 'In an already-open Hermes chat, run /reload-mcp after this bridge reports that MCP send tools are ready.'
+  Write-Host 'After MCP send tools are ready, start a new Hermes chat. An older chat may retain a stale tool list.'
   & node $bundle
   if ($LASTEXITCODE -ne 0) { throw 'The Hermes bridge stopped. Verify the Gateway and use a fresh token if enrollment did not finish.' }
 }
