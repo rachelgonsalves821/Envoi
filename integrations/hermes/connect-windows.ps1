@@ -1,3 +1,4 @@
+[CmdletBinding(PositionalBinding = $false)]
 param(
   [string]$SinaloaUrl = 'https://sinaloa-staging.rachelgonsalves821.workers.dev',
   [string]$StateDir = '',
@@ -19,7 +20,16 @@ $origin = [Uri]$SinaloaUrl
 if ($origin.Scheme -ne 'https' -or $origin.UserInfo -or $origin.Query -or $origin.Fragment -or $origin.AbsolutePath -ne '/') {
   throw 'SinaloaUrl must be an HTTPS site origin without credentials or a path.'
 }
-if (-not $StateDir) { $StateDir = Join-Path $env:LOCALAPPDATA "Sinaloa\HermesBridge\$($origin.Host)" }
+$stateRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Sinaloa\HermesBridge'))
+if (-not $StateDir) { $StateDir = Join-Path $stateRoot $origin.Host }
+if (-not [IO.Path]::IsPathFullyQualified($StateDir)) {
+  throw 'StateDir must be an absolute path inside the private Sinaloa HermesBridge folder. Paste enrollment tokens only at the hidden-input prompt.'
+}
+$StateDir = [IO.Path]::GetFullPath($StateDir)
+$relativeStateDir = [IO.Path]::GetRelativePath($stateRoot, $StateDir)
+if ($relativeStateDir -eq '.' -or $relativeStateDir -eq '..' -or $relativeStateDir.StartsWith("..$([IO.Path]::DirectorySeparatorChar)") -or [IO.Path]::IsPathFullyQualified($relativeStateDir)) {
+  throw 'StateDir must stay inside the private Sinaloa HermesBridge folder.'
+}
 $session = Join-Path $StateDir 'session.json'
 if (-not $PrepareOnly) {
   $otherBridge = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop |
