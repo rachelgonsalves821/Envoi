@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { PostgresStore } from '../src/postgres-storage.js';
-import { DocumentObjectMetadataStore } from '../src/object-storage.js';
+import { DocumentObjectMetadataStore, ObjectStorageService, PersistentQuotaLedger } from '../src/object-storage.js';
 import { PostgresMalwareScanJobStore } from '../src/object-scan-lifecycle.js';
 
 test('PostgreSQL store preserves atomic and paginated document semantics', { skip: !process.env.DATABASE_URL }, async t => {
@@ -174,4 +174,44 @@ test('PostgreSQL quota settlement cannot deadlock a workspace reaper', { skip: !
     });
   } finally { if (settlement) await settlement; }
   assert.deepEqual(await reaper.objectQuotaUsage(workspaceId, 10), { workspaceId, used: 0, reserved: 0, quota: 10 });
+});
+
+test('PostgreSQL retained upload quota survives generic reaping and is released only after sealed cleanup', { skip: !process.env.DATABASE_URL }, async t => {
+  const store = new PostgresStore(process.env.DATABASE_URL);
+  t.after(() => store.close());
+  await store.init();
+  const workspaceId = `workspace_${crypto.randomUUID()}`;
+  const ledger = new PersistentQuotaLedger(store, { defaultQuotaBytes: 10, reservationTtlMs: 1000 });
+  const held = await ledger.reserve(workspaceId, 8);
+  assert.equal(held.expiresAt, null);
+  await ledger.reclaimExpired(new Date(Date.now() + 86_400_000));
+  assert.equal((await ledger.usage(workspaceId)).reserved, 8);
+  await assert.rejects(() => ledger.reserve(workspaceId, 3), { code: 'QUOTA_EXCEEDED' });
+  await ledger.release(held.id);
+  let now = new Date();
+  let failSeal = true;
+  const calls = [];
+  const adapter = {
+    createPresignedUpload: async () => ({ url: 'https://objects.example.test/upload', method: 'PUT', headers: {} }),
+    createPresignedDownload: async () => ({ url: 'https://objects.example.test/download' }),
+    headObject: async () => null, getObject: async () => null,
+    deleteObject: async () => { calls.push('delete'); },
+    sealDeletedObject: async () => { calls.push('seal'); if (failSeal) throw new Error('Race conflict'); return true; }
+  };
+  const metadataStore = new DocumentObjectMetadataStore(store);
+  const service = new ObjectStorageService({ adapter, metadataStore, quotaLedger: ledger, scanner: { scan: async () => ({ status: 'clean' }) }, uploadUrlTtlSeconds: 1, uploadCleanupGraceMs: 0, uploadCleanupRetryMs: 1, clock: () => now });
+  const started = await service.beginUpload({ workspaceId, filename: 'test.txt', mimeType: 'text/plain', size: 8, checksumSha256: crypto.createHash('sha256').update('12345678').digest('base64') });
+  now = new Date(now.getTime() + 1001);
+  const due = await metadataStore.listUploadCleanupCandidates(now, 1);
+  assert.equal(due.length, 1);
+  assert.equal(due[0].id, started.object.id);
+  assert.deepEqual(await service.reapExpiredUploads({ now }), { processed: 1, deleted: 0, deferred: 1 });
+  assert.equal((await ledger.usage(workspaceId)).reserved, 8);
+  assert.equal((await metadataStore.get(started.object.id)).state, 'upload-cleanup-pending');
+  failSeal = false; now = new Date(now.getTime() + 2);
+  assert.deepEqual(await service.reapExpiredUploads({ now }), { processed: 1, deleted: 1, deferred: 0 });
+  assert.equal((await ledger.usage(workspaceId)).reserved, 0);
+  assert.equal((await metadataStore.get(started.object.id)).state, 'deleted');
+  assert.deepEqual(calls, ['delete', 'seal', 'delete', 'seal']);
+  await assert.rejects(() => service.completeUpload(started.object.id), { code: 'UPLOAD_REJECTED' });
 });

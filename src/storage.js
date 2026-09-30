@@ -249,14 +249,14 @@ export class FileStore {
     return this.withObjectQuotaMutation(() => this.reclaimExpiredObjectQuotaUnsafe(now));
   }
 
-  async reserveObjectQuota(workspaceId, bytes, quotaBytes, reservationTtlMs = 1_200_000) {
+  async reserveObjectQuota(workspaceId, bytes, quotaBytes, reservationTtlMs = 1_200_000, { retainUntilCleanup = false } = {}) {
     return this.withObjectQuotaMutation(async () => {
       const now = this.now();
       await this.reclaimExpiredObjectQuotaUnsafe(now);
       const usagePath = path.join('object-storage', 'quota-usage', `${workspaceId}.json`);
       const usage = await this.getJson(usagePath, { workspaceId, used: 0, reserved: 0, quota: quotaBytes });
       if (Number(usage.used || 0) + Number(usage.reserved || 0) + bytes > quotaBytes) throw Object.assign(new Error('Workspace object quota exceeded'), { code: 'QUOTA_EXCEEDED', statusCode: 413 });
-      const reservation = { id: `quota_${crypto.randomUUID()}`, workspaceId, bytes, state: 'reserved', createdAt: now, expiresAt: new Date(new Date(now).getTime() + reservationTtlMs).toISOString() };
+      const reservation = { id: `quota_${crypto.randomUUID()}`, workspaceId, bytes, state: 'reserved', createdAt: now, expiresAt: retainUntilCleanup ? null : new Date(new Date(now).getTime() + reservationTtlMs).toISOString() };
       usage.reserved = Number(usage.reserved || 0) + bytes;
       usage.quota = quotaBytes;
       await this.putJsonBatch([

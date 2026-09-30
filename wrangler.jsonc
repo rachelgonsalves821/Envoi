@@ -70,7 +70,7 @@
       ]
     },
     "beta": {
-      "workers_dev": true,
+      "workers_dev": false,
       "vars": {
         "SINALOA_PUBLIC_URL": "https://beta.sinaloa-inbox.com",
         "SINALOA_CORS_ORIGIN": "https://beta.sinaloa-inbox.com",

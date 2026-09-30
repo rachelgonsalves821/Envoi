@@ -1,7 +1,7 @@
 import { Container, getContainer } from '@cloudflare/containers';
-import { clamdChunk, clamdCommand, matchesSha256Base64, MAX_SCAN_BYTES, parseClamdReply, readBoundedBody } from './clamd-protocol.js';
+import { matchesSha256Base64, MAX_SCAN_BYTES, readBoundedBody } from './clamd-protocol.js';
+import { CLAMD_PORT, queryClamd } from './clamd-io.js';
 
-const CLAMD_PORT = 3310;
 const CONTAINER_NAME = 'staging-clamav-primary';
 const encoder = new TextEncoder();
 
@@ -19,61 +19,6 @@ async function authorized(request, token) {
   let mismatch = 0;
   for (let i = 0; i < expected.length; i++) mismatch |= expected[i] ^ actual[i];
   return mismatch === 0;
-}
-
-async function queryClamd(container, command, body = null) {
-  // Cloudflare's startAndWaitForPorts probes with HTTP, which clamd does not speak.
-  await container.start(undefined, { retries: 200, waitInterval: 300, portToCheck: CLAMD_PORT });
-  const deadline = Date.now() + 180_000;
-  let socket;
-  for (;;) {
-    let candidate;
-    try {
-      candidate = container.ctx.container.getTcpPort(CLAMD_PORT).connect('10.0.0.1:3310');
-      await Promise.race([
-        candidate.opened,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('ClamAV TCP connection timed out')), 3_000))
-      ]);
-      socket = candidate;
-      break;
-    } catch (error) {
-      try { candidate?.close(); } catch { /* Connection was never opened. */ }
-      if (Date.now() >= deadline) throw error;
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  }
-  try {
-    const writer = socket.writable.getWriter();
-    await writer.write(clamdCommand(command));
-    if (command === 'INSTREAM') {
-      for (let offset = 0; offset < body.length; offset += 64 * 1024) {
-        await writer.write(clamdChunk(body.subarray(offset, offset + 64 * 1024)));
-      }
-      await writer.write(clamdChunk(new Uint8Array()));
-    }
-    writer.releaseLock();
-    const reader = socket.readable.getReader();
-    const parts = [];
-    let length = 0;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        length += value.length;
-        if (length > 4096) throw new Error('ClamAV reply is too large');
-        parts.push(value);
-        if (value.includes(0)) break;
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    const reply = new Uint8Array(length);
-    let offset = 0;
-    for (const part of parts) { reply.set(part, offset); offset += part.length; }
-    return parseClamdReply(reply, command);
-  } finally {
-    socket.close();
-  }
 }
 
 export class ClamAVContainer extends Container {

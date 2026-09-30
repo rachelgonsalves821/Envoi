@@ -1,6 +1,8 @@
 # Deployment and migration contract
 
-The backend can run as one or more external service instances. Each instance runs a delivery worker; PostgreSQL row leases prevent multiple instances from processing the same delivery. PostgreSQL commits the sender message, case event, audit event, and outbox record in one transaction. Production assets use a private S3-compatible bucket; PostgreSQL owns atomic per-workspace quota reservations and immutable metadata.
+Current closed-beta operations use the [launch runbook](closed-beta-launch-runbook.md). The merged implementation baseline is main at `fc2e1d8b72280789e365e9f8b8e399717933ccb6`; hosted release acceptance must be recorded against the actual candidate SHA. This contract describes implementation behavior, not completed live acceptance.
+
+The closed beta runs one Cloudflare application Container behind its Worker. PostgreSQL row leases fence delivery processing, but local rate counters and event fanout do not establish multi-instance readiness. Keep max_instances at 1 until shared enforcement and fanout have been implemented and accepted. PostgreSQL commits the sender message, case event, audit event, and outbox record in one transaction. Production assets use a private S3-compatible bucket; PostgreSQL owns atomic per-workspace quota reservations and immutable metadata.
 
 ## Required environment variables
 
@@ -52,35 +54,35 @@ The backend can run as one or more external service instances. Each instance run
 
 ## Current hosting shape
 
-Use one or more backend instances behind TLS with PostgreSQL and private S3-compatible object storage. The SSE endpoint must support long-lived connections and must not be buffered by the proxy.
+Use one beta backend Container behind TLS with PostgreSQL and private S3-compatible object storage. Promote an exact recorded candidate to staging, then beta, using the explicit environment commands in the launch runbook. The beta application is custom-domain-only; run its smoke after binding beta.sinaloa-inbox.com. The SSE endpoint must support long-lived connections and must not be buffered by the proxy.
 
 The backend exposes `/health` for liveness and `/ready` for dependency readiness. In production, readiness fails with HTTP `503` if PostgreSQL, private object storage, the malware scanner, or an enabled public-email transport is unavailable. Checks are bounded by `SINALOA_READINESS_TIMEOUT_MS` and return only sanitized reasons. It handles `SIGTERM` by stopping quota cleanup and delivery workers, closing SSE connections, and closing the HTTP server cleanly.
 
 Run `npm run db:migrate` as a release job before switching traffic. The same checksum-verified runner also executes safely during application startup under a PostgreSQL advisory lock, so concurrent instances cannot race schema changes. Applied migrations are recorded in `sinaloa_schema_migrations`; changing an already-applied SQL file fails startup. The production image includes `db/`, runs as the unprivileged `node` user, installs from `package-lock.json`, and uses `/ready` for its container health check.
 
-## Before production or multiple instances
+## Hosted acceptance and later multi-instance gates
 
 The following are required before opening the service to untrusted external traffic:
 
-1. Configure WorkOS, production secrets, and organization membership policies.
-2. Add an edge/distributed limiter and request tracing across instances. The service already applies local principal/IP, external-recipient, request-timeout, and concurrent-SSE limits.
+1. Configure isolated WorkOS, exact-email beta admission, encrypted runtime secrets and current organization membership/management policies.
+2. Prove the single-instance request, stream and credential-abuse bounds for the reviewed candidate. Add shared rate enforcement, event fanout and request tracing before multiple instances; configured local limits alone do not prove the rotating-credential stress gate.
 3. Provision the private bucket and scanner, then verify upload, quarantine, scan, and signed-download behavior in the production region.
 4. Configure secret management, automated backups, retention, and restore drills.
-5. Buy and verify a registrable public email domain, publish provider SPF/DKIM records, publish a DMARC policy, and validate inbound and bounce/complaint webhooks before enabling `use_email_transport` for customers.
+5. Keep optional external email disabled for initial beta. Before separately enabling `use_email_transport`, verify a controlled public email domain, provider SPF/DKIM and DMARC, and inbound and bounce/complaint webhooks.
 
 Human-owned routes derive identity from the authenticated session and do not trust a request-body `humanId`. Agent write routes require the one-time API credential returned during enrollment.
 
 Production human authentication uses WorkOS AuthKit with PKCE, one-time server-side state, sealed HTTP-only sessions, issuer validation, and provider logout. `/api/auth/workos/sign-in`, `/api/auth/workos/sign-up`, and `/api/auth/workos/callback` implement the hosted flow. Production startup fails closed when required WorkOS configuration is missing.
 
-Production WorkOS sessions rely on WorkOS AuthKit MFA for invited sign-in; Sinaloa does not add a second SMS or TOTP challenge. The local provider uses `/api/auth/phone/start` and `/api/auth/phone/verify` only in development. Development mode returns one-time phone and authenticator codes for local testing; production never returns those codes. Do not enable SSO for initial beta unless its identity provider enforces equivalent MFA.
+The approved invite-only beta has WorkOS MFA Off and self-service signup disabled. Hosted sessions expose assurance: provider; this is provider authentication, not evidence of a second factor. WorkOSAuthService requires an authenticated sealed provider session, an email-verified user and an exact entry in SINALOA_BETA_INVITED_EMAILS. Protected organization actions also require current active membership and management authority. Hosted getHuman does not impose the local requireMfa option. The local provider uses `/api/auth/phone/start` and `/api/auth/phone/verify` only in development; those hosted routes return 404. Development one-time codes and local TOTP assurance must not be used as hosted acceptance evidence. Twilio Verify is not a beta prerequisite. A future MFA or SSO policy change needs a reviewed provider and application contract.
 
-Local-development TOTP setup and verification are available through `/api/auth/totp/setup` and `/api/auth/totp/verify`. Hosted WorkOS sessions use the provider-managed authenticator and cannot use those local routes. Local authenticator secrets are encrypted with AES-256-GCM.
+Local-development TOTP setup and verification are available through `/api/auth/totp/setup` and `/api/auth/totp/verify`. Hosted WorkOS sessions cannot use those local routes; the current provider policy has MFA Off. Local authenticator secrets are encrypted with AES-256-GCM.
 
 Local development phone verification requests are throttled to one per minute and five per hour per keyed phone identity. Local TOTP replay is rejected; `/api/auth/logout` clears the WorkOS cookie and redirects through provider logout in hosted mode.
 
 Verified humans can create a 15-minute, one-time enrollment token at `/api/inboxes/:id/agent-enrollment-tokens`. Agents exchange that token at `/api/agent-enroll` to receive their Sinaloa identity and approved permission policy. Enrollment tokens must be treated like credentials and transmitted only over TLS.
 
-Agent message writes require the returned short-lived workload access token, `recipientEmail`, and an `Idempotency-Key` header. Exact verified platform addresses are resolved without a search API. First contact returns a pending invitation and does not expose the held message to the recipient agent; recipient-human acceptance creates reciprocal contacts and queues it under a durable conversation. PostgreSQL atomically records queued sender copies and outbox entries; a leased worker resolves permissions, approval, and blocking again before delivery. Transient failures retry with exponential backoff. Permanent failures and exhausted retries enter the dead-letter queue. Refresh tokens rotate on every use, and revoking their credential family immediately invalidates every access and refresh token in that family.
+Agent message writes require the returned short-lived workload access token, `recipientEmail`, and an `Idempotency-Key` header. Exact verified platform addresses are resolved without a search API. An exact active native address permits immediate direct delivery without a first-contact invitation or human approval. Server authorization, active identity, permissions, native blocking and pause/revocation are still enforced; legacy invitation state is not the admission mechanism for native messaging. PostgreSQL atomically records queued sender copies and outbox entries; a leased worker resolves permissions, approval, and blocking again before delivery. Transient failures retry with exponential backoff. Permanent failures and exhausted retries enter the dead-letter queue. Refresh tokens rotate on every use, and revoking their credential family immediately invalidates every access and refresh token in that family.
 
 Recipient agents acknowledge work with `POST /api/inboxes/:id/messages/:messageId/acknowledgements`, using `state: acknowledged` or `state: processed`. Humans and agents can read receipts from `/delivery-receipts`; authorized workspace operators can inspect `/deliveries` and replay a dead-lettered item through `POST /deliveries/:deliveryId/retry`.
 

@@ -41,7 +41,7 @@ test('live R2 signed upload, metadata, download, and deletion', { skip: !r2Enabl
   const body = Buffer.from(`Sinaloa R2 integration ${crypto.randomUUID()}`);
   const key = `integration-tests/${crypto.randomUUID()}`;
   try {
-    const signed = await adapter.createPresignedUpload({ key, contentType: 'text/plain', checksumSha256: checksum(body), expiresInSeconds: 300 });
+    const signed = await adapter.createPresignedUpload({ key, contentType: 'text/plain', checksumSha256: checksum(body), size: body.length, expiresInSeconds: 300 });
     const response = await fetch(signed.url, { method: signed.method, headers: signed.headers, body, signal: AbortSignal.timeout(15_000) });
     assert.ok(response.ok, `R2 signed upload returned ${response.status}`);
     const head = await adapter.headObject(key);
@@ -104,4 +104,27 @@ test('live R2 and scanner keep files quarantined until clean and reject checksum
     await assert.rejects(() => service.scanObject(started.object.id), error => error.code === 'CHECKSUM_MISMATCH');
     await assert.rejects(() => service.createDownload(started.object.id), error => error.code === 'OBJECT_NOT_CLEAN');
   } finally { await Promise.all(createdKeys.map(key => adapter.deleteObject(key))); }
+});
+
+test('live R2 rejects oversized signed PUT and sealed keys cannot be recreated', { skip: !r2Enabled }, async () => {
+  const adapter = liveR2Adapter();
+  const body = Buffer.from('size-bound safe upload');
+  const key = `integration-tests/${crypto.randomUUID()}`;
+  try {
+    const signed = await adapter.createPresignedUpload({ key, contentType: 'text/plain', checksumSha256: checksum(body), size: body.length, expiresInSeconds: 300 });
+    const oversized = await fetch(signed.url, { method: 'PUT', headers: signed.headers, body: Buffer.alloc(body.length + 1), signal: AbortSignal.timeout(15_000), redirect: 'error' });
+    assert.ok(!oversized.ok, 'R2 must enforce the signed Content-Length');
+    await oversized.body?.cancel();
+    assert.equal(await adapter.headObject(key), null);
+    const valid = await fetch(signed.url, { method: 'PUT', headers: signed.headers, body, signal: AbortSignal.timeout(15_000), redirect: 'error' });
+    assert.ok(valid.ok, `Size-bound upload returned ${valid.status}`);
+    await valid.body?.cancel();
+    await adapter.deleteObject(key);
+    await adapter.sealDeletedObject(key);
+    await adapter.sealDeletedObject(key);
+    const recreated = await fetch(signed.url, { method: 'PUT', headers: signed.headers, body, signal: AbortSignal.timeout(15_000), redirect: 'error' });
+    assert.equal(recreated.status, 412, 'Same-key tombstone must reject the still-live signed PUT');
+    await recreated.body?.cancel();
+    assert.equal((await adapter.getObject(key)).length, 0);
+  } finally { await adapter.deleteObject(key); }
 });

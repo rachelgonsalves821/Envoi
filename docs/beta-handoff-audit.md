@@ -1,5 +1,7 @@
 # Beta handoff audit
 
+> **Historical implementation plan, superseded 2026-09-29.** The sections below preserve the 2026-09-28 development snapshot, including old branch status, incomplete features, commands and test counts. They are not current deployment instructions. PR #6 merged the implementation into `main` at `fc2e1d8b72280789e365e9f8b8e399717933ccb6`; do not branch from or promote the old recovery tip. Use the [closed-beta launch runbook](closed-beta-launch-runbook.md) for exact-candidate promotion, current release gates and signoff. Shared cases, file grants, controls and MCP/client paths now have merged implementations; hosted acceptance remains unverified until recorded. The approved invite-only beta has WorkOS MFA Off, disabled signup and exact-email admission; local SMS/TOTP does not establish hosted assurance. Historical gaps below must be rechecked against merged code before creating work.
+
 Updated 2026-09-28. This is a pressure test of the code and branch state, not a claim that the product is ready for real users. The [two-owner execution plan](beta-two-owner-execution-plan.md) is the implementation checklist; the [PRD](PRD.md) defines the beta behavior.
 
 ## What the partner should fetch

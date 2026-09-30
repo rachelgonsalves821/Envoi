@@ -6,7 +6,8 @@ import { FileStore } from './storage.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
-import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
+import { authFlowCookieHeader, authFlowCookieName, createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
+import { installSessionCookieResponse } from './session-response.js';
 import { operationalBacklogSnapshot } from './operational-backlog.js';
 import { DeliveryWorker } from './delivery-worker.js';
 import { createEmailTransport } from './email-transport.js';
@@ -49,6 +50,7 @@ import {
 import { projectWorkspaceForHuman } from './human-projection.js';
 
 const productionConfig = validateProductionConfiguration();
+const releaseSha = process.env.SINALOA_RELEASE_SHA || null;
 const host = process.env.SINALOA_HOST || '127.0.0.1';
 const port = Number(process.env.SINALOA_PORT || 8787);
 const dataDir = process.env.SINALOA_DATA_DIR || path.resolve('data');
@@ -176,7 +178,7 @@ async function readinessReport() {
   const checks = dependencyReadinessChecks({ store, adapter: objectStorageAdapter,
     provider: objectStorageProvider, env: process.env, externalEmailEnabled, emailTransport });
   const report = await evaluateReadiness(checks, { timeoutMs: readinessTimeoutMs, at: store.now() });
-  return { ...report, service: 'sinaloa', mode: productionConfig.mode, configurationValidated: productionConfig.validated };
+  return { ...report, service: 'sinaloa', mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha };
 }
 
 const rateIdentity = req => hashSecret(String(req.headers.authorization || req.headers.cookie || clientIp(req))).slice(0, 32);
@@ -1593,6 +1595,7 @@ async function agentView(inboxId, inbox, agentId) {
 }
 
 async function route(req, res) {
+  installSessionCookieResponse(req, res, auth);
   const responseNonce = crypto.randomBytes(18).toString('base64');
   applyHeaders(res, req.headers.origin || '', responseNonce);
   if (String(req.url || '').split('?', 1)[0] === '/mcp' && !mcpOriginAllowed(req)) return fail(res, 403, 'MCP Origin is not allowed');
@@ -1601,11 +1604,11 @@ async function route(req, res) {
   catch { return fail(res, 400, 'Invalid request path'); }
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   req.setTimeout(requestTimeoutMs);
-  if (url.pathname === '/mcp') {
-    // Apply the source-IP bound before resolving an attacker-controlled bearer.
-    const ipKey = `mcp-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
-    if (!consumeRateLimit(req, res, url.pathname, ipKey)) return fail(res, 429, 'Request rate limit exceeded');
-  } else if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
+  // Apply a stable source-IP bound on every route before trusting bearer or
+  // cookie headers. Rotating invalid credentials must not reset this limit.
+  const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
+  if (!consumeRateLimit(req, res, url.pathname, ipKey)) return fail(res, 429, 'Request rate limit exceeded');
+  if (url.pathname !== '/mcp' && !consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
   const csrfExempt = url.pathname === '/api/email-webhooks/resend'
     || url.pathname.startsWith('/api/object-storage/local-upload/')
     || url.pathname === '/api/auth/phone/start'
@@ -1652,7 +1655,7 @@ async function route(req, res) {
     }
     catch (error) { if (error.code === 'ENOENT') return fail(res, 404, 'Web asset not found'); throw error; }
   }
-  if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now(), mode: productionConfig.mode, configurationValidated: productionConfig.validated });
+  if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now(), mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha });
   if (req.method === 'GET' && url.pathname === '/ready') {
     const readiness = await readinessReport();
     return json(res, readiness.ready ? 200 : 503, readiness);
@@ -1901,20 +1904,21 @@ async function route(req, res) {
       screenHint: url.pathname.endsWith('sign-up') ? 'sign-up' : 'sign-in',
       returnTo: url.searchParams.get('returnTo') || '/'
     });
-    return redirect(res, authorization.url);
+    return redirect(res, authorization.url, { 'set-cookie': authFlowCookieHeader(authorization.browserBinding) });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/auth/workos/callback') {
     if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
-    if (url.searchParams.get('error')) return redirect(res, `/?auth_error=${encodeURIComponent(url.searchParams.get('error_description') || url.searchParams.get('error'))}`);
+    if (url.searchParams.get('error')) return redirect(res, `/?auth_error=${encodeURIComponent(url.searchParams.get('error_description') || url.searchParams.get('error'))}`, { 'set-cookie': authFlowCookieHeader('', { clear: true }) });
     const result = await auth.completeAuthorization({
       code: url.searchParams.get('code'),
+      browserBinding: parseCookies(req.headers.cookie)[authFlowCookieName()],
       state: url.searchParams.get('state'),
       ipAddress: clientIp(req),
       userAgent: req.headers['user-agent'] || ''
     });
     const csrfToken = createCsrfToken();
-    return redirect(res, result.returnTo, { 'set-cookie': [sessionCookieHeader(result.sealedSession), csrfCookieHeader(csrfToken)] });
+    return redirect(res, result.returnTo, { 'set-cookie': [sessionCookieHeader(result.sealedSession), csrfCookieHeader(csrfToken), authFlowCookieHeader('', { clear: true })] });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/phone/start') {
@@ -3276,7 +3280,7 @@ async function route(req, res) {
 
 await store.init();
 await objectStorage.init();
-await objectStorage.quotaLedger.reclaimExpired?.();
+await objectStorage.reapExpiredUploads({ limit: 25 });
 await synchronizePublicEmailDirectory();
 deliveryWorker.start();
 const logOperationalBacklog = () => operationalBacklogSnapshot({ store, scanJobStore })
@@ -3285,7 +3289,7 @@ const logOperationalBacklog = () => operationalBacklogSnapshot({ store, scanJobS
 const operationalBacklogLogger = setInterval(() => { void logOperationalBacklog(); }, operationalBacklogLogIntervalMs);
 operationalBacklogLogger.unref?.();
 void logOperationalBacklog();
-const objectQuotaReaper = setInterval(() => objectStorage.quotaLedger.reclaimExpired?.().catch(error => console.error('Object quota reaper failed', error)), Number(process.env.SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
+const objectQuotaReaper = setInterval(() => objectStorage.reapExpiredUploads({ limit: 25 }).catch(error => console.error('Object upload cleanup failed', { name: error?.name || 'Error', code: error?.code || 'UPLOAD_CLEANUP_FAILED' })), Number(process.env.SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
 objectQuotaReaper.unref?.();
 const objectScanWorker = scanJobStore ? setInterval(() => { void runObjectScans(); }, objectScanWorkerIntervalMs) : null;
 const objectScanRetentionWorker = scanJobStore ? setInterval(() => { void runObjectScanRetention(); }, objectScanRetentionIntervalMs) : null;
