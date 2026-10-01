@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api, csrfHeaders, csrfToken, request, safeDownloadUrl, setCsrfCookieName, shouldNotifySessionExpired } from '../src/api';
+import { invalidateSessionRequests } from '../src/session-lifecycle';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -7,6 +8,45 @@ afterEach(() => {
 });
 
 describe('human API sessions', () => {
+  it('rejects a late successful response after logout even when fetch ignores cancellation', async () => {
+    let complete!: (value: Response) => void;
+    const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>(resolve => { complete = resolve; }));
+    vi.stubGlobal('fetch', fetchMock);
+    const pending = request('/api/inboxes/private/human-view');
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    invalidateSessionRequests();
+    expect((fetchMock.mock.calls[0][1] as RequestInit).signal?.aborted).toBe(true);
+    complete(new Response(JSON.stringify({ private: 'old workspace' }), { status: 200 }));
+    await rejected;
+  });
+
+  it('ignores late 401 responses from a previous session instead of ending a new one', async () => {
+    const browserWindow = new EventTarget();
+    const expired = vi.fn();
+    browserWindow.addEventListener('sinaloa:session-expired', expired);
+    vi.stubGlobal('window', browserWindow);
+    let complete!: (value: Response) => void;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>(resolve => { complete = resolve; })));
+    const pending = request('/api/auth/me');
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    invalidateSessionRequests();
+    complete(new Response(JSON.stringify({ error: 'SESSION_EXPIRED' }), { status: 401 }));
+    await rejected;
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it('keeps temporary provider failures recoverable and never replays a mutation', async () => {
+    const browserWindow = new EventTarget();
+    const expired = vi.fn();
+    browserWindow.addEventListener('sinaloa:session-expired', expired);
+    vi.stubGlobal('window', browserWindow);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'AUTH_UNAVAILABLE', message: 'Try again shortly.' }), { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(request('/api/inboxes/private/cases/1/actions', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: 503, message: 'Try again shortly.' });
+    expect(expired).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('uses same-origin cookies and never adds a bearer credential', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'human_1' }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);

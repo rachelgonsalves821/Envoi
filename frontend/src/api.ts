@@ -1,4 +1,5 @@
 import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
+import { trackSessionRequest } from './session-lifecycle';
 
 export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
 let configuredCsrfCookieName = 'sinaloa_csrf';
@@ -45,23 +46,28 @@ export function csrfHeaders(method = 'GET', cookieHeader?: string): Record<strin
 }
 
 export async function request<T>(pathname: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(pathname, {
-    ...options,
-    credentials: 'same-origin',
-    headers: {
-      ...(options.body ? { 'content-type': 'application/json' } : {}),
-      ...csrfHeaders(options.method),
-      ...(options.headers || {})
+  const session = trackSessionRequest();
+  try {
+    const response = await fetch(pathname, {
+      ...options,
+      signal: options.signal ? AbortSignal.any([options.signal, session.signal]) : session.signal,
+      credentials: 'same-origin',
+      headers: {
+        ...(options.body ? { 'content-type': 'application/json' } : {}),
+        ...csrfHeaders(options.method),
+        ...(options.headers || {})
+      }
+    });
+    const payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
+    session.check();
+    if (!response.ok) {
+      if (response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+      }
+      throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
     }
-  });
-  const payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
-  if (!response.ok) {
-    if (response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
-      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
-    }
-    throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
-  }
-  return payload as T;
+    return payload as T;
+  } finally { session.release(); }
 }
 
 export function safeDownloadUrl(value: string, baseUrl = typeof window === 'undefined' ? 'https://localhost/' : window.location.href) {

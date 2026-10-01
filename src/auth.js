@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { generateSecret, generateSync, generateURI, verifySync } from 'otplib';
-import { parseCookies, sessionCookieName } from './workos-auth.js';
+import { csrfCookieHeader, parseCookies, sessionCookieHeader, sessionCookieName } from './workos-auth.js';
 
 const mode = process.env.SINALOA_AUTH_MODE || 'development';
 const challengeMinutes = Number(process.env.SINALOA_OTP_EXPIRY_MINUTES || 10);
 const sessionHours = Number(process.env.SINALOA_SESSION_HOURS || 24);
+const requestResponse = Symbol('local-auth-response');
 
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const token = (bytes = 32) => crypto.randomBytes(bytes).toString('base64url');
@@ -37,6 +38,8 @@ const throwExpectedError = result => {
 
 export class AuthService {
   constructor(store) { this.store = store; }
+
+  bindResponse(req, res) { req[requestResponse] = res; }
 
   async startPhoneVerification(phoneInput, displayName) {
     if (mode !== 'development') throw Object.assign(new Error('Local phone verification is disabled'), { statusCode: 404 });
@@ -113,7 +116,11 @@ export class AuthService {
     const raw = parseCookies(req.headers.cookie)[sessionCookieName()] || null;
     if (!raw) return null;
     const session = await this.store.getJson(path.join('auth', 'sessions', `${hash(raw)}.json`));
-    if (session && new Date(session.expiresAt) <= new Date()) return null;
+    if (!session || new Date(session.expiresAt) <= new Date()) {
+      const res = req[requestResponse];
+      if (res && !res.headersSent) res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true })]);
+      return null;
+    }
     return session;
   }
 

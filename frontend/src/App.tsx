@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import {
   Activity, AlertCircle, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
   CircleDashed, Clock3, Command, Copy, Database, Download, FileCheck2, FileText, Gauge, Inbox,
@@ -13,6 +14,7 @@ import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermi
 import { previewRequested } from './preview';
 import { mergeHistory, olderCursors } from './history';
 import { subscribeReplayRecovery } from './event-replay';
+import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
   eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
@@ -103,47 +105,79 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [view, setView] = useState<HumanView | null>(null);
   const [error, setError] = useState('');
-  const [authNotice, setAuthNotice] = useState('');
+  const [authNotice, setAuthNotice] = useState(() => sessionEndedNotice());
   const [syncNotice, setSyncNotice] = useState('');
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [sessionCheck, setSessionCheck] = useState<'checking' | 'error' | null>(null);
+  const sessionCheckRef = useRef(sessionCheck);
+  sessionCheckRef.current = sessionCheck;
+  const bootRef = useRef(boot);
+  bootRef.current = boot;
   const activeWorkspace = useRef<string | null>(null);
   const hadAuthenticatedSession = useRef(false);
+  const stopLiveUpdates = useRef<(() => void) | null>(null);
+  const signingOut = useRef(false);
+  const endedElsewhere = useRef(false);
 
-  const expireSession = useCallback(() => {
+  const clearPrivateState = useCallback(() => {
+    invalidateSessionRequests();
+    stopLiveUpdates.current?.();
+    stopLiveUpdates.current = null;
     activeWorkspace.current = null;
     setHuman(null);
+    setOrganizations([]);
+    setWorkspaces([]);
     setWorkspace(null);
     setView(null);
-    setAuthNotice(hadAuthenticatedSession.current ? 'Your secure session expired. Sign in again to continue observing agent work.' : '');
-    hadAuthenticatedSession.current = false;
-    setBoot('signedOut');
+    setError('');
+    setSyncNotice('');
+    setHistoryBusy(false);
+    sessionCheckRef.current = null;
+    setSessionCheck(null);
   }, []);
+
+  const endSession = useCallback((broadcast = true) => {
+    clearPrivateState();
+    if (hadAuthenticatedSession.current || hasRememberedSession()) {
+      rememberSessionStatus('ended');
+      setAuthNotice(SESSION_ENDED_NOTICE);
+    }
+    hadAuthenticatedSession.current = false;
+    try { localStorage.removeItem(WORKSPACE_KEY); } catch { /* Optional preference storage. */ }
+    setBoot('signedOut');
+    if (broadcast) publishSessionEnd();
+  }, [clearPrivateState]);
+
+  const expireSession = useCallback(() => endSession(), [endSession]);
 
   const loseWorkspaceAccess = useCallback((workspaceId: string) => {
     if (activeWorkspace.current !== workspaceId) return;
-    activeWorkspace.current = null;
-    setWorkspace(null);
-    setView(null);
+    clearPrivateState();
     setError('Your access to this workspace changed. Refresh your account to continue.');
     setBoot('error');
-  }, []);
+  }, [clearPrivateState]);
 
   const loadView = useCallback(async (workspaceId: string, quiet = false) => {
+    const generation = sessionGeneration();
     activeWorkspace.current = workspaceId;
     if (!quiet) setView(null);
     try {
       const next = await api.humanView(workspaceId);
+      if (!isCurrentSession(generation)) throw new SessionRequestCancelled();
       if (activeWorkspace.current === workspaceId) setView(current => quiet ? mergeHistory(current, next) : next);
       return next;
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
+      if (isCurrentSession(generation) && caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
       throw caught;
     }
   }, [loseWorkspaceAccess]);
 
   const loadWorkspaceDirectory = useCallback(async () => {
+    const generation = sessionGeneration();
     const nextOrganizations = await api.organizations();
+    if (!isCurrentSession(generation)) throw new SessionRequestCancelled();
     const workspaceGroups = await Promise.all(nextOrganizations.map(item => api.workspaces(item.id)));
+    if (!isCurrentSession(generation)) throw new SessionRequestCancelled();
     const nextWorkspaces = workspaceGroups.flat();
     setOrganizations(nextOrganizations);
     setWorkspaces(nextWorkspaces);
@@ -151,6 +185,7 @@ export default function App() {
   }, []);
 
   async function loadOlder() {
+    const generation = sessionGeneration();
     if (!view || historyBusy) return;
     const workspaceId = view.inbox.id;
     const cursors = olderCursors(view);
@@ -158,20 +193,27 @@ export default function App() {
     setHistoryBusy(true);
     try {
       const next = await api.humanView(workspaceId, cursors);
-      if (activeWorkspace.current === workspaceId) setView(current => current ? mergeHistory(current, next, cursors) : current);
+      if (isCurrentSession(generation) && activeWorkspace.current === workspaceId) setView(current => current ? mergeHistory(current, next, cursors) : current);
     } catch (caught) {
+      if (!isCurrentSession(generation)) return;
       if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
       else setSyncNotice(errorMessage(caught));
     }
-    finally { setHistoryBusy(false); }
+    finally { if (isCurrentSession(generation)) setHistoryBusy(false); }
   }
 
   const loadAccount = useCallback(async () => {
+    if (signingOut.current || endedElsewhere.current) return;
+    clearPrivateState();
+    const generation = sessionGeneration();
     try {
       setBoot('loading');
       setError('');
-      const [nextConfig, nextHuman] = await Promise.all([api.authConfig(), api.me()]);
+      const nextConfig = await api.authConfig();
+      if (!isCurrentSession(generation)) return;
       setConfig(nextConfig);
+      const nextHuman = await api.me();
+      if (!isCurrentSession(generation)) return;
       setHuman(nextHuman);
       if (nextHuman.auth?.assurance === 'phone') {
         if (typeof nextHuman.mfaSetupRequired !== 'boolean') throw new Error('Authentication service needs an update before sign in can continue.');
@@ -180,20 +222,27 @@ export default function App() {
       }
       hadAuthenticatedSession.current = true;
       const nextWorkspaces = await loadWorkspaceDirectory();
+      if (!isCurrentSession(generation)) return;
       const savedId = localStorage.getItem(WORKSPACE_KEY);
       const selected = nextWorkspaces.find(item => item.id === savedId) || nextWorkspaces[0] || null;
       if (!selected) {
         setWorkspace(null);
+        rememberSessionStatus('active');
+        setAuthNotice('');
         setBoot('setup');
         return;
       }
       setWorkspace(selected);
       localStorage.setItem(WORKSPACE_KEY, selected.id);
       await loadView(selected.id);
+      if (!isCurrentSession(generation)) return;
+      rememberSessionStatus('active');
       setAuthNotice('');
       setBoot('ready');
     } catch (caught) {
+      if (!isCurrentSession(generation)) return;
       const nextConfig = config || await api.authConfig().catch(() => null);
+      if (!isCurrentSession(generation)) return;
       if (nextConfig) setConfig(nextConfig);
       if (caught instanceof ApiError && caught.status === 401) {
         expireSession();
@@ -202,7 +251,50 @@ export default function App() {
         setBoot('error');
       }
     }
-  }, [config, expireSession, loadView, loadWorkspaceDirectory]);
+  }, [clearPrivateState, config, expireSession, loadView, loadWorkspaceDirectory]);
+
+  const loadAccountRef = useRef(loadAccount);
+  loadAccountRef.current = loadAccount;
+
+  const revalidateAccount = useCallback(async () => {
+    if (signingOut.current || endedElsewhere.current) return;
+    if (boot !== 'ready' || !human || !workspace) { await loadAccount(); return; }
+    const generation = sessionGeneration();
+    sessionCheckRef.current = 'checking';
+    setSessionCheck('checking');
+    setError('');
+    try {
+      const nextHuman = await api.me();
+      if (!isCurrentSession(generation)) return;
+      // Do not carry a former account's drafts across an account switch.
+      if (nextHuman.id !== human.id || nextHuman.auth?.assurance === 'phone') { await loadAccount(); return; }
+      const nextWorkspaces = await loadWorkspaceDirectory();
+      if (!isCurrentSession(generation)) return;
+      if (!nextWorkspaces.some(item => item.id === workspace.id)) {
+        clearPrivateState();
+        setError('Your access to this workspace changed. Refresh your account to continue.');
+        setBoot('error');
+        return;
+      }
+      await loadView(workspace.id, true);
+      if (!isCurrentSession(generation)) return;
+      setHuman(nextHuman);
+      rememberSessionStatus('active');
+      setAuthNotice('');
+      sessionCheckRef.current = null;
+      setSessionCheck(null);
+    } catch (caught) {
+      if (!isCurrentSession(generation)) return;
+      if (caught instanceof ApiError && caught.status === 401) expireSession();
+      else {
+        setError(errorMessage(caught));
+        sessionCheckRef.current = 'error';
+        setSessionCheck('error');
+      }
+    }
+  }, [boot, clearPrivateState, expireSession, human, loadAccount, loadView, loadWorkspaceDirectory, workspace]);
+  const revalidateAccountRef = useRef(revalidateAccount);
+  revalidateAccountRef.current = revalidateAccount;
 
   useEffect(() => { if (!isPreview) void loadAccount(); }, [isPreview]);
 
@@ -213,24 +305,67 @@ export default function App() {
   }, [expireSession, isPreview]);
 
   useEffect(() => {
-    if (boot !== 'ready' || !workspace || !config) return;
-    const refresh = () => { void loadView(workspace.id, true).then(() => setSyncNotice('')).catch(caught => { if (!(caught instanceof ApiError && caught.status === 401)) setSyncNotice('Live updates are temporarily paused. Your workspace will keep retrying.'); }); };
+    if (isPreview) return;
+    return watchSessionLifecycle(window, document, {
+      isActive: () => hadAuthenticatedSession.current && !signingOut.current && !endedElsewhere.current && bootRef.current !== 'signedOut',
+      suspend: reason => {
+        // History snapshots discard private state. Ordinary tab switches keep
+        // drafts mounted but hidden and inert until authorization is checked.
+        flushSync(() => {
+          if (reason === 'history' || bootRef.current !== 'ready') { clearPrivateState(); setBoot('loading'); }
+          else {
+            invalidateSessionRequests();
+            stopLiveUpdates.current?.();
+            stopLiveUpdates.current = null;
+            setHistoryBusy(false);
+            sessionCheckRef.current = 'checking';
+            setSessionCheck('checking');
+          }
+        });
+      },
+      resume: reason => { if (reason === 'history') void loadAccountRef.current(); else void revalidateAccountRef.current(); },
+      endedElsewhere: () => {
+        if (bootRef.current === 'signedOut') return;
+        endedElsewhere.current = true;
+        flushSync(() => endSession(false));
+      }
+    });
+  }, [clearPrivateState, endSession, isPreview]);
+
+  useEffect(() => {
+    if (boot !== 'ready' || sessionCheck || !workspace || !config) return;
+    const generation = sessionGeneration();
+    const refresh = () => {
+      if (!isCurrentSession(generation)) return;
+      void loadView(workspace.id, true).then(() => {
+        if (isCurrentSession(generation)) setSyncNotice('');
+      }).catch(caught => {
+        if (isCurrentSession(generation) && !(caught instanceof ApiError && caught.status === 401)) setSyncNotice('Live updates are temporarily paused. Your workspace will keep retrying.');
+      });
+    };
     const stream = new EventSource(`/api/inboxes/${workspace.id}/events`);
-    const stopReplayRecovery = subscribeReplayRecovery(stream, refresh, setSyncNotice);
+    const stopReplayRecovery = subscribeReplayRecovery(stream, refresh, message => { if (isCurrentSession(generation)) setSyncNotice(message); });
     const eventTypes = ['agent.enrolled', 'agent.inbox_created', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created', 'asset.created', 'asset.upload_started', 'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
-    const refreshDirectory = () => { void loadWorkspaceDirectory().catch(() => setSyncNotice('A new agent inbox may be available. Refresh the page to see it.')); };
-    stream.onopen = () => setSyncNotice('');
+    const refreshDirectory = () => { if (isCurrentSession(generation)) void loadWorkspaceDirectory().catch(() => { if (isCurrentSession(generation)) setSyncNotice('A new agent inbox may be available. Refresh the page to see it.'); }); };
+    stream.onopen = () => { if (isCurrentSession(generation)) setSyncNotice(''); };
     stream.onmessage = refresh;
     eventTypes.forEach(type => stream.addEventListener(type, refresh));
     stream.addEventListener('agent.inbox_created', refreshDirectory);
-    stream.addEventListener('ready', () => setSyncNotice(''));
+    stream.addEventListener('ready', () => { if (isCurrentSession(generation)) setSyncNotice(''); });
+    const terminate = () => { if (isCurrentSession(generation)) expireSession(); };
+    stream.addEventListener('session.expired', terminate);
+    stream.addEventListener('session.revoked', terminate);
+    stream.addEventListener('session.recheck', () => { if (isCurrentSession(generation)) void api.me().catch(() => undefined); });
     stream.onerror = () => {
+      if (!isCurrentSession(generation)) return;
       setSyncNotice('Live updates are reconnecting. You can refresh now or keep working.');
       void api.me().catch(() => undefined);
     };
     const interval = window.setInterval(refresh, 30_000);
-    return () => { window.clearInterval(interval); stopReplayRecovery(); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.removeEventListener('agent.inbox_created', refreshDirectory); stream.close(); };
-  }, [boot, config, loadView, loadWorkspaceDirectory, workspace]);
+    const stop = () => { window.clearInterval(interval); stopReplayRecovery(); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.removeEventListener('agent.inbox_created', refreshDirectory); stream.close(); };
+    stopLiveUpdates.current = stop;
+    return () => { stop(); if (stopLiveUpdates.current === stop) stopLiveUpdates.current = null; };
+  }, [boot, config, expireSession, loadView, loadWorkspaceDirectory, sessionCheck, workspace]);
 
   async function selectWorkspace(next: Workspace) {
     setWorkspace(next);
@@ -239,22 +374,43 @@ export default function App() {
   }
 
   async function createWorkspace(name: string) {
+    const generation = sessionGeneration();
     const created = await api.createWorkspace(name, organizations[0]?.id);
+    if (!isCurrentSession(generation)) return;
     setWorkspaces(current => [...current, created]);
     setWorkspace(created);
     localStorage.setItem(WORKSPACE_KEY, created.id);
     await loadView(created.id);
+    if (!isCurrentSession(generation)) return;
     setBoot('ready');
   }
 
+  async function logout() {
+    signingOut.current = true;
+    flushSync(() => { endSession(); setBoot('loading'); });
+    try {
+      const result = await api.logout();
+      window.location.replace(result.logoutUrl || '/');
+    } catch (caught) {
+      // Do not expose the old workspace or permit revalidation while logout
+      // has not been confirmed by the server. The user can retry the POST.
+      setError(`Sign out could not be completed. ${errorMessage(caught)}`);
+      setBoot('error');
+    }
+  }
+
+  const renderedGeneration = sessionGeneration();
+  const checkRenderedSession = () => { if (!isCurrentSession(renderedGeneration) || sessionCheckRef.current) throw new SessionRequestCancelled(); };
   if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
-  if (boot === 'loading') return <LoadingScreen />;
-  if (boot === 'signedOut' && config) return <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={loadAccount} />;
-  if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={createWorkspace} />;
-  if (boot === 'error') return <FailureScreen message={error} onRetry={loadAccount} />;
+  if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} />;
+  if (boot === 'signedOut' && config) return <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
+  if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} />;
+  if (boot === 'error') return <FailureScreen message={error} onRetry={signingOut.current ? logout : loadAccount} />;
   if (!human || !workspace || !view || !config) return <LoadingScreen />;
 
   return (
+    <>
+    <div hidden={Boolean(sessionCheck)} inert={Boolean(sessionCheck)} aria-hidden={Boolean(sessionCheck)}>
     <AppShell
       config={config}
       human={human}
@@ -263,25 +419,25 @@ export default function App() {
       workspace={workspace}
       view={view}
       syncNotice={syncNotice}
-      onLoadOlder={loadOlder}
+      onLoadOlder={async () => { checkRenderedSession(); await loadOlder(); }}
       historyBusy={historyBusy}
-      onSelectWorkspace={selectWorkspace}
-      onRefresh={async () => { await Promise.all([loadView(workspace.id, true), loadWorkspaceDirectory()]); }}
-      onLogout={async () => {
-        const result = await api.logout();
-        if (result.logoutUrl) window.location.assign(result.logoutUrl);
-        else window.location.reload();
-      }}
+      onSelectWorkspace={async next => { checkRenderedSession(); await selectWorkspace(next); }}
+      onRefresh={async () => { checkRenderedSession(); await Promise.all([loadView(workspace.id, true), loadWorkspaceDirectory()]); }}
+      onLogout={async () => { checkRenderedSession(); await logout(); }}
     />
+    </div>
+    {sessionCheck === 'checking' && <LoadingScreen checking />}
+    {sessionCheck === 'error' && <FailureScreen message={error} onRetry={() => { void revalidateAccount(); }} />}
+    </>
   );
 }
 
-function LoadingScreen() {
+function LoadingScreen({ checking = false }: { checking?: boolean }) {
   return (
     <main className="center-screen" aria-live="polite">
       <div className="brand-lockup"><BrandMark /><span>Sinaloa</span></div>
       <div className="decision-loader" aria-hidden="true"><span /><span /><span /></div>
-      <p>Loading your delegated work…</p>
+      <p>{checking ? 'Checking your session…' : 'Loading your delegated work…'}</p>
     </main>
   );
 }
