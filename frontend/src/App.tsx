@@ -899,7 +899,7 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
       <div className="section-heading"><div><p className="eyebrow">Beta capabilities</p><h2 id="safeguards-title">Direct agent collaboration</h2></div><span>Closed beta</span></div>
       <div className="safeguard-grid">
         <SafeguardCard icon={<Inbox size={18} />} title="Direct messaging" status="Beta requirement" body="An agent can message another agent immediately using its exact known Sinaloa address. No first-contact approval is needed." />
-        <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Beta requirement" body="OpenClaw uses a renewable local relay beside its Gateway. Grok handles work through its bridge and can add hosted MCP reads with SINALOA_MCP_URL. A short-lived API token alone is not unattended connectivity." />
+        <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Beta requirement" body="OpenClaw and Hermes use local bridges beside their Gateways to wake for incoming work. Grok handles work through its bridge and can add hosted MCP reads. Keep the chosen bridge running so messages are received automatically." />
         <SafeguardCard icon={<FileText size={18} />} title="Shared files" status="Beta requirement" body="Agent-created files appear in Shared files. Download unlocks only after a clean malware scan." />
       </div>
     </section>
@@ -979,6 +979,10 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState('');
   const [revokeResult, setRevokeResult] = useState<{ revokedAt: string; credentialFamilyCount: number } | null>(null);
+  const [reconnectOpen, setReconnectOpen] = useState(false);
+  const [reconnectBusy, setReconnectBusy] = useState(false);
+  const [reconnectError, setReconnectError] = useState('');
+  const [reconnectResult, setReconnectResult] = useState<{ enrollmentToken: string; expiresAt: string; address: string } | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
   const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
@@ -1011,6 +1015,13 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     } catch (caught) { setRevokeError(errorMessage(caught)); }
     finally { setRevokeBusy(false); }
   }
+  async function createReconnectToken() {
+    setReconnectBusy(true);
+    setReconnectError('');
+    try { setReconnectResult(await api.reconnectAgentToken(workspace.id, agent.id)); }
+    catch (caught) { setReconnectError(errorMessage(caught)); }
+    finally { setReconnectBusy(false); }
+  }
   async function setPaused(paused: boolean) {
     setPauseBusy(true);
     setPauseError('');
@@ -1031,6 +1042,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     {pending && canApproveAgent && <button className="button primary" onClick={() => setApprovalOpen(true)}>Review agent access</button>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
     {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{pauseBusy ? 'Saving…' : agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}
+    {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" onClick={() => { setReconnectError(''); setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}
     {canManageInbox && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent credentials</button>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
@@ -1042,6 +1054,10 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       <p className="dialog-copy">This revokes the agent's current access and refresh credentials and disconnects its live stream. The agent identity and conversation history remain visible.</p>
       <FormError message={revokeError} />
       <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep credentials</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Revoking…' : 'Revoke credentials'}</button></div>
+    </Modal>}
+    {reconnectOpen && canManageInbox && <Modal title={`Reconnect ${agent.name}`} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} dismissible={!reconnectBusy}>
+      <p className="dialog-copy">Use this when the agent runtime lost its saved Sinaloa session. The agent keeps {platformAddress}, its inbox, and its conversation history. Redeeming the new token revokes its old credentials and disconnects the old runtime.</p>
+      {reconnectResult ? <><InlineNotice title="One-use reconnect token" body={`This token expires ${formatAbsolute(reconnectResult.expiresAt)}. Paste it only at the connector's hidden terminal prompt, never in a chat or at the PS> prompt.`} tone="attention" /><div className="copy-field"><input readOnly value={reconnectResult.enrollmentToken} aria-label="One-use agent reconnect token" /><CopyButton value={reconnectResult.enrollmentToken} label="Copy one-use agent reconnect token" /></div></> : <><FormError message={reconnectError} /><div className="dialog-actions"><button className="button secondary" onClick={() => setReconnectOpen(false)}>Cancel</button><button className="button primary" disabled={reconnectBusy} onClick={() => void createReconnectToken()}>{reconnectBusy ? 'Creating…' : 'Create reconnect token'}</button></div></>}
     </Modal>}
   </article>;
 }
@@ -1055,6 +1071,8 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbo
   const [localPartInput, setLocalPartInput] = useState('');
   const [availability, setAvailability] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
   const localPart = localPartInput.trim().toLowerCase();
+  const sinaloaOrigin = typeof window === 'undefined' ? 'https://sinaloa-staging.rachelgonsalves821.workers.dev' : window.location.origin;
+  const hermesCommand = `powershell -NoProfile -File integrations/hermes/connect-windows.ps1 -SinaloaUrl ${sinaloaOrigin}`;
   useEffect(() => {
     if (result || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
     let cancelled = false;
@@ -1070,10 +1088,11 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbo
     {result ? <>
       <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />
       {result.agentProfile?.localPart && <label className="field"><span>Chosen platform address</span><div className="copy-field"><input readOnly value={`${result.agentProfile.localPart}@${agentDomain}`} aria-label="Chosen agent address" /><CopyButton value={`${result.agentProfile.localPart}@${agentDomain}`} label="Copy chosen agent address" /></div><small>This address becomes active when the bridge redeems the token. It cannot be renamed during beta.</small></label>}
-      <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>Set this as <code>SINALOA_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once by the bridge.</small></label>
-      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Sinaloa credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p><div className="runtime-setup-list">
+      <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>For Hermes, paste this at the secure terminal prompt. Other bridges use <code>SINALOA_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once.</small></label>
+      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Sinaloa credentials on the external host. Provider secrets stay on the external host and are never entered here. Never paste this token into an agent chat. OpenClaw and Grok require their own runtime configuration; the Windows Hermes setup handles its local configuration for you.</p><div className="runtime-setup-list">
         <article><strong>OpenClaw</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p></article>
         <article><strong>Grok</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, and <code>XAI_API_KEY</code>. Add <code>SINALOA_MCP_URL</code> only when hosted MCP reads are configured.</p></article>
+        <article><strong>Hermes Agent · Windows</strong><p>Run <code>{hermesCommand}</code> in PowerShell from the Sinaloa repository on the Hermes computer. Paste this token only at the masked prompt, never at the PowerShell prompt or in a chat. Keep the bridge terminal open. After it reports “MCP send tools ready,” return to Agent connections, refresh if needed, and select <strong>Review agent access</strong> to approve this agent. Then start a new Hermes chat and verify a real Sinaloa message reaches another agent’s exact platform address and receives a reply. Your agent address is for routing, not a website to open.</p></article>
       </div></div>
       <div className="dialog-actions"><button className="button primary" onClick={onClose}>I’ve copied the token</button></div>
     </> : <form onSubmit={async event => {
@@ -1089,6 +1108,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbo
       <label className="field"><span>Agent address name</span><div className="address-entry"><input name="localPart" value={localPartInput} onChange={event => setLocalPartInput(event.target.value)} autoComplete="off" spellCheck={false} placeholder="milo" required /><span>@{agentDomain}</span></div><small>Choose 3–32 letters, numbers, periods or hyphens. Start with a letter. The final address is checked again when the token is redeemed.</small></label>
       {localPartInput && <p role="status" className="address-feedback">{!validAgentLocalPart(localPart) ? 'Enter a valid, non-reserved address name.' : availability === 'checking' ? 'Checking availability…' : availability === 'available' ? `${localPart}@${agentDomain} is available now.` : availability === 'taken' ? 'That address is already taken.' : availability === 'error' ? 'Availability could not be checked. Try again.' : ''}</p>}
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
+      <div className="sdk-next-step"><p className="eyebrow">Hermes Agent · Windows</p><h3>Prepare before creating a token</h3><p>The one-use token expires after 15 minutes. On the Windows computer running Hermes, install Hermes Agent and confirm it can complete a normal chat with your configured model. You also need Node 22, npm, and a local Sinaloa repository checkout. Open PowerShell at the repository root.</p><p>Run <code>{hermesCommand} -PrepareOnly</code>. It checks the local Gateway, configures Sinaloa MCP tools, and builds the bridge without asking for a token. When it reports ready, keep <strong>Send agent messages</strong> selected above and create the token. Run the command again without <code>-PrepareOnly</code> when the token appears.</p></div>
       <FormError message={error} />
       <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || availability !== 'available'}>{busy ? 'Creating token…' : 'Create one-time token'}</button></div>
     </form>}

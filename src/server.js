@@ -2046,6 +2046,42 @@ async function route(req, res) {
     const tokenPath = path.join('auth', 'enrollment-tokens', `${tokenHash}.json`);
     const pendingRecord = await store.getJson(tokenPath);
     if (!pendingRecord || pendingRecord.usedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
+    if (pendingRecord.kind === 'reconnect') {
+      const reconnected = await withInboxMutation(pendingRecord.inboxId, async writeAudit => {
+        const currentRecord = await store.getJson(tokenPath);
+        if (!currentRecord || currentRecord.kind !== 'reconnect' || currentRecord.usedAt || new Date(currentRecord.expiresAt) <= new Date()) {
+          throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
+        }
+        const inbox = await store.getJson(path.join('inboxes', currentRecord.inboxId, 'inbox.json'));
+        const agent = await store.getJson(path.join('inboxes', currentRecord.inboxId, 'agents', `${currentRecord.agentId}.json`));
+        if (!inbox || inbox.ownerAgentId !== currentRecord.agentId || !agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') {
+          throw Object.assign(new Error('Agent is not available for reconnect'), { statusCode: 409 });
+        }
+        const membership = await getMembership(inbox.organizationId, currentRecord.humanId);
+        let issuerMembership = membership;
+        if (auth.provider === 'workos') {
+          const [organization, owner] = await Promise.all([
+            store.getJson(path.join('organizations', inbox.organizationId, 'organization.json')),
+            store.getJson(path.join('humans', `${currentRecord.humanId}.json`))
+          ]);
+          const providerMembership = organization?.workosOrganizationId && owner?.workosUserId
+            ? await auth.getOrganizationMembership(owner.workosUserId, organization.workosOrganizationId)
+            : null;
+          issuerMembership = membership ? { ...membership, providerMembership } : null;
+        }
+        if (!membershipCanManage(issuerMembership, auth.provider)) {
+          throw Object.assign(new Error('Reconnect owner is invalid'), { statusCode: 403 });
+        }
+        const claimed = await store.claimJson(tokenPath, 'usedAt', store.now());
+        if (!claimed) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
+        const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId);
+        const credentials = await issueAgentCredentials(agent.id, inbox.id);
+        await writeAudit('agent.credentials_reconnected', { agentId: agent.id, humanId: claimed.humanId, credentialFamilyCount });
+        return { agent, inbox, credentials };
+      }, [], [enrollmentMutationKey(tokenHash)]);
+      disconnectAgentStreams(reconnected.inbox.id, reconnected.agent.id);
+      return json(res, 200, { agent: publicAgent(reconnected.agent), ...reconnected.credentials, inbox: reconnected.inbox, nativeMessaging: 'ready' });
+    }
     const plannedInboxId = store.id('inbox');
     const enrolled = await withInboxMutation(pendingRecord.inboxId, async writeAudit => {
       const currentRecord = await store.getJson(tokenPath);
@@ -2201,6 +2237,22 @@ async function route(req, res) {
     await audit(inboxId, 'agent.enrollment_token_created', { enrollmentId: record.id, humanId: human.id, permissions });
     const publicUrl = process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`;
     return json(res, 201, { enrollmentToken: rawToken, enrollmentUrl: `${publicUrl.replace(/\/$/, '')}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, permissions, agentProfile });
+  }
+
+  const reconnectTokenMatch = suffix.match(/^agents\/([^/]+)\/credentials\/reconnect-token$/);
+  if (req.method === 'POST' && reconnectTokenMatch) {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const agentId = assertSafeIdentifier(reconnectTokenMatch[1], 'agentId');
+    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    if (inbox.ownerAgentId !== agentId || !agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') {
+      return fail(res, 404, 'Active enrolled agent not found');
+    }
+    const rawToken = crypto.randomBytes(32).toString('base64url');
+    const record = { id: store.id('enrollment'), kind: 'reconnect', tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    await store.putJson(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record);
+    await audit(inboxId, 'agent.reconnect_token_created', { enrollmentId: record.id, agentId, humanId: human.id });
+    return json(res, 201, { enrollmentToken: rawToken, expiresAt: record.expiresAt, agentId, address: agent.address });
   }
 
   if (req.method === 'GET' && suffix === 'calendar-connectors') {
