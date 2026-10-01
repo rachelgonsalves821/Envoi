@@ -207,6 +207,28 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const senderInboxId = enrolled.payload.inbox.id;
   assert.notEqual(senderInboxId, workspace.payload.id);
   assert.equal(enrolled.payload.inbox.ownerAgentId, enrolled.payload.agent.id);
+  const reconnectDenied = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agents/${enrolled.payload.agent.id}/credentials/reconnect-token`, { token: sessionToken, body: {}, session: new BrowserSession() });
+  assert.equal(reconnectDenied.status, 403);
+  const reconnectToken = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agents/${enrolled.payload.agent.id}/credentials/reconnect-token`, { token: sessionToken, body: {} });
+  assert.equal(reconnectToken.status, 201);
+  assert.equal(reconnectToken.payload.address, enrolled.payload.agent.address);
+  const previousAccessToken = enrolled.payload.agentApiToken;
+  const previousRefreshToken = enrolled.payload.agentRefreshToken;
+  const reconnectAttempts = await Promise.all([
+    request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: reconnectToken.payload.enrollmentToken } }),
+    request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: reconnectToken.payload.enrollmentToken } })
+  ]);
+  assert.deepEqual(reconnectAttempts.map(result => result.status).sort(), [200, 401]);
+  const reconnected = reconnectAttempts.find(result => result.status === 200);
+  assert.equal(reconnected.status, 200);
+  assert.equal(reconnected.payload.agent.id, enrolled.payload.agent.id);
+  assert.equal(reconnected.payload.inbox.id, senderInboxId);
+  assert.equal(reconnected.payload.agent.address, enrolled.payload.agent.address);
+  assert.equal((await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agent-view?agentId=${enrolled.payload.agent.id}`, { token: previousAccessToken })).status, 401);
+  assert.equal((await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: previousRefreshToken } })).status, 401);
+  assert.equal((await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: reconnectToken.payload.enrollmentToken } })).status, 401);
+  enrolled.payload.agentApiToken = reconnected.payload.agentApiToken;
+  enrolled.payload.agentRefreshToken = reconnected.payload.agentRefreshToken;
   const reused = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: tokenResponse.payload.enrollmentToken, name: 'Replay' } });
   assert.equal(reused.status, 401);
   const recipientWorkspace = await request(server.baseUrl, '/api/inboxes', { token: sessionToken, body: { name: 'Recipient workspace' } });

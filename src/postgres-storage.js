@@ -176,7 +176,7 @@ export class PostgresStore {
       return this.rowToOutbox(result.rows[0]);
     });
   }
-  async reserveObjectQuota(workspaceId, bytes, quotaBytes, reservationTtlMs = 1_200_000) {
+  async reserveObjectQuota(workspaceId, bytes, quotaBytes, reservationTtlMs = 1_200_000, { retainUntilCleanup = false } = {}) {
     return this.transactional(async client => {
       await client.query(`INSERT INTO sinaloa_object_quota_usage(workspace_id, quota_bytes) VALUES($1, $2)
         ON CONFLICT(workspace_id) DO UPDATE SET quota_bytes = EXCLUDED.quota_bytes, updated_at = NOW()`, [workspaceId, quotaBytes]);
@@ -189,7 +189,7 @@ export class PostgresStore {
       const activeReserved = Number(row.reserved_bytes) - expiredBytes;
       if (Number(row.used_bytes) + activeReserved + bytes > quotaBytes) throw Object.assign(new Error('Workspace object quota exceeded'), { code: 'QUOTA_EXCEEDED', statusCode: 413 });
       const createdAt = new Date();
-      const reservation = { id: `quota_${crypto.randomUUID()}`, workspaceId, bytes, state: 'reserved', createdAt: createdAt.toISOString(), expiresAt: new Date(createdAt.getTime() + reservationTtlMs).toISOString() };
+      const reservation = { id: `quota_${crypto.randomUUID()}`, workspaceId, bytes, state: 'reserved', createdAt: createdAt.toISOString(), expiresAt: retainUntilCleanup ? null : new Date(createdAt.getTime() + reservationTtlMs).toISOString() };
       await client.query('UPDATE sinaloa_object_quota_usage SET reserved_bytes = reserved_bytes + $2, updated_at = NOW() WHERE workspace_id = $1', [workspaceId, bytes]);
       await client.query('INSERT INTO sinaloa_object_quota_reservations(id, workspace_id, bytes, status, created_at, expires_at, updated_at) VALUES($1, $2, $3, $4, $5, $6, $5)', [reservation.id, workspaceId, bytes, reservation.state, reservation.createdAt, reservation.expiresAt]);
       return reservation;

@@ -22,6 +22,7 @@ const httpsUrl = (value, name, errors) => {
 export function validateProductionConfiguration(env = process.env) {
   if (env.SINALOA_AUTH_MODE !== 'production') return { mode: env.SINALOA_AUTH_MODE || 'development', validated: false };
   const errors = [];
+  if (env.SINALOA_RELEASE_SHA !== undefined && !/^[a-f0-9]{40}$/.test(env.SINALOA_RELEASE_SHA)) errors.push('SINALOA_RELEASE_SHA must be a full lowercase 40-character Git commit SHA');
   const publicUrl = httpsUrl(required(env, 'SINALOA_PUBLIC_URL', errors), 'SINALOA_PUBLIC_URL', errors);
   const databaseUrl = required(env, 'DATABASE_URL', errors);
   if (databaseUrl) {
@@ -85,6 +86,7 @@ export function validateProductionConfiguration(env = process.env) {
   required(env, 'SINALOA_S3_ACCESS_KEY_ID', errors);
   required(env, 'SINALOA_S3_SECRET_ACCESS_KEY', errors);
   httpsUrl(required(env, 'SINALOA_MALWARE_SCANNER_URL', errors), 'SINALOA_MALWARE_SCANNER_URL', errors);
+  required(env, 'SINALOA_MALWARE_SCANNER_TOKEN', errors);
   if (env.SINALOA_MALWARE_SCANNER_HEALTH_URL) {
     httpsUrl(env.SINALOA_MALWARE_SCANNER_HEALTH_URL, 'SINALOA_MALWARE_SCANNER_HEALTH_URL', errors);
     try { scannerHealthUrl(env); } catch { errors.push('SINALOA_MALWARE_SCANNER_HEALTH_URL must use the scanner origin without embedded credentials'); }

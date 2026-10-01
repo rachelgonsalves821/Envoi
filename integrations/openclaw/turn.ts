@@ -1,5 +1,6 @@
 import type { WorkMessage } from '../../sdk/typescript/src/connector';
 import { parseAgentReply, workPrompt, type AgentTurn } from '../agent-bridges/bridge';
+export { mcpReplyMessageId, withRecordedMcpReply } from '../agent-bridges/bridge';
 
 type History = (caseId: string) => Promise<Array<Record<string, unknown>>>;
 
@@ -12,27 +13,6 @@ export interface OpenClawTurnOptions {
   timeoutMs?: number;
   allowSinaloaMcpWrites?: boolean;
   assetHandles?: Array<{ handle: string; filename: string }>;
-}
-
-export function mcpReplyMessageId(name: string, args: Record<string, unknown>): string | null {
-  if (!['sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision'].includes(name)) return null;
-  const key = args.idempotencyKey;
-  const match = typeof key === 'string' ? /^bridge:([A-Za-z0-9][A-Za-z0-9_-]{0,127}):reply:1$/.exec(key) : null;
-  return match?.[1] ?? null;
-}
-
-/** A completed MCP reply wins over Gateway text or a transient Gateway failure. */
-export function withRecordedMcpReply(turn: AgentTurn, wasSent: (messageId: string) => Promise<boolean>): AgentTurn {
-  return async (message, signal) => {
-    if (await wasSent(message.id)) return { stop: true };
-    try {
-      const reply = await turn(message, signal);
-      return await wasSent(message.id) ? { stop: true } : reply;
-    } catch (error) {
-      if (await wasSent(message.id)) return { stop: true };
-      throw error;
-    }
-  };
 }
 
 function gatewayOrigin(value: string): string {

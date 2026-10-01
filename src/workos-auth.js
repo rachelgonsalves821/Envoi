@@ -15,6 +15,10 @@ const flowMinutes = Number(process.env.SINALOA_AUTH_FLOW_MINUTES || 10);
 const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
 const csrfCookie = process.env.SINALOA_CSRF_COOKIE_NAME || 'sinaloa_csrf';
 const requestHuman = Symbol('workos-request-human');
+const requestSession = Symbol('workos-request-session');
+const replacementSession = Symbol('workos-replacement-session');
+const refreshReuseMs = 10_000;
+const maximumRefreshEntries = 1024;
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 export const safeReturnPath = value => {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(value)) return '/';
@@ -51,6 +55,13 @@ export function parseCookies(header = '') {
   }));
 }
 
+export function authFlowCookieName() { return 'sinaloa_workos_flow'; }
+export function authFlowCookieHeader(browserBinding, { clear = false } = {}) {
+  const attributes = [`${authFlowCookieName()}=${clear ? '' : encodeURIComponent(browserBinding)}`, 'Path=/api/auth/workos', 'HttpOnly', 'SameSite=Lax'];
+  if (process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true') attributes.push('Secure');
+  attributes.push(`Max-Age=${clear ? 0 : flowMinutes * 60}`);
+  return attributes.join('; ');
+}
 export function sessionCookieName() { return sessionCookie; }
 export function sessionCookieHeader(value, { clear = false } = {}) {
   const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
@@ -99,6 +110,7 @@ export class WorkOSAuthService {
   constructor(store, options = {}) {
     this.store = store;
     this.provider = 'workos';
+    this.refreshes = new Map();
     this.clientId = options.clientId || process.env.WORKOS_CLIENT_ID;
     this.apiKey = options.apiKey || process.env.WORKOS_API_KEY;
     this.cookiePassword = options.cookiePassword || process.env.WORKOS_COOKIE_PASSWORD;
@@ -127,7 +139,9 @@ export class WorkOSAuthService {
       redirectUri: this.redirectUri,
       screenHint
     });
+    const browserBinding = crypto.randomBytes(32).toString('base64url');
     const flow = {
+      browserBindingHash: hash(browserBinding),
       stateHash: hash(result.state),
       codeVerifier: result.codeVerifier,
       returnTo: safeReturnPath(returnTo),
@@ -136,13 +150,17 @@ export class WorkOSAuthService {
       usedAt: null
     };
     await this.store.putJson(path.join('auth', 'workos-flows', `${flow.stateHash}.json`), flow);
-    return { url: result.url };
+    return { url: result.url, browserBinding };
   }
 
-  async completeAuthorization({ code, state, ipAddress, userAgent }) {
+  async completeAuthorization({ code, state, browserBinding, ipAddress, userAgent }) {
     if (!code || !state) throw Object.assign(new Error('Authorization code and state are required'), { statusCode: 400 });
     const relative = path.join('auth', 'workos-flows', `${hash(state)}.json`);
     const pending = await this.store.getJson(relative);
+    const bindingMatches = typeof browserBinding === 'string' && /^[A-Za-z0-9_-]{43}$/.test(browserBinding)
+      && typeof pending?.browserBindingHash === 'string' && /^[a-f0-9]{64}$/.test(pending.browserBindingHash)
+      && crypto.timingSafeEqual(Buffer.from(hash(browserBinding), 'hex'), Buffer.from(pending.browserBindingHash, 'hex'));
+    if (!bindingMatches) throw Object.assign(new Error('Authentication flow does not match this browser'), { statusCode: 401 });
     const flow = pending && !pending.usedAt && new Date(pending.expiresAt) > new Date()
       ? await this.store.claimJson(relative, 'usedAt', this.store.now())
       : null;
@@ -163,40 +181,92 @@ export class WorkOSAuthService {
 
   async upsertHuman(user) {
     const indexPath = path.join('auth', 'workos-user-index', `${encodeURIComponent(user.id)}.json`);
-    const index = await this.store.getJson(indexPath);
-    const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
-    const now = this.store.now();
-    const emailVerified = Boolean(user.emailVerified);
-    const previouslyVerified = Boolean(existing?.emailVerified && existing?.verifiedAt);
-    const human = {
-      ...(existing || { id: this.store.id('human'), createdAt: this.store.now() }),
-      workosUserId: user.id,
-      email: user.email,
-      emailVerified: emailVerified || previouslyVerified,
-      displayName: user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
-      authProvider: 'workos',
-      verifiedAt: emailVerified ? (existing?.verifiedAt || now) : (previouslyVerified ? existing.verifiedAt : null),
-      updatedAt: now
-    };
-    await this.store.putJson(path.join('humans', `${human.id}.json`), human);
-    await this.store.putJson(indexPath, { humanId: human.id });
-    return human;
+    return this.store.withTransaction([`auth:workos-user:${user.id}`], async () => {
+      const index = await this.store.getJson(indexPath);
+      const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
+      const now = this.store.now();
+      const emailVerified = Boolean(user.emailVerified);
+      const previouslyVerified = Boolean(existing?.emailVerified && existing?.verifiedAt);
+      const human = {
+        ...(existing || { id: this.store.id('human'), createdAt: now }),
+        workosUserId: user.id,
+        email: user.email,
+        emailVerified: emailVerified || previouslyVerified,
+        displayName: user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
+        authProvider: 'workos',
+        verifiedAt: emailVerified ? (existing?.verifiedAt || now) : (previouslyVerified ? existing.verifiedAt : null),
+        updatedAt: now
+      };
+      await this.store.putJsonBatch([
+        { path: path.join('humans', `${human.id}.json`), value: human },
+        { path: indexPath, value: { humanId: human.id } }
+      ]);
+      return human;
+    });
+  }
+
+  async refreshProviderSession(sealedSession, session) {
+    const now = Date.now();
+    for (const [key, entry] of this.refreshes) if (entry.expiresAt <= now) this.refreshes.delete(key);
+    const key = hash(sealedSession);
+    const existing = this.refreshes.get(key);
+    if (existing) return existing.result;
+    // Keep in-flight rotations until settled so parallel requests never spend
+    // the same provider refresh token twice. Bound successful reuse to 10s.
+    if (this.refreshes.size >= maximumRefreshEntries) return null;
+    const entry = { expiresAt: Infinity, result: null };
+    entry.result = (async () => {
+      try {
+        const refreshed = await session.refresh();
+        if (!refreshed.authenticated || !refreshed.sealedSession) return null;
+        // refresh() decodes claims; authenticate() additionally checks the JWT
+        // signature, expiry and configured issuer before admitting the result.
+        const renewed = this.workos.userManagement.loadSealedSession({ sessionData: refreshed.sealedSession, cookiePassword: this.cookiePassword });
+        const authenticated = await renewed.authenticate();
+        if (!authenticated.authenticated || !this.admitted(authenticated.user)) return null;
+        return { ...authenticated, sealedSession: refreshed.sealedSession, refreshed: true };
+      } catch {
+        // Invalid/revoked sessions and provider outages grant no access.
+        return null;
+      } finally {
+        entry.expiresAt = Date.now() + refreshReuseMs;
+      }
+    })();
+    this.refreshes.set(key, entry);
+    return entry.result;
   }
 
   async getProviderSession(req) {
-    const sealedSession = parseCookies(req.headers.cookie)[sessionCookie];
-    if (!sealedSession) return null;
-    const session = this.workos.userManagement.loadSealedSession({ sessionData: sealedSession, cookiePassword: this.cookiePassword });
-    const result = await session.authenticate();
-    return result.authenticated ? { ...result, sealedSession } : null;
+    if (req[requestSession]) return req[requestSession];
+    const pending = (async () => {
+      const sealedSession = parseCookies(req.headers.cookie)[sessionCookie];
+      if (!sealedSession) return null;
+      try {
+        const session = this.workos.userManagement.loadSealedSession({ sessionData: sealedSession, cookiePassword: this.cookiePassword });
+        const result = await session.authenticate();
+        if (result.authenticated) return { ...result, sealedSession };
+        if (result.reason !== 'invalid_jwt') return null;
+        return this.refreshProviderSession(sealedSession, session);
+      } catch {
+        return null;
+      }
+    })();
+    Object.defineProperty(req, requestSession, { value: pending, enumerable: false });
+    return pending;
   }
 
   async getSession(req) {
     const session = await this.getProviderSession(req);
     if (!session || !this.admitted(session.user)) return null;
+    if (session.refreshed) req[replacementSession] = session.sealedSession;
     return { ...session, assurance: 'provider' };
   }
 
+  takeSessionCookie(req) {
+    const value = req[replacementSession] || null;
+    delete req[replacementSession];
+    return value;
+  }
   async getHuman(req) {
     if (req[requestHuman]) return req[requestHuman];
     const pending = (async () => {
@@ -225,11 +295,14 @@ export class WorkOSAuthService {
   async logout(req) {
     const sessionData = parseCookies(req.headers.cookie)[sessionCookie];
     if (!sessionData) return { revoked: false, logoutUrl: null };
-    const session = this.workos.userManagement.loadSealedSession({ sessionData, cookiePassword: this.cookiePassword });
+    const admitted = await this.getSession(req);
+    delete req[replacementSession];
+    // Even expired or revoked cookies must be removable from the browser.
+    if (!admitted) return { revoked: true, logoutUrl: null };
+    const session = this.workos.userManagement.loadSealedSession({ sessionData: admitted.sealedSession, cookiePassword: this.cookiePassword });
     const logoutUrl = await session.getLogoutUrl({ returnTo: process.env.SINALOA_PUBLIC_URL || new URL(this.redirectUri).origin });
     return { revoked: true, logoutUrl };
   }
-
   async createProviderOrganization({ name, externalId, idempotencyKey, userId }) {
     const organization = await this.workos.organizations.createOrganization(
       { name, externalId, metadata: { product: 'sinaloa' } },

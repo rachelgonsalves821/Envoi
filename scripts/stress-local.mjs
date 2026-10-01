@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { isDeepStrictEqual } from 'node:util';
 import { generateSync } from 'otplib';
 import { BrowserSession } from '../test/browser-session.js';
 
@@ -171,8 +172,7 @@ try {
     const countA = aAlice.payload.events.filter(event => event.payload.messageId).length;
     const countB = bAlice.payload.events.filter(event => event.payload.messageId).length;
     if (countA !== WRITE_COUNT_PER_CASE + 2 || countB !== WRITE_COUNT_PER_CASE + 1) return null;
-    assert.deepEqual(aAlice.payload, aBob.payload);
-    assert.deepEqual(bAlice.payload, bBob.payload);
+    if (!isDeepStrictEqual(aAlice.payload, aBob.payload) || !isDeepStrictEqual(bAlice.payload, bBob.payload)) return null;
     return [aAlice.payload, bAlice.payload];
   });
   for (const item of canonical) {

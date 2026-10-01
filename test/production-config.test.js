@@ -28,6 +28,7 @@ const validProduction = (overrides = {}) => ({
   SINALOA_S3_ACCESS_KEY_ID: 'access',
   SINALOA_S3_SECRET_ACCESS_KEY: 'secret',
   SINALOA_MALWARE_SCANNER_URL: 'https://scanner.sinaloa.example/scan',
+  SINALOA_MALWARE_SCANNER_TOKEN: 'private-scanner-test-token',
   SINALOA_ENABLE_EXTERNAL_EMAIL: 'false',
   ...overrides
 });
@@ -139,4 +140,26 @@ test('production calendar writes require one complete same-origin HTTPS provider
     GOOGLE_CALENDAR_REDIRECT_URI: 'https://app.sinaloa.example/api/calendar-oauth/google/callback'
   }));
   assert.equal(configured.validated, true);
+});
+
+
+test('production requires scanner authentication before deployment with redacted diagnostics', () => {
+  for (const token of [undefined, '', '   ']) {
+    const env = validProduction({ SINALOA_MALWARE_SCANNER_TOKEN: token, SINALOA_EDGE_ALLOWED_HOSTS: 'app.sinaloa.example' });
+    assert.throws(() => validateProductionConfiguration(env), /SINALOA_MALWARE_SCANNER_TOKEN is required/);
+    const report = deploymentPreflight(env);
+    assert.equal(report.ready, false);
+    assert.ok(report.errors.some(message => message.includes('SINALOA_MALWARE_SCANNER_TOKEN')));
+    assert.doesNotMatch(JSON.stringify(report), /private-scanner-test-token|user:secret|sk_live_123/);
+  }
+  assert.equal(validateProductionConfiguration(validProduction()).validated, true);
+  assert.equal(validateProductionConfiguration({ SINALOA_AUTH_MODE: 'development' }).validated, false);
+});
+
+test('production permits legacy deployments without a release SHA but validates supplied provenance', () => {
+  assert.equal(validateProductionConfiguration(validProduction()).validated, true);
+  assert.equal(validateProductionConfiguration(validProduction({ SINALOA_RELEASE_SHA: 'a'.repeat(40) })).validated, true);
+  for (const sha of ['', 'main', 'a'.repeat(7), 'g'.repeat(40), 'A'.repeat(40)]) {
+    assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_RELEASE_SHA: sha })), /SINALOA_RELEASE_SHA must be a full lowercase/);
+  }
 });
