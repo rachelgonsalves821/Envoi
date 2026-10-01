@@ -22,6 +22,7 @@ import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from
 import { claimIdempotency, completeIdempotency, replayResponse, scopedIdempotencyPath, semanticDigest, validateIdempotencyKey } from './idempotency.js';
 import { humanConversationMessagingEnabled } from './human-messaging.js';
 import { handleAgentMcp } from './agent-mcp.js';
+import { enrollmentConnectionStatus, validateConnectionReport } from './agent-connection.js';
 import {
   assertExactBinding,
   createWorkspacePolicy,
@@ -51,7 +52,7 @@ import { projectWorkspaceForHuman } from './human-projection.js';
 const productionConfig = validateProductionConfiguration();
 const host = process.env.SINALOA_HOST || '127.0.0.1';
 const port = Number(process.env.SINALOA_PORT || 8787);
-const dataDir = process.env.SINALOA_DATA_DIR || path.resolve('data');
+const dataDir = path.resolve(process.env.SINALOA_DATA_DIR || 'data');
 const maxBodyBytes = Number(process.env.SINALOA_MAX_BODY_BYTES || 10 * 1024 * 1024);
 const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
 const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'sinaloa.mail';
@@ -326,6 +327,7 @@ const bearerToken = req => (req.headers.authorization || '').startsWith('Bearer 
 const agentCredentialPath = tokenHash => path.join('auth', 'agent-credentials', `${tokenHash}.json`);
 const agentRefreshCredentialPath = tokenHash => path.join('auth', 'agent-refresh-credentials', `${tokenHash}.json`);
 const agentCredentialFamilyPath = (inboxId, agentId, familyId) => path.join('auth', 'agent-credential-families', inboxId, agentId, `${familyId}.json`);
+const enrollmentIndexPath = (inboxId, enrollmentId) => path.join('inboxes', inboxId, 'agent-enrollments', `${enrollmentId}.json`);
 const expiresAfter = milliseconds => new Date(Date.now() + milliseconds).toISOString();
 const mcpReadTokenTtlMs = 5 * 60_000;
 function scopedMcpReadRequest(req, inboxId, caseId) {
@@ -495,12 +497,24 @@ const browserObjectUrl = (value, req) => {
 const eventCursor = event => event.cursor || (event.sequence ? String(event.sequence).padStart(20, '0') : `${event.createdAt}|${event.id}`);
 const normalizeStreamEvent = event => ({ ...event, cursor: eventCursor(event) });
 const sendStreamEvent = (subscription, event) => {
-  const normalized = normalizeStreamEvent(event);
-  if (subscription.sentIds.has(normalized.id)) return;
-  subscription.sentIds.add(normalized.id);
-  if (subscription.sentIds.size > 500) subscription.sentIds.delete(subscription.sentIds.values().next().value);
-  subscription.cursor = normalized.cursor;
-  subscription.res.write(`id: ${normalized.cursor}\nevent: ${normalized.type}\ndata: ${JSON.stringify(normalized)}\n\n`);
+  // Serialize authorization and delivery so replay/live events retain cursor order.
+  subscription.pendingWrites = (subscription.pendingWrites || 0) + 1;
+  if (subscription.pendingWrites > 500) subscription.close?.('replay_required');
+  subscription.writeQueue = (subscription.writeQueue || Promise.resolve()).then(async () => {
+    if (subscription.res.writableEnded || subscription.res.destroyed) return;
+    if (subscription.authorize && !await subscription.authorize()) {
+      subscription.close(subscription.authFailureEvent);
+      return;
+    }
+    if (subscription.res.writableEnded || subscription.res.destroyed) return;
+    const normalized = normalizeStreamEvent(event);
+    if (subscription.sentIds.has(normalized.id)) return;
+    subscription.sentIds.add(normalized.id);
+    if (subscription.sentIds.size > 500) subscription.sentIds.delete(subscription.sentIds.values().next().value);
+    subscription.cursor = normalized.cursor;
+    subscription.res.write(`id: ${normalized.cursor}\nevent: ${normalized.type}\ndata: ${JSON.stringify(normalized)}\n\n`);
+  }).catch(() => subscription.close?.('replay_error')).finally(() => { subscription.pendingWrites -= 1; });
+  return subscription.writeQueue;
 };
 const publish = (inboxId, event) => {
   for (const subscription of streams.get(inboxId) || []) {
@@ -515,11 +529,17 @@ const disconnectAgentStreams = (inboxId, agentId) => {
   if (!subscriptions) return;
   for (const subscription of [...subscriptions]) {
     if (subscription.agentId !== agentId) continue;
-    clearInterval(subscription.heartbeat);
-    subscriptions.delete(subscription);
-    subscription.res.end();
+    subscription.close?.();
   }
   if (!subscriptions.size) streams.delete(inboxId);
+};
+const disconnectHumanStreams = sessionKey => {
+  if (!sessionKey) return;
+  for (const subscriptions of streams.values()) {
+    for (const subscription of [...subscriptions]) {
+      if (subscription.sessionKey === sessionKey) subscription.close('session.revoked');
+    }
+  }
 };
 const audit = (inboxId, type, data) => withInboxMutation(inboxId, writeAudit => writeAudit(type, data));
 
@@ -1595,6 +1615,7 @@ async function agentView(inboxId, inbox, agentId) {
 async function route(req, res) {
   const responseNonce = crypto.randomBytes(18).toString('base64');
   applyHeaders(res, req.headers.origin || '', responseNonce);
+  auth.bindResponse?.(req, res);
   if (String(req.url || '').split('?', 1)[0] === '/mcp' && !mcpOriginAllowed(req)) return fail(res, 403, 'MCP Origin is not allowed');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   try { assertSafeRequestTarget(req.url); }
@@ -1647,7 +1668,7 @@ async function route(req, res) {
       const extension = path.extname(filePath);
       let content = await readFile(filePath);
       if (extension === '.html') content = Buffer.from(content.toString('utf8').replace('<script', `<script nonce="${responseNonce}"`).replace('<style', `<style nonce="${responseNonce}"`));
-      res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream' });
+      res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream', 'cache-control': 'private, no-store' });
       return res.end(content);
     }
     catch (error) { if (error.code === 'ENOENT') return fail(res, 404, 'Web asset not found'); throw error; }
@@ -1889,6 +1910,23 @@ async function route(req, res) {
     return json(res, 201, await issueMcpReadToken(identity, caseId));
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/agent/connection-status') {
+    const identity = await getAgentWorkIdentity(req);
+    if (!identity) return fail(res, 401, 'Active agent access credential required');
+    const report = validateConnectionReport(await body(req));
+    const result = await withInboxMutation(identity.inboxId, async writeAudit => {
+      const currentIdentity = await getAgentWorkIdentity(req);
+      if (!currentIdentity || currentIdentity.agent.id !== identity.agent.id || currentIdentity.familyId !== identity.familyId) throw Object.assign(new Error('Active agent access credential required'), { statusCode: 401 });
+      const familyPath = agentCredentialFamilyPath(identity.inboxId, identity.agent.id, identity.familyId);
+      const family = await store.getJson(familyPath);
+      const checkedAt = store.now();
+      await store.putJson(familyPath, { ...family, connectionSetup: { ...report, checkedAt }, updatedAt: checkedAt });
+      await writeAudit('agent.connection_setup_checked', { agentId: identity.agent.id, runtime: report.runtime, phase: report.phase, ...(report.errorCode ? { errorCode: report.errorCode } : {}) }, checkedAt);
+      return { phase: report.phase, checkedAt, ...(report.errorCode ? { errorCode: report.errorCode } : {}) };
+    });
+    return json(res, 200, result);
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/agent-token') {
     const input = await body(req);
     if ((input.grantType || 'refresh_token') !== 'refresh_token') return fail(res, 400, 'Only refresh_token grant is supported');
@@ -1959,11 +1997,14 @@ async function route(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
-    const result = await auth.logout(req);
+    const result = await auth.logout(req, { onRevoked: disconnectHumanStreams });
     const revoked = typeof result === 'boolean' ? result : result.revoked;
-    if (!revoked) return fail(res, 401, 'Authenticated session required');
+    const rawSession = parseCookies(req.headers.cookie)[sessionCookieName()];
+    const sessionKey = auth.provider === 'workos' ? result.sessionId : rawSession ? hashSecret(rawSession) : null;
+    disconnectHumanStreams(sessionKey);
     res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true })]);
-    return json(res, 200, typeof result === 'boolean' ? { revoked: true } : result);
+    // Logout is idempotent, including missing, expired and already-cleared sessions.
+    return json(res, 200, typeof result === 'boolean' ? { revoked } : { revoked, logoutUrl: result.logoutUrl });
   }
 
   if (url.pathname === '/api/organizations' && req.method === 'GET') {
@@ -2041,11 +2082,11 @@ async function route(req, res) {
     const tokenHash = hashSecret(input.enrollmentToken);
     const tokenPath = path.join('auth', 'enrollment-tokens', `${tokenHash}.json`);
     const pendingRecord = await store.getJson(tokenPath);
-    if (!pendingRecord || pendingRecord.usedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
+    if (!pendingRecord || pendingRecord.usedAt || pendingRecord.revokedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
     const plannedInboxId = store.id('inbox');
     const enrolled = await withInboxMutation(pendingRecord.inboxId, async writeAudit => {
       const currentRecord = await store.getJson(tokenPath);
-      if (!currentRecord || currentRecord.usedAt || new Date(currentRecord.expiresAt) <= new Date()) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
+      if (!currentRecord || currentRecord.usedAt || currentRecord.revokedAt || new Date(currentRecord.expiresAt) <= new Date()) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
       const sourceInbox = await store.getJson(path.join('inboxes', currentRecord.inboxId, 'inbox.json'));
       const localMembership = sourceInbox ? await getMembership(sourceInbox.organizationId, currentRecord.humanId) : null;
       let issuerMembership = localMembership;
@@ -2083,6 +2124,8 @@ async function route(req, res) {
       ]);
       if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId: inbox.id, address: publicEmailAddressForAgent(agent), status: agent.status });
       const credentials = await issueAgentCredentials(agent.id, inbox.id);
+      const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken)));
+      await store.putJson(tokenPath, { ...record, agentId: agent.id, agentInboxId: inbox.id, credentialFamilyId: credentialIndex.familyId });
       await writeAudit('agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions, sourceInboxId: sourceInbox.id }, createdAt, inbox.id);
       await writeAudit('agent.enrollment_redeemed', { enrollmentId: record.id, agentId: agent.id, agentInboxId: inbox.id, address: agent.address, humanId: record.humanId }, createdAt, sourceInbox.id);
       await writeAudit('agent.inbox_created', { agentId: agent.id, inboxId: inbox.id, humanId: record.humanId }, createdAt, sourceInbox.id);
@@ -2176,6 +2219,19 @@ async function route(req, res) {
     return json(res, 200, { localPart, address, available });
   }
 
+  const enrollmentStatusRoute = suffix.match(/^agent-enrollment-tokens\/([^/]+)\/status$/);
+  if (req.method === 'GET' && enrollmentStatusRoute) {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const enrollmentId = assertSafeIdentifier(enrollmentStatusRoute[1], 'enrollmentId');
+    const index = await store.getJson(enrollmentIndexPath(inboxId, enrollmentId));
+    const record = index?.tokenHash ? await store.getJson(path.join('auth', 'enrollment-tokens', `${index.tokenHash}.json`)) : null;
+    if (!record || record.id !== enrollmentId || record.inboxId !== inboxId) return fail(res, 404, 'Enrollment not found');
+    const agent = record.agentId && record.agentInboxId ? await store.getJson(path.join('inboxes', record.agentInboxId, 'agents', `${record.agentId}.json`)) : null;
+    const family = record.credentialFamilyId && record.agentId && record.agentInboxId ? await store.getJson(agentCredentialFamilyPath(record.agentInboxId, record.agentId, record.credentialFamilyId)) : null;
+    return json(res, 200, enrollmentConnectionStatus(record, agent, family));
+  }
+
   if (req.method === 'POST' && suffix === 'agent-enrollment-tokens') {
     const human = await auth.getHuman(req);
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
@@ -2193,10 +2249,14 @@ async function route(req, res) {
     const agentProfile = profileName ? { name: profileName, slug: localPart || slugify(input.agentProfile?.slug || profileName), ...(localPart ? { localPart } : {}), capabilities: Array.isArray(input.agentProfile?.capabilities) ? input.agentProfile.capabilities.slice(0, 20) : [] } : null;
     const rawToken = crypto.randomBytes(32).toString('base64url');
     const record = { id: store.id('enrollment'), tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
-    await store.putJson(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record);
+    await store.putJsonBatch([
+      document(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record),
+      document(enrollmentIndexPath(inboxId, record.id), { enrollmentId: record.id, tokenHash: record.tokenHash })
+    ]);
     await audit(inboxId, 'agent.enrollment_token_created', { enrollmentId: record.id, humanId: human.id, permissions });
-    const publicUrl = process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`;
-    return json(res, 201, { enrollmentToken: rawToken, enrollmentUrl: `${publicUrl.replace(/\/$/, '')}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, permissions, agentProfile });
+    const publicUrl = new URL(publicBaseUrl(req)).origin;
+    const quickConnect = { version: 1, runtime: 'openclaw', apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agentProfile?.name || '', address: localPart ? agentAddressForLocalPart(localPart) : null };
+    return json(res, 201, { enrollmentId: record.id, quickConnect, enrollmentToken: rawToken, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, permissions, agentProfile });
   }
 
   if (req.method === 'GET' && suffix === 'calendar-connectors') {
@@ -2300,26 +2360,55 @@ async function route(req, res) {
     const human = await auth.getHuman(req);
     const agent = await getAgentPrincipal(req, inboxId);
     if (!await canAccessInbox(human, inbox) && !agent) return fail(res, 401, 'Authenticated inbox participant required');
+    const humanSession = human ? await auth.getSession(req) : null;
+    if (human && !humanSession) return fail(res, 401, 'Authenticated human session required');
+    const sessionLease = human && auth.captureSessionLease ? await auth.captureSessionLease(req) : humanSession;
+    const sessionCookieValue = parseCookies(req.headers.cookie)[sessionCookieName()];
+    const sessionKey = human ? auth.provider === 'workos' ? sessionLease?.sessionId : hashSecret(sessionCookieValue) : null;
     const cursor = String(req.headers['last-event-id'] || url.searchParams.get('cursor') || '');
     if (cursor.length > 512 || /[\r\n\0]/.test(cursor)) return fail(res, 400, 'Event cursor is invalid');
     const connectionKey = rateIdentity(req);
     if (Number(sseCounts.get(connectionKey) || 0) >= maxSsePerPrincipal) return fail(res, 429, 'Too many concurrent event streams');
     sseCounts.set(connectionKey, Number(sseCounts.get(connectionKey) || 0) + 1);
     req.setTimeout(0);
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
-    const subscription = { res, cursor, sentIds: new Set(), heartbeat: null, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'private, no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+    const subscription = { res, cursor, sentIds: new Set(), heartbeat: null, expiryTimer: null, sessionKey, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
     const set = streams.get(inboxId) || new Set(); set.add(subscription); streams.set(inboxId, set);
     let cleaned = false;
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
       clearInterval(subscription.heartbeat);
+      clearTimeout(subscription.expiryTimer);
       set.delete(subscription);
       if (!set.size) streams.delete(inboxId);
       const remaining = Math.max(0, Number(sseCounts.get(connectionKey) || 1) - 1);
       if (remaining) sseCounts.set(connectionKey, remaining); else sseCounts.delete(connectionKey);
     };
     res.on('close', cleanup);
+    subscription.close = event => {
+      if (cleaned) return;
+      if (event && !res.destroyed && !res.writableEnded) res.write(`event: ${event}\ndata: {}\n\n`);
+      cleanup();
+      res.end();
+    };
+    subscription.authFailureEvent = auth.provider === 'workos' ? 'session.recheck' : 'session.expired';
+    if (human) {
+      subscription.authorize = async () => {
+        const valid = auth.validateSessionLease
+          ? await auth.validateSessionLease(sessionLease)
+          : Boolean(await auth.getSession({ headers: { cookie: `${sessionCookieName()}=${encodeURIComponent(sessionCookieValue)}` } }));
+        return valid && await canAccessInbox(human, inbox);
+      };
+      const remaining = new Date(sessionLease?.expiresAt).getTime() - Date.now();
+      if (!Number.isFinite(remaining) || remaining <= 0) {
+        subscription.close(subscription.authFailureEvent);
+        return;
+      }
+      // A new HTTP connection can renew its cookie; an open stream cannot.
+      subscription.expiryTimer = setTimeout(() => subscription.close(subscription.authFailureEvent), Math.min(remaining, 2_147_483_647));
+      subscription.expiryTimer.unref?.();
+    }
     const resumeReplay = () => {
       // No id field: reconnect from the last actual event, never beyond it.
       if (!res.destroyed) res.write(`event: replay_required\ndata: ${JSON.stringify({ cursor: subscription.cursor || null, hasMore: true })}\n\n`);
@@ -2330,24 +2419,29 @@ async function route(req, res) {
       for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
         const page = await fetchEventPage(store, inboxId, { cursor: subscription.cursor, limit: 100 });
         if (cleaned) return;
-        for (const event of page.events) sendStreamEvent(subscription, event);
+        for (const event of page.events) await sendStreamEvent(subscription, event);
+        if (cleaned) return;
         hasMore = page.hasMore;
         if (!hasMore || subscription.overflow) break;
       }
       if (hasMore || subscription.overflow) { resumeReplay(); return; }
       const buffered = [...subscription.buffer.values()].map(normalizeStreamEvent).sort((a, b) => a.cursor.localeCompare(b.cursor));
       for (const event of buffered) {
-        if (!cursor || event.cursor > cursor) sendStreamEvent(subscription, event);
+        if (!cursor || event.cursor > cursor) await sendStreamEvent(subscription, event);
       }
+      if (cleaned) return;
       subscription.buffer.clear();
       subscription.replaying = false;
       res.write(`event: ready\ndata: ${JSON.stringify({ inboxId, at: store.now(), cursor: subscription.cursor || cursor || null })}\n\n`);
-      subscription.heartbeat = setInterval(() => res.write(`: keepalive ${store.now()}\n\n`), 20_000);
+      subscription.heartbeat = setInterval(async () => {
+        try {
+          if (subscription.authorize && !await subscription.authorize()) return subscription.close(subscription.authFailureEvent);
+          if (!cleaned && !res.destroyed && !res.writableEnded) res.write(`: keepalive ${store.now()}\n\n`);
+        } catch { subscription.close('replay_error'); }
+      }, 20_000);
       subscription.heartbeat.unref?.();
     } catch (error) {
-      cleanup();
-      res.write(`event: replay_error\ndata: ${JSON.stringify({ message: 'Event history is temporarily unavailable' })}\n\n`);
-      res.end();
+      subscription.close('replay_error');
     }
     return;
   }

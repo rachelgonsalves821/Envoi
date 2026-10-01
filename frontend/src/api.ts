@@ -1,4 +1,7 @@
 import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
+import { trackSessionRequest } from './session-lifecycle';
+import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
+import { validateQuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
 export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
 let configuredCsrfCookieName = 'sinaloa_csrf';
@@ -45,23 +48,28 @@ export function csrfHeaders(method = 'GET', cookieHeader?: string): Record<strin
 }
 
 export async function request<T>(pathname: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(pathname, {
-    ...options,
-    credentials: 'same-origin',
-    headers: {
-      ...(options.body ? { 'content-type': 'application/json' } : {}),
-      ...csrfHeaders(options.method),
-      ...(options.headers || {})
+  const session = trackSessionRequest();
+  try {
+    const response = await fetch(pathname, {
+      ...options,
+      signal: options.signal ? AbortSignal.any([options.signal, session.signal]) : session.signal,
+      credentials: 'same-origin',
+      headers: {
+        ...(options.body ? { 'content-type': 'application/json' } : {}),
+        ...csrfHeaders(options.method),
+        ...(options.headers || {})
+      }
+    });
+    const payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
+    session.check();
+    if (!response.ok) {
+      if (response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+      }
+      throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
     }
-  });
-  const payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
-  if (!response.ok) {
-    if (response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
-      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
-    }
-    throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
-  }
-  return payload as T;
+    return payload as T;
+  } finally { session.release(); }
 }
 
 export function safeDownloadUrl(value: string, baseUrl = typeof window === 'undefined' ? 'https://localhost/' : window.location.href) {
@@ -101,10 +109,11 @@ export const api = {
     body: JSON.stringify({ actionKey, externalRefs })
   }),
   agentAddressAvailability: (inboxId: string, localPart: string) => request<{ localPart: string; address: string; available: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-address-availability?localPart=${encodeURIComponent(localPart)}`),
-  enrollmentToken: (inboxId: string, name: string, localPart: string, permissions: string[]) => request<{ enrollmentToken: string; enrollmentUrl: string; expiresAt: string; permissions: string[]; agentProfile: { name: string; localPart: string } }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens`, {
+  enrollmentToken: (inboxId: string, name: string, localPart: string, permissions: string[]) => request<EnrollmentResult>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens`, {
     method: 'POST',
     body: JSON.stringify({ permissions, agentProfile: { name, localPart } })
-  }),
+  }).then(result => result.quickConnect ? { ...result, quickConnect: validateQuickConnectHandoff(result.quickConnect) } : result),
+  enrollmentStatus: (inboxId: string, enrollmentId: string, signal?: AbortSignal) => request<EnrollmentStatus>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens/${encodeURIComponent(enrollmentId)}/status`, { signal }),
   approveAgent: (inboxId: string, agentId: string, permissions: string[]) => request<{ agent: unknown; agentApiToken?: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-onboarding/${encodeURIComponent(agentId)}/approve`, { method: 'POST', body: JSON.stringify({ permissions }) })
   ,revokeAgentCredentials: (inboxId: string, agentId: string) => request<{ revoked: boolean; agentId: string; credentialFamilyCount: number; revokedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/revoke`, { method: 'POST', body: '{}' })
   ,setAgentPaused: (inboxId: string, agentId: string, paused: boolean) => request<Agent>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/${paused ? 'pause' : 'resume'}`, { method: 'POST', body: '{}' })

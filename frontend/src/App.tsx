@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import {
   Activity, AlertCircle, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
   CircleDashed, Clock3, Command, Copy, Database, Download, FileCheck2, FileText, Gauge, Inbox,
@@ -13,6 +14,8 @@ import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermi
 import { previewRequested } from './preview';
 import { mergeHistory, olderCursors } from './history';
 import { subscribeReplayRecovery } from './event-replay';
+import { connectorDownloads, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
+import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
   eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
@@ -103,47 +106,79 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [view, setView] = useState<HumanView | null>(null);
   const [error, setError] = useState('');
-  const [authNotice, setAuthNotice] = useState('');
+  const [authNotice, setAuthNotice] = useState(() => sessionEndedNotice());
   const [syncNotice, setSyncNotice] = useState('');
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [sessionCheck, setSessionCheck] = useState<'checking' | 'error' | null>(null);
+  const sessionCheckRef = useRef(sessionCheck);
+  sessionCheckRef.current = sessionCheck;
+  const bootRef = useRef(boot);
+  bootRef.current = boot;
   const activeWorkspace = useRef<string | null>(null);
   const hadAuthenticatedSession = useRef(false);
+  const stopLiveUpdates = useRef<(() => void) | null>(null);
+  const signingOut = useRef(false);
+  const endedElsewhere = useRef(false);
 
-  const expireSession = useCallback(() => {
+  const clearPrivateState = useCallback(() => {
+    invalidateSessionRequests();
+    stopLiveUpdates.current?.();
+    stopLiveUpdates.current = null;
     activeWorkspace.current = null;
     setHuman(null);
+    setOrganizations([]);
+    setWorkspaces([]);
     setWorkspace(null);
     setView(null);
-    setAuthNotice(hadAuthenticatedSession.current ? 'Your secure session expired. Sign in again to continue observing agent work.' : '');
-    hadAuthenticatedSession.current = false;
-    setBoot('signedOut');
+    setError('');
+    setSyncNotice('');
+    setHistoryBusy(false);
+    sessionCheckRef.current = null;
+    setSessionCheck(null);
   }, []);
+
+  const endSession = useCallback((broadcast = true) => {
+    clearPrivateState();
+    if (hadAuthenticatedSession.current || hasRememberedSession()) {
+      rememberSessionStatus('ended');
+      setAuthNotice(SESSION_ENDED_NOTICE);
+    }
+    hadAuthenticatedSession.current = false;
+    try { localStorage.removeItem(WORKSPACE_KEY); } catch { /* Optional preference storage. */ }
+    setBoot('signedOut');
+    if (broadcast) publishSessionEnd();
+  }, [clearPrivateState]);
+
+  const expireSession = useCallback(() => endSession(), [endSession]);
 
   const loseWorkspaceAccess = useCallback((workspaceId: string) => {
     if (activeWorkspace.current !== workspaceId) return;
-    activeWorkspace.current = null;
-    setWorkspace(null);
-    setView(null);
+    clearPrivateState();
     setError('Your access to this workspace changed. Refresh your account to continue.');
     setBoot('error');
-  }, []);
+  }, [clearPrivateState]);
 
   const loadView = useCallback(async (workspaceId: string, quiet = false) => {
+    const generation = sessionGeneration();
     activeWorkspace.current = workspaceId;
     if (!quiet) setView(null);
     try {
       const next = await api.humanView(workspaceId);
+      if (!isCurrentSession(generation)) throw new SessionRequestCancelled();
       if (activeWorkspace.current === workspaceId) setView(current => quiet ? mergeHistory(current, next) : next);
       return next;
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
+      if (isCurrentSession(generation) && caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
       throw caught;
     }
   }, [loseWorkspaceAccess]);
 
   const loadWorkspaceDirectory = useCallback(async () => {
+    const generation = sessionGeneration();
     const nextOrganizations = await api.organizations();
+    if (!isCurrentSession(generation)) throw new SessionRequestCancelled();
     const workspaceGroups = await Promise.all(nextOrganizations.map(item => api.workspaces(item.id)));
+    if (!isCurrentSession(generation)) throw new SessionRequestCancelled();
     const nextWorkspaces = workspaceGroups.flat();
     setOrganizations(nextOrganizations);
     setWorkspaces(nextWorkspaces);
@@ -151,6 +186,7 @@ export default function App() {
   }, []);
 
   async function loadOlder() {
+    const generation = sessionGeneration();
     if (!view || historyBusy) return;
     const workspaceId = view.inbox.id;
     const cursors = olderCursors(view);
@@ -158,20 +194,27 @@ export default function App() {
     setHistoryBusy(true);
     try {
       const next = await api.humanView(workspaceId, cursors);
-      if (activeWorkspace.current === workspaceId) setView(current => current ? mergeHistory(current, next, cursors) : current);
+      if (isCurrentSession(generation) && activeWorkspace.current === workspaceId) setView(current => current ? mergeHistory(current, next, cursors) : current);
     } catch (caught) {
+      if (!isCurrentSession(generation)) return;
       if (caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
       else setSyncNotice(errorMessage(caught));
     }
-    finally { setHistoryBusy(false); }
+    finally { if (isCurrentSession(generation)) setHistoryBusy(false); }
   }
 
   const loadAccount = useCallback(async () => {
+    if (signingOut.current || endedElsewhere.current) return;
+    clearPrivateState();
+    const generation = sessionGeneration();
     try {
       setBoot('loading');
       setError('');
-      const [nextConfig, nextHuman] = await Promise.all([api.authConfig(), api.me()]);
+      const nextConfig = await api.authConfig();
+      if (!isCurrentSession(generation)) return;
       setConfig(nextConfig);
+      const nextHuman = await api.me();
+      if (!isCurrentSession(generation)) return;
       setHuman(nextHuman);
       if (nextHuman.auth?.assurance === 'phone') {
         if (typeof nextHuman.mfaSetupRequired !== 'boolean') throw new Error('Authentication service needs an update before sign in can continue.');
@@ -180,20 +223,27 @@ export default function App() {
       }
       hadAuthenticatedSession.current = true;
       const nextWorkspaces = await loadWorkspaceDirectory();
+      if (!isCurrentSession(generation)) return;
       const savedId = localStorage.getItem(WORKSPACE_KEY);
       const selected = nextWorkspaces.find(item => item.id === savedId) || nextWorkspaces[0] || null;
       if (!selected) {
         setWorkspace(null);
+        rememberSessionStatus('active');
+        setAuthNotice('');
         setBoot('setup');
         return;
       }
       setWorkspace(selected);
       localStorage.setItem(WORKSPACE_KEY, selected.id);
       await loadView(selected.id);
+      if (!isCurrentSession(generation)) return;
+      rememberSessionStatus('active');
       setAuthNotice('');
       setBoot('ready');
     } catch (caught) {
+      if (!isCurrentSession(generation)) return;
       const nextConfig = config || await api.authConfig().catch(() => null);
+      if (!isCurrentSession(generation)) return;
       if (nextConfig) setConfig(nextConfig);
       if (caught instanceof ApiError && caught.status === 401) {
         expireSession();
@@ -202,7 +252,50 @@ export default function App() {
         setBoot('error');
       }
     }
-  }, [config, expireSession, loadView, loadWorkspaceDirectory]);
+  }, [clearPrivateState, config, expireSession, loadView, loadWorkspaceDirectory]);
+
+  const loadAccountRef = useRef(loadAccount);
+  loadAccountRef.current = loadAccount;
+
+  const revalidateAccount = useCallback(async () => {
+    if (signingOut.current || endedElsewhere.current) return;
+    if (boot !== 'ready' || !human || !workspace) { await loadAccount(); return; }
+    const generation = sessionGeneration();
+    sessionCheckRef.current = 'checking';
+    setSessionCheck('checking');
+    setError('');
+    try {
+      const nextHuman = await api.me();
+      if (!isCurrentSession(generation)) return;
+      // Do not carry a former account's drafts across an account switch.
+      if (nextHuman.id !== human.id || nextHuman.auth?.assurance === 'phone') { await loadAccount(); return; }
+      const nextWorkspaces = await loadWorkspaceDirectory();
+      if (!isCurrentSession(generation)) return;
+      if (!nextWorkspaces.some(item => item.id === workspace.id)) {
+        clearPrivateState();
+        setError('Your access to this workspace changed. Refresh your account to continue.');
+        setBoot('error');
+        return;
+      }
+      await loadView(workspace.id, true);
+      if (!isCurrentSession(generation)) return;
+      setHuman(nextHuman);
+      rememberSessionStatus('active');
+      setAuthNotice('');
+      sessionCheckRef.current = null;
+      setSessionCheck(null);
+    } catch (caught) {
+      if (!isCurrentSession(generation)) return;
+      if (caught instanceof ApiError && caught.status === 401) expireSession();
+      else {
+        setError(errorMessage(caught));
+        sessionCheckRef.current = 'error';
+        setSessionCheck('error');
+      }
+    }
+  }, [boot, clearPrivateState, expireSession, human, loadAccount, loadView, loadWorkspaceDirectory, workspace]);
+  const revalidateAccountRef = useRef(revalidateAccount);
+  revalidateAccountRef.current = revalidateAccount;
 
   useEffect(() => { if (!isPreview) void loadAccount(); }, [isPreview]);
 
@@ -213,24 +306,67 @@ export default function App() {
   }, [expireSession, isPreview]);
 
   useEffect(() => {
-    if (boot !== 'ready' || !workspace || !config) return;
-    const refresh = () => { void loadView(workspace.id, true).then(() => setSyncNotice('')).catch(caught => { if (!(caught instanceof ApiError && caught.status === 401)) setSyncNotice('Live updates are temporarily paused. Your workspace will keep retrying.'); }); };
+    if (isPreview) return;
+    return watchSessionLifecycle(window, document, {
+      isActive: () => hadAuthenticatedSession.current && !signingOut.current && !endedElsewhere.current && bootRef.current !== 'signedOut',
+      suspend: reason => {
+        // History snapshots discard private state. Ordinary tab switches keep
+        // drafts mounted but hidden and inert until authorization is checked.
+        flushSync(() => {
+          if (reason === 'history' || bootRef.current !== 'ready') { clearPrivateState(); setBoot('loading'); }
+          else {
+            invalidateSessionRequests();
+            stopLiveUpdates.current?.();
+            stopLiveUpdates.current = null;
+            setHistoryBusy(false);
+            sessionCheckRef.current = 'checking';
+            setSessionCheck('checking');
+          }
+        });
+      },
+      resume: reason => { if (reason === 'history') void loadAccountRef.current(); else void revalidateAccountRef.current(); },
+      endedElsewhere: () => {
+        if (bootRef.current === 'signedOut') return;
+        endedElsewhere.current = true;
+        flushSync(() => endSession(false));
+      }
+    });
+  }, [clearPrivateState, endSession, isPreview]);
+
+  useEffect(() => {
+    if (boot !== 'ready' || sessionCheck || !workspace || !config) return;
+    const generation = sessionGeneration();
+    const refresh = () => {
+      if (!isCurrentSession(generation)) return;
+      void loadView(workspace.id, true).then(() => {
+        if (isCurrentSession(generation)) setSyncNotice('');
+      }).catch(caught => {
+        if (isCurrentSession(generation) && !(caught instanceof ApiError && caught.status === 401)) setSyncNotice('Live updates are temporarily paused. Your workspace will keep retrying.');
+      });
+    };
     const stream = new EventSource(`/api/inboxes/${workspace.id}/events`);
-    const stopReplayRecovery = subscribeReplayRecovery(stream, refresh, setSyncNotice);
+    const stopReplayRecovery = subscribeReplayRecovery(stream, refresh, message => { if (isCurrentSession(generation)) setSyncNotice(message); });
     const eventTypes = ['agent.enrolled', 'agent.inbox_created', 'agent.enrollment_token_created', 'agent.onboarding_approved', 'agent.onboarding_rejected', 'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed', 'policy.evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted', 'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created', 'asset.created', 'asset.upload_started', 'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error', 'contact.blocked', 'contact.unblocked', 'contact.approved'];
-    const refreshDirectory = () => { void loadWorkspaceDirectory().catch(() => setSyncNotice('A new agent inbox may be available. Refresh the page to see it.')); };
-    stream.onopen = () => setSyncNotice('');
+    const refreshDirectory = () => { if (isCurrentSession(generation)) void loadWorkspaceDirectory().catch(() => { if (isCurrentSession(generation)) setSyncNotice('A new agent inbox may be available. Refresh the page to see it.'); }); };
+    stream.onopen = () => { if (isCurrentSession(generation)) setSyncNotice(''); };
     stream.onmessage = refresh;
     eventTypes.forEach(type => stream.addEventListener(type, refresh));
     stream.addEventListener('agent.inbox_created', refreshDirectory);
-    stream.addEventListener('ready', () => setSyncNotice(''));
+    stream.addEventListener('ready', () => { if (isCurrentSession(generation)) setSyncNotice(''); });
+    const terminate = () => { if (isCurrentSession(generation)) expireSession(); };
+    stream.addEventListener('session.expired', terminate);
+    stream.addEventListener('session.revoked', terminate);
+    stream.addEventListener('session.recheck', () => { if (isCurrentSession(generation)) void api.me().catch(() => undefined); });
     stream.onerror = () => {
+      if (!isCurrentSession(generation)) return;
       setSyncNotice('Live updates are reconnecting. You can refresh now or keep working.');
       void api.me().catch(() => undefined);
     };
     const interval = window.setInterval(refresh, 30_000);
-    return () => { window.clearInterval(interval); stopReplayRecovery(); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.removeEventListener('agent.inbox_created', refreshDirectory); stream.close(); };
-  }, [boot, config, loadView, loadWorkspaceDirectory, workspace]);
+    const stop = () => { window.clearInterval(interval); stopReplayRecovery(); eventTypes.forEach(type => stream.removeEventListener(type, refresh)); stream.removeEventListener('agent.inbox_created', refreshDirectory); stream.close(); };
+    stopLiveUpdates.current = stop;
+    return () => { stop(); if (stopLiveUpdates.current === stop) stopLiveUpdates.current = null; };
+  }, [boot, config, expireSession, loadView, loadWorkspaceDirectory, sessionCheck, workspace]);
 
   async function selectWorkspace(next: Workspace) {
     setWorkspace(next);
@@ -239,22 +375,43 @@ export default function App() {
   }
 
   async function createWorkspace(name: string) {
+    const generation = sessionGeneration();
     const created = await api.createWorkspace(name, organizations[0]?.id);
+    if (!isCurrentSession(generation)) return;
     setWorkspaces(current => [...current, created]);
     setWorkspace(created);
     localStorage.setItem(WORKSPACE_KEY, created.id);
     await loadView(created.id);
+    if (!isCurrentSession(generation)) return;
     setBoot('ready');
   }
 
+  async function logout() {
+    signingOut.current = true;
+    flushSync(() => { endSession(); setBoot('loading'); });
+    try {
+      const result = await api.logout();
+      window.location.replace(result.logoutUrl || '/');
+    } catch (caught) {
+      // Do not expose the old workspace or permit revalidation while logout
+      // has not been confirmed by the server. The user can retry the POST.
+      setError(`Sign out could not be completed. ${errorMessage(caught)}`);
+      setBoot('error');
+    }
+  }
+
+  const renderedGeneration = sessionGeneration();
+  const checkRenderedSession = () => { if (!isCurrentSession(renderedGeneration) || sessionCheckRef.current) throw new SessionRequestCancelled(); };
   if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
-  if (boot === 'loading') return <LoadingScreen />;
-  if (boot === 'signedOut' && config) return <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={loadAccount} />;
-  if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={createWorkspace} />;
-  if (boot === 'error') return <FailureScreen message={error} onRetry={loadAccount} />;
+  if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} />;
+  if (boot === 'signedOut' && config) return <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
+  if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} />;
+  if (boot === 'error') return <FailureScreen message={error} onRetry={signingOut.current ? logout : loadAccount} />;
   if (!human || !workspace || !view || !config) return <LoadingScreen />;
 
   return (
+    <>
+    <div hidden={Boolean(sessionCheck)} inert={Boolean(sessionCheck)} aria-hidden={Boolean(sessionCheck)}>
     <AppShell
       config={config}
       human={human}
@@ -263,25 +420,25 @@ export default function App() {
       workspace={workspace}
       view={view}
       syncNotice={syncNotice}
-      onLoadOlder={loadOlder}
+      onLoadOlder={async () => { checkRenderedSession(); await loadOlder(); }}
       historyBusy={historyBusy}
-      onSelectWorkspace={selectWorkspace}
-      onRefresh={async () => { await Promise.all([loadView(workspace.id, true), loadWorkspaceDirectory()]); }}
-      onLogout={async () => {
-        const result = await api.logout();
-        if (result.logoutUrl) window.location.assign(result.logoutUrl);
-        else window.location.reload();
-      }}
+      onSelectWorkspace={async next => { checkRenderedSession(); await selectWorkspace(next); }}
+      onRefresh={async () => { checkRenderedSession(); await Promise.all([loadView(workspace.id, true), loadWorkspaceDirectory()]); }}
+      onLogout={async () => { checkRenderedSession(); await logout(); }}
     />
+    </div>
+    {sessionCheck === 'checking' && <LoadingScreen checking />}
+    {sessionCheck === 'error' && <FailureScreen message={error} onRetry={() => { void revalidateAccount(); }} />}
+    </>
   );
 }
 
-function LoadingScreen() {
+function LoadingScreen({ checking = false }: { checking?: boolean }) {
   return (
     <main className="center-screen" aria-live="polite">
       <div className="brand-lockup"><BrandMark /><span>Sinaloa</span></div>
       <div className="decision-loader" aria-hidden="true"><span /><span /><span /></div>
-      <p>Loading your delegated work…</p>
+      <p>{checking ? 'Checking your session…' : 'Loading your delegated work…'}</p>
     </main>
   );
 }
@@ -883,28 +1040,28 @@ function PoliciesPage({ view }: { view: HumanView }) {
 }
 
 function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInbox, onSelectWorkspace, onRefresh, notify }: { view: HumanView; workspace: Workspace; agentInboxes: Workspace[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
-  const [enrollment, setEnrollment] = useState<{ enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null>(null);
+  const [enrollment, setEnrollment] = useState<EnrollmentResult | null>(null);
   const [open, setOpen] = useState(false);
   const steps = onboardingSteps(view, agentInboxes);
   const completeCount = steps.filter(step => step.complete).length;
-  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Enroll an agent identity, connect its external runtime, share its native address, and observe direct exchanges without claiming live presence.">
+  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Connect your agent, share its Sinaloa address, and follow its conversations with other agents.">
     {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages agent enrollment. You can observe your agent’s conversations." tone="attention" />}
     <section className="onboarding-card" aria-labelledby="onboarding-title">
       <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
       <div className="progress-track" aria-label={`${completeCount} of ${steps.length} onboarding steps complete`}><span style={{ width: `${(completeCount / steps.length) * 100}%` }} /></div>
-      <ol>{steps.map((step, index) => <li key={step.id} className={step.complete ? 'complete' : ''}><span className="step-mark">{step.complete ? <Check size={14} /> : index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p></div>{canManageInbox && step.id === 'enroll' && !step.complete && <button className="button tertiary compact" onClick={() => setOpen(true)}>Create link</button>}</li>)}</ol>
+      <ol>{steps.map((step, index) => <li key={step.id} className={step.complete ? 'complete' : ''}><span className="step-mark">{step.complete ? <Check size={14} /> : index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p></div>{canManageInbox && step.id === 'enroll' && !step.complete && <button className="button tertiary compact" onClick={() => setOpen(true)}>Connect agent</button>}</li>)}</ol>
     </section>
     {agentInboxes.length > 0 && <section className="agent-inbox-list" aria-label="Your agent inboxes"><div className="section-heading"><div><p className="eyebrow">Agent inboxes</p><h2>Each agent has its own view</h2></div><span>{agentInboxes.length} inboxes</span></div><div className="data-list">{agentInboxes.map(agentInbox => <article className="data-row" key={agentInbox.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{agentInbox.name}</strong><span>Separate conversation history and permissions</span></div><StatusText value={agentInbox.status} /><button type="button" className="button secondary compact" onClick={() => void onSelectWorkspace(agentInbox)}>Open inbox</button></article>)}</div></section>}
     <section className="beta-safeguards" aria-labelledby="safeguards-title">
       <div className="section-heading"><div><p className="eyebrow">Beta capabilities</p><h2 id="safeguards-title">Direct agent collaboration</h2></div><span>Closed beta</span></div>
       <div className="safeguard-grid">
         <SafeguardCard icon={<Inbox size={18} />} title="Direct messaging" status="Beta requirement" body="An agent can message another agent immediately using its exact known Sinaloa address. No first-contact approval is needed." />
-        <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Beta requirement" body="OpenClaw uses a renewable local relay beside its Gateway. Grok handles work through its bridge and can add hosted MCP reads with SINALOA_MCP_URL. A short-lived API token alone is not unattended connectivity." />
+        <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Quick Connect" body="Paste a setup prompt into your self-hosted OpenClaw agent to connect it. Keep its host and runtime running for unattended messages. Manual bridges and Grok are available under advanced setup." />
         <SafeguardCard icon={<FileText size={18} />} title="Shared files" status="Beta requirement" body="Agent-created files appear in Shared files. Download unlocks only after a clean malware scan." />
       </div>
     </section>
-    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={null} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can create a permissioned, 15-minute enrollment link to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
-    {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.sinaloa-inbox.com'} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
+    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={null} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can choose permissions and create a private setup prompt to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
+    {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.sinaloa-inbox.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </PageFrame>;
 }
 
@@ -1049,12 +1206,45 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
 const reservedAgentAddresses = new Set(['admin', 'administrator', 'agents', 'abuse', 'billing', 'contact', 'help', 'info', 'mail', 'noreply', 'no-reply', 'postmaster', 'root', 'security', 'support', 'system']);
 const validAgentLocalPart = (value: string) => value.length >= 3 && value.length <= 32 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(value) && !reservedAgentAddresses.has(value);
 
-export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbox.com', result, setResult, onClose }: { workspace: Workspace; agentDomain?: string; result: { enrollmentToken: string; enrollmentUrl: string; expiresAt: string; agentProfile?: { localPart?: string } } | null; setResult: (value: any) => void; onClose: () => void }) {
+export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbox.com', result, setResult, onClose, onRefresh }: { workspace: Workspace; agentDomain?: string; result: EnrollmentResult | null; setResult: (value: EnrollmentResult | null) => void; onClose: () => void; onRefresh?: () => Promise<unknown> }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const [name, setName] = useState('');
+  const addressEdited = useRef(false);
+  const [status, setStatus] = useState<EnrollmentStatus | null>(null);
+  const [statusError, setStatusError] = useState('');
+  const [pollingAttempt, setPollingAttempt] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const refresh = useRef(onRefresh);
+  refresh.current = onRefresh;
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const [localPartInput, setLocalPartInput] = useState('');
   const [availability, setAvailability] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
   const localPart = localPartInput.trim().toLowerCase();
+  const handoff = result?.quickConnect;
+  const chosenAddress = handoff?.address || (result?.agentProfile?.localPart ? `${result.agentProfile.localPart}@${agentDomain}` : '');
+  const prompt = handoff ? setupPrompt(handoff) : '';
+  const downloads = handoff ? connectorDownloads(handoff) : null;
+  const phase = status?.phase || 'waiting';
+  const terminal = ['ready', 'expired', 'revoked', 'error'].includes(phase);
+  const tokenExpired = result ? Date.parse(result.expiresAt) <= Date.now() : false;
+  const canUseHandoff = !terminal && !tokenExpired && phase === 'waiting';
+  useEffect(() => {
+    setStatus(null); setStatusError(''); setCopied(false);
+    if (!result?.enrollmentId) return;
+    let previousPhase = 'waiting';
+    return watchEnrollmentStatus({
+      enrollmentId: result.enrollmentId,
+      expiresAt: result.expiresAt,
+      request: signal => api.enrollmentStatus(workspace.id, result.enrollmentId!, signal),
+      onStatus: next => {
+        setStatus(next); setStatusError('');
+        if (next.phase !== previousPhase && ['enrolled', 'ready'].includes(next.phase)) void refresh.current?.().catch(() => {});
+        previousPhase = next.phase;
+      },
+      onError: setStatusError,
+      onTimeout: () => setStatusError('Automatic progress checks stopped. Check your agent’s setup report, or check status again. Do not create another token if this one was already redeemed.')
+    });
+  }, [result, workspace.id, pollingAttempt]);
   useEffect(() => {
     if (result || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
     let cancelled = false;
@@ -1066,31 +1256,65 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbo
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [workspace.id, localPart, result]);
-  return <Modal title={result ? 'Enrollment token created' : 'Enroll an agent'} onClose={onClose}>
+  async function copyPrompt() {
+    try { await navigator.clipboard.writeText(prompt); setCopied(true); setError(''); }
+    catch { setError('Clipboard access was unavailable. Expand “View setup prompt” and select the text to copy it, or use the terminal fallback.'); }
+  }
+  function downloadHandoff() {
+    if (!handoff) return;
+    try {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(handoff, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a'); link.href = url; link.download = 'sinaloa-setup.json'; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch { setError('The setup file could not be downloaded. Use the setup prompt and save its JSON in a private file on your OpenClaw host.'); }
+  }
+  return <Modal title={result ? handoff ? 'Connect your OpenClaw agent' : 'Enrollment token created' : 'Enroll an agent'} onClose={onClose}>
     {result ? <>
-      <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />
-      {result.agentProfile?.localPart && <label className="field"><span>Chosen platform address</span><div className="copy-field"><input readOnly value={`${result.agentProfile.localPart}@${agentDomain}`} aria-label="Chosen agent address" /><CopyButton value={`${result.agentProfile.localPart}@${agentDomain}`} label="Copy chosen agent address" /></div><small>This address becomes active when the bridge redeems the token. It cannot be renamed during beta.</small></label>}
+      {handoff ? <>
+        <p className="dialog-copy">Paste the setup prompt into your OpenClaw agent’s chat. Run setup where OpenClaw is installed; the connector detects its local settings and keeps Gateway credentials on that host.</p>
+        <InlineNotice title="One private setup handoff" body={`Give this prompt only to your trusted agent. Its one-use token expires ${formatAbsolute(result.expiresAt)}. Copy or download before closing; it cannot be recovered.`} tone="attention" />
+      </> : <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />}
+      {chosenAddress && <label className="field"><span>Chosen platform address</span><div className="copy-field"><input readOnly value={chosenAddress} aria-label="Chosen agent address" /><CopyButton value={chosenAddress} label="Copy chosen agent address" /></div><small>This address becomes active when the bridge redeems the token. It cannot be renamed during beta.</small></label>}
+      {handoff && <section className="quick-connect">
+        <button className="button primary" type="button" disabled={!canUseHandoff} onClick={() => void copyPrompt()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Setup prompt copied' : 'Copy setup prompt'}</button>
+        <small>Works with self-hosted OpenClaw. Node.js 22 or newer and access to the OpenClaw host are required.</small>
+        {canUseHandoff && <details className="setup-details"><summary>View setup prompt</summary><label className="field"><span className="sr-only">Setup prompt</span><textarea readOnly value={prompt} rows={9} onFocus={event => event.currentTarget.select()} /></label></details>}
+        <div className="connection-progress" role="status" aria-live="polite">
+          <strong>{phase === 'ready' ? 'Setup checks passed' : phase === 'enrolled' ? 'Agent paired · checking runtime' : phase === 'expired' ? 'Setup token expired' : phase === 'revoked' ? 'Connection revoked' : phase === 'error' ? 'Setup needs attention' : 'Waiting for your agent'}</strong>
+          <ol><li className={['enrolled', 'ready'].includes(phase) ? 'complete' : ''}>Paste setup prompt</li><li className={['enrolled', 'ready'].includes(phase) ? 'complete' : ''}>Pair agent</li><li className={phase === 'ready' ? 'complete' : ''}>Run setup checks</li></ol>
+          <p>{phase === 'ready' ? 'The connector reported that setup checks passed. Next, exchange a real message with another agent to verify unattended receiving and replies. Keep the host and runtime running.' : phase === 'enrolled' ? 'The one-time token has been redeemed. Continue with this connector’s setup; do not redeem it again.' : phase === 'expired' ? 'Create a new setup prompt if the agent has not paired. If it already paired, check its connector report first.' : phase === 'revoked' ? 'This connection’s credentials were revoked. Review agent connections before enrolling again.' : phase === 'error' ? 'Check the connector’s setup report on your OpenClaw host for the specific recovery step.' : 'This window watches setup progress. Enrollment alone does not confirm that the runtime is receiving messages.'}</p>
+          {status?.checkedAt && <small>Setup report: {formatAbsolute(status.checkedAt)}</small>}
+          {statusError && <FormError message={statusError} />}
+          {(statusError || phase === 'error') && <button className="button secondary" onClick={() => setPollingAttempt(value => value + 1)}>Check status again</button>}
+          {['expired', 'revoked'].includes(phase) && <button className="button secondary" onClick={() => { setResult(null); setBusy(false); setError(''); }}>Create new setup prompt</button>}
+        </div>
+        {canUseHandoff && downloads && <details className="setup-details"><summary>Terminal fallback</summary><p>Download the setup file and move it to a private directory on the machine running OpenClaw. Restrict it to your user (0600 on Unix, current-user-only ACL on Windows).</p><button className="button secondary" onClick={downloadHandoff}><Download size={16} />Download setup file</button><p>Download the <a href={downloads.connector} download="sinaloa-openclaw.mjs">official connector</a> and <a href={downloads.release}>release metadata</a>. Verify the connector’s SHA256 against <code>artifacts["sinaloa-openclaw.mjs"].sha256</code> before running it.</p><pre>node sinaloa-openclaw.mjs setup --handoff sinaloa-setup.json</pre><p>Setup checks and saves your connection, then exits. Delete the setup file after successful pairing. To start the connector automatically at login on supported hosts, run <code>node sinaloa-openclaw.mjs install-service --state-dir &lt;reported state directory&gt;</code>. You can also append <code>--install-service</code> to setup, or use its reported start command under your existing process supervisor.</p></details>}
+        <FormError message={error} />
+      </section>}
+      <details className="setup-details" open={!handoff}><summary>Advanced setup · manual bridges and Grok</summary>
       <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>Set this as <code>SINALOA_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once by the bridge.</small></label>
       <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Sinaloa credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p><div className="runtime-setup-list">
         <article><strong>OpenClaw</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p></article>
         <article><strong>Grok</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, and <code>XAI_API_KEY</code>. Add <code>SINALOA_MCP_URL</code> only when hosted MCP reads are configured.</p></article>
       </div></div>
-      <div className="dialog-actions"><button className="button primary" onClick={onClose}>I’ve copied the token</button></div>
+      </details>
+      <div className="dialog-actions"><button className="button secondary" onClick={onClose}>Close</button></div>
     </> : <form onSubmit={async event => {
       event.preventDefault();
       setBusy(true);
       setError('');
       try {
         if (!validAgentLocalPart(localPart) || availability !== 'available') throw new Error('Choose an available agent address name');
-        setResult(await api.enrollmentToken(workspace.id, String(new FormData(event.currentTarget).get('name')), localPart, selectedAgentPermissions(selectedPermissions)));
+        setResult(await api.enrollmentToken(workspace.id, name.trim(), localPart, selectedAgentPermissions(selectedPermissions)));
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
-      <Field label="Agent name" name="name" placeholder="Scheduling agent" required />
-      <label className="field"><span>Agent address name</span><div className="address-entry"><input name="localPart" value={localPartInput} onChange={event => setLocalPartInput(event.target.value)} autoComplete="off" spellCheck={false} placeholder="milo" required /><span>@{agentDomain}</span></div><small>Choose 3–32 letters, numbers, periods or hyphens. Start with a letter. The final address is checked again when the token is redeemed.</small></label>
+      <p className="dialog-copy">Connect a self-hosted OpenClaw agent with a setup prompt. Other supported bridges remain available under advanced setup.</p>
+      <Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Scheduling agent" required />
+      <label className="field"><span>Agent address name</span><div className="address-entry"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" required /><span>@{agentDomain}</span></div><small>Suggested from your agent’s name; you can edit it. Choose 3–32 letters, numbers, periods or hyphens. Start with a letter. The final address is checked again when the token is redeemed.</small></label>
       {localPartInput && <p role="status" className="address-feedback">{!validAgentLocalPart(localPart) ? 'Enter a valid, non-reserved address name.' : availability === 'checking' ? 'Checking availability…' : availability === 'available' ? `${localPart}@${agentDomain} is available now.` : availability === 'taken' ? 'That address is already taken.' : availability === 'error' ? 'Availability could not be checked. Try again.' : ''}</p>}
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
       <FormError message={error} />
-      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || availability !== 'available'}>{busy ? 'Creating token…' : 'Create one-time token'}</button></div>
+      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || !name.trim() || availability !== 'available'}>{busy ? 'Creating setup prompt…' : 'Create setup prompt'}</button></div>
     </form>}
   </Modal>;
 }
@@ -1141,7 +1365,15 @@ function CommandMenu({ view, onClose, onSelectCase }: { view: HumanView; onClose
 function EmptyCaseState({ section }: { section: NavSection }) { return <div className="case-empty"><CircleDashed size={28} /><h1>{emptyTitle(section)}</h1><p>{emptyBody(section)}</p></div>; }
 function Field(props: InputHTMLAttributes<HTMLInputElement> & { label: string; name: string }) { const { label, ...input } = props; return <label className="field"><span>{label}</span><input {...input} /></label>; }
 function FormError({ message }: { message: string }) { return message ? <p className="form-error" role="alert"><AlertCircle size={15} />{message}</p> : null; }
-function CopyButton({ value, label }: { value: string; label: string }) { const [copied, setCopied] = useState(false); return <button type="button" className="icon-button" aria-label={label} onClick={async () => { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>; }
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  useEffect(() => { if (!copied) return; const timer = setTimeout(() => setCopied(false), 1500); return () => clearTimeout(timer); }, [copied]);
+  return <><button type="button" className="icon-button" aria-label={label} onClick={async () => {
+    try { await navigator.clipboard.writeText(value); setCopied(true); setCopyError(false); }
+    catch { setCopyError(true); }
+  }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>{copyError && <small role="alert">Could not copy. Select the value and copy it manually.</small>}</>;
+}
 function InlineNotice({ title, body, tone }: { title: string; body: string; tone: 'unknown' | 'danger' | 'attention' }) { return <div className={`inline-notice tone-${tone}`} role="status"><AlertCircle size={18} /><div><strong>{title}</strong><p>{body}</p></div></div>; }
 function StatusBadge({ workCase }: { workCase: WorkCase }) { const state = caseState(workCase); return <span className={`status-badge tone-${caseTone(workCase)}`}><StatusGlyph state={state} />{caseLabel(workCase)}</span>; }
 function StatusText({ value }: { value: string }) { return <span className={`status-text value-${value.replaceAll(' ', '-')}`}><span />{humanize(value)}</span>; }

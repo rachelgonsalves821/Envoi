@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "runtime": "openclaw",
+  "nodeMinimum": 22,
+  "artifacts": {
+    "sinaloa-openclaw.mjs": {
+      "sha256": "86e83c57151bfecf540c66b061d6b4e0c6274a54c6f2dda62ae0863fd622110a",
+      "size": 76920
+    }
+  }
+}

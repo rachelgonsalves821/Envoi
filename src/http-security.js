@@ -16,6 +16,12 @@ export function clientIp(req, trustedProxy = process.env.SINALOA_TRUSTED_PROXY) 
 
 export function publicHttpError(error, requestId = crypto.randomUUID()) {
   const status = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+  if (status === 503 && error?.code === 'auth_unavailable') {
+    return {
+      status,
+      body: { error: 'AUTH_UNAVAILABLE', message: 'Your session could not be checked right now. Please try again.', requestId }
+    };
+  }
   if (status >= 500) {
     return {
       status,
