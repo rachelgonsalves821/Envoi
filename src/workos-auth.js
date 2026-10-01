@@ -16,10 +16,16 @@ const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
 const csrfCookie = process.env.SINALOA_CSRF_COOKIE_NAME || 'sinaloa_csrf';
 const requestHuman = Symbol('workos-request-human');
 const requestSession = Symbol('workos-request-session');
-const replacementSession = Symbol('workos-replacement-session');
-const refreshReuseMs = 10_000;
-const maximumRefreshEntries = 1024;
+const requestResponse = Symbol('workos-request-response');
+const requestCookie = Symbol('workos-request-cookie');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
+const tokenClaims = accessToken => {
+  try {
+    const claims = JSON.parse(Buffer.from(String(accessToken).split('.')[1], 'base64url').toString());
+    return { sessionId: typeof claims.sid === 'string' ? claims.sid : null, issuedAt: Number(claims.iat) * 1000, expiresAt: Number(claims.exp) * 1000 };
+  } catch { return {}; }
+};
+const unavailable = () => Object.assign(new Error('Authentication is temporarily unavailable. Please try again.'), { statusCode: 503, code: 'auth_unavailable' });
 export const safeReturnPath = value => {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(value)) return '/';
   try {
@@ -110,7 +116,6 @@ export class WorkOSAuthService {
   constructor(store, options = {}) {
     this.store = store;
     this.provider = 'workos';
-    this.refreshes = new Map();
     this.clientId = options.clientId || process.env.WORKOS_CLIENT_ID;
     this.apiKey = options.apiKey || process.env.WORKOS_API_KEY;
     this.cookiePassword = options.cookiePassword || process.env.WORKOS_COOKIE_PASSWORD;
@@ -122,6 +127,9 @@ export class WorkOSAuthService {
     if (this.cookiePassword.length < 32) throw new Error('WORKOS_COOKIE_PASSWORD must be at least 32 characters');
     this.workos = options.workos || new WorkOS(this.apiKey, { clientId: this.clientId, issuer: this.issuer });
     this.invitedEmails = new Set(String(options.invitedEmails ?? process.env.SINALOA_BETA_INVITED_EMAILS ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
+    this.now = options.now || Date.now;
+    this.sessionHours = Number(options.sessionHours ?? process.env.SINALOA_SESSION_HOURS ?? 24);
+    if (!Number.isFinite(this.sessionHours) || this.sessionHours <= 0) throw new Error('Session duration must be positive');
   }
 
   config() {
@@ -176,6 +184,8 @@ export class WorkOSAuthService {
     if (!authentication.sealedSession) throw Object.assign(new Error('Authentication provider did not return a sealed session'), { statusCode: 502 });
     if (!this.admitted(authentication.user)) throw Object.assign(new Error('Invited, verified WorkOS account required'), { statusCode: 403 });
     const human = await this.upsertHuman(authentication.user);
+    const claims = tokenClaims(authentication.accessToken);
+    if (claims.sessionId) await this.recordSession({ sessionId: claims.sessionId, accessToken: authentication.accessToken }, this.now());
     return { human: publicHuman(human), sealedSession: authentication.sealedSession, returnTo: flow.returnTo };
   }
 
@@ -205,74 +215,172 @@ export class WorkOSAuthService {
     });
   }
 
-  async refreshProviderSession(sealedSession, session) {
-    const now = Date.now();
-    for (const [key, entry] of this.refreshes) if (entry.expiresAt <= now) this.refreshes.delete(key);
-    const key = hash(sealedSession);
-    const existing = this.refreshes.get(key);
-    if (existing) return existing.result;
-    // Keep in-flight rotations until settled so parallel requests never spend
-    // the same provider refresh token twice. Bound successful reuse to 10s.
-    if (this.refreshes.size >= maximumRefreshEntries) return null;
-    const entry = { expiresAt: Infinity, result: null };
-    entry.result = (async () => {
-      try {
-        const refreshed = await session.refresh();
-        if (!refreshed.authenticated || !refreshed.sealedSession) return null;
-        // refresh() decodes claims; authenticate() additionally checks the JWT
-        // signature, expiry and configured issuer before admitting the result.
-        const renewed = this.workos.userManagement.loadSealedSession({ sessionData: refreshed.sealedSession, cookiePassword: this.cookiePassword });
-        const authenticated = await renewed.authenticate();
-        if (!authenticated.authenticated || !this.admitted(authenticated.user)) return null;
-        return { ...authenticated, sealedSession: refreshed.sealedSession, refreshed: true };
-      } catch {
-        // Invalid/revoked sessions and provider outages grant no access.
-        return null;
-      } finally {
-        entry.expiresAt = Date.now() + refreshReuseMs;
+  bindResponse(req, res) {
+    if (req[requestResponse]) return;
+    req[requestResponse] = res;
+    const writeHead = res.writeHead;
+    res.writeHead = function (...args) {
+      // Apply at the final header boundary so route-level cookie updates survive.
+      const pending = req[requestCookie];
+      if (pending && !this.headersSent) {
+        const existing = this.getHeader('Set-Cookie');
+        const cookies = existing ? (Array.isArray(existing) ? existing : [existing]) : [];
+        const headerIndex = typeof args[1] === 'string' ? 2 : 1;
+        const headers = args[headerIndex];
+        if (Array.isArray(headers)) {
+          const remaining = [];
+          for (let index = 0; index < headers.length; index += 2) {
+            if (String(headers[index]).toLowerCase() === 'set-cookie') {
+              const values = headers[index + 1];
+              cookies.push(...(Array.isArray(values) ? values : [values]));
+            } else remaining.push(headers[index], headers[index + 1]);
+          }
+          args[headerIndex] = remaining;
+        } else if (headers) {
+          args[headerIndex] = { ...headers };
+          for (const name of Object.keys(headers)) {
+            if (name.toLowerCase() !== 'set-cookie') continue;
+            const values = headers[name];
+            cookies.push(...(Array.isArray(values) ? values : [values]));
+            delete args[headerIndex][name];
+          }
+        }
+        const clearing = /(?:^|;\s*)Max-Age=0(?:;|$)/.test(pending);
+        // An explicit callback/logout session cookie takes precedence over
+        // renewal; terminal failures still clear both authentication cookies.
+        const explicitSession = cookies.some(value => String(value).startsWith(`${sessionCookie}=`));
+        this.setHeader('Set-Cookie', !clearing && explicitSession ? cookies : [
+          ...cookies.filter(value => !String(value).startsWith(`${sessionCookie}=`) && (!clearing || !String(value).startsWith(`${csrfCookie}=`))),
+          pending,
+          ...(clearing ? [csrfCookieHeader('', { clear: true })] : [])
+        ]);
       }
-    })();
-    this.refreshes.set(key, entry);
-    return entry.result;
+      return writeHead.apply(this, args);
+    };
   }
 
+  queueSessionCookie(req, sealedSession = null) {
+    req[requestCookie] = sessionCookieHeader(sealedSession || '', { clear: !sealedSession });
+  }
+
+  sessionPath(sessionId) { return path.join('auth', 'workos-sessions', `${hash(sessionId)}.json`); }
+  sessionKey(sessionId) { return `workos-session:${hash(sessionId)}`; }
+
+  async recordSession(session, issuedAt = null) {
+    if (!session?.sessionId) return null;
+    return this.store.withTransaction([this.sessionKey(session.sessionId)], async () => {
+      const relative = this.sessionPath(session.sessionId);
+      const existing = await this.store.getJson(relative);
+      if (existing?.revokedAt) return null;
+      const claims = tokenClaims(session.accessToken || session.session?.accessToken);
+      const initial = existing?.issuedAt ?? issuedAt ?? (Number.isFinite(claims.issuedAt) ? claims.issuedAt : this.now());
+      const maximum = existing?.sessionExpiresAt ?? initial + this.sessionHours * 3_600_000;
+      if (maximum <= this.now()) return null;
+      const tokenExpiry = Number.isFinite(claims.expiresAt) ? claims.expiresAt : maximum;
+      const accessExpiresAt = Math.min(maximum, Math.max(existing?.accessExpiresAt || 0, tokenExpiry));
+      const replays = (existing?.replays || []).filter(replay => replay.expiresAt > this.now());
+      const record = { sessionId: session.sessionId, issuedAt: initial, sessionExpiresAt: maximum, accessExpiresAt, revokedAt: null, replays };
+      await this.store.putJson(relative, record);
+      return { ...session, expiresAt: new Date(Math.min(tokenExpiry, maximum)).toISOString() };
+    });
+  }
+
+  async isSessionActive(session) {
+    if (!session?.sessionId) return false;
+    const record = await this.store.getJson(this.sessionPath(session.sessionId));
+    return Boolean(record && !record.revokedAt && record.sessionExpiresAt > this.now() && record.accessExpiresAt > this.now());
+  }
+
+  async captureSessionLease(req) {
+    const session = await this.getSession(req);
+    return session ? { sessionId: session.sessionId, expiresAt: session.expiresAt } : null;
+  }
+
+  async validateSessionLease(lease) { return this.isSessionActive(lease); }
+
   async getProviderSession(req) {
-    if (req[requestSession]) return req[requestSession];
-    const pending = (async () => {
-      const sealedSession = parseCookies(req.headers.cookie)[sessionCookie];
-      if (!sealedSession) return null;
-      try {
-        const session = this.workos.userManagement.loadSealedSession({ sessionData: sealedSession, cookiePassword: this.cookiePassword });
-        const result = await session.authenticate();
-        if (result.authenticated) return { ...result, sealedSession };
-        if (result.reason !== 'invalid_jwt') return null;
-        return this.refreshProviderSession(sealedSession, session);
-      } catch {
+    if (!req[requestSession]) Object.defineProperty(req, requestSession, { value: this.resolveProviderSession(req), enumerable: false });
+    return req[requestSession];
+  }
+
+  async resolveProviderSession(req) {
+    const sealedSession = parseCookies(req.headers.cookie)[sessionCookie];
+    if (!sealedSession) return null;
+    const provider = this.workos.userManagement;
+    const session = provider.loadSealedSession({ sessionData: sealedSession, cookiePassword: this.cookiePassword });
+    let result;
+    try { result = await session.authenticate(); }
+    catch { throw unavailable(); }
+    if (result.authenticated) {
+      const recorded = await this.recordSession({ ...result, sealedSession });
+      if (!recorded || !await this.isSessionActive(recorded)) { this.queueSessionCookie(req); return null; }
+      return recorded;
+    }
+    if (result.reason !== 'invalid_jwt') { this.queueSessionCookie(req); return null; }
+    // Only inspect claims after the SDK has verified the encrypted cookie's seal.
+    // These claims select the revocation record; they never authorize a request.
+    let data;
+    try { data = await provider.getSessionFromCookie({ sessionData: sealedSession, cookiePassword: this.cookiePassword }); }
+    catch { this.queueSessionCookie(req); return null; }
+    const claims = tokenClaims(data?.accessToken);
+    if (!claims.sessionId || !data?.refreshToken) { this.queueSessionCookie(req); return null; }
+    const refreshed = await this.store.withTransaction([this.sessionKey(claims.sessionId)], async () => {
+      const relative = this.sessionPath(claims.sessionId);
+      const lifecycle = await this.store.getJson(relative);
+      const issuedAt = lifecycle?.issuedAt ?? (Number.isFinite(claims.issuedAt) ? claims.issuedAt : this.now());
+      if (lifecycle?.revokedAt || (lifecycle?.sessionExpiresAt ?? issuedAt + this.sessionHours * 3_600_000) <= this.now()) return null;
+      const cookieHash = hash(sealedSession);
+      const replay = lifecycle?.replays?.find(value => value.cookieHash === cookieHash && value.expiresAt > this.now());
+      let renewed;
+      if (replay && replay.expiresAt > this.now()) {
+        renewed = { authenticated: true, sealedSession: replay.sealedSession };
+      } else {
+        try { renewed = await session.refresh(); }
+        catch { throw unavailable(); }
+      }
+      if (!renewed.authenticated) {
+        if (renewed.retryable || ['rate_limit_exceeded', 'timeout', 'server_error', 'network_error'].includes(renewed.reason)) throw unavailable();
+        await this.store.putJson(relative, { ...lifecycle, sessionId: claims.sessionId, revokedAt: new Date(this.now()).toISOString(), replays: [] });
         return null;
       }
-    })();
-    Object.defineProperty(req, requestSession, { value: pending, enumerable: false });
-    return pending;
+      if (!renewed.sealedSession) throw unavailable();
+      let verified;
+      try { verified = await provider.loadSealedSession({ sessionData: renewed.sealedSession, cookiePassword: this.cookiePassword }).authenticate(); }
+      catch { throw unavailable(); }
+      if (!verified.authenticated || verified.sessionId !== claims.sessionId) throw unavailable();
+      const recorded = await this.recordSession({ ...verified, sealedSession: renewed.sealedSession }, issuedAt);
+      if (!recorded) return null;
+      // WorkOS rotation permits a short replay window. Share the sealed replacement
+      // across instances so concurrent requests do not rotate the token repeatedly.
+      if (!replay || replay.expiresAt <= this.now()) {
+        const current = await this.store.getJson(relative);
+        const replays = [...current.replays, { cookieHash, sealedSession: renewed.sealedSession, expiresAt: this.now() + 30_000 }].slice(-4);
+        await this.store.putJson(relative, { ...current, replays });
+      }
+      return recorded;
+    });
+    if (!refreshed || !await this.isSessionActive(refreshed)) { this.queueSessionCookie(req); return null; }
+    this.queueSessionCookie(req, refreshed.sealedSession);
+    return refreshed;
   }
 
   async getSession(req) {
     const session = await this.getProviderSession(req);
-    if (!session || !this.admitted(session.user)) return null;
-    if (session.refreshed) req[replacementSession] = session.sealedSession;
+    if (!session) return null;
+    if (!this.admitted(session.user) || !await this.isSessionActive(session)) {
+      this.queueSessionCookie(req);
+      return null;
+    }
     return { ...session, assurance: 'provider' };
   }
 
-  takeSessionCookie(req) {
-    const value = req[replacementSession] || null;
-    delete req[replacementSession];
-    return value;
-  }
   async getHuman(req) {
     if (req[requestHuman]) return req[requestHuman];
     const pending = (async () => {
       const session = await this.getSession(req);
       if (!session) return null;
       const human = await this.upsertHuman(session.user);
+      if (!await this.isSessionActive(session)) return null;
       return { ...publicHuman(human), providerUserId: session.user.id, organizationId: session.organizationId || null, role: session.role || null, permissions: session.permissions || [] };
     })();
     Object.defineProperty(req, requestHuman, { value: pending, enumerable: false });
@@ -292,16 +400,44 @@ export class WorkOSAuthService {
       && membership.status === 'active') || null;
   }
 
-  async logout(req) {
+  async logout(req, { onRevoked } = {}) {
     const sessionData = parseCookies(req.headers.cookie)[sessionCookie];
+    this.queueSessionCookie(req);
     if (!sessionData) return { revoked: false, logoutUrl: null };
-    const admitted = await this.getSession(req);
-    delete req[replacementSession];
-    // Even expired or revoked cookies must be removable from the browser.
-    if (!admitted) return { revoked: true, logoutUrl: null };
-    const session = this.workos.userManagement.loadSealedSession({ sessionData: admitted.sealedSession, cookiePassword: this.cookiePassword });
-    const logoutUrl = await session.getLogoutUrl({ returnTo: process.env.SINALOA_PUBLIC_URL || new URL(this.redirectUri).origin });
-    return { revoked: true, logoutUrl };
+    const provider = this.workos.userManagement;
+    let sessionId;
+    if (provider.getSessionFromCookie) {
+      try {
+        const data = await provider.getSessionFromCookie({ sessionData, cookiePassword: this.cookiePassword });
+        sessionId = tokenClaims(data?.accessToken).sessionId;
+      } catch { return { revoked: false, logoutUrl: null }; }
+    } else {
+      // Compatibility for injected providers; production SDK exposes safe unsealing.
+      const session = await this.getProviderSession(req);
+      sessionId = session?.sessionId;
+    }
+    if (!sessionId) return { revoked: false, logoutUrl: null };
+    await this.store.withTransaction([this.sessionKey(sessionId)], async () => {
+      const relative = this.sessionPath(sessionId);
+      const existing = await this.store.getJson(relative);
+      await this.store.putJson(relative, { ...existing, sessionId, revokedAt: new Date(this.now()).toISOString(), replays: [] });
+    });
+    // Disconnect local live streams as soon as the durable deny is committed,
+    // before provider network calls can delay completion of the logout response.
+    if (onRevoked) onRevoked(sessionId);
+    let providerRevoked = false;
+    if (provider.revokeSession) {
+      try { await provider.revokeSession({ sessionId }); providerRevoked = true; }
+      catch { /* Durable local revocation remains authoritative during outages. */ }
+    }
+    const returnTo = process.env.SINALOA_PUBLIC_URL || new URL(this.redirectUri).origin;
+    let logoutUrl = null;
+    try {
+      logoutUrl = provider.getLogoutUrl
+        ? await provider.getLogoutUrl({ sessionId, returnTo })
+        : await provider.loadSealedSession({ sessionData, cookiePassword: this.cookiePassword }).getLogoutUrl({ returnTo });
+    } catch { /* Signing out locally must not depend on provider availability. */ }
+    return { revoked: true, logoutUrl, sessionId, providerRevoked };
   }
   async createProviderOrganization({ name, externalId, idempotencyKey, userId }) {
     const organization = await this.workos.organizations.createOrganization(

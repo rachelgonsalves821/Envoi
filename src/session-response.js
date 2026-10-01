@@ -4,6 +4,10 @@ import { sessionCookieHeader, sessionCookieName } from './workos-auth.js';
 // the final header write, including streaming responses, without losing CSRF
 // or overriding an explicit logout/callback session cookie.
 export function installSessionCookieResponse(req, res, auth) {
+  if (auth.bindResponse) {
+    auth.bindResponse(req, res);
+    return;
+  }
   const writeHead = res.writeHead;
   res.writeHead = function (...args) {
     const renewed = auth.takeSessionCookie?.(req);

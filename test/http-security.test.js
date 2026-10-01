@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { clientIp, publicHttpError } from '../src/http-security.js';
 
+test('temporary session failures offer recovery without exposing provider details', () => {
+  const response = publicHttpError({ statusCode: 503, code: 'auth_unavailable', message: 'private provider credentials' }, 'request-auth');
+  assert.deepEqual(response, {
+    status: 503,
+    body: { error: 'AUTH_UNAVAILABLE', message: 'Your session could not be checked right now. Please try again.', requestId: 'request-auth' }
+  });
+});
+
 test('client IP ignores spoofed forwarding headers unless Cloudflare proxy mode is explicit', () => {
   const request = {
     headers: { 'x-forwarded-for': '198.51.100.10' },

@@ -3,11 +3,17 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { installSessionCookieResponse } from '../src/session-response.js';
+import { WorkOSAuthService } from '../src/workos-auth.js';
 
-async function responseWith(t, handler, renewed = 'renewed-sealed-session') {
+async function responseWith(t, handler, renewed = 'renewed-sealed-session', delegated = false) {
   let consumed = false;
   const server = http.createServer((req, res) => {
-    installSessionCookieResponse(req, res, { takeSessionCookie() { if (consumed) return null; consumed = true; return renewed; } });
+    const auth = delegated ? new WorkOSAuthService({}, {
+      clientId: 'client_fixture', apiKey: 'key_fixture', cookiePassword: 'a'.repeat(32),
+      redirectUri: 'https://app.example/callback', workos: {}
+    }) : { takeSessionCookie() { if (consumed) return null; consumed = true; return renewed; } };
+    installSessionCookieResponse(req, res, auth);
+    if (delegated && renewed) auth.queueSessionCookie(req, renewed);
     handler(res);
   });
   server.listen(0, '127.0.0.1');
@@ -45,4 +51,21 @@ test('pending refresh never overrides an explicit session logout', async t => {
 test('ordinary responses emit no authentication cookie without a successful refresh', async t => {
   const response = await responseWith(t, res => { res.writeHead(200); res.end('ok'); }, null);
   assert.deepEqual(response.headers.getSetCookie(), []);
+});
+for (const raw of [false, true]) test(`delegated WorkOS cookie writer preserves ${raw ? 'raw' : 'object'} headers`, async t => {
+  const response = await responseWith(t, res => {
+    res.writeHead(200, 'OK', raw ? ['Set-Cookie', 'sinaloa_csrf=explicit; Path=/', 'Content-Type', 'text/plain'] : { 'Set-Cookie': ['sinaloa_csrf=explicit; Path=/'], 'Content-Type': 'text/plain' });
+    res.end('ok');
+  }, 'renewed-sealed-session', true);
+  const cookies = response.headers.getSetCookie();
+  assert.equal(cookies.length, 2);
+  assert.ok(cookies.some(value => value.startsWith('sinaloa_session=renewed-sealed-session;')));
+  assert.ok(cookies.some(value => value.startsWith('sinaloa_csrf=explicit;')));
+  assert.equal(response.headers.get('content-type'), 'text/plain');
+});
+for (const cookie of ['sinaloa_session=; Path=/; Max-Age=0', 'sinaloa_session=callback; Path=/; HttpOnly']) test(`delegated renewal preserves explicit session cookie: ${cookie}`, async t => {
+  const response = await responseWith(t, res => {
+    res.writeHead(200, { 'set-cookie': [cookie] }); res.end('ok');
+  }, 'renewed-sealed-session', true);
+  assert.deepEqual(response.headers.getSetCookie(), [cookie]);
 });

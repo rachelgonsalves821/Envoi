@@ -130,6 +130,13 @@ test('WorkOS email verification alone does not admit an uninvited human', async 
 
 const admittedUser = { id: 'user_fixture', email: 'fixture@example.com', emailVerified: true, name: 'Fixture' };
 async function fixtureAuth(workos) {
+  workos = { ...workos, userManagement: {
+    getSessionFromCookie: async () => ({
+      accessToken: `header.${Buffer.from(JSON.stringify({ sid: 'session_fixture', iat: Math.floor(Date.now() / 1000) - 60, exp: Math.floor(Date.now() / 1000) - 1 })).toString('base64url')}.signature`,
+      refreshToken: 'fixture_refresh'
+    }),
+    ...workos.userManagement
+  } };
   const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-workos-fixture-')));
   await store.init();
   const auth = new WorkOSAuthService(store, {
@@ -139,6 +146,21 @@ async function fixtureAuth(workos) {
   return { store, auth };
 }
 const cookieRequest = (value = 'expired_cookie') => ({ headers: { cookie: `sinaloa_session=${value}` } });
+const cookieResponses = new WeakMap();
+function emittedSessionCookie(auth, req) {
+  if (cookieResponses.has(req)) return null;
+  const res = {
+    headers: new Map(), headersSent: false,
+    getHeader(name) { return this.headers.get(name); },
+    setHeader(name, value) { this.headers.set(name, value); },
+    writeHead() { this.headersSent = true; }
+  };
+  cookieResponses.set(req, res);
+  auth.bindResponse(req, res);
+  res.writeHead(200);
+  const header = (res.getHeader('Set-Cookie') || []).find(cookie => cookie.startsWith('sinaloa_session='));
+  return header && !header.includes('Max-Age=0') ? parseCookies(header.split(';')[0]).sinaloa_session : null;
+}
 
 test('authorization binding cookie is private, short-lived and secure in production', () => {
   const previousMode = process.env.SINALOA_AUTH_MODE;
@@ -228,16 +250,16 @@ test('expired provider access renews once across concurrent requests and preserv
   const requests = Array.from({ length: 8 }, () => cookieRequest());
   const sessions = await Promise.all(requests.map(req => auth.getSession(req)));
   assert.equal(refreshCalls, 1);
-  assert.equal(renewedAuthentications, 1);
+  assert.equal(renewedAuthentications, 8, 'each concurrent request verifies the shared replacement');
   assert.ok(sessions.every(session => session.user.id === admittedUser.id && session.assurance === 'provider'));
   for (const req of requests) {
-    assert.equal(auth.takeSessionCookie(req), 'renewed_cookie');
-    assert.equal(auth.takeSessionCookie(req), null);
+    assert.equal(emittedSessionCookie(auth, req), 'renewed_cookie');
+    assert.equal(emittedSessionCookie(auth, req), null);
   }
   const lateRequest = cookieRequest();
   assert.equal((await auth.getSession(lateRequest)).user.id, admittedUser.id);
   assert.equal(refreshCalls, 1);
-  assert.equal(auth.takeSessionCookie(lateRequest), 'renewed_cookie');
+  assert.equal(emittedSessionCookie(auth, lateRequest), 'renewed_cookie');
 });
 
 test('human and session lookups on one request share renewal and only expose an admitted cookie', async () => {
@@ -259,10 +281,10 @@ test('human and session lookups on one request share renewal and only expose an 
   assert.equal(session.assurance, 'provider');
   assert.equal(expiredChecks, 1);
   assert.equal(refreshCalls, 1);
-  assert.equal(auth.takeSessionCookie(req), 'renewed_cookie');
+  assert.equal(emittedSessionCookie(auth, req), 'renewed_cookie');
 });
 
-test('revoked, unavailable, invalid renewed JWT and inadmissible renewed sessions fail closed', async t => {
+test('terminal and recoverable provider failures never grant access', async t => {
   for (const scenario of ['revoked', 'unavailable', 'invalid-renewed-jwt', 'uninvited', 'unverified']) {
     await t.test(scenario, async () => {
       const { auth, store } = await fixtureAuth({ userManagement: {
@@ -270,7 +292,7 @@ test('revoked, unavailable, invalid renewed JWT and inadmissible renewed session
           authenticate: async () => {
             if (sessionData !== 'renewed_cookie' || scenario === 'invalid-renewed-jwt') return { authenticated: false, reason: 'invalid_jwt' };
             return { authenticated: true, user: scenario === 'uninvited' ? { ...admittedUser, email: 'outsider@example.com' }
-              : scenario === 'unverified' ? { ...admittedUser, emailVerified: false } : admittedUser };
+              : scenario === 'unverified' ? { ...admittedUser, emailVerified: false } : admittedUser, sessionId: 'session_fixture' };
           },
           refresh: async () => {
             if (scenario === 'revoked') return { authenticated: false, reason: 'session_revoked' };
@@ -280,8 +302,10 @@ test('revoked, unavailable, invalid renewed JWT and inadmissible renewed session
         })
       } });
       const req = cookieRequest();
-      assert.equal(await auth.getHuman(req), null);
-      assert.equal(auth.takeSessionCookie(req), null);
+      if (scenario === 'unavailable' || scenario === 'invalid-renewed-jwt') {
+        await assert.rejects(auth.getHuman(req), { statusCode: 503, code: 'auth_unavailable' });
+      } else assert.equal(await auth.getHuman(req), null);
+      assert.equal(emittedSessionCookie(auth, req), null);
       assert.deepEqual(await store.listJson('humans'), []);
     });
   }
@@ -290,12 +314,12 @@ test('revoked, unavailable, invalid renewed JWT and inadmissible renewed session
 test('malformed sealed cookies fail closed and never attempt provider refresh', async () => {
   let refreshCalls = 0;
   const { auth } = await fixtureAuth({ userManagement: {
-    loadSealedSession: () => ({ authenticate: async () => { throw new Error('cannot unseal cookie'); }, refresh: async () => { refreshCalls += 1; } })
+    loadSealedSession: () => ({ authenticate: async () => ({ authenticated: false, reason: 'invalid_session_cookie' }), refresh: async () => { refreshCalls += 1; } })
   } });
   const req = cookieRequest('bad_cookie');
   assert.equal(await auth.getSession(req), null);
   assert.equal(refreshCalls, 0);
-  assert.equal(auth.takeSessionCookie(req), null);
+  assert.equal(emittedSessionCookie(auth, req), null);
 });
 
 test('already valid provider sessions do not renew and memoize authentication per request', async () => {
@@ -303,7 +327,7 @@ test('already valid provider sessions do not renew and memoize authentication pe
   let refreshCalls = 0;
   const { auth } = await fixtureAuth({ userManagement: {
     loadSealedSession: () => ({
-      authenticate: async () => { authentications += 1; return { authenticated: true, user: admittedUser }; },
+      authenticate: async () => { authentications += 1; return { authenticated: true, user: admittedUser, sessionId: 'session_fixture' }; },
       refresh: async () => { refreshCalls += 1; }
     })
   } });
@@ -311,7 +335,7 @@ test('already valid provider sessions do not renew and memoize authentication pe
   await Promise.all([auth.getHuman(req), auth.getSession(req), auth.getSession(req)]);
   assert.equal(authentications, 1);
   assert.equal(refreshCalls, 0);
-  assert.equal(auth.takeSessionCookie(req), null);
+  assert.equal(emittedSessionCookie(auth, req), null);
 });
 
 test('logout can clear an expired revoked session and never restores a replacement cookie', async () => {
@@ -322,6 +346,6 @@ test('logout can clear an expired revoked session and never restores a replaceme
     })
   } });
   const req = cookieRequest();
-  assert.deepEqual(await auth.logout(req), { revoked: true, logoutUrl: null });
-  assert.equal(auth.takeSessionCookie(req), null);
+  assert.deepEqual(await auth.logout(req), { revoked: true, logoutUrl: null, sessionId: 'session_fixture', providerRevoked: false });
+  assert.equal(emittedSessionCookie(auth, req), null);
 });
