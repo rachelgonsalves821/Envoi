@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FileStore } from '../src/storage.js';
-import { createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
+import { authFlowCookieHeader, authFlowCookieName, createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, providerMembershipCanManage, safeReturnPath, sessionCookieHeader, verifyCsrfRequest, WorkOSAuthService } from '../src/workos-auth.js';
 
 test('management authority follows active provider membership after role changes', () => {
   const membership = { status: 'active', role: { slug: 'admin' } };
@@ -81,11 +81,11 @@ test('WorkOS auth uses one-time PKCE state and maps provider users to stable hum
   const auth = new WorkOSAuthService(store, { clientId: 'client_1', apiKey: 'sk_test_1', cookiePassword: '12345678901234567890123456789012', redirectUri: 'https://sinaloa.test/api/auth/workos/callback', issuer: 'https://issuer.example.test', workos: fakeWorkos, invitedEmails: 'rachel@example.com' });
   const started = await auth.startAuthorization({ screenHint: 'sign-up', returnTo: '/onboarding' });
   assert.match(started.url, /screen=sign-up/);
-  const completed = await auth.completeAuthorization({ code: 'code_1', state: 'state_1', ipAddress: '127.0.0.1', userAgent: 'test' });
+  const completed = await auth.completeAuthorization({ code: 'code_1', state: 'state_1', browserBinding: started.browserBinding, ipAddress: '127.0.0.1', userAgent: 'test' });
   assert.equal(completed.sealedSession, 'sealed_session_1');
   assert.equal(completed.returnTo, '/onboarding');
   assert.equal(completed.human.email, 'rachel@example.com');
-  await assert.rejects(() => auth.completeAuthorization({ code: 'code_1', state: 'state_1' }), /already used/);
+  await assert.rejects(() => auth.completeAuthorization({ code: 'code_1', state: 'state_1', browserBinding: started.browserBinding }), /already used/);
 
   const cookie = sessionCookieHeader('sealed_session_1');
   const human = await auth.getHuman({ headers: { cookie } });
@@ -120,10 +120,232 @@ test('WorkOS email verification alone does not admit an uninvited human', async 
     loadSealedSession: () => ({ authenticate: async () => ({ authenticated: true, user, sessionId: 'session_uninvited' }) })
   } };
   const auth = new WorkOSAuthService(store, { clientId: 'client_1', apiKey: 'sk_test_1', cookiePassword: '12345678901234567890123456789012', redirectUri: 'https://sinaloa.test/callback', workos, invitedEmails: 'rachel@example.com' });
-  await auth.startAuthorization();
-  await assert.rejects(() => auth.completeAuthorization({ code: 'code_uninvited', state: 'state_uninvited' }), { statusCode: 403 });
+  const started = await auth.startAuthorization();
+  await assert.rejects(() => auth.completeAuthorization({ code: 'code_uninvited', state: 'state_uninvited', browserBinding: started.browserBinding }), { statusCode: 403 });
   assert.deepEqual(await store.listJson('humans'), []);
   const req = { headers: { cookie: 'sinaloa_session=sealed' } };
   assert.equal(await auth.getHuman(req), null);
   assert.equal(await auth.getHuman({ headers: { cookie: 'sinaloa_session=%E0%A4%A' } }), null);
+});
+
+const admittedUser = { id: 'user_fixture', email: 'fixture@example.com', emailVerified: true, name: 'Fixture' };
+async function fixtureAuth(workos) {
+  workos = { ...workos, userManagement: {
+    getSessionFromCookie: async () => ({
+      accessToken: `header.${Buffer.from(JSON.stringify({ sid: 'session_fixture', iat: Math.floor(Date.now() / 1000) - 60, exp: Math.floor(Date.now() / 1000) - 1 })).toString('base64url')}.signature`,
+      refreshToken: 'fixture_refresh'
+    }),
+    ...workos.userManagement
+  } };
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-workos-fixture-')));
+  await store.init();
+  const auth = new WorkOSAuthService(store, {
+    clientId: 'client_fixture', apiKey: 'fixture', cookiePassword: '12345678901234567890123456789012',
+    redirectUri: 'https://fixture.example/api/auth/workos/callback', invitedEmails: admittedUser.email, workos
+  });
+  return { store, auth };
+}
+const cookieRequest = (value = 'expired_cookie') => ({ headers: { cookie: `sinaloa_session=${value}` } });
+const cookieResponses = new WeakMap();
+function emittedSessionCookie(auth, req) {
+  if (cookieResponses.has(req)) return null;
+  const res = {
+    headers: new Map(), headersSent: false,
+    getHeader(name) { return this.headers.get(name); },
+    setHeader(name, value) { this.headers.set(name, value); },
+    writeHead() { this.headersSent = true; }
+  };
+  cookieResponses.set(req, res);
+  auth.bindResponse(req, res);
+  res.writeHead(200);
+  const header = (res.getHeader('Set-Cookie') || []).find(cookie => cookie.startsWith('sinaloa_session='));
+  return header && !header.includes('Max-Age=0') ? parseCookies(header.split(';')[0]).sinaloa_session : null;
+}
+
+test('authorization binding cookie is private, short-lived and secure in production', () => {
+  const previousMode = process.env.SINALOA_AUTH_MODE;
+  process.env.SINALOA_AUTH_MODE = 'production';
+  try {
+    const header = authFlowCookieHeader('binding');
+    assert.match(header, new RegExp(`^${authFlowCookieName()}=binding;`));
+    assert.match(header, /Path=\/api\/auth\/workos/);
+    assert.match(header, /HttpOnly/);
+    assert.match(header, /SameSite=Lax/);
+    assert.match(header, /Secure/);
+    assert.match(header, /Max-Age=600/);
+    assert.doesNotMatch(header, /Domain=/);
+    assert.match(authFlowCookieHeader('', { clear: true }), /Max-Age=0/);
+  } finally {
+    if (previousMode === undefined) delete process.env.SINALOA_AUTH_MODE;
+    else process.env.SINALOA_AUTH_MODE = previousMode;
+  }
+});
+
+test('missing or another browser binding cannot consume a valid PKCE flow', async () => {
+  let exchanges = 0;
+  const { auth, store } = await fixtureAuth({ userManagement: {
+    getAuthorizationUrlWithPKCE: async () => ({ url: 'https://auth.example/', state: 'binding_state', codeVerifier: 'verifier' }),
+    authenticateWithCode: async () => { exchanges += 1; return { user: admittedUser, sealedSession: 'bound_cookie' }; }
+  } });
+  const started = await auth.startAuthorization();
+  const flow = (await store.listJson(path.join('auth', 'workos-flows')))[0];
+  assert.notEqual(flow.browserBindingHash, started.browserBinding);
+  assert.match(flow.browserBindingHash, /^[a-f0-9]{64}$/);
+  await assert.rejects(auth.completeAuthorization({ code: 'code', state: 'binding_state' }), { statusCode: 401 });
+  await assert.rejects(auth.completeAuthorization({ code: 'code', state: 'binding_state', browserBinding: 'A'.repeat(43) }), { statusCode: 401 });
+  assert.equal(exchanges, 0);
+  assert.equal((await store.listJson(path.join('auth', 'workos-flows')))[0].usedAt, null);
+  const result = await auth.completeAuthorization({ code: 'code', state: 'binding_state', browserBinding: started.browserBinding });
+  assert.equal(result.human.email, admittedUser.email);
+  assert.equal(exchanges, 1);
+  await assert.rejects(auth.completeAuthorization({ code: 'code', state: 'binding_state', browserBinding: started.browserBinding }), { statusCode: 401 });
+  assert.equal(exchanges, 1);
+});
+
+test('parallel first authentication retains one stable provider-user human identity', async () => {
+  const { auth, store } = await fixtureAuth({});
+  const humans = await Promise.all(Array.from({ length: 12 }, () => auth.upsertHuman(admittedUser)));
+  assert.equal(new Set(humans.map(human => human.id)).size, 1);
+  assert.equal((await store.listJson('humans')).length, 1);
+  const index = (await store.listJson(path.join('auth', 'workos-user-index')))[0];
+  assert.equal(index.humanId, humans[0].id);
+  const updated = await auth.upsertHuman({ ...admittedUser, name: 'Updated fixture' });
+  assert.equal(updated.id, humans[0].id);
+  assert.equal(updated.displayName, 'Updated fixture');
+});
+
+test('provider-user human and index writes roll back together on failure', async () => {
+  const { auth, store } = await fixtureAuth({});
+  const batch = store.putJsonBatch.bind(store);
+  store.putJsonBatch = async documents => {
+    await batch(documents.slice(0, 1));
+    throw new Error('fixture index write failure');
+  };
+  await assert.rejects(auth.upsertHuman(admittedUser), /fixture index write failure/);
+  assert.deepEqual(await store.listJson('humans'), []);
+  assert.deepEqual(await store.listJson(path.join('auth', 'workos-user-index')), []);
+  store.putJsonBatch = batch;
+  assert.equal((await auth.upsertHuman(admittedUser)).email, admittedUser.email);
+});
+
+test('expired provider access renews once across concurrent requests and preserves provider assurance', async () => {
+  let refreshCalls = 0;
+  let renewedAuthentications = 0;
+  const { auth } = await fixtureAuth({ userManagement: {
+    loadSealedSession: ({ sessionData }) => ({
+      authenticate: async () => {
+        if (sessionData === 'renewed_cookie') {
+          renewedAuthentications += 1;
+          return { authenticated: true, user: admittedUser, sessionId: 'session_fixture', role: 'admin' };
+        }
+        return { authenticated: false, reason: 'invalid_jwt' };
+      },
+      refresh: async () => {
+        refreshCalls += 1;
+        await new Promise(resolve => setImmediate(resolve));
+        return { authenticated: true, sealedSession: 'renewed_cookie' };
+      }
+    })
+  } });
+  const requests = Array.from({ length: 8 }, () => cookieRequest());
+  const sessions = await Promise.all(requests.map(req => auth.getSession(req)));
+  assert.equal(refreshCalls, 1);
+  assert.equal(renewedAuthentications, 8, 'each concurrent request verifies the shared replacement');
+  assert.ok(sessions.every(session => session.user.id === admittedUser.id && session.assurance === 'provider'));
+  for (const req of requests) {
+    assert.equal(emittedSessionCookie(auth, req), 'renewed_cookie');
+    assert.equal(emittedSessionCookie(auth, req), null);
+  }
+  const lateRequest = cookieRequest();
+  assert.equal((await auth.getSession(lateRequest)).user.id, admittedUser.id);
+  assert.equal(refreshCalls, 1);
+  assert.equal(emittedSessionCookie(auth, lateRequest), 'renewed_cookie');
+});
+
+test('human and session lookups on one request share renewal and only expose an admitted cookie', async () => {
+  let expiredChecks = 0;
+  let refreshCalls = 0;
+  const { auth } = await fixtureAuth({ userManagement: {
+    loadSealedSession: ({ sessionData }) => ({
+      authenticate: async () => {
+        if (sessionData === 'renewed_cookie') return { authenticated: true, user: admittedUser, sessionId: 'session_fixture' };
+        expiredChecks += 1;
+        return { authenticated: false, reason: 'invalid_jwt' };
+      },
+      refresh: async () => { refreshCalls += 1; return { authenticated: true, sealedSession: 'renewed_cookie' }; }
+    })
+  } });
+  const req = cookieRequest();
+  const [human, session] = await Promise.all([auth.getHuman(req), auth.getSession(req)]);
+  assert.equal(human.providerUserId, admittedUser.id);
+  assert.equal(session.assurance, 'provider');
+  assert.equal(expiredChecks, 1);
+  assert.equal(refreshCalls, 1);
+  assert.equal(emittedSessionCookie(auth, req), 'renewed_cookie');
+});
+
+test('terminal and recoverable provider failures never grant access', async t => {
+  for (const scenario of ['revoked', 'unavailable', 'invalid-renewed-jwt', 'uninvited', 'unverified']) {
+    await t.test(scenario, async () => {
+      const { auth, store } = await fixtureAuth({ userManagement: {
+        loadSealedSession: ({ sessionData }) => ({
+          authenticate: async () => {
+            if (sessionData !== 'renewed_cookie' || scenario === 'invalid-renewed-jwt') return { authenticated: false, reason: 'invalid_jwt' };
+            return { authenticated: true, user: scenario === 'uninvited' ? { ...admittedUser, email: 'outsider@example.com' }
+              : scenario === 'unverified' ? { ...admittedUser, emailVerified: false } : admittedUser, sessionId: 'session_fixture' };
+          },
+          refresh: async () => {
+            if (scenario === 'revoked') return { authenticated: false, reason: 'session_revoked' };
+            if (scenario === 'unavailable') throw new Error('provider unavailable');
+            return { authenticated: true, sealedSession: 'renewed_cookie' };
+          }
+        })
+      } });
+      const req = cookieRequest();
+      if (scenario === 'unavailable' || scenario === 'invalid-renewed-jwt') {
+        await assert.rejects(auth.getHuman(req), { statusCode: 503, code: 'auth_unavailable' });
+      } else assert.equal(await auth.getHuman(req), null);
+      assert.equal(emittedSessionCookie(auth, req), null);
+      assert.deepEqual(await store.listJson('humans'), []);
+    });
+  }
+});
+
+test('malformed sealed cookies fail closed and never attempt provider refresh', async () => {
+  let refreshCalls = 0;
+  const { auth } = await fixtureAuth({ userManagement: {
+    loadSealedSession: () => ({ authenticate: async () => ({ authenticated: false, reason: 'invalid_session_cookie' }), refresh: async () => { refreshCalls += 1; } })
+  } });
+  const req = cookieRequest('bad_cookie');
+  assert.equal(await auth.getSession(req), null);
+  assert.equal(refreshCalls, 0);
+  assert.equal(emittedSessionCookie(auth, req), null);
+});
+
+test('already valid provider sessions do not renew and memoize authentication per request', async () => {
+  let authentications = 0;
+  let refreshCalls = 0;
+  const { auth } = await fixtureAuth({ userManagement: {
+    loadSealedSession: () => ({
+      authenticate: async () => { authentications += 1; return { authenticated: true, user: admittedUser, sessionId: 'session_fixture' }; },
+      refresh: async () => { refreshCalls += 1; }
+    })
+  } });
+  const req = cookieRequest('valid_cookie');
+  await Promise.all([auth.getHuman(req), auth.getSession(req), auth.getSession(req)]);
+  assert.equal(authentications, 1);
+  assert.equal(refreshCalls, 0);
+  assert.equal(emittedSessionCookie(auth, req), null);
+});
+
+test('logout can clear an expired revoked session and never restores a replacement cookie', async () => {
+  const { auth } = await fixtureAuth({ userManagement: {
+    loadSealedSession: () => ({
+      authenticate: async () => ({ authenticated: false, reason: 'invalid_jwt' }),
+      refresh: async () => ({ authenticated: false, reason: 'session_revoked' })
+    })
+  } });
+  const req = cookieRequest();
+  assert.deepEqual(await auth.logout(req), { revoked: true, logoutUrl: null, sessionId: 'session_fixture', providerRevoked: false });
+  assert.equal(emittedSessionCookie(auth, req), null);
 });

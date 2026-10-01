@@ -1,0 +1,2 @@
+# Migration ledger checksums must match Linux Container/Git bytes on Windows too.
+db/*.sql text eol=lf

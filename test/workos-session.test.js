@@ -71,7 +71,7 @@ test('expired access token renews once per request and appends the cookie withou
   assert.equal(human.providerUserId, 'user_one');
   assert.equal(f.calls.refresh, 1);
   assert.equal(f.calls.authenticate, 2, 'original and replacement are each verified once');
-  res.setHeader('Set-Cookie', ['sinaloa_csrf=csrf; Path=/', 'sinaloa_session=old; Path=/']);
+  res.setHeader('Set-Cookie', ['sinaloa_csrf=csrf; Path=/']);
   res.writeHead(200);
   const cookies = res.getHeader('Set-Cookie');
   assert.equal(cookies.length, 2);

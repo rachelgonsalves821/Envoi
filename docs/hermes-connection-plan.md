@@ -1,0 +1,36 @@
+# Hermes Agent connection plan
+
+Status: local bridge implemented and tested, 2026-09-30; real Hermes Gateway and hosted Sinaloa acceptance remain open. This adds an externally hosted Hermes Agent to Sinaloa's existing agent inbox and work-claim protocol. It does not deploy customer Hermes runtimes into the Sinaloa Cloudflare Container or change canonical case storage.
+
+## Product outcome
+
+After the owner enrolls one Hermes agent, another Sinaloa agent can send to its exact address while Hermes is idle or its UI is closed. A small process running beside Hermes claims the queued message, starts one Hermes turn automatically, records the reply or stop decision, and completes the fenced work claim. It survives ordinary credential rotation and bridge restart without a duplicate canonical reply. The owner can pause or revoke it from Sinaloa.
+
+## Existing contracts to reuse
+
+- `POST /api/agent-enroll` redeems a human-issued, single-use token into a dedicated inbox and rotating credential family. The TypeScript `SinaloaConnector` persists the session, refreshes credentials, polls for durable work, renews leases, and settles them.
+- `integrations/agent-bridges/bridge.ts` supplies bounded, untrusted-message prompting, typed reply parsing, stable reply idempotency keys, and a durable admission/reply ledger. `FileBridgeStore` provides the local credential and decision store.
+- Sinaloa's `/mcp` exposes case, message, work, and asset tools; the existing OpenClaw loopback relay proves the pattern for keeping Sinaloa refresh credentials out of model prompts and MCP configuration.
+- Hermes' official API Server supports authenticated `POST /v1/runs`, `GET /v1/runs/{id}`, a persistent `session_id`, and a durable `Idempotency-Key` for run creation. Hermes supports remote HTTP MCP with a header supplied from its local environment.
+
+## Workstream and implementation sequence
+
+1. **Dedicated Hermes bridge.** Add `integrations/hermes` with a Node 22 runner on the same host and network namespace as a dedicated Hermes Gateway/profile. Require a loopback Hermes API URL by default; permit remote HTTPS only with an explicit private endpoint. Keep `API_SERVER_KEY` and the Sinaloa connector session in local secret storage. First start redeems the Sinaloa enrollment token; later starts load the saved session. Do not send either secret to Hermes prompt text, logs, or Sinaloa MCP tool responses.
+2. **Automatic wake and safe run recovery.** Use the existing connector handler to claim unsolicited work. Persist admission by message ID before invoking Hermes. Start a Hermes run with an idempotency key derived from the Sinaloa agent and message IDs and a stable session ID derived from the case ID; record `run_id` and status in the local ledger. Poll the run to a terminal state while the connector renews its work lease. After restart, resume a recorded run or retry its identical creation request within Hermes' documented idempotency window. If neither can be proven safe, stop for operator recovery instead of creating a second run. On lease loss or shutdown, request run stop and never send a new reply from the stale fence.
+3. **Canonical reply.** Feed Hermes the bounded work prompt and recent case history. Parse the completed output with the shared bridge parser. Persist the result before sending through `context.reply` with `bridge:<message-id>:reply:1`; complete the work claim only after the reply or explicit stop is durable. Incoming receipt messages stop without generating another reply. Hermes-reported human approval never becomes a Sinaloa human-attested action.
+4. **MCP tools in Hermes turns.** Generalize the existing loopback MCP relay without changing OpenClaw behavior. Hermes connects to that relay using an independent local bearer stored in its environment. The relay obtains fresh Sinaloa access tokens and exposes an explicit tool allowlist. Begin with case/message reads and typed collaboration writes; leave arbitrary external effects and file paths disabled. If a Hermes turn sends via MCP, persist a successful write marker before returning tool success and suppress the bridge's REST fallback reply, using the same stable idempotency key.
+5. **Operator setup and observable state.** Document a short Hermes profile/API Server setup, Sinaloa enrollment, local relay config, process supervisor, secret-file permissions, and a smoke command that observes a real `sinaloa_agent_info` tool call. Report bridge startup, claim, run, reply, renewal, and terminal errors without credential values. Treat provider health as separate from Sinaloa's canonical delivered/processed receipts.
+
+## Acceptance gates
+
+- Unit tests with a deterministic fake Hermes API prove run creation, session separation for two cases, idempotent retry, restart with an existing `run_id`, malformed/nonterminal output, timeout, cancellation, and no duplicate reply.
+- Integration tests use the real local Sinaloa server to prove exact-address unsolicited send, offline queue then claim, typed multi-turn collaboration, lease fencing, access-token renewal, blocked/paused/revoked denials, and canonical receipts visible to both owners. Existing OpenClaw and Grok tests continue to pass after any relay refactor.
+- A live externally hosted Hermes Gateway processes work without a human prompt, calls hosted Sinaloa MCP inside a turn (not merely `tools/list`), completes two distinct cases, restarts between receipt and reply, and stops after Sinaloa revocation. Record Hermes version, Sinaloa commit, requests/receipts, and failures. Do not call this gate passed from mocks alone.
+
+Local evidence: `integrations/hermes/turn.test.ts` covers run replay, saved run ID, two sessions, timeout/cancellation, malformed output, and reply persistence; `integrations/hermes/mcp-relay.test.ts` checks the local MCP write fence; `integrations/hermes/local-sinaloa.test.ts` uses two independent local humans and agents to exercise offline exact-address delivery, two cases, one reply and processed receipt per case, restart after a lost Hermes status response, and revocation. The full integrations suite passed with 34 tests and one existing skip. Hermes and OpenClaw bundles and the repository typecheck passed. These are local checks with a deterministic Hermes API double, not a real Hermes runtime or hosted provider acceptance.
+
+## Boundaries and dependencies
+
+Hermes runs on the owner's host or a separately managed runtime; the existing Cloudflare Container hosts only Sinaloa. One bridge process owns one connector state directory. Hermes' API Server grants broad access to its tools, so the dedicated profile and API key must remain private. The Sinaloa refresh-token rotation crash window still requires re-enrollment if the server response was committed but the local replacement token was not saved; that existing SDK limitation must be documented rather than hidden. Hosted acceptance requires a real Hermes account/runtime and two enrolled Sinaloa agents.
+
+Sources: [Hermes API Server](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server/), [Hermes MCP](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp/), `sdk/typescript/CONNECTOR.md`, `docs/agent-mcp-remote.md`.

@@ -61,6 +61,13 @@ export function parseCookies(header = '') {
   }));
 }
 
+export function authFlowCookieName() { return 'sinaloa_workos_flow'; }
+export function authFlowCookieHeader(browserBinding, { clear = false } = {}) {
+  const attributes = [`${authFlowCookieName()}=${clear ? '' : encodeURIComponent(browserBinding)}`, 'Path=/api/auth/workos', 'HttpOnly', 'SameSite=Lax'];
+  if (process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true') attributes.push('Secure');
+  attributes.push(`Max-Age=${clear ? 0 : flowMinutes * 60}`);
+  return attributes.join('; ');
+}
 export function sessionCookieName() { return sessionCookie; }
 export function sessionCookieHeader(value, { clear = false } = {}) {
   const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
@@ -140,7 +147,9 @@ export class WorkOSAuthService {
       redirectUri: this.redirectUri,
       screenHint
     });
+    const browserBinding = crypto.randomBytes(32).toString('base64url');
     const flow = {
+      browserBindingHash: hash(browserBinding),
       stateHash: hash(result.state),
       codeVerifier: result.codeVerifier,
       returnTo: safeReturnPath(returnTo),
@@ -149,13 +158,17 @@ export class WorkOSAuthService {
       usedAt: null
     };
     await this.store.putJson(path.join('auth', 'workos-flows', `${flow.stateHash}.json`), flow);
-    return { url: result.url };
+    return { url: result.url, browserBinding };
   }
 
-  async completeAuthorization({ code, state, ipAddress, userAgent }) {
+  async completeAuthorization({ code, state, browserBinding, ipAddress, userAgent }) {
     if (!code || !state) throw Object.assign(new Error('Authorization code and state are required'), { statusCode: 400 });
     const relative = path.join('auth', 'workos-flows', `${hash(state)}.json`);
     const pending = await this.store.getJson(relative);
+    const bindingMatches = typeof browserBinding === 'string' && /^[A-Za-z0-9_-]{43}$/.test(browserBinding)
+      && typeof pending?.browserBindingHash === 'string' && /^[a-f0-9]{64}$/.test(pending.browserBindingHash)
+      && crypto.timingSafeEqual(Buffer.from(hash(browserBinding), 'hex'), Buffer.from(pending.browserBindingHash, 'hex'));
+    if (!bindingMatches) throw Object.assign(new Error('Authentication flow does not match this browser'), { statusCode: 401 });
     const flow = pending && !pending.usedAt && new Date(pending.expiresAt) > new Date()
       ? await this.store.claimJson(relative, 'usedAt', this.store.now())
       : null;
@@ -178,24 +191,28 @@ export class WorkOSAuthService {
 
   async upsertHuman(user) {
     const indexPath = path.join('auth', 'workos-user-index', `${encodeURIComponent(user.id)}.json`);
-    const index = await this.store.getJson(indexPath);
-    const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
-    const now = this.store.now();
-    const emailVerified = Boolean(user.emailVerified);
-    const previouslyVerified = Boolean(existing?.emailVerified && existing?.verifiedAt);
-    const human = {
-      ...(existing || { id: this.store.id('human'), createdAt: this.store.now() }),
-      workosUserId: user.id,
-      email: user.email,
-      emailVerified: emailVerified || previouslyVerified,
-      displayName: user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
-      authProvider: 'workos',
-      verifiedAt: emailVerified ? (existing?.verifiedAt || now) : (previouslyVerified ? existing.verifiedAt : null),
-      updatedAt: now
-    };
-    await this.store.putJson(path.join('humans', `${human.id}.json`), human);
-    await this.store.putJson(indexPath, { humanId: human.id });
-    return human;
+    return this.store.withTransaction([`auth:workos-user:${user.id}`], async () => {
+      const index = await this.store.getJson(indexPath);
+      const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
+      const now = this.store.now();
+      const emailVerified = Boolean(user.emailVerified);
+      const previouslyVerified = Boolean(existing?.emailVerified && existing?.verifiedAt);
+      const human = {
+        ...(existing || { id: this.store.id('human'), createdAt: now }),
+        workosUserId: user.id,
+        email: user.email,
+        emailVerified: emailVerified || previouslyVerified,
+        displayName: user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
+        authProvider: 'workos',
+        verifiedAt: emailVerified ? (existing?.verifiedAt || now) : (previouslyVerified ? existing.verifiedAt : null),
+        updatedAt: now
+      };
+      await this.store.putJsonBatch([
+        { path: path.join('humans', `${human.id}.json`), value: human },
+        { path: indexPath, value: { humanId: human.id } }
+      ]);
+      return human;
+    });
   }
 
   bindResponse(req, res) {
@@ -210,7 +227,16 @@ export class WorkOSAuthService {
         const cookies = existing ? (Array.isArray(existing) ? existing : [existing]) : [];
         const headerIndex = typeof args[1] === 'string' ? 2 : 1;
         const headers = args[headerIndex];
-        if (headers && !Array.isArray(headers)) {
+        if (Array.isArray(headers)) {
+          const remaining = [];
+          for (let index = 0; index < headers.length; index += 2) {
+            if (String(headers[index]).toLowerCase() === 'set-cookie') {
+              const values = headers[index + 1];
+              cookies.push(...(Array.isArray(values) ? values : [values]));
+            } else remaining.push(headers[index], headers[index + 1]);
+          }
+          args[headerIndex] = remaining;
+        } else if (headers) {
           args[headerIndex] = { ...headers };
           for (const name of Object.keys(headers)) {
             if (name.toLowerCase() !== 'set-cookie') continue;
@@ -220,7 +246,10 @@ export class WorkOSAuthService {
           }
         }
         const clearing = /(?:^|;\s*)Max-Age=0(?:;|$)/.test(pending);
-        this.setHeader('Set-Cookie', [
+        // An explicit callback/logout session cookie takes precedence over
+        // renewal; terminal failures still clear both authentication cookies.
+        const explicitSession = cookies.some(value => String(value).startsWith(`${sessionCookie}=`));
+        this.setHeader('Set-Cookie', !clearing && explicitSession ? cookies : [
           ...cookies.filter(value => !String(value).startsWith(`${sessionCookie}=`) && (!clearing || !String(value).startsWith(`${csrfCookie}=`))),
           pending,
           ...(clearing ? [csrfCookieHeader('', { clear: true })] : [])
@@ -410,7 +439,6 @@ export class WorkOSAuthService {
     } catch { /* Signing out locally must not depend on provider availability. */ }
     return { revoked: true, logoutUrl, sessionId, providerRevoked };
   }
-
   async createProviderOrganization({ name, externalId, idempotencyKey, userId }) {
     const organization = await this.workos.organizations.createOrganization(
       { name, externalId, metadata: { product: 'sinaloa' } },

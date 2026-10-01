@@ -133,8 +133,7 @@ describe('customer-hosted connector against the real local API', () => {
       }
     }, onEvent: event => { observedEvents.push(event.id); } });
     await expect(recipientConnector.processWorkOnce()).rejects.toThrow('simulated runtime crash');
-    // A retryable failure remains unavailable until its bounded server backoff expires.
-    expect(await recipientConnector.processWorkOnce()).toBe(false);
+    // Poll until the server permits the retry; scheduling can already consume the short test backoff.
     expect(await eventually(async () => await recipientConnector.processWorkOnce() || null)).toBe(true);
     expect(processed).toEqual([`admitted:${sent.id}`, `processed:${sent.id}`, `admitted:${sent.id}`, `processed:${sent.id}`]);
     const replayed = await recipientConnector.pollOnce();

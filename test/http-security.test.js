@@ -37,3 +37,58 @@ test('unexpected server errors are sanitized while expected client errors remain
     body: { error: 'OBJECT_NOT_CLEAN', message: 'Object is not clean', requestId: 'req_client' }
   });
 });
+
+// Exercise the actual HTTP handler: a unit test of a fixed key cannot detect
+// an attacker-controlled bearer/cookie accidentally becoming the limiter key.
+test('REST flood stays limited when bearer tokens, cookies and forwarded IP headers rotate', { timeout: 30000 }, async t => {
+  const { spawn } = await import('node:child_process');
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-http-rate-'));
+  const child = spawn(process.execPath, ['src/server.js'], {
+    cwd: new URL('../', import.meta.url),
+    env: { ...process.env, DATABASE_URL: '', SINALOA_HOST: '127.0.0.1', SINALOA_PORT: '0',
+      SINALOA_RELEASE_SHA: '0123456789abcdef0123456789abcdef01234567', SINALOA_DATA_DIR: dataDir, SINALOA_AUTH_MODE: 'development', SINALOA_HUMAN_AUTH_PROVIDER: 'local',
+      SINALOA_OBJECT_STORAGE_PROVIDER: 'local', SINALOA_TRUSTED_PROXY: '',
+      SINALOA_ENABLE_EXTERNAL_EMAIL: 'false', SINALOA_ENABLE_CALENDAR_WRITES: 'false',
+      SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS: 'false' },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  t.after(async () => {
+    if (child.exitCode === null) {
+      const stopped = new Promise(resolve => child.once('exit', resolve));
+      child.kill('SIGTERM');
+      await stopped;
+    }
+    const relative = path.relative(tmpdir(), dataDir);
+    assert.ok(relative.startsWith('sinaloa-http-rate-') && !relative.includes(path.sep));
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const baseUrl = await new Promise((resolve, reject) => {
+    let output = '';
+    const timer = setTimeout(() => reject(new Error('HTTP rate test server did not start')), 10000);
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('exit', () => { clearTimeout(timer); reject(new Error('HTTP rate test server exited before readiness')); });
+    child.stdout.on('data', chunk => {
+      output += chunk;
+      const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)/);
+      if (match) { clearTimeout(timer); resolve(`http://127.0.0.1:${match[1]}`); }
+    });
+  });
+  for (const route of ['/health', '/ready']) {
+    const response = await fetch(baseUrl + route);
+    assert.equal((await response.json()).releaseSha, '0123456789abcdef0123456789abcdef01234567');
+  }
+  for (let index = 0; index < 181; index += 1) {
+    const response = await fetch(`${baseUrl}/api/inboxes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': `198.51.100.${index % 250 + 1}`,
+        ...(index % 2 ? { cookie: `untrusted=${index}` } : { authorization: `Bearer invalid-${index}` }) },
+      body: '{}', signal: AbortSignal.timeout(5000)
+    });
+    await response.body?.cancel();
+    assert.equal(response.status, index < 180 ? 401 : 429, `request ${index + 1}`);
+    if (index === 180) assert.ok(Number(response.headers.get('retry-after')) > 0);
+  }
+});
