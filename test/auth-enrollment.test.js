@@ -598,6 +598,24 @@ test('chosen beta agent addresses are exact, unique, and capped per human', asyn
   const secondAgent = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: secondToken.payload.enrollmentToken } });
   assert.equal(secondAgent.status, 201);
   assert.equal(secondAgent.payload.agent.address, 'mira@agents.envoi-agents.com');
+  const newDomainMessage = await request(server.baseUrl, `/api/inboxes/${firstAgent.inbox.id}/messages`, {
+    token: firstAgent.agentApiToken,
+    headers: { 'Idempotency-Key': 'envoi-domain-first-send' },
+    body: { senderAgentId: firstAgent.agent.id, recipientEmail: secondAgent.payload.agent.address, text: 'New domain delivery test' }
+  });
+  assert.equal(newDomainMessage.status, 202);
+  assert.equal(newDomainMessage.payload.to[0].address, secondAgent.payload.agent.address);
+  const deliveredNewDomainMessage = await waitFor(async () => {
+    const messages = await request(server.baseUrl, `/api/inboxes/${secondAgent.payload.inbox.id}/messages`, { token: sessionToken });
+    return messages.payload.find(message => message.id === newDomainMessage.payload.id && message.status === 'delivered');
+  });
+  assert.equal(deliveredNewDomainMessage.from.address, firstAgent.agent.address);
+  const retiredAddress = await request(server.baseUrl, `/api/inboxes/${firstAgent.inbox.id}/messages`, {
+    token: firstAgent.agentApiToken,
+    headers: { 'Idempotency-Key': 'retired-domain-denied' },
+    body: { senderAgentId: firstAgent.agent.id, recipientEmail: 'mira@agents.sinaloa-inbox.com', text: 'Old address should not route' }
+  });
+  assert.equal(retiredAddress.status, 404);
   assert.equal((await enroll('third')).status, 409);
 });
 

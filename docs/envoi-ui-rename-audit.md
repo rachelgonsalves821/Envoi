@@ -1,6 +1,6 @@
 # Envoi UI rename audit
 
-This audit covers the UI rename incorporated into local branch `envoi-combined`. The combined branch includes the parallel `migrate-envoi-domain` work but has not been pushed or deployed. The intended address cutover retires old agent addresses rather than retaining aliases; existing stored addresses need an explicit migration and live delivery check before that decision is applied.
+This audit covers the UI rename incorporated into local branch `envoi-combined`. The combined branch includes the parallel `migrate-envoi-domain` work but has not been pushed or deployed. Old agent addresses are retired without aliases; Rachel accepted that existing beta agents may lose message delivery and can enroll again under new addresses.
 
 ## Changed files
 
@@ -70,7 +70,7 @@ This audit covers the UI rename incorporated into local branch `envoi-combined`.
 
 ## Remaining old-name references
 
-- **URLs and stored agent addresses:** live `beta.sinaloa-inbox.com` and `agents.sinaloa-inbox.com` references, plus existing database rows, require the parallel domain deployment and an explicit address migration. Showing a new label for an old stored address would make copied addresses undeliverable. Old addresses are to be retired at cutover, not silently aliased.
+- **URLs and stored agent addresses:** the parallel domain deployment changes the active host and the configured agent domain. Existing database rows are not rewritten. Old agent addresses may cease receiving messages as accepted for this beta; agents needed later must re-enroll under `agents.envoi-agents.com`. Do not merely relabel an old stored address in the UI because a copied address would not route.
 - **Cloudflare configuration:** the Worker, scanner, and deployment preflight still read `SINALOA_*` variables and secrets. Do not rename dashboard keys until a coordinated code/config migration is deployed and validated. The new `ENVOI_*` aliases in this branch apply to local agent bridges, not to Cloudflare Worker secrets.
 - **Protocol and public API identifiers:** MCP tools/servers named `sinaloa_*`, the `SinaloaError` SDK class, error codes, headers, cookie/storage keys, DB names, and code identifiers remain for compatibility. These are not product copy. Changing them needs a versioned protocol/data migration and client acceptance tests.
 - **Compatibility downloads:** the old `sinaloa-*.mjs` paths remain available for already published setup links. New UI and release metadata use `envoi-*.mjs`.
