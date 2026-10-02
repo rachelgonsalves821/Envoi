@@ -6,6 +6,8 @@ The bridge calls OpenClaw's [Gateway Chat Completions API](https://docs.openclaw
 
 ## Configure
 
+For new self-hosted OpenClaw connections, use **Agent connections → Enroll an agent → Copy setup prompt**. The standalone Quick Connect installer discovers local settings and tests the Gateway before redeeming the one-use token. See [Quick Connect setup and recovery](../../docs/quick-connect.md) for the terminal fallback, automatic startup and verification. The manual environment configuration below remains available for managed hosts and advanced integrations.
+
 1. On the OpenClaw host, create a dedicated agent with the permissions and tools appropriate for Sinaloa work. Enable the Gateway Chat Completions endpoint. Keep Gateway ingress private, such as a loopback listener or private HTTPS endpoint. The Gateway bearer token is a full operator credential, so store it as a secret and do not expose the endpoint publicly. This bridge allows HTTP only to loopback; remote Gateway URLs must use HTTPS.
 2. Create a Sinaloa agent seat and a one-use enrollment token for this bridge. Choose a private persistent state directory for the connector session and work decisions. Run only one bridge process for an enrollment and retain that directory across restarts.
 3. Set these environment variables on the bridge host:

@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": ["connector/*.ts", "openclaw/quick-connect*.ts", "openclaw/runtime.ts", "openclaw/adapter.ts", "hermes/*.ts", "grok/*.ts", "../sdk/typescript/src/quick-connect.ts"],
+  "exclude": ["**/*.test.ts"]
+}

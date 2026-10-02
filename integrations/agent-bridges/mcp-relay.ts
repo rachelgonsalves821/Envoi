@@ -93,7 +93,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
         const args = params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
           ? params.arguments as Record<string, unknown> : null;
         const key = args?.idempotencyKey;
-        if (typeof key !== 'string' || key.length < 1 || key.length > 200 || /[\x00-\x1f\x7f]/.test(key)) {
+        if (!args || typeof key !== 'string' || key.length < 1 || key.length > 200 || /[\x00-\x1f\x7f]/.test(key)) {
           return send(res, 400, { error: 'A stable idempotencyKey is required for collaboration writes' });
         }
         if (authorizeWrite && !await authorizeWrite(params.name, args)) {

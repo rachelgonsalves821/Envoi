@@ -15,6 +15,8 @@ import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermi
 import { previewRequested } from './preview';
 import { mergeHistory, olderCursors } from './history';
 import { subscribeReplayRecovery } from './event-replay';
+import { RUNTIME_OPTIONS, connectorDownloads, isLoopbackOrigin, runtimeLabel, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
+import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
@@ -1044,28 +1046,28 @@ function PoliciesPage({ view }: { view: HumanView }) {
 }
 
 function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInbox, onSelectWorkspace, onRefresh, notify }: { view: HumanView; workspace: Workspace; agentInboxes: Workspace[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
-  const [enrollment, setEnrollment] = useState<{ enrollmentToken: string; enrollmentUrl: string; expiresAt: string } | null>(null);
+  const [enrollment, setEnrollment] = useState<EnrollmentResult | null>(null);
   const [open, setOpen] = useState(false);
   const steps = onboardingSteps(view, agentInboxes);
   const completeCount = steps.filter(step => step.complete).length;
-  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Enroll an agent identity, connect its external runtime, share its native address, and observe direct exchanges without claiming live presence.">
+  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Connect your agent, share its Sinaloa address, and follow its conversations with other agents.">
     {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages agent enrollment. You can observe your agent’s conversations." tone="attention" />}
     <section className="onboarding-card" aria-labelledby="onboarding-title">
       <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
       <div className="progress-track" aria-label={`${completeCount} of ${steps.length} onboarding steps complete`}><span style={{ width: `${(completeCount / steps.length) * 100}%` }} /></div>
-      <ol>{steps.map((step, index) => <li key={step.id} className={step.complete ? 'complete' : ''}><span className="step-mark">{step.complete ? <Check size={14} /> : index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p></div>{canManageInbox && step.id === 'enroll' && !step.complete && <button className="button tertiary compact" onClick={() => setOpen(true)}>Create link</button>}</li>)}</ol>
+      <ol>{steps.map((step, index) => <li key={step.id} className={step.complete ? 'complete' : ''}><span className="step-mark">{step.complete ? <Check size={14} /> : index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p></div>{canManageInbox && step.id === 'enroll' && !step.complete && <button className="button tertiary compact" onClick={() => setOpen(true)}>Connect agent</button>}</li>)}</ol>
     </section>
     {agentInboxes.length > 0 && <section className="agent-inbox-list" aria-label="Your agent inboxes"><div className="section-heading"><div><p className="eyebrow">Agent inboxes</p><h2>Each agent has its own view</h2></div><span>{agentInboxes.length} inboxes</span></div><div className="data-list">{agentInboxes.map(agentInbox => <article className="data-row" key={agentInbox.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{agentInbox.name}</strong><span>Separate conversation history and permissions</span></div><StatusText value={agentInbox.status} /><button type="button" className="button secondary compact" onClick={() => void onSelectWorkspace(agentInbox)}>Open inbox</button></article>)}</div></section>}
     <section className="beta-safeguards" aria-labelledby="safeguards-title">
       <div className="section-heading"><div><p className="eyebrow">Beta capabilities</p><h2 id="safeguards-title">Direct agent collaboration</h2></div><span>Closed beta</span></div>
       <div className="safeguard-grid">
         <SafeguardCard icon={<Inbox size={18} />} title="Direct messaging" status="Beta requirement" body="An agent can message another agent immediately using its exact known Sinaloa address. No first-contact approval is needed." />
-        <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Beta requirement" body="OpenClaw and Hermes use local bridges beside their Gateways to wake for incoming work. Grok handles work through its bridge and can add hosted MCP reads. Keep the chosen bridge running so messages are received automatically." />
+        <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Quick Connect" body="Paste a setup prompt into your self-hosted OpenClaw agent to connect it. Keep its host and runtime running for unattended messages. Manual bridges and Grok are available under advanced setup." />
         <SafeguardCard icon={<FileText size={18} />} title="Shared files" status="Beta requirement" body="Agent-created files appear in Shared files. Download unlocks only after a clean malware scan." />
       </div>
     </section>
-    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={null} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can create a permissioned, 15-minute enrollment link to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
-    {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.sinaloa-inbox.com'} result={enrollment} setResult={setEnrollment} onClose={() => { setOpen(false); setEnrollment(null); }} />}
+    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={null} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can choose permissions and create a private setup prompt to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
+    {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.sinaloa-inbox.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </PageFrame>;
 }
 
@@ -1141,9 +1143,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [revokeError, setRevokeError] = useState('');
   const [revokeResult, setRevokeResult] = useState<{ revokedAt: string; credentialFamilyCount: number } | null>(null);
   const [reconnectOpen, setReconnectOpen] = useState(false);
-  const [reconnectBusy, setReconnectBusy] = useState(false);
-  const [reconnectError, setReconnectError] = useState('');
-  const [reconnectResult, setReconnectResult] = useState<{ enrollmentToken: string; expiresAt: string; address: string } | null>(null);
+  const [reconnectResult, setReconnectResult] = useState<EnrollmentResult | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
   const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
@@ -1176,13 +1176,6 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     } catch (caught) { setRevokeError(errorMessage(caught)); }
     finally { setRevokeBusy(false); }
   }
-  async function createReconnectToken() {
-    setReconnectBusy(true);
-    setReconnectError('');
-    try { setReconnectResult(await api.reconnectAgentToken(workspace.id, agent.id)); }
-    catch (caught) { setReconnectError(errorMessage(caught)); }
-    finally { setReconnectBusy(false); }
-  }
   async function setPaused(paused: boolean) {
     setPauseBusy(true);
     setPauseError('');
@@ -1203,7 +1196,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     {pending && canApproveAgent && <button className="button primary" onClick={() => setApprovalOpen(true)}>Review agent access</button>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
     {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{pauseBusy ? 'Saving…' : agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}
-    {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" onClick={() => { setReconnectError(''); setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}
+    {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}
     {canManageInbox && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent credentials</button>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
@@ -1216,26 +1209,60 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       <FormError message={revokeError} />
       <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep credentials</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Revoking…' : 'Revoke credentials'}</button></div>
     </Modal>}
-    {reconnectOpen && canManageInbox && <Modal title={`Reconnect ${agent.name}`} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} dismissible={!reconnectBusy}>
-      <p className="dialog-copy">Use this when the agent runtime lost its saved Sinaloa session. The agent keeps {platformAddress}, its inbox, and its conversation history. Redeeming the new token revokes its old credentials and disconnects the old runtime.</p>
-      {reconnectResult ? <><InlineNotice title="One-use reconnect token" body={`This token expires ${formatAbsolute(reconnectResult.expiresAt)}. Paste it only at the connector's hidden terminal prompt, never in a chat or at the PS> prompt.`} tone="attention" /><div className="copy-field"><input readOnly value={reconnectResult.enrollmentToken} aria-label="One-use agent reconnect token" /><CopyButton value={reconnectResult.enrollmentToken} label="Copy one-use agent reconnect token" /></div></> : <><FormError message={reconnectError} /><div className="dialog-actions"><button className="button secondary" onClick={() => setReconnectOpen(false)}>Cancel</button><button className="button primary" disabled={reconnectBusy} onClick={() => void createReconnectToken()}>{reconnectBusy ? 'Creating…' : 'Create reconnect token'}</button></div></>}
-    </Modal>}
+    {reconnectOpen && canManageInbox && <EnrollmentDialog workspace={workspace} reconnectAgent={agent} result={reconnectResult} setResult={setReconnectResult} onRefresh={onRefresh} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} />}
   </article>;
 }
 
 const reservedAgentAddresses = new Set(['admin', 'administrator', 'agents', 'abuse', 'billing', 'contact', 'help', 'info', 'mail', 'noreply', 'no-reply', 'postmaster', 'root', 'security', 'support', 'system']);
 const validAgentLocalPart = (value: string) => value.length >= 3 && value.length <= 32 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(value) && !reservedAgentAddresses.has(value);
 
-export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbox.com', result, setResult, onClose }: { workspace: Workspace; agentDomain?: string; result: { enrollmentToken: string; enrollmentUrl: string; expiresAt: string; agentProfile?: { localPart?: string } } | null; setResult: (value: any) => void; onClose: () => void }) {
+export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbox.com', result, setResult, onClose, onRefresh, reconnectAgent }: { workspace: Workspace; agentDomain?: string; result: EnrollmentResult | null; setResult: (value: EnrollmentResult | null) => void; onClose: () => void; onRefresh?: () => Promise<unknown>; reconnectAgent?: Agent & { runtime?: ConnectorRuntime } }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const [name, setName] = useState('');
+  const [runtime, setRuntime] = useState<ConnectorRuntime>(reconnectAgent?.runtime || 'openclaw');
+  const addressEdited = useRef(false);
+  const [status, setStatus] = useState<EnrollmentStatus | null>(null);
+  const [statusError, setStatusError] = useState('');
+  const [pollingAttempt, setPollingAttempt] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const refresh = useRef(onRefresh);
+  refresh.current = onRefresh;
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
   const [localPartInput, setLocalPartInput] = useState('');
   const [availability, setAvailability] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
   const localPart = localPartInput.trim().toLowerCase();
-  const sinaloaOrigin = typeof window === 'undefined' ? 'https://sinaloa-staging.rachelgonsalves821.workers.dev' : window.location.origin;
-  const hermesCommand = `powershell -NoProfile -File integrations/hermes/connect-windows.ps1 -SinaloaUrl ${sinaloaOrigin}`;
+  const handoff = result?.quickConnect;
+  const chosenAddress = handoff?.address || (result?.agentProfile?.localPart ? `${result.agentProfile.localPart}@${agentDomain}` : '');
+  const prompt = handoff ? setupPrompt(handoff) : '';
+  const downloads = handoff ? connectorDownloads(handoff) : null;
+  const phase = status?.phase || 'waiting';
+  const terminal = ['ready', 'expired', 'revoked', 'error'].includes(phase);
+  const tokenExpired = result ? Date.parse(result.expiresAt) <= Date.now() : false;
+  const canUseHandoff = !terminal && !tokenExpired && phase === 'waiting';
   useEffect(() => {
-    if (result || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
+    setStatus(null); setStatusError(''); setCopied(false);
+    if (!result?.enrollmentId) return;
+    let previousPhase = 'waiting';
+    return watchEnrollmentStatus({
+      enrollmentId: result.enrollmentId,
+      expiresAt: result.expiresAt,
+      request: signal => api.enrollmentStatus(workspace.id, result.enrollmentId!, signal),
+      onStatus: next => {
+        setStatus(next); setStatusError('');
+        if (next.phase !== previousPhase && ['enrolled', 'ready'].includes(next.phase)) void refresh.current?.().catch(() => {});
+        previousPhase = next.phase;
+      },
+      onError: setStatusError,
+      onTimeout: () => setStatusError('Automatic progress checks stopped. Check your agent’s setup report, or check status again. Do not create another token if this one was already redeemed.')
+    });
+  }, [result, workspace.id, pollingAttempt]);
+  const sinaloaOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+  const selectedRuntime = handoff?.runtime || runtime;
+  const label = runtimeLabel(selectedRuntime);
+  const prepareCommand = `node sinaloa-connector.mjs prepare --runtime ${runtime} --api-url ${sinaloaOrigin || '<Sinaloa origin>'}${runtime === 'hermes' ? ' --prepare-runtime' : ''}`;
+  const setupCommand = `node sinaloa-connector.mjs setup --handoff sinaloa-setup.json${selectedRuntime === 'hermes' ? ' --prepare-runtime' : ''}`;
+  useEffect(() => {
+    if (result || reconnectAgent || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
     let cancelled = false;
     setAvailability('checking');
     const timer = setTimeout(() => {
@@ -1244,36 +1271,88 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbo
         .catch(() => { if (!cancelled) setAvailability('error'); });
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [workspace.id, localPart, result]);
-  return <Modal title={result ? 'Enrollment token created' : 'Enroll an agent'} onClose={onClose}>
+  }, [workspace.id, localPart, result, reconnectAgent]);
+  async function copyPrompt() {
+    try { await navigator.clipboard.writeText(prompt); setCopied(true); setError(''); }
+    catch { setError('Clipboard access was unavailable. Expand “View setup prompt” and select the text to copy it, or use the terminal fallback.'); }
+  }
+  function downloadHandoff() {
+    if (!handoff) return;
+    try {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(handoff, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a'); link.href = url; link.download = 'sinaloa-setup.json'; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch { setError('The setup file could not be downloaded. Save the setup JSON privately on your runtime host.'); }
+  }
+  return <Modal title={result ? handoff ? `${reconnectAgent ? 'Reconnect' : 'Connect'} your ${label} agent` : 'Enrollment token created' : reconnectAgent ? `Reconnect ${reconnectAgent.name}` : 'Enroll an agent'} onClose={onClose}>
     {result ? <>
-      <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />
-      {result.agentProfile?.localPart && <label className="field"><span>Chosen platform address</span><div className="copy-field"><input readOnly value={`${result.agentProfile.localPart}@${agentDomain}`} aria-label="Chosen agent address" /><CopyButton value={`${result.agentProfile.localPart}@${agentDomain}`} label="Copy chosen agent address" /></div><small>This address becomes active when the bridge redeems the token. It cannot be renamed during beta.</small></label>}
-      <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>For Hermes, paste this at the secure terminal prompt. Other bridges use <code>SINALOA_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once.</small></label>
-      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Sinaloa credentials on the external host. Provider secrets stay on the external host and are never entered here. Never paste this token into an agent chat. OpenClaw and Grok require their own runtime configuration; the Windows Hermes setup handles its local configuration for you.</p><div className="runtime-setup-list">
+      {handoff ? <>
+        <p className="dialog-copy">Run the setup instructions where {label} is installed. The connector detects local settings and keeps runtime and provider credentials on that host. You can give the prompt to an agent with terminal access, or use the private setup file.</p>
+        <InlineNotice title="One private setup handoff" body={`Give this prompt only to your trusted agent. Its one-use token expires ${formatAbsolute(result.expiresAt)}. Copy or download before closing; it cannot be recovered.`} tone="attention" />
+      </> : <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />}
+      {chosenAddress && <label className="field"><span>Chosen platform address</span><div className="copy-field"><input readOnly value={chosenAddress} aria-label="Chosen agent address" /><CopyButton value={chosenAddress} label="Copy chosen agent address" /></div><small>This address becomes active when the bridge redeems the token. It cannot be renamed during beta.</small></label>}
+      {handoff && <section className="quick-connect">
+        <button className="button primary" type="button" disabled={!canUseHandoff} onClick={() => void copyPrompt()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Setup prompt copied' : 'Copy setup prompt'}</button>
+        <small>Connects {label} using a durable wake bridge. Node.js 22 or newer and access to the runtime host are required. The prompt contains a confidential token that may remain in chat history; prefer the private setup file in Terminal fallback.</small>
+        {isLoopbackOrigin(handoff.apiUrl) && <InlineNotice title="Local development address" body="This setup points to localhost. A remotely hosted agent cannot reach it. Use a reachable HTTPS Sinaloa deployment or run the connector beside this development server." tone="attention" />}
+        {selectedRuntime === 'hermes' && <InlineNotice title="Hermes credentials" body="The installer reuses the model provider already configured in Hermes and generates or reuses its local API Server key. The Sinaloa token replaces neither. A running Gateway may need your approval to restart." tone="attention" />}
+        {canUseHandoff && <details className="setup-details"><summary>View setup prompt</summary><label className="field"><span className="sr-only">Setup prompt</span><textarea readOnly value={prompt} rows={9} onFocus={event => event.currentTarget.select()} /></label></details>}
+        <div className="connection-progress" role="status" aria-live="polite">
+          <strong>{phase === 'ready' ? 'Setup checks passed' : phase === 'enrolled' ? 'Agent paired · checking runtime' : phase === 'expired' ? 'Setup token expired' : phase === 'revoked' ? 'Connection revoked' : phase === 'error' ? 'Setup needs attention' : 'Waiting for your agent'}</strong>
+          <ol><li className={['enrolled', 'ready'].includes(phase) ? 'complete' : ''}>Paste setup prompt</li><li className={['enrolled', 'ready'].includes(phase) ? 'complete' : ''}>Pair agent</li><li className={phase === 'ready' ? 'complete' : ''}>Run setup checks</li></ol>
+          <p>{phase === 'ready' ? 'The connector reported that setup checks passed. Next, exchange a real message with another agent to verify unattended receiving and replies. Keep the host and runtime running.' : phase === 'enrolled' ? 'The one-time token has been redeemed. Continue with this connector’s setup; do not redeem it again.' : phase === 'expired' ? 'Create a new setup prompt if the agent has not paired. If it already paired, check its connector report first.' : phase === 'revoked' ? 'This connection’s credentials were revoked. Review agent connections before enrolling again.' : phase === 'error' ? 'Run the connector’s doctor command on your runtime host for the specific recovery step.' : 'This window watches setup progress. Enrollment alone does not confirm that the runtime is receiving messages.'}</p>
+          {status?.checkedAt && <small>Setup report: {formatAbsolute(status.checkedAt)}</small>}
+          {status?.errorCode && <small>Diagnostic: {humanize(status.errorCode)}</small>}
+          {statusError && <FormError message={statusError} />}
+          {(statusError || phase === 'error') && <button className="button secondary" onClick={() => setPollingAttempt(value => value + 1)}>Check status again</button>}
+          {['expired', 'revoked'].includes(phase) && <button className="button secondary" onClick={() => { setResult(null); setBusy(false); setError(''); }}>Create new setup prompt</button>}
+        </div>
+        {canUseHandoff && downloads && <details className="setup-details"><summary>Terminal fallback</summary><p>Download the setup file and move it to a private directory on the machine running {label}. Restrict it to your user (0600 on Unix, current-user-only ACL on Windows).</p><button className="button secondary" onClick={downloadHandoff}><Download size={16} />Download setup file</button><p>Download the <a href={downloads.connector} download="sinaloa-connector.mjs">official connector</a> and <a href={downloads.release}>release metadata</a>. Verify the connector’s SHA256 against <code>artifacts["sinaloa-connector.mjs"].sha256</code> before running it.</p><pre>{setupCommand}</pre><p>Setup checks and saves your connection, then exits. Delete the setup file after successful pairing. To start the durable bridge at user login on supported hosts, run <code>node sinaloa-connector.mjs install-service --state-dir &lt;reported state directory&gt;</code>. You can also append <code>--install-service</code> to setup, or use its reported start command under your existing process supervisor. User services may stop at logout; they do not guarantee unattended boot.</p></details>}
+        <FormError message={error} />
+      </section>}
+      <details className="setup-details" open={!handoff}><summary>Advanced setup · manual bridges</summary>
+      <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>Set this as <code>SINALOA_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once by the bridge.</small></label>
+      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Sinaloa credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p><div className="runtime-setup-list">
         <article><strong>OpenClaw</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p></article>
         <article><strong>Grok</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, and <code>XAI_API_KEY</code>. Add <code>SINALOA_MCP_URL</code> only when hosted MCP reads are configured.</p></article>
-        <article><strong>Hermes Agent · Windows</strong><p>Run <code>{hermesCommand}</code> in PowerShell from the Sinaloa repository on the Hermes computer. Paste this token only at the masked prompt, never at the PowerShell prompt or in a chat. Keep the bridge terminal open. After it reports “MCP send tools ready,” return to Agent connections, refresh if needed, and select <strong>Review agent access</strong> to approve this agent. Then start a new Hermes chat and verify a real Sinaloa message reaches another agent’s exact platform address and receives a reply. Your agent address is for routing, not a website to open.</p></article>
+        <article><strong>Hermes</strong><p>Use the official connector with the selected Hermes profile. It prepares API Server and MCP configuration while reusing the model provider already configured locally. Confirm a normal Hermes chat works before enrolling; missing provider credentials must be configured on the Hermes host. Start a new Hermes chat after configuration and verify an incoming Sinaloa message receives a reply.</p></article>
       </div></div>
-      <div className="dialog-actions"><button className="button primary" onClick={onClose}>I’ve copied the token</button></div>
+      </details>
+      <div className="dialog-actions"><button className="button secondary" onClick={onClose}>Close</button></div>
     </> : <form onSubmit={async event => {
       event.preventDefault();
       setBusy(true);
       setError('');
       try {
-        if (!validAgentLocalPart(localPart) || availability !== 'available') throw new Error('Choose an available agent address name');
-        setResult(await api.enrollmentToken(workspace.id, String(new FormData(event.currentTarget).get('name')), localPart, selectedAgentPermissions(selectedPermissions)));
+        if (reconnectAgent) setResult(await api.reconnectAgentToken(workspace.id, reconnectAgent.id, runtime));
+        else {
+          if (!validAgentLocalPart(localPart) || availability !== 'available') throw new Error('Choose an available agent address name');
+          setResult(await api.enrollmentToken(workspace.id, name.trim(), localPart, selectedAgentPermissions(selectedPermissions), runtime));
+        }
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
-      <Field label="Agent name" name="name" placeholder="Scheduling agent" required />
-      <label className="field"><span>Agent address name</span><div className="address-entry"><input name="localPart" value={localPartInput} onChange={event => setLocalPartInput(event.target.value)} autoComplete="off" spellCheck={false} placeholder="milo" required /><span>@{agentDomain}</span></div><small>Choose 3–32 letters, numbers, periods or hyphens. Start with a letter. The final address is checked again when the token is redeemed.</small></label>
+      <p className="dialog-copy">{reconnectAgent ? `Reconnect ${reconnectAgent.name} while keeping ${reconnectAgent.address}, its inbox and conversation history. Redeeming the token revokes the old credentials and disconnects the old runtime.` : 'Choose your runtime and connect it with a personalized setup prompt. Each agent gets its own durable wake connection and private state.'}</p>
+      <RuntimePicker runtime={runtime} onChange={setRuntime} />
+      {!reconnectAgent && <>
+      <Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Scheduling agent" required />
+      <label className="field"><span>Agent address name</span><div className="address-entry"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" required /><span>@{agentDomain}</span></div><small>Suggested from your agent’s name; you can edit it. Choose 3–32 letters, numbers, periods or hyphens. Start with a letter. The final address is checked again when the token is redeemed.</small></label>
       {localPartInput && <p role="status" className="address-feedback">{!validAgentLocalPart(localPart) ? 'Enter a valid, non-reserved address name.' : availability === 'checking' ? 'Checking availability…' : availability === 'available' ? `${localPart}@${agentDomain} is available now.` : availability === 'taken' ? 'That address is already taken.' : availability === 'error' ? 'Availability could not be checked. Try again.' : ''}</p>}
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
-      <div className="sdk-next-step"><p className="eyebrow">Hermes Agent · Windows</p><h3>Prepare before creating a token</h3><p>The one-use token expires after 15 minutes. On the Windows computer running Hermes, install Hermes Agent and confirm it can complete a normal chat with your configured model. You also need Node 22, npm, and a local Sinaloa repository checkout. Open PowerShell at the repository root.</p><p>Run <code>{hermesCommand} -PrepareOnly</code>. It checks the local Gateway, configures Sinaloa MCP tools, and builds the bridge without asking for a token. When it reports ready, keep <strong>Send agent messages</strong> selected above and create the token. Run the command again without <code>-PrepareOnly</code> when the token appears.</p></div>
+      </>}
+      <RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={sinaloaOrigin} reconnect={Boolean(reconnectAgent)} />
       <FormError message={error} />
-      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || availability !== 'available'}>{busy ? 'Creating token…' : 'Create one-time token'}</button></div>
+      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (!reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup prompt…' : reconnectAgent ? 'Create reconnect prompt' : 'Create setup prompt'}</button></div>
     </form>}
   </Modal>;
+}
+
+export function RuntimePicker({ runtime, onChange }: { runtime: ConnectorRuntime; onChange: (value: ConnectorRuntime) => void }) {
+  return <label className="field"><span>Agent runtime</span><select name="runtime" value={runtime} onChange={event => onChange(event.target.value as ConnectorRuntime)}>{RUNTIME_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select><small>{RUNTIME_OPTIONS.find(option => option.id === runtime)!.prerequisite}</small></label>;
+}
+
+export function RuntimePreparation({ runtime, command, apiUrl, reconnect = false }: { runtime: ConnectorRuntime; command: string; apiUrl: string; reconnect?: boolean }) {
+  const downloads = apiUrl ? { connector: `${apiUrl}/web/downloads/sinaloa-connector.mjs`, release: `${apiUrl}/web/downloads/release.json` } : null;
+  return <div className="sdk-next-step"><p className="eyebrow">{runtimeLabel(runtime)} · preparation</p><h3>Check the runtime before enrolling</h3><p>The one-use token expires after 15 minutes. Confirm the runtime can complete a normal model request and that you have terminal access to its persistent host. Node.js 22 or newer is required. Provider credentials stay on that host.</p><p>{downloads ? <>Download the <a href={downloads.connector}>official connector</a> and <a href={downloads.release}>release metadata</a>.</> : 'Download the official connector and release metadata from this Sinaloa deployment.'} Verify SHA256 against <code>artifacts["sinaloa-connector.mjs"].sha256</code> before running:</p>{reconnect && <p>If this host already has the connection, use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check it. Preserve that directory and stop its connector before applying reconnect. Use the preparation command below for a new host or profile without an existing Sinaloa connection.</p>}<pre>{command}</pre>{runtime === 'hermes' && <p>Preparation reuses the configured Hermes model provider and generates or reuses the local API Server key. These keys are separate from the Sinaloa enrollment token. Start the selected profile Gateway in a separate terminal after preparation. A running Gateway may need an owner-approved restart; preparation does not restart it automatically.</p>}{runtime === 'grok' && <p>Configure a missing xAI API key privately on the host. The installer cannot create a provider account or substitute the Sinaloa token for an xAI key.</p>}{apiUrl && isLoopbackOrigin(apiUrl) && <p>This local Sinaloa address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}</div>;
 }
 
 export function AgentPermissionPicker({ selected, onChange }: { selected: string[]; onChange: (permissions: string[]) => void }) {
@@ -1322,7 +1401,15 @@ function CommandMenu({ view, onClose, onSelectCase }: { view: HumanView; onClose
 function EmptyCaseState({ section }: { section: NavSection }) { return <div className="case-empty"><CircleDashed size={28} /><h1>{emptyTitle(section)}</h1><p>{emptyBody(section)}</p></div>; }
 function Field(props: InputHTMLAttributes<HTMLInputElement> & { label: string; name: string }) { const { label, ...input } = props; return <label className="field"><span>{label}</span><input {...input} /></label>; }
 function FormError({ message }: { message: string }) { return message ? <p className="form-error" role="alert"><AlertCircle size={15} />{message}</p> : null; }
-function CopyButton({ value, label }: { value: string; label: string }) { const [copied, setCopied] = useState(false); return <button type="button" className="icon-button" aria-label={label} onClick={async () => { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>; }
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  useEffect(() => { if (!copied) return; const timer = setTimeout(() => setCopied(false), 1500); return () => clearTimeout(timer); }, [copied]);
+  return <><button type="button" className="icon-button" aria-label={label} onClick={async () => {
+    try { await navigator.clipboard.writeText(value); setCopied(true); setCopyError(false); }
+    catch { setCopyError(true); }
+  }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>{copyError && <small role="alert">Could not copy. Select the value and copy it manually.</small>}</>;
+}
 function InlineNotice({ title, body, tone }: { title: string; body: string; tone: 'unknown' | 'danger' | 'attention' }) { return <div className={`inline-notice tone-${tone}`} role="status"><AlertCircle size={18} /><div><strong>{title}</strong><p>{body}</p></div></div>; }
 function StatusBadge({ workCase }: { workCase: WorkCase }) { const state = caseState(workCase); return <span className={`status-badge tone-${caseTone(workCase)}`}><StatusGlyph state={state} />{caseLabel(workCase)}</span>; }
 function StatusText({ value }: { value: string }) { return <span className={`status-text value-${value.replaceAll(' ', '-')}`}><span />{humanize(value)}</span>; }
