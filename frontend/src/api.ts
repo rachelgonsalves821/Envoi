@@ -31,7 +31,8 @@ export function shouldNotifySessionExpired(pathname: string) {
     '/api/auth/totp/verify',
     '/api/auth/workos/sign-in',
     '/api/auth/workos/sign-up',
-    '/api/auth/workos/callback'
+    '/api/auth/workos/callback',
+    '/api/waitlist'
   ].some(path => pathname.startsWith(path));
 }
 

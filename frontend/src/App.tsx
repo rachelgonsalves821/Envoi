@@ -10,6 +10,7 @@ import {
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
 import { ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl } from './api';
+import LandingPage from './LandingPage';
 import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from './agent-permissions';
 import { previewRequested } from './preview';
 import { mergeHistory, olderCursors } from './history';
@@ -99,6 +100,7 @@ previewView.caseQueue = previewView.cases.map(workCase => {
 });
 export default function App() {
   const isPreview = typeof window !== 'undefined' && previewRequested(window.location.search, import.meta.env.DEV);
+  const isLandingPreview = import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('landing-preview');
   const [boot, setBoot] = useState<BootState>('loading');
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [human, setHuman] = useState<Human | null>(null);
@@ -298,13 +300,13 @@ export default function App() {
   const revalidateAccountRef = useRef(revalidateAccount);
   revalidateAccountRef.current = revalidateAccount;
 
-  useEffect(() => { if (!isPreview) void loadAccount(); }, [isPreview]);
+  useEffect(() => { if (!isPreview && !isLandingPreview) void loadAccount(); }, [isPreview, isLandingPreview]);
 
   useEffect(() => {
-    if (isPreview) return;
+    if (isPreview || isLandingPreview) return;
     window.addEventListener(SESSION_EXPIRED_EVENT, expireSession);
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expireSession);
-  }, [expireSession, isPreview]);
+  }, [expireSession, isPreview, isLandingPreview]);
 
   useEffect(() => {
     if (isPreview) return;
@@ -403,9 +405,12 @@ export default function App() {
 
   const renderedGeneration = sessionGeneration();
   const checkRenderedSession = () => { if (!isCurrentSession(renderedGeneration) || sessionCheckRef.current) throw new SessionRequestCancelled(); };
+  if (isLandingPreview) return <LandingPage signInPath="https://beta.sinaloa-inbox.com/api/auth/workos/sign-in" />;
   if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} />;
-  if (boot === 'signedOut' && config) return <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
+  if (boot === 'signedOut' && config) return config.provider === 'workos'
+    ? <LandingPage signInPath={config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
+    : <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
   if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} />;
   if (boot === 'error') return <FailureScreen message={error} onRetry={signingOut.current ? logout : loadAccount} />;
   if (!human || !workspace || !view || !config) return <LoadingScreen />;
