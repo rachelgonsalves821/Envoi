@@ -119,7 +119,9 @@ describe('Hermes bridge against real local Sinaloa', () => {
       bridge = await createHermesBridge(configuration, { fetch: fetcher, env: {} });
       connector = bridge.connector;
       await eventually(async () => await connector.processWorkOnce() ? true : null);
-      expect(await connector.processWorkOnce()).toBe(true);
+      // The other case can finish before the failed run's server retry delay
+      // expires. An empty claim is normal; keep polling as the service does.
+      await eventually(async () => await connector.processWorkOnce() ? true : null);
       expect(created.size).toBe(2);
       const sessions = [...created.values()].map(item => (JSON.parse(item.body) as { session_id: string }).session_id);
       expect(sessions[0]).not.toBe(sessions[1]);

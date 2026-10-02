@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ConnectorContractError, ConnectorCredentialsError, ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore } from '@sinaloa/protocol/connector';
+import { ConnectorContractError, ConnectorCredentialsError, ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore, type WorkHandler } from '@sinaloa/protocol/connector';
 
 const session = (): ConnectorSession => ({
   agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@sinaloa.mail',
@@ -321,6 +321,78 @@ describe('Sinaloa outbound connector', () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ error: 'Not found' }), { status: 404 }));
     const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch, handler: { admit: async () => {}, process: async () => {} } });
     await expect(connector.processWorkOnce()).rejects.toBeInstanceOf(ConnectorContractError);
+  });
+
+  it('keeps the service alive through empty claims until a delayed handler retry completes once', async () => {
+    vi.useFakeTimers();
+    const stop = new AbortController();
+    let running: Promise<void> | undefined;
+    try {
+      const memory = memoryStore(session());
+      let attempts = 0;
+      let retryAt = 0;
+      let emptyClaims = 0;
+      let failures = 0;
+      let replies = 0;
+      let completions = 0;
+      const message = { id: 'msg_one', recipientAgentId: 'agent_one',
+        from: { address: 'two@sinaloa.mail' }, text: 'hello', status: 'delivered' };
+      const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const route = String(url);
+        if (route.endsWith('/work/claim')) {
+          if (Date.now() < retryAt) {
+            emptyClaims += 1;
+            return new Response(JSON.stringify({ work: null }));
+          }
+          attempts += 1;
+          return new Response(JSON.stringify({ work: { workId: 'work_one', message,
+            leaseToken: `fence_${attempts}`, leaseExpiresAt: new Date(Date.now() + 60_000).toISOString() } }));
+        }
+        if (route.endsWith('/work/work_one/acknowledge')) return new Response(JSON.stringify({
+          workId: 'work_one', status: 'acknowledged', receipt: { messageId: 'msg_one', state: 'acknowledged' }
+        }));
+        if (route.endsWith('/work/work_one/fail')) {
+          expect(JSON.parse(String(init?.body))).toEqual({ leaseToken: 'fence_1', retryable: true, reasonCode: 'HANDLER_FAILED' });
+          failures += 1;
+          retryAt = Date.now() + 3_000;
+          return new Response(JSON.stringify({ workId: 'work_one', status: 'retryable' }));
+        }
+        if (route.includes('/events/delta')) return new Response(JSON.stringify({ events: [], nextCursor: null, hasMore: false }));
+        if (route.endsWith('/messages')) {
+          expect(new Headers(init?.headers).get('Idempotency-Key')).toBe('reply-msg-one-1');
+          replies += 1;
+          return new Response(JSON.stringify({ id: 'msg_reply' }));
+        }
+        if (route.endsWith('/work/work_one/complete')) {
+          expect(JSON.parse(String(init?.body)).leaseToken).toBe('fence_2');
+          completions += 1;
+          stop.abort();
+          return new Response(JSON.stringify({ workId: 'work_one', status: 'processed',
+            receipt: { messageId: 'msg_one', state: 'processed' } }));
+        }
+        throw new Error(`Unexpected route ${route}`);
+      });
+      const process = vi.fn<WorkHandler['process']>(async (_message, context) => {
+        if (attempts === 1) throw new Error('Temporary runtime connection loss');
+        await context.reply('Recovered reply', 'reply-msg-one-1');
+      });
+      const connector = new SinaloaConnector('https://api.example', memory.store, {
+        fetch: fetcher as typeof fetch, pollIntervalMs: 100, handler: { admit: async () => {}, process }
+      });
+      running = connector.run(stop.signal);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(emptyClaims).toBeGreaterThan(0);
+      expect(attempts).toBe(2);
+      expect(process).toHaveBeenCalledTimes(2);
+      expect(failures).toBe(1);
+      expect(replies).toBe(1);
+      expect(completions).toBe(1);
+      await running;
+    } finally {
+      stop.abort();
+      try { await running; }
+      finally { vi.useRealTimers(); }
+    }
   });
 
   it('renews the same fence while a long handler is running', async () => {
