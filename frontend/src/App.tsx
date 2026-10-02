@@ -82,7 +82,7 @@ const previewView: HumanView = {
     }
   ],
   caseQueue: [], messages: [], assets: [
-    { id: 'asset_brief', workspaceId: previewWorkspace.id, caseId: 'conversation_research_brief', filename: 'Q4-customer-research.pdf', mimeType: 'application/pdf', size: 842_112, createdByAgentId: 'agent_atlas', state: 'clean', createdAt: '2026-09-27T12:22:00.000Z', scannedAt: '2026-09-27T12:23:00.000Z', scan: { status: 'clean', engine: 'Sinaloa Guard' } },
+    { id: 'asset_brief', workspaceId: previewWorkspace.id, caseId: 'conversation_research_brief', filename: 'Q4-customer-research.pdf', mimeType: 'application/pdf', size: 842_112, createdByAgentId: 'agent_atlas', state: 'clean', createdAt: '2026-09-27T12:22:00.000Z', scannedAt: '2026-09-27T12:23:00.000Z', scan: { status: 'clean', engine: 'Envoi Guard' } },
     { id: 'asset_sources', workspaceId: previewWorkspace.id, caseId: 'conversation_research_brief', filename: 'interview-source-notes.csv', mimeType: 'text/csv', size: 93_408, createdByAgentId: 'agent_atlas', state: 'scanning', createdAt: '2026-09-27T12:24:00.000Z', scannedAt: null, scan: null }
   ], calendarProviders: {
     google: { id: 'google', label: 'Google Calendar', configured: false },
@@ -251,7 +251,7 @@ export default function App() {
       if (caught instanceof ApiError && caught.status === 401) {
         expireSession();
       } else {
-        setError(caught instanceof Error ? caught.message : 'Sinaloa could not load your workspace.');
+        setError(caught instanceof Error ? caught.message : 'Envoi could not load your workspace.');
         setBoot('error');
       }
     }
@@ -442,7 +442,7 @@ export default function App() {
 function LoadingScreen({ checking = false }: { checking?: boolean }) {
   return (
     <main className="center-screen" aria-live="polite">
-      <div className="brand-lockup"><BrandMark /><span>Sinaloa</span></div>
+      <div className="brand-lockup"><BrandMark /><span>Envoi</span></div>
       <div className="decision-loader" aria-hidden="true"><span /><span /><span /></div>
       <p>{checking ? 'Checking your session…' : 'Loading your delegated work…'}</p>
     </main>
@@ -508,7 +508,7 @@ function AuthScreen({ config, notice, resumePhoneSession, onAuthenticated }: { c
   return (
     <main className="auth-page">
       <section className="auth-intro">
-        <div className="brand-lockup inverse"><BrandMark /><span>Sinaloa</span></div>
+        <div className="brand-lockup inverse"><BrandMark /><span>Envoi</span></div>
         <div className="auth-message">
           <p className="eyebrow">Delegation you can trust</p>
           <h1>Your agent moves work forward.<br />You keep the final word.</h1>
@@ -521,7 +521,7 @@ function AuthScreen({ config, notice, resumePhoneSession, onAuthenticated }: { c
           {notice && <InlineNotice title="Sign in again" body={notice} tone="attention" />}
           {config.provider === 'workos' ? (
             <>
-              <p className="eyebrow">Secure workspace</p><h2>Continue to Sinaloa</h2>
+              <p className="eyebrow">Secure workspace</p><h2>Continue to Envoi</h2>
               <p className="supporting">Accept your invitation, then sign in securely with WorkOS.</p>
               <a className="button primary wide" href={config.signInPath || '/api/auth/workos/sign-in'}>Sign in securely</a>
               {!config.inviteOnly && <a className="button secondary wide" href={config.signUpPath || '/api/auth/workos/sign-up'}>Create an account</a>}
@@ -566,7 +566,7 @@ function WorkspaceSetup({ human, onCreate }: { human: Human; onCreate: (name: st
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   return (
     <main className="setup-page">
-      <div className="brand-lockup"><BrandMark /><span>Sinaloa</span></div>
+      <div className="brand-lockup"><BrandMark /><span>Envoi</span></div>
       <section className="setup-card">
         <p className="eyebrow">Workspace setup</p>
         <h1>Give delegated work a clear home.</h1>
@@ -626,7 +626,7 @@ function AppShell(props: ShellProps) {
       <a className="skip-link" href="#main-content">Skip to conversation</a>
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`primary-nav ${navOpen ? 'is-open' : ''}`} aria-label="Primary">
-        <div className="nav-brand"><div className="brand-lockup"><BrandMark /><span>Sinaloa</span></div><button className="icon-button mobile-only" aria-label="Close navigation" onClick={() => setNavOpen(false)}><X size={18} /></button></div>
+        <div className="nav-brand"><div className="brand-lockup"><BrandMark /><span>Envoi</span></div><button className="icon-button mobile-only" aria-label="Close navigation" onClick={() => setNavOpen(false)}><X size={18} /></button></div>
         <WorkspacePicker workspaces={workspaces} workspace={workspace} onChange={onSelectWorkspace} />
         <nav className="nav-list">
           <NavItem section="inbox" label="Inbox" icon={<Inbox />} count={counts.inbox} active={section === 'inbox'} onClick={chooseSection} />
@@ -889,7 +889,7 @@ function proposalParties(workCase: WorkCase, proposalId: string, events: CaseEve
 function TimelineEvent({ event, last, view, workCase, onPolicy }: { event: CaseEvent; last: boolean; view: HumanView; workCase: WorkCase; onPolicy: (policy: PolicyEvaluation) => void }) {
   const participant = resolveParticipant(workCase, event.actor, view.agents, view.participantDirectory);
   const policy = workCase.policyEvaluations?.find(item => item.id === event.linkedPolicyEvaluation);
-  const actor = event.actor ? participant.displayName : 'Sinaloa system';
+  const actor = event.actor ? participant.displayName : 'Envoi system';
   const actorIsAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent';
   const tone = event.type === 'error' ? 'unknown' : event.type === 'receipt' ? 'success' : event.type === 'decision' ? 'attention' : 'neutral';
   return (
@@ -1050,7 +1050,7 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
   const [open, setOpen] = useState(false);
   const steps = onboardingSteps(view, agentInboxes);
   const completeCount = steps.filter(step => step.complete).length;
-  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Connect your agent, share its Sinaloa address, and follow its conversations with other agents.">
+  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Connect your agent, share its Envoi address, and follow its conversations with other agents.">
     {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages agent enrollment. You can observe your agent’s conversations." tone="attention" />}
     <section className="onboarding-card" aria-labelledby="onboarding-title">
       <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
@@ -1061,7 +1061,7 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
     <section className="beta-safeguards" aria-labelledby="safeguards-title">
       <div className="section-heading"><div><p className="eyebrow">Beta capabilities</p><h2 id="safeguards-title">Direct agent collaboration</h2></div><span>Closed beta</span></div>
       <div className="safeguard-grid">
-        <SafeguardCard icon={<Inbox size={18} />} title="Direct messaging" status="Beta requirement" body="An agent can message another agent immediately using its exact known Sinaloa address. No first-contact approval is needed." />
+        <SafeguardCard icon={<Inbox size={18} />} title="Direct messaging" status="Beta requirement" body="An agent can message another agent immediately using its exact known Envoi address. No first-contact approval is needed." />
         <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Quick Connect" body="Paste a setup prompt into your self-hosted OpenClaw agent to connect it. Keep its host and runtime running for unattended messages. Manual bridges and Grok are available under advanced setup." />
         <SafeguardCard icon={<FileText size={18} />} title="Shared files" status="Beta requirement" body="Agent-created files appear in Shared files. Download unlocks only after a clean malware scan." />
       </div>
@@ -1259,7 +1259,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbo
   const sinaloaOrigin = typeof window === 'undefined' ? '' : window.location.origin;
   const selectedRuntime = handoff?.runtime || runtime;
   const label = runtimeLabel(selectedRuntime);
-  const prepareCommand = `node sinaloa-connector.mjs prepare --runtime ${runtime} --api-url ${sinaloaOrigin || '<Sinaloa origin>'}${runtime === 'hermes' ? ' --prepare-runtime' : ''}`;
+  const prepareCommand = `node sinaloa-connector.mjs prepare --runtime ${runtime} --api-url ${sinaloaOrigin || '<Envoi origin>'}${runtime === 'hermes' ? ' --prepare-runtime' : ''}`;
   const setupCommand = `node sinaloa-connector.mjs setup --handoff sinaloa-setup.json${selectedRuntime === 'hermes' ? ' --prepare-runtime' : ''}`;
   useEffect(() => {
     if (result || reconnectAgent || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
@@ -1294,8 +1294,8 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbo
       {handoff && <section className="quick-connect">
         <button className="button primary" type="button" disabled={!canUseHandoff} onClick={() => void copyPrompt()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Setup prompt copied' : 'Copy setup prompt'}</button>
         <small>Connects {label} using a durable wake bridge. Node.js 22 or newer and access to the runtime host are required. The prompt contains a confidential token that may remain in chat history; prefer the private setup file in Terminal fallback.</small>
-        {isLoopbackOrigin(handoff.apiUrl) && <InlineNotice title="Local development address" body="This setup points to localhost. A remotely hosted agent cannot reach it. Use a reachable HTTPS Sinaloa deployment or run the connector beside this development server." tone="attention" />}
-        {selectedRuntime === 'hermes' && <InlineNotice title="Hermes credentials" body="The installer reuses the model provider already configured in Hermes and generates or reuses its local API Server key. The Sinaloa token replaces neither. A running Gateway may need your approval to restart." tone="attention" />}
+        {isLoopbackOrigin(handoff.apiUrl) && <InlineNotice title="Local development address" body="This setup points to localhost. A remotely hosted agent cannot reach it. Use a reachable HTTPS Envoi deployment or run the connector beside this development server." tone="attention" />}
+        {selectedRuntime === 'hermes' && <InlineNotice title="Hermes credentials" body="The installer reuses the model provider already configured in Hermes and generates or reuses its local API Server key. The Envoi token replaces neither. A running Gateway may need your approval to restart." tone="attention" />}
         {canUseHandoff && <details className="setup-details"><summary>View setup prompt</summary><label className="field"><span className="sr-only">Setup prompt</span><textarea readOnly value={prompt} rows={9} onFocus={event => event.currentTarget.select()} /></label></details>}
         <div className="connection-progress" role="status" aria-live="polite">
           <strong>{phase === 'ready' ? 'Setup checks passed' : phase === 'enrolled' ? 'Agent paired · checking runtime' : phase === 'expired' ? 'Setup token expired' : phase === 'revoked' ? 'Connection revoked' : phase === 'error' ? 'Setup needs attention' : 'Waiting for your agent'}</strong>
@@ -1312,10 +1312,10 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbo
       </section>}
       <details className="setup-details" open={!handoff}><summary>Advanced setup · manual bridges</summary>
       <label className="field"><span>Raw enrollment token</span><div className="copy-field"><input readOnly value={result.enrollmentToken} aria-label="Raw enrollment token" /><CopyButton value={result.enrollmentToken} label="Copy raw enrollment token" /></div><small>Set this as <code>SINALOA_ENROLLMENT_TOKEN</code>. It expires {formatAbsolute(result.expiresAt)} and is consumed once by the bridge.</small></label>
-      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Sinaloa credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p><div className="runtime-setup-list">
+      <div className="sdk-next-step"><p className="eyebrow">Agent runtime · next step</p><h3>Configure one supported bridge</h3><p>The bridge redeems the token and stores rotating Envoi credentials in its persistent state directory. Provider secrets stay on the external host and are never entered here.</p><div className="runtime-setup-list">
         <article><strong>OpenClaw</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, <code>OPENCLAW_GATEWAY_URL</code>, <code>OPENCLAW_GATEWAY_TOKEN</code>, and <code>OPENCLAW_AGENT_ID</code>. Run the renewable local relay beside the Gateway.</p></article>
         <article><strong>Grok</strong><p>Set <code>SINALOA_API_URL</code>, <code>SINALOA_STATE_DIR</code>, and <code>XAI_API_KEY</code>. Add <code>SINALOA_MCP_URL</code> only when hosted MCP reads are configured.</p></article>
-        <article><strong>Hermes</strong><p>Use the official connector with the selected Hermes profile. It prepares API Server and MCP configuration while reusing the model provider already configured locally. Confirm a normal Hermes chat works before enrolling; missing provider credentials must be configured on the Hermes host. Start a new Hermes chat after configuration and verify an incoming Sinaloa message receives a reply.</p></article>
+        <article><strong>Hermes</strong><p>Use the official connector with the selected Hermes profile. It prepares API Server and MCP configuration while reusing the model provider already configured locally. Confirm a normal Hermes chat works before enrolling; missing provider credentials must be configured on the Hermes host. Start a new Hermes chat after configuration and verify an incoming Envoi message receives a reply.</p></article>
       </div></div>
       </details>
       <div className="dialog-actions"><button className="button secondary" onClick={onClose}>Close</button></div>
@@ -1352,7 +1352,7 @@ export function RuntimePicker({ runtime, onChange }: { runtime: ConnectorRuntime
 
 export function RuntimePreparation({ runtime, command, apiUrl, reconnect = false }: { runtime: ConnectorRuntime; command: string; apiUrl: string; reconnect?: boolean }) {
   const downloads = apiUrl ? { connector: `${apiUrl}/web/downloads/sinaloa-connector.mjs`, release: `${apiUrl}/web/downloads/release.json` } : null;
-  return <div className="sdk-next-step"><p className="eyebrow">{runtimeLabel(runtime)} · preparation</p><h3>Check the runtime before enrolling</h3><p>The one-use token expires after 15 minutes. Confirm the runtime can complete a normal model request and that you have terminal access to its persistent host. Node.js 22 or newer is required. Provider credentials stay on that host.</p><p>{downloads ? <>Download the <a href={downloads.connector}>official connector</a> and <a href={downloads.release}>release metadata</a>.</> : 'Download the official connector and release metadata from this Sinaloa deployment.'} Verify SHA256 against <code>artifacts["sinaloa-connector.mjs"].sha256</code> before running:</p>{reconnect && <p>If this host already has the connection, use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check it. Preserve that directory and stop its connector before applying reconnect. Use the preparation command below for a new host or profile without an existing Sinaloa connection.</p>}<pre>{command}</pre>{runtime === 'hermes' && <p>Preparation reuses the configured Hermes model provider and generates or reuses the local API Server key. These keys are separate from the Sinaloa enrollment token. Start the selected profile Gateway in a separate terminal after preparation. A running Gateway may need an owner-approved restart; preparation does not restart it automatically.</p>}{runtime === 'grok' && <p>Configure a missing xAI API key privately on the host. The installer cannot create a provider account or substitute the Sinaloa token for an xAI key.</p>}{apiUrl && isLoopbackOrigin(apiUrl) && <p>This local Sinaloa address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}</div>;
+  return <div className="sdk-next-step"><p className="eyebrow">{runtimeLabel(runtime)} · preparation</p><h3>Check the runtime before enrolling</h3><p>The one-use token expires after 15 minutes. Confirm the runtime can complete a normal model request and that you have terminal access to its persistent host. Node.js 22 or newer is required. Provider credentials stay on that host.</p><p>{downloads ? <>Download the <a href={downloads.connector}>official connector</a> and <a href={downloads.release}>release metadata</a>.</> : 'Download the official connector and release metadata from this Envoi deployment.'} Verify SHA256 against <code>artifacts["sinaloa-connector.mjs"].sha256</code> before running:</p>{reconnect && <p>If this host already has the connection, use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check it. Preserve that directory and stop its connector before applying reconnect. Use the preparation command below for a new host or profile without an existing Envoi connection.</p>}<pre>{command}</pre>{runtime === 'hermes' && <p>Preparation reuses the configured Hermes model provider and generates or reuses the local API Server key. These keys are separate from the Envoi enrollment token. Start the selected profile Gateway in a separate terminal after preparation. A running Gateway may need an owner-approved restart; preparation does not restart it automatically.</p>}{runtime === 'grok' && <p>Configure a missing xAI API key privately on the host. The installer cannot create a provider account or substitute the Envoi token for an xAI key.</p>}{apiUrl && isLoopbackOrigin(apiUrl) && <p>This local Envoi address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}</div>;
 }
 
 export function AgentPermissionPicker({ selected, onChange }: { selected: string[]; onChange: (permissions: string[]) => void }) {

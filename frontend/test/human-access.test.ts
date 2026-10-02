@@ -59,7 +59,7 @@ describe('external runtime enrollment handoff', () => {
     expect(markup).toContain('SINALOA_MCP_URL');
     expect(markup).toContain('Hermes');
     expect(markup).toContain('model provider already configured locally');
-    expect(markup).toContain('incoming Sinaloa message');
+    expect(markup).toContain('incoming Envoi message');
     expect(markup).not.toContain('connect-windows.ps1');
     expect(markup).toContain('Provider secrets stay on the external host');
     expect(markup).not.toContain('/api/agent-enroll');
