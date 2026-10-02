@@ -18,8 +18,8 @@ describe('two-owner native case presentation', () => {
         payload: { messageType: 'decision', data: { decision: { kind: 'accept', proposalMessageId: 'msg_counter' } }, proposalId: 'proposal_1' }, linkedPolicyEvaluation: null, precedingEventRef: null }]
     } as WorkCase;
     const agents = [
-      { id: 'agent_alice', name: 'Alice agent', address: 'alice@agents.sinaloa-inbox.com' },
-      { id: 'agent_bob', name: 'Bob agent', address: 'bob@agents.sinaloa-inbox.com' }
+      { id: 'agent_alice', name: 'Alice agent', address: 'alice@agents.envoi-agents.com' },
+      { id: 'agent_bob', name: 'Bob agent', address: 'bob@agents.envoi-agents.com' }
     ];
     for (const ownerAgentId of ['agent_alice', 'agent_bob']) {
       const view = { agents, participantDirectory: {}, inbox: { ownerAgentId } } as HumanView;

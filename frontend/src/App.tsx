@@ -405,7 +405,7 @@ export default function App() {
 
   const renderedGeneration = sessionGeneration();
   const checkRenderedSession = () => { if (!isCurrentSession(renderedGeneration) || sessionCheckRef.current) throw new SessionRequestCancelled(); };
-  if (isLandingPreview) return <LandingPage signInPath="https://beta.sinaloa-inbox.com/api/auth/workos/sign-in" />;
+  if (isLandingPreview) return <LandingPage signInPath={`${import.meta.env.VITE_PUBLIC_URL || 'https://www.envoi-agents.com'}/api/auth/workos/sign-in`} />;
   if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} />;
   if (boot === 'signedOut' && config) return config.provider === 'workos'
@@ -1067,7 +1067,7 @@ function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInb
       </div>
     </section>
     {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={null} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can choose permissions and create a private setup prompt to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
-    {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.sinaloa-inbox.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
+    {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </PageFrame>;
 }
 
@@ -1216,7 +1216,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
 const reservedAgentAddresses = new Set(['admin', 'administrator', 'agents', 'abuse', 'billing', 'contact', 'help', 'info', 'mail', 'noreply', 'no-reply', 'postmaster', 'root', 'security', 'support', 'system']);
 const validAgentLocalPart = (value: string) => value.length >= 3 && value.length <= 32 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(value) && !reservedAgentAddresses.has(value);
 
-export function EnrollmentDialog({ workspace, agentDomain = 'agents.sinaloa-inbox.com', result, setResult, onClose, onRefresh, reconnectAgent }: { workspace: Workspace; agentDomain?: string; result: EnrollmentResult | null; setResult: (value: EnrollmentResult | null) => void; onClose: () => void; onRefresh?: () => Promise<unknown>; reconnectAgent?: Agent & { runtime?: ConnectorRuntime } }) {
+export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents.com', result, setResult, onClose, onRefresh, reconnectAgent }: { workspace: Workspace; agentDomain?: string; result: EnrollmentResult | null; setResult: (value: EnrollmentResult | null) => void; onClose: () => void; onRefresh?: () => Promise<unknown>; reconnectAgent?: Agent & { runtime?: ConnectorRuntime } }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [runtime, setRuntime] = useState<ConnectorRuntime>(reconnectAgent?.runtime || 'openclaw');

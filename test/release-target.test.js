@@ -43,14 +43,14 @@ function smokeResponses(overrides = {}) {
 }
 
 test('release smoke confirms the recorded SHA on health and readiness', async () => {
-  await assert.doesNotReject(() => smokeDeployment('https://beta.sinaloa-inbox.com/', releaseSha, { fetchImpl: smokeResponses(), log() {} }));
+  await assert.doesNotReject(() => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses(), log() {} }));
 });
 
 for (const endpoint of ['health', 'ready']) {
   for (const [description, returnedSha] of [['another release', 'f'.repeat(40)], ['missing release evidence', undefined]]) {
     test(`release smoke rejects ${description} from /${endpoint}`, async () => {
       await assert.rejects(
-        () => smokeDeployment('https://beta.sinaloa-inbox.com/', releaseSha, { fetchImpl: smokeResponses({ [endpoint]: { releaseSha: returnedSha } }), log() {} }),
+        () => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses({ [endpoint]: { releaseSha: returnedSha } }), log() {} }),
         new RegExp(`/${endpoint} did not confirm the expected release SHA`)
       );
     });
@@ -59,11 +59,11 @@ for (const endpoint of ['health', 'ready']) {
 
 test('invalid release SHA fails before contacting the deployment', async () => {
   await assert.rejects(
-    () => smokeDeployment('https://beta.sinaloa-inbox.com/', 'short-sha', { fetchImpl() { assert.fail('No request should be made'); }, log() {} }),
+    () => smokeDeployment('https://www.envoi-agents.com/', 'short-sha', { fetchImpl() { assert.fail('No request should be made'); }, log() {} }),
     /full 40-hex release SHA/
   );
 });
 
 test('read-only smoke remains compatible when no expected SHA is supplied', async () => {
-  await assert.doesNotReject(() => smokeDeployment('https://beta.sinaloa-inbox.com/', undefined, { fetchImpl: smokeResponses({ health: { releaseSha: undefined }, ready: { releaseSha: undefined } }), log() {} }));
+  await assert.doesNotReject(() => smokeDeployment('https://www.envoi-agents.com/', undefined, { fetchImpl: smokeResponses({ health: { releaseSha: undefined }, ready: { releaseSha: undefined } }), log() {} }));
 });

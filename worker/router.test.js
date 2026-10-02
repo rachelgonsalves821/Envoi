@@ -10,12 +10,12 @@ import {
 } from './router.js';
 
 test('allowed hostnames are normalized and enforced', () => {
-  assert.deepEqual([...parseAllowedHostnames(' SINALOA-INBOX.COM., beta.example.com ')], [
-    'sinaloa-inbox.com',
+  assert.deepEqual([...parseAllowedHostnames(' WWW.ENVOI-AGENTS.COM., beta.example.com ')], [
+    'www.envoi-agents.com',
     'beta.example.com'
   ]);
-  assert.equal(isAllowedHostname(new URL('https://sinaloa-inbox.com/api'), 'sinaloa-inbox.com'), true);
-  assert.equal(isAllowedHostname(new URL('https://attacker.example/api'), 'sinaloa-inbox.com'), false);
+  assert.equal(isAllowedHostname(new URL('https://www.envoi-agents.com/api'), 'www.envoi-agents.com'), true);
+  assert.equal(isAllowedHostname(new URL('https://attacker.example/api'), 'www.envoi-agents.com'), false);
   assert.equal(isAllowedHostname(new URL('https://preview.workers.dev/api'), ''), false);
   assert.equal(isAllowedHostname(new URL('https://preview.workers.dev/api'), undefined), false);
 });
@@ -29,7 +29,7 @@ test('only allowlisted non-empty environment values reach the container', () => 
 });
 
 test('forwarded headers are derived from the trusted request URL and Cloudflare IP', async () => {
-  const original = new Request('https://sinaloa-inbox.com:8443/api/messages?cursor=a%2Fb', {
+  const original = new Request('https://www.envoi-agents.com:8443/api/messages?cursor=a%2Fb', {
     method: 'POST',
     headers: {
       'cf-connecting-ip': '203.0.113.42',
@@ -43,7 +43,7 @@ test('forwarded headers are derived from the trusted request URL and Cloudflare 
   assert.equal(new URL(forwarded.url).pathname, '/api/messages');
   assert.equal(new URL(forwarded.url).search, '?cursor=a%2Fb');
   assert.equal(forwarded.headers.get('x-forwarded-proto'), 'https');
-  assert.equal(forwarded.headers.get('x-forwarded-host'), 'sinaloa-inbox.com:8443');
+  assert.equal(forwarded.headers.get('x-forwarded-host'), 'www.envoi-agents.com:8443');
   assert.equal(forwarded.headers.get('x-forwarded-port'), '8443');
   assert.equal(forwarded.headers.get('x-forwarded-for'), '203.0.113.42');
   assert.equal(forwarded.headers.get('x-real-ip'), '203.0.113.42');

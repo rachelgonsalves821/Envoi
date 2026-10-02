@@ -50,7 +50,7 @@ describe('external runtime enrollment handoff', () => {
     }));
 
     expect(markup).toContain('Raw enrollment token');
-    expect(markup).toContain('milo@agents.sinaloa-inbox.com');
+    expect(markup).toContain('milo@agents.envoi-agents.com');
     expect(markup).toContain('Copy chosen agent address');
     expect(markup).toContain('enroll_once_secret');
     expect(markup).toContain('SINALOA_ENROLLMENT_TOKEN');
@@ -127,7 +127,7 @@ describe('human action visibility', () => {
 
   it('shows native counterparty block state and manager-only controls', () => {
     const participant = { id: 'agent_peer', type: 'externalAgent' as const, displayName: 'Peer',
-      address: 'peer@agents.sinaloa-inbox.com', accessState: 'blocked' as const,
+      address: 'peer@agents.envoi-agents.com', accessState: 'blocked' as const,
       relationship: 'counterpartyAgent' as const };
     const observer = renderToStaticMarkup(createElement(ParticipantCard, { participant, label: 'Counterparty' }));
     const manager = renderToStaticMarkup(createElement(ParticipantCard, { participant, label: 'Counterparty',

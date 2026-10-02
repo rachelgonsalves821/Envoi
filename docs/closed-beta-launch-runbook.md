@@ -27,7 +27,7 @@ Run the repository CI matrix on the candidate: clean install, backend, frontend,
 | Target | Application Worker / Container | Public app origin | Separate providers |
 | --- | --- | --- | --- |
 | Staging | `sinaloa-staging` / `sinaloa-beta-staging` | `https://sinaloa-staging.rachelgonsalves821.workers.dev` | Neon `sinaloa-staging`, private R2 `sinaloa-staging`, staging scanner and selected staging WorkOS app |
-| Beta | `sinaloa-beta` / `sinaloa-beta-release` | `https://beta.sinaloa-inbox.com` | Neon `sinaloa-beta` / `sinaloa_beta`, private R2 `sinaloa-beta`, `sinaloa-scanner-beta`, separate WorkOS `Sinaloa Beta` environment/app |
+| Beta | `sinaloa-beta` / `sinaloa-beta-release` | `https://www.envoi-agents.com` | Neon `sinaloa-beta` / `sinaloa_beta`, private R2 `sinaloa-beta`, `sinaloa-scanner-beta`, separate WorkOS `Sinaloa Beta` environment/app |
 
 Verify current Workers Paid/Containers entitlement, effective deployment permissions, resource ownership and billing limits. The runtime inventory records intended resource identities, but the operator must confirm the active project/branch/Worker in each dashboard. A tab labelled Production on the `sinaloa-beta` Worker is that Worker's live settings, not permission to reuse the old `sinaloa` Worker.
 
@@ -47,7 +47,7 @@ The user confirms only staging secrets have been configured; beta secret entry r
 
 Cookie, encryption, signing and scanner keys must be independent of each other and of staging/old production keys. The matching app/scanner bearer is the deliberate exception. Store durable encryption/signing recovery material privately and retain old keys as needed for existing data/signatures. Provider deployment credentials are not app runtime secrets. Additional provider CA/session-token settings are conditional, not substitutes for these nine names.
 
-The beta non-secret origin, exact edge hostname, CORS origin, WorkOS client/callback, R2 endpoint/bucket, scanner URL and disabled feature flags are pinned in `wrangler.jsonc`. Reconcile dashboard values with that contract. Configure WorkOS callback/homepage/logout on the same HTTPS beta origin and exact-origin R2 CORS for signed PUT/GET/HEAD and upload headers. Verify bucket public access disabled and credential bucket scope. Native agent addresses use `agents.sinaloa-inbox.com`; they do not require SMTP.
+The beta non-secret origin, exact edge hostname, CORS origin, WorkOS client/callback, R2 endpoint/bucket, scanner URL and disabled feature flags are pinned in `wrangler.jsonc`. Reconcile dashboard values with that contract. Configure WorkOS callback/homepage/logout on the same HTTPS beta origin and exact-origin R2 CORS for signed PUT/GET/HEAD and upload headers. Verify bucket public access disabled and credential bucket scope. Native agent addresses use `agents.envoi-agents.com`; they do not require SMTP.
 
 The approved policy is **invite-only, WorkOS MFA Off, self-service signup disabled**. The app requires an authenticated sealed provider session, verified email and exact-email admission. Hosted auth reports `assurance: provider`; it does not attest a second factor. Current active organization membership/management authority is checked for protected controls. Local phone/TOTP routes and Twilio Verify are not hosted beta prerequisites. Test invalid/stale sessions and changed membership; do not invent a hosted “low-MFA” rejection gate under the approved policy.
 
@@ -91,10 +91,10 @@ node scripts/promote-release.mjs beta $candidateSha
 node scripts/promote-release.mjs beta $candidateSha --deploy
 ```
 
-**The beta deploy attaches `beta.sinaloa-inbox.com` immediately.** Beta has `workers_dev: false` and admits only the custom hostname. Application smoke therefore happens **after** successful custom-domain binding and DNS resolution, never through the beta workers.dev address. Keep the apex and old production Worker outside this release target. Stop admission and diagnose if deployment, TLS or binding fails.
+**The beta deploy attaches `www.envoi-agents.com` immediately.** Beta has `workers_dev: false` and admits only the custom hostname. Application smoke therefore happens **after** successful custom-domain binding and DNS resolution, never through the beta workers.dev address. Keep the apex and old production Worker outside this release target. Stop admission and diagnose if deployment, TLS or binding fails.
 
 ```powershell
-npm run smoke:deployment -- https://beta.sinaloa-inbox.com/ $candidateSha
+npm run smoke:deployment -- https://www.envoi-agents.com/ $candidateSha
 ```
 
 Record Worker version, Container digest, hostname binding/DNS/TLS, `/health`, `/ready`, `/api/auth/config` and frontend smoke. Then repeat the critical real product, security and provider journey against the beta origin with approved test users; custom-origin behavior and beta-only services must be proven before inviting the cohort.

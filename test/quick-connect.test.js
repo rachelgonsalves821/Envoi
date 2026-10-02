@@ -13,7 +13,7 @@ async function startServer(t) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-quick-connect-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_PUBLIC_URL: 'https://beta.sinaloa-inbox.com/' },
+    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_PUBLIC_URL: 'https://www.envoi-agents.com/' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let stderr = '';
@@ -36,7 +36,7 @@ async function startServer(t) {
 
 async function api(baseUrl, pathname, { session, token, body, method = body ? 'POST' : 'GET' } = {}) {
   const sessionHeaders = session ? session.headers(baseUrl, method) : {};
-  if (sessionHeaders.origin) sessionHeaders.origin = 'https://beta.sinaloa-inbox.com';
+  if (sessionHeaders.origin) sessionHeaders.origin = 'https://www.envoi-agents.com';
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
     headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...sessionHeaders, ...(token ? { authorization: `Bearer ${token}` } : {}) },
@@ -75,7 +75,7 @@ test('Quick Connect enrollment and setup status remain scoped and secret-free', 
   assert.equal(created.status, 201);
   const { enrollmentId, enrollmentToken, quickConnect } = created.payload;
   assert.deepEqual(quickConnect, {
-    version: 1, runtime: 'openclaw', apiUrl: 'https://beta.sinaloa-inbox.com', enrollmentToken,
+    version: 1, runtime: 'openclaw', apiUrl: 'https://www.envoi-agents.com', enrollmentToken,
     expiresAt: created.payload.expiresAt, agentName: 'Potato', address: 'quick-potato@sinaloa.mail'
   });
   const statusPath = `/api/inboxes/${workspaceId}/agent-enrollment-tokens/${enrollmentId}/status`;

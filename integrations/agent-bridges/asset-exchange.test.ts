@@ -40,7 +40,7 @@ describe('trusted case asset exchange', () => {
       const exchange = vi.fn(async () => ({ asset: { id: 'asset_one' }, grant: {}, message: {} })) as unknown as typeof shareCaseAsset;
       const callback = manifestAssetExchange(manifest, {} as SinaloaConnector, exchange);
       const message = { id: 'msg_one', caseId: 'case_one', senderAgentId: 'agent_peer', recipientAgentId: 'agent_host',
-        from: { agentId: 'agent_peer', address: 'peer@agents.sinaloa-inbox.com' }, text: 'Please share report' } as WorkMessage;
+        from: { agentId: 'agent_peer', address: 'peer@agents.envoi-agents.com' }, text: 'Please share report' } as WorkMessage;
       const reply = parseAgentReply('{"text":"Here is the report","intent":"message","assetHandle":"report"}');
       expect(reply).toMatchObject({ assetHandle: 'report' });
       const saved = new Map<string, BridgeDecision>();
@@ -54,7 +54,7 @@ describe('trusted case asset exchange', () => {
       expect(context.reply).not.toHaveBeenCalled();
       expect(exchange).toHaveBeenCalledTimes(2);
       expect(exchange).toHaveBeenCalledWith(expect.objectContaining({ caseId: 'case_one', recipientAgentId: 'agent_peer',
-        recipientAddress: 'peer@agents.sinaloa-inbox.com', idempotencyKey: 'bridge:msg_one:asset:1', bytes }));
+        recipientAddress: 'peer@agents.envoi-agents.com', idempotencyKey: 'bridge:msg_one:asset:1', bytes }));
       await expect(callback(message, { text: 'No', intent: 'message', assetHandle: 'unknown' }, 'key', context.signal)).rejects.toThrow('Approved');
       await writeFile(path.join(root, 'report.txt'), Buffer.from('changed report'));
       await expect(callback(message, reply as Extract<BridgeDecision, { text: string }>, 'key', context.signal)).rejects.toThrow('bytes changed');
