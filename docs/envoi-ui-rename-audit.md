@@ -1,6 +1,6 @@
 # Envoi UI rename audit
 
-This audit covers local branch `rename-envoi-ui` through `4b1a9a3`. It has not been pushed, merged, or deployed. The parallel domain branch `migrate-envoi-domain` owns live URLs, DNS, WorkOS, and server domain configuration. The intended address cutover retires old agent addresses rather than retaining aliases; existing stored addresses need an explicit migration and live delivery check before that decision is applied.
+This audit covers the UI rename incorporated into local branch `envoi-combined`. The combined branch includes the parallel `migrate-envoi-domain` work but has not been pushed or deployed. The intended address cutover retires old agent addresses rather than retaining aliases; existing stored addresses need an explicit migration and live delivery check before that decision is applied.
 
 ## Changed files
 
@@ -77,4 +77,4 @@ No image, logo, SVG, or CSS file was changed. No image asset containing the old 
 - Frontend: 103 passed. TypeScript SDK: 38 passed. Integrations: 153 passed, 1 skipped (rerun outside the sandbox because Windows rejected temporary-file ACL operations inside it).
 - Main test suite from the preceding packaging pass: 214 passed, 10 skipped. Generated download standalone tests: 2 passed.
 - `git diff --check`: passed.
-- Dry merge with `migrate-envoi-domain`: conflicts in `frontend/index.html`, `integrations/hermes/README.md`, and generated `web/index.html`. Resolve after both owners complete their branches, then rebuild and run exact combined-commit CI.
+- The three previously identified conflicts in `frontend/index.html`, `integrations/hermes/README.md`, and generated `web/index.html` are resolved in the combined branch. Its local build, backend (214 passed, 10 skipped), frontend (103), TypeScript SDK (38), Python SDK (4), bridge integrations (153 passed, 1 skipped), Worker tests (6), deployment configuration check, and staging/beta/scanner Wrangler dry runs passed. Hosted acceptance and exact remote CI remain open.
