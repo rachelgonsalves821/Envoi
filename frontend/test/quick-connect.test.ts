@@ -1,9 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EnrollmentDialog } from '../src/App';
+import { EnrollmentDialog, RuntimePicker, RuntimePreparation } from '../src/App';
 import { api } from '../src/api';
-import { connectorDownloads, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
 import type { Inbox } from '../src/types';
 import type { QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
@@ -15,8 +15,8 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('Quick Connect handoff', () => {
   it('gives the runtime private-file setup instructions without passing secrets in command arguments', () => {
     const prompt = setupPrompt({ ...handoff, gatewayToken: 'provider_secret_should_not_be_sent' } as QuickConnectHandoff);
-    expect(prompt).toContain('node sinaloa-openclaw.mjs setup --handoff sinaloa-setup.json');
-    expect(prompt).toContain('artifacts["sinaloa-openclaw.mjs"].sha256');
+    expect(prompt).toContain('node sinaloa-connector.mjs setup --handoff sinaloa-setup.json');
+    expect(prompt).toContain('artifacts["sinaloa-connector.mjs"].sha256');
     expect(prompt).toContain('0600');
     expect(prompt).toContain('remove the handoff file');
     expect(prompt).toContain('Setup exits after configuration and checks');
@@ -30,9 +30,62 @@ describe('Quick Connect handoff', () => {
   });
 
   it('uses the deployment origin for verified artifact downloads', () => {
-    expect(connectorDownloads(handoff)).toEqual({ connector: 'https://sinaloa.example/web/downloads/sinaloa-openclaw.mjs', release: 'https://sinaloa.example/web/downloads/release.json' });
+    expect(connectorDownloads(handoff)).toEqual({ connector: 'https://sinaloa.example/web/downloads/sinaloa-connector.mjs', release: 'https://sinaloa.example/web/downloads/release.json' });
     expect(() => connectorDownloads({ ...handoff, apiUrl: 'javascript:alert(1)' })).toThrow();
     expect(() => connectorDownloads({ ...handoff, apiUrl: 'https://user:secret@sinaloa.example' })).toThrow();
+  });
+
+  it.each(RUNTIME_OPTIONS)('provides the same setup flow for $label with isolated runtime-specific preparation', option => {
+    const selected = { ...handoff, runtime: option.id };
+    const prompt = setupPrompt(selected);
+    expect(prompt).toContain(`self-hosted ${option.label} agent`);
+    expect(prompt).toContain('sinaloa-connector.mjs');
+    expect(prompt).toContain('Each enrollment needs its own private state directory');
+    expect(prompt.includes('--prepare-runtime')).toBe(option.id === 'hermes');
+    const picker = renderToStaticMarkup(createElement(RuntimePicker, { runtime: option.id, onChange: vi.fn() }));
+    expect(picker).toContain(`value="${option.id}" selected=""`);
+    expect(picker.match(/<option /g)).toHaveLength(3);
+    const preparation = renderToStaticMarkup(createElement(RuntimePreparation, { runtime: option.id, command: 'prepare', apiUrl: 'https://sinaloa.example' }));
+    expect(preparation.includes('generates or reuses the local API Server key')).toBe(option.id === 'hermes');
+    expect(preparation).not.toContain('repository checkout');
+  });
+
+  it('warns remote hosts about loopback and keeps reconnect identity instructions', () => {
+    const prompt = setupPrompt({ ...handoff, runtime: 'hermes', operation: 'reconnect', apiUrl: 'http://127.0.0.1:8787' });
+    expect(prompt).toContain('Reconnect this self-hosted Hermes');
+    expect(prompt).toContain('remotely hosted agent cannot reach it');
+    expect(prompt).toContain('retains the agent address and history');
+    expect(prompt).toContain('generates or reuses the local key');
+    expect(prompt).toContain('do not interrupt this session');
+  });
+
+  it('reconnects through runtime preparation without asking for a new name, address or permissions', () => {
+    const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
+      workspace: { id: 'inbox_1' } as Inbox,
+      reconnectAgent: { id: 'agent_1', name: 'Potato', address: handoff.address, runtime: 'hermes', status: 'active', onboardingStatus: 'approved' },
+      result: null, setResult: vi.fn(), onClose: vi.fn()
+    }));
+    expect(markup).toContain('Create reconnect prompt');
+    expect(markup).toContain('value="hermes" selected=""');
+    expect(markup).toContain('keeping potato@agents.sinaloa.example');
+    expect(markup).toContain('revokes the old credentials');
+    expect(markup).toContain('prepare --runtime hermes');
+    expect(markup).toContain('--prepare-runtime');
+    expect(markup).toContain('doctor --state-dir');
+    expect(markup).toContain('stop its connector before applying reconnect');
+    expect(markup).not.toContain('Agent address name');
+    expect(markup).not.toContain('Agent permissions');
+    expect(markup).not.toContain('name="name"');
+  });
+
+  it('sends selected runtime for enrollment and reconnect and validates returned handoffs', async () => {
+    const response = { enrollmentToken: handoff.enrollmentToken, enrollmentUrl: '/?enroll=private', expiresAt: handoff.expiresAt, quickConnect: { ...handoff, runtime: 'hermes' } };
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(response), { status: 201 })));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.enrollmentToken('inbox_1', 'Potato', 'potato', ['receive_agent_messages'], 'hermes');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).runtime).toBe('hermes');
+    await api.reconnectAgentToken('inbox_1', 'agent_1', 'hermes');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ runtime: 'hermes' });
   });
 
   it.each([['Potato', 'potato'], ['Écho scheduler', 'echo-scheduler'], ['123 assistant', 'agent-123-assistant'], ['Admin', 'admin-agent'], ['AI', 'ai-agent'], ['', '']])('suggests an editable address for %s', (name, address) => {

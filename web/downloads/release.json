@@ -4,8 +4,17 @@
   "nodeMinimum": 22,
   "artifacts": {
     "sinaloa-openclaw.mjs": {
-      "sha256": "86e83c57151bfecf540c66b061d6b4e0c6274a54c6f2dda62ae0863fd622110a",
-      "size": 76920
+      "sha256": "959ad4603f28d48cc587aadceae5f7dfda0ebbe45642528c09a5ca56d58dfbca",
+      "size": 78114
+    },
+    "sinaloa-connector.mjs": {
+      "sha256": "54f0c64ad6da1ed394a9e20ac1fa7ce6b8af216deef8826d3adcdfe56d67c0ee",
+      "size": 131238
     }
-  }
+  },
+  "runtimes": [
+    "openclaw",
+    "hermes",
+    "grok"
+  ]
 }

@@ -4,13 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
 import { describe, expect, it } from 'vitest';
-import { enrollConnector, SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { enrollConnector } from '../../sdk/typescript/src/connector';
 import { newCaseId, SinaloaClient } from '../../sdk/typescript/src/index';
 import { BrowserSession } from '../../test/browser-session.js';
-import { bridgeHandler } from '../agent-bridges/bridge';
 import { FileBridgeStore } from '../agent-bridges/file-store';
-import { HermesRunStore } from './run-store';
-import { hermesTurn } from './turn';
+import { createHermesBridge } from './runtime';
 
 async function server(dataDir: string): Promise<{ baseUrl: string; child: ChildProcess }> {
   const child = spawn(process.execPath, ['src/server.js'], {
@@ -112,15 +110,14 @@ describe('Hermes bridge against real local Sinaloa', () => {
         const text = input.includes('Question 1') ? 'Hermes answer one' : 'Hermes answer two';
         return new Response(JSON.stringify({ run_id: runId, status: 'completed', output: JSON.stringify({ text, intent: 'message' }) }));
       };
-      const runs = new HermesRunStore(path.join(directory, 'hermes'));
-      let connector: SinaloaConnector;
-      const turn = hermesTurn({ apiUrl: 'http://127.0.0.1:8642', apiKey: 'private-key',
-        agentId: recipient.agent.agentId, runs, replies: hermesStore, fetch: hermesFetch,
-        pollIntervalMs: 1, history: caseId => connector.listCaseMessages(caseId, 20) });
-      const handler = bridgeHandler(hermesStore, turn);
-      connector = new SinaloaConnector(app.baseUrl, hermesStore, { handler });
+      const fetcher: typeof fetch = (url, init) => String(url).startsWith('http://127.0.0.1:8642') ? hermesFetch(url, init) : fetch(url, init);
+      const configuration = { apiUrl: app.baseUrl, stateDir: path.join(directory, 'hermes'), hermesUrl: 'http://127.0.0.1:8642', hermesKey: 'private-key' };
+      let bridge = await createHermesBridge(configuration, { fetch: fetcher, env: {} });
+      let connector = bridge.connector;
       await expect(connector.processWorkOnce()).rejects.toThrow('Hermes status connection lost');
-      connector = new SinaloaConnector(app.baseUrl, hermesStore, { handler });
+      await bridge.close();
+      bridge = await createHermesBridge(configuration, { fetch: fetcher, env: {} });
+      connector = bridge.connector;
       await eventually(async () => await connector.processWorkOnce() ? true : null);
       expect(await connector.processWorkOnce()).toBe(true);
       expect(created.size).toBe(2);

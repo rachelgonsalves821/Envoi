@@ -1,7 +1,7 @@
 import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
 import { trackSessionRequest } from './session-lifecycle';
 import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
-import { validateQuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
+import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 
 export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
 let configuredCsrfCookieName = 'sinaloa_csrf';
@@ -109,14 +109,14 @@ export const api = {
     body: JSON.stringify({ actionKey, externalRefs })
   }),
   agentAddressAvailability: (inboxId: string, localPart: string) => request<{ localPart: string; address: string; available: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-address-availability?localPart=${encodeURIComponent(localPart)}`),
-  enrollmentToken: (inboxId: string, name: string, localPart: string, permissions: string[]) => request<EnrollmentResult>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens`, {
+  enrollmentToken: (inboxId: string, name: string, localPart: string, permissions: string[], runtime: ConnectorRuntime = 'openclaw') => request<EnrollmentResult>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens`, {
     method: 'POST',
-    body: JSON.stringify({ permissions, agentProfile: { name, localPart } })
+    body: JSON.stringify({ runtime, permissions, agentProfile: { name, localPart } })
   }).then(result => result.quickConnect ? { ...result, quickConnect: validateQuickConnectHandoff(result.quickConnect) } : result),
   enrollmentStatus: (inboxId: string, enrollmentId: string, signal?: AbortSignal) => request<EnrollmentStatus>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens/${encodeURIComponent(enrollmentId)}/status`, { signal }),
   approveAgent: (inboxId: string, agentId: string, permissions: string[]) => request<{ agent: unknown; agentApiToken?: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-onboarding/${encodeURIComponent(agentId)}/approve`, { method: 'POST', body: JSON.stringify({ permissions }) })
   ,revokeAgentCredentials: (inboxId: string, agentId: string) => request<{ revoked: boolean; agentId: string; credentialFamilyCount: number; revokedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/revoke`, { method: 'POST', body: '{}' })
-  ,reconnectAgentToken: (inboxId: string, agentId: string) => request<{ enrollmentToken: string; expiresAt: string; agentId: string; address: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/reconnect-token`, { method: 'POST', body: '{}' })
+  ,reconnectAgentToken: (inboxId: string, agentId: string, runtime?: ConnectorRuntime) => request<EnrollmentResult & { agentId: string; address: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/reconnect-token`, { method: 'POST', body: JSON.stringify(runtime ? { runtime } : {}) }).then(result => result.quickConnect ? { ...result, quickConnect: validateQuickConnectHandoff(result.quickConnect) } : result)
   ,setAgentPaused: (inboxId: string, agentId: string, paused: boolean) => request<Agent>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/${paused ? 'pause' : 'resume'}`, { method: 'POST', body: '{}' })
   ,setNativeContactBlocked: (inboxId: string, agentId: string, blocked: boolean) => request<{ agentId: string; blocked: boolean; updatedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/contacts/${encodeURIComponent(agentId)}/${blocked ? 'block' : 'unblock'}`, { method: 'POST', body: '{}' })
   ,downloadAsset: (inboxId: string, assetId: string) => request<{ object: Asset; download: { url: string; method: 'GET'; headers?: Record<string, string> } }>(`/api/inboxes/${encodeURIComponent(inboxId)}/assets/${encodeURIComponent(assetId)}/download`)

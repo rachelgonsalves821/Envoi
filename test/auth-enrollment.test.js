@@ -458,9 +458,11 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(unknownWithoutPolicy.status, 400);
   const deniedUnknown = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'unknown-action-2' }, body: { actionKey: 'wireFunds', outcome: 'ok', policyEvaluationId: unknownPolicy.payload.id } });
   assert.equal(deniedUnknown.status, 403);
-  const proposal = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/proposals`, { token: enrolled.payload.agentApiToken, body: { kind: 'schedule', expiresAt: '2026-10-01T21:00:00.000Z', options: [{ id: 'option_1630', value: { start: '2026-10-01T20:30:00.000Z', end: '2026-10-01T21:00:00.000Z', timezone: 'America/Toronto' }, sourceConfidence: 'fromVerifiedProfile', outOfPolicyFlags: ['outsideWorkingHours'] }] } });
+  const meetingStart = new Date(Date.now() + 90 * 60_000).toISOString();
+  const meetingEnd = new Date(Date.now() + 120 * 60_000).toISOString();
+  const proposal = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/proposals`, { token: enrolled.payload.agentApiToken, body: { kind: 'schedule', expiresAt: meetingEnd, options: [{ id: 'option_1630', value: { start: meetingStart, end: meetingEnd, timezone: 'America/Toronto' }, sourceConfidence: 'fromVerifiedProfile', outOfPolicyFlags: ['outsideWorkingHours'] }] } });
   assert.equal(proposal.status, 201);
-  const policy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/policy-evaluations`, { token: enrolled.payload.agentApiToken, body: { requestedAction: 'calendar.confirmMeeting', expiresAt: '2026-10-01T21:00:00.000Z' } });
+  const policy = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/policy-evaluations`, { token: enrolled.payload.agentApiToken, body: { requestedAction: 'calendar.confirmMeeting', expiresAt: meetingEnd } });
   assert.equal(policy.status, 201);
   assert.equal(policy.payload.decision, 'needsHuman');
   const blockedAccept = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/proposals/${proposal.payload.id}/accept`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'proposal-accept-1' }, body: { optionId: 'option_1630', policyEvaluationId: policy.payload.id } });

@@ -1,0 +1,228 @@
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { FileBridgeStore } from '../agent-bridges/file-store';
+import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
+import { ConnectorSetupError, type ConnectorAdapter } from './adapter';
+import { connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, setupConnection, startConnection } from './core';
+import { startControl, queryControl } from './control';
+import { connectorService } from './service';
+
+const directories: string[] = [];
+afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
+const secureDirectory = async (value: string) => { await mkdir(value, { recursive: true }); return path.resolve(value); };
+async function fixture(runtime: ConnectorRuntime = 'hermes') {
+  const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-unified-')); directories.push(directory);
+  const handoff = { version: 1, runtime, apiUrl: 'https://sinaloa.example', address: `${runtime}@agents.sinaloa.example`, agentName: runtime,
+    enrollmentToken: 'private-enrollment-token-12345678', expiresAt: new Date(Date.now() + 900_000).toISOString() };
+  let enrollmentCount = 0, checks = 0, failHealth = false, failPreflight = false, failVerify = false, closes = 0;
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    if (String(url).endsWith('/health')) return Response.json({ service: failHealth ? 'other' : 'sinaloa' });
+    if (String(url).endsWith('/api/agent-enroll')) {
+      enrollmentCount++;
+      return Response.json({ agent: { id: `agent_${runtime}`, address: handoff.address }, inbox: { id: `inbox_${runtime}` },
+        agentApiToken: `access-secret-${enrollmentCount}`, agentRefreshToken: `refresh-secret-${enrollmentCount}`,
+        agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+    }
+    if (String(url).includes('/events/delta')) return Response.json({ events: [], nextCursor: null, hasMore: false });
+    if (String(url).endsWith('/api/agent/connection-status')) return Response.json({ checkedAt: new Date().toISOString() });
+    throw new Error('Unexpected fixture request');
+  }) as typeof fetch;
+  const adapter: ConnectorAdapter<{ providerKey: string }> = {
+    runtime, async discover(_options, previous) { return previous ?? { providerKey: 'local-model-provider-secret' }; },
+    async preflight() { checks++; if (failPreflight) throw new ConnectorSetupError('MODEL_NOT_READY', 'Configure your local model'); },
+    async createBridge(_config, context) { return {
+      connector: new SinaloaConnector(context.apiUrl, new FileBridgeStore(context.stateDir), { fetch: context.fetch }),
+      async verify() { if (failVerify) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Start a fresh runtime session'); },
+      async close() { closes++; }
+    }; },
+    describe: () => ({ runtime })
+  };
+  const resolver = (selected: ConnectorRuntime) => { expect(selected).toBe(runtime); return adapter; };
+  return { directory, handoff, resolver, requests, adapter,
+    options: { fetch: fetcher, stateDir: path.join(directory, 'state'), secureDirectory },
+    counts: () => ({ enrollmentCount, checks, closes }),
+    healthFails: (value = true) => { failHealth = value; }, preflightFails: () => { failPreflight = true; }, toolFails: (value: boolean) => { failVerify = value; } };
+}
+
+describe('shared connector lifecycle', () => {
+  for (const runtime of ['hermes', 'openclaw', 'grok'] as const) {
+    it(`enrolls ${runtime} once, stores local secrets privately, and resumes after handoff expiry`, async () => {
+      const f = await fixture(runtime);
+      const result = await setupConnection(f.handoff, f.resolver, f.options);
+      expect(result.runtime).toBe(runtime); expect(result.checks).toBe('passed');
+      expect(f.requests[0].url).toBe('https://sinaloa.example/health');
+      expect(JSON.parse(String(f.requests.find(request => request.url.endsWith('/api/agent-enroll'))?.init?.body)).runtime).toBe(runtime);
+      await setupConnection({ ...f.handoff, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options);
+      expect(f.counts().enrollmentCount).toBe(1); expect(f.counts().closes).toBe(2);
+      const saved = await readFile(path.join(result.stateDir, 'connection.json'), 'utf8');
+      expect(saved).toContain('local-model-provider-secret'); expect(saved).not.toContain(f.handoff.enrollmentToken);
+      expect(JSON.stringify(f.requests)).not.toContain('local-model-provider-secret');
+      expect(JSON.stringify(await connectionStatus(result.stateDir))).not.toMatch(/local-model-provider-secret|refresh-secret|access-secret/);
+      expect(await connectionStatus(result.stateDir)).toMatchObject({ status: 'stopped', runtime });
+      const reports = f.requests.filter(request => request.url.endsWith('/connection-status'));
+      expect(JSON.parse(String(reports[0].init?.body))).toMatchObject({ runtime, runtimeTest: 'passed' });
+    });
+  }
+  it('does not consume enrollment on Sinaloa reachability or runtime model failure', async () => {
+    const health = await fixture(); health.healthFails();
+    await expect(setupConnection(health.handoff, health.resolver, health.options)).rejects.toMatchObject({ code: 'SINALOA_UNREACHABLE' });
+    expect(health.counts().enrollmentCount).toBe(0); expect(health.counts().checks).toBe(0);
+    const model = await fixture(); model.preflightFails();
+    await expect(setupConnection(model.handoff, model.resolver, model.options)).rejects.toMatchObject({ code: 'MODEL_NOT_READY' });
+    expect(model.counts().enrollmentCount).toBe(0);
+  });
+  it('preserves enrollment after tool verification fails and retries without another token', async () => {
+    const f = await fixture(); f.toolFails(true);
+    await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toMatchObject({ code: 'TOOLS_NOT_READY' });
+    expect(f.counts().enrollmentCount).toBe(1); expect(f.counts().closes).toBe(1);
+    f.toolFails(false);
+    await setupConnection({ ...f.handoff, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options);
+    expect(f.counts().enrollmentCount).toBe(1);
+  });
+  it('reconnects an existing identity once and distinguishes a new reconnect token', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const reconnect = { ...f.handoff, operation: 'reconnect', enrollmentToken: 'private-reconnect-token-12345678' };
+    await setupConnection(reconnect, f.resolver, f.options);
+    await setupConnection({ ...reconnect, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options);
+    expect(f.counts().enrollmentCount).toBe(2);
+    const next = { ...reconnect, enrollmentToken: 'different-reconnect-token-12345678' };
+    await setupConnection(next, f.resolver, f.options);
+    expect(f.counts().enrollmentCount).toBe(3);
+    const status = await connectionStatus(f.options.stateDir);
+    expect(status.address).toBe(f.handoff.address); expect(status.agentId).toBe('agent_hermes');
+  });
+  it('rejects mismatched identity/runtime and rejects an expired fresh handoff', async () => {
+    const f = await fixture();
+    await expect(setupConnection({ ...f.handoff, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options)).rejects.toThrow('expired');
+    await setupConnection(f.handoff, f.resolver, f.options);
+    await expect(setupConnection({ ...f.handoff, runtime: 'grok' }, f.resolver, f.options)).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
+    await expect(setupConnection({ ...f.handoff, address: 'different@agents.sinaloa.example' }, f.resolver, f.options)).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
+    expect(f.counts().enrollmentCount).toBe(1);
+  });
+  it('recovers reconnect credentials even if connection.json was not updated before a crash', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const reconnect = { ...f.handoff, operation: 'reconnect', enrollmentToken: 'private-reconnect-token-12345678' };
+    await setupConnection(reconnect, f.resolver, f.options);
+    const filename = path.join(f.options.stateDir, 'connection.json');
+    const saved = JSON.parse(await readFile(filename, 'utf8')); delete saved.lastReconnectId;
+    await writeFile(filename, JSON.stringify(saved));
+    await setupConnection({ ...reconnect, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options);
+    expect(f.counts().enrollmentCount).toBe(2);
+  });
+  it('reports configuration failure after enrollment without requiring a bridge', async () => {
+    const f = await fixture();
+    f.adapter.configure = async () => { throw new ConnectorSetupError('CONFIG_INVALID', 'Fix local configuration'); };
+    await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toMatchObject({ code: 'CONFIG_INVALID' });
+    expect(f.counts().enrollmentCount).toBe(1);
+    const reports = f.requests.filter(request => request.url.endsWith('/connection-status'));
+    expect(JSON.parse(String(reports[0].init?.body))).toMatchObject({ phase: 'error', errorCode: 'CONFIG_INVALID' });
+  });
+  it('rejects malformed saved state and management records with stable diagnostics', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    await writeFile(path.join(f.options.stateDir, 'connection.json'), 'null');
+    await expect(readConnection(f.options.stateDir)).rejects.toMatchObject({ code: 'STATE_INVALID' });
+    await writeFile(path.join(f.options.stateDir, 'control.json'), 'null');
+    await expect(queryControl(f.options.stateDir, 'status')).rejects.toMatchObject({ code: 'CONTROL_INVALID' });
+    await writeFile(path.join(f.options.stateDir, 'session.json'), 'null');
+    await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toMatchObject({ code: 'STATE_INVALID' });
+    expect(f.counts().enrollmentCount).toBe(1);
+  });
+  it('prepares without enrollment and preserves runtime selection in the validated handoff', async () => {
+    const f = await fixture('grok');
+    expect(await prepareConnection('grok', f.handoff.apiUrl, f.resolver, f.options)).toMatchObject({ runtime: 'grok', checks: 'passed' });
+    expect(f.counts().enrollmentCount).toBe(0);
+    expect(validateQuickConnectHandoff({ ...f.handoff, operation: 'reconnect', providerKey: 'ignored' })).toMatchObject({ runtime: 'grok', operation: 'reconnect' });
+    expect(validateQuickConnectHandoff(f.handoff)).not.toHaveProperty('providerKey');
+  });
+  it('upgrades an existing OpenClaw v1 state without reenrollment', async () => {
+    const f = await fixture('openclaw'); await setupConnection(f.handoff, f.resolver, f.options);
+    const filename = path.join(f.options.stateDir, 'connection.json');
+    const saved = JSON.parse(await readFile(filename, 'utf8')); saved.openclaw = saved.configuration; delete saved.configuration;
+    await writeFile(filename, JSON.stringify(saved));
+    await setupConnection(f.handoff, f.resolver, f.options);
+    expect(f.counts().enrollmentCount).toBe(1);
+  });
+  it('isolates agent state and service names across runtimes and identities', () => {
+    const first = connectionDirectory('https://sinaloa.example', 'first@agents.sinaloa.example', 'hermes', { homeDir: '/home/test', env: {}, platform: 'linux' });
+    const second = connectionDirectory('https://sinaloa.example', 'second@agents.sinaloa.example', 'hermes', { homeDir: '/home/test', env: {}, platform: 'linux' });
+    expect(first).not.toBe(second);
+    expect(first).not.toBe(connectionDirectory('https://sinaloa.example', 'first@agents.sinaloa.example', 'grok', { homeDir: '/home/test', env: {}, platform: 'linux' }));
+    const a = connectorService(first, { platform: 'linux', runtime: 'hermes' });
+    const b = connectorService(second, { platform: 'linux', runtime: 'hermes' });
+    expect(a.name).not.toBe(b.name); expect(a.contents).not.toMatch(/Token|API_KEY/);
+  });
+});
+
+describe('authenticated local management', () => {
+  it('reports the actual controlled process and stops it without signaling an arbitrary PID', async () => {
+    const f = await fixture(); let stopRequested = false;
+    const directory = await secureDirectory(f.options.stateDir);
+    const control = await startControl(directory, { runtime: 'hermes', address: f.handoff.address }, () => { stopRequested = true; });
+    try {
+      expect(await queryControl(directory, 'status')).toMatchObject({ pid: process.pid, runtime: 'hermes', status: 'running' });
+      const record = JSON.parse(await readFile(path.join(directory, 'control.json'), 'utf8'));
+      expect((await fetch(`http://127.0.0.1:${record.port}/stop`, { method: 'POST' })).status).toBe(403);
+      expect(stopRequested).toBe(false);
+      await queryControl(directory, 'stop'); expect(stopRequested).toBe(true);
+    } finally { await control.close(); }
+    await expect(readFile(path.join(directory, 'control.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+  it('holds the per-connection lock through supervised startup and releases it after shutdown', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const original = f.adapter.createBridge;
+    let running: (() => void) | undefined;
+    const ready = new Promise<void>(resolve => { running = resolve; });
+    f.adapter.createBridge = async (config, context) => {
+      const bridge = await original(config, context);
+      bridge.connector.run = async signal => { await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); };
+      return bridge;
+    };
+    const stop = new AbortController();
+    const started = startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, onReady: running });
+    try {
+      await ready;
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'running' });
+      const checksBeforeDoctor = f.counts().checks;
+      expect(await doctorConnection(f.options.stateDir, f.resolver, f.options)).toMatchObject({ status: 'running', runtimeChecks: 'passed' });
+      expect(f.counts().checks).toBe(checksBeforeDoctor);
+      await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toThrow('already running');
+    } finally { stop.abort(); await started; }
+    expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped' });
+    await expect(readFile(path.join(f.options.stateDir, 'connector.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+  it('waits through startup outages, remains manageable, and recovers without reenrollment', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    f.healthFails();
+    const stop = new AbortController();
+    let waiting!: () => void; const waited = new Promise<void>(resolve => { waiting = resolve; });
+    let ready!: () => void; const startedReady = new Promise<void>(resolve => { ready = resolve; });
+    const original = f.adapter.createBridge;
+    f.adapter.createBridge = async (config, context) => {
+      const bridge = await original(config, context);
+      bridge.connector.run = async signal => { if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); };
+      return bridge;
+    };
+    const started = startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, retryDelayMs: 10, onWaiting: waiting, onReady: ready });
+    try {
+      await waited;
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'waiting' });
+      expect(await doctorConnection(f.options.stateDir, f.resolver)).toMatchObject({ runtimeChecks: 'pending', errorCode: 'SINALOA_UNREACHABLE' });
+      f.healthFails(false); await startedReady;
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'running' });
+      expect(f.counts().enrollmentCount).toBe(1);
+    } finally { stop.abort(); await started; }
+  });
+  it('stops gracefully during startup retry and fails promptly on invalid configuration', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    f.healthFails(); const stop = new AbortController();
+    await startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, onWaiting: () => stop.abort() });
+    expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped' });
+    f.healthFails(false); f.preflightFails();
+    await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver, f.options)).rejects.toMatchObject({ code: 'MODEL_NOT_READY' });
+  });
+});

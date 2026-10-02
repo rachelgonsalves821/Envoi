@@ -23,7 +23,7 @@ import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from
 import { claimIdempotency, completeIdempotency, replayResponse, scopedIdempotencyPath, semanticDigest, validateIdempotencyKey } from './idempotency.js';
 import { humanConversationMessagingEnabled } from './human-messaging.js';
 import { handleAgentMcp } from './agent-mcp.js';
-import { enrollmentConnectionStatus, validateConnectionReport } from './agent-connection.js';
+import { enrollmentConnectionStatus, validateConnectionReport, validateConnectorRuntime } from './agent-connection.js';
 import {
   assertExactBinding,
   createWorkspacePolicy,
@@ -1922,6 +1922,9 @@ async function route(req, res) {
       if (!currentIdentity || currentIdentity.agent.id !== identity.agent.id || currentIdentity.familyId !== identity.familyId) throw Object.assign(new Error('Active agent access credential required'), { statusCode: 401 });
       const familyPath = agentCredentialFamilyPath(identity.inboxId, identity.agent.id, identity.familyId);
       const family = await store.getJson(familyPath);
+      if ((family.runtime || currentIdentity.agent.runtime) && report.runtime !== (family.runtime || currentIdentity.agent.runtime)) {
+        throw Object.assign(new Error('Setup report runtime does not match this connection'), { statusCode: 400 });
+      }
       const checkedAt = store.now();
       await store.putJson(familyPath, { ...family, connectionSetup: { ...report, checkedAt }, updatedAt: checkedAt });
       await writeAudit('agent.connection_setup_checked', { agentId: identity.agent.id, runtime: report.runtime, phase: report.phase, ...(report.errorCode ? { errorCode: report.errorCode } : {}) }, checkedAt);
@@ -2087,10 +2090,11 @@ async function route(req, res) {
     const tokenPath = path.join('auth', 'enrollment-tokens', `${tokenHash}.json`);
     const pendingRecord = await store.getJson(tokenPath);
     if (!pendingRecord || pendingRecord.usedAt || pendingRecord.revokedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
+    if (input.runtime !== undefined && validateConnectorRuntime(input.runtime) !== (pendingRecord.runtime || 'openclaw')) return fail(res, 400, 'Setup runtime does not match this enrollment');
     if (pendingRecord.kind === 'reconnect') {
       const reconnected = await withInboxMutation(pendingRecord.inboxId, async writeAudit => {
         const currentRecord = await store.getJson(tokenPath);
-        if (!currentRecord || currentRecord.kind !== 'reconnect' || currentRecord.usedAt || new Date(currentRecord.expiresAt) <= new Date()) {
+        if (!currentRecord || currentRecord.kind !== 'reconnect' || currentRecord.usedAt || currentRecord.revokedAt || new Date(currentRecord.expiresAt) <= new Date()) {
           throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
         }
         const inbox = await store.getJson(path.join('inboxes', currentRecord.inboxId, 'inbox.json'));
@@ -2117,8 +2121,18 @@ async function route(req, res) {
         if (!claimed) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
         const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId);
         const credentials = await issueAgentCredentials(agent.id, inbox.id);
+        const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken)));
+        const familyPath = agentCredentialFamilyPath(inbox.id, agent.id, credentialIndex.familyId);
+        const family = await store.getJson(familyPath);
+        const runtime = claimed.runtime || agent.runtime;
+        const connectedAgent = runtime ? { ...agent, runtime } : agent;
+        await store.putJsonBatch([
+          document(familyPath, { ...family, ...(runtime ? { runtime } : {}) }),
+          document(path.join('inboxes', inbox.id, 'agents', `${agent.id}.json`), connectedAgent),
+          document(tokenPath, { ...claimed, agentInboxId: inbox.id, credentialFamilyId: credentialIndex.familyId })
+        ]);
         await writeAudit('agent.credentials_reconnected', { agentId: agent.id, humanId: claimed.humanId, credentialFamilyCount });
-        return { agent, inbox, credentials };
+        return { agent: connectedAgent, inbox, credentials };
       }, [], [enrollmentMutationKey(tokenHash)]);
       disconnectAgentStreams(reconnected.inbox.id, reconnected.agent.id);
       return json(res, 200, { agent: publicAgent(reconnected.agent), ...reconnected.credentials, inbox: reconnected.inbox, nativeMessaging: 'ready' });
@@ -2156,7 +2170,7 @@ async function route(req, res) {
         while (!(await reserveIdentity(address, { status: 'reserved' }))) { slug = `${baseSlug}-${store.id('slug').slice(-6)}`; address = agentAddressForLocalPart(slug); }
       }
       const createdAt = store.now();
-      const agent = { id: store.id('agent'), organizationId: sourceInbox.organizationId, name: agentName, slug, address, identity: publicIdentity(slug), principalHumanId: record.humanId, capabilities: input.capabilities || record.agentProfile?.capabilities || [], permissions: record.permissions, createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
+      const agent = { id: store.id('agent'), organizationId: sourceInbox.organizationId, name: agentName, slug, address, identity: publicIdentity(slug), principalHumanId: record.humanId, capabilities: input.capabilities || record.agentProfile?.capabilities || [], permissions: record.permissions, ...(record.runtime ? { runtime: record.runtime } : {}), createdAt, status: 'active', onboardingStatus: 'approved', approvedAt: createdAt, approvedByHumanId: record.humanId };
       const inbox = await createDedicatedAgentInbox({ sourceInbox, organizationId: sourceInbox.organizationId, ownerHumanId: record.humanId, agent, status: 'active', inboxId: plannedInboxId });
       await store.putJsonBatch([
         document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId: inbox.id, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: agent.status, verified: true }),
@@ -2165,6 +2179,9 @@ async function route(req, res) {
       if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId: inbox.id, address: publicEmailAddressForAgent(agent), status: agent.status });
       const credentials = await issueAgentCredentials(agent.id, inbox.id);
       const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken)));
+      const familyPath = agentCredentialFamilyPath(inbox.id, agent.id, credentialIndex.familyId);
+      const family = await store.getJson(familyPath);
+      if (record.runtime) await store.putJson(familyPath, { ...family, runtime: record.runtime });
       await store.putJson(tokenPath, { ...record, agentId: agent.id, agentInboxId: inbox.id, credentialFamilyId: credentialIndex.familyId });
       await writeAudit('agent.enrolled', { agentId: agent.id, humanId: record.humanId, permissions: agent.permissions, sourceInboxId: sourceInbox.id }, createdAt, inbox.id);
       await writeAudit('agent.enrollment_redeemed', { enrollmentId: record.id, agentId: agent.id, agentInboxId: inbox.id, address: agent.address, humanId: record.humanId }, createdAt, sourceInbox.id);
@@ -2277,6 +2294,7 @@ async function route(req, res) {
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
     await assertActiveAgentSlot(human.id);
     const input = await body(req);
+    const runtime = validateConnectorRuntime(input.runtime);
     const requested = Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages'];
     const permissions = requested.filter(permission => allowedPermissions.has(permission));
     if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
@@ -2288,14 +2306,14 @@ async function route(req, res) {
     if (localPart && await store.getJson(path.join('identities', `${identityKey(agentAddressForLocalPart(localPart))}.json`))) return fail(res, 409, 'That agent address is already taken');
     const agentProfile = profileName ? { name: profileName, slug: localPart || slugify(input.agentProfile?.slug || profileName), ...(localPart ? { localPart } : {}), capabilities: Array.isArray(input.agentProfile?.capabilities) ? input.agentProfile.capabilities.slice(0, 20) : [] } : null;
     const rawToken = crypto.randomBytes(32).toString('base64url');
-    const record = { id: store.id('enrollment'), tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    const record = { id: store.id('enrollment'), runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
     await store.putJsonBatch([
       document(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record),
       document(enrollmentIndexPath(inboxId, record.id), { enrollmentId: record.id, tokenHash: record.tokenHash })
     ]);
     await audit(inboxId, 'agent.enrollment_token_created', { enrollmentId: record.id, humanId: human.id, permissions });
     const publicUrl = new URL(publicBaseUrl(req)).origin;
-    const quickConnect = { version: 1, runtime: 'openclaw', apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agentProfile?.name || '', address: localPart ? agentAddressForLocalPart(localPart) : null };
+    const quickConnect = { version: 1, runtime, apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agentProfile?.name || '', address: localPart ? agentAddressForLocalPart(localPart) : null };
     return json(res, 201, { enrollmentId: record.id, quickConnect, enrollmentToken: rawToken, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, permissions, agentProfile });
   }
 
@@ -2308,11 +2326,18 @@ async function route(req, res) {
     if (inbox.ownerAgentId !== agentId || !agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') {
       return fail(res, 404, 'Active enrolled agent not found');
     }
+    const input = await body(req);
+    const runtime = validateConnectorRuntime(input.runtime, agent.runtime || 'openclaw');
     const rawToken = crypto.randomBytes(32).toString('base64url');
-    const record = { id: store.id('enrollment'), kind: 'reconnect', tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
-    await store.putJson(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record);
+    const record = { id: store.id('enrollment'), kind: 'reconnect', runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    await store.putJsonBatch([
+      document(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record),
+      document(enrollmentIndexPath(inboxId, record.id), { enrollmentId: record.id, tokenHash: record.tokenHash })
+    ]);
     await audit(inboxId, 'agent.reconnect_token_created', { enrollmentId: record.id, agentId, humanId: human.id });
-    return json(res, 201, { enrollmentToken: rawToken, expiresAt: record.expiresAt, agentId, address: agent.address });
+    const publicUrl = new URL(publicBaseUrl(req)).origin;
+    const quickConnect = { version: 1, runtime, operation: 'reconnect', apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agent.name, address: agent.address };
+    return json(res, 201, { enrollmentId: record.id, quickConnect, enrollmentToken: rawToken, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, agentId, address: agent.address });
   }
 
   if (req.method === 'GET' && suffix === 'calendar-connectors') {

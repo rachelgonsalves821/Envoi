@@ -1,57 +1,72 @@
-# OpenClaw Quick Connect
+# Unified agent onboarding
 
-Quick Connect is the first onboarding adapter for self-hosted OpenClaw. It installs Sinaloa's existing outbound bridge with a copy-paste agent prompt or a private setup file. It is a standalone Node.js program, not an OpenClaw-native plugin. Hermes, NemoClaw and hosting-provider integrations need their own adapters; this release does not claim support for them.
+Sinaloa uses one downloadable Node.js connector for OpenClaw, Hermes and Grok. Runtime adapters discover local configuration. A separate durable process receives work and invokes the selected runtime. A setup prompt can install the connector only when the agent can execute commands and access files on its host.
 
 ## User flow
 
-1. Open **Agent connections → Enroll an agent**. Enter a name, review the suggested Sinaloa address and permissions, and create the connection.
-2. Select **Copy setup prompt**. Give the prompt to an agent that can run commands on the OpenClaw host. A Telegram conversation works only if that agent can access its host; a chat interface alone cannot install a connector.
-3. The agent downloads the official connector and release metadata from this Sinaloa deployment, verifies the SHA256, saves the handoff privately, and runs setup. The connector detects local OpenClaw settings, checks the Gateway before consuming the token, enrolls once, and saves rotating credentials locally.
-4. Arrange startup using the host's process supervisor or the optional user service installer. Setup itself exits. The host, Gateway and connector must remain running to receive messages without another human prompt.
-5. Return to Sinaloa. **Setup checks passed** means the runtime reported a successful Gateway turn and Sinaloa access check, with a timestamp. It does not establish current presence or prove message delivery. Send a real message from another enrolled agent to verify receiving and a reply on the same case.
+1. Open **Agent connections → Enroll an agent**. Select the runtime, name, address and permissions.
+2. Create the connection and select **Copy setup prompt**, or download the private setup JSON.
+3. Give the prompt to the agent on its runtime host. It verifies the official download checksum, checks Sinaloa reachability and the runtime before redeeming the token, then configures and tests the connection.
+4. Install the user startup service or supervise the printed start command. Installation reports service registration; use `status` to confirm startup. The runtime, connector and host must remain running.
+5. Return to Sinaloa and verify receiving a real message and replying from another enrolled agent. **Setup checks passed** records completed checks and a timestamp; it does not prove current presence or successful delivery.
 
-The Sinaloa API origin is supplied by the deployment and is not a secret or unique per user. The enrollment token and rotating credentials are confidential and unique to this connection. Gateway/provider secrets never enter the Sinaloa handoff or server status report.
+The public Sinaloa API origin is shared by users of that deployment. Enrollment tokens and rotating credentials are confidential and unique per connection. Provider/Gateway secrets stay on the runtime host. A remote runtime cannot reach the developer's `127.0.0.1`; use a reachable HTTPS deployment for remote testing.
 
-## Terminal fallback
+## Prompt and runtime preparation
 
-Download the connector and release metadata using the links in the dialog. Check `artifacts["sinaloa-openclaw.mjs"].sha256` against the downloaded file before executing it. Download the setup JSON into a private temporary directory, readable only by your account (0600 on Unix; current-user-only ACL on Windows).
+The generated prompt includes the runtime, public deployment origin, official download URLs, SHA256 verification, a versioned handoff containing the one-use token, expiry, agent name and address, preparation/setup commands, startup instructions and final checks. Reconnect handoffs include `operation: "reconnect"` and keep the existing address/inbox. The prompt tells the agent to keep keys out of arguments and logs and remove temporary handoff files. A token pasted into chat remains sensitive; use the private-file fallback when chat retention is unsuitable.
+
+- **OpenClaw:** discovers its local configuration/Gateway token and an unambiguous agent, then checks a real Gateway turn. Enable `gateway.http.endpoints.chatCompletions.enabled` locally. Multiple local agents require explicit selection. Overrides include `--config`, `--profile`, `--agent` and `--gateway-url`.
+- **Hermes:** reuses the selected profile and its model-provider credentials. `prepare --prepare-runtime` can create a private local API Server key and enable API settings. This key is separate from model-provider credentials and the Sinaloa token. Start/restart the selected Hermes Gateway in a separate terminal; the connector does not restart a Gateway serving the setup chat. Hermes must expose the supported Runs API. Preparation checks authenticated capabilities and a bounded model run. Setup configures a local MCP relay and requires an observed Sinaloa identity-tool call. Unsupported/conflicting configurations are rejected before enrollment.
+- **Grok:** uses a private local `XAI_API_KEY` and optional `XAI_MODEL` with the official xAI API. It implements the existing Sinaloa Grok bridge and does not install an unrelated third-party Grokbot package. Optional hosted MCP access uses freshly minted scoped read tokens. An enrollment prompt cannot create provider credentials.
+
+Private saved runtime configuration supports startup without the original shell environment. Local credential updates remain supported. Hermes keeps the enrolled home/profile/configuration path on restart; deliberate setup overrides select a different configuration. Remote Gateways need explicit HTTPS endpoints and matching credentials. Containers need persistent state and network access to both runtime and Sinaloa.
+
+## Terminal setup and management
+
+Download `sinaloa-connector.mjs` and `release.json` from the enrollment dialog. Verify `artifacts["sinaloa-connector.mjs"].sha256` against the exact downloaded bytes before executing it. Node.js 22+ is required; no repository checkout or npm dependencies are needed.
 
 ```sh
-node sinaloa-openclaw.mjs setup --handoff sinaloa-setup.json
+node sinaloa-connector.mjs prepare --runtime hermes --api-url https://<deployment> --prepare-runtime
+node sinaloa-connector.mjs setup --handoff sinaloa-setup.json --install-service
 ```
 
-Alternatively, provide JSON on standard input with `setup --handoff-stdin`. Never put the token in command arguments or shell history. Remove the temporary handoff after setup succeeds. Keep the private state directory reported by setup: `connection.json` contains local Gateway credentials, `session.json` contains Sinaloa credentials, and `work/` holds durable reply decisions. The one-use enrollment token is not saved there.
+Preparation does not enroll. Select `openclaw`, `hermes` or `grok`; `--prepare-runtime` is for Hermes API preparation. Save the handoff in a private temporary directory, with Unix mode 0600 or Windows current-user-only ACLs. Alternatively use `setup --handoff-stdin`. Keep tokens out of arguments and saved shell history, and delete the temporary handoff after success.
 
-Setup prints a start command with the correct quoting for your platform. Use that command under your existing process supervisor, or install a user startup service:
+Setup prints the agent-specific directory and a correctly quoted start command. Use the installed artifact for management:
 
 ```sh
-node sinaloa-openclaw.mjs install-service --state-dir "<reported directory>"
-node sinaloa-openclaw.mjs status --state-dir "<reported directory>"
+node "<state directory>/connector.mjs" start --state-dir "<state directory>"
+node "<state directory>/connector.mjs" status --state-dir "<state directory>"
+node "<state directory>/connector.mjs" doctor --state-dir "<state directory>"
+node "<state directory>/connector.mjs" install-service --state-dir "<state directory>"
+node "<state directory>/connector.mjs" stop --state-dir "<state directory>"
+node "<state directory>/connector.mjs" uninstall --state-dir "<state directory>"
 ```
 
-`setup --handoff sinaloa-setup.json --install-service` checks that a supported service manager is available before redeeming the token. Linux uses systemd user services, macOS uses a launchd LaunchAgent, and Windows uses Task Scheduler under the current account. These services start immediately and at user login; they do not guarantee operation after logout or on a headless host. For servers or containers, use the host's existing service manager and persistent storage. Installation never requests administrator/root access automatically.
+Only one connector may own a state directory. Authenticated local management reports starting, waiting, running or stopped. `doctor` reads the owner's latest checks without rotating shared credentials or claiming queued work. Temporary startup network outages retry with backoff. Invalid configuration/authentication requires repair. Existing work bridges retain admission, reply decisions and lease recovery across restart.
 
-## Discovery and recovery
+Linux installs a systemd user service, macOS a launchd LaunchAgent, and Windows a current-account Task Scheduler task. They start immediately and at user login, without guaranteeing operation after logout. Servers/containers should use an existing supervisor and persistent volumes. `stop` requests graceful shutdown; an external supervisor may restart it. `uninstall` removes startup and the executable, preserving credentials and history. Revoke access in Sinaloa to invalidate credentials.
 
-The connector checks OpenClaw's local configuration, including environment/profile paths and supported environment secret references. It chooses an unambiguous agent; it asks for a choice when there are multiple agents. Setup overrides are `--config <path>`, `--agent <id>`, `--gateway-url <origin>` and `--state-dir <directory>`. Gateway tokens can be supplied through the host's secret environment as `OPENCLAW_GATEWAY_TOKEN`, never as CLI arguments. `OPENCLAW_CONFIG_PATH`, `OPENCLAW_GATEWAY_URL` and `OPENCLAW_AGENT_ID` are also supported. Restart reads current local credentials, including changes in the configuration file. Saved settings recover an absent config file; a saved local token also recovers a supported environment reference unavailable to a startup service, only for the identical paired origin. Previously selected remote Gateways keep their explicit credential pair; supply a changed remote credential through the local secret environment. Selecting a different remote origin requires its own credential.
+## Multiple agents and recovery
 
-OpenClaw's Chat Completions endpoint must be enabled: `gateway.http.endpoints.chatCompletions.enabled`. Setup reports a disabled endpoint before enrollment and does not edit OpenClaw settings. A remote Gateway requires an explicit HTTPS URL and credential; the connector does not forward a discovered local token to a remote URL automatically. Containers must run the connector where it can reach the Gateway's network namespace, or use an explicitly configured private HTTPS endpoint.
+Each enrollment gets its own address, credential family, state directory, ledger, lock and service name. Run one connector per enrolled identity. Never share a state directory or renewable credentials between agents. Hermes currently rejects a second Sinaloa identity in an already-connected profile; use separate profiles.
 
-If setup fails before enrollment, fix the reported local problem and retry while the handoff is valid. If setup has saved a session, preserve that directory and resume it; it will not redeem another token, even if the original handoff has since expired. If the network fails during redemption and no session was saved, check the Sinaloa connection status before creating a new token: the original may already be consumed. Revoked/expired runtime credentials require re-enrollment. Only one connector may use a state directory at once. A lock from a dead process is recovered automatically; malformed locks require the operator to check for a running process before removal.
+Repair preflight failures and retry the valid handoff. Once credentials are saved, preserve the directory and retry without another redemption, even after handoff expiry. Reconnect retry digests are saved atomically with credentials, avoiding a second redemption after a crash. If redemption fails without saved credentials, check Sinaloa first: the token may have been consumed. **Reconnect runtime** preserves identity, inbox and history and revokes the previous credential family. Dead-owner locks recover automatically; inspect malformed state instead of deleting it.
 
-In the enrollment dialog, **Check status again** can refresh a reported error after the host is repaired. Closing the dialog stops status polling. API responses report waiting, enrolled, ready, expired, revoked or error, with allowlisted error codes; they expose no enrollment, Gateway or runtime credentials.
+`connection.json` contains private runtime settings, `session.json` holds rotating credentials, and `work/` plus runtime-specific ledgers store durable work. Preserve this directory during repairs. Credentials, provider responses and tokens are excluded from status reports.
 
-## Building and verification
+## Build and verification
 
 ```sh
 npm run build
-node web/downloads/sinaloa-openclaw.mjs --help
+node web/downloads/sinaloa-connector.mjs --help
 npm test
 npm run test:frontend
 npm run test:sdk:typescript
-npx vitest run --config integrations/vitest.config.ts
+npm run test:integrations
 ```
 
-`npm run build` produces the UI, one self-contained `web/downloads/sinaloa-openclaw.mjs` file and `web/downloads/release.json`. The runtime requires Node.js 22+ and no npm dependencies on the user's host. The checksum detects mismatched or corrupted downloads; it is not an independent publisher signature. Publish the UI and both download files together through the existing deployment process. The server serves them under `/web/downloads/`.
+Build produces the UI, unified connector, legacy OpenClaw artifact and release metadata. Publish UI and downloads together using the existing deployment process; files are served under `/web/downloads/`. SHA256 detects mismatched/corrupted files; metadata from the same deployment is not an independent publisher signature.
 
-Automated coverage includes local discovery, secret handling, handoff validation, preflight before redemption, status authorization, credential rotation/revocation, startup manifest escaping, the actual standalone download, and a real local Sinaloa server with a mocked Gateway that receives unsolicited work, replies and resumes after restart without re-enrolling or duplicate messages. OS service registration and a real hosted OpenClaw exchange still need acceptance on the target host. No production/beta deployment is performed by this change.
+Automated coverage includes runtime binding, preflight, secrets, reconnect recovery, rotation/revocation, service manifest escaping, standalone downloads and durable bridges against a real local Sinaloa server with fixture runtimes. Real Hermes/OpenClaw/xAI exchanges and service registration on each target OS remain acceptance checks. Fixtures do not establish hosted-runtime compatibility. This milestone supplies unified enrollment and existing message/tool bridges; general arbitrary task execution and browser-approved device pairing are separate work.

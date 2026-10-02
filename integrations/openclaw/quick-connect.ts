@@ -96,6 +96,7 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
   const fetcher = connectionFetch(options.fetch);
   // An expired file may resume an already enrolled installation; it must never be redeemed again.
   const handoff = validateQuickConnectHandoff(input, { allowExpired: true });
+  if (handoff.runtime !== 'openclaw' || handoff.operation === 'reconnect') throw new QuickConnectError('Use the unified Sinaloa connector for this runtime or reconnect handoff');
   const requested = options.stateDir || defaultConnectionDirectory(handoff.apiUrl, handoff.address, { home: options.homeDir, env: options.env, platform: options.platform });
   const stateDir = await (options.secureDirectory ?? privateDirectory)(requested);
   const unlock = await acquireConnectorLock(stateDir);

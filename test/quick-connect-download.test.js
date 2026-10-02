@@ -36,7 +36,10 @@ function run(executable, args, cwd, input = '') {
   });
 }
 
-test('distributed Quick Connect runs without repository dependencies and protects saved credentials', { timeout: 60_000 }, async t => {
+for (const artifact of ['sinaloa-openclaw.mjs', 'sinaloa-connector.mjs']) {
+test(`distributed ${artifact} runs without repository dependencies and protects saved credentials`, { timeout: 60_000 }, async t => {
+  const bundle = new URL(`../web/downloads/${artifact}`, import.meta.url);
+  const unified = artifact === 'sinaloa-connector.mjs';
   const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-download-'));
   // Only remove the fixture directory created by this test, never an arbitrary configured path.
   assert.ok(path.resolve(directory).startsWith(path.resolve(tmpdir()) + path.sep));
@@ -46,8 +49,9 @@ test('distributed Quick Connect runs without repository dependencies and protect
   const configPath = path.join(directory, 'openclaw.json');
   const bytes = await readFile(bundle);
   const release = JSON.parse(await readFile(releaseFile, 'utf8'));
-  assert.equal(createHash('sha256').update(bytes).digest('hex'), release.artifacts['sinaloa-openclaw.mjs'].sha256);
-  assert.equal(bytes.length, release.artifacts['sinaloa-openclaw.mjs'].size);
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), release.artifacts[artifact].sha256);
+  assert.equal(bytes.length, release.artifacts[artifact].size);
+  if (unified) assert.deepEqual(release.runtimes, ['openclaw', 'hermes', 'grok']);
   await copyFile(bundle, download);
 
   let gatewayToken = 'download-fixture-gateway-secret';
@@ -69,6 +73,7 @@ test('distributed Quick Connect runs without repository dependencies and protect
   const api = await listen(async (request, response) => {
     const source = await body(request);
     leakedGatewayCredential ||= source.includes(gatewayToken) || JSON.stringify(request.headers).includes(gatewayToken);
+    if (request.url === '/health') return json(response, { service: 'sinaloa' });
     if (request.url === '/api/agent-enroll') {
       enrollments++; order.push('enroll');
       if (JSON.parse(source).enrollmentToken !== enrollmentToken) return json(response, { error: 'wrong token' }, 401);
@@ -80,7 +85,7 @@ test('distributed Quick Connect runs without repository dependencies and protect
     if (request.url.startsWith('/api/inboxes/inbox_download/events/delta')) return json(response, { events: [], nextCursor: null, hasMore: false });
     if (request.url === '/api/agent/connection-status') {
       const report = JSON.parse(source);
-      if (report.phase === 'ready' && report.gatewayTest === 'passed') readyReports++;
+      if (report.phase === 'ready' && (report.gatewayTest === 'passed' || report.runtimeTest === 'passed')) readyReports++;
       return json(response, { checkedAt: new Date().toISOString() });
     }
     json(response, { error: 'unexpected route' }, 404);
@@ -100,7 +105,7 @@ test('distributed Quick Connect runs without repository dependencies and protect
   assert.equal(wrongGatewayAuth, false);
   assert.equal(leakedGatewayCredential, false);
   const installed = path.join(stateDir, 'connector.mjs');
-  assert.equal(createHash('sha256').update(await readFile(installed)).digest('hex'), release.artifacts['sinaloa-openclaw.mjs'].sha256);
+  assert.equal(createHash('sha256').update(await readFile(installed)).digest('hex'), release.artifacts[artifact].sha256);
   const saved = await readFile(path.join(stateDir, 'connection.json'), 'utf8');
   const session = await readFile(path.join(stateDir, 'session.json'), 'utf8');
   assert.ok(saved.includes(gatewayToken)); assert.ok(session.includes(refreshToken));
@@ -140,3 +145,4 @@ test('distributed Quick Connect runs without repository dependencies and protect
     JSON.stringify({ ...handoff, expiresAt: '2000-01-01T00:00:00Z' }));
   assert.equal(expired.code, 1); assert.match(expired.stderr, /expired/); assert.equal(enrollments, 1);
 });
+}

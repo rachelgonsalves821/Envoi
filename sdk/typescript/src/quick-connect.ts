@@ -1,12 +1,15 @@
 /** Versioned, short-lived handoff shared by the UI and runtime setup tools. */
+export const CONNECTOR_RUNTIMES = ['openclaw', 'hermes', 'grok'] as const;
+export type ConnectorRuntime = typeof CONNECTOR_RUNTIMES[number];
 export interface QuickConnectHandoff {
   version: 1;
-  runtime: 'openclaw';
+  runtime: ConnectorRuntime;
   apiUrl: string;
   enrollmentToken: string;
   expiresAt: string;
   agentName: string;
   address: string;
+  operation?: 'enroll' | 'reconnect';
 }
 
 /** Only static, locally authored diagnostics; safe for a setup CLI to display. */
@@ -31,7 +34,8 @@ export function quickConnectOrigin(value: string): string {
 export function validateQuickConnectHandoff(value: unknown, options: { now?: number; allowExpired?: boolean } = {}): QuickConnectHandoff {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new QuickConnectHandoffError('Invalid Sinaloa setup file');
   const input = value as Record<string, unknown>;
-  if (input.version !== 1 || input.runtime !== 'openclaw') throw new QuickConnectHandoffError('Unsupported Sinaloa setup version or runtime');
+  if (input.version !== 1 || !CONNECTOR_RUNTIMES.includes(input.runtime as ConnectorRuntime)) throw new QuickConnectHandoffError('Unsupported Sinaloa setup version or runtime');
+  if (input.operation !== undefined && !['enroll', 'reconnect'].includes(input.operation as string)) throw new QuickConnectHandoffError('Unsupported setup operation');
   if (typeof input.apiUrl !== 'string') throw new QuickConnectHandoffError('The setup file is missing the Sinaloa URL');
   const apiUrl = quickConnectOrigin(input.apiUrl);
   if (typeof input.enrollmentToken !== 'string' || !/^[A-Za-z0-9_-]{20,256}$/.test(input.enrollmentToken)) {
@@ -45,6 +49,7 @@ export function validateQuickConnectHandoff(value: unknown, options: { now?: num
   if (typeof input.address !== 'string' || !/^[a-z][a-z0-9.-]{2,31}@[a-z0-9.-]+$/i.test(input.address) || input.address.length > 254) {
     throw new QuickConnectHandoffError('The setup file has an invalid Sinaloa address');
   }
-  return { version: 1, runtime: 'openclaw', apiUrl, enrollmentToken: input.enrollmentToken,
-    expiresAt: input.expiresAt, agentName: input.agentName.trim(), address: input.address };
+  return { version: 1, runtime: input.runtime as ConnectorRuntime, apiUrl, enrollmentToken: input.enrollmentToken,
+    expiresAt: input.expiresAt, agentName: input.agentName.trim(), address: input.address,
+    ...(input.operation ? { operation: input.operation as 'enroll' | 'reconnect' } : {}) };
 }

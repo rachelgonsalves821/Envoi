@@ -4,7 +4,9 @@ import { join, resolve } from 'node:path';
 
 /** Trusted local diagnostic. Never construct this class from an upstream response body. */
 export class OpenClawSetupError extends Error {
-  constructor(message: string) { super(message); this.name = 'OpenClawSetupError'; }
+  constructor(message: string, public readonly code: 'GATEWAY_TEST_FAILED' | 'GATEWAY_UNREACHABLE' | 'GATEWAY_AUTH_FAILED' = 'GATEWAY_TEST_FAILED') {
+    super(message); this.name = 'OpenClawSetupError';
+  }
 }
 
 export interface OpenClawConfiguration {
@@ -232,7 +234,9 @@ export async function preflightOpenClaw(config: OpenClawConfiguration, options: 
   const cancel = () => controller.abort();
   options.signal?.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(cancel, timeoutMs);
-  const canceled = new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new OpenClawSetupError('OpenClaw connection test was canceled or timed out. This check did not redeem an enrollment token.')), { once: true }));
+  const canceled = new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new OpenClawSetupError(
+    'OpenClaw connection test was canceled or timed out. This check did not redeem an enrollment token.',
+    options.signal?.aborted ? 'GATEWAY_TEST_FAILED' : 'GATEWAY_UNREACHABLE')), { once: true }));
   try {
     await Promise.race([canceled, (async () => {
       let response: Response;
@@ -243,10 +247,10 @@ export async function preflightOpenClaw(config: OpenClawConfiguration, options: 
           body: JSON.stringify({ model: `openclaw/${config.agentId}`, user: `sinaloa:connection-test:${crypto.randomUUID()}`, stream: false,
             messages: [{ role: 'user', content: 'Sinaloa connection test. Do not use tools, read files, or perform external actions. Reply with a short confirmation that you can receive and answer this message.' }] })
         });
-      } catch { throw new OpenClawSetupError('OpenClaw Gateway could not be reached. Check it is running and run the connector in the same network environment. This check did not redeem an enrollment token.'); }
+      } catch { throw new OpenClawSetupError('OpenClaw Gateway could not be reached. Check it is running and run the connector in the same network environment. This check did not redeem an enrollment token.', 'GATEWAY_UNREACHABLE'); }
       if (response.status === 404 || response.status === 405) throw new OpenClawSetupError(endpointHelp);
-      if (response.status === 401 || response.status === 403) throw new OpenClawSetupError('OpenClaw Gateway authentication failed. Check the local Gateway credential and selected profile. This check did not redeem an enrollment token.');
-      if (!response.ok) throw new OpenClawSetupError(`OpenClaw connection test failed with HTTP ${response.status}. Check Gateway health and the selected agent model. This check did not redeem an enrollment token.`);
+      if (response.status === 401 || response.status === 403) throw new OpenClawSetupError('OpenClaw Gateway authentication failed. Check the local Gateway credential and selected profile. This check did not redeem an enrollment token.', 'GATEWAY_AUTH_FAILED');
+      if (!response.ok) throw new OpenClawSetupError(`OpenClaw connection test failed with HTTP ${response.status}. Check Gateway health and the selected agent model. This check did not redeem an enrollment token.`, response.status === 429 || response.status >= 500 ? 'GATEWAY_UNREACHABLE' : 'GATEWAY_TEST_FAILED');
       let body: unknown;
       try { body = await response.json(); } catch { throw new OpenClawSetupError('OpenClaw connection test returned invalid JSON. Check the Gateway endpoint. This check did not redeem an enrollment token.'); }
       const choices = record(body).choices;

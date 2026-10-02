@@ -1,4 +1,5 @@
 import { rotateAgentToken, SinaloaClient, SinaloaError, type AgentTokens, type AssetUploadInput, type CaseMessageInput, type ClientOptions, type NativeMessageInput } from './index';
+import { CONNECTOR_RUNTIMES, type ConnectorRuntime } from './quick-connect';
 
 /** Persist the whole record atomically, including each replacement refresh token. */
 export interface ConnectorSession extends AgentTokens {
@@ -120,10 +121,11 @@ function eventFrom(value: Record<string, unknown>): InboxEvent {
   return value as InboxEvent;
 }
 
-/** Redeems the existing one-use code; the server currently ignores installation metadata. */
-export async function enrollConnector(baseUrl: string, enrollmentToken: string, store: ConnectorStore, options: ClientOptions & { name?: string } = {}): Promise<ConnectorSession> {
+/** Redeems a one-use code; optional runtime binding is checked before consumption. */
+export async function enrollConnector(baseUrl: string, enrollmentToken: string, store: ConnectorStore, options: ClientOptions & { name?: string; runtime?: ConnectorRuntime } = {}): Promise<ConnectorSession> {
   const origin = apiOrigin(baseUrl);
   if (!enrollmentToken) throw new TypeError('Enrollment token is required');
+  if (options.runtime !== undefined && !CONNECTOR_RUNTIMES.includes(options.runtime)) throw new TypeError('Unsupported connector runtime');
   const controller = new AbortController();
   const duration = options.timeoutMs ?? 30_000;
   if (!Number.isSafeInteger(duration) || duration < 1 || duration > 300_000) throw new RangeError('timeoutMs must be an integer from 1 to 300000');
@@ -132,7 +134,7 @@ export async function enrollConnector(baseUrl: string, enrollmentToken: string, 
   try {
     response = await (options.fetch || fetch)(`${origin}/api/agent-enroll`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ enrollmentToken, ...(options.name ? { name: options.name } : {}) }), signal: controller.signal
+      body: JSON.stringify({ enrollmentToken, ...(options.name ? { name: options.name } : {}), ...(options.runtime ? { runtime: options.runtime } : {}) }), signal: controller.signal
     });
   } catch {
     throw new SinaloaError(controller.signal.aborted ? 'Sinaloa request timed out' : 'Sinaloa could not be reached');

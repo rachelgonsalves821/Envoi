@@ -163,3 +163,88 @@ test('setup projection cannot revive revoked families or agents and ignores unkn
   assert.equal(enrollmentConnectionStatus(record, agent, { ...family, connectionSetup: { ...family.connectionSetup, runtime: 'unknown' } }).phase, 'enrolled');
   assert.throws(() => validateConnectionReport(null), /Invalid connection setup report/);
 });
+
+test('all runtimes bind setup reports and reconnect without replacing identity or saved history', async t => {
+  const { baseUrl, dataDir } = await startServer(t);
+  let owner = await human(baseUrl, '334');
+  let workspace = await api(baseUrl, '/api/inboxes', { session: owner.session, body: { name: 'Unified runtimes' } });
+  const create = runtime => api(baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, {
+    session: owner.session, body: { runtime, agentProfile: { name: runtime, localPart: `unified-${runtime}` } }
+  });
+  for (const invalid of ['unknown', null, {}, 'Hermes']) assert.equal((await create(invalid)).status, 400);
+  for (const runtime of ['openclaw', 'hermes', 'grok']) {
+    if (runtime !== 'openclaw') {
+      // The existing beta policy deliberately caps active agents at two per human.
+      owner = await human(baseUrl, runtime === 'hermes' ? '335' : '336');
+      workspace = await api(baseUrl, '/api/inboxes', { session: owner.session, body: { name: `Unified ${runtime}` } });
+    }
+    const created = await create(runtime);
+    assert.equal(created.status, 201);
+    assert.equal(created.payload.quickConnect.runtime, runtime);
+    const statusPath = `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens/${created.payload.enrollmentId}/status`;
+    const wrongRuntime = runtime === 'hermes' ? 'grok' : 'hermes';
+    assert.equal((await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: created.payload.enrollmentToken, runtime: wrongRuntime } })).status, 400);
+    assert.equal((await api(baseUrl, statusPath, { session: owner.session })).payload.phase, 'waiting', 'runtime mismatch does not consume the token');
+    const enrolled = await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: created.payload.enrollmentToken, runtime } });
+    assert.equal(enrolled.status, 201);
+    assert.equal(enrolled.payload.agent.runtime, runtime);
+    const report = { version: 1, runtime, phase: 'ready', runtimeTest: 'passed' };
+    assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: enrolled.payload.agentApiToken, body: { ...report, runtime: wrongRuntime } })).status, 400);
+    assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: enrolled.payload.agentApiToken, body: report })).status, 200);
+    assert.equal((await api(baseUrl, statusPath, { session: owner.session })).payload.phase, 'ready');
+    const { agent, inbox } = enrolled.payload;
+    const historyPath = path.join(dataDir, 'inboxes', inbox.id, 'retained-history.json');
+    await writeFile(historyPath, JSON.stringify({ previousConversation: `${runtime}-history` }));
+    const reconnectPath = `/api/inboxes/${inbox.id}/agents/${agent.id}/credentials/reconnect-token`;
+    assert.equal((await api(baseUrl, reconnectPath, { session: owner.session, body: { runtime: 'unknown' } })).status, 400);
+    const reconnect = await api(baseUrl, reconnectPath, { session: owner.session, body: {} });
+    assert.equal(reconnect.status, 201);
+    assert.equal(reconnect.payload.quickConnect.operation, 'reconnect');
+    assert.equal(reconnect.payload.quickConnect.runtime, runtime, 'defaults to the persisted runtime');
+    assert.equal(reconnect.payload.quickConnect.address, agent.address);
+    const reconnectStatus = `/api/inboxes/${inbox.id}/agent-enrollment-tokens/${reconnect.payload.enrollmentId}/status`;
+    assert.equal((await api(baseUrl, reconnectStatus, { session: owner.session })).payload.phase, 'waiting');
+    // Issuing a reconnect handoff must not disconnect the existing runtime.
+    assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: enrolled.payload.agentApiToken, body: report })).status, 200);
+    const renewed = await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: reconnect.payload.enrollmentToken, runtime } });
+    assert.equal(renewed.status, 200);
+    assert.equal(renewed.payload.agent.id, agent.id);
+    assert.equal(renewed.payload.agent.address, agent.address);
+    assert.equal(renewed.payload.inbox.id, inbox.id);
+    assert.equal((await api(baseUrl, reconnectStatus, { session: owner.session })).payload.phase, 'enrolled');
+    assert.equal((await api(baseUrl, statusPath, { session: owner.session })).payload.phase, 'revoked');
+    assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: enrolled.payload.agentApiToken, body: report })).status, 401);
+    assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: enrolled.payload.agentRefreshToken } })).status, 401);
+    assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: renewed.payload.agentApiToken, body: report })).status, 200);
+    const ready = (await api(baseUrl, reconnectStatus, { session: owner.session })).payload;
+    assert.equal(ready.phase, 'ready');
+    assert.equal(ready.agent.inboxId, inbox.id);
+    assert.equal(JSON.stringify(ready).includes(reconnect.payload.enrollmentToken), false);
+    assert.deepEqual(JSON.parse(await readFile(historyPath, 'utf8')), { previousConversation: `${runtime}-history` });
+    assert.equal((await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: reconnect.payload.enrollmentToken } })).status, 401);
+    if (runtime === 'grok') {
+      const migration = await api(baseUrl, reconnectPath, { session: owner.session, body: { runtime: 'hermes' } });
+      assert.equal(migration.payload.quickConnect.runtime, 'hermes');
+      const migrated = await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: migration.payload.enrollmentToken, runtime: 'hermes' } });
+      assert.equal(migrated.status, 200);
+      assert.equal(migrated.payload.agent.id, agent.id);
+      assert.equal(migrated.payload.agent.runtime, 'hermes');
+      assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: migrated.payload.agentApiToken, body: report })).status, 400);
+      assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: migrated.payload.agentApiToken, body: { ...report, runtime: 'hermes' } })).status, 200);
+    }
+  }
+});
+
+test('reports accept generic runtime checks, reject conflicting legacy fields and unknown diagnostics', () => {
+  for (const runtime of ['openclaw', 'hermes', 'grok']) {
+    assert.equal(validateConnectionReport({ version: 1, runtime, phase: 'ready', runtimeTest: 'passed' }).runtime, runtime);
+    assert.equal(validateConnectionReport({ version: 1, runtime, phase: 'error', runtimeTest: 'failed', errorCode: 'MODEL_CREDENTIAL_MISSING' }).errorCode, 'MODEL_CREDENTIAL_MISSING');
+  }
+  assert.throws(() => validateConnectionReport({ version: 1, runtime: 'openclaw', phase: 'ready', runtimeTest: 'passed', gatewayTest: 'failed' }), /Invalid/);
+  assert.throws(() => validateConnectionReport({ version: 1, runtime: 'hermes', phase: 'ready', gatewayTest: 'passed' }), /Invalid/);
+  assert.throws(() => validateConnectionReport({ version: 1, runtime: 'hermes', phase: 'error', runtimeTest: 'failed', errorCode: 'private credential details' }), /Invalid/);
+  const record = { id: 'enrollment_bound', runtime: 'hermes', usedAt: '2026-01-01', expiresAt: '2026-01-02' };
+  const agent = { status: 'active', onboardingStatus: 'approved' };
+  const family = { runtime: 'hermes', refreshExpiresAt: '2099-01-01', connectionSetup: { version: 1, runtime: 'grok', phase: 'ready', runtimeTest: 'passed', checkedAt: '2026-01-01' } };
+  assert.equal(enrollmentConnectionStatus(record, agent, family).phase, 'enrolled', 'mismatched saved reports never project readiness');
+});

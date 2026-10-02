@@ -1,2 +1,7 @@
 # Migration ledger checksums must match Linux Container/Git bytes on Windows too.
 db/*.sql text eol=lf
+# Download checksums cover exact bytes, including line endings.
+web/downloads/*.mjs text eol=lf
+web/downloads/release.json text eol=lf
+frontend/index.html text eol=lf
+web/index.html text eol=lf

@@ -22,7 +22,7 @@ describe('agent permission review', () => {
 });
 
 describe('external runtime enrollment handoff', () => {
-  it('prepares Windows Hermes before issuing the short-lived token', () => {
+  it('offers all runtime choices and verified preparation before issuing the short-lived token', () => {
     const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
       workspace: { id: 'inbox_1' } as Inbox,
       result: null,
@@ -30,12 +30,14 @@ describe('external runtime enrollment handoff', () => {
       onClose: vi.fn()
     }));
 
-    expect(markup).toContain('Prepare before creating a token');
-    expect(markup).toContain('Node 22');
-    expect(markup).toContain('normal chat');
-    expect(markup).toContain('connect-windows.ps1 -SinaloaUrl https://sinaloa-staging.rachelgonsalves821.workers.dev -PrepareOnly');
-    expect(markup).toContain('without asking for a token');
-    expect(markup.indexOf('-PrepareOnly')).toBeLessThan(markup.indexOf('Create one-time token'));
+    expect(markup).toContain('Check the runtime before enrolling');
+    expect(markup).toContain('Node.js 22');
+    expect(markup).toContain('normal model request');
+    expect(markup).toContain('sinaloa-connector.mjs prepare --runtime openclaw');
+    expect(markup).toContain('Hermes');
+    expect(markup).toContain('Grok');
+    expect(markup.indexOf('prepare --runtime')).toBeLessThan(markup.indexOf('Create setup prompt'));
+    expect(markup).not.toContain('connect-windows.ps1');
     expect(markup).not.toContain('Raw enrollment token');
   });
 
@@ -55,13 +57,10 @@ describe('external runtime enrollment handoff', () => {
     expect(markup).toContain('OPENCLAW_GATEWAY_TOKEN');
     expect(markup).toContain('XAI_API_KEY');
     expect(markup).toContain('SINALOA_MCP_URL');
-    expect(markup).toContain('Hermes Agent · Windows');
-    expect(markup).toContain('connect-windows.ps1');
-    expect(markup).toContain('masked prompt, never at the PowerShell prompt or in a chat');
-    expect(markup).toContain('Review agent access');
-    expect(markup).toContain('real Sinaloa message');
-    expect(markup.indexOf('masked prompt')).toBeLessThan(markup.indexOf('Review agent access'));
-    expect(markup.indexOf('Review agent access')).toBeLessThan(markup.indexOf('real Sinaloa message'));
+    expect(markup).toContain('Hermes');
+    expect(markup).toContain('model provider already configured locally');
+    expect(markup).toContain('incoming Sinaloa message');
+    expect(markup).not.toContain('connect-windows.ps1');
     expect(markup).toContain('Provider secrets stay on the external host');
     expect(markup).not.toContain('/api/agent-enroll');
     expect(markup).not.toContain('agentApiToken');
