@@ -1,6 +1,6 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
-  [string]$SinaloaUrl = 'https://sinaloa-staging.rachelgonsalves821.workers.dev',
+  [Alias('EnvoiUrl')][string]$SinaloaUrl = 'https://sinaloa-staging.rachelgonsalves821.workers.dev',
   [string]$StateDir = '',
   [switch]$PrepareOnly
 )
@@ -18,27 +18,27 @@ $bundle = Join-Path $PSScriptRoot 'dist\run.mjs'
 if (-not (Test-Path -LiteralPath $hermesExe)) { throw 'Hermes Agent is not installed in the standard Windows location.' }
 $origin = [Uri]$SinaloaUrl
 if ($origin.Scheme -ne 'https' -or $origin.UserInfo -or $origin.Query -or $origin.Fragment -or $origin.AbsolutePath -ne '/') {
-  throw 'SinaloaUrl must be an HTTPS site origin without credentials or a path.'
+  throw 'EnvoiUrl must be an HTTPS site origin without credentials or a path.'
 }
 $stateRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Sinaloa\HermesBridge'))
 if (-not $StateDir) { $StateDir = Join-Path $stateRoot $origin.Host }
 if (-not [IO.Path]::IsPathFullyQualified($StateDir)) {
-  throw 'StateDir must be an absolute path inside the private Sinaloa HermesBridge folder. Paste enrollment tokens only at the hidden-input prompt.'
+  throw 'StateDir must be an absolute path inside the private HermesBridge folder. Paste enrollment tokens only at the hidden-input prompt.'
 }
 $StateDir = [IO.Path]::GetFullPath($StateDir)
 $relativeStateDir = [IO.Path]::GetRelativePath($stateRoot, $StateDir)
 if ($relativeStateDir -eq '.' -or $relativeStateDir -eq '..' -or $relativeStateDir.StartsWith("..$([IO.Path]::DirectorySeparatorChar)") -or [IO.Path]::IsPathFullyQualified($relativeStateDir)) {
-  throw 'StateDir must stay inside the private Sinaloa HermesBridge folder.'
+  throw 'StateDir must stay inside the private HermesBridge folder.'
 }
 $session = Join-Path $StateDir 'session.json'
 if (-not $PrepareOnly) {
   $otherBridge = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop |
     Where-Object { $_.CommandLine -match 'integrations[\\/]hermes[\\/]dist[\\/]run\.mjs' }
-  if ($otherBridge) { throw 'A Hermes Sinaloa bridge is already running. Stop its terminal with Ctrl+C, then run this command again to resume the same enrollment.' }
+  if ($otherBridge) { throw 'A Hermes Envoi bridge is already running. Stop its terminal with Ctrl+C, then run this command again to resume the same enrollment.' }
 }
 
 # This key authorizes the local bridge to call the local Hermes Gateway. It is
-# never sent to Sinaloa or included in an agent prompt.
+# never sent to Envoi or included in an agent prompt.
 $lines = if (Test-Path -LiteralPath $hermesEnv) { [string[]][IO.File]::ReadAllLines($hermesEnv) } else { [string[]]@() }
 $enabledIndexes = @()
 $keyIndexes = @()
@@ -48,7 +48,7 @@ for ($i = 0; $i -lt $lines.Length; $i++) {
   if ($lines[$i] -match '^[ \t]*API_SERVER_KEY=') { $keyIndexes += $i }
   if ($lines[$i] -match '^[ \t]*HERMES_MCP_RELAY_TOKEN=') { $relayIndexes += $i }
 }
-if ($enabledIndexes.Count -gt 1 -or $keyIndexes.Count -gt 1 -or $relayIndexes.Count -gt 1) { throw 'Hermes has duplicate API or Sinaloa relay settings; resolve them before connecting.' }
+if ($enabledIndexes.Count -gt 1 -or $keyIndexes.Count -gt 1 -or $relayIndexes.Count -gt 1) { throw 'Hermes has duplicate API or Envoi relay settings; resolve them before connecting.' }
 $changed = $false
 if ($enabledIndexes.Count -eq 0) { $lines += 'API_SERVER_ENABLED=true'; $changed = $true }
 elseif ($lines[$enabledIndexes[0]] -ne 'API_SERVER_ENABLED=true') { $lines[$enabledIndexes[0]] = 'API_SERVER_ENABLED=true'; $changed = $true }
@@ -73,7 +73,7 @@ if (-not $relayKey) {
   else { $lines += "HERMES_MCP_RELAY_TOKEN=$relayKey" }
   $changed = $true
 }
-if ($relayKey.Length -lt 32 -or $relayKey -match '[\r\n]') { throw 'The existing Hermes Sinaloa relay key is invalid.' }
+if ($relayKey.Length -lt 32 -or $relayKey -match '[\r\n]') { throw 'The existing Hermes Envoi relay key is invalid.' }
 if ($changed) { [IO.File]::WriteAllLines($hermesEnv, $lines, [Text.UTF8Encoding]::new($false)) }
 
 $gatewayExit = 0
@@ -95,7 +95,7 @@ try {
   $vite = Join-Path $repoRoot 'node_modules\.bin\vite.cmd'
   if (-not (Test-Path -LiteralPath $vite)) {
     & npm.cmd ci
-    if ($LASTEXITCODE -ne 0) { throw 'Sinaloa dependencies could not be installed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Envoi dependencies could not be installed.' }
   }
   & $vite build --config integrations/hermes/vite.config.ts
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $bundle)) { throw 'Hermes bridge build failed.' }
@@ -103,7 +103,7 @@ try {
 finally { Pop-Location }
 
 # Hermes reads this private key from its own .env. Its config contains only a
-# variable reference, never the Sinaloa access or refresh credential.
+# variable reference, never the Envoi access or refresh credential.
 $mcpBlock = [string[]]@(
   '  sinaloa:',
   '    url: "http://127.0.0.1:8789/mcp"',
@@ -119,11 +119,11 @@ if (Test-Path -LiteralPath $hermesConfig) { $config.AddRange([string[]][IO.File]
 $mcpSections = @()
 for ($i = 0; $i -lt $config.Count; $i++) {
   if ($config[$i] -match '^mcp_servers:') {
-    if ($config[$i] -ne 'mcp_servers:') { throw 'Hermes has a nonstandard mcp_servers configuration; preserve it and add Sinaloa manually.' }
+    if ($config[$i] -ne 'mcp_servers:') { throw 'Hermes has a nonstandard mcp_servers configuration; preserve it and add Envoi manually.' }
     $mcpSections += $i
   }
 }
-if ($mcpSections.Count -gt 1) { throw 'Hermes has duplicate mcp_servers sections; preserve them and add Sinaloa manually.' }
+if ($mcpSections.Count -gt 1) { throw 'Hermes has duplicate mcp_servers sections; preserve them and add Envoi manually.' }
 if ($mcpSections.Count -eq 0) {
   if ($config.Count -gt 0 -and $config[$config.Count - 1] -ne '') { $config.Add('') }
   $config.Add('mcp_servers:')
@@ -139,7 +139,7 @@ if ($mcpSections.Count -eq 0) {
     if ($config[$i] -match '^  sinaloa:') {
       $existing = if ($i + $mcpBlock.Length -le $end) { [string[]]$config.GetRange($i, $mcpBlock.Length) } else { [string[]]@() }
       if (($existing -join "`n") -eq ($mcpBlock -join "`n")) { $start = -1; break }
-      throw 'Hermes already has a different Sinaloa MCP entry. Inspect it before replacing it.'
+      throw 'Hermes already has a different Envoi MCP entry. Inspect it before replacing it.'
     }
   }
   if ($start -ge 0) {
@@ -149,7 +149,7 @@ if ($mcpSections.Count -eq 0) {
 }
 
 if ($PrepareOnly) {
-  Write-Host 'Hermes Gateway and Sinaloa MCP configuration are ready. Run this script again without -PrepareOnly to connect the agent.'
+  Write-Host 'Hermes Gateway and Envoi MCP configuration are ready. Run this script again without -PrepareOnly to connect the agent.'
   return
 }
 
@@ -162,7 +162,7 @@ $env:HERMES_MCP_WRITE_ENABLED = 'true'
 
 try {
   if (-not (Test-Path -LiteralPath $session)) {
-    Write-Host "No saved Sinaloa session was found at $StateDir."
+    Write-Host 'No saved Envoi session was found for this host.'
     Write-Host 'For an existing agent, use Agent connections > Reconnect runtime. For a new agent, use Enroll an agent.'
     Write-Host 'Do not paste the token into a chat or at the PS> prompt.'
     $enteredToken = ''
@@ -178,8 +178,8 @@ try {
     if (-not $enteredToken) { throw 'No token was entered after three prompts. Run this script again when you have a fresh token.' }
     $env:SINALOA_ENROLLMENT_TOKEN = $enteredToken
     $enteredToken = ''
-  } else { Write-Host "Resuming the saved Sinaloa agent for $($origin.Host)." }
-  Write-Host 'Connecting Hermes to Sinaloa. Keep this terminal open while testing.'
+  } else { Write-Host "Resuming the saved Envoi agent for $($origin.Host)." }
+  Write-Host 'Connecting Hermes to Envoi. Keep this terminal open while testing.'
   Write-Host 'After MCP send tools are ready, start a new Hermes chat. An older chat may retain a stale tool list.'
   & node $bundle
   if ($LASTEXITCODE -ne 0) { throw 'The Hermes bridge stopped. Verify the Gateway and use a fresh token if enrollment did not finish.' }

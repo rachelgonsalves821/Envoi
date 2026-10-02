@@ -42,7 +42,7 @@ async function runProbe(options: Omit<XaiMcpProbeOptions, 'expectedAddress'>, to
     (target.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(target.hostname))
   )) throw new TypeError('MCP URL must be an HTTPS /mcp endpoint');
   if (!options.apiKey || !options.accessToken || /[\r\n]/.test(options.accessToken) || !expected) {
-    throw new TypeError('Live xAI and current Sinaloa agent credentials are required');
+    throw new TypeError('Live xAI and current Envoi agent credentials are required');
   }
   const endpoint = options.endpoint || 'https://api.x.ai/v1/responses';
   const xai = new URL(endpoint);
@@ -101,14 +101,14 @@ async function main() {
   }
   const accessToken = (await connector.mintMcpReadToken(caseId || null)).mcpAccessToken;
   const session = await store.load();
-  if (!session?.address) throw new Error('Enrolled Sinaloa session is required');
+  if (!session?.address) throw new Error('Enrolled Envoi session is required');
   const base = { apiKey, model: process.env.XAI_MODEL || 'grok-4.7', mcpUrl, accessToken };
   if (caseId && expectedAssetId) {
     await probeXaiCaseAssetMcp({ ...base, caseId, expectedAssetId });
     process.stdout.write('xAI read the case file announcement through hosted MCP and returned its asset ID.\n');
   } else {
     await probeXaiMcp({ ...base, expectedAddress: session.address });
-    process.stdout.write('xAI invoked Sinaloa agent_info through hosted MCP and returned the enrolled agent address.\n');
+    process.stdout.write('xAI invoked Envoi agent_info through hosted MCP and returned the enrolled agent address.\n');
   }
 }
 

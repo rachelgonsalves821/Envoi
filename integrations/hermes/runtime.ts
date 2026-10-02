@@ -24,7 +24,7 @@ export async function createHermesBridge(config: HermesBridgeConfiguration,
   const store = new FileBridgeStore(config.stateDir);
   await store.init();
   const session = await store.load();
-  if (!session) throw new Error('Sinaloa enrollment did not create a connector session');
+  if (!session) throw new Error('Envoi enrollment did not create a connector session');
   const approvedAssets = await loadAssetManifest(env.SINALOA_ASSET_MANIFEST_PATH);
   let active: { message: WorkMessage; signal: AbortSignal } | null = null;
   let connector: SinaloaConnector;

@@ -84,7 +84,7 @@ export class ConnectorPersistenceError extends Error {
 
 export class ConnectorContractError extends Error {
   constructor() {
-    super('Sinaloa fenced work API is unavailable; agent processing cannot start');
+    super('Envoi fenced work API is unavailable; agent processing cannot start');
     this.name = 'ConnectorContractError';
   }
 }
@@ -116,7 +116,7 @@ function validSession(value: ConnectorSession | null): ConnectorSession {
 
 function eventFrom(value: Record<string, unknown>): InboxEvent {
   if (typeof value.id !== 'string' || typeof value.type !== 'string' || typeof value.cursor !== 'string' || !value.cursor) {
-    throw new SinaloaError('Sinaloa returned an invalid event');
+    throw new SinaloaError('Envoi returned an invalid event');
   }
   return value as InboxEvent;
 }
@@ -137,7 +137,7 @@ export async function enrollConnector(baseUrl: string, enrollmentToken: string, 
       body: JSON.stringify({ enrollmentToken, ...(options.name ? { name: options.name } : {}), ...(options.runtime ? { runtime: options.runtime } : {}) }), signal: controller.signal
     });
   } catch {
-    throw new SinaloaError(controller.signal.aborted ? 'Sinaloa request timed out' : 'Sinaloa could not be reached');
+    throw new SinaloaError(controller.signal.aborted ? 'Envoi request timed out' : 'Envoi could not be reached');
   } finally {
     clearTimeout(timer);
   }
@@ -148,7 +148,7 @@ export async function enrollConnector(baseUrl: string, enrollmentToken: string, 
   } catch { /* Never expose provider response bodies. */ }
   if (!response.ok) {
     const remote = payload?.error;
-    throw new SinaloaError(typeof remote === 'string' && remote.length <= 500 ? remote : `Sinaloa enrollment failed with HTTP ${response.status}`, response.status);
+    throw new SinaloaError(typeof remote === 'string' && remote.length <= 500 ? remote : `Envoi enrollment failed with HTTP ${response.status}`, response.status);
   }
   const agent = payload?.agent as Record<string, unknown> | undefined;
   const inbox = payload?.inbox as Record<string, unknown> | undefined;
@@ -158,7 +158,7 @@ export async function enrollConnector(baseUrl: string, enrollmentToken: string, 
     agentTokenExpiresAt: String(payload?.agentTokenExpiresAt || ''),
     agentRefreshTokenExpiresAt: String(payload?.agentRefreshTokenExpiresAt || ''), cursor: null
   });
-  if (!session.address) throw new SinaloaError('Sinaloa enrollment response is missing the agent address');
+  if (!session.address) throw new SinaloaError('Envoi enrollment response is missing the agent address');
   try { await store.save(session); } catch { throw new ConnectorPersistenceError(); }
   return session;
 }
@@ -237,15 +237,15 @@ export class SinaloaConnector {
           headers: { authorization: `Bearer ${session.agentApiToken}`, 'content-type': 'application/json' },
           body: JSON.stringify(caseId === null ? {} : { caseId })
         });
-      } catch { throw new SinaloaError(timeout.aborted ? 'Sinaloa MCP token request timed out' : 'Sinaloa MCP token service could not be reached'); }
-      if (!response.ok) throw new SinaloaError('Sinaloa MCP read credential was denied', response.status);
+      } catch { throw new SinaloaError(timeout.aborted ? 'Envoi MCP token request timed out' : 'Envoi MCP token service could not be reached'); }
+      if (!response.ok) throw new SinaloaError('Envoi MCP read credential was denied', response.status);
       let payload: Record<string, unknown>;
       try { payload = await response.json() as Record<string, unknown>; }
-      catch { throw new SinaloaError('Sinaloa returned an invalid MCP read credential'); }
+      catch { throw new SinaloaError('Envoi returned an invalid MCP read credential'); }
       if (!payload || typeof payload.mcpAccessToken !== 'string' || !payload.mcpAccessToken ||
           payload.tokenType !== 'Bearer' || payload.scope !== 'case_read' || payload.caseId !== caseId ||
           typeof payload.expiresAt !== 'string' || Date.parse(payload.expiresAt) <= Date.now() + 120_000) {
-        throw new SinaloaError('Sinaloa returned an invalid or short-lived MCP read credential');
+        throw new SinaloaError('Envoi returned an invalid or short-lived MCP read credential');
       }
       return payload as unknown as McpReadToken;
     });
@@ -269,9 +269,9 @@ export class SinaloaConnector {
           }
         });
       } catch {
-        throw new SinaloaError(requestSignal.aborted ? 'Sinaloa MCP request timed out or canceled' : 'Sinaloa MCP could not be reached');
+        throw new SinaloaError(requestSignal.aborted ? 'Envoi MCP request timed out or canceled' : 'Envoi MCP could not be reached');
       }
-      if (response.status === 401) throw new SinaloaError('Sinaloa MCP credential was rejected', 401);
+      if (response.status === 401) throw new SinaloaError('Envoi MCP credential was rejected', 401);
       return response;
     });
   }
@@ -333,7 +333,7 @@ export class SinaloaConnector {
           body: JSON.stringify(body), signal: controller.signal
         });
       } catch {
-        throw new SinaloaError(controller.signal.aborted ? 'Sinaloa request timed out' : 'Sinaloa could not be reached');
+        throw new SinaloaError(controller.signal.aborted ? 'Envoi request timed out' : 'Envoi could not be reached');
       } finally { clearTimeout(timer); }
       let payload: Record<string, unknown> | null = null;
       try {
@@ -342,9 +342,9 @@ export class SinaloaConnector {
       } catch { /* Never expose a raw provider body. */ }
       if (!response.ok) {
         const remote = payload?.error;
-        throw new SinaloaError(typeof remote === 'string' && remote.length <= 500 ? remote : `Sinaloa work request failed with HTTP ${response.status}`, response.status);
+        throw new SinaloaError(typeof remote === 'string' && remote.length <= 500 ? remote : `Envoi work request failed with HTTP ${response.status}`, response.status);
       }
-      if (!payload) throw new SinaloaError('Sinaloa returned an invalid work response', response.status);
+      if (!payload) throw new SinaloaError('Envoi returned an invalid work response', response.status);
       return payload as T;
     };
     const session = await this.freshSession();
@@ -379,11 +379,11 @@ export class SinaloaConnector {
     if (claimed.work === null) return false;
     const work = claimed.work;
     if (!work || typeof work.workId !== 'string' || typeof work.leaseToken !== 'string' || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || typeof work.message?.id !== 'string' || !work.message.id) {
-      throw new SinaloaError('Sinaloa returned an invalid work claim');
+      throw new SinaloaError('Envoi returned an invalid work claim');
     }
     const session = validSession(await this.store.load());
     if (work.message.recipientAgentId !== session.agentId || work.message.status === 'processed' || !work.message.from?.address) {
-      throw new SinaloaError('Sinaloa returned work for the wrong recipient');
+      throw new SinaloaError('Envoi returned work for the wrong recipient');
     }
     const workPath = `/api/agent/work/${encodeURIComponent(work.workId)}`;
     // The server scopes idempotency by agent, so a reclaimed lease needs new
@@ -404,7 +404,7 @@ export class SinaloaConnector {
         if (workAbort.signal.aborted) break;
         try {
           const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken });
-          if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new SinaloaError('Sinaloa returned an invalid lease renewal');
+          if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new SinaloaError('Envoi returned an invalid lease renewal');
           leaseExpiresAt = renewed.leaseExpiresAt;
         } catch (error) { renewalError = error; workAbort.abort(); break; }
       }
@@ -417,7 +417,7 @@ export class SinaloaConnector {
       if (workAbort.signal.aborted) throw new SinaloaError('Work lease was interrupted before acknowledgement');
       const acknowledged = await this.postWork<WorkSettlement>(`${workPath}/acknowledge`, { leaseToken: work.leaseToken }, acknowledgeKey);
       if (acknowledged.workId !== work.workId || acknowledged.status !== 'acknowledged' || acknowledged.receipt?.state !== 'acknowledged' || acknowledged.receipt.messageId !== work.message.id) {
-        throw new SinaloaError('Sinaloa returned an invalid acknowledgement');
+        throw new SinaloaError('Envoi returned an invalid acknowledgement');
       }
       await handler.process(work.message, {
         signal: workAbort.signal,
@@ -432,7 +432,7 @@ export class SinaloaConnector {
       if (signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new SinaloaError('Work lease expired before completion');
       const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey);
       if (completed.workId !== work.workId || completed.status !== 'processed' || completed.receipt?.state !== 'processed' || completed.receipt.messageId !== work.message.id) {
-        throw new SinaloaError('Sinaloa returned an invalid completion');
+        throw new SinaloaError('Envoi returned an invalid completion');
       }
       settled = true;
       await stopRenewal();
@@ -462,12 +462,12 @@ export class SinaloaConnector {
       client.setAccessToken(session.agentApiToken);
       page = await client.delta(session.inboxId, session.cursor || undefined, this.pageSize);
     }
-    if (!Array.isArray(page.events) || typeof page.hasMore !== 'boolean') throw new SinaloaError('Sinaloa returned an invalid event page');
-    if (page.hasMore && page.events.length === 0) throw new SinaloaError('Sinaloa returned an invalid event page');
+    if (!Array.isArray(page.events) || typeof page.hasMore !== 'boolean') throw new SinaloaError('Envoi returned an invalid event page');
+    if (page.hasMore && page.events.length === 0) throw new SinaloaError('Envoi returned an invalid event page');
     let count = 0;
     for (const raw of page.events) {
       const event = eventFrom(raw);
-      if (session.cursor && event.cursor <= session.cursor) throw new SinaloaError('Sinaloa event cursor did not advance');
+      if (session.cursor && event.cursor <= session.cursor) throw new SinaloaError('Envoi event cursor did not advance');
       await this.options.onEvent?.(event);
       // An event callback may send a reply and rotate credentials. Preserve its
       // new refresh token when committing the observation cursor.

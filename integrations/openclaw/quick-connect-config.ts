@@ -187,7 +187,7 @@ export async function discoverOpenClaw(options: DiscoverOpenClawOptions = {}): P
   const overrideToken = options.gatewayToken ?? env.OPENCLAW_GATEWAY_TOKEN ?? fallback?.gatewayToken;
   if (config?.$include !== undefined && (!overrideUrl || !overrideToken || !(options.agentId ?? env.OPENCLAW_AGENT_ID))) throw new OpenClawSetupError('OpenClaw config includes other files. Supply explicit OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN and OPENCLAW_AGENT_ID from the active Gateway, or select its resolved configuration.');
   if (gateway.mode === 'remote' && (!overrideUrl || !overrideToken)) throw new OpenClawSetupError('OpenClaw uses a remote Gateway. Set OPENCLAW_GATEWAY_URL to the private HTTPS origin and OPENCLAW_GATEWAY_TOKEN to that Gateway credential locally.');
-  if (!overrideToken && auth.mode && auth.mode !== 'token') throw new OpenClawSetupError('OpenClaw Gateway authentication is not token-based. Configure a supported token connection before pairing Sinaloa.');
+  if (!overrideToken && auth.mode && auth.mode !== 'token') throw new OpenClawSetupError('OpenClaw Gateway authentication is not token-based. Configure a supported token connection before pairing Envoi.');
   const port = env.OPENCLAW_GATEWAY_PORT === undefined ? gateway.port ?? (profile === 'dev' ? 19001 : 18789) : Number(env.OPENCLAW_GATEWAY_PORT);
   if (!overrideUrl && !gateway.url && (!Number.isSafeInteger(port) || Number(port) < 1 || Number(port) > 65535)) throw new OpenClawSetupError('OpenClaw Gateway port is invalid. Set OPENCLAW_GATEWAY_URL to the active Gateway origin.');
   const gatewayUrl = origin(overrideUrl ?? (typeof gateway.url === 'string' ? gateway.url : `http://127.0.0.1:${port}`));
@@ -245,7 +245,7 @@ export async function preflightOpenClaw(config: OpenClawConfiguration, options: 
           method: 'POST', redirect: 'error', signal: controller.signal,
           headers: { authorization: `Bearer ${config.gatewayToken}`, 'content-type': 'application/json' },
           body: JSON.stringify({ model: `openclaw/${config.agentId}`, user: `sinaloa:connection-test:${crypto.randomUUID()}`, stream: false,
-            messages: [{ role: 'user', content: 'Sinaloa connection test. Do not use tools, read files, or perform external actions. Reply with a short confirmation that you can receive and answer this message.' }] })
+            messages: [{ role: 'user', content: 'Envoi connection test. Do not use tools, read files, or perform external actions. Reply with a short confirmation that you can receive and answer this message.' }] })
         });
       } catch { throw new OpenClawSetupError('OpenClaw Gateway could not be reached. Check it is running and run the connector in the same network environment. This check did not redeem an enrollment token.', 'GATEWAY_UNREACHABLE'); }
       if (response.status === 404 || response.status === 405) throw new OpenClawSetupError(endpointHelp);

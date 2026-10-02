@@ -88,7 +88,7 @@ export async function acquireConnectorLock(directory: string): Promise<() => Pro
           continue;
         }
       }
-      throw new QuickConnectError('This Sinaloa connection is already running. Stop its existing connector before setup or start');
+      throw new QuickConnectError('This Envoi connection is already running. Stop its existing connector before setup or start');
     }
   }
   throw new QuickConnectError('Could not acquire the connector lock. Try again after the existing connector stops');

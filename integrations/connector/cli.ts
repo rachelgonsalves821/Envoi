@@ -8,8 +8,8 @@ import { connectionStatus, doctorConnection, prepareConnection, readConnection, 
 import { installConnectorService, uninstallConnectorService } from './service';
 import { queryControl } from './control';
 
-const usage = `Sinaloa connector (Node.js 22+) — OpenClaw, Hermes, Grok\n
-prepare --runtime <openclaw|hermes|grok> --api-url <Sinaloa origin> [--prepare-runtime]\n
+const usage = `Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n
+prepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n
 setup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n
 setup --handoff-stdin [--install-service] [--prepare-runtime]\n
 start|status|doctor|install-service|stop|uninstall --state-dir <directory>\n
@@ -52,7 +52,7 @@ export async function connectorMain(args = process.argv.slice(2)) {
       source = await readFile(filename, 'utf8');
     }
     let input: unknown;
-    try { input = JSON.parse(source); } catch { throw new ConnectorSetupError('HANDOFF_INVALID', 'Download a valid Sinaloa setup file'); }
+    try { input = JSON.parse(source); } catch { throw new ConnectorSetupError('HANDOFF_INVALID', 'Download a valid Envoi setup file'); }
     const result = await setupConnection(input, adapterFor, { ...options, stateDir: values.get('--state-dir'),
       installService: flags.has('--install-service'), executableFile: fileURLToPath(import.meta.url), onProgress: text => process.stderr.write(`${text}…\n`) });
     process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -77,11 +77,11 @@ export async function connectorMain(args = process.argv.slice(2)) {
     await uninstallConnectorService(directory, saved.runtime);
     await queryControl(directory, 'stop').catch(() => null);
     await removeInstalledExecutable(directory);
-    process.stdout.write(`${JSON.stringify({ status: 'startup removed', note: 'Credentials and work history are preserved. Revoke access in Sinaloa to invalidate credentials' })}\n`); return;
+    process.stdout.write(`${JSON.stringify({ status: 'startup removed', note: 'Credentials and work history are preserved. Revoke access in Envoi to invalidate credentials' })}\n`); return;
   }
   const stop = new AbortController(); const cancel = () => stop.abort();
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
-  try { await startConnection(directory, stop.signal, adapterFor, { onReady: () => process.stdout.write('Sinaloa connector started. Waiting for incoming work.\n'),
+  try { await startConnection(directory, stop.signal, adapterFor, { onReady: () => process.stdout.write('Envoi connector started. Waiting for incoming work.\n'),
     onWaiting: code => process.stderr.write(`Connection temporarily unavailable (${code}); retrying automatically.\n`) }); }
   finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
 }

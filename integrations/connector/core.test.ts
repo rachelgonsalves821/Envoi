@@ -70,7 +70,7 @@ describe('shared connector lifecycle', () => {
   }
   it('does not consume enrollment on Sinaloa reachability or runtime model failure', async () => {
     const health = await fixture(); health.healthFails();
-    await expect(setupConnection(health.handoff, health.resolver, health.options)).rejects.toMatchObject({ code: 'SINALOA_UNREACHABLE' });
+    await expect(setupConnection(health.handoff, health.resolver, health.options)).rejects.toMatchObject({ code: 'ENVOI_UNREACHABLE' });
     expect(health.counts().enrollmentCount).toBe(0); expect(health.counts().checks).toBe(0);
     const model = await fixture(); model.preflightFails();
     await expect(setupConnection(model.handoff, model.resolver, model.options)).rejects.toMatchObject({ code: 'MODEL_NOT_READY' });
@@ -211,7 +211,7 @@ describe('authenticated local management', () => {
     try {
       await waited;
       expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'waiting' });
-      expect(await doctorConnection(f.options.stateDir, f.resolver)).toMatchObject({ runtimeChecks: 'pending', errorCode: 'SINALOA_UNREACHABLE' });
+      expect(await doctorConnection(f.options.stateDir, f.resolver)).toMatchObject({ runtimeChecks: 'pending', errorCode: 'ENVOI_UNREACHABLE' });
       f.healthFails(false); await startedReady;
       expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'running' });
       expect(f.counts().enrollmentCount).toBe(1);

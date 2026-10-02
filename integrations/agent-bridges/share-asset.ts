@@ -14,7 +14,7 @@ async function main() {
   }
   const store = new FileBridgeStore(stateDir);
   await store.init();
-  if (!await store.load()) throw new Error('An enrolled Sinaloa connector session is required');
+  if (!await store.load()) throw new Error('An enrolled Envoi connector session is required');
   const bytes = await readFile(assetPath);
   const result = await shareCaseAsset({ connector: new SinaloaConnector(apiUrl, store),
     caseId, recipientAgentId, recipientAddress, filename: path.basename(assetPath),
@@ -23,6 +23,6 @@ async function main() {
 }
 
 main().catch(() => {
-  process.stderr.write('Sinaloa clean case asset exchange failed; inspect local configuration, scan status, grant eligibility and credential status.\n');
+  process.stderr.write('Envoi clean case asset exchange failed; inspect local configuration, scan status, grant eligibility and credential status.\n');
   process.exitCode = 1;
 });

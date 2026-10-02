@@ -243,7 +243,7 @@ describe('A4 bridge interoperability with deterministic hosts', () => {
         { type: 'message', content: [{ type: 'output_text', text: '{"text":"I checked","intent":"message"}' }] }
       ] }) });
     await expect(turn(workMessage('msg_a', 'case_a'), new AbortController().signal))
-      .rejects.toThrow('did not complete the required Sinaloa MCP sinaloa_read_case call');
+      .rejects.toThrow('did not complete the required Envoi MCP sinaloa_read_case call');
   });
 
   it('uses SDK asset helpers for owner-side signed upload and scanner-gated download without proxying bytes through the model', async () => {

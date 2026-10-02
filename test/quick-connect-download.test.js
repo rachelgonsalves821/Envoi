@@ -8,7 +8,7 @@ import { mkdtemp, readFile, writeFile, copyFile, rm, readdir, stat } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const bundle = new URL('../web/downloads/sinaloa-openclaw.mjs', import.meta.url);
+const bundle = new URL('../web/downloads/envoi-openclaw.mjs', import.meta.url);
 const releaseFile = new URL('../web/downloads/release.json', import.meta.url);
 
 async function listen(handler) {
@@ -36,10 +36,10 @@ function run(executable, args, cwd, input = '') {
   });
 }
 
-for (const artifact of ['sinaloa-openclaw.mjs', 'sinaloa-connector.mjs']) {
+for (const artifact of ['envoi-openclaw.mjs', 'envoi-connector.mjs']) {
 test(`distributed ${artifact} runs without repository dependencies and protects saved credentials`, { timeout: 60_000 }, async t => {
   const bundle = new URL(`../web/downloads/${artifact}`, import.meta.url);
-  const unified = artifact === 'sinaloa-connector.mjs';
+  const unified = artifact === 'envoi-connector.mjs';
   const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-download-'));
   // Only remove the fixture directory created by this test, never an arbitrary configured path.
   assert.ok(path.resolve(directory).startsWith(path.resolve(tmpdir()) + path.sep));

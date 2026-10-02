@@ -22,7 +22,7 @@ export async function createGrokBridge(config: GrokBridgeConfiguration,
   if (!await store.load()) throw new Error('No connector credentials were saved. Run setup first');
   let connector: SinaloaConnector;
   const approvedAssets = await loadAssetManifest(config.assetManifestPath ?? env.SINALOA_ASSET_MANIFEST_PATH);
-  const mcpUrl = config.mcpUrl ?? env.SINALOA_MCP_URL;
+  const mcpUrl = config.mcpUrl ?? env.ENVOI_MCP_URL ?? env.SINALOA_MCP_URL;
   const turn = xaiTurn({
     apiKey: config.apiKey, model: config.model,
     ...(options.fetch ? { fetch: options.fetch } : {}),
