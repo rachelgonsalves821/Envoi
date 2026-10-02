@@ -5,7 +5,7 @@ export default defineConfig({
   envDir: false,
   build: {
     target: 'node22', outDir: 'web/downloads', emptyOutDir: false,
-    lib: { entry: 'integrations/openclaw/quick-connect-cli.ts', formats: ['es'], fileName: () => 'sinaloa-openclaw.mjs' },
+    lib: { entry: 'integrations/openclaw/quick-connect-cli.ts', formats: ['es'], fileName: () => 'envoi-openclaw.mjs' },
     rollupOptions: { external: [/^node:/], output: { codeSplitting: false } }
   }
 });

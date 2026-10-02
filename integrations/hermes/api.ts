@@ -19,7 +19,7 @@ export async function hermesRequest(config: HermesConfiguration, pathname: strin
   } catch (error) {
     if (error instanceof ConnectorSetupError) throw error;
     if (options.signal?.aborted) throw new ConnectorSetupError('SETUP_CANCELLED', 'Hermes setup was cancelled. Saved connection state can be resumed.');
-    throw new ConnectorSetupError('GATEWAY_UNREACHABLE', 'Hermes API Server is unreachable. Start the selected profile Gateway in a separate terminal (hermes gateway start), then retry. Existing provider credentials are reused; do not substitute the Sinaloa token.');
+    throw new ConnectorSetupError('GATEWAY_UNREACHABLE', 'Hermes API Server is unreachable. Start the selected profile Gateway in a separate terminal (hermes gateway start), then retry. Existing provider credentials are reused; do not substitute the Envoi token.');
   }
 }
 
@@ -87,5 +87,5 @@ export async function preflightHermes(config: HermesConfiguration, options: Adap
   if (!features || ['run_submission', 'run_status', 'run_stop'].some(name => features[name] !== true)) {
     throw new ConnectorSetupError('GATEWAY_INCOMPATIBLE', 'Hermes must support run submission, status and cancellation. Update Hermes before enrollment.');
   }
-  await boundedHermesRun(config, 'Sinaloa connection preflight. Reply with OK only. Do not use tools or change files.', options);
+  await boundedHermesRun(config, 'Envoi connection preflight. Reply with OK only. Do not use tools or change files.', options);
 }

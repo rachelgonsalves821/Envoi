@@ -19,7 +19,7 @@ function validate(config: GrokConfiguration): void {
     throw new ConnectorSetupError('STATE_INVALID', 'The saved Grok configuration is invalid; preserve the private connection directory.');
   }
   if (!config.apiKey) throw new ConnectorSetupError('MODEL_CREDENTIAL_MISSING',
-    'Grok needs an xAI model-provider credential. Set XAI_API_KEY privately on this host and retry. A Sinaloa enrollment token cannot replace it.');
+    'Grok needs an xAI model-provider credential. Set XAI_API_KEY privately on this host and retry. An Envoi enrollment token cannot replace it.');
   if (typeof config.apiKey !== 'string' || config.apiKey.length > 16_384 || /[\x00-\x20\x7f]/.test(config.apiKey)) {
     throw new ConnectorSetupError('MODEL_CREDENTIAL_INVALID', 'The local xAI credential is invalid. Set XAI_API_KEY privately on this host and retry.');
   }
@@ -29,11 +29,11 @@ function validate(config: GrokConfiguration): void {
   }
   if (config.mcpUrl !== undefined) {
     let target: URL;
-    try { target = new URL(config.mcpUrl); } catch { throw new ConnectorSetupError('RUNTIME_CONFIGURATION_INVALID', 'SINALOA_MCP_URL must be an HTTPS /mcp endpoint or loopback HTTP /mcp endpoint.'); }
+    try { target = new URL(config.mcpUrl); } catch { throw new ConnectorSetupError('RUNTIME_CONFIGURATION_INVALID', 'ENVOI_MCP_URL must be an HTTPS /mcp endpoint or loopback HTTP /mcp endpoint.'); }
     if (typeof config.mcpUrl !== 'string' || /[\r\n\x00]/.test(config.mcpUrl) || target.pathname !== '/mcp'
         || target.username || target.password || target.search || target.hash
         || !(target.protocol === 'https:' || target.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(target.hostname))) {
-      throw new ConnectorSetupError('RUNTIME_CONFIGURATION_INVALID', 'SINALOA_MCP_URL must be an HTTPS /mcp endpoint or loopback HTTP /mcp endpoint without embedded credentials.');
+      throw new ConnectorSetupError('RUNTIME_CONFIGURATION_INVALID', 'ENVOI_MCP_URL must be an HTTPS /mcp endpoint or loopback HTTP /mcp endpoint without embedded credentials.');
     }
   }
   if (config.assetManifestPath !== undefined && (typeof config.assetManifestPath !== 'string'
@@ -45,7 +45,7 @@ function validate(config: GrokConfiguration): void {
 export async function discoverGrok(options: AdapterOptions = {}, previous?: GrokConfiguration): Promise<GrokConfiguration> {
   const env = options.env ?? process.env;
   if (previous !== undefined) validate(previous);
-  const mcpUrl = env.SINALOA_MCP_URL ?? previous?.mcpUrl;
+  const mcpUrl = env.ENVOI_MCP_URL ?? env.SINALOA_MCP_URL ?? previous?.mcpUrl;
   const manifest = env.SINALOA_ASSET_MANIFEST_PATH ?? previous?.assetManifestPath;
   const config = {
     apiKey: env.XAI_API_KEY ?? previous?.apiKey ?? '',
@@ -80,7 +80,7 @@ export async function preflightGrok(config: GrokConfiguration, options: AdapterO
         method: 'POST', redirect: 'error', signal,
         headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify({ model: config.model, store: false, max_output_tokens: 32,
-          input: 'Sinaloa connection test. Reply with a brief confirmation only. Do not use tools or perform external actions.' })
+          input: 'Envoi connection test. Reply with a brief confirmation only. Do not use tools or perform external actions.' })
       });
     } catch {
       throw new ConnectorSetupError('PROVIDER_UNREACHABLE', 'The xAI model provider could not be reached. Check host networking and retry before enrollment.');

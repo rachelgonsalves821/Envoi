@@ -117,8 +117,8 @@ async function responsePayload<T>(response: Response, fallback: string): Promise
     const message = remoteMessage && remoteMessage.length <= 500 ? remoteMessage : `${fallback} with HTTP ${response.status}`;
     throw new SinaloaError(message, response.status, typeof errorBody?.code === 'string' ? errorBody.code : undefined);
   }
-  if (!text) throw new SinaloaError('Sinaloa returned an empty response', response.status);
-  if (payload === null) throw new SinaloaError('Sinaloa returned an invalid JSON response', response.status);
+  if (!text) throw new SinaloaError('Envoi returned an empty response', response.status);
+  if (payload === null) throw new SinaloaError('Envoi returned an invalid JSON response', response.status);
   return payload as T;
 }
 
@@ -130,8 +130,8 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
   try {
     return await fetcher(url, { ...init, signal: controller.signal });
   } catch (error) {
-    if (controller.signal.aborted && !init.signal?.aborted) throw new SinaloaError('Sinaloa request timed out');
-    throw new SinaloaError('Sinaloa could not be reached');
+    if (controller.signal.aborted && !init.signal?.aborted) throw new SinaloaError('Envoi request timed out');
+    throw new SinaloaError('Envoi could not be reached');
   } finally {
     clearTimeout(timer);
     init.signal?.removeEventListener('abort', onAbort);
@@ -169,7 +169,7 @@ export class SinaloaClient {
       ...init,
       headers: { 'content-type': 'application/json', authorization: `Bearer ${this.accessToken}`, ...init.headers }
     }, this.requestTimeoutMs);
-    return responsePayload<T>(response, 'Sinaloa request failed');
+    return responsePayload<T>(response, 'Envoi request failed');
   }
 
   sendMessage(inboxId: string, idempotencyKey: string, input: NativeMessageInput) {
@@ -275,5 +275,5 @@ export async function rotateAgentToken(baseUrl: string, agentRefreshToken: strin
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ grantType: 'refresh_token', agentRefreshToken })
   }, timeoutMs(options.timeoutMs));
-  return responsePayload<AgentTokens>(response, 'Sinaloa token rotation failed');
+  return responsePayload<AgentTokens>(response, 'Envoi token rotation failed');
 }

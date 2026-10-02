@@ -168,7 +168,7 @@ export async function discoverHermes(options: AdapterOptions, previous?: HermesC
   const terminalBackend = env.TERMINAL_ENV ?? env.TERMINAL_BACKEND ?? yamlScalar(configuration ?? '', 'terminal.backend') ?? 'local';
   if (!options.configPath && !resumeSelected && env.HERMES_HOME && terminalBackend !== 'local') throw new ConnectorSetupError('RUNTIME_HOST_MISMATCH', 'Hermes terminal tools use a nonlocal backend. Run this installer directly on the persistent Gateway host and explicitly select its config with --config; do not install unattended receiving in an agent sandbox.');
   // The shared core supplies stateDir during setup/start. Standalone prepare has
-  // no future connection identity, so existing Sinaloa entries require doctor
+  // no future connection identity, so existing Envoi entries require doctor
   // or deliberate migration rather than being silently attached to a new agent.
   const stateDir = (options as AdapterOptions & { stateDir?: string }).stateDir;
   let serverName = stateDir ? hermesServerName(stateDir) : 'sinaloa_preflight';
@@ -241,7 +241,7 @@ export function mergeMcpConfiguration(text: string, name: string, block: string[
       }
     }
     if (entries.some(entry => (entry.name === 'sinaloa' || entry.name.startsWith('sinaloa_')) && entry.name !== name)) {
-      throw new ConnectorSetupError('PROFILE_ALREADY_CONNECTED', 'This Hermes profile already has a Sinaloa MCP entry. Preserve its connection or deliberately migrate that entry; use a separate Hermes profile for another enrolled agent.');
+      throw new ConnectorSetupError('PROFILE_ALREADY_CONNECTED', 'This Hermes profile already has an Envoi MCP entry. Preserve its connection or deliberately migrate that entry; use a separate Hermes profile for another enrolled agent.');
     }
     const matching = entries.filter(entry => entry.name === name);
     if (matching.length > 1) throw new ConnectorSetupError('CONFIG_AMBIGUOUS', 'Hermes has duplicate connector MCP entries.');

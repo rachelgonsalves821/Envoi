@@ -27,7 +27,7 @@ function gatewayOrigin(value: string): string {
   return url.origin;
 }
 
-/** Dispatches one fenced Sinaloa work item to a configured OpenClaw agent. */
+/** Dispatches one fenced Envoi work item to a configured OpenClaw agent. */
 export function openClawTurn(options: OpenClawTurnOptions): AgentTurn {
   const origin = gatewayOrigin(options.gatewayUrl);
   if (!options.gatewayToken) throw new TypeError('OpenClaw Gateway token is required');

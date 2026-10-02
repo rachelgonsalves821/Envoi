@@ -15,8 +15,8 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('Quick Connect handoff', () => {
   it('gives the runtime private-file setup instructions without passing secrets in command arguments', () => {
     const prompt = setupPrompt({ ...handoff, gatewayToken: 'provider_secret_should_not_be_sent' } as QuickConnectHandoff);
-    expect(prompt).toContain('node sinaloa-connector.mjs setup --handoff sinaloa-setup.json');
-    expect(prompt).toContain('artifacts["sinaloa-connector.mjs"].sha256');
+    expect(prompt).toContain('node envoi-connector.mjs setup --handoff envoi-setup.json');
+    expect(prompt).toContain('artifacts["envoi-connector.mjs"].sha256');
     expect(prompt).toContain('0600');
     expect(prompt).toContain('remove the handoff file');
     expect(prompt).toContain('Setup exits after configuration and checks');
@@ -30,7 +30,7 @@ describe('Quick Connect handoff', () => {
   });
 
   it('uses the deployment origin for verified artifact downloads', () => {
-    expect(connectorDownloads(handoff)).toEqual({ connector: 'https://sinaloa.example/web/downloads/sinaloa-connector.mjs', release: 'https://sinaloa.example/web/downloads/release.json' });
+    expect(connectorDownloads(handoff)).toEqual({ connector: 'https://sinaloa.example/web/downloads/envoi-connector.mjs', release: 'https://sinaloa.example/web/downloads/release.json' });
     expect(() => connectorDownloads({ ...handoff, apiUrl: 'javascript:alert(1)' })).toThrow();
     expect(() => connectorDownloads({ ...handoff, apiUrl: 'https://user:secret@sinaloa.example' })).toThrow();
   });
@@ -39,7 +39,7 @@ describe('Quick Connect handoff', () => {
     const selected = { ...handoff, runtime: option.id };
     const prompt = setupPrompt(selected);
     expect(prompt).toContain(`self-hosted ${option.label} agent`);
-    expect(prompt).toContain('sinaloa-connector.mjs');
+    expect(prompt).toContain('envoi-connector.mjs');
     expect(prompt).toContain('Each enrollment needs its own private state directory');
     expect(prompt.includes('--prepare-runtime')).toBe(option.id === 'hermes');
     const picker = renderToStaticMarkup(createElement(RuntimePicker, { runtime: option.id, onChange: vi.fn() }));

@@ -3,13 +3,13 @@
   "runtime": "openclaw",
   "nodeMinimum": 22,
   "artifacts": {
-    "sinaloa-openclaw.mjs": {
-      "sha256": "959ad4603f28d48cc587aadceae5f7dfda0ebbe45642528c09a5ca56d58dfbca",
-      "size": 78114
+    "envoi-openclaw.mjs": {
+      "sha256": "fe581dc47481ca2322491b78f502ddf1525e465d46d85c5bf680568b67461853",
+      "size": 77990
     },
-    "sinaloa-connector.mjs": {
-      "sha256": "54f0c64ad6da1ed394a9e20ac1fa7ce6b8af216deef8826d3adcdfe56d67c0ee",
-      "size": 131238
+    "envoi-connector.mjs": {
+      "sha256": "1efc952a320fb079c6392c3d0f26ea6638db6387d5e59dddc9a454cb84807168",
+      "size": 131118
     }
   },
   "runtimes": [

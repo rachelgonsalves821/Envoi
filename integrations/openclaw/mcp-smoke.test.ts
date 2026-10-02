@@ -41,6 +41,6 @@ describe('OpenClaw hosted MCP invocation probe', () => {
 
     await expect(probeOpenClawMcp({ ...options,
       dispatchGateway: async () => answer(session.address) }))
-      .rejects.toThrow('no successful Sinaloa MCP invocation');
+      .rejects.toThrow('no successful Envoi MCP invocation');
   });
 });

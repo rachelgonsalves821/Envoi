@@ -59,7 +59,7 @@ async function reportChecks(apiUrl: string, connector: SinaloaConnector, phase: 
     body: JSON.stringify({ version: 1, runtime: 'openclaw', phase, gatewayTest: phase === 'ready' ? 'passed' : 'failed', ...(errorCode ? { errorCode } : {}) }),
     signal: AbortSignal.timeout(30_000), redirect: 'error'
   });
-  if (!response.ok) throw new QuickConnectError(`Sinaloa could not record setup checks (HTTP ${response.status}). Your connection is saved; retry start`);
+  if (!response.ok) throw new QuickConnectError(`Envoi could not record setup checks (HTTP ${response.status}). Your connection is saved; retry start`);
   await response.body?.cancel();
 }
 
@@ -96,7 +96,7 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
   const fetcher = connectionFetch(options.fetch);
   // An expired file may resume an already enrolled installation; it must never be redeemed again.
   const handoff = validateQuickConnectHandoff(input, { allowExpired: true });
-  if (handoff.runtime !== 'openclaw' || handoff.operation === 'reconnect') throw new QuickConnectError('Use the unified Sinaloa connector for this runtime or reconnect handoff');
+  if (handoff.runtime !== 'openclaw' || handoff.operation === 'reconnect') throw new QuickConnectError('Use the unified Envoi connector for this runtime or reconnect handoff');
   const requested = options.stateDir || defaultConnectionDirectory(handoff.apiUrl, handoff.address, { home: options.homeDir, env: options.env, platform: options.platform });
   const stateDir = await (options.secureDirectory ?? privateDirectory)(requested);
   const unlock = await acquireConnectorLock(stateDir);
@@ -123,18 +123,18 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
       const target = path.join(stateDir, 'connector.mjs');
       if (path.resolve(options.executableFile) !== path.resolve(target)) await copyFile(options.executableFile, target);
     }
-    options.onProgress?.(session ? 'Resuming saved connection' : 'Enrolling Sinaloa agent');
+    options.onProgress?.(session ? 'Resuming saved connection' : 'Enrolling Envoi agent');
     if (!session) {
       try { session = await enrollConnector(handoff.apiUrl, handoff.enrollmentToken, store, { name: handoff.agentName, fetch: fetcher }); }
       catch (error) {
         const status = typeof error === 'object' && error !== null && 'status' in error ? Number(error.status) : 0;
-        if (status === 401) throw new QuickConnectError('The enrollment token is expired or already used. Check Agent connections in Sinaloa and create a new setup prompt if no saved connection exists');
-        throw new QuickConnectError('Sinaloa enrollment did not finish. Check Agent connections before retrying; the token may have been consumed. Keep this state directory');
+        if (status === 401) throw new QuickConnectError('The enrollment token is expired or already used. Check Agent connections in Envoi and create a new setup prompt if no saved connection exists');
+        throw new QuickConnectError('Envoi enrollment did not finish. Check Agent connections before retrying; the token may have been consumed. Keep this state directory');
       }
     }
     if (session.address !== handoff.address) throw new QuickConnectError('The enrolled address differs from the setup address. Inspect Agent connections before starting');
     const connector = new SinaloaConnector(handoff.apiUrl, store, { fetch: fetcher });
-    options.onProgress?.('Checking Sinaloa access');
+    options.onProgress?.('Checking Envoi access');
     try { await connector.pollOnce(); await reportChecks(handoff.apiUrl, connector, 'ready', fetcher); }
     catch (error) {
       await reportChecks(handoff.apiUrl, connector, 'error', fetcher, 'CONNECTION_TEST_FAILED').catch(() => {});
@@ -171,13 +171,13 @@ export async function startQuickConnect(stateDir: string, signal: AbortSignal, o
 export async function savedConnectionStatus(stateDir: string) {
   const saved = await readConnection(path.resolve(stateDir));
   const session: ConnectorSession | null = await new FileBridgeStore(path.resolve(stateDir)).load();
-  if (!session) throw new QuickConnectError('No saved enrollment. Run setup with a fresh Sinaloa handoff');
+  if (!session) throw new QuickConnectError('No saved enrollment. Run setup with a fresh Envoi handoff');
   return { address: session.address, apiUrl: saved.apiUrl, agentId: session.agentId, openclawAgentId: saved.openclaw.agentId,
     stateDir: path.resolve(stateDir), credentialExpiresAt: session.agentTokenExpiresAt,
     refreshExpiresAt: session.agentRefreshTokenExpiresAt, status: 'configured', note: 'Saved configuration does not establish live presence. Use start and a real agent exchange to verify receiving' };
 }
 
-const usage = `Sinaloa OpenClaw Quick Connect (Node.js 22+)\n\nsetup --handoff <private JSON file> [--install-service]\nsetup --handoff-stdin [--install-service]\nstart --state-dir <directory>\nstatus --state-dir <directory>\ninstall-service --state-dir <directory>\n\nOptional setup overrides: --config <openclaw.json> --agent <id> --gateway-url <origin> --state-dir <private directory>\nGateway credentials are resolved locally; never pass secrets as arguments.\n`;
+const usage = `Envoi OpenClaw Quick Connect (Node.js 22+)\n\nsetup --handoff <private JSON file> [--install-service]\nsetup --handoff-stdin [--install-service]\nstart --state-dir <directory>\nstatus --state-dir <directory>\ninstall-service --state-dir <directory>\n\nOptional setup overrides: --config <openclaw.json> --agent <id> --gateway-url <origin> --state-dir <private directory>\nGateway credentials are resolved locally; never pass secrets as arguments.\n`;
 
 export async function quickConnectMain(args = process.argv.slice(2)) {
   if (!args.length || args.includes('--help')) { process.stdout.write(usage); return; }
@@ -207,7 +207,7 @@ export async function quickConnectMain(args = process.argv.slice(2)) {
       source = await readFile(filename, 'utf8');
     }
     let input: unknown;
-    try { input = JSON.parse(source); } catch { throw new QuickConnectError('The setup file is not valid JSON. Download a fresh setup file from Sinaloa'); }
+    try { input = JSON.parse(source); } catch { throw new QuickConnectError('The setup file is not valid JSON. Download a fresh setup file from Envoi'); }
     const result = await setupQuickConnect(input, {
       stateDir: values.get('--state-dir'), configPath: values.get('--config'), agentId: values.get('--agent'), gatewayUrl: values.get('--gateway-url'),
       executableFile: fileURLToPath(import.meta.url), onProgress: phase => process.stderr.write(`${phase}…\n`)
@@ -228,6 +228,6 @@ export async function quickConnectMain(args = process.argv.slice(2)) {
   const stop = new AbortController();
   const cancel = () => stop.abort();
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
-  try { await startQuickConnect(stateDir, stop.signal, { onReady: () => process.stdout.write('Sinaloa connector started. Waiting for agent messages.\n') }); }
+  try { await startQuickConnect(stateDir, stop.signal, { onReady: () => process.stdout.write('Envoi connector started. Waiting for agent messages.\n') }); }
   finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
 }

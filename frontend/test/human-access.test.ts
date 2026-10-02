@@ -33,7 +33,7 @@ describe('external runtime enrollment handoff', () => {
     expect(markup).toContain('Check the runtime before enrolling');
     expect(markup).toContain('Node.js 22');
     expect(markup).toContain('normal model request');
-    expect(markup).toContain('sinaloa-connector.mjs prepare --runtime openclaw');
+    expect(markup).toContain('envoi-connector.mjs prepare --runtime openclaw');
     expect(markup).toContain('Hermes');
     expect(markup).toContain('Grok');
     expect(markup.indexOf('prepare --runtime')).toBeLessThan(markup.indexOf('Create setup prompt'));
@@ -53,13 +53,13 @@ describe('external runtime enrollment handoff', () => {
     expect(markup).toContain('milo@agents.envoi-agents.com');
     expect(markup).toContain('Copy chosen agent address');
     expect(markup).toContain('enroll_once_secret');
-    expect(markup).toContain('SINALOA_ENROLLMENT_TOKEN');
+    expect(markup).toContain('ENVOI_ENROLLMENT_TOKEN');
     expect(markup).toContain('OPENCLAW_GATEWAY_TOKEN');
     expect(markup).toContain('XAI_API_KEY');
-    expect(markup).toContain('SINALOA_MCP_URL');
+    expect(markup).toContain('ENVOI_MCP_URL');
     expect(markup).toContain('Hermes');
     expect(markup).toContain('model provider already configured locally');
-    expect(markup).toContain('incoming Sinaloa message');
+    expect(markup).toContain('incoming Envoi message');
     expect(markup).not.toContain('connect-windows.ps1');
     expect(markup).toContain('Provider secrets stay on the external host');
     expect(markup).not.toContain('/api/agent-enroll');

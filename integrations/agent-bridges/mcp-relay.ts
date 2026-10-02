@@ -41,7 +41,7 @@ export interface McpRelayOptions {
   onSuccessfulWrite?: (name: string, arguments_: Record<string, unknown>) => Promise<void>;
 }
 
-/** Local MCP endpoint; the Sinaloa refresh credential stays in the bridge store. */
+/** Local MCP endpoint; the Envoi refresh credential stays in the bridge store. */
 export async function startMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false, collaborationToolNames, authorizeWrite, onSuccessfulToolCall, onSuccessfulWrite }: McpRelayOptions) {
   if (typeof bearerToken !== 'string' || bearerToken.length < 32 || /[\r\n]/.test(bearerToken)) {
     throw new TypeError('A private MCP relay bearer token of at least 32 characters is required');
@@ -53,7 +53,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
   const allowedTools = new Set([...readTools, ...allowedWrites]);
   const server = createServer((req, res) => { void handle(req, res).catch(() => {
     if (res.headersSent) res.destroy();
-    else send(res, 502, { error: 'Sinaloa MCP relay request failed' });
+    else send(res, 502, { error: 'Envoi MCP relay request failed' });
   }); });
 
   async function handle(req: IncomingMessage, res: ServerResponse) {
@@ -62,7 +62,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
     if (req.headers.host !== expectedHost || req.headers.origin) return send(res, 403, { error: 'MCP relay origin is unavailable' });
     if (req.url !== '/mcp') return send(res, 404, { error: 'Not found' });
     if (!authorized(req, secret)) {
-      res.setHeader('www-authenticate', 'Bearer realm="Sinaloa local MCP relay"');
+      res.setHeader('www-authenticate', 'Bearer realm="Envoi local MCP relay"');
       return send(res, 401, { error: 'MCP relay credential required' });
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'Only POST is supported' });
@@ -109,7 +109,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
       return res.end();
     }
     const bytes = Buffer.from(await upstream.arrayBuffer());
-    if (bytes.length > maxResponseBytes) return send(res, 502, { error: 'Sinaloa MCP response is too large' });
+    if (bytes.length > maxResponseBytes) return send(res, 502, { error: 'Envoi MCP response is too large' });
     let output: Buffer = bytes;
     if (upstream.ok && request.method === 'tools/list') {
       let payload: Record<string, unknown>;
@@ -122,7 +122,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
         output = Buffer.from(JSON.stringify({ ...payload, result: { ...result, tools: result.tools.filter(
           tool => tool && typeof tool === 'object' && allowedTools.has((tool as Record<string, unknown>).name as string)
         ) } }));
-      } catch { return send(res, 502, { error: 'Sinaloa MCP tool catalog is invalid' }); }
+      } catch { return send(res, 502, { error: 'Envoi MCP tool catalog is invalid' }); }
     }
     if (upstream.ok && request.method === 'tools/call' && (onSuccessfulToolCall || onSuccessfulWrite)) {
       let payload: Record<string, unknown> | null = null;
@@ -140,7 +140,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
             if (typeof value?.status === 'number' && value.status >= 200 && value.status < 300) {
               await onSuccessfulWrite(name, params.arguments as Record<string, unknown>);
             }
-          } catch { return send(res, 502, { error: 'Sinaloa MCP write could not be recorded' }); }
+          } catch { return send(res, 502, { error: 'Envoi MCP write could not be recorded' }); }
         }
         try { onSuccessfulToolCall?.(name); } catch { /* Diagnostics do not alter the MCP result. */ }
       }
