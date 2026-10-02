@@ -14,6 +14,7 @@ h2 { font-size: var(--text-title-size); line-height: var(--text-title-line); fon
 .skip-link:focus { transform: translateY(0); }
 .eyebrow { color: var(--text-tertiary); font-size: var(--text-micro-size); line-height: var(--text-micro-line); letter-spacing: .055em; text-transform: uppercase; font-weight: 650; }
 .brand-lockup { display: flex; align-items: center; gap: var(--space-12); font-weight: 650; letter-spacing: -.02em; font-size: var(--text-title-size); }
+.brand-lockup > span:last-child { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.45em; font-weight: 400; letter-spacing: normal; line-height: 1; }
 .brand-lockup.inverse { color: var(--text-on-accent); }
 .brand-mark { width: var(--space-32); height: var(--space-32); display: inline-block; position: relative; border-radius: var(--radius-md); background: var(--text-primary); flex: 0 0 auto; }
 .inverse .brand-mark { background: var(--text-on-accent); }
