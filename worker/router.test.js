@@ -80,6 +80,6 @@ test('container failures return a sanitized retryable response', async () => {
   assert.equal(response.headers.get('retry-after'), '5');
   assert.deepEqual(await response.json(), {
     error: 'SERVICE_UNAVAILABLE',
-    message: 'Sinaloa is temporarily unavailable'
+    message: 'Envoi is temporarily unavailable'
   });
 });

@@ -10,7 +10,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: true, strictRequired: false }
 addFormats(ajv);
 const validateMessage = ajv.compile(schema);
 
-const protocolError = details => Object.assign(new Error('Message does not satisfy Sinaloa Protocol v1'), { statusCode: 422, details });
+const protocolError = details => Object.assign(new Error('Message does not satisfy Envoi Protocol v1'), { statusCode: 422, details });
 
 export function assertValidProtocolMessage(value) {
   if (!validateMessage(value)) throw protocolError(validateMessage.errors);

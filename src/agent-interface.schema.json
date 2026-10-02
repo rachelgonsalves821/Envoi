@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://sinaloa.mail/schemas/agent-interface/v1.json",
-  "title": "Sinaloa Agent Interface",
+  "title": "Envoi Agent Interface",
   "type": "object",
   "required": ["id", "schemaVersion", "objective", "collaborationMode", "state", "principal", "actingAgent", "participants", "constraints", "deadline", "authorityRefs", "events", "evidence", "proposals", "policyEvaluations", "receipt", "createdAt", "updatedAt"],
   "additionalProperties": false,

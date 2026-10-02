@@ -1640,7 +1640,7 @@ async function route(req, res) {
   if (url.pathname === '/mcp') {
     const identity = await getMcpIdentity(req);
     if (!identity) {
-      res.setHeader('www-authenticate', 'Bearer realm="Sinaloa agent MCP"');
+      res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
       return fail(res, 401, 'Active v1 agent credential required');
     }
     if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
@@ -2412,7 +2412,7 @@ async function route(req, res) {
     const input = await body(req);
     const email = normalizedEmail(input.email);
     if (!validEmail(email)) return fail(res, 400, 'A valid external email address is required');
-    if (emailTransport.publicDomain && email.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Sinaloa agents must communicate over the native transport');
+    if (emailTransport.publicDomain && email.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Envoi agents must communicate over the native transport');
     const direction = input.direction || 'both';
     if (!['inbound', 'outbound', 'both'].includes(direction)) return fail(res, 400, 'direction must be inbound, outbound, or both');
     const existing = await store.getJson(externalContactPath(inboxId, email));
@@ -3115,7 +3115,7 @@ async function route(req, res) {
     if (!hasPermission(sender, 'send_agent_messages') || !hasPermission(sender, 'use_email_transport')) return fail(res, 403, 'Agent lacks send_agent_messages or use_email_transport permission');
     const recipientEmail = normalizedEmail(input.recipientEmail);
     if (!validEmail(recipientEmail)) return fail(res, 400, 'A valid recipientEmail is required');
-    if (recipientEmail.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Use the native agent transport for Sinaloa recipients');
+    if (recipientEmail.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Use the native agent transport for Envoi recipients');
     const subject = String(input.subject || '').trim();
     const text = String(input.text || '').trim();
     const html = input.html == null ? null : String(input.html);

@@ -53,6 +53,11 @@ This audit covers the UI rename incorporated into local branch `envoi-combined`.
 | `sdk/typescript/src/index.ts` | Renames error messages while preserving the public `SinaloaError` class/name. |
 | `sdk/typescript/src/quick-connect.ts` | Renames setup prompt and error text. |
 | `sdk/typescript/test/client.test.ts` | Updates client error text expectation. |
+| `src/agent-mcp.js` | Renames agent-visible MCP tool descriptions without renaming tool identifiers. |
+| `src/auth.js` | Uses Envoi as the authenticator-app issuer. |
+| `src/agent-interface.schema.json` | Renames the published interface title. |
+| `src/protocol-v1.js` | Renames the human-readable protocol validation error. |
+| `src/server.js` | Renames browser/API error text and the MCP authentication realm. |
 | `test/quick-connect-download.test.js` | Executes and hashes new standalone connector downloads. |
 | `web/downloads/envoi-connector.mjs` | New generated unified connector. |
 | `web/downloads/envoi-openclaw.mjs` | New generated OpenClaw connector. |
@@ -60,6 +65,8 @@ This audit covers the UI rename incorporated into local branch `envoi-combined`.
 | `web/downloads/sinaloa-connector.mjs` | Refreshed compatibility download for previously published URL. |
 | `web/downloads/sinaloa-openclaw.mjs` | Refreshed compatibility download for previously published URL. |
 | `web/index.html` | Rebuilt bundled front end from renamed source. |
+| `worker/router.js` | Renames the edge's visible temporary-unavailable message. |
+| `worker/router.test.js` | Updates the edge-error expectation. |
 
 ## Remaining old-name references
 

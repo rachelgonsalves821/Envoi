@@ -156,7 +156,7 @@ export class AuthService {
       }
       return {
         secret,
-        otpauthUri: generateURI({ issuer: 'Sinaloa', label: human.displayName || human.id, secret }),
+        otpauthUri: generateURI({ issuer: 'Envoi', label: human.displayName || human.id, secret }),
         ...(mode === 'development' ? { developmentCode: generateSync({ secret }) } : {})
       };
     };

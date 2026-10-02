@@ -54,7 +54,7 @@ export function withNoStoreHeaders(response) {
 }
 
 export function serviceUnavailableResponse() {
-  return new Response(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', message: 'Sinaloa is temporarily unavailable' }), {
+  return new Response(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', message: 'Envoi is temporarily unavailable' }), {
     status: 503,
     headers: {
       'cache-control': 'private, no-store',
