@@ -562,7 +562,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
 });
 
 test('chosen beta agent addresses are exact, unique, and capped per human', async t => {
-  const server = await startServer({ SINALOA_AGENT_DOMAIN: 'agents.sinaloa-inbox.com', SINALOA_ENFORCE_BETA_AGENT_LIMIT: '1' });
+  const server = await startServer({ SINALOA_AGENT_DOMAIN: 'agents.envoi-agents.com', SINALOA_ENFORCE_BETA_AGENT_LIMIT: '1' });
   t.after(server.stop);
   const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550991', displayName: 'Address Owner' } });
   const verified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
@@ -576,7 +576,7 @@ test('chosen beta agent addresses are exact, unique, and capped per human', asyn
   assert.equal(workspace.status, 201);
   const availabilityPath = `/api/inboxes/${workspace.payload.id}/agent-address-availability?localPart=MiLo`;
   const available = await browserRequest(availabilityPath);
-  assert.deepEqual(available.payload, { localPart: 'milo', address: 'milo@agents.sinaloa-inbox.com', available: true });
+  assert.deepEqual(available.payload, { localPart: 'milo', address: 'milo@agents.envoi-agents.com', available: true });
   assert.equal((await browserRequest(`/api/inboxes/${workspace.payload.id}/agent-address-availability?localPart=admin`)).status, 400);
   const enroll = localPart => browserRequest(`/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, {
     body: { permissions: ['send_agent_messages', 'receive_agent_messages'], agentProfile: { name: 'Milo', localPart } }
@@ -589,7 +589,7 @@ test('chosen beta agent addresses are exact, unique, and capped per human', asyn
   })));
   assert.deepEqual(attempts.map(item => item.status).sort(), [201, 409]);
   const firstAgent = attempts.find(item => item.status === 201).payload;
-  assert.equal(firstAgent.agent.address, 'milo@agents.sinaloa-inbox.com');
+  assert.equal(firstAgent.agent.address, 'milo@agents.envoi-agents.com');
   assert.equal((await browserRequest(availabilityPath)).payload.available, false);
   const parent = await browserRequest(`/api/inboxes/${workspace.payload.id}/human-view`);
   assert.ok(parent.payload.recentEvents.some(event => event.type === 'agent.enrollment_redeemed' && event.agentId === firstAgent.agent.id));
@@ -597,7 +597,7 @@ test('chosen beta agent addresses are exact, unique, and capped per human', asyn
   assert.equal(secondToken.status, 201);
   const secondAgent = await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: secondToken.payload.enrollmentToken } });
   assert.equal(secondAgent.status, 201);
-  assert.equal(secondAgent.payload.agent.address, 'mira@agents.sinaloa-inbox.com');
+  assert.equal(secondAgent.payload.agent.address, 'mira@agents.envoi-agents.com');
   assert.equal((await enroll('third')).status, 409);
 });
 

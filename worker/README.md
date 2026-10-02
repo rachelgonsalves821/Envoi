@@ -13,13 +13,13 @@ The old production Worker `sinaloa` must remain disconnected from Git Builds. Th
 | Target | Deploy command | First application smoke origin |
 | --- | --- | --- |
 | Staging | `node scripts/promote-release.mjs staging FULL_SHA --deploy` | `https://sinaloa-staging.rachelgonsalves821.workers.dev/` |
-| Beta | `node scripts/promote-release.mjs beta FULL_SHA --deploy` | `https://beta.sinaloa-inbox.com/` |
+| Beta | `node scripts/promote-release.mjs beta FULL_SHA --deploy` | `https://www.envoi-agents.com/` |
 
 Replace `FULL_SHA` with the recorded full 40-hex SHA. Omit `--deploy` for a dry-run. Fetch `origin/main` before selecting the merged release candidate. The underlying `cf:deploy:staging` and `cf:deploy:beta` scripts remain explicit target commands, but the release wrapper also stamps the SHA needed for hosted evidence.
 
-Beta is **custom-domain-only**: `env.beta.workers_dev` is false and its edge hostname allowlist contains only `beta.sinaloa-inbox.com`. Do not smoke the beta application's workers.dev hostname or widen the allowlist to accommodate it. The first beta application smoke occurs after custom-domain binding. The separate beta scanner uses its own workers.dev origin and authenticated health contract.
+Beta is **custom-domain-only**: `env.beta.workers_dev` is false and its edge hostname allowlist contains `www.envoi-agents.com` plus the temporary existing `beta.sinaloa-inbox.com` route. Do not smoke the beta application's workers.dev hostname or widen the allowlist to accommodate it. The first new-domain application smoke occurs after custom-domain binding. The separate beta scanner uses its own workers.dev origin and authenticated health contract.
 
-The beta deploy binds `beta.sinaloa-inbox.com` immediately and rolls out `sinaloa-beta-release`; finish the beta resource, credential, migration and scanner prerequisites before deploying. A dry-run does not bind the domain or prove live readiness. DNS/custom-domain readiness and successful application smoke on the exact beta origin are gates before invitations.
+The beta deploy binds `www.envoi-agents.com`, retains `beta.sinaloa-inbox.com` during cutover, and rolls out `sinaloa-beta-release`; finish the beta resource, credential, migration and scanner prerequisites before deploying. A dry-run does not bind the new domain or prove live readiness. DNS/custom-domain readiness and successful application smoke on the new origin are gates before invitations.
 
 ## Workers Builds
 
@@ -31,7 +31,7 @@ Container deployments must use `wrangler deploy`; `wrangler versions upload` doe
 
 ## Runtime configuration
 
-Use target-specific Worker variables and encrypted secrets. Configure public URL/CORS/agent domain, external PostgreSQL with `SINALOA_DB_SSL_MODE=verify-full`, private R2 S3 endpoint and bucket, HTTPS scanner, WorkOS callback, and their credentials. Supply `SINALOA_DB_CA` as a secret only when the provider CA is not trusted by the base image. Set staging `SINALOA_EDGE_ALLOWED_HOSTS` to its exact workers.dev hostname. Beta's allowed hostname, browser origin, CORS and WorkOS callback remain on `beta.sinaloa-inbox.com`.
+Use target-specific Worker variables and encrypted secrets. Configure public URL/CORS/agent domain, external PostgreSQL with `SINALOA_DB_SSL_MODE=verify-full`, private R2 S3 endpoint and bucket, HTTPS scanner, WorkOS callback, and their credentials. Supply `SINALOA_DB_CA` as a secret only when the provider CA is not trusted by the base image. Set staging `SINALOA_EDGE_ALLOWED_HOSTS` to its exact workers.dev hostname. Beta's canonical browser origin and WorkOS callback target `www.envoi-agents.com`; the old beta Host/CORS stays allowed temporarily.
 
 Wrangler `keep_vars: true` preserves dashboard-managed runtime variables on deploy. Beta pins its non-secret origin, WorkOS client ID, private bucket, scanner URL and disabled optional integrations in `wrangler.jsonc`; credentials remain encrypted Worker secrets managed separately. See [runtime configuration status](../docs/runtime-configuration-status.md) for provider setup. Preserve this setting unless every dashboard variable has an explicit managed replacement.
 
@@ -45,7 +45,7 @@ Keep staging, beta and old production databases, credentials and invitees separa
 4. Run migrations and the explicitly enabled PostgreSQL/R2/scanner integration checks against isolated resources for the selected environment. See [object storage checks](../docs/object-storage-production.md). Prove R2 writes/deletes and allowed signed-upload headers; `/ready` checks only R2 read access.
 5. Run the required CI matrix, `npm run build`, and `npm run cf:check`. Its dry-runs target staging, beta and the beta scanner, preserving the old production Worker. Dry-runs skip Container rollout and do not prove entitlement or image startup.
 6. On the recorded SHA, deploy staging with `node scripts/promote-release.mjs staging FULL_SHA --deploy`. Save deployment output and version/image identifiers. Run `npm run smoke:deployment -- https://sinaloa-staging.rachelgonsalves821.workers.dev/ FULL_SHA`, then complete staging sign-in, enrollment, two-agent messaging, blocking/revocation, SSE and file acceptance. Confirm the tested version is still deployed and record evidence on the SHA.
-7. Complete beta prerequisites in the runbook, including separate secrets, migrations, WorkOS settings, scanner proof and operational preparation. Recheck the same accepted SHA and deploy with `node scripts/promote-release.mjs beta FULL_SHA --deploy`. This binds the custom domain immediately. Save deployment output/version/image identifiers and run `npm run smoke:deployment -- https://beta.sinaloa-inbox.com/ FULL_SHA` after the hostname resolves. The expected-SHA argument requires both `/health` and `/ready` to report that exact `releaseSha`; missing or different evidence fails smoke. Do not substitute a workers.dev origin.
+7. Complete beta prerequisites in the runbook, including separate secrets, migrations, WorkOS settings, scanner proof and operational preparation. Recheck the same accepted SHA and deploy with `node scripts/promote-release.mjs beta FULL_SHA --deploy`. This binds the custom domain immediately. Save deployment output/version/image identifiers and run `npm run smoke:deployment -- https://www.envoi-agents.com/ FULL_SHA` after the hostname resolves. The expected-SHA argument requires both `/health` and `/ready` to report that exact `releaseSha`; missing or different evidence fails smoke. Do not substitute a workers.dev origin.
 8. Complete hosted beta acceptance, recovery and alert gates and record product/operational signoff before inviting the cohort. A passing public smoke or `/ready` alone is insufficient.
 
 ## Scanner health contract and readiness scope

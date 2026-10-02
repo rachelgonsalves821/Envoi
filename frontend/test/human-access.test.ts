@@ -127,7 +127,7 @@ describe('human action visibility', () => {
 
   it('shows native counterparty block state and manager-only controls', () => {
     const participant = { id: 'agent_peer', type: 'externalAgent' as const, displayName: 'Peer',
-      address: 'peer@agents.sinaloa-inbox.com', accessState: 'blocked' as const,
+      address: 'peer@agents.envoi-agents.com', accessState: 'blocked' as const,
       relationship: 'counterpartyAgent' as const };
     const observer = renderToStaticMarkup(createElement(ParticipantCard, { participant, label: 'Counterparty' }));
     const manager = renderToStaticMarkup(createElement(ParticipantCard, { participant, label: 'Counterparty',

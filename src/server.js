@@ -243,7 +243,7 @@ const applyHeaders = (res, origin, nonce) => {
   res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
   res.setHeader('cross-origin-opener-policy', 'same-origin');
   res.setHeader('x-dns-prefetch-control', 'off');
-  res.setHeader('content-security-policy', `default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'`);
+  res.setHeader('content-security-policy', `default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://www.envoi-agents.com https://beta.sinaloa-inbox.com https://sinaloa-inbox.com https://www.sinaloa-inbox.com`);
   if (process.env.SINALOA_AUTH_MODE === 'production') res.setHeader('strict-transport-security', 'max-age=63072000; includeSubDomains; preload');
 };
 const json = (res, status, body) => {
@@ -1663,12 +1663,12 @@ async function route(req, res) {
     };
     return handleAgentMcp(req, res, { identity, callRest });
   }
-  if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/'))) {
-    const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice('/web/'.length);
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
+    const relative = url.pathname === '/' ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
     let filePath;
     try { filePath = resolvePathWithin(path.resolve('web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
-    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
     try {
       const extension = path.extname(filePath);
       let content = await readFile(filePath);

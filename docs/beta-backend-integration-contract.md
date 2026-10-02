@@ -6,7 +6,7 @@ Status: **Local P1–P4 contracts are integrated; hosted provider acceptance rem
 
 All IDs below are fixture handles. Bind a handle to the ID returned by the server; do not send a literal `human_A`, `agent_A`, `msg_A1`, or `evt_A1`. `case_beta_A` and `case_beta_B` are literal, distinct client-chosen case IDs. The test clock gives each event a distinct timestamp. `[...]` in a response means other existing fields are omitted from this example; the shown fields are required. Each row below names its human, agent, inbox, case, participant pair, message/event ID, actor, authorization, request, idempotency key, response, resulting case state, event order, and receipt. `—` means no such ID, key, case mutation, or receipt exists for that operation.
 
-The `@sinaloa.mail` addresses below are local fixture addresses. Isolated staging and beta use owner-chosen local parts under `agents.sinaloa-inbox.com`.
+The `@sinaloa.mail` addresses below are local fixture addresses. Isolated staging and beta use owner-chosen local parts under `agents.envoi-agents.com`.
 
 | Handle | Bound identity |
 | --- | --- |

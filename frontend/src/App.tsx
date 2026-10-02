@@ -405,7 +405,7 @@ export default function App() {
 
   const renderedGeneration = sessionGeneration();
   const checkRenderedSession = () => { if (!isCurrentSession(renderedGeneration) || sessionCheckRef.current) throw new SessionRequestCancelled(); };
-  if (isLandingPreview) return <LandingPage signInPath="https://beta.sinaloa-inbox.com/api/auth/workos/sign-in" />;
+  if (isLandingPreview) return <LandingPage signInPath={`${import.meta.env.VITE_PUBLIC_URL || 'https://www.envoi-agents.com'}/api/auth/workos/sign-in`} />;
   if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} />;
   if (boot === 'signedOut' && config) return config.provider === 'workos'

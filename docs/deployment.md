@@ -54,7 +54,7 @@ The closed beta runs one Cloudflare application Container behind its Worker. Pos
 
 ## Current hosting shape
 
-Use one beta backend Container behind TLS with PostgreSQL and private S3-compatible object storage. Promote an exact recorded candidate to staging, then beta, using the explicit environment commands in the launch runbook. The beta application is custom-domain-only; run its smoke after binding beta.sinaloa-inbox.com. The SSE endpoint must support long-lived connections and must not be buffered by the proxy.
+Use one beta backend Container behind TLS with PostgreSQL and private S3-compatible object storage. Promote an exact recorded candidate to staging, then beta, using the explicit environment commands in the launch runbook. The beta application is custom-domain-only; run its smoke after binding www.envoi-agents.com. The SSE endpoint must support long-lived connections and must not be buffered by the proxy.
 
 The backend exposes `/health` for liveness and `/ready` for dependency readiness. In production, readiness fails with HTTP `503` if PostgreSQL, private object storage, the malware scanner, or an enabled public-email transport is unavailable. Checks are bounded by `SINALOA_READINESS_TIMEOUT_MS` and return only sanitized reasons. It handles `SIGTERM` by stopping quota cleanup and delivery workers, closing SSE connections, and closing the HTTP server cleanly.
 

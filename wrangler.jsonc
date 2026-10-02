@@ -72,13 +72,13 @@
     "beta": {
       "workers_dev": false,
       "vars": {
-        "SINALOA_PUBLIC_URL": "https://beta.sinaloa-inbox.com",
-        "SINALOA_CORS_ORIGIN": "https://beta.sinaloa-inbox.com",
-        "SINALOA_EDGE_ALLOWED_HOSTS": "beta.sinaloa-inbox.com",
-        "SINALOA_AGENT_DOMAIN": "agents.sinaloa-inbox.com",
+        "SINALOA_PUBLIC_URL": "https://www.envoi-agents.com",
+        "SINALOA_CORS_ORIGIN": "https://www.envoi-agents.com,https://beta.sinaloa-inbox.com,https://sinaloa-inbox.com,https://www.sinaloa-inbox.com",
+        "SINALOA_EDGE_ALLOWED_HOSTS": "www.envoi-agents.com,beta.sinaloa-inbox.com",
+        "SINALOA_AGENT_DOMAIN": "agents.envoi-agents.com",
         "SINALOA_DB_SSL_MODE": "verify-full",
         "WORKOS_CLIENT_ID": "client_01M3QMT1BN3HEBGE4VPEAQA0GT",
-        "WORKOS_REDIRECT_URI": "https://beta.sinaloa-inbox.com/api/auth/workos/callback",
+        "WORKOS_REDIRECT_URI": "https://www.envoi-agents.com/api/auth/workos/callback",
         "SINALOA_POLICY_ACTIVE_KEY_ID": "primary",
         "SINALOA_OBJECT_STORAGE_PROVIDER": "s3",
         "SINALOA_S3_ENDPOINT": "https://54a5d6c680bd813fa60f8e088b098b8d.r2.cloudflarestorage.com",
@@ -90,6 +90,10 @@
         "SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS": "false"
       },
       "routes": [
+        {
+          "pattern": "www.envoi-agents.com",
+          "custom_domain": true
+        },
         {
           "pattern": "beta.sinaloa-inbox.com",
           "custom_domain": true
