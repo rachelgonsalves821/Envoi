@@ -16,10 +16,10 @@ export function validateReleaseTargets(config) {
   assert.equal(beta.name ?? (config.name + '-beta'), 'sinaloa-beta', 'Beta must never deploy to the old production Worker');
   assert.equal(beta.workers_dev, false, 'Beta smoke requires its custom domain; disable beta workers.dev');
   assert.equal(beta.preview_urls ?? config.preview_urls ?? false, false, 'Beta must not expose workers.dev preview URLs');
-  assert.deepEqual(beta.routes, [{ pattern: 'beta.sinaloa-inbox.com', custom_domain: true }], 'Beta must bind only its intended custom domain');
-  assert.equal(beta.vars?.SINALOA_PUBLIC_URL, 'https://beta.sinaloa-inbox.com');
-  assert.equal(beta.vars?.SINALOA_CORS_ORIGIN, beta.vars.SINALOA_PUBLIC_URL);
-  assert.equal(beta.vars?.SINALOA_EDGE_ALLOWED_HOSTS, 'beta.sinaloa-inbox.com', 'Beta edge admission must remain limited to the custom domain');
+  assert.deepEqual(beta.routes, [{ pattern: 'www.envoi-agents.com', custom_domain: true }, { pattern: 'beta.sinaloa-inbox.com', custom_domain: true }], 'Beta must retain the old beta host until redirects are verified');
+  assert.equal(beta.vars?.SINALOA_PUBLIC_URL, 'https://www.envoi-agents.com');
+  assert.ok(beta.vars?.SINALOA_CORS_ORIGIN?.split(',').includes(beta.vars.SINALOA_PUBLIC_URL));
+  assert.equal(beta.vars?.SINALOA_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com', 'Beta edge admission must remain limited to the two custom domains');
   assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.SINALOA_PUBLIC_URL}/api/auth/workos/callback`);
 }
 
@@ -48,7 +48,7 @@ export async function checkDeploymentConfiguration() {
   const beta = config.env?.beta;
   assert.ok(beta, 'Beta must deploy as a Worker separate from the old production Worker');
   assert.equal(beta.workers_dev, false, 'Beta smoke requires its custom domain; disable beta workers.dev');
-  assert.deepEqual(beta.routes, [{ pattern: 'beta.sinaloa-inbox.com', custom_domain: true }], 'Beta must bind only its intended custom domain');
+  assert.deepEqual(beta.routes, [{ pattern: 'www.envoi-agents.com', custom_domain: true }, { pattern: 'beta.sinaloa-inbox.com', custom_domain: true }], 'Beta must retain the old beta host until redirects are verified');
   assert.ok(beta.triggers?.crons?.includes('* * * * *'), 'Beta background jobs require their own wake-up schedule');
   assert.equal(beta.containers?.length, 1, 'Beta requires one isolated container application');
   assert.equal(beta.containers[0].name, 'sinaloa-beta-release');
@@ -58,9 +58,9 @@ export async function checkDeploymentConfiguration() {
   assert.equal(new Set([config.containers[0].name, staging.containers[0].name, beta.containers[0].name]).size, 3, 'Container application names must be distinct');
   assert.ok(beta.durable_objects?.bindings?.some(item => item.name === 'SINALOA_CONTAINER' && item.class_name === 'SinaloaContainer'), 'Beta requires its own container binding');
   assert.ok(beta.migrations?.some(item => item.new_sqlite_classes?.includes('SinaloaContainer')), 'Beta requires its own container migration');
-  assert.equal(beta.vars?.SINALOA_PUBLIC_URL, 'https://beta.sinaloa-inbox.com');
-  assert.equal(beta.vars?.SINALOA_CORS_ORIGIN, beta.vars.SINALOA_PUBLIC_URL);
-  assert.equal(beta.vars?.SINALOA_EDGE_ALLOWED_HOSTS, 'beta.sinaloa-inbox.com');
+  assert.equal(beta.vars?.SINALOA_PUBLIC_URL, 'https://www.envoi-agents.com');
+  assert.ok(beta.vars?.SINALOA_CORS_ORIGIN?.split(',').includes(beta.vars.SINALOA_PUBLIC_URL));
+  assert.equal(beta.vars?.SINALOA_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com');
   assert.equal(beta.vars?.WORKOS_CLIENT_ID, 'client_01M3QMT1BN3HEBGE4VPEAQA0GT');
   assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.SINALOA_PUBLIC_URL}/api/auth/workos/callback`);
   assert.equal(beta.vars?.SINALOA_DB_SSL_MODE, 'verify-full');
@@ -81,7 +81,7 @@ export async function checkDeploymentConfiguration() {
   assert.equal((await readFile(new URL('.node-version', root), 'utf8')).trim(), '22');
   const scripts = JSON.parse(await readFile(new URL('package.json', root), 'utf8')).scripts;
   assert.match(scripts['cf:deploy:staging'], /wrangler deploy --env staging/);
-  assert.match(scripts['cf:deploy:beta'], /wrangler deploy --env beta/);
+  assert.equal(scripts['cf:deploy:beta'], 'node scripts/deploy-beta-build.mjs');
   for (const command of scripts['cf:check'].split('&&').map(item => item.trim()).filter(item => item.includes('wrangler deploy'))) {
     assert.match(command, /(?: --env (?:staging|beta)| --config scanner\/wrangler\.beta\.jsonc)$/, 'CI must not target the old production Worker');
   }

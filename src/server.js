@@ -243,7 +243,7 @@ const applyHeaders = (res, origin, nonce) => {
   res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
   res.setHeader('cross-origin-opener-policy', 'same-origin');
   res.setHeader('x-dns-prefetch-control', 'off');
-  res.setHeader('content-security-policy', `default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'`);
+  res.setHeader('content-security-policy', `default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://www.envoi-agents.com https://beta.sinaloa-inbox.com https://sinaloa-inbox.com https://www.sinaloa-inbox.com`);
   if (process.env.SINALOA_AUTH_MODE === 'production') res.setHeader('strict-transport-security', 'max-age=63072000; includeSubDomains; preload');
 };
 const json = (res, status, body) => {
@@ -1640,7 +1640,7 @@ async function route(req, res) {
   if (url.pathname === '/mcp') {
     const identity = await getMcpIdentity(req);
     if (!identity) {
-      res.setHeader('www-authenticate', 'Bearer realm="Sinaloa agent MCP"');
+      res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
       return fail(res, 401, 'Active v1 agent credential required');
     }
     if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
@@ -1663,12 +1663,12 @@ async function route(req, res) {
     };
     return handleAgentMcp(req, res, { identity, callRest });
   }
-  if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/'))) {
-    const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice('/web/'.length);
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
+    const relative = url.pathname === '/' ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
     let filePath;
     try { filePath = resolvePathWithin(path.resolve('web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
-    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
     try {
       const extension = path.extname(filePath);
       let content = await readFile(filePath);
@@ -1952,7 +1952,8 @@ async function route(req, res) {
     if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
     const authorization = await auth.startAuthorization({
       screenHint: url.pathname.endsWith('sign-up') ? 'sign-up' : 'sign-in',
-      returnTo: url.searchParams.get('returnTo') || '/'
+      returnTo: url.searchParams.get('returnTo') || '/',
+      forceFresh: url.searchParams.get('fresh') === '1'
     });
     return redirect(res, authorization.url, { 'set-cookie': authFlowCookieHeader(authorization.browserBinding) });
   }
@@ -1967,6 +1968,11 @@ async function route(req, res) {
       ipAddress: clientIp(req),
       userAgent: req.headers['user-agent'] || ''
     });
+    if (result.reauthenticate) {
+      if (result.forceFresh) return redirect(res, '/?auth_error=sign_in_failed', { 'set-cookie': authFlowCookieHeader('', { clear: true }) });
+      const authorization = await auth.startAuthorization({ returnTo: result.returnTo, forceFresh: true });
+      return redirect(res, authorization.url, { 'set-cookie': authFlowCookieHeader(authorization.browserBinding) });
+    }
     const csrfToken = createCsrfToken();
     return redirect(res, result.returnTo, { 'set-cookie': [sessionCookieHeader(result.sealedSession), csrfCookieHeader(csrfToken), authFlowCookieHeader('', { clear: true })] });
   }
@@ -2412,7 +2418,7 @@ async function route(req, res) {
     const input = await body(req);
     const email = normalizedEmail(input.email);
     if (!validEmail(email)) return fail(res, 400, 'A valid external email address is required');
-    if (emailTransport.publicDomain && email.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Sinaloa agents must communicate over the native transport');
+    if (emailTransport.publicDomain && email.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Envoi agents must communicate over the native transport');
     const direction = input.direction || 'both';
     if (!['inbound', 'outbound', 'both'].includes(direction)) return fail(res, 400, 'direction must be inbound, outbound, or both');
     const existing = await store.getJson(externalContactPath(inboxId, email));
@@ -3115,7 +3121,7 @@ async function route(req, res) {
     if (!hasPermission(sender, 'send_agent_messages') || !hasPermission(sender, 'use_email_transport')) return fail(res, 403, 'Agent lacks send_agent_messages or use_email_transport permission');
     const recipientEmail = normalizedEmail(input.recipientEmail);
     if (!validEmail(recipientEmail)) return fail(res, 400, 'A valid recipientEmail is required');
-    if (recipientEmail.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Use the native agent transport for Sinaloa recipients');
+    if (recipientEmail.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Use the native agent transport for Envoi recipients');
     const subject = String(input.subject || '').trim();
     const text = String(input.text || '').trim();
     const html = input.html == null ? null : String(input.html);

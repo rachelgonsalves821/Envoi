@@ -23,11 +23,11 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
     const requiredRead = message.caseId ? 'sinaloa_read_case' : 'sinaloa_agent_info';
     const prompt = workPrompt(message, history, { assetHandles: options.assetHandles });
     const body: Record<string, unknown> = { model: options.model,
-      input: options.mcp ? `${prompt}\n\nBefore responding, call ${requiredRead} through the Sinaloa MCP server${message.caseId ? ` for caseId ${JSON.stringify(message.caseId)}` : ''}. If the read fails, do not guess a reply.` : prompt,
+      input: options.mcp ? `${prompt}\n\nBefore responding, call ${requiredRead} through the Envoi MCP server${message.caseId ? ` for caseId ${JSON.stringify(message.caseId)}` : ''}. If the read fails, do not guess a reply.` : prompt,
       store: false };
     if (options.mcp) {
       const token = await options.mcp.accessToken(message.caseId || null);
-      if (!token || /[\r\n]/.test(token)) throw new Error('Current Sinaloa MCP read token is unavailable');
+      if (!token || /[\r\n]/.test(token)) throw new Error('Current Envoi MCP read token is unavailable');
       body.tools = [{
         type: 'mcp', server_url: options.mcp.serverUrl, server_label: 'sinaloa',
         authorization: `Bearer ${token}`,
@@ -53,7 +53,7 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
       item.type === 'mcp_call' && (item.name === requiredRead || item.name === `sinaloa.${requiredRead}`) &&
       (item.server_label === undefined || item.server_label === 'sinaloa') &&
       item.status === 'completed' && item.error == null)) {
-      throw new Error(`xAI did not complete the required Sinaloa MCP ${requiredRead} call`);
+      throw new Error(`xAI did not complete the required Envoi MCP ${requiredRead} call`);
     }
     const text = (data.output as Array<Record<string, unknown>>)
       .filter(item => item.type === 'message' && Array.isArray(item.content))

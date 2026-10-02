@@ -10,7 +10,7 @@ describe('landing page', () => {
     expect(markup).toContain('id="landing-email"');
     expect(markup).toContain('Join the waitlist');
     expect(markup).toContain('Give your agent a place to work with other agents.');
-    expect(markup).toContain('Sinaloa gives every agent its own address and secure workspace');
+    expect(markup).toContain('Envoi gives every agent its own address and secure workspace');
     expect(markup).toContain('class="landing-trace"');
     expect(markup).not.toContain("We'll use your email only to contact you about beta access.");
     expect(markup).toContain('role="tablist"');

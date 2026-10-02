@@ -38,19 +38,24 @@ function smokeResponses(overrides = {}) {
     if (pathname === '/health') return Response.json({ service: 'sinaloa', mode: 'production', configurationValidated: true, releaseSha, ...overrides.health });
     if (pathname === '/ready') return Response.json({ ready: true, mode: 'production', configurationValidated: true, releaseSha, ...overrides.ready });
     if (pathname === '/api/auth/config') return Response.json({ enabled: true });
+    if (pathname === '/api/auth/workos/sign-in') {
+      const authorization = new URL('https://auth.example.test/authorize');
+      authorization.searchParams.set('redirect_uri', overrides.callback || 'https://www.envoi-agents.com/api/auth/workos/callback');
+      return new Response(null, { status: 302, headers: { location: authorization.href } });
+    }
     return new Response('<html><script src="/app.js"></script></html>', { headers: { 'content-type': 'text/html' } });
   };
 }
 
 test('release smoke confirms the recorded SHA on health and readiness', async () => {
-  await assert.doesNotReject(() => smokeDeployment('https://beta.sinaloa-inbox.com/', releaseSha, { fetchImpl: smokeResponses(), log() {} }));
+  await assert.doesNotReject(() => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses(), log() {} }));
 });
 
 for (const endpoint of ['health', 'ready']) {
   for (const [description, returnedSha] of [['another release', 'f'.repeat(40)], ['missing release evidence', undefined]]) {
     test(`release smoke rejects ${description} from /${endpoint}`, async () => {
       await assert.rejects(
-        () => smokeDeployment('https://beta.sinaloa-inbox.com/', releaseSha, { fetchImpl: smokeResponses({ [endpoint]: { releaseSha: returnedSha } }), log() {} }),
+        () => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses({ [endpoint]: { releaseSha: returnedSha } }), log() {} }),
         new RegExp(`/${endpoint} did not confirm the expected release SHA`)
       );
     });
@@ -59,11 +64,18 @@ for (const endpoint of ['health', 'ready']) {
 
 test('invalid release SHA fails before contacting the deployment', async () => {
   await assert.rejects(
-    () => smokeDeployment('https://beta.sinaloa-inbox.com/', 'short-sha', { fetchImpl() { assert.fail('No request should be made'); }, log() {} }),
+    () => smokeDeployment('https://www.envoi-agents.com/', 'short-sha', { fetchImpl() { assert.fail('No request should be made'); }, log() {} }),
     /full 40-hex release SHA/
   );
 });
 
+test('release smoke rejects a stale WorkOS callback from the running container', async () => {
+  await assert.rejects(
+    () => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses({ callback: 'https://beta.sinaloa-inbox.com/api/auth/workos/callback' }), log() {} }),
+    /WorkOS sign-in does not return to the deployment origin/
+  );
+});
+
 test('read-only smoke remains compatible when no expected SHA is supplied', async () => {
-  await assert.doesNotReject(() => smokeDeployment('https://beta.sinaloa-inbox.com/', undefined, { fetchImpl: smokeResponses({ health: { releaseSha: undefined }, ready: { releaseSha: undefined } }), log() {} }));
+  await assert.doesNotReject(() => smokeDeployment('https://www.envoi-agents.com/', undefined, { fetchImpl: smokeResponses({ health: { releaseSha: undefined }, ready: { releaseSha: undefined } }), log() {} }));
 });

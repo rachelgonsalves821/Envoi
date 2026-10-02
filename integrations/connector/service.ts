@@ -28,7 +28,7 @@ export function connectorService(directory: string, options: { platform?: string
   const args = [connector, 'start', '--state-dir', directory];
   if (platform === 'linux') {
     const filename = path.join(home, '.config', 'systemd', 'user', `${name}.service`);
-    return { name, filename, contents: `[Unit]\nDescription=Sinaloa agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[node, ...args].map(unitArgument).join(' ')}\nWorkingDirectory=${unitArgument(directory)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`, commands: [
+    return { name, filename, contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[node, ...args].map(unitArgument).join(' ')}\nWorkingDirectory=${unitArgument(directory)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`, commands: [
       { executable: 'systemctl', args: ['--user', 'daemon-reload'] },
       { executable: 'systemctl', args: ['--user', 'enable', '--now', `${name}.service`] }
     ] };

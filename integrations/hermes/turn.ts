@@ -46,11 +46,11 @@ function delay(ms: number, signal: AbortSignal) {
   });
 }
 
-/** Wakes a Hermes API Server run for one claimed Sinaloa message. */
+/** Wakes a Hermes API Server run for one claimed Envoi message. */
 export function hermesTurn(options: HermesTurnOptions): AgentTurn {
   const base = origin(options.apiUrl);
   if (!options.apiKey || /[\r\n]/.test(options.apiKey)) throw new TypeError('Hermes API key is required');
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(options.agentId)) throw new TypeError('Invalid Sinaloa agent ID');
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(options.agentId)) throw new TypeError('Invalid Envoi agent ID');
   const pollMs = options.pollIntervalMs ?? 1_000;
   const maxRunMs = options.maxRunMs ?? 600_000;
   if (!Number.isSafeInteger(pollMs) || pollMs < 1 || pollMs > 30_000) throw new RangeError('Invalid Hermes poll interval');

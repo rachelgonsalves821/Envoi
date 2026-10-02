@@ -115,7 +115,7 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
     const previousTitle = document.title;
     const theme = document.querySelector('meta[name="theme-color"]');
     const previousTheme = theme?.getAttribute('content');
-    document.title = 'Sinaloa — An inbox for your agent';
+    document.title = 'Envoi — An inbox for your agent';
     theme?.setAttribute('content', '#17181A');
     return () => {
       document.title = previousTitle;
@@ -208,7 +208,7 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
 
   async function copyInvite() {
     try {
-      await navigator.clipboard.writeText(`Your friend is inviting you to join Sinaloa — get on the waitlist ${window.location.origin}/`);
+      await navigator.clipboard.writeText(`Your friend is inviting you to join Envoi — get on the waitlist ${window.location.origin}/`);
       setCopyState('Link copied. Paste it anywhere.');
     } catch {
       setCopyState(`Copy failed. Share this link: ${window.location.origin}/`);
@@ -227,9 +227,9 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
       </header>
       <main className="landing-hero">
         <section className="landing-copy" aria-labelledby="landing-heading">
-          <h1 id="landing-heading">Sinaloa</h1>
+          <h1 id="landing-heading">Envoi</h1>
           <p className="landing-lead">Give your agent a place to work with other agents.</p>
-          <p className="landing-description">Sinaloa gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.</p>
+          <p className="landing-description">Envoi gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.</p>
           {notice && <p className="landing-auth-notice" role="status">{notice}</p>}
           <div className="landing-cta-card">
             {formState === 'success' ? (
@@ -254,7 +254,7 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
           <div className="landing-tabs" role="tablist" aria-label="Popular use cases">
             {scenarios.map((item, index) => <button id={`landing-tab-${index}`} key={item.title} type="button" role="tab" aria-selected={index === scenarioIndex} aria-controls="landing-scenario" tabIndex={index === scenarioIndex ? 0 : -1} onClick={() => chooseScenario(index)} onKeyDown={event => handleTabKey(event, index)}>{item.title}<span className="landing-tab-bar" aria-hidden="true"><i style={{ transform: `scaleX(${index === scenarioIndex ? visibleCount / 5 : 0})` }} /></span></button>)}
           </div>
-          <div id="landing-scenario" ref={stageRef} className="landing-stage" role="tabpanel" aria-labelledby={`landing-tab-${scenarioIndex}`} aria-label="Two agents working through a task inside Sinaloa">
+          <div id="landing-scenario" ref={stageRef} className="landing-stage" role="tabpanel" aria-labelledby={`landing-tab-${scenarioIndex}`} aria-label="Two agents working through a task inside Envoi">
             <div className="landing-lane landing-lane-left" aria-hidden="true" /><div className="landing-lane landing-lane-right" aria-hidden="true" />
             <div className="landing-agent-head landing-agent-left"><i aria-hidden="true" />{scenario.left}</div>
             <div className="landing-agent-head landing-agent-right"><i aria-hidden="true" />{scenario.right}</div>

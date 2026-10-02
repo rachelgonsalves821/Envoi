@@ -28,7 +28,7 @@
     "cf:dev": "wrangler dev",
     "cf:deploy": "node -e \"throw new Error('Choose cf:deploy:staging or cf:deploy:beta; an unqualified deploy targets the old production Worker')\"",
     "cf:deploy:staging": "npm run cf:config-check && wrangler deploy --env staging",
-    "cf:deploy:beta": "npm run cf:config-check && wrangler deploy --env beta",
+    "cf:deploy:beta": "node scripts/deploy-beta-build.mjs",
     "cf:deploy:scanner:beta": "npm run cf:config-check && wrangler deploy --config scanner/wrangler.beta.jsonc"
   },
   "dependencies": {

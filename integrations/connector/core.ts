@@ -80,10 +80,10 @@ export async function readConnection(directory: string): Promise<InstalledConnec
 export async function checkSinaloa(apiUrl: string, fetcher: typeof fetch) {
   let response: Response;
   try { response = await fetcher(`${quickConnectOrigin(apiUrl)}/health`, { signal: AbortSignal.timeout(10_000) }); }
-  catch { throw new ConnectorSetupError('SINALOA_UNREACHABLE', 'Sinaloa is unreachable from this host. A remote agent cannot reach another computer’s localhost URL; use the correct public HTTPS deployment'); }
+  catch { throw new ConnectorSetupError('ENVOI_UNREACHABLE', 'Envoi is unreachable from this host. A remote agent cannot reach another computer’s localhost URL; use the correct public HTTPS deployment'); }
   try {
     if (!response.ok || (await response.json() as { service?: string }).service !== 'sinaloa') throw new Error();
-  } catch { throw new ConnectorSetupError('SINALOA_UNREACHABLE', 'The selected URL did not return Sinaloa health. Check the deployment origin before enrolling'); }
+  } catch { throw new ConnectorSetupError('ENVOI_UNREACHABLE', 'The selected URL did not return Envoi health. Check the deployment origin before enrolling'); }
 }
 async function report(saved: InstalledConnection, connector: SinaloaConnector, phase: 'ready' | 'error', fetcher: typeof fetch, errorCode?: string) {
   const response = await fetcher(`${saved.apiUrl}/api/agent/connection-status`, {
@@ -91,7 +91,7 @@ async function report(saved: InstalledConnection, connector: SinaloaConnector, p
     body: JSON.stringify({ version: 1, runtime: saved.runtime, phase, runtimeTest: phase === 'ready' ? 'passed' : 'failed', ...(errorCode ? { errorCode } : {}) }),
     signal: AbortSignal.timeout(10_000)
   });
-  if (!response.ok) throw new ConnectorSetupError(response.status === 429 || response.status >= 500 ? 'SINALOA_UNREACHABLE' : 'CONNECTION_TEST_FAILED', `Sinaloa could not record setup checks (HTTP ${response.status}). The saved connection can be resumed`);
+  if (!response.ok) throw new ConnectorSetupError(response.status === 429 || response.status >= 500 ? 'ENVOI_UNREACHABLE' : 'CONNECTION_TEST_FAILED', `Envoi could not record setup checks (HTTP ${response.status}). The saved connection can be resumed`);
   await response.body?.cancel();
 }
 
@@ -128,7 +128,7 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     const needsEnrollment = !session || !!reconnectId && sessionRedemptionId !== reconnectId && prior?.lastReconnectId !== reconnectId;
     if (needsEnrollment) validateQuickConnectHandoff(input);
     if (options.installService) await checkServiceManager();
-    options.onProgress?.('Checking Sinaloa reachability');
+    options.onProgress?.('Checking Envoi reachability');
     await checkSinaloa(handoff.apiUrl, fetcher);
     const adapter = resolveAdapter(handoff.runtime);
     const context = { ...options, apiUrl: handoff.apiUrl, stateDir: directory, fetch: fetcher };
@@ -156,7 +156,7 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     await adapter.configure?.(config, context);
     // Adapters may allocate a local relay port during configure. Save it before service start.
     await privateJson(path.join(directory, 'connection.json'), saved);
-    options.onProgress?.('Verifying runtime tools and Sinaloa access');
+    options.onProgress?.('Verifying runtime tools and Envoi access');
     bridge = await adapter.createBridge(config, context);
     await bridge.connector.pollOnce();
     await bridge.verify?.();
@@ -184,7 +184,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
   let diagnostics: Record<string, unknown> = { status: 'starting', runtimeChecks: 'pending' };
   try {
     saved = await readConnection(directory);
-    if (!await savedSession(directory)) throw new ConnectorSetupError('STATE_INVALID', 'Saved credentials are missing; reconnect through Sinaloa before starting');
+    if (!await savedSession(directory)) throw new ConnectorSetupError('STATE_INVALID', 'Saved credentials are missing; reconnect through Envoi before starting');
     const adapter = resolveAdapter(saved.runtime);
     const context = { ...options, signal: stop.signal, apiUrl: saved.apiUrl, stateDir: directory, fetch: fetcher };
     if (options.control !== false) control = await startControl(directory, { runtime: saved.runtime, address: saved.address }, cancel, () => diagnostics);
@@ -206,7 +206,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         await bridge?.close(); bridge = undefined;
         if (stop.signal.aborted) return;
         const status = (error as { status?: number })?.status;
-        const transient = error instanceof ConnectorSetupError && ['SINALOA_UNREACHABLE', 'GATEWAY_UNREACHABLE', 'PROVIDER_UNREACHABLE'].includes(error.code)
+        const transient = error instanceof ConnectorSetupError && ['ENVOI_UNREACHABLE', 'GATEWAY_UNREACHABLE', 'PROVIDER_UNREACHABLE'].includes(error.code)
           || typeof status === 'number' && (status === 429 || status >= 500) || error instanceof TypeError && /fetch|network/i.test(error.message);
         if (!transient) throw error;
         const code = error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEMPORARILY_UNAVAILABLE';

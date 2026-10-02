@@ -67,7 +67,7 @@ describe('Sinaloa TypeScript client', () => {
   it('sanitizes HTML and empty error bodies', async () => {
     const fetcher = vi.fn(async () => new Response('<html>provider secret</html>', { status: 502 }));
     const client = new SinaloaClient('https://api.example', 'do-not-leak', { fetch: fetcher as typeof fetch });
-    await expect(client.delta('inbox')).rejects.toMatchObject({ message: 'Sinaloa request failed with HTTP 502', status: 502 });
+    await expect(client.delta('inbox')).rejects.toMatchObject({ message: 'Envoi request failed with HTTP 502', status: 502 });
     await expect(client.delta('inbox')).rejects.not.toThrow(/provider secret|do-not-leak/);
   });
 

@@ -52,9 +52,9 @@ export async function probeOpenClawMcp(options: OpenClawMcpProbeOptions): Promis
     if (first?.finish_reason !== 'stop' || typeof message?.content !== 'string') {
       throw new Error('OpenClaw MCP probe did not return a completed answer');
     }
-    if (observed < 1) throw new Error('Gateway answer had no successful Sinaloa MCP invocation through the relay');
+    if (observed < 1) throw new Error('Gateway answer had no successful Envoi MCP invocation through the relay');
     if (!message.content.includes(options.expectedAddress)) {
-      throw new Error('Gateway did not report the address returned by Sinaloa MCP');
+      throw new Error('Gateway did not report the address returned by Envoi MCP');
     }
   } finally { await relay.close(); }
 }
@@ -72,11 +72,11 @@ async function main() {
   const store = new FileBridgeStore(stateDir);
   await store.init();
   const session = await store.load();
-  if (!session?.address) throw new Error('Enrolled Sinaloa session is required');
+  if (!session?.address) throw new Error('Enrolled Envoi session is required');
   await probeOpenClawMcp({ connector: new SinaloaConnector(apiUrl, store), expectedAddress: session.address,
     gatewayUrl, gatewayToken, agentId, relayToken,
     relayPort: process.env.OPENCLAW_MCP_RELAY_PORT ? Number(process.env.OPENCLAW_MCP_RELAY_PORT) : 8788 });
-  process.stdout.write('OpenClaw Gateway invoked Sinaloa agent_info through the local MCP relay and returned the enrolled agent address.\n');
+  process.stdout.write('OpenClaw Gateway invoked Envoi agent_info through the local MCP relay and returned the enrolled agent address.\n');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

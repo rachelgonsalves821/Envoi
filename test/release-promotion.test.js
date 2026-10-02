@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { APP_SECRET_NAMES, RELEASE_ACCOUNT_ID, promotionPlan, requireSecretNames } from '../scripts/promote-release.mjs';
+import { betaBuildDeployArgs } from '../scripts/deploy-beta-build.mjs';
 const main = 'a'.repeat(40);
 const candidate = 'b'.repeat(40);
 const defaults = { target: 'staging', sha: main, headSha: main, mainSha: main, clean: true, descendedFromMain: true };
@@ -39,4 +40,8 @@ test('secret-name gate allows a policy keyring and requires a separate scanner c
   const names = APP_SECRET_NAMES.map(name => ({ name: name === 'SINALOA_POLICY_SIGNING_KEY' ? 'SINALOA_POLICY_SIGNING_KEYS' : name, type: 'secret_text' }));
   assert.doesNotThrow(() => requireSecretNames(names));
   assert.throws(() => requireSecretNames(names, ['SINALOA_SCANNER_TOKEN']), /SINALOA_SCANNER_TOKEN/);
+});
+test('automatic beta Builds pins the exact Git SHA and never selects the old production Worker', () => {
+  assert.deepEqual(betaBuildDeployArgs(main), ['deploy', '--env', 'beta', '--var', `SINALOA_RELEASE_SHA:${main}`]);
+  assert.throws(() => betaBuildDeployArgs('short-sha'), /full Git commit SHA/);
 });
