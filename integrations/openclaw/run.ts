@@ -16,7 +16,7 @@ async function main() {
   if (!await store.load()) {
     const code = process.env.ENVOI_ENROLLMENT_TOKEN || process.env.SINALOA_ENROLLMENT_TOKEN;
     if (!code) throw new Error('ENVOI_ENROLLMENT_TOKEN is required for first enrollment');
-    await enrollConnector(apiUrl, code, store, { name: process.env.SINALOA_AGENT_NAME || 'OpenClaw bridge' });
+    await enrollConnector(apiUrl, code, store, { name: process.env.ENVOI_AGENT_NAME || process.env.SINALOA_AGENT_NAME || 'OpenClaw bridge' });
   }
   const bridge = await createOpenClawBridge({ apiUrl, stateDir, gatewayUrl, gatewayToken, agentId });
   const stop = new AbortController();

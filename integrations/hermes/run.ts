@@ -13,7 +13,7 @@ async function main() {
   if (!await store.load()) {
     const token = process.env.ENVOI_ENROLLMENT_TOKEN || process.env.SINALOA_ENROLLMENT_TOKEN;
     if (!token) throw new Error('ENVOI_ENROLLMENT_TOKEN is required for first enrollment');
-    await enrollConnector(apiUrl, token, store, { name: process.env.SINALOA_AGENT_NAME || 'Hermes bridge' });
+    await enrollConnector(apiUrl, token, store, { name: process.env.ENVOI_AGENT_NAME || process.env.SINALOA_AGENT_NAME || 'Hermes bridge' });
   }
   delete process.env.ENVOI_ENROLLMENT_TOKEN;
   delete process.env.SINALOA_ENROLLMENT_TOKEN;

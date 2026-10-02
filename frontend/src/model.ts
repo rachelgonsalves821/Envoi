@@ -199,7 +199,7 @@ export function stateLabel(value: unknown) {
 }
 
 export function humanize(value: unknown) {
-  return String(value || 'Update').replace(/[._-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, character => character.toUpperCase()).replace(/Sinaloa /gi, 'Envoi ');
+  return String(value || 'Update').replace(/[._-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, character => character.toUpperCase()).replace(/\bSinaloa\b/gi, 'Envoi');
 }
 
 export function caseCounts(view: HumanView) {

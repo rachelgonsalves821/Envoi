@@ -12,7 +12,7 @@ async function main() {
   if (!await store.load()) {
     const code = process.env.ENVOI_ENROLLMENT_TOKEN || process.env.SINALOA_ENROLLMENT_TOKEN;
     if (!code) throw new Error('ENVOI_ENROLLMENT_TOKEN is required for first enrollment');
-    await enrollConnector(apiUrl, code, store, { name: process.env.SINALOA_AGENT_NAME || 'Grok bridge' });
+    await enrollConnector(apiUrl, code, store, { name: process.env.ENVOI_AGENT_NAME || process.env.SINALOA_AGENT_NAME || 'Grok bridge' });
   }
   const bridge = await createGrokBridge({ apiUrl, stateDir, apiKey, model: process.env.XAI_MODEL || 'grok-4.7' });
   const stop = new AbortController();

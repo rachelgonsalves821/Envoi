@@ -251,7 +251,7 @@ export default function App() {
       if (caught instanceof ApiError && caught.status === 401) {
         expireSession();
       } else {
-        setError(caught instanceof Error ? caught.message.replace(/Sinaloa /gi, 'Envoi ') : 'Envoi could not load your workspace.');
+        setError(caught instanceof Error ? caught.message.replace(/\bSinaloa\b/gi, 'Envoi') : 'Envoi could not load your workspace.');
         setBoot('error');
       }
     }
@@ -1456,4 +1456,4 @@ function formatTime(value: string) { return new Intl.DateTimeFormat(undefined, {
 function formatRelative(value: string) { const diff = Date.now() - new Date(value).getTime(); const minutes = Math.max(0, Math.floor(diff / 60_000)); if (minutes < 60) return `${minutes}m`; const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours}h`; return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value)); }
 function formatBytes(value: number) { if (value < 1024) return `${value} B`; if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`; return `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function assetDownloadError(caught: unknown) { if (caught instanceof ApiError && caught.status === 423) return 'Download remains locked until the safety scan completes.'; if (caught instanceof ApiError && caught.status === 503) return 'File storage is not configured or is temporarily unavailable. Ask a workspace administrator to check the provider.'; if (caught instanceof ApiError && caught.status === 401) return 'Your session expired. Sign in again before downloading this file.'; return errorMessage(caught); }
-function errorMessage(caught: unknown) { if (caught instanceof ApiError && caught.status === 503) return `${caught.message.replace(/Sinaloa /gi, 'Envoi ')} Check the provider configuration, then retry.`; return caught instanceof Error ? caught.message.replace(/Sinaloa /gi, 'Envoi ') : 'The action could not be completed.'; }
+function errorMessage(caught: unknown) { if (caught instanceof ApiError && caught.status === 503) return `${caught.message.replace(/\bSinaloa\b/gi, 'Envoi')} Check the provider configuration, then retry.`; return caught instanceof Error ? caught.message.replace(/\bSinaloa\b/gi, 'Envoi') : 'The action could not be completed.'; }

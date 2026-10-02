@@ -304,7 +304,7 @@ var j = class extends Error {
 	status;
 	code;
 	constructor(e, t, n) {
-		super(e), this.status = t, this.code = n, this.name = "EnvoiError";
+		super(e), this.status = t, this.code = n, this.name = "SinaloaError";
 	}
 }, M = (e = 3e4) => {
 	if (!Number.isSafeInteger(e) || e < 1 || e > 3e5) throw RangeError("timeoutMs must be an integer from 1 to 300000");
