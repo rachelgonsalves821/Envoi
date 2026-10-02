@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
+import { joinWaitlist } from './waitlist.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
@@ -183,6 +184,7 @@ async function readinessReport() {
 
 const rateIdentity = req => hashSecret(String(req.headers.authorization || req.headers.cookie || clientIp(req))).slice(0, 32);
 const ratePolicy = (req, pathname) => {
+  if (pathname === '/api/waitlist') return { limit: 10, windowMs: 60 * 60_000 };
   if (pathname === '/api/email-webhooks/resend') return { limit: 600, windowMs: 60_000 };
   if (pathname.startsWith('/api/auth/')) return { limit: 60, windowMs: 60_000 };
   if (pathname.includes('/asset-uploads') || pathname.startsWith('/api/object-storage/')) return { limit: 120, windowMs: 60_000 };
@@ -442,12 +444,12 @@ async function getMcpIdentity(req) {
   if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') return null;
   return { agent, familyId: index.familyId, inboxId: index.inboxId, mcpScope: { caseId: index.caseId } };
 }
-const body = async (req) => {
+const body = async (req, limit = maxBodyBytes) => {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (Buffer.byteLength(raw) > maxBodyBytes) {
-      const error = new Error(`Request body exceeds ${maxBodyBytes} bytes`);
+    if (Buffer.byteLength(raw) > limit) {
+      const error = new Error(`Request body exceeds ${limit} bytes`);
       error.statusCode = 413;
       throw error;
     }
@@ -1679,6 +1681,13 @@ async function route(req, res) {
     return json(res, readiness.ready ? 200 : 503, readiness);
   }
   if (req.method === 'GET' && url.pathname === '/api/email-transport/status') return json(res, 200, { ...emailTransport.status(), enabled: externalEmailEnabled, internalAgentDomain: agentDomain, internalIdentityOnly: agentDomain === 'sinaloa.mail' });
+  if (req.method === 'POST' && url.pathname === '/api/waitlist') {
+    res.setHeader('cache-control', 'no-store');
+    if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) return fail(res, 415, 'JSON is required');
+    const result = await joinWaitlist(store, await body(req, 2048));
+    if (result.error) return fail(res, 400, result.error);
+    return json(res, 200, { accepted: true });
+  }
 
   const workSettlementRoute = url.pathname.match(/^\/api\/agent\/work\/([^/]+)\/(renew|acknowledge|complete|fail)$/);
   if ((req.method === 'POST' && url.pathname === '/api/agent/work/claim') || (req.method === 'POST' && workSettlementRoute)) {
