@@ -38,6 +38,11 @@ function smokeResponses(overrides = {}) {
     if (pathname === '/health') return Response.json({ service: 'sinaloa', mode: 'production', configurationValidated: true, releaseSha, ...overrides.health });
     if (pathname === '/ready') return Response.json({ ready: true, mode: 'production', configurationValidated: true, releaseSha, ...overrides.ready });
     if (pathname === '/api/auth/config') return Response.json({ enabled: true });
+    if (pathname === '/api/auth/workos/sign-in') {
+      const authorization = new URL('https://auth.example.test/authorize');
+      authorization.searchParams.set('redirect_uri', overrides.callback || 'https://www.envoi-agents.com/api/auth/workos/callback');
+      return new Response(null, { status: 302, headers: { location: authorization.href } });
+    }
     return new Response('<html><script src="/app.js"></script></html>', { headers: { 'content-type': 'text/html' } });
   };
 }
@@ -61,6 +66,13 @@ test('invalid release SHA fails before contacting the deployment', async () => {
   await assert.rejects(
     () => smokeDeployment('https://www.envoi-agents.com/', 'short-sha', { fetchImpl() { assert.fail('No request should be made'); }, log() {} }),
     /full 40-hex release SHA/
+  );
+});
+
+test('release smoke rejects a stale WorkOS callback from the running container', async () => {
+  await assert.rejects(
+    () => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses({ callback: 'https://beta.sinaloa-inbox.com/api/auth/workos/callback' }), log() {} }),
+    /WorkOS sign-in does not return to the deployment origin/
   );
 });
 

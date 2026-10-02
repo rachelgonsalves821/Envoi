@@ -81,7 +81,7 @@ export async function checkDeploymentConfiguration() {
   assert.equal((await readFile(new URL('.node-version', root), 'utf8')).trim(), '22');
   const scripts = JSON.parse(await readFile(new URL('package.json', root), 'utf8')).scripts;
   assert.match(scripts['cf:deploy:staging'], /wrangler deploy --env staging/);
-  assert.match(scripts['cf:deploy:beta'], /wrangler deploy --env beta/);
+  assert.equal(scripts['cf:deploy:beta'], 'node scripts/deploy-beta-build.mjs');
   for (const command of scripts['cf:check'].split('&&').map(item => item.trim()).filter(item => item.includes('wrangler deploy'))) {
     assert.match(command, /(?: --env (?:staging|beta)| --config scanner\/wrangler\.beta\.jsonc)$/, 'CI must not target the old production Worker');
   }

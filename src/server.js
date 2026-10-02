@@ -1952,7 +1952,8 @@ async function route(req, res) {
     if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
     const authorization = await auth.startAuthorization({
       screenHint: url.pathname.endsWith('sign-up') ? 'sign-up' : 'sign-in',
-      returnTo: url.searchParams.get('returnTo') || '/'
+      returnTo: url.searchParams.get('returnTo') || '/',
+      forceFresh: url.searchParams.get('fresh') === '1'
     });
     return redirect(res, authorization.url, { 'set-cookie': authFlowCookieHeader(authorization.browserBinding) });
   }
@@ -1967,6 +1968,11 @@ async function route(req, res) {
       ipAddress: clientIp(req),
       userAgent: req.headers['user-agent'] || ''
     });
+    if (result.reauthenticate) {
+      if (result.forceFresh) return redirect(res, '/?auth_error=sign_in_failed', { 'set-cookie': authFlowCookieHeader('', { clear: true }) });
+      const authorization = await auth.startAuthorization({ returnTo: result.returnTo, forceFresh: true });
+      return redirect(res, authorization.url, { 'set-cookie': authFlowCookieHeader(authorization.browserBinding) });
+    }
     const csrfToken = createCsrfToken();
     return redirect(res, result.returnTo, { 'set-cookie': [sessionCookieHeader(result.sealedSession), csrfCookieHeader(csrfToken), authFlowCookieHeader('', { clear: true })] });
   }

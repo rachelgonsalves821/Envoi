@@ -109,7 +109,9 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [view, setView] = useState<HumanView | null>(null);
   const [error, setError] = useState('');
-  const [authNotice, setAuthNotice] = useState(() => sessionEndedNotice());
+  const [authNotice, setAuthNotice] = useState(() => new URLSearchParams(window.location.search).has('auth_error')
+    ? 'Sign-in could not be completed. Please try again.'
+    : sessionEndedNotice());
   const [syncNotice, setSyncNotice] = useState('');
   const [historyBusy, setHistoryBusy] = useState(false);
   const [sessionCheck, setSessionCheck] = useState<'checking' | 'error' | null>(null);

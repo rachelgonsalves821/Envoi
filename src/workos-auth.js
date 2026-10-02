@@ -140,12 +140,13 @@ export class WorkOSAuthService {
     return Boolean(user?.emailVerified && this.invitedEmails.has(String(user.email || '').trim().toLowerCase()));
   }
 
-  async startAuthorization({ screenHint = 'sign-in', returnTo = '/' } = {}) {
+  async startAuthorization({ screenHint = 'sign-in', returnTo = '/', forceFresh = false } = {}) {
     const result = await this.workos.userManagement.getAuthorizationUrlWithPKCE({
       clientId: this.clientId,
       provider: 'authkit',
       redirectUri: this.redirectUri,
-      screenHint
+      screenHint,
+      ...(forceFresh ? { maxAge: 0 } : {})
     });
     const browserBinding = crypto.randomBytes(32).toString('base64url');
     const flow = {
@@ -153,6 +154,7 @@ export class WorkOSAuthService {
       stateHash: hash(result.state),
       codeVerifier: result.codeVerifier,
       returnTo: safeReturnPath(returnTo),
+      forceFresh,
       createdAt: this.store.now(),
       expiresAt: new Date(Date.now() + flowMinutes * 60_000).toISOString(),
       usedAt: null
@@ -183,9 +185,20 @@ export class WorkOSAuthService {
     });
     if (!authentication.sealedSession) throw Object.assign(new Error('Authentication provider did not return a sealed session'), { statusCode: 502 });
     if (!this.admitted(authentication.user)) throw Object.assign(new Error('Invited, verified WorkOS account required'), { statusCode: 403 });
+    let verified;
+    try {
+      verified = await this.workos.userManagement.loadSealedSession({ sessionData: authentication.sealedSession, cookiePassword: this.cookiePassword }).authenticate();
+    } catch { throw unavailable(); }
+    if (!verified.authenticated || !verified.sessionId || verified.user?.id !== authentication.user.id || !this.admitted(verified.user)) {
+      return { reauthenticate: true, forceFresh: flow.forceFresh, returnTo: flow.returnTo };
+    }
+    const recorded = await this.recordSession({ ...verified, accessToken: authentication.accessToken }, this.now());
+    if (!recorded || !await this.isSessionActive(recorded)) {
+      try { await this.workos.userManagement.revokeSession?.({ sessionId: verified.sessionId }); }
+      catch {}
+      return { reauthenticate: true, forceFresh: flow.forceFresh, returnTo: flow.returnTo };
+    }
     const human = await this.upsertHuman(authentication.user);
-    const claims = tokenClaims(authentication.accessToken);
-    if (claims.sessionId) await this.recordSession({ sessionId: claims.sessionId, accessToken: authentication.accessToken }, this.now());
     return { human: publicHuman(human), sealedSession: authentication.sealedSession, returnTo: flow.returnTo };
   }
 

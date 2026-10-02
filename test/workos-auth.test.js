@@ -185,7 +185,8 @@ test('missing or another browser binding cannot consume a valid PKCE flow', asyn
   let exchanges = 0;
   const { auth, store } = await fixtureAuth({ userManagement: {
     getAuthorizationUrlWithPKCE: async () => ({ url: 'https://auth.example/', state: 'binding_state', codeVerifier: 'verifier' }),
-    authenticateWithCode: async () => { exchanges += 1; return { user: admittedUser, sealedSession: 'bound_cookie' }; }
+    authenticateWithCode: async () => { exchanges += 1; return { user: admittedUser, sealedSession: 'bound_cookie' }; },
+    loadSealedSession: () => ({ authenticate: async () => ({ authenticated: true, user: admittedUser, sessionId: 'session_fixture' }) })
   } });
   const started = await auth.startAuthorization();
   const flow = (await store.listJson(path.join('auth', 'workos-flows')))[0];
@@ -200,6 +201,41 @@ test('missing or another browser binding cannot consume a valid PKCE flow', asyn
   assert.equal(exchanges, 1);
   await assert.rejects(auth.completeAuthorization({ code: 'code', state: 'binding_state', browserBinding: started.browserBinding }), { statusCode: 401 });
   assert.equal(exchanges, 1);
+});
+
+test('revoked provider sessions prompt one fresh sign-in without issuing a dead cookie', async () => {
+  let authorizationCount = 0;
+  let sessionId = 'session_revoked';
+  const maxAges = [];
+  const revokedSessions = [];
+  const { auth, store } = await fixtureAuth({ userManagement: {
+    getAuthorizationUrlWithPKCE: async options => {
+      maxAges.push(options.maxAge);
+      authorizationCount += 1;
+      return { url: 'https://auth.example/', state: `state_${authorizationCount}`, codeVerifier: 'verifier' };
+    },
+    authenticateWithCode: async () => ({ user: admittedUser, sealedSession: 'sealed' }),
+    loadSealedSession: () => ({ authenticate: async () => ({ authenticated: true, user: admittedUser, sessionId }) }),
+    revokeSession: async ({ sessionId: revokedSessionId }) => { revokedSessions.push(revokedSessionId); }
+  } });
+  await store.putJson(auth.sessionPath(sessionId), { sessionId, revokedAt: store.now(), replays: [] });
+  const first = await auth.startAuthorization({ returnTo: '/inbox' });
+  const denied = await auth.completeAuthorization({ code: 'first', state: 'state_1', browserBinding: first.browserBinding });
+  assert.deepEqual(denied, { reauthenticate: true, forceFresh: false, returnTo: '/inbox' });
+  assert.deepEqual(await store.listJson('humans'), []);
+
+  const fresh = await auth.startAuthorization({ returnTo: denied.returnTo, forceFresh: true });
+  assert.deepEqual(maxAges, [undefined, 0]);
+  const stillDenied = await auth.completeAuthorization({ code: 'second', state: 'state_2', browserBinding: fresh.browserBinding });
+  assert.deepEqual(stillDenied, { reauthenticate: true, forceFresh: true, returnTo: '/inbox' });
+  assert.deepEqual(revokedSessions, ['session_revoked', 'session_revoked']);
+  assert.deepEqual(await store.listJson('humans'), []);
+
+  const next = await auth.startAuthorization({ returnTo: denied.returnTo, forceFresh: true });
+  sessionId = 'session_new';
+  const accepted = await auth.completeAuthorization({ code: 'third', state: 'state_3', browserBinding: next.browserBinding });
+  assert.equal(accepted.human.email, admittedUser.email);
+  assert.equal(accepted.returnTo, '/inbox');
 });
 
 test('parallel first authentication retains one stable provider-user human identity', async () => {
