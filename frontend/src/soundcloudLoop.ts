@@ -85,6 +85,15 @@ export class SoundCloudLoop {
       return;
     }
     this.playing = true;
+    if (!this.audible) {
+      this.widget.setVolume(0);
+      this.lastSeekAt = Date.now();
+      this.widget.seekTo(LOOP_START);
+      if (this.startTimeout) clearTimeout(this.startTimeout);
+      this.startTimeout = setTimeout(() => {
+        if (!this.audible && this.wanted) this.onError();
+      }, 10_000);
+    }
   };
   private readonly onProgress = (data?: { currentPosition?: number }) => this.checkPosition(data?.currentPosition);
   private readonly onError = () => {
@@ -118,7 +127,7 @@ export class SoundCloudLoop {
     this.widget.seekTo(LOOP_START);
     this.widget.play();
     this.startTimeout = setTimeout(() => {
-      if (!this.audible && this.wanted) this.onError();
+      if (!this.audible && this.wanted && this.playing) this.onError();
     }, 10_000);
     if (!this.timer) this.timer = setInterval(() => {
       if (this.positionPending || !this.wanted) return;

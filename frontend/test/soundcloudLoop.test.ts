@@ -32,6 +32,7 @@ describe('SoundCloud loop', () => {
     expect(widget.play).toHaveBeenCalledTimes(1);
     expect(widget.setVolume).toHaveBeenLastCalledWith(0);
     emit(events.PLAY);
+    expect(widget.seekTo).toHaveBeenLastCalledWith(LOOP_START);
     emit(events.PLAY_PROGRESS, LOOP_START - 1);
     expect(widget.setVolume).toHaveBeenLastCalledWith(0);
     emit(events.SEEK, LOOP_START);
@@ -51,7 +52,7 @@ describe('SoundCloud loop', () => {
     expect(widget.setVolume).toHaveBeenLastCalledWith(0);
     expect(widget.seekTo).toHaveBeenLastCalledWith(LOOP_START);
     emit(events.PLAY_PROGRESS, LOOP_END);
-    expect(widget.seekTo).toHaveBeenCalledTimes(3);
+    expect(widget.seekTo).toHaveBeenCalledTimes(4);
     emit(events.SEEK, LOOP_START);
     expect(widget.setVolume).toHaveBeenLastCalledWith(100);
     loop.stop();
@@ -83,6 +84,41 @@ describe('SoundCloud loop', () => {
     vi.advanceTimersByTime(10_000);
     expect(onStopped).toHaveBeenCalledTimes(1);
     expect(widget.pause).toHaveBeenCalledTimes(1);
+    loop.dispose();
+  });
+
+  it('keeps a blocked autoplay attempt muted until manual Play seeks to 2:30', () => {
+    vi.useFakeTimers();
+    const { widget, emit } = createWidget();
+    const onStopped = vi.fn();
+    const loop = new SoundCloudLoop(widget, events, onStopped);
+    loop.start();
+    emit(events.READY);
+    vi.advanceTimersByTime(10_000);
+    expect(onStopped).not.toHaveBeenCalled();
+    widget.seekTo.mockClear();
+    emit(events.PLAY);
+    expect(widget.seekTo).toHaveBeenLastCalledWith(LOOP_START);
+    emit(events.PLAY_PROGRESS, 1_000);
+    expect(widget.setVolume).toHaveBeenLastCalledWith(0);
+    emit(events.SEEK, LOOP_START);
+    expect(widget.setVolume).toHaveBeenLastCalledWith(100);
+    loop.dispose();
+  });
+
+  it('stops when a playing embed cannot seek to the requested segment', () => {
+    vi.useFakeTimers();
+    const { widget, emit } = createWidget();
+    const onStopped = vi.fn();
+    const loop = new SoundCloudLoop(widget, events, onStopped);
+    loop.start();
+    emit(events.READY);
+    emit(events.PLAY);
+    emit(events.PLAY_PROGRESS, 1_000);
+    vi.advanceTimersByTime(10_000);
+    expect(onStopped).toHaveBeenCalledTimes(1);
+    expect(widget.setVolume).toHaveBeenLastCalledWith(0);
+    expect(widget.pause).toHaveBeenCalled();
     loop.dispose();
   });
 

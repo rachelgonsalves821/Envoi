@@ -57,6 +57,7 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
   const [formState, setFormState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [copyState, setCopyState] = useState('');
   const [musicOn, setMusicOn] = useState(false);
+  const [musicFailed, setMusicFailed] = useState(false);
   const [musicHint, setMusicHint] = useState('');
   const [tracePath, setTracePath] = useState('');
   const soundCloudFrameRef = useRef<HTMLIFrameElement>(null);
@@ -167,13 +168,17 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
         if (!active) return;
         loop.dispose();
         soundCloudLoopRef.current = null;
-        widget.setVolume(100);
-        setMusicHint('Automatic playback stopped. Press Play in the SoundCloud player.');
+        soundCloudWidgetRef.current = null;
+        setMusicFailed(true);
+        setMusicHint('SoundCloud could not start this track at 2:30. Playback was stopped.');
       });
       soundCloudLoopRef.current = loop;
       loop.start();
     }).catch(() => {
-      if (active) setMusicHint('Press Play in the SoundCloud player.');
+      if (active) {
+        setMusicFailed(true);
+        setMusicHint('The 2:30–3:00 clip is unavailable in this browser.');
+      }
     });
     return () => {
       active = false;
@@ -186,7 +191,8 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
   }, [musicOn]);
 
   function toggleMusic() {
-    setMusicHint('If music does not start, press Play in the SoundCloud player.');
+    setMusicFailed(false);
+    setMusicHint('Playing 2:30–3:00. If autoplay is blocked, press Play in the player; audio will stay muted until 2:30.');
     if (musicOn) {
       const loop = soundCloudLoopRef.current;
       loop?.dispose();
@@ -237,7 +243,7 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
           <div className="landing-top-actions">
             <button className="landing-chip landing-music" type="button" onClick={toggleMusic} aria-pressed={musicOn} aria-label={musicOn ? 'Close music player' : 'Play music'} aria-controls="landing-music-player" aria-expanded={musicOn}>{musicOn ? <VolumeX size={18} /> : <Music2 size={18} />}</button>
             {musicOn && <div id="landing-music-player" className="landing-music-player">
-              <iframe ref={soundCloudFrameRef} title="Giorgio by Moroder on SoundCloud" src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fgiorgiomoroder%2Fdaft-punk-giorgio-by-moroder&auto_play=false" allow="autoplay" />
+              {!musicFailed && <iframe ref={soundCloudFrameRef} title="Giorgio by Moroder on SoundCloud" src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fgiorgiomoroder%2Fdaft-punk-giorgio-by-moroder&auto_play=false" allow="autoplay" />}
               <p role="status">{musicHint}</p>
               <p>Daft Punk — Giorgio by Moroder · uploaded by <a href="https://soundcloud.com/giorgiomoroder/daft-punk-giorgio-by-moroder" target="_blank" rel="noopener noreferrer">GiorgioMoroder on SoundCloud</a></p>
             </div>}
