@@ -13,10 +13,20 @@ const serviceAccountJson = JSON.stringify({
 test('waitlist Sheet sync backfills once and keeps email cells as raw data', async () => {
   const rows = [];
   const appended = [];
+  let createdTab = false;
   const fetchImpl = async (url, options = {}) => {
     if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'test-token', expires_in: 3600 });
     assert.equal(options.headers.authorization, 'Bearer test-token');
-    if (url.includes('?fields=')) return Response.json({ sheets: [{ properties: { sheetId: 0, title: 'Sheet1' } }] });
+    if (url.includes('?fields=')) return Response.json({ sheets: [
+      { properties: { sheetId: 0, title: 'Sheet1' } },
+      ...(createdTab ? [{ properties: { sheetId: 1, title: 'Envoi Waitlist' } }] : [])
+    ] });
+    if (url.endsWith(':batchUpdate')) {
+      assert.equal(JSON.parse(options.body).requests[0].addSheet.properties.title, 'Envoi Waitlist');
+      createdTab = true;
+      return Response.json({ replies: [{ addSheet: { properties: { sheetId: 1, title: 'Envoi Waitlist' } } }] });
+    }
+    assert.match(url, /Envoi%20Waitlist/);
     if (options.method === 'PUT') {
       rows.push(...JSON.parse(options.body).values);
       return Response.json({ updatedRows: 1 });
@@ -40,6 +50,7 @@ test('waitlist Sheet sync backfills once and keeps email cells as raw data', asy
   assert.equal(appended[0].values[1][0], '=formula@example.com');
   assert.match(appended[0].url, /valueInputOption=RAW/);
   assert.equal(await sync.run(), 0);
+  assert.equal(createdTab, true);
   assert.equal(appended.length, 1);
 });
 
@@ -47,7 +58,7 @@ test('waitlist Sheet sync rejects unexpected headers without changing the Sheet'
   let writeCount = 0;
   const fetchImpl = async (url, options = {}) => {
     if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'test-token' });
-    if (url.includes('?fields=')) return Response.json({ sheets: [{ properties: { sheetId: 0, title: 'Sheet1' } }] });
+    if (url.includes('?fields=')) return Response.json({ sheets: [{ properties: { sheetId: 1, title: 'Envoi Waitlist' } }] });
     if (options.method) writeCount += 1;
     return Response.json({ values: [['private notes']] });
   };
