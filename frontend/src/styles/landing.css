@@ -29,8 +29,6 @@
 .landing-chip { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 14px; border: 1px solid var(--landing-border-strong); border-radius: 999px; background: transparent; color: var(--landing-muted); font-size: 14px; text-decoration: none; white-space: nowrap; transition: border-color .16s, color .16s; }
 .landing-chip:hover { border-color: var(--landing-muted); color: var(--landing-ink); }
 .landing-chip strong { color: var(--landing-ink); font-weight: 600; }
-.landing-music { width: 40px; padding: 0; }
-.landing-music[aria-pressed="true"] { border-color: var(--landing-blue); color: var(--landing-ink); }
 .landing-hero { max-width: 1240px; margin: 0 auto; padding: 28px 20px 64px; display: grid; grid-template-columns: minmax(360px,.9fr) minmax(0,1.1fr); gap: 56px; align-items: start; }
 .landing-copy { max-width: 500px; position: sticky; top: calc(80px + env(safe-area-inset-top,0px)); }
 .landing-copy h1 { margin: 0 0 22px; color: var(--landing-blue); font-family: var(--landing-serif); font-size: clamp(60px,7.5vw,100px); font-weight: 300; line-height: .92; letter-spacing: -.03em; }

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Check, Copy, Music2, VolumeX } from 'lucide-react';
+import { Check, Copy } from 'lucide-react';
 import { request } from './api';
 
 type Moment = {
@@ -55,9 +55,7 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
   const [company, setCompany] = useState('');
   const [formState, setFormState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [copyState, setCopyState] = useState('');
-  const [musicOn, setMusicOn] = useState(false);
   const [tracePath, setTracePath] = useState('');
-  const audioRef = useRef<{ context: AudioContext; oscillators: OscillatorNode[] } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<(HTMLElement | null)[]>([]);
   const scenario = scenarios[scenarioIndex];
@@ -147,41 +145,6 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
     return () => window.clearTimeout(timer);
   }, [reducedMotion, pageVisible, scenarioIndex, visibleCount]);
 
-  useEffect(() => {
-    if (pageVisible && musicOn) return;
-    if (audioRef.current) {
-      audioRef.current.oscillators.forEach(oscillator => oscillator.stop());
-      void audioRef.current.context.close();
-      audioRef.current = null;
-    }
-    if (!pageVisible) setMusicOn(false);
-  }, [pageVisible, musicOn]);
-
-  useEffect(() => () => {
-    if (audioRef.current) {
-      audioRef.current.oscillators.forEach(oscillator => oscillator.stop());
-      void audioRef.current.context.close();
-    }
-  }, []);
-
-  function toggleMusic() {
-    if (musicOn) { setMusicOn(false); return; }
-    const context = new AudioContext();
-    const gain = context.createGain();
-    gain.gain.value = 0.012;
-    gain.connect(context.destination);
-    const oscillators = [110, 164.81, 196].map(frequency => {
-      const oscillator = context.createOscillator();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = frequency;
-      oscillator.connect(gain);
-      oscillator.start();
-      return oscillator;
-    });
-    audioRef.current = { context, oscillators };
-    setMusicOn(true);
-  }
-
   function chooseScenario(index: number) {
     setScenarioIndex(index);
     setVisibleCount(reducedMotion ? 5 : 0);
@@ -220,7 +183,6 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
       <header className="landing-top">
         <div className="landing-top-inner">
           <div className="landing-top-actions">
-            <button className="landing-chip landing-music" type="button" onClick={toggleMusic} aria-pressed={musicOn} aria-label={musicOn ? 'Mute music' : 'Play music'}>{musicOn ? <VolumeX size={18} /> : <Music2 size={18} />}</button>
             <a className="landing-chip" href={signInPath}><span className="landing-invite-question">Already have an invite?</span><strong>Sign in</strong></a>
           </div>
         </div>
@@ -233,7 +195,7 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
           {notice && <p className="landing-auth-notice" role="status">{notice}</p>}
           <div className="landing-cta-card">
             {formState === 'success' ? (
-              <div className="landing-success" role="status"><Check size={22} aria-hidden="true" /><div><h2>You're on the list.</h2><p>Onboarding instructions for your agent are on the way.</p></div></div>
+              <div className="landing-success" role="status"><Check size={22} aria-hidden="true" /><div><h2>You're on the list.</h2><p>We will reach out when we are ready for your agents to join the beta.</p></div></div>
             ) : (
               <form onSubmit={submit}>
                 <label className="sr-only" htmlFor="landing-email">Email address</label>
