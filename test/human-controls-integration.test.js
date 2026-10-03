@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
 import { BrowserSession } from './browser-session.js';
 
-async function launch() {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-controls-'));
+async function launch(existingDataDir = null) {
+  const dataDir = existingDataDir || await mkdtemp(path.join(tmpdir(), 'sinaloa-controls-'));
   const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir }, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });
@@ -18,7 +18,7 @@ async function launch() {
     child.once('exit', code => reject(new Error(`Server exited ${code}: ${stderr}`)));
     child.stdout.on('data', chunk => { const match = chunk.toString().match(/http:\/\/127\.0\.0\.1:(\d+)/); if (match) { clearTimeout(timer); resolve(`http://127.0.0.1:${match[1]}`); } });
   });
-  return { baseUrl, dataDir, get stderr() { return stderr; }, stop: async () => { await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); }); await rm(dataDir, { recursive: true, force: true }); } };
+  return { baseUrl, dataDir, get stderr() { return stderr; }, stop: async (preserveData = false) => { await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); }); if (!preserveData) await rm(dataDir, { recursive: true, force: true }); } };
 }
 
 async function api(baseUrl, route, { token, session, body, key } = {}) {
@@ -106,10 +106,59 @@ test('human pause, case pause, block and revoke gate REST, MCP, work and assets'
   assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/contacts/${bob.agent.id}/approve`, { session: alice.session, body: {} })).status, 404);
   assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/contacts/${bob.agent.id}/unblock`, { session: alice.session, body: {} })).status, 200);
   assert.equal((await send(bob, alice, 'unblocked-send', 'Allowed again')).status, 202);
+  const staleReconnect = await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents/${bob.agent.id}/credentials/reconnect-token`, { session: bob.session, body: {} });
+  assert.equal(staleReconnect.status, 201);
   const revoked = await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents/${bob.agent.id}/credentials/revoke`, { session: bob.session, body: {} });
   assert.equal(revoked.status, 200);
-  assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/human-view`, { session: bob.session })).payload.agents.find(agent => agent.id === bob.agent.id).credentialRevoked, true);
+  const frozen = (await api(baseUrl, `/api/inboxes/${bob.inbox.id}/human-view`, { session: bob.session })).payload.agents.find(agent => agent.id === bob.agent.id);
+  assert.equal(frozen.status, 'revoked');
+  assert.equal(frozen.onboardingStatus, 'revoked');
+  assert.deepEqual(frozen.permissions, []);
+  assert.equal(frozen.credentialRevoked, true);
+  assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents`, { session: bob.session })).payload.find(agent => agent.id === bob.agent.id).status, 'revoked');
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents/${bob.agent.id}/resume`, { session: bob.session, body: {} })).status, 409);
   assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: bob.agentRefreshToken } })).status, 401);
   assert.equal((await api(baseUrl, '/mcp', { token: bob.agentApiToken, body: { jsonrpc: '2.0', id: 2, method: 'tools/list' } })).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent/work/claim', { token: bob.agentApiToken, body: {} })).status, 401);
+  assert.equal((await send(alice, bob, 'revoked-recipient', 'Must not be delivered')).status, 404);
+  assert.equal((await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: staleReconnect.payload.enrollmentToken } })).status, 409);
+
+  const reenrollPath = `/api/inboxes/${bob.inbox.id}/agents/${bob.agent.id}/credentials/reconnect-token`;
+  const reenroll = await api(baseUrl, reenrollPath, { session: bob.session, body: { runtime: 'openclaw', permissions: ['receive_agent_messages'] } });
+  assert.equal(reenroll.status, 201);
+  assert.deepEqual(reenroll.payload.permissions, ['receive_agent_messages']);
+  const restored = await api(baseUrl, '/api/agent-enroll', { body: { enrollmentToken: reenroll.payload.enrollmentToken, runtime: 'openclaw' } });
+  assert.equal(restored.status, 200, JSON.stringify(restored.payload));
+  assert.equal(restored.payload.agent.id, bob.agent.id);
+  assert.equal(restored.payload.agent.address, bob.agent.address);
+  assert.deepEqual(restored.payload.agent.permissions, ['receive_agent_messages']);
+  assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/human-view`, { session: bob.session })).payload.agents.find(agent => agent.id === bob.agent.id).status, 'active');
+  assert.equal((await api(baseUrl, '/mcp', { token: bob.agentApiToken, body: { jsonrpc: '2.0', id: 3, method: 'tools/list' } })).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: bob.agentRefreshToken } })).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: restored.payload.agentApiToken, body: { version: 1, runtime: 'openclaw', phase: 'ready', runtimeTest: 'passed' } })).status, 200);
+  assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/messages`, { token: restored.payload.agentApiToken, key: 'reenrolled-limited', body: { senderAgentId: bob.agent.id, recipientEmail: alice.agent.address, caseId, type: 'request', text: 'Send permission not restored' } })).status, 403);
+});
+
+test('startup freezes previously revoked credential families without restoring old permissions', async t => {
+  const first = await launch();
+  let current = first;
+  t.after(async () => current.stop());
+  const account = await owner(first.baseUrl, '4104');
+  const route = `/api/inboxes/${account.inbox.id}/agents/${account.agent.id}/credentials/revoke`;
+  assert.equal((await api(first.baseUrl, route, { session: account.session, body: {} })).status, 200);
+  const agentPath = path.join(first.dataDir, 'inboxes', account.inbox.id, 'agents', `${account.agent.id}.json`);
+  const directoryPath = path.join(first.dataDir, 'directory', 'agents', `${account.agent.id}.json`);
+  const agent = JSON.parse(await readFile(agentPath, 'utf8'));
+  const directory = JSON.parse(await readFile(directoryPath, 'utf8'));
+  await writeFile(agentPath, JSON.stringify({ ...agent, status: 'active', onboardingStatus: 'approved', permissions: ['send_agent_messages', 'receive_agent_messages'], accessGeneration: 0 }));
+  await writeFile(directoryPath, JSON.stringify({ ...directory, status: 'active' }));
+  await first.stop(true);
+  current = await launch(first.dataDir);
+  const frozen = (await api(current.baseUrl, `/api/inboxes/${account.inbox.id}/human-view`, { session: account.session })).payload.agents.find(item => item.id === account.agent.id);
+  assert.equal(frozen.status, 'revoked');
+  assert.deepEqual(frozen.permissions, []);
+  assert.equal((await api(current.baseUrl, '/api/agent-token', { body: { agentRefreshToken: account.agentRefreshToken } })).status, 401);
+  assert.equal((await api(current.baseUrl, '/mcp', { token: account.agentApiToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })).status, 401);
+  assert.equal(JSON.parse(await readFile(agentPath, 'utf8')).status, 'revoked');
+  assert.equal(JSON.parse(await readFile(directoryPath, 'utf8')).status, 'revoked');
 });
