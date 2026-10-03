@@ -113,8 +113,8 @@ describe('human action visibility', () => {
     const props = { agent, workspace, emailTransport: null, humanId: 'human_1', onRefresh: vi.fn(), notify: vi.fn() };
     const manager = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: true }));
     const observer = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: false }));
-    expect(manager).toContain('Revoke agent credentials');
-    expect(observer).not.toContain('Revoke agent credentials');
+    expect(manager).toContain('Revoke agent access');
+    expect(observer).not.toContain('Revoke agent access');
     expect(manager).toContain('Pause agent');
     expect(observer).not.toContain('Pause agent');
     expect(manager).toContain('Enrolled');
@@ -123,6 +123,11 @@ describe('human action visibility', () => {
     expect(paused).toContain('Resume agent');
     expect(paused).not.toContain('Pause agent');
     expect(paused).toContain('Paused');
+    const frozen = renderToStaticMarkup(createElement(AgentCard, { ...props, agent: { ...agent, status: 'revoked', onboardingStatus: 'revoked', credentialRevoked: true, permissions: [] }, canManageInbox: true }));
+    expect(frozen).toContain('Re-onboard agent');
+    expect(frozen).toContain('No permissions active');
+    expect(frozen).not.toContain('Reconnect runtime');
+    expect(frozen).not.toContain('Revoke agent access');
   });
 
   it('shows native counterparty block state and manager-only controls', () => {

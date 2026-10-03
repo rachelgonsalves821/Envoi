@@ -1135,6 +1135,7 @@ function ApprovedContacts({ emailTransport, error, workspace, canManageInbox, on
 
 export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTransport, onRefresh, notify }: { agent: Agent; workspace: Workspace; humanId: string; canManageInbox: boolean; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
   const pending = agent.onboardingStatus === 'pending_approval';
+  const frozen = agent.status === 'revoked' || agent.credentialRevoked === true;
   const canApproveAgent = canManageInbox || (agent.principalHumanId || workspace.ownerHumanId) === humanId;
   const [credential, setCredential] = useState('');
   const [approvalOpen, setApprovalOpen] = useState(false);
@@ -1172,7 +1173,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       setCredential('');
       setRevokeResult(result);
       setRevokeOpen(false);
-      notify(`Credentials revoked for ${agent.name}.`);
+      notify(`${agent.name} is frozen. Re-onboard to restore access.`);
       try { await onRefresh(); }
       catch { notify(`Credentials revoked for ${agent.name}. Refresh the workspace to see the latest audit event.`); }
     } catch (caught) { setRevokeError(errorMessage(caught)); }
@@ -1189,27 +1190,28 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     finally { setPauseBusy(false); }
   }
   return <article className="integration-card">
-    <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={pending ? 'needs human' : agent.pausedAt ? 'paused' : agent.onboardingStatus === 'approved' ? 'enrolled' : agent.status} /></div>
+    <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={frozen ? 'revoked' : pending ? 'needs human' : agent.pausedAt ? 'paused' : agent.onboardingStatus === 'approved' ? 'enrolled' : agent.status} /></div>
     {emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}
-    <div className="capability-list">{agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div>
-    <dl><div><dt>Identity</dt><dd>{agent.onboardingStatus === 'approved' ? 'Enrolled identity' : 'Pending approval'}</dd></div><div><dt>Permissions</dt><dd>{agent.permissions?.length || 0} scoped capabilities</dd></div></dl>
-    {revokeResult && <InlineNotice title="Credential revocation completed" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. The agent identity and past conversations remain visible.`} tone="attention" />}
+    <div className="capability-list">{!frozen && agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div>
+    <dl><div><dt>Identity</dt><dd>{frozen ? 'Frozen identity' : agent.onboardingStatus === 'approved' ? 'Enrolled identity' : 'Pending approval'}</dd></div><div><dt>Permissions</dt><dd>{frozen ? 0 : agent.permissions?.length || 0} scoped capabilities</dd></div></dl>
+    {revokeResult && frozen && <InlineNotice title="Agent frozen" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. Re-onboarding requires a new human-approved token. The agent identity and conversation history remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
     {pending && canApproveAgent && <button className="button primary" onClick={() => setApprovalOpen(true)}>Review agent access</button>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
-    {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{pauseBusy ? 'Saving…' : agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}
-    {canManageInbox && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}
-    {canManageInbox && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent credentials</button>}
+    {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{pauseBusy ? 'Saving…' : agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}
+    {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}
+    {canManageInbox && frozen && <button className="button primary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}
+    {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
       <FormError message={approvalError} />
       <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setApprovalOpen(false)}>Cancel</button><button className="button primary" disabled={approvalBusy} onClick={() => void approve()}>{approvalBusy ? 'Approving…' : 'Approve with selected access'}</button></div>
     </Modal>}
-    {revokeOpen && canManageInbox && <Modal title={`Revoke ${agent.name}'s credentials?`} onClose={() => setRevokeOpen(false)} dismissible={!revokeBusy}>
-      <p className="dialog-copy">This revokes the agent's current access and refresh credentials and disconnects its live stream. The agent identity and conversation history remain visible.</p>
+    {revokeOpen && canManageInbox && <Modal title={`Freeze ${agent.name}?`} onClose={() => setRevokeOpen(false)} dismissible={!revokeBusy}>
+      <p className="dialog-copy">This immediately revokes the agent's credentials, removes its permissions and disconnects its live stream. Only a new human-approved onboarding can restore access. Its identity and history remain visible.</p>
       <FormError message={revokeError} />
-      <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep credentials</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Revoking…' : 'Revoke credentials'}</button></div>
+      <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep access</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Freezing…' : 'Freeze agent'}</button></div>
     </Modal>}
     {reconnectOpen && canManageInbox && <EnrollmentDialog workspace={workspace} reconnectAgent={agent} result={reconnectResult} setResult={setReconnectResult} onRefresh={onRefresh} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} />}
   </article>;
@@ -1219,6 +1221,7 @@ const reservedAgentAddresses = new Set(['admin', 'administrator', 'agents', 'abu
 const validAgentLocalPart = (value: string) => value.length >= 3 && value.length <= 32 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(value) && !reservedAgentAddresses.has(value);
 
 export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents.com', result, setResult, onClose, onRefresh, reconnectAgent }: { workspace: Workspace; agentDomain?: string; result: EnrollmentResult | null; setResult: (value: EnrollmentResult | null) => void; onClose: () => void; onRefresh?: () => Promise<unknown>; reconnectAgent?: Agent & { runtime?: ConnectorRuntime } }) {
+  const reenroll = reconnectAgent?.status === 'revoked' || reconnectAgent?.credentialRevoked === true;
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [runtime, setRuntime] = useState<ConnectorRuntime>(reconnectAgent?.runtime || 'openclaw');
@@ -1286,7 +1289,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
       setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch { setError('The setup file could not be downloaded. Save the setup JSON privately on your runtime host.'); }
   }
-  return <Modal title={result ? handoff ? `${reconnectAgent ? 'Reconnect' : 'Connect'} your ${label} agent` : 'Enrollment token created' : reconnectAgent ? `Reconnect ${reconnectAgent.name}` : 'Enroll an agent'} onClose={onClose}>
+  return <Modal title={result ? handoff ? `${reenroll ? 'Re-onboard' : reconnectAgent ? 'Reconnect' : 'Connect'} your ${label} agent` : 'Enrollment token created' : reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Enroll an agent'} onClose={onClose}>
     {result ? <>
       {handoff ? <>
         <p className="dialog-copy">Run the setup instructions where {label} is installed. The connector detects local settings and keeps runtime and provider credentials on that host. You can give the prompt to an agent with terminal access, or use the private setup file.</p>
@@ -1326,24 +1329,24 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
       setBusy(true);
       setError('');
       try {
-        if (reconnectAgent) setResult(await api.reconnectAgentToken(workspace.id, reconnectAgent.id, runtime));
+        if (reconnectAgent) setResult(await api.reconnectAgentToken(workspace.id, reconnectAgent.id, runtime, reenroll ? selectedAgentPermissions(selectedPermissions) : undefined));
         else {
           if (!validAgentLocalPart(localPart) || availability !== 'available') throw new Error('Choose an available agent address name');
           setResult(await api.enrollmentToken(workspace.id, name.trim(), localPart, selectedAgentPermissions(selectedPermissions), runtime));
         }
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
-      <p className="dialog-copy">{reconnectAgent ? `Reconnect ${reconnectAgent.name} while keeping ${reconnectAgent.address}, its inbox and conversation history. Redeeming the token revokes the old credentials and disconnects the old runtime.` : 'Choose your runtime and connect it with a personalized setup prompt. Each agent gets its own durable wake connection and private state.'}</p>
+      <p className="dialog-copy">{reenroll ? `Approve new permissions for ${reconnectAgent!.name}, then pair its runtime with a new one-use token. Its address, inbox and history remain unchanged; old credentials will never work again.` : reconnectAgent ? `Reconnect ${reconnectAgent.name} while keeping ${reconnectAgent.address}, its inbox and conversation history. Redeeming the token revokes the old credentials and disconnects the old runtime.` : 'Choose your runtime and connect it with a personalized setup prompt. Each agent gets its own durable wake connection and private state.'}</p>
       <RuntimePicker runtime={runtime} onChange={setRuntime} />
       {!reconnectAgent && <>
       <Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Scheduling agent" required />
       <label className="field"><span>Agent address name</span><div className="address-entry"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" required /><span>@{agentDomain}</span></div><small>Suggested from your agent’s name; you can edit it. Choose 3–32 letters, numbers, periods or hyphens. Start with a letter. The final address is checked again when the token is redeemed.</small></label>
       {localPartInput && <p role="status" className="address-feedback">{!validAgentLocalPart(localPart) ? 'Enter a valid, non-reserved address name.' : availability === 'checking' ? 'Checking availability…' : availability === 'available' ? `${localPart}@${agentDomain} is available now.` : availability === 'taken' ? 'That address is already taken.' : availability === 'error' ? 'Availability could not be checked. Try again.' : ''}</p>}
-      <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
       </>}
+      {(!reconnectAgent || reenroll) && <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />}
       <RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={sinaloaOrigin} reconnect={Boolean(reconnectAgent)} />
       <FormError message={error} />
-      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (!reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup prompt…' : reconnectAgent ? 'Create reconnect prompt' : 'Create setup prompt'}</button></div>
+      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (!reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup prompt…' : reenroll ? 'Approve and create setup prompt' : reconnectAgent ? 'Create reconnect prompt' : 'Create setup prompt'}</button></div>
     </form>}
   </Modal>;
 }

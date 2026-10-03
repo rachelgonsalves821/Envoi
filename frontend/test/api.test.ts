@@ -116,6 +116,18 @@ describe('agent credential controls', () => {
     expect(new Headers(options.headers).get('x-sinaloa-csrf')).toBe('csrf-revoke');
     expect(new Headers(options.headers).has('authorization')).toBe(false);
   });
+
+  it('sends newly approved permissions with a re-onboarding handoff', async () => {
+    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-reenroll' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ agentId: 'agent_1', address: 'milo@agents.envoi-agents.com' }), { status: 201, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.reconnectAgentToken('inbox_1', 'agent_1', 'hermes', ['receive_agent_messages']);
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/inboxes/inbox_1/agents/agent_1/credentials/reconnect-token');
+    expect(JSON.parse(String(options.body))).toEqual({ runtime: 'hermes', permissions: ['receive_agent_messages'] });
+    expect(new Headers(options.headers).get('x-sinaloa-csrf')).toBe('csrf-reenroll');
+  });
 });
 
 describe('enforced human controls', () => {
