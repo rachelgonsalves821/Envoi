@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Check, Copy, Music2, VolumeX } from 'lucide-react';
 import { request } from './api';
+import { loadSoundCloudApi, SoundCloudLoop, type SoundCloudWidget } from './soundcloudLoop';
 
 type Moment = {
   side: 'left' | 'right' | 'center';
@@ -56,8 +57,11 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
   const [formState, setFormState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [copyState, setCopyState] = useState('');
   const [musicOn, setMusicOn] = useState(false);
+  const [musicHint, setMusicHint] = useState('');
   const [tracePath, setTracePath] = useState('');
-  const audioRef = useRef<{ context: AudioContext; oscillators: OscillatorNode[] } | null>(null);
+  const soundCloudFrameRef = useRef<HTMLIFrameElement>(null);
+  const soundCloudLoopRef = useRef<SoundCloudLoop | null>(null);
+  const soundCloudWidgetRef = useRef<SoundCloudWidget | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<(HTMLElement | null)[]>([]);
   const scenario = scenarios[scenarioIndex];
@@ -148,38 +152,49 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
   }, [reducedMotion, pageVisible, scenarioIndex, visibleCount]);
 
   useEffect(() => {
-    if (pageVisible && musicOn) return;
-    if (audioRef.current) {
-      audioRef.current.oscillators.forEach(oscillator => oscillator.stop());
-      void audioRef.current.context.close();
-      audioRef.current = null;
-    }
     if (!pageVisible) setMusicOn(false);
-  }, [pageVisible, musicOn]);
+  }, [pageVisible]);
 
-  useEffect(() => () => {
-    if (audioRef.current) {
-      audioRef.current.oscillators.forEach(oscillator => oscillator.stop());
-      void audioRef.current.context.close();
-    }
-  }, []);
+  useLayoutEffect(() => {
+    if (!musicOn || !soundCloudFrameRef.current) return;
+    const frame = soundCloudFrameRef.current;
+    let active = true;
+    void loadSoundCloudApi().then(api => {
+      if (!active) return;
+      const widget = api.Widget(frame);
+      soundCloudWidgetRef.current = widget;
+      const loop = new SoundCloudLoop(widget, api.Widget.Events, () => {
+        if (!active) return;
+        loop.dispose();
+        soundCloudLoopRef.current = null;
+        widget.setVolume(100);
+        setMusicHint('Automatic playback stopped. Press Play in the SoundCloud player.');
+      });
+      soundCloudLoopRef.current = loop;
+      loop.start();
+    }).catch(() => {
+      if (active) setMusicHint('Press Play in the SoundCloud player.');
+    });
+    return () => {
+      active = false;
+      const loop = soundCloudLoopRef.current;
+      loop?.dispose(frame.isConnected);
+      soundCloudLoopRef.current = null;
+      if (!loop && frame.isConnected) soundCloudWidgetRef.current?.pause();
+      soundCloudWidgetRef.current = null;
+    };
+  }, [musicOn]);
 
   function toggleMusic() {
-    if (musicOn) { setMusicOn(false); return; }
-    const context = new AudioContext();
-    const gain = context.createGain();
-    gain.gain.value = 0.012;
-    gain.connect(context.destination);
-    const oscillators = [110, 164.81, 196].map(frequency => {
-      const oscillator = context.createOscillator();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = frequency;
-      oscillator.connect(gain);
-      oscillator.start();
-      return oscillator;
-    });
-    audioRef.current = { context, oscillators };
-    setMusicOn(true);
+    setMusicHint('If music does not start, press Play in the SoundCloud player.');
+    if (musicOn) {
+      const loop = soundCloudLoopRef.current;
+      loop?.dispose();
+      soundCloudLoopRef.current = null;
+      if (!loop) soundCloudWidgetRef.current?.pause();
+      soundCloudWidgetRef.current = null;
+    }
+    setMusicOn(on => !on);
   }
 
   function chooseScenario(index: number) {
@@ -220,7 +235,12 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
       <header className="landing-top">
         <div className="landing-top-inner">
           <div className="landing-top-actions">
-            <button className="landing-chip landing-music" type="button" onClick={toggleMusic} aria-pressed={musicOn} aria-label={musicOn ? 'Mute music' : 'Play music'}>{musicOn ? <VolumeX size={18} /> : <Music2 size={18} />}</button>
+            <button className="landing-chip landing-music" type="button" onClick={toggleMusic} aria-pressed={musicOn} aria-label={musicOn ? 'Close music player' : 'Play music'} aria-controls="landing-music-player" aria-expanded={musicOn}>{musicOn ? <VolumeX size={18} /> : <Music2 size={18} />}</button>
+            {musicOn && <div id="landing-music-player" className="landing-music-player">
+              <iframe ref={soundCloudFrameRef} title="Giorgio by Moroder on SoundCloud" src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fgiorgiomoroder%2Fdaft-punk-giorgio-by-moroder&auto_play=false" allow="autoplay" />
+              <p role="status">{musicHint}</p>
+              <p>Daft Punk — Giorgio by Moroder · uploaded by <a href="https://soundcloud.com/giorgiomoroder/daft-punk-giorgio-by-moroder" target="_blank" rel="noopener noreferrer">GiorgioMoroder on SoundCloud</a></p>
+            </div>}
             <a className="landing-chip" href={signInPath}><span className="landing-invite-question">Already have an invite?</span><strong>Sign in</strong></a>
           </div>
         </div>
