@@ -4,6 +4,7 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SHEETS_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const HEADERS = ['email', 'joined_at', 'source'];
+const WAITLIST_TAB = 'Envoi Waitlist';
 
 const sheetRange = (title, cells) => `'${title.replaceAll("'", "''")}'!${cells}`;
 
@@ -54,14 +55,22 @@ export function createWaitlistSheetSync({ store, sheetId, serviceAccountJson, fe
   const synchronize = async () => {
     const base = `${GOOGLE_SHEETS_URL}/${encodeURIComponent(sheetId)}`;
     const metadata = await googleRequest(`${base}?fields=sheets(properties(sheetId,title))`);
-    const sheet = metadata.sheets?.find(item => item.properties?.sheetId === 0);
-    if (!sheet?.properties?.title) throw new Error('Waitlist Sheet tab with gid=0 was not found');
-    const range = sheetRange(sheet.properties.title, 'A:C');
+    let sheet = metadata.sheets?.find(item => item.properties?.title === WAITLIST_TAB)?.properties;
+    if (!sheet) {
+      const created = await googleRequest(`${base}:batchUpdate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requests: [{ addSheet: { properties: { title: WAITLIST_TAB } } }] })
+      });
+      sheet = created.replies?.[0]?.addSheet?.properties;
+    }
+    if (sheet?.title !== WAITLIST_TAB) throw new Error('Waitlist Sheet tab could not be created');
+    const range = sheetRange(sheet.title, 'A:C');
     const valuesUrl = `${base}/values/${encodeURIComponent(range)}`;
     const existing = await googleRequest(valuesUrl);
     const rows = existing.values || [];
     if (!rows.length) {
-      await googleRequest(`${base}/values/${encodeURIComponent(sheetRange(sheet.properties.title, 'A1:C1'))}?valueInputOption=RAW`, {
+      await googleRequest(`${base}/values/${encodeURIComponent(sheetRange(sheet.title, 'A1:C1'))}?valueInputOption=RAW`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ values: [HEADERS] })
