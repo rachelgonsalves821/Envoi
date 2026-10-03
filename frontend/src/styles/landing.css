@@ -25,16 +25,10 @@
 .landing-shell :focus-visible { outline: 2px solid var(--landing-blue); outline-offset: 2px; }
 .landing-top { position: sticky; top: 0; z-index: 20; background: rgba(23,24,26,.82); backdrop-filter: blur(10px); border-bottom: 1px solid var(--landing-border); padding-top: env(safe-area-inset-top,0px); }
 .landing-top-inner { max-width: 1240px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.landing-top-actions { position: relative; display: flex; align-items: center; gap: 8px; }
+.landing-top-actions { display: flex; align-items: center; gap: 8px; }
 .landing-chip { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 14px; border: 1px solid var(--landing-border-strong); border-radius: 999px; background: transparent; color: var(--landing-muted); font-size: 14px; text-decoration: none; white-space: nowrap; transition: border-color .16s, color .16s; }
 .landing-chip:hover { border-color: var(--landing-muted); color: var(--landing-ink); }
 .landing-chip strong { color: var(--landing-ink); font-weight: 600; }
-.landing-music { width: 40px; padding: 0; }
-.landing-music[aria-pressed="true"] { border-color: var(--landing-blue); color: var(--landing-ink); }
-.landing-music-player { position: absolute; z-index: 30; top: calc(100% + 12px); right: 0; width: min(340px, calc(100vw - 40px)); padding: 8px; border: 1px solid var(--landing-border-strong); border-radius: 14px; background: var(--landing-surface); box-shadow: 0 12px 32px #0009; }
-.landing-music-player iframe { display: block; width: 100%; height: 166px; border: 0; border-radius: 8px; }
-.landing-music-player p { margin: 8px 4px 2px; color: var(--landing-muted); font-size: 12px; line-height: 1.4; }
-.landing-music-player a { color: var(--landing-blue); text-decoration: underline; text-underline-offset: 2px; }
 .landing-hero { max-width: 1240px; margin: 0 auto; padding: 28px 20px 64px; display: grid; grid-template-columns: minmax(360px,.9fr) minmax(0,1.1fr); gap: 56px; align-items: start; }
 .landing-copy { max-width: 500px; position: sticky; top: calc(80px + env(safe-area-inset-top,0px)); }
 .landing-copy h1 { margin: 0 0 22px; color: var(--landing-blue); font-family: var(--landing-serif); font-size: clamp(60px,7.5vw,100px); font-weight: 300; line-height: .92; letter-spacing: -.03em; }
