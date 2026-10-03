@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
 import { joinWaitlist } from './waitlist.js';
+import { createWaitlistSheetSync } from './waitlist-sheet-sync.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
@@ -3521,6 +3522,24 @@ await objectStorage.reapExpiredUploads({ limit: 25 });
 await reconcileLegacyAgentRevocations();
 await synchronizePublicEmailDirectory();
 deliveryWorker.start();
+let waitlistSheetSync = null;
+if (process.env.ENVOI_WAITLIST_SHEET_ID && process.env.ENVOI_WAITLIST_GOOGLE_SERVICE_ACCOUNT_JSON) {
+  try {
+    waitlistSheetSync = createWaitlistSheetSync({
+      store,
+      sheetId: process.env.ENVOI_WAITLIST_SHEET_ID,
+      serviceAccountJson: process.env.ENVOI_WAITLIST_GOOGLE_SERVICE_ACCOUNT_JSON
+    });
+  } catch (error) {
+    console.error('Waitlist Sheet sync configuration failed', { message: error.message });
+  }
+}
+const runWaitlistSheetSync = () => waitlistSheetSync?.run()
+  .then(appended => { if (appended) console.log('Waitlist Sheet sync completed', { appended }); })
+  .catch(error => console.error('Waitlist Sheet sync failed', { message: error.message }));
+const waitlistSheetInterval = waitlistSheetSync ? setInterval(runWaitlistSheetSync, 60_000) : null;
+waitlistSheetInterval?.unref?.();
+if (waitlistSheetSync) void runWaitlistSheetSync();
 const logOperationalBacklog = () => operationalBacklogSnapshot({ store, scanJobStore })
   .then(snapshot => console.log(JSON.stringify(snapshot)))
   .catch(() => console.error(JSON.stringify({ event: 'sinaloa.operational_backlog_error' })));
@@ -3554,6 +3573,7 @@ const shutdown = () => {
   scanLifecycleStopping = true;
   clearInterval(objectQuotaReaper);
   clearInterval(operationalBacklogLogger);
+  if (waitlistSheetInterval) clearInterval(waitlistSheetInterval);
   if (objectScanWorker) clearInterval(objectScanWorker);
   if (objectScanRetentionWorker) clearInterval(objectScanRetentionWorker);
   for (const set of streams.values()) for (const subscription of set) {
