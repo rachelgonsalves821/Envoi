@@ -631,13 +631,42 @@ async function assertCaseProgressAllowed(inboxId, caseId) {
 
 async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedAt = store.now()) {
   const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
-  await store.putJsonBatch(families.map(family => document(agentCredentialFamilyPath(inboxId, agentId, family.id), {
+  const active = families.filter(family => !family.revokedAt);
+  await store.putJsonBatch(active.map(family => document(agentCredentialFamilyPath(inboxId, agentId, family.id), {
     ...family,
     revokedAt,
     revokedByHumanId: humanId,
     updatedAt: revokedAt
   })));
-  return families.length;
+  return active.length;
+}
+
+async function freezeAgentRecord(inboxId, agent, humanId, revokedAt) {
+  const frozen = { ...agent, status: 'revoked', onboardingStatus: 'revoked', permissions: [], revokedAt, revokedByHumanId: humanId, accessGeneration: (agent.accessGeneration || 0) + 1, updatedAt: revokedAt };
+  const documents = [
+    document(path.join('inboxes', inboxId, 'agents', `${agent.id}.json`), frozen),
+    document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: 'revoked', verified: true }),
+    document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId, address: agent.address, status: 'revoked', verified: true })
+  ];
+  if (externalEmailEnabled && publicEmailAddressForAgent(agent)) documents.push(document(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId, address: publicEmailAddressForAgent(agent), status: 'revoked' }));
+  await store.putJsonBatch(documents);
+  return frozen;
+}
+
+async function reconcileLegacyAgentRevocations() {
+  const directory = await store.listJson(path.join('directory', 'agents'));
+  for (const entry of directory) {
+    if (!['active', 'paused'].includes(entry.status)) continue;
+    await withInboxMutation(entry.inboxId, async writeAudit => {
+      const agent = await store.getJson(path.join('inboxes', entry.inboxId, 'agents', `${entry.agentId}.json`));
+      if (!agent || !['active', 'paused'].includes(agent.status)) return;
+      const families = await store.listJson(path.join('auth', 'agent-credential-families', entry.inboxId, entry.agentId));
+      if (!families.length || families.some(family => !family.revokedAt)) return;
+      const revokedAt = families.map(family => family.revokedAt).sort().at(-1);
+      await freezeAgentRecord(entry.inboxId, agent, families.find(family => family.revokedByHumanId)?.revokedByHumanId || null, revokedAt);
+      await writeAudit('agent.revocation_reconciled', { agentId: agent.id });
+    });
+  }
 }
 
 function setCaseMessageDeliveryState(value, message, state, at) {
@@ -847,7 +876,8 @@ async function sharedCaseForAsset(caseId) {
 }
 async function agentControlState(inboxId, agent) {
   const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agent.id));
-  return { ...publicAgent(agent), paused: agent.status === 'paused', credentialRevoked: families.length > 0 && !families.some(family => !family.revokedAt && new Date(family.refreshExpiresAt) > new Date()) };
+  const credentialRevoked = agent.status === 'revoked' || families.length > 0 && families.every(family => family.revokedAt);
+  return { ...publicAgent(agent), ...(credentialRevoked ? { status: 'revoked', permissions: [] } : {}), paused: agent.status === 'paused', credentialRevoked };
 }
 async function assetPair(asset, recipientAgentId, recipientInboxId) {
   if (!asset?.key || !asset.caseId || !asset.workspaceId || !asset.createdByAgentId || asset.createdByAgentId === recipientAgentId) return null;
@@ -2106,16 +2136,20 @@ async function route(req, res) {
     const pendingRecord = await store.getJson(tokenPath);
     if (!pendingRecord || pendingRecord.usedAt || pendingRecord.revokedAt || new Date(pendingRecord.expiresAt) <= new Date()) return fail(res, 401, 'Enrollment token is invalid, expired, or already used');
     if (input.runtime !== undefined && validateConnectorRuntime(input.runtime) !== (pendingRecord.runtime || 'openclaw')) return fail(res, 400, 'Setup runtime does not match this enrollment');
-    if (pendingRecord.kind === 'reconnect') {
+    if (pendingRecord.kind === 'reconnect' || pendingRecord.kind === 'reenroll') {
       const reconnected = await withInboxMutation(pendingRecord.inboxId, async writeAudit => {
         const currentRecord = await store.getJson(tokenPath);
-        if (!currentRecord || currentRecord.kind !== 'reconnect' || currentRecord.usedAt || currentRecord.revokedAt || new Date(currentRecord.expiresAt) <= new Date()) {
+        if (!currentRecord || currentRecord.kind !== pendingRecord.kind || currentRecord.usedAt || currentRecord.revokedAt || new Date(currentRecord.expiresAt) <= new Date()) {
           throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
         }
         const inbox = await store.getJson(path.join('inboxes', currentRecord.inboxId, 'inbox.json'));
         const agent = await store.getJson(path.join('inboxes', currentRecord.inboxId, 'agents', `${currentRecord.agentId}.json`));
-        if (!inbox || inbox.ownerAgentId !== currentRecord.agentId || !agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') {
-          throw Object.assign(new Error('Agent is not available for reconnect'), { statusCode: 409 });
+        const reenroll = currentRecord.kind === 'reenroll';
+        const state = agent ? await agentControlState(currentRecord.inboxId, agent) : null;
+        if (!inbox || inbox.ownerAgentId !== currentRecord.agentId || !agent
+          || (reenroll ? !state.credentialRevoked : agent.status !== 'active' || agent.onboardingStatus !== 'approved' || state.credentialRevoked)
+          || (agent.accessGeneration || 0) !== (currentRecord.accessGeneration || 0)) {
+          throw Object.assign(new Error('Agent is not available for this enrollment'), { statusCode: 409 });
         }
         const membership = await getMembership(inbox.organizationId, currentRecord.humanId);
         let issuerMembership = membership;
@@ -2132,23 +2166,34 @@ async function route(req, res) {
         if (!membershipCanManage(issuerMembership, auth.provider)) {
           throw Object.assign(new Error('Reconnect owner is invalid'), { statusCode: 403 });
         }
+        if (reenroll) await assertActiveAgentSlot(agent.principalHumanId || inbox.ownerHumanId);
         const claimed = await store.claimJson(tokenPath, 'usedAt', store.now());
         if (!claimed) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
         const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId);
+        const connectedAt = store.now();
+        const approvedAgent = reenroll ? { ...agent, status: 'active', onboardingStatus: 'approved', permissions: claimed.permissions, revokedAt: null, approvedAt: connectedAt, approvedByHumanId: claimed.humanId, updatedAt: connectedAt } : agent;
         const credentials = await issueAgentCredentials(agent.id, inbox.id);
         const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken)));
         const familyPath = agentCredentialFamilyPath(inbox.id, agent.id, credentialIndex.familyId);
         const family = await store.getJson(familyPath);
         const runtime = claimed.runtime || agent.runtime;
-        const connectedAgent = runtime ? { ...agent, runtime } : agent;
-        await store.putJsonBatch([
+        const connectedAgent = runtime ? { ...approvedAgent, runtime } : approvedAgent;
+        const documents = [
           document(familyPath, { ...family, ...(runtime ? { runtime } : {}) }),
           document(path.join('inboxes', inbox.id, 'agents', `${agent.id}.json`), connectedAgent),
           document(tokenPath, { ...claimed, agentInboxId: inbox.id, credentialFamilyId: credentialIndex.familyId })
-        ]);
-        await writeAudit('agent.credentials_reconnected', { agentId: agent.id, humanId: claimed.humanId, credentialFamilyCount });
+        ];
+        if (reenroll) {
+          documents.push(
+            document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId: inbox.id, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: 'active', verified: true }),
+            document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId: inbox.id, address: agent.address, status: 'active', verified: true })
+          );
+          if (externalEmailEnabled && publicEmailAddressForAgent(agent)) documents.push(document(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId: inbox.id, address: publicEmailAddressForAgent(agent), status: 'active' }));
+        }
+        await store.putJsonBatch(documents);
+        await writeAudit(reenroll ? 'agent.reenrolled' : 'agent.credentials_reconnected', { agentId: agent.id, humanId: claimed.humanId, credentialFamilyCount, ...(reenroll ? { permissions: connectedAgent.permissions } : {}) });
         return { agent: connectedAgent, inbox, credentials };
-      }, [], [enrollmentMutationKey(tokenHash)]);
+      }, [], [enrollmentMutationKey(tokenHash), ...(pendingRecord.kind === 'reenroll' ? [humanAgentLimitKey(pendingRecord.humanId)] : [])]);
       disconnectAgentStreams(reconnected.inbox.id, reconnected.agent.id);
       return json(res, 200, { agent: publicAgent(reconnected.agent), ...reconnected.credentials, inbox: reconnected.inbox, nativeMessaging: 'ready' });
     }
@@ -2338,21 +2383,24 @@ async function route(req, res) {
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
     const agentId = assertSafeIdentifier(reconnectTokenMatch[1], 'agentId');
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
-    if (inbox.ownerAgentId !== agentId || !agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') {
-      return fail(res, 404, 'Active enrolled agent not found');
+    const reenroll = agent ? (await agentControlState(inboxId, agent)).credentialRevoked : false;
+    if (inbox.ownerAgentId !== agentId || !agent || !reenroll && (agent.status !== 'active' || agent.onboardingStatus !== 'approved')) {
+      return fail(res, 404, 'Enrolled agent not found');
     }
     const input = await body(req);
     const runtime = validateConnectorRuntime(input.runtime, agent.runtime || 'openclaw');
+    const permissions = reenroll ? (Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages']).filter(permission => allowedPermissions.has(permission)) : null;
+    if (reenroll && !permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
     const rawToken = crypto.randomBytes(32).toString('base64url');
-    const record = { id: store.id('enrollment'), kind: 'reconnect', runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
+    const record = { id: store.id('enrollment'), kind: reenroll ? 'reenroll' : 'reconnect', runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, accessGeneration: agent.accessGeneration || 0, ...(reenroll ? { permissions } : {}), createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
     await store.putJsonBatch([
       document(path.join('auth', 'enrollment-tokens', `${record.tokenHash}.json`), record),
       document(enrollmentIndexPath(inboxId, record.id), { enrollmentId: record.id, tokenHash: record.tokenHash })
     ]);
-    await audit(inboxId, 'agent.reconnect_token_created', { enrollmentId: record.id, agentId, humanId: human.id });
+    await audit(inboxId, reenroll ? 'agent.reenroll_token_created' : 'agent.reconnect_token_created', { enrollmentId: record.id, agentId, humanId: human.id, ...(reenroll ? { permissions } : {}) });
     const publicUrl = new URL(publicBaseUrl(req)).origin;
     const quickConnect = { version: 1, runtime, operation: 'reconnect', apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agent.name, address: agent.address };
-    return json(res, 201, { enrollmentId: record.id, quickConnect, enrollmentToken: rawToken, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, agentId, address: agent.address });
+    return json(res, 201, { enrollmentId: record.id, quickConnect, enrollmentToken: rawToken, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, agentId, address: agent.address, ...(reenroll ? { permissions } : {}) });
   }
 
   if (req.method === 'GET' && suffix === 'calendar-connectors') {
@@ -2718,10 +2766,13 @@ async function route(req, res) {
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
     const agentId = revokeAgentCredentials[1];
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
-    if (!agent) return fail(res, 404, 'Agent not found');
+    if (!agent || inbox.ownerAgentId !== agentId) return fail(res, 404, 'Owned agent not found');
     const revoked = await withInboxMutation(inboxId, async writeAudit => {
       const revokedAt = store.now();
+      const current = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      if (!current || current.status === 'revoked') throw Object.assign(new Error('Agent is already revoked'), { statusCode: 409 });
       const credentialFamilyCount = await revokeAgentCredentialFamilies(inboxId, agentId, human.id, revokedAt);
+      await freezeAgentRecord(inboxId, current, human.id, revokedAt);
       await writeAudit('agent.credentials_revoked', { agentId, humanId: human.id, credentialFamilyCount });
       return { revoked: true, agentId, credentialFamilyCount, revokedAt };
     });
@@ -3467,6 +3518,7 @@ async function route(req, res) {
 await store.init();
 await objectStorage.init();
 await objectStorage.reapExpiredUploads({ limit: 25 });
+await reconcileLegacyAgentRevocations();
 await synchronizePublicEmailDirectory();
 deliveryWorker.start();
 const logOperationalBacklog = () => operationalBacklogSnapshot({ store, scanJobStore })

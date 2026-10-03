@@ -49,6 +49,7 @@ export interface Agent {
   capabilities?: string[];
   approvedAt?: string;
   pausedAt?: string | null;
+  credentialRevoked?: boolean;
 }
 
 export interface ParticipantIdentity {
