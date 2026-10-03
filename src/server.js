@@ -1699,7 +1699,7 @@ async function route(req, res) {
     let filePath;
     try { filePath = resolvePathWithin(path.resolve('web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
-    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
+    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.jpg': 'image/jpeg', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
     try {
       const extension = path.extname(filePath);
       let content = await readFile(filePath);
