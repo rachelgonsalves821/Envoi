@@ -17,6 +17,8 @@ describe('Quick Connect handoff', () => {
     const prompt = setupPrompt({ ...handoff, gatewayToken: 'provider_secret_should_not_be_sent' } as QuickConnectHandoff);
     expect(prompt).toContain('node envoi-connector.mjs setup --handoff envoi-setup.json');
     expect(prompt).toContain('artifacts["envoi-connector.mjs"].sha256');
+    expect(prompt).toContain('using HTTP GET');
+    expect(prompt).toContain('failed HEAD-only check');
     expect(prompt).toContain('0600');
     expect(prompt).toContain('remove the handoff file');
     expect(prompt).toContain('Setup exits after configuration and checks');

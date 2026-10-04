@@ -35,6 +35,7 @@ export interface DiscoverOpenClawOptions {
 
 const safeId = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const envId = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const authHelp = 'Envoi needs a Gateway credential: set gateway.auth.mode to "token" with gateway.auth.token (or OPENCLAW_GATEWAY_TOKEN), or to "password" with gateway.auth.password, restart the Gateway, and retry. This check did not redeem an enrollment token.';
 const endpointHelp = 'Enable gateway.http.endpoints.chatCompletions.enabled in the active OpenClaw configuration, restart the Gateway, and retry the connector. This check did not redeem an enrollment token.';
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
@@ -118,23 +119,27 @@ function origin(value: string): string {
   return url.origin;
 }
 
-function tokenValue(value: unknown, env: Record<string, string | undefined>): string {
+type SecretKind = 'token' | 'password';
+const secretEnv = (kind: SecretKind) => kind === 'token' ? 'OPENCLAW_GATEWAY_TOKEN' : 'OPENCLAW_GATEWAY_PASSWORD';
+
+function tokenValue(value: unknown, env: Record<string, string | undefined>, kind: SecretKind = 'token'): string {
+  const name = secretEnv(kind);
   if (typeof value === 'string') {
-    const expanded = value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => {
-      if (!env[name]) throw new OpenClawSetupError('OpenClaw Gateway token references an unavailable environment variable. Run setup with the Gateway environment or set OPENCLAW_GATEWAY_TOKEN locally.');
-      return env[name]!;
+    const expanded = value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, variable: string) => {
+      if (!env[variable]) throw new OpenClawSetupError(`OpenClaw Gateway ${kind} references an unavailable environment variable. Run setup with the Gateway environment or set ${name} locally.`);
+      return env[variable]!;
     });
-    if (expanded.includes('${')) throw new OpenClawSetupError('OpenClaw Gateway token could not be resolved. Set OPENCLAW_GATEWAY_TOKEN locally.');
+    if (expanded.includes('${')) throw new OpenClawSetupError(`OpenClaw Gateway ${kind} could not be resolved. Set ${name} locally.`);
     return expanded;
   }
   const ref = record(value);
   if (ref.source === 'env' && typeof ref.id === 'string' && envId.test(ref.id)) {
     const resolved = env[ref.id];
     if (resolved) return resolved;
-    throw new OpenClawSetupError('OpenClaw Gateway env secret is unavailable. Run setup with the Gateway environment or set OPENCLAW_GATEWAY_TOKEN locally.');
+    throw new OpenClawSetupError(`OpenClaw Gateway env secret is unavailable. Run setup with the Gateway environment or set ${name} locally.`);
   }
-  if (value !== undefined) throw new OpenClawSetupError('OpenClaw Gateway uses an unsupported secret reference. Resolve it through your local secret manager and set OPENCLAW_GATEWAY_TOKEN locally; do not paste it into chat.');
-  throw new OpenClawSetupError('OpenClaw Gateway token was not found. Run setup on the Gateway host with its environment or set OPENCLAW_GATEWAY_TOKEN locally.');
+  if (value !== undefined) throw new OpenClawSetupError(`OpenClaw Gateway uses an unsupported secret reference. Resolve it through your local secret manager and set ${name} locally; do not paste it into chat.`);
+  throw new OpenClawSetupError(`OpenClaw Gateway ${kind} was not found. Run setup on the Gateway host with its environment or set ${name} locally.`);
 }
 
 function validate(config: Pick<OpenClawConfiguration, 'gatewayUrl' | 'gatewayToken' | 'agentId'>): string {
@@ -183,11 +188,22 @@ export async function discoverOpenClaw(options: DiscoverOpenClawOptions = {}): P
   }
   const gateway = record(config?.gateway);
   const auth = record(gateway.auth);
+  // Select the credential for the active mode, including when stale token
+  // settings coexist with a password in the Gateway's environment.
+  const hasPassword = auth.password !== undefined || !!env.OPENCLAW_GATEWAY_PASSWORD;
+  const mode = auth.mode ?? (hasPassword ? 'password' : 'token');
+  const secretKind: SecretKind = mode === 'token' ? 'token' : 'password';
   const overrideUrl = options.gatewayUrl ?? env.OPENCLAW_GATEWAY_URL ?? fallback?.gatewayUrl;
-  const overrideToken = options.gatewayToken ?? env.OPENCLAW_GATEWAY_TOKEN ?? fallback?.gatewayToken;
+  const overrideToken = options.gatewayToken ?? env[secretEnv(secretKind)] ?? fallback?.gatewayToken;
   if (config?.$include !== undefined && (!overrideUrl || !overrideToken || !(options.agentId ?? env.OPENCLAW_AGENT_ID))) throw new OpenClawSetupError('OpenClaw config includes other files. Supply explicit OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN and OPENCLAW_AGENT_ID from the active Gateway, or select its resolved configuration.');
   if (gateway.mode === 'remote' && (!overrideUrl || !overrideToken)) throw new OpenClawSetupError('OpenClaw uses a remote Gateway. Set OPENCLAW_GATEWAY_URL to the private HTTPS origin and OPENCLAW_GATEWAY_TOKEN to that Gateway credential locally.');
-  if (!overrideToken && auth.mode && auth.mode !== 'token') throw new OpenClawSetupError('OpenClaw Gateway authentication is not token-based. Configure a supported token connection before pairing Envoi.');
+  // Gateway HTTP endpoints accept the token or password as a Bearer value; trusted-proxy
+  // admits same-host clients only through its password fallback.
+  if (mode === 'none') throw new OpenClawSetupError(`OpenClaw Gateway authentication is disabled (gateway.auth.mode is "none"). ${authHelp}`);
+  if (!overrideToken) {
+    if (mode === 'trusted-proxy' && !hasPassword) throw new OpenClawSetupError(`OpenClaw Gateway uses trusted-proxy authentication without a local password, so this host cannot connect directly. Set gateway.auth.password (or OPENCLAW_GATEWAY_PASSWORD) for same-host clients, restart the Gateway, and retry. This check did not redeem an enrollment token.`);
+    if (!['token', 'password', 'trusted-proxy'].includes(String(mode))) throw new OpenClawSetupError(`OpenClaw Gateway authentication mode is not supported. ${authHelp}`);
+  }
   const port = env.OPENCLAW_GATEWAY_PORT === undefined ? gateway.port ?? (profile === 'dev' ? 19001 : 18789) : Number(env.OPENCLAW_GATEWAY_PORT);
   if (!overrideUrl && !gateway.url && (!Number.isSafeInteger(port) || Number(port) < 1 || Number(port) > 65535)) throw new OpenClawSetupError('OpenClaw Gateway port is invalid. Set OPENCLAW_GATEWAY_URL to the active Gateway origin.');
   const gatewayUrl = origin(overrideUrl ?? (typeof gateway.url === 'string' ? gateway.url : `http://127.0.0.1:${port}`));
@@ -206,11 +222,13 @@ export async function discoverOpenClaw(options: DiscoverOpenClawOptions = {}): P
   if (knownIds.length && !knownIds.includes(agentId)) throw new OpenClawSetupError(`The selected OpenClaw agent is not configured. Set OPENCLAW_AGENT_ID to one of: ${knownIds.join(', ')}.`);
   const localEndpoint = record(record(record(gateway.http).endpoints).chatCompletions).enabled === true;
   let gatewayToken: string;
-  try { gatewayToken = tokenValue(overrideToken ?? auth.token, env); }
+  // gatewayToken holds whichever shared secret the Gateway accepts as a Bearer value.
+  const configured = auth[secretKind] ?? (secretKind === 'password' ? env.OPENCLAW_GATEWAY_PASSWORD : undefined);
+  try { gatewayToken = tokenValue(overrideToken ?? configured, env, overrideToken ? 'token' : secretKind); }
   catch (error) {
-    const ref = record(auth.token);
-    const supportedEnvReference = typeof auth.token === 'string'
-      ? auth.token.includes('${') && !auth.token.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, '').includes('${')
+    const ref = record(configured);
+    const supportedEnvReference = typeof configured === 'string'
+      ? configured.includes('${') && !configured.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, '').includes('${')
       : ref.source === 'env' && typeof ref.id === 'string' && envId.test(ref.id);
     // User services may not inherit the shell that originally resolved a secret.
     // Recover its saved value only for the identical, previously paired local origin.

@@ -4,6 +4,8 @@ This small outbound process connects a Envoi agent inbox to one externally hoste
 
 The bridge calls OpenClaw's [Gateway Chat Completions API](https://docs.openclaw.ai/gateway/openai-http-api), which runs the ordinary Gateway agent turn and returns reply text. Enable `gateway.http.endpoints.chatCompletions.enabled` on the OpenClaw host; this endpoint is disabled by default. The bridge uses `model: "openclaw/<agentId>"` to target a dedicated agent and makes a non-streaming request. OpenClaw [hooks](https://docs.openclaw.ai/gateway/config-hooks) can wake an agent but do not return its reply text to the caller, so they cannot complete this simple reply path by themselves.
 
+The installer supports existing token and password authentication and selects the credential for the active mode. Same-host trusted-proxy authentication requires a local password fallback. It does not change Gateway authentication, enable the HTTP endpoint, or restart the Gateway automatically. Make required host changes through its normal supervisor, keeping ingress private and avoiding a restart from the chat the Gateway is currently serving.
+
 ## Configure
 
 For new self-hosted OpenClaw connections, use **Agent connections → Enroll an agent → Copy setup prompt**. The standalone Quick Connect installer discovers local settings and tests the Gateway before redeeming the one-use token. See [Quick Connect setup and recovery](../../docs/quick-connect.md) for the terminal fallback, automatic startup and verification. The manual environment configuration below remains available for managed hosts and advanced integrations.

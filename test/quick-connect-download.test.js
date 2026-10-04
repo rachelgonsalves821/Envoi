@@ -146,3 +146,61 @@ test(`distributed ${artifact} runs without repository dependencies and protects 
   assert.equal(expired.code, 1); assert.match(expired.stderr, /expired/); assert.equal(enrollments, 1);
 });
 }
+
+test('distributed connector pairs a password-mode Gateway and stops before enrollment when Gateway auth is disabled', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-download-'));
+  assert.ok(path.resolve(directory).startsWith(path.resolve(tmpdir()) + path.sep));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const download = path.join(directory, 'download.mjs');
+  await copyFile(new URL('../web/downloads/envoi-connector.mjs', import.meta.url), download);
+  const password = 'download-fixture-gateway-password';
+  const enrollmentToken = 'download-fixture-enrollment-secret';
+  const accessToken = 'download-fixture-access-secret';
+  let enrollments = 0, wrongGatewayAuth = false, leakedGatewayCredential = false;
+  const gateway = await listen(async (request, response) => {
+    if (request.url !== '/v1/chat/completions') return json(response, { error: 'not found' }, 404);
+    // OpenClaw password mode accepts the password as a Bearer value.
+    if (request.headers.authorization !== `Bearer ${password}`) { wrongGatewayAuth = true; return json(response, { error: 'unauthorized' }, 401); }
+    await body(request);
+    json(response, { choices: [{ finish_reason: 'stop', message: { content: 'Setup check completed' } }] });
+  });
+  t.after(() => close(gateway.server));
+  const api = await listen(async (request, response) => {
+    const source = await body(request);
+    leakedGatewayCredential ||= source.includes(password) || JSON.stringify(request.headers).includes(password);
+    if (request.url === '/health') return json(response, { service: 'sinaloa' });
+    if (request.url === '/api/agent-enroll') {
+      enrollments++;
+      return json(response, { agent: { id: 'agent_download', address: 'download@agents.sinaloa.example' }, inbox: { id: 'inbox_download' },
+        agentApiToken: accessToken, agentRefreshToken: 'download-fixture-refresh-secret',
+        agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() }, 201);
+    }
+    if (request.headers.authorization !== `Bearer ${accessToken}`) return json(response, { error: 'not authorized' }, 401);
+    if (request.url.startsWith('/api/inboxes/inbox_download/events/delta')) return json(response, { events: [], nextCursor: null, hasMore: false });
+    if (request.url === '/api/agent/connection-status') return json(response, { checkedAt: new Date().toISOString() });
+    json(response, { error: 'unexpected route' }, 404);
+  });
+  t.after(() => close(api.server));
+  const handoff = { version: 1, runtime: 'openclaw', apiUrl: api.url, enrollmentToken,
+    expiresAt: new Date(Date.now() + 900_000).toISOString(), agentName: 'Download', address: 'download@agents.sinaloa.example' };
+  const setup = async (name, auth) => {
+    const configPath = path.join(directory, `${name}.json`);
+    await writeFile(configPath, JSON.stringify({ gateway: { port: gateway.server.address().port, auth,
+      http: { endpoints: { chatCompletions: { enabled: true } } } }, agents: { list: [{ id: 'main' }] } }), { mode: 0o600 });
+    return run(download, ['setup', '--handoff-stdin', '--config', configPath, '--state-dir', path.join(directory, `${name} state`)], directory, JSON.stringify(handoff));
+  };
+
+  const disabled = await setup('none', { mode: 'none' });
+  assert.equal(disabled.code, 1);
+  assert.match(disabled.stderr, /gateway\.auth\.mode is "none"/);
+  assert.match(disabled.stderr, /did not redeem an enrollment token/);
+  assert.equal(enrollments, 0);
+
+  const paired = await setup('password', { mode: 'password', password });
+  assert.equal(paired.code, 0, paired.stderr);
+  assert.equal(JSON.parse(paired.stdout).checks, 'passed');
+  assert.equal(enrollments, 1);
+  assert.equal(wrongGatewayAuth, false);
+  assert.equal(leakedGatewayCredential, false);
+  for (const secret of [password, enrollmentToken, accessToken]) assert.ok(!(paired.stdout + paired.stderr).includes(secret));
+});

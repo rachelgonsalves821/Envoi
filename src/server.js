@@ -1694,18 +1694,18 @@ async function route(req, res) {
     };
     return handleAgentMcp(req, res, { identity, callRest });
   }
-  if (req.method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
+  if (['GET', 'HEAD'].includes(req.method) && (url.pathname === '/' || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
     let filePath;
     try { filePath = resolvePathWithin(path.resolve('web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
-    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
+    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
     try {
       const extension = path.extname(filePath);
       let content = await readFile(filePath);
       if (extension === '.html') content = Buffer.from(content.toString('utf8').replace('<script', `<script nonce="${responseNonce}"`).replace('<style', `<style nonce="${responseNonce}"`));
-      res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream', 'cache-control': 'private, no-store' });
-      return res.end(content);
+      res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream', 'content-length': content.byteLength, 'cache-control': 'private, no-store' });
+      return res.end(req.method === 'HEAD' ? undefined : content);
     }
     catch (error) { if (error.code === 'ENOENT') return fail(res, 404, 'Web asset not found'); throw error; }
   }
