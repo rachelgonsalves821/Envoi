@@ -142,7 +142,37 @@ describe('OpenClaw quick connect discovery', () => {
     await expect(discover(base, { gatewayToken: 'secret\nvalue' })).rejects.toThrow('token is missing or invalid');
     await expect(discover({ gateway: { port: 'oops', auth: { token } } })).rejects.toThrow('port is invalid');
     await expect(discover(base, { agentId: '../../secret' })).rejects.toThrow('agent ID is invalid');
-    await expect(discover({ gateway: { auth: { mode: 'password', token } } })).rejects.toThrow('not token-based');
+    await expect(discover({ gateway: { auth: { mode: 'password', token } } })).rejects.toThrow('OPENCLAW_GATEWAY_PASSWORD');
+    await expect(discover({ gateway: { auth: { mode: 'tailscale', token } } })).rejects.toThrow('mode is not supported');
+  });
+
+  it('uses the Gateway password as the Bearer credential in password mode', async () => {
+    const password = 'private-gateway-password';
+    await expect(discover({ gateway: { auth: { mode: 'password', password, token } } })).resolves.toMatchObject({ gatewayToken: password });
+    await expect(discover({ gateway: { auth: { mode: 'password' } } }, { env: { OPENCLAW_GATEWAY_PASSWORD: password } })).resolves.toMatchObject({ gatewayToken: password });
+    await expect(discover({ gateway: { auth: { mode: 'password', password: { source: 'env', id: 'PRIVATE_PASSWORD' } } } }, { env: { PRIVATE_PASSWORD: password } })).resolves.toMatchObject({ gatewayToken: password });
+    // OpenClaw selects password auth when no mode is set and a password exists.
+    await expect(discover({ gateway: { auth: { password } } })).resolves.toMatchObject({ gatewayToken: password });
+    await expect(discover({ gateway: { auth: { mode: 'password', password, token } } }, { env: { OPENCLAW_GATEWAY_TOKEN: 'stale-token' } })).resolves.toMatchObject({ gatewayToken: password });
+    await expect(discover({ gateway: { auth: { mode: 'password', password, token } } }, { env: { OPENCLAW_GATEWAY_TOKEN: 'stale-token', OPENCLAW_GATEWAY_PASSWORD: 'active-password' } })).resolves.toMatchObject({ gatewayToken: 'active-password' });
+    await expect(discover({ gateway: { auth: { mode: 'password', password } } }, { gatewayToken: 'explicit-bearer' })).resolves.toMatchObject({ gatewayToken: 'explicit-bearer' });
+    try { await discover({ gateway: { auth: { mode: 'password', password: '${MISSING_PASSWORD}' } } }); throw new Error('expected rejection'); }
+    catch (error) { expect(String(error)).toContain('OPENCLAW_GATEWAY_PASSWORD'); expect(String(error)).not.toContain(password); }
+  });
+
+  it('connects through the trusted-proxy local password fallback and explains unusable auth modes', async () => {
+    const password = 'private-gateway-password';
+    await expect(discover({ gateway: { auth: { mode: 'trusted-proxy', password } } })).resolves.toMatchObject({ gatewayToken: password });
+    await expect(discover({ gateway: { auth: { mode: 'trusted-proxy' } } })).rejects.toThrow('trusted-proxy authentication without a local password');
+    await expect(discover({ gateway: { auth: { mode: 'none' } } })).rejects.toThrow('gateway.auth.mode is "none"');
+    await expect(discover({ gateway: { auth: { mode: 'none' } } })).rejects.toThrow('did not redeem an enrollment token');
+    await expect(discover({ gateway: { auth: { mode: 'none' } } }, { gatewayToken: token })).rejects.toThrow('gateway.auth.mode is "none"');
+  });
+
+  it('recovers a saved password for the same local Gateway when its env reference is unavailable', async () => {
+    const fallbackConfiguration = { ...connection, gatewayToken: 'saved-password' };
+    const config = { gateway: { auth: { mode: 'password', password: '${GATEWAY_PASSWORD}' } } };
+    await expect(discover(config, { allowMissingConfig: true, fallbackConfiguration })).resolves.toMatchObject({ gatewayToken: 'saved-password' });
   });
 
   it('requires resolved connection overrides for included configuration', async () => {

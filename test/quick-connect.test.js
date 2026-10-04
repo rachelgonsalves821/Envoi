@@ -60,6 +60,39 @@ async function human(baseUrl, suffix, mfa = true) {
   return { session, human: verified.payload.human };
 }
 
+test('connector downloads support GET and body-free HEAD with matching metadata', async t => {
+  const { baseUrl } = await startServer(t);
+  const metadata = await fetch(`${baseUrl}/web/downloads/release.json`).then(response => response.json());
+  for (const [filename, contentType] of [
+    ['release.json', 'application/json; charset=utf-8'],
+    ['envoi-connector.mjs', 'text/javascript; charset=utf-8']
+  ]) {
+    const url = `${baseUrl}/web/downloads/${filename}`;
+    const get = await fetch(url);
+    const bytes = Buffer.from(await get.arrayBuffer());
+    const head = await fetch(url, { method: 'HEAD' });
+    assert.equal(get.status, 200);
+    assert.equal(head.status, 200);
+    for (const header of ['content-type', 'content-length', 'cache-control']) {
+      assert.equal(head.headers.get(header), get.headers.get(header));
+    }
+    assert.equal(head.headers.get('content-type'), contentType);
+    assert.equal(Number(head.headers.get('content-length')), bytes.length);
+    assert.equal((await head.arrayBuffer()).byteLength, 0);
+    if (filename === 'envoi-connector.mjs') {
+      assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), metadata.artifacts[filename].sha256);
+    }
+  }
+  for (const method of ['GET', 'HEAD']) {
+    const missing = await fetch(`${baseUrl}/web/downloads/not-a-release.mjs`, { method });
+    assert.equal(missing.status, 404);
+    await missing.arrayBuffer();
+    const invalid = await fetch(`${baseUrl}/web/%2e%2e%2fpackage.json`, { method });
+    assert.equal(invalid.status, 400);
+    await invalid.arrayBuffer();
+  }
+});
+
 test('Quick Connect enrollment and setup status remain scoped and secret-free', async t => {
   const { baseUrl, dataDir } = await startServer(t);
   const owner = await human(baseUrl, '331');
