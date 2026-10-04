@@ -30,6 +30,8 @@ test('workspace pages, delta boundaries and capped SSE replay preserve all histo
   }
   const first = await request(server.baseUrl, `/api/inboxes/${inboxId}/human-view`, { token: undefined });
   assert.equal(first.status, 200); assert.equal(first.payload.cases.length, 50); assert.equal(first.payload.summary.cases, 55);
+  const identity = await request(server.baseUrl, '/api/auth/me', { token: undefined });
+  assert.deepEqual(first.payload.requester, { id: identity.payload.id, auth: { provider: 'local', assurance: 'mfa' } });
   const older = await request(server.baseUrl, `/api/inboxes/${inboxId}/human-view?history=${encodeURIComponent(JSON.stringify({ cases: first.payload.history.cases.nextCursor }))}`, { token: undefined });
   assert.equal(older.payload.cases.length, 5);
   assert.equal(new Set([...first.payload.cases, ...older.payload.cases].map(row => row.id)).size, 55);

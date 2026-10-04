@@ -2600,7 +2600,10 @@ async function route(req, res) {
       humanView(inboxId, inbox, parseHistoryCursors(url.searchParams.get('history'))),
       canManageInbox(human, inbox)
     ]);
-    return json(res, 200, { ...view, canManageInbox: requesterCanManage });
+    const session = await auth.getSession(req);
+    if (!session) return fail(res, 401, 'Authenticated human session required');
+    const requester = { id: human.id, auth: { provider: auth.provider, assurance: session.assurance || 'provider' } };
+    return json(res, 200, { ...view, canManageInbox: requesterCanManage, requester });
   }
 
   if (req.method === 'GET' && suffix === 'agent-view') {

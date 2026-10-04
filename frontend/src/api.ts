@@ -48,7 +48,7 @@ export function csrfHeaders(method = 'GET', cookieHeader?: string): Record<strin
   return token ? { 'x-sinaloa-csrf': token } : {};
 }
 
-export async function request<T>(pathname: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(pathname: string, options: RequestInit = {}, notifySessionExpired = true): Promise<T> {
   const session = trackSessionRequest();
   try {
     const response = await fetch(pathname, {
@@ -63,8 +63,9 @@ export async function request<T>(pathname: string, options: RequestInit = {}): P
     });
     const payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
     session.check();
+    options.signal?.throwIfAborted();
     if (!response.ok) {
-      if (response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
+      if (notifySessionExpired && response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
         window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
       }
       throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
@@ -91,16 +92,18 @@ export const api = {
     setCsrfCookieName(config.csrfCookieName);
     return config;
   },
-  me: () => request<Human>('/api/auth/me'),
+  me: (signal?: AbortSignal) => request<Human>('/api/auth/me', { signal }),
   phoneStart: (phoneNumber: string, displayName: string) => request<{ challengeId: string; expiresAt: string; developmentCode?: string }>('/api/auth/phone/start', { method: 'POST', body: JSON.stringify({ phoneNumber, displayName }) }),
   phoneVerify: (challengeId: string, code: string) => request<{ human: Human; secondFactorRequired: boolean; mfaSetupRequired: boolean; expiresAt?: string }>('/api/auth/phone/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
   totpSetup: () => request<{ secret: string; otpauthUri: string; developmentCode?: string }>('/api/auth/totp/setup', { method: 'POST', body: '{}' }),
   totpVerify: (code: string) => request<{ human: Human; assurance: string }>('/api/auth/totp/verify', { method: 'POST', body: JSON.stringify({ code }) }),
   logout: () => request<{ revoked: boolean; logoutUrl?: string | null }>('/api/auth/logout', { method: 'POST', body: '{}' }),
-  organizations: () => request<Organization[]>('/api/organizations'),
-  workspaces: (organizationId: string) => request<Inbox[]>(`/api/organizations/${organizationId}/workspaces`),
+  organizations: (signal?: AbortSignal) => request<Organization[]>('/api/organizations', { signal }),
+  workspaces: (organizationId: string, signal?: AbortSignal) => request<Inbox[]>(`/api/organizations/${organizationId}/workspaces`, { signal }),
   createWorkspace: (name: string, organizationId?: string) => request<Inbox>('/api/inboxes', { method: 'POST', body: JSON.stringify({ name, organizationId }) }),
-  humanView: (inboxId: string, history?: Record<string, string>) => request<HumanView>(`/api/inboxes/${encodeURIComponent(inboxId)}/human-view${history ? `?history=${encodeURIComponent(JSON.stringify(history))}` : ''}`),
+  humanView: (inboxId: string, history?: Record<string, string>, signal?: AbortSignal) => request<HumanView>(`/api/inboxes/${encodeURIComponent(inboxId)}/human-view${history ? `?history=${encodeURIComponent(JSON.stringify(history))}` : ''}`, { signal }),
+  // Only the validation caller handles denial, to distinguish MFA from logout.
+  sessionView: (inboxId: string, signal: AbortSignal) => request<HumanView>(`/api/inboxes/${encodeURIComponent(inboxId)}/human-view`, { signal }, false),
   invitations: (inboxId: string) => request<AgentConnectionInvitation[]>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations`),
   acceptInvitation: (inboxId: string, invitationId: string) => request<AgentConnectionInvitationDecision>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations/${encodeURIComponent(invitationId)}/accept`, { method: 'POST' }),
   declineInvitation: (inboxId: string, invitationId: string) => request<AgentConnectionInvitation>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations/${encodeURIComponent(invitationId)}/decline`, { method: 'POST' }),

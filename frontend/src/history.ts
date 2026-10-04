@@ -11,24 +11,25 @@ function mergeRows<T extends { id: string; updatedAt?: string; createdAt?: strin
 }
 // Refreshes update loaded records without discarding older pages. Paging keeps
 // the latest summary and replaces only the cursors that were advanced.
-export function mergeHistory(current: HumanView | null, incoming: HumanView, advanced?: Partial<Record<HistoryCollection, string>>): HumanView {
+export function mergeHistory(current: HumanView | null, incoming: HumanView, advanced?: Partial<Record<HistoryCollection, string>>, preserveCurrent = false): HumanView {
   if (!current || current.inbox.id !== incoming.inbox.id) return incoming;
   // A history response also carries current authorization and agent state.
   // Keep those projections fresh while merging the paged collections below.
-  const result = { ...incoming };
-  result.canManageInbox = incoming.canManageInbox === true;
+  const result = { ...(preserveCurrent ? current : incoming) };
+  result.canManageInbox = (preserveCurrent ? current : incoming).canManageInbox === true;
   for (const key of collections) {
     const oldRows: { id: string; updatedAt?: string; createdAt?: string }[] = current[key] || [];
     const newRows: typeof oldRows = incoming[key] || [];
-    Object.assign(result, { [key]: advanced?.[key] ? mergeRows(newRows, oldRows) : mergeRows(oldRows, newRows) });
+    Object.assign(result, { [key]: advanced?.[key] || preserveCurrent ? mergeRows(newRows, oldRows) : mergeRows(oldRows, newRows) });
   }
-  result.caseQueue = advanced?.cases ? mergeRows(incoming.caseQueue, current.caseQueue) : mergeRows(current.caseQueue, incoming.caseQueue);
+  result.caseQueue = advanced?.cases || preserveCurrent ? mergeRows(incoming.caseQueue, current.caseQueue) : mergeRows(current.caseQueue, incoming.caseQueue);
   const directoryById = (directory: HumanView['participantDirectory']) => Object.fromEntries(Object.values(directory || {}).map(person => [person.id, person]));
-  result.participantDirectory = { ...directoryById(current.participantDirectory), ...directoryById(incoming.participantDirectory) };
+  result.participantDirectory = preserveCurrent ? { ...directoryById(incoming.participantDirectory), ...directoryById(current.participantDirectory) } : { ...directoryById(current.participantDirectory), ...directoryById(incoming.participantDirectory) };
   const history: HistoryMetadata = { ...current.history };
   for (const key of collections) {
     const fresh = incoming.history?.[key];
     if (!fresh) continue;
+    if (preserveCurrent && (!advanced?.[key] || current.history?.[key]?.nextCursor !== advanced[key])) continue;
     if (advanced?.[key]) {
       history[key] = fresh;
     } else {

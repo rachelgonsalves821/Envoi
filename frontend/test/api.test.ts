@@ -8,6 +8,17 @@ afterEach(() => {
 });
 
 describe('human API sessions', () => {
+  it('rejects a late 401 after a caller timeout without clearing a still-valid session', async () => {
+    const browserWindow = new EventTarget(); const expired = vi.fn();
+    browserWindow.addEventListener('sinaloa:session-expired', expired); vi.stubGlobal('window', browserWindow);
+    let complete!: (value: Response) => void;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>(resolve => { complete = resolve; })));
+    const controller = new AbortController();
+    const rejected = expect(api.humanView('workspace', undefined, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort(); complete(new Response(JSON.stringify({ error: 'Denied' }), { status: 401 }));
+    await rejected; expect(expired).not.toHaveBeenCalled();
+  });
+
   it('rejects a late successful response after logout even when fetch ignores cancellation', async () => {
     let complete!: (value: Response) => void;
     const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>(resolve => { complete = resolve; }));

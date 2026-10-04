@@ -44,13 +44,13 @@ async function request(server, session, pathname, { body, headers, method = body
   return { response, payload: await response.json() };
 }
 
-async function signIn(server, { secret, returning = false } = {}) {
+async function signIn(server, { secret, returning = false, phoneNumber = '+14165550123' } = {}) {
   const session = new BrowserSession();
   if (returning) {
     const directory = path.join(server.dataDir, 'auth', 'phone-rate-limits');
     for (const name of await readdir(directory)) await writeFile(path.join(directory, name), JSON.stringify({ starts: [] }));
   }
-  const started = await request(server, session, '/api/auth/phone/start', { body: { phoneNumber: '+14165550123', displayName: 'Session owner' } });
+  const started = await request(server, session, '/api/auth/phone/start', { body: { phoneNumber, displayName: 'Session owner' } });
   assert.equal(started.response.status, 201);
   const verified = await request(server, session, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
   assert.equal(verified.response.status, 200);
@@ -120,6 +120,36 @@ function assertCookiesCleared(response) {
   assert.ok(values.some(value => /^sinaloa_session=;/.test(value) && /Max-Age=0/i.test(value)), 'Logout clears the session cookie');
   assert.ok(values.some(value => /^sinaloa_csrf=;/.test(value) && /Max-Age=0/i.test(value)), 'Logout clears the CSRF cookie');
 }
+
+test('return snapshot binds a minimal human identity and preserves MFA and membership requirements', async t => {
+  const server = await startServer(t);
+  const owner = await signIn(server);
+  const inbox = await createWorkspace(server, owner.session);
+  const identity = await request(server, owner.session, '/api/auth/me');
+  const view = await request(server, owner.session, `/api/inboxes/${inbox.id}/human-view`);
+  assert.equal(view.response.status, 200);
+  assert.deepEqual(view.payload.requester, { id: identity.payload.id, auth: { provider: 'local', assurance: 'mfa' } });
+  assert.match(view.response.headers.get('cache-control'), /no-store/);
+
+  const phone = new BrowserSession();
+  const start = await request(server, phone, '/api/auth/phone/start', { body: { phoneNumber: '+14165550987', displayName: 'Step-up user' } });
+  await request(server, phone, '/api/auth/phone/verify', { body: { challengeId: start.payload.challengeId, code: start.payload.developmentCode } });
+  const denied = await request(server, phone, `/api/inboxes/${inbox.id}/human-view`);
+  assert.equal(denied.response.status, 401);
+  assert.equal(denied.payload.requester, undefined);
+  const stepUp = await request(server, phone, '/api/auth/me');
+  assert.equal(stepUp.response.status, 200);
+  assert.equal(stepUp.payload.auth.assurance, 'phone');
+  assert.equal(typeof stepUp.payload.mfaSetupRequired, 'boolean');
+
+  const outsider = await signIn(server, { phoneNumber: '+14165550988' });
+  const outsiderView = await request(server, outsider.session, `/api/inboxes/${inbox.id}/human-view`);
+  assert.equal(outsiderView.response.status, 401);
+  assert.equal(outsiderView.payload.requester, undefined);
+  const loggedOut = await request(server, owner.session, '/api/auth/logout', { body: {} });
+  assert.equal(loggedOut.response.status, 200);
+  assert.equal((await request(server, owner.session, `/api/inboxes/${inbox.id}/human-view`)).response.status, 401);
+});
 
 test('logout revokes APIs and an open stream; repeated logout still clears browser cookies', async t => {
   const server = await startServer(t);

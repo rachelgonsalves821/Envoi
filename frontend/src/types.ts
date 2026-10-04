@@ -249,7 +249,9 @@ export interface CalendarConnector { id: string; provider: CalendarProvider['id'
 
 export type HistoryCollection = 'cases' | 'messages' | 'assets' | 'recentEvents' | 'deliveryReceipts' | 'invitations' | 'contacts';
 export type HistoryMetadata = Partial<Record<HistoryCollection, { total: number; hasMore: boolean; nextCursor: string | null }>>;
+export interface WorkspaceRequester { id: string; auth: { provider: string; assurance: string } }
 export interface HumanView {
+  requester?: WorkspaceRequester;
   history?: HistoryMetadata;
   inbox: Inbox;
   mode: 'human-observer';
