@@ -76,9 +76,30 @@ export interface ConnectorOptions extends ClientOptions {
 }
 
 export class ConnectorPersistenceError extends Error {
-  constructor() {
+  constructor(public readonly requestId?: string, public readonly status?: number) {
     super('Connector credential persistence failed; stop this installation and re-enroll if needed');
     this.name = 'ConnectorPersistenceError';
+  }
+}
+
+/** Safe enrollment diagnostics; never includes a response body or credentials. */
+export class ConnectorEnrollmentError extends SinaloaError {
+  constructor(code: string, public readonly requestId: string, status?: number) {
+    super(`Envoi enrollment failed (${code}${status ? `; HTTP ${status}` : ''})`, status, code);
+    this.name = 'ConnectorEnrollmentError';
+  }
+}
+
+function enrollmentRejectionCode(payload: Record<string, unknown> | null) {
+  if (payload?.code === 'ACTIVE_AGENT_LIMIT' || payload?.error === 'ACTIVE_AGENT_LIMIT') return 'ENROLLMENT_AGENT_LIMIT';
+  if (payload?.error === 'AUTH_UNAVAILABLE') return 'ENROLLMENT_AUTH_UNAVAILABLE';
+  switch (payload?.error === 'REQUEST_FAILED' ? payload.message : payload?.error) {
+    case 'Enrollment token is invalid, expired, or already used': return 'ENROLLMENT_TOKEN_REJECTED';
+    case 'Setup runtime does not match this enrollment': return 'ENROLLMENT_RUNTIME_MISMATCH';
+    case 'Enrollment owner is invalid':
+    case 'Reconnect owner is invalid': return 'ENROLLMENT_OWNER_INVALID';
+    case 'That agent address is already taken': return 'ENROLLMENT_ADDRESS_TAKEN';
+    default: return 'ENROLLMENT_HTTP_ERROR';
   }
 }
 
@@ -129,38 +150,42 @@ export async function enrollConnector(baseUrl: string, enrollmentToken: string, 
   const controller = new AbortController();
   const duration = options.timeoutMs ?? 30_000;
   if (!Number.isSafeInteger(duration) || duration < 1 || duration > 300_000) throw new RangeError('timeoutMs must be an integer from 1 to 300000');
+  const requestId = crypto.randomUUID();
   const timer = setTimeout(() => controller.abort(), duration);
-  let response: Response;
   try {
-    response = await (options.fetch || fetch)(`${origin}/api/agent-enroll`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ enrollmentToken, ...(options.name ? { name: options.name } : {}), ...(options.runtime ? { runtime: options.runtime } : {}) }), signal: controller.signal
-    });
-  } catch {
-    throw new SinaloaError(controller.signal.aborted ? 'Envoi request timed out' : 'Envoi could not be reached');
-  } finally {
-    clearTimeout(timer);
-  }
-  let payload: Record<string, unknown> | null = null;
-  try {
-    const parsed: unknown = await response.json();
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
-  } catch { /* Never expose provider response bodies. */ }
-  if (!response.ok) {
-    const remote = payload?.error;
-    throw new SinaloaError(typeof remote === 'string' && remote.length <= 500 ? remote : `Envoi enrollment failed with HTTP ${response.status}`, response.status);
-  }
-  const agent = payload?.agent as Record<string, unknown> | undefined;
-  const inbox = payload?.inbox as Record<string, unknown> | undefined;
-  const session = validSession({
-    agentId: String(agent?.id || ''), inboxId: String(inbox?.id || ''), address: String(agent?.address || ''),
-    agentApiToken: String(payload?.agentApiToken || ''), agentRefreshToken: String(payload?.agentRefreshToken || ''),
-    agentTokenExpiresAt: String(payload?.agentTokenExpiresAt || ''),
-    agentRefreshTokenExpiresAt: String(payload?.agentRefreshTokenExpiresAt || ''), cursor: null
-  });
-  if (!session.address) throw new SinaloaError('Envoi enrollment response is missing the agent address');
-  try { await store.save(session); } catch { throw new ConnectorPersistenceError(); }
-  return session;
+    let response: Response;
+    try {
+      response = await (options.fetch || fetch)(`${origin}/api/agent-enroll`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-request-id': requestId },
+        body: JSON.stringify({ enrollmentToken, ...(options.name ? { name: options.name } : {}), ...(options.runtime ? { runtime: options.runtime } : {}) }), signal: controller.signal
+      });
+    } catch {
+      throw new ConnectorEnrollmentError(controller.signal.aborted ? 'ENROLLMENT_TIMEOUT' : 'ENROLLMENT_TRANSPORT_FAILED', requestId);
+    }
+    let payload: Record<string, unknown> | null = null;
+    try {
+      const parsed: unknown = await response.json();
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
+    } catch {
+      if (controller.signal.aborted) throw new ConnectorEnrollmentError('ENROLLMENT_TIMEOUT', requestId, response.status);
+      /* Never expose provider response bodies. */
+    }
+    if (!response.ok) throw new ConnectorEnrollmentError(enrollmentRejectionCode(payload), requestId, response.status);
+    const agent = payload?.agent as Record<string, unknown> | undefined;
+    const inbox = payload?.inbox as Record<string, unknown> | undefined;
+    let session: ConnectorSession;
+    try {
+      session = validSession({
+        agentId: String(agent?.id || ''), inboxId: String(inbox?.id || ''), address: String(agent?.address || ''),
+        agentApiToken: String(payload?.agentApiToken || ''), agentRefreshToken: String(payload?.agentRefreshToken || ''),
+        agentTokenExpiresAt: String(payload?.agentTokenExpiresAt || ''),
+        agentRefreshTokenExpiresAt: String(payload?.agentRefreshTokenExpiresAt || ''), cursor: null
+      });
+    } catch { throw new ConnectorEnrollmentError('ENROLLMENT_RESPONSE_INVALID', requestId, response.status); }
+    if (!session.address) throw new ConnectorEnrollmentError('ENROLLMENT_RESPONSE_INVALID', requestId, response.status);
+    try { await store.save(session); } catch { throw new ConnectorPersistenceError(requestId, response.status); }
+    return session;
+  } finally { clearTimeout(timer); }
 }
 
 export class SinaloaConnector {

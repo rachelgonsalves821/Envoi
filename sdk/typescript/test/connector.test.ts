@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ConnectorContractError, ConnectorCredentialsError, ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore, type WorkHandler } from '@sinaloa/protocol/connector';
+import { ConnectorContractError, ConnectorCredentialsError, ConnectorEnrollmentError, ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore, type WorkHandler } from '@sinaloa/protocol/connector';
 
 const session = (): ConnectorSession => ({
   agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@sinaloa.mail',
@@ -155,6 +155,42 @@ describe('Sinaloa outbound connector', () => {
     expect(enrolled.cursor).toBeNull();
     expect(memory.current()).toEqual(enrolled);
     expect(String(fetcher.mock.calls[0][0])).toBe('https://api.example/api/agent-enroll');
+  });
+
+  it('retains safe HTTP diagnostics and sends its own request ID without exposing a rejection body', async () => {
+    const memory = memoryStore();
+    let requestId: string | null = null;
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      requestId = new Headers(init?.headers).get('x-request-id');
+      return Response.json({ error: 'private-enrollment-secret and private-server-body', requestId: 'private-provider-secret' }, { status: 503 });
+    });
+    const error = await enrollConnector('https://api.example', 'private-enrollment-secret', memory.store, { fetch: fetcher as typeof fetch }).catch(error => error);
+    expect(error).toBeInstanceOf(ConnectorEnrollmentError);
+    expect(error).toMatchObject({ status: 503, code: 'ENROLLMENT_HTTP_ERROR', requestId });
+    expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(JSON.stringify(error) + error.message).not.toMatch(/private-/);
+    expect(memory.current()).toBeNull(); expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('distinguishes transport failure, malformed credentials and failure to save successful enrollment', async () => {
+    const memory = memoryStore();
+    await expect(enrollConnector('https://api.example', 'secret', memory.store, { fetch: (async () => { throw new Error('private transport body'); }) as typeof fetch }))
+      .rejects.toMatchObject({ code: 'ENROLLMENT_TRANSPORT_FAILED' });
+    await expect(enrollConnector('https://api.example', 'secret', memory.store, { fetch: (async () => Response.json({ agentApiToken: 'secret' }, { status: 201 })) as typeof fetch }))
+      .rejects.toMatchObject({ code: 'ENROLLMENT_RESPONSE_INVALID', status: 201 });
+    const brokenStore = { ...memory.store, save: async () => { throw new Error('private storage details'); } };
+    await expect(enrollConnector('https://api.example', 'secret', brokenStore, { fetch: (async () => Response.json({ agent: { id: 'agent_one', address: 'one@sinaloa.mail' }, inbox: { id: 'inbox_one' }, ...session() }, { status: 201 })) as typeof fetch }))
+      .rejects.toMatchObject({ name: 'ConnectorPersistenceError', status: 201, requestId: expect.any(String) });
+    expect(memory.current()).toBeNull();
+  });
+
+  it('bounds enrollment response-body reading after headers arrive', async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => new Response(new ReadableStream({
+      start(controller) { init!.signal!.addEventListener('abort', () => controller.error(new Error('private timeout body')), { once: true }); }
+    }), { status: 201 }));
+    await expect(enrollConnector('https://api.example', 'secret', memoryStore().store, { fetch: fetcher as typeof fetch, timeoutMs: 20 }))
+      .rejects.toMatchObject({ code: 'ENROLLMENT_TIMEOUT', status: 201 });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('replays an offline delivered event and commits the cursor only after the callback', async () => {
