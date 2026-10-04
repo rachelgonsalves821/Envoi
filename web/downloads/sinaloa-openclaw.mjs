@@ -854,38 +854,37 @@ async function de(e = {}) {
 		if (e.allowMissingConfig && !r) throw new V("Resuming without an OpenClaw config requires explicit Gateway URL, Gateway token and agent ID. Supply all three connection settings locally.");
 		if (o && !(e.allowMissingConfig && r)) throw new V("OpenClaw configuration was not found at OPENCLAW_CONFIG_PATH. Check the active Gateway profile and retry.");
 	}
-	let u = U(c?.gateway), f = U(u.auth), h = e.gatewayUrl ?? t.OPENCLAW_GATEWAY_URL ?? l?.gatewayUrl, g = e.gatewayToken ?? t.OPENCLAW_GATEWAY_TOKEN ?? l?.gatewayToken;
-	if (c?.$include !== void 0 && (!h || !g || !(e.agentId ?? t.OPENCLAW_AGENT_ID))) throw new V("OpenClaw config includes other files. Supply explicit OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN and OPENCLAW_AGENT_ID from the active Gateway, or select its resolved configuration.");
-	if (u.mode === "remote" && (!h || !g)) throw new V("OpenClaw uses a remote Gateway. Set OPENCLAW_GATEWAY_URL to the private HTTPS origin and OPENCLAW_GATEWAY_TOKEN to that Gateway credential locally.");
-	let _ = f.password !== void 0 || !!t.OPENCLAW_GATEWAY_PASSWORD, v = f.mode ?? (_ ? "password" : "token"), y = v === "token" ? "token" : "password";
-	if (!g) {
-		if (v === "none") throw new V(`OpenClaw Gateway authentication is disabled (gateway.auth.mode is "none"). ${oe}`);
-		if (v === "trusted-proxy" && !_) throw new V("OpenClaw Gateway uses trusted-proxy authentication without a local password, so this host cannot connect directly. Set gateway.auth.password (or OPENCLAW_GATEWAY_PASSWORD) for same-host clients, restart the Gateway, and retry. This check did not redeem an enrollment token.");
+	let u = U(c?.gateway), f = U(u.auth), h = f.password !== void 0 || !!t.OPENCLAW_GATEWAY_PASSWORD, g = f.mode ?? (h ? "password" : "token"), _ = g === "token" ? "token" : "password", v = e.gatewayUrl ?? t.OPENCLAW_GATEWAY_URL ?? l?.gatewayUrl, y = e.gatewayToken ?? t[le(_)] ?? l?.gatewayToken;
+	if (c?.$include !== void 0 && (!v || !y || !(e.agentId ?? t.OPENCLAW_AGENT_ID))) throw new V("OpenClaw config includes other files. Supply explicit OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN and OPENCLAW_AGENT_ID from the active Gateway, or select its resolved configuration.");
+	if (u.mode === "remote" && (!v || !y)) throw new V("OpenClaw uses a remote Gateway. Set OPENCLAW_GATEWAY_URL to the private HTTPS origin and OPENCLAW_GATEWAY_TOKEN to that Gateway credential locally.");
+	if (g === "none") throw new V(`OpenClaw Gateway authentication is disabled (gateway.auth.mode is "none"). ${oe}`);
+	if (!y) {
+		if (g === "trusted-proxy" && !h) throw new V("OpenClaw Gateway uses trusted-proxy authentication without a local password, so this host cannot connect directly. Set gateway.auth.password (or OPENCLAW_GATEWAY_PASSWORD) for same-host clients, restart the Gateway, and retry. This check did not redeem an enrollment token.");
 		if (![
 			"token",
 			"password",
 			"trusted-proxy"
-		].includes(String(v))) throw new V(`OpenClaw Gateway authentication mode is not supported. ${oe}`);
+		].includes(String(g))) throw new V(`OpenClaw Gateway authentication mode is not supported. ${oe}`);
 	}
 	let b = t.OPENCLAW_GATEWAY_PORT === void 0 ? u.port ?? (r === "dev" ? 19001 : 18789) : Number(t.OPENCLAW_GATEWAY_PORT);
-	if (!h && !u.url && (!Number.isSafeInteger(b) || Number(b) < 1 || Number(b) > 65535)) throw new V("OpenClaw Gateway port is invalid. Set OPENCLAW_GATEWAY_URL to the active Gateway origin.");
-	let x = W(h ?? (typeof u.url == "string" ? u.url : `http://127.0.0.1:${b}`));
+	if (!v && !u.url && (!Number.isSafeInteger(b) || Number(b) < 1 || Number(b) > 65535)) throw new V("OpenClaw Gateway port is invalid. Set OPENCLAW_GATEWAY_URL to the active Gateway origin.");
+	let x = W(v ?? (typeof u.url == "string" ? u.url : `http://127.0.0.1:${b}`));
 	if (![
 		"localhost",
 		"127.0.0.1",
 		"[::1]"
-	].includes(new URL(x).hostname) && (!h || !g)) throw new V("A remote Gateway requires its own explicit OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN. Local discovered credentials cannot be forwarded to a remote host.");
+	].includes(new URL(x).hostname) && (!v || !y)) throw new V("A remote Gateway requires its own explicit OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN. Local discovered credentials cannot be forwarded to a remote host.");
 	let S = U(c?.agents), C = U(S.entries), w = Array.isArray(S.list) ? S.list : [], T = Object.keys(C).length ? Object.keys(C) : w.map((e) => U(e).id);
 	if (T.some((e) => typeof e != "string" || !H.test(e))) throw new V("OpenClaw config contains an invalid agent ID. Repair the agent roster before setup.");
 	let E = [...new Set(T)], D = e.agentId ?? t.OPENCLAW_AGENT_ID ?? l?.agentId;
 	if (!D && E.length > 1) throw new V(`Choose the agent to connect by setting OPENCLAW_AGENT_ID. Available agents: ${E.join(", ")}.`);
 	if (D ??= E[0] ?? "main", E.length && !E.includes(D)) throw new V(`The selected OpenClaw agent is not configured. Set OPENCLAW_AGENT_ID to one of: ${E.join(", ")}.`);
-	let O = U(U(U(u.http).endpoints).chatCompletions).enabled === !0, k, A = f[y] ?? (y === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
+	let O = U(U(U(u.http).endpoints).chatCompletions).enabled === !0, k, A = f[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
 	try {
-		k = ue(g ?? A, t, g ? "token" : y);
+		k = ue(y ?? A, t, y ? "token" : _);
 	} catch (t) {
 		let n = U(A), r = typeof A == "string" ? A.includes("${") && !A.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && ae.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
-		if (g || !r || !i || W(i.gatewayUrl) !== x) throw t;
+		if (y || !r || !i || W(i.gatewayUrl) !== x) throw t;
 		k = i.gatewayToken;
 	}
 	let j = {
@@ -893,7 +892,7 @@ async function de(e = {}) {
 		gatewayToken: k,
 		agentId: D,
 		configPath: s,
-		chatCompletionsEnabled: c && !h ? O : void 0
+		chatCompletionsEnabled: c && !v ? O : void 0
 	};
 	return G(j), j;
 }
