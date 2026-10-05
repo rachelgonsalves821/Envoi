@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SinaloaConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
@@ -75,6 +75,63 @@ describe('shared connector lifecycle', () => {
     const model = await fixture(); model.preflightFails();
     await expect(setupConnection(model.handoff, model.resolver, model.options)).rejects.toMatchObject({ code: 'MODEL_NOT_READY' });
     expect(model.counts().enrollmentCount).toBe(0);
+  });
+
+  for (const [status, payload, code] of [
+    [400, { error: 'Setup runtime does not match this enrollment' }, 'ENROLLMENT_RUNTIME_MISMATCH'],
+    [401, { error: 'Enrollment token is invalid, expired, or already used' }, 'ENROLLMENT_TOKEN_REJECTED'],
+    [403, { error: 'REQUEST_FAILED', message: 'Enrollment owner is invalid' }, 'ENROLLMENT_OWNER_INVALID'],
+    [409, { error: 'REQUEST_FAILED', message: 'That agent address is already taken' }, 'ENROLLMENT_ADDRESS_TAKEN'],
+    [409, { error: 'ACTIVE_AGENT_LIMIT', message: 'private remote body' }, 'ENROLLMENT_AGENT_LIMIT'],
+    [503, { error: 'AUTH_UNAVAILABLE', message: 'private remote body' }, 'ENROLLMENT_AUTH_UNAVAILABLE'],
+    [503, { error: 'private remote body', agentApiToken: 'private credential' }, 'ENROLLMENT_HTTP_ERROR']
+  ] as const) {
+    it(`preserves safe enrollment diagnostics for HTTP ${status} ${code} without redeeming again`, async () => {
+      const f = await fixture(); const original = f.options.fetch;
+      f.options.fetch = (async (url, init) => {
+        const response = await original(url, init);
+        return String(url).endsWith('/api/agent-enroll') ? Response.json(payload, { status }) : response;
+      }) as typeof fetch;
+      const error = await setupConnection(f.handoff, f.resolver, f.options).catch(error => error);
+      expect(error).toMatchObject({ code }); expect(error.message).toContain(`HTTP ${status}`);
+      expect(error.message).toContain(f.options.stateDir); expect(error.message).not.toMatch(/private remote|private credential|private-enrollment/);
+      expect(f.counts().enrollmentCount).toBe(1);
+      const diagnostic = JSON.parse(await readFile(path.join(f.options.stateDir, 'enrollment-error.json'), 'utf8'));
+      expect(diagnostic).toMatchObject({ code, httpStatus: status, requestId: expect.any(String) });
+      expect(JSON.stringify(diagnostic)).not.toMatch(/private/);
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ credentialState: 'missing', enrollmentError: diagnostic });
+      await expect(readFile(path.join(f.options.stateDir, 'session.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+      f.options.fetch = original;
+      await setupConnection(f.handoff, f.resolver, f.options);
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ credentialState: 'saved' });
+      await expect(readFile(path.join(f.options.stateDir, 'enrollment-error.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+  }
+
+  it('never exposes unrecognized transport errors or extra diagnostic-file fields through status', async () => {
+    const f = await fixture(); const original = f.options.fetch;
+    f.options.fetch = (async (url, init) => {
+      if (String(url).endsWith('/api/agent-enroll')) throw new Error('private-enrollment-token and provider credentials');
+      return original(url, init);
+    }) as typeof fetch;
+    const error = await setupConnection(f.handoff, f.resolver, f.options).catch(error => error);
+    expect(error).toMatchObject({ code: 'ENROLLMENT_TRANSPORT_FAILED' }); expect(error.message).not.toMatch(/private-enrollment|provider credentials/);
+    await writeFile(path.join(f.options.stateDir, 'enrollment-error.json'), JSON.stringify({ code: 'ENROLLMENT_HTTP_ERROR', checkedAt: new Date().toISOString(), httpStatus: 503, requestId: 'private-secret', agentApiToken: 'private-token', message: 'private-body' }));
+    const status = await connectionStatus(f.options.stateDir);
+    expect(status).toMatchObject({ enrollmentError: { code: 'ENROLLMENT_HTTP_ERROR', httpStatus: 503 } });
+    expect(JSON.stringify(status)).not.toMatch(/private-secret|private-token|private-body/);
+  });
+
+  it('identifies a failed credential save after successful redemption without retrying or losing the recovery path', async () => {
+    const f = await fixture();
+    const save = vi.spyOn(FileBridgeStore.prototype, 'save').mockRejectedValueOnce(new Error('private database credentials'));
+    try {
+      const error = await setupConnection(f.handoff, f.resolver, f.options).catch(error => error);
+      expect(error).toMatchObject({ code: 'ENROLLMENT_PERSISTENCE_FAILED' });
+      expect(error.message).toContain('saving them locally failed'); expect(error.message).toContain(f.options.stateDir);
+      expect(error.message).not.toContain('private database'); expect(f.counts().enrollmentCount).toBe(1);
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ credentialState: 'missing', enrollmentError: { code: 'ENROLLMENT_PERSISTENCE_FAILED', httpStatus: 200 } });
+    } finally { save.mockRestore(); }
   });
   it('preserves enrollment after tool verification fails and retries without another token', async () => {
     const f = await fixture(); f.toolFails(true);

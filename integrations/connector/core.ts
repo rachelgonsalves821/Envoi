@@ -10,6 +10,7 @@ import { ConnectorSetupError, type AdapterOptions, type ConnectorAdapter, type R
 import { privateDirectory, privateJson, acquireConnectorLock } from './store';
 import { checkServiceManager } from './service';
 import { startControl, queryControl } from './control';
+import { enrollmentSetupError, readEnrollmentDiagnostic } from './enrollment-error';
 
 export interface InstalledConnection {
   version: 1;
@@ -148,10 +149,11 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
       // before connection.json is updated must not redeem a consumed token again.
       const enrollmentStore = { load: () => store.load(), save: (value: ConnectorSession) => store.save({ ...value, ...(reconnectId ? { setupRedemptionId: reconnectId } : {}) }) };
       try { session = await enrollConnector(handoff.apiUrl, handoff.enrollmentToken, enrollmentStore, { name: handoff.agentName, runtime: handoff.runtime, fetch: fetcher }); }
-      catch { throw new ConnectorSetupError('ENROLLMENT_UNCERTAIN', 'Enrollment did not finish. Check Agent connections before creating another token; it may have been consumed. Preserve this directory and use Reconnect runtime if credentials were lost'); }
+      catch (error) { throw await enrollmentSetupError(error, directory); }
       if (reconnectId) { saved.lastReconnectId = reconnectId; await privateJson(path.join(directory, 'connection.json'), saved); }
     }
     if (!session || session.address !== handoff.address) throw new ConnectorSetupError('STATE_MISMATCH', 'The enrolled address differs from this handoff. Inspect Agent connections before starting');
+    await rm(path.join(directory, 'enrollment-error.json'), { force: true });
     enrolledConnector = new SinaloaConnector(saved.apiUrl, store, { fetch: fetcher });
     await adapter.configure?.(config, context);
     // Adapters may allocate a local relay port during configure. Save it before service start.
@@ -233,7 +235,9 @@ export async function connectionStatus(stateDir: string) {
   const session = await savedSession(directory);
   const live = await queryControl(directory, 'status').catch(() => null);
   const checks = await readFile(path.join(directory, 'setup-check.json'), 'utf8').then(text => JSON.parse(text) as { checkedAt?: string }).catch(() => null);
+  const enrollmentError = await readEnrollmentDiagnostic(directory);
   return { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl, agentId: session?.agentId,
+    credentialState: session ? 'saved' : 'missing', ...(enrollmentError ? { enrollmentError } : {}),
     stateDir: directory, status: live?.status ?? 'stopped', checkedAt: live?.checkedAt ?? checks?.checkedAt,
     credentialExpiresAt: session?.agentTokenExpiresAt, refreshExpiresAt: session?.agentRefreshTokenExpiresAt,
     note: 'A running connector is not proof of successful message delivery. Verify a real agent exchange' };

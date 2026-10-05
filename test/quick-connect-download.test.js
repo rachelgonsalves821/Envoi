@@ -156,7 +156,8 @@ test('distributed connector pairs a password-mode Gateway and stops before enrol
   const password = 'download-fixture-gateway-password';
   const enrollmentToken = 'download-fixture-enrollment-secret';
   const accessToken = 'download-fixture-access-secret';
-  let enrollments = 0, wrongGatewayAuth = false, leakedGatewayCredential = false;
+  let enrollments = 0, wrongGatewayAuth = false, leakedGatewayCredential = false, rejectEnrollment = false;
+  let enrollmentRequestId;
   const gateway = await listen(async (request, response) => {
     if (request.url !== '/v1/chat/completions') return json(response, { error: 'not found' }, 404);
     // OpenClaw password mode accepts the password as a Bearer value.
@@ -171,6 +172,8 @@ test('distributed connector pairs a password-mode Gateway and stops before enrol
     if (request.url === '/health') return json(response, { service: 'sinaloa' });
     if (request.url === '/api/agent-enroll') {
       enrollments++;
+      enrollmentRequestId = request.headers['x-request-id'];
+      if (rejectEnrollment) return json(response, { error: `private server failure ${enrollmentToken}`, agentApiToken: accessToken }, 503);
       return json(response, { agent: { id: 'agent_download', address: 'download@agents.sinaloa.example' }, inbox: { id: 'inbox_download' },
         agentApiToken: accessToken, agentRefreshToken: 'download-fixture-refresh-secret',
         agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() }, 201);
@@ -203,4 +206,26 @@ test('distributed connector pairs a password-mode Gateway and stops before enrol
   assert.equal(wrongGatewayAuth, false);
   assert.equal(leakedGatewayCredential, false);
   for (const secret of [password, enrollmentToken, accessToken]) assert.ok(!(paired.stdout + paired.stderr).includes(secret));
+
+  rejectEnrollment = true;
+  const rejected = await setup('rejected', { mode: 'password', password });
+  const rejectedState = path.join(directory, 'rejected state');
+  assert.equal(rejected.code, 1);
+  assert.match(rejected.stderr, /ENROLLMENT_HTTP_ERROR/);
+  assert.match(rejected.stderr, /HTTP 503/);
+  assert.ok(rejected.stderr.includes(enrollmentRequestId));
+  assert.ok(rejected.stderr.includes(rejectedState));
+  assert.equal(enrollments, 2, 'A failed one-use redemption must not be retried automatically');
+  const diagnostic = JSON.parse(await readFile(path.join(rejectedState, 'enrollment-error.json'), 'utf8'));
+  assert.equal(diagnostic.code, 'ENROLLMENT_HTTP_ERROR');
+  assert.equal(diagnostic.httpStatus, 503); assert.equal(diagnostic.requestId, enrollmentRequestId);
+  const status = await run(download, ['status', '--state-dir', rejectedState], directory);
+  assert.equal(status.code, 0, status.stderr);
+  assert.equal(JSON.parse(status.stdout).credentialState, 'missing');
+  assert.deepEqual(JSON.parse(status.stdout).enrollmentError, diagnostic);
+  await assert.rejects(readFile(path.join(rejectedState, 'session.json')), { code: 'ENOENT' });
+  if (process.platform !== 'win32') assert.equal((await stat(path.join(rejectedState, 'enrollment-error.json'))).mode & 0o077, 0);
+  for (const secret of [password, enrollmentToken, accessToken, 'private server failure']) {
+    assert.ok(!(rejected.stdout + rejected.stderr + status.stdout + JSON.stringify(diagnostic)).includes(secret));
+  }
 });

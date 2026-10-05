@@ -56,6 +56,8 @@ Repair preflight failures and retry the valid handoff. Once credentials are save
 
 `connection.json` contains private runtime settings, `session.json` holds rotating credentials, and `work/` plus runtime-specific ledgers store durable work. Preserve this directory during repairs. Credentials, provider responses and tokens are excluded from status reports.
 
+Enrollment failures report a safe error code, HTTP status when available, a client-generated request ID and the persistent state-directory path. The private `enrollment-error.json` retains those diagnostics; `status` reports them alongside `credentialState: "saved"` or `"missing"`. Remote response bodies and secrets are never included. A rejected request, interrupted connection or failed local save does not establish that the one-use token is still usable. Check Agent connections before retrying, preserve the state, and reconnect an existing identity when credentials are lost. Successful credential recovery clears the previous enrollment diagnostic. For server failures, use the request ID to correlate backend logs.
+
 ## Build and verification
 
 ```sh

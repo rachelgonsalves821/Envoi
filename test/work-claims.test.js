@@ -131,7 +131,9 @@ test('claims are exclusive and fenced completion creates one replayable processe
 test('expired leases are reclaimed under a new fence and retry failures observe backoff', async t => {
   const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000', SINALOA_AGENT_WORK_RETRY_BASE_MS: '40' });
   const first = (await state.claim()).payload.work;
-  await new Promise(resolve => setTimeout(resolve, 1050));
+  const claimPath = path.join('inboxes', state.recipient.inbox.id, 'work-claims', `${first.workId}.json`);
+  const firstClaim = await state.fixtureStore.getJson(claimPath);
+  await state.fixtureStore.putJson(claimPath, { ...firstClaim, leaseExpiresAt: new Date(Date.now() - 60_000).toISOString() });
   const reclaimed = (await state.claim()).payload.work;
   assert.ok(reclaimed);
   assert.notEqual(reclaimed.leaseToken, first.leaseToken);
@@ -141,8 +143,15 @@ test('expired leases are reclaimed under a new fence and retry failures observe 
   assert.equal(acknowledged.status, 201);
   const retryable = await state.work('fail', reclaimed.workId, state.recipient.agentApiToken, { leaseToken: reclaimed.leaseToken, retryable: true, reasonCode: 'temporary' });
   assert.deepEqual(retryable.payload, { workId: state.message.id, status: 'retryable' });
+  const retryState = await state.fixtureStore.getJson(claimPath);
+  assert.equal(retryState.status, 'retryable');
+  assert.equal(retryState.attempts, 2);
+  assert.ok(Date.parse(retryState.retryAt) - Date.parse(retryState.failure.createdAt) >= 80, 'The second attempt must schedule exponential backoff');
+  // The original 80 ms can expire before a CI HTTP round trip finishes. Check
+  // both sides of the persisted deadline without relying on runner speed.
+  await state.fixtureStore.putJson(claimPath, { ...retryState, retryAt: new Date(Date.now() + 60_000).toISOString() });
   assert.equal((await state.claim()).payload.work, null);
-  await new Promise(resolve => setTimeout(resolve, 120));
+  await state.fixtureStore.putJson(claimPath, { ...retryState, retryAt: new Date(Date.now() - 60_000).toISOString() });
   const retryClaim = (await state.claim()).payload.work;
   assert.ok(retryClaim);
   assert.notEqual(retryClaim.leaseToken, reclaimed.leaseToken);
