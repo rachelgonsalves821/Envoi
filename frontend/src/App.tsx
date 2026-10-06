@@ -1257,6 +1257,11 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [revokeResult, setRevokeResult] = useState<{ revokedAt: string; credentialFamilyCount: number } | null>(null);
   const [reconnectOpen, setReconnectOpen] = useState(false);
   const [reconnectResult, setReconnectResult] = useState<EnrollmentResult | null>(null);
+  const [museSendOpen, setMuseSendOpen] = useState(false);
+  const [museRecipient, setMuseRecipient] = useState('');
+  const [museSendBusy, setMuseSendBusy] = useState(false);
+  const [museSendError, setMuseSendError] = useState('');
+  const [museSendResult, setMuseSendResult] = useState<Awaited<ReturnType<typeof api.museSendTestGrant>> | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
   const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
@@ -1299,6 +1304,23 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     } catch (caught) { setPauseError(errorMessage(caught)); }
     finally { setPauseBusy(false); }
   }
+  function closeMuseSend() {
+    setMuseSendOpen(false);
+    setMuseSendResult(null);
+    setMuseRecipient('');
+    setMuseSendError('');
+  }
+  async function grantMuseSend(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMuseSendBusy(true);
+    setMuseSendError('');
+    try {
+      const result = await api.museSendTestGrant(workspace.id, agent.id, museRecipient.trim());
+      setMuseSendResult(result);
+      notify('One Muse test-message credential created. Copy it before closing this dialog.');
+    } catch (caught) { setMuseSendError(errorMessage(caught)); }
+    finally { setMuseSendBusy(false); }
+  }
   return <article className="integration-card">
     <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={frozen ? 'revoked' : pending ? 'needs human' : agent.pausedAt ? 'paused' : agent.onboardingStatus === 'approved' ? 'enrolled' : agent.status} /></div>
     {emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}
@@ -1310,6 +1332,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
     {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{pauseBusy ? 'Saving…' : agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}
     {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}
+    {canManageInbox && !frozen && agent.runtime === 'muse' && agent.onboardingStatus === 'approved' && agent.status === 'active' && !agent.pausedAt && <button className="button secondary" onClick={() => { setMuseSendError(''); setMuseSendResult(null); setMuseSendOpen(true); }}>Allow one Muse test message</button>}
     {canManageInbox && frozen && <button className="button primary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}
     {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
@@ -1324,6 +1347,20 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep access</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Freezing…' : 'Freeze agent'}</button></div>
     </Modal>}
     {reconnectOpen && canManageInbox && <EnrollmentDialog workspace={workspace} reconnectAgent={agent} result={reconnectResult} setResult={setReconnectResult} onRefresh={onRefresh} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} />}
+    {museSendOpen && canManageInbox && agent.runtime === 'muse' && <Modal title={`One Muse test message from ${agent.name}`} onClose={closeMuseSend} dismissible={!museSendBusy}>
+      {museSendResult ? <>
+        <InlineNotice title="Copy before closing" body="This five-minute credential is shown once. Paste it only into Muse's secure Custom Connector credential field, never into a chat or URL. It can send one text message to the exact Hermes address below." tone="attention" />
+        <label className="field"><span>Muse send-test credential</span><div className="copy-field"><input readOnly value={museSendResult.sendTestToken} aria-label="One-time Muse send-test credential" /><CopyButton value={museSendResult.sendTestToken} label="Copy one-time Muse send-test credential" /></div></label>
+        <p className="dialog-copy">Approved recipient: <code>{museSendResult.recipientAddress}</code>. Configure a sensitive-write <code>POST /api/inboxes/{museSendResult.senderInboxId}/messages</code> action with <code>senderAgentId: {museSendResult.senderAgentId}</code>, <code>recipientEmail: {museSendResult.recipientAddress}</code>, and the message text. Muse may require your approval before it calls the action. An accepted message does not prove Hermes has replied.</p>
+        <p className="dialog-copy">Expires {formatAbsolute(museSendResult.expiresAt)}. Repeating the identical request must return the same Envoi message; a changed message needs a new owner-approved grant.</p>
+        <div className="dialog-actions"><button type="button" className="button primary" onClick={closeMuseSend}>Done</button></div>
+      </> : <form onSubmit={event => void grantMuseSend(event)}>
+        <p className="dialog-copy">Choose the exact address of an active Hermes agent in this staging workspace. This authorizes one short-lived test message from {agent.address}; it does not enable general sending, files, or unattended Muse replies.</p>
+        <label className="field"><span>Hermes recipient address</span><input type="email" required autoComplete="off" value={museRecipient} onChange={event => setMuseRecipient(event.target.value)} placeholder="hermes@agents.envoi-agents.com" /></label>
+        <FormError message={museSendError} />
+        <div className="dialog-actions"><button type="button" className="button secondary" disabled={museSendBusy} onClick={closeMuseSend}>Cancel</button><button type="submit" className="button primary" disabled={museSendBusy || !museRecipient.trim()}>{museSendBusy ? 'Creating…' : 'Create one-message credential'}</button></div>
+      </form>}
+    </Modal>}
   </article>;
 }
 

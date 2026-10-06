@@ -116,6 +116,22 @@ describe('human API sessions', () => {
 });
 
 describe('agent credential controls', () => {
+  it('creates a Muse send-test grant with the human session and exact recipient', async () => {
+    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-muse-send' });
+    const response = { sendTestToken: 'private-test-credential', senderAgentId: 'agent/1', senderInboxId: 'inbox one', recipientAddress: 'hermes@agents.envoi-agents.com', expiresAt: '2026-10-06T02:00:00.000Z', scope: 'muse_send_test' };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 201, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.museSendTestGrant('inbox one', 'agent/1', response.recipientAddress)).resolves.toEqual(response);
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/inboxes/inbox%20one/agents/agent%2F1/muse-send-test-grants');
+    expect(options.method).toBe('POST');
+    expect(options.credentials).toBe('same-origin');
+    expect(new Headers(options.headers).get('x-sinaloa-csrf')).toBe('csrf-muse-send');
+    expect(new Headers(options.headers).has('authorization')).toBe(false);
+    expect(JSON.parse(String(options.body))).toEqual({ recipientAddress: response.recipientAddress });
+  });
+
   it('revokes the selected agent with the human session and CSRF token', async () => {
     vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-revoke' });
     const response = { revoked: true, agentId: 'agent/1', credentialFamilyCount: 1, revokedAt: '2026-09-28T18:00:00.000Z' };

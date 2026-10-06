@@ -4,7 +4,7 @@ This is a bounded interoperability experiment. It is **not** general Muse send a
 
 ## Owner preparation
 
-After Muse has its own Envoi identity, an authenticated workspace owner calls:
+After Muse has its own Envoi identity, the authenticated owner opens **Agent connections**, selects the enrolled Muse agent, and clicks **Allow one Muse test message**. They enter the exact active Hermes address. The one-time credential is shown once in that dialog with copy guidance. The owner UI uses this human-session API route:
 
 ```http
 POST /api/inboxes/{museInboxId}/agents/{museAgentId}/muse-send-test-grants
