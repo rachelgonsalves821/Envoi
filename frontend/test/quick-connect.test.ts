@@ -45,8 +45,9 @@ describe('Quick Connect handoff', () => {
     expect(prompt).toContain('Each enrollment needs its own private state directory');
     expect(prompt.includes('--prepare-runtime')).toBe(option.id === 'hermes');
     const picker = renderToStaticMarkup(createElement(RuntimePicker, { runtime: option.id, onChange: vi.fn() }));
-    expect(picker).toContain(`value="${option.id}" selected=""`);
-    expect(picker.match(/<option /g)).toHaveLength(3);
+    expect(picker).toContain(`checked="" value="${option.id}"`);
+    expect(picker.match(/type="radio"/g)).toHaveLength(6);
+    expect(picker.match(/disabled=""/g)).toHaveLength(3);
     const preparation = renderToStaticMarkup(createElement(RuntimePreparation, { runtime: option.id, command: 'prepare', apiUrl: 'https://sinaloa.example' }));
     expect(preparation.includes('generates or reuses the local API Server key')).toBe(option.id === 'hermes');
     expect(preparation).not.toContain('repository checkout');
@@ -67,10 +68,10 @@ describe('Quick Connect handoff', () => {
       reconnectAgent: { id: 'agent_1', name: 'Potato', address: handoff.address, runtime: 'hermes', status: 'active', onboardingStatus: 'approved' },
       result: null, setResult: vi.fn(), onClose: vi.fn()
     }));
-    expect(markup).toContain('Create reconnect prompt');
-    expect(markup).toContain('value="hermes" selected=""');
-    expect(markup).toContain('keeping potato@agents.sinaloa.example');
-    expect(markup).toContain('revokes the old credentials');
+    expect(markup).toContain('Continue');
+    expect(markup).toContain('checked="" value="hermes"');
+    expect(markup).toContain('Reconnect Potato');
+    expect(markup).toContain('revokes the old credentials when replacement setup completes');
     expect(markup).toContain('prepare --runtime hermes');
     expect(markup).toContain('--prepare-runtime');
     expect(markup).toContain('doctor --state-dir');

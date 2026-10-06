@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { flushSync } from 'react-dom';
 import {
   Activity, AlertCircle, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
-  CircleDashed, Clock3, Command, Copy, Database, Download, FileCheck2, FileText, Gauge, Inbox,
-  KeyRound, Link2, ListFilter, Menu, MoreHorizontal, PanelRightClose, PanelRightOpen,
-  Pause, Play, PlugZap, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
+  ChevronRight, CircleDashed, Clock3, Command, Copy, Database, Download, FileCheck2, FileText, Gauge, Inbox,
+  KeyRound, LayoutGrid, Link2, List, ListFilter, Menu, MoreHorizontal, PanelRightClose, PanelRightOpen,
+  Folder, Hand, LogOut, Pause, Play, PlugZap, Plus, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl, setExpectedHuman } from './api';
@@ -704,90 +704,158 @@ interface ShellProps {
   onLoadOlder?: () => Promise<void>; historyBusy?: boolean;
 }
 
+type AgentEntry = { agent: Agent; inbox: Workspace; view: HumanView };
+
 function AppShell(props: ShellProps) {
-  const { config, human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout, syncNotice } = props;
+  const { human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout, syncNotice } = props;
   const canManageInbox = view.canManageInbox === true;
   const [section, setSection] = useState<NavSection>('inbox');
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
-  const [railOpen, setRailOpen] = useState(true);
+  const [railOpen, setRailOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [mobileDetail, setMobileDetail] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [expandedAgents, setExpandedAgents] = useState<string[]>([]);
   const [toast, setToast] = useState('');
-  const counts = useMemo(() => caseCounts(view), [view]);
-  const projectedCases = view.caseQueue;
-  const visibleCases = useMemo(() => casesForSection(projectedCases, section, view.assets), [section, projectedCases, view.assets]);
-  const selectedCase = projectedCases.find(item => item.id === selectedCaseId) || visibleCases[0] || null;
+  const [childViews, setChildViews] = useState<Record<string, HumanView>>({});
+  const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
+  const agentInboxes = workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === rootWorkspace.id);
+  const agentInboxKey = agentInboxes.map(item => item.id).sort().join(',');
+  const agentEntries: AgentEntry[] = agentInboxes.flatMap(inbox => (childViews[inbox.id] || (workspace.id === inbox.id ? view : null))?.agents.filter(agent => agent.id === inbox.ownerAgentId).map(agent => ({ agent, inbox, view: childViews[inbox.id] || view })) || []);
+  if (workspace.id === rootWorkspace.id) {
+    for (const agent of view.agents) if (!agentEntries.some(entry => entry.agent.id === agent.id)) agentEntries.push({ agent, inbox: workspace, view });
+  }
+  const aggregateViews = [view, ...[rootWorkspace, ...agentInboxes].filter(inbox => inbox.id !== workspace.id).map(inbox => childViews[inbox.id]).filter((item): item is HumanView => Boolean(item))];
+  const queueView: HumanView = workspace.id === rootWorkspace.id ? {
+    ...view,
+    agents: agentEntries.map(entry => entry.agent),
+    caseQueue: aggregateViews.flatMap(item => item.caseQueue),
+    messages: aggregateViews.flatMap(item => item.messages),
+    assets: aggregateViews.flatMap(item => item.assets),
+    participantDirectory: Object.assign({}, ...aggregateViews.map(item => item.participantDirectory || {}))
+  } : view;
+  const counts = caseCounts(queueView);
+  const caseSources = aggregateViews.flatMap(item => item.caseQueue.map(workCase => ({ workCase, sourceView: item, key: `${item.inbox.id}:${workCase.id}` })));
+  const visibleCaseEntries = casesForSection(queueView.caseQueue, section, queueView.assets).flatMap(item => {
+    const source = caseSources.find(entry => entry.workCase === item);
+    return source ? [source] : [];
+  });
+  const visibleCases = visibleCaseEntries.map(entry => entry.workCase);
+  const selectedCaseEntry = visibleCaseEntries.find(item => item.key === selectedCaseId) || visibleCaseEntries[0] || null;
+  const selectedCase = selectedCaseEntry?.workCase || null;
+  const selectedCaseView = selectedCaseEntry?.sourceView || view;
+  const currentAgent = workspace.kind === 'agent' ? view.agents.find(item => item.id === workspace.ownerAgentId) || null : null;
 
   useEffect(() => { document.documentElement.dataset.theme = 'light'; localStorage.removeItem('sinaloa.theme'); }, []);
   useEffect(() => {
-    const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setSearchOpen(true); } };
+    if (rootWorkspace.id === previewWorkspace.id) return;
+    let cancelled = false;
+    const inboxes = [rootWorkspace, ...agentInboxes];
+    let loading = false;
+    async function refreshChildren() {
+      if (loading) return;
+      loading = true;
+      try {
+        const results = await Promise.all(inboxes.map(async inbox => {
+          try { return [inbox.id, await api.humanView(inbox.id)] as const; }
+          catch { return null; }
+        }));
+        if (!cancelled) setChildViews(current => ({ ...current, ...Object.fromEntries(results.filter((entry): entry is readonly [string, HumanView] => entry !== null)) }));
+      } finally { loading = false; }
+    }
+    void refreshChildren();
+    const timer = window.setInterval(() => void refreshChildren(), 30_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [rootWorkspace.id, agentInboxKey]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      const editing = ['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable;
+      if (!editing && event.key === '/') { event.preventDefault(); document.querySelector<HTMLInputElement>('.queue-search input')?.focus(); }
+      if (event.key === 'Escape') setNavOpen(false);
+    };
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
   }, []);
-  useEffect(() => { if (!selectedCaseId && visibleCases[0]) setSelectedCaseId(visibleCases[0].id); }, [selectedCaseId, visibleCases]);
+  useEffect(() => { if (!selectedCaseId && visibleCaseEntries[0]) setSelectedCaseId(visibleCaseEntries[0].key); }, [selectedCaseId, visibleCaseEntries]);
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 4200); return () => window.clearTimeout(timer); } }, [toast]);
 
   function chooseSection(next: NavSection) {
     setSection(next); setSelectedCaseId(null); setMobileDetail(false); setNavOpen(false);
+  }
+  function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox') {
+    chooseSection(nextSection);
+    if (next.id !== workspace.id) void onSelectWorkspace(next).catch(caught => setToast(errorMessage(caught)));
+  }
+  async function refreshSelectedCase() {
+    if (selectedCaseView.inbox.id === workspace.id) { await onRefresh(); return; }
+    await refreshAgentInbox(selectedCaseView.inbox.id);
+  }
+  async function refreshAgentInbox(inboxId: string) {
+    const refreshed = await api.humanView(inboxId);
+    setChildViews(current => ({ ...current, [inboxId]: refreshed }));
+  }
+  function toggleAgent(agentId: string) {
+    setExpandedAgents(current => current.includes(agentId) ? current.filter(id => id !== agentId) : [...current, agentId]);
   }
 
   const utilitySection = !caseSections.includes(section);
 
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content">Skip to conversation</a>
+      <a className="skip-link" href="#main-content">Skip to content</a>
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`primary-nav ${navOpen ? 'is-open' : ''}`} aria-label="Primary">
-        <div className="nav-brand"><div className="brand-lockup"><BrandMark /><span>Envoi</span></div><button className="icon-button mobile-only" aria-label="Close navigation" onClick={() => setNavOpen(false)}><X size={18} /></button></div>
-        <WorkspacePicker workspaces={workspaces} workspace={workspace} onChange={onSelectWorkspace} />
+        <div className="nav-brand"><div className="brand-lockup"><BrandMark /><span>envoi</span></div><button className="icon-button" aria-label="New case unavailable" title="New case is not available yet" disabled><Plus size={16} /></button><button className="icon-button mobile-only" aria-label="Close navigation" onClick={() => setNavOpen(false)}><X size={18} /></button></div>
         <nav className="nav-list">
-          <NavItem section="inbox" label="Inbox" icon={<Inbox />} count={counts.inbox} active={section === 'inbox'} onClick={chooseSection} />
-          <NavItem section="needsMe" label="Needs me" icon={<UserRound />} count={counts.needsMe} active={section === 'needsMe'} onClick={chooseSection} attention />
-          <NavItem section="active" label="In motion" icon={<Zap />} count={counts.active} active={section === 'active'} onClick={chooseSection} />
-          <NavItem section="waiting" label="Waiting" icon={<Clock3 />} count={counts.waiting} active={section === 'waiting'} onClick={chooseSection} />
-          <NavItem section="documents" label="Shared files" icon={<FileText />} count={counts.documents} active={section === 'documents'} onClick={chooseSection} />
-          <NavItem section="completed" label="Done" icon={<CheckCircle2 />} count={counts.completed} active={section === 'completed'} onClick={chooseSection} />
-          <div className="nav-separator" />
+          <NavItem section="inbox" label="All inboxes" icon={<Inbox />} count={counts.inbox} active={workspace.id === rootWorkspace.id && section === 'inbox'} onClick={() => chooseInbox(rootWorkspace)} />
+          <NavItem section="needsMe" label="Needs you" icon={<Hand />} count={counts.needsMe} active={workspace.id === rootWorkspace.id && section === 'needsMe'} onClick={() => chooseInbox(rootWorkspace, 'needsMe')} attention />
+          <NavItem section="completed" label="Done" icon={<Check />} active={workspace.id === rootWorkspace.id && section === 'completed'} onClick={() => chooseInbox(rootWorkspace, 'completed')} />
+          <div className="nav-section-heading"><span>Agents</span><button aria-label="Add agent" onClick={() => chooseSection('integrations')}><Plus size={15} /></button></div>
+          {agentEntries.map(({ agent, inbox }, index) => {
+            const name = agent.name;
+            const expanded = expandedAgents.includes(agent.id);
+            const color = AGENT_COLORS[index % AGENT_COLORS.length];
+            return <div key={agent.id}><div className="agent-nav-row"><button className="nav-item" aria-current={inbox && workspace.id === inbox.id ? 'page' : undefined} onClick={() => inbox ? chooseInbox(inbox) : chooseSection('integrations')}><span className="agent-dot" style={{ '--agent-color': color } as React.CSSProperties}>{initials(name)}</span><span>{name}</span>{agent.onboardingStatus !== 'approved' && <span className="nav-count">Setup</span>}</button>{inbox && <button className="icon-button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${name}`} aria-expanded={expanded} onClick={() => toggleAgent(agent.id)}><ChevronDown size={14} /></button>}</div>{expanded && inbox && <div className="agent-subnav"><NavItem section="inbox" label="Inbox" icon={<Inbox />} active={workspace.id === inbox.id && section === 'inbox'} onClick={() => chooseInbox(inbox)} /><NavItem section="needsMe" label="Needs you" icon={<Hand />} active={workspace.id === inbox.id && section === 'needsMe'} onClick={() => chooseInbox(inbox, 'needsMe')} /><NavItem section="completed" label="Done" icon={<Check />} active={workspace.id === inbox.id && section === 'completed'} onClick={() => chooseInbox(inbox, 'completed')} /></div>}</div>;
+          })}
+          <div className="nav-section-heading"><span>Folders</span><button aria-label="Folders unavailable" title="Folder management requires backend support" disabled><Plus size={15} /></button></div>
+          <div className="nav-spacer" />
+          <NavItem section="documents" label="Files" icon={<FileText />} active={section === 'documents'} onClick={chooseSection} />
+          <NavItem section="integrations" label="Manage agents" icon={<UsersRound />} active={section === 'integrations'} onClick={chooseSection} />
           <NavItem section="policies" label="Permissions" icon={<ShieldCheck />} active={section === 'policies'} onClick={chooseSection} />
-          <NavItem section="integrations" label="Agent connections" icon={<PlugZap />} count={counts.integrations} active={section === 'integrations'} onClick={chooseSection} />
-          <NavItem section="activity" label="Activity log" icon={<Activity />} active={section === 'activity'} onClick={chooseSection} />
+          <NavItem section="activity" label="Activity" icon={<Activity />} active={section === 'activity'} onClick={chooseSection} />
         </nav>
         <div className="nav-footer">
-          <div className="principal-card"><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{human.displayName}</strong><small>Principal · {config.provider === 'workos' ? 'WorkOS' : 'local MFA'}</small></div><button className="icon-button" aria-label="Sign out" onClick={() => void onLogout()}><MoreHorizontal size={18} /></button></div>
+          <div className="principal-card"><span className="counterparty-avatar" style={{ '--avatar-color': 'var(--ink2)' } as React.CSSProperties}>{initials(human.displayName)}</span><div><strong>{human.displayName}</strong><small>{human.email || ''}</small></div><button className="icon-button" aria-label="Sign out" title="Sign out" onClick={() => void onLogout()}><LogOut size={16} /></button></div>
         </div>
       </aside>
 
-      <section className={`application ${view.history ? 'has-history' : ''} ${utilitySection ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
-        <header className="topbar">
-          <button className="icon-button mobile-only" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={19} /></button>
-          <button className="search-trigger" onClick={() => setSearchOpen(true)}><Search size={16} /><span>Search conversations, people, and tags…</span><kbd>⌘K</kbd></button>
-          <div className="topbar-actions"><button className="icon-button" aria-label="Refresh workspace" onClick={() => void onRefresh()}><RefreshCw size={17} /></button></div>
-        </header>
-          {view.history && <div className="history-controls"><small>{view.cases.length} of {view.history.cases?.total ?? view.cases.length} conversations loaded · Filters and search cover loaded history</small>{Object.keys(olderCursors(view)).length > 0 && <button className="button quiet" disabled={props.historyBusy} onClick={() => void props.onLoadOlder?.()}>{props.historyBusy ? 'Loading history…' : 'Load older history'}</button>}</div>}
-        {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span><button className="button quiet" onClick={() => void onRefresh()}>Refresh now</button></div>}
+      <section className={`application ${utilitySection ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
+        {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span></div>}
 
         {utilitySection ? (
           <main id="main-content" className="utility-content">
-            {section === 'documents' && <SharedFilesPage view={view} notify={setToast} />}
-            {section === 'policies' && <PoliciesPage view={view} />}
-            {section === 'integrations' && <IntegrationsPage view={view} workspace={workspace} agentInboxes={workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === workspace.id)} humanId={human.id} canManageInbox={canManageInbox} onSelectWorkspace={onSelectWorkspace} onRefresh={onRefresh} notify={setToast} />}
-            {section === 'activity' && <ActivityPage view={view} />}
+            <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
+            {section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={item => { chooseSection('inbox'); setSelectedCaseId(`${view.inbox.id}:${item.id}`); setMobileDetail(true); }} />}
+            {section === 'policies' && <PoliciesPage entries={agentEntries} />}
+            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
+            {section === 'activity' && <ActivityPage view={view} onOpenCase={item => { chooseSection('inbox'); setSelectedCaseId(`${view.inbox.id}:${item.id}`); setMobileDetail(true); }} />}
           </main>
         ) : (
           <div className={`case-layout ${mobileDetail ? 'show-detail' : ''}`}>
-            <CaseQueue section={section} cases={visibleCases} view={view} selectedId={selectedCase?.id || null} onSelect={item => { setSelectedCaseId(item.id); setMobileDetail(true); }} />
+            <CaseQueue section={section} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={item => { setSelectedCaseId(caseSources.find(source => source.workCase === item)?.key || null); setMobileDetail(true); }} />
             <main id="main-content" className="case-main">
-              {selectedCase ? <CaseWorkspace workCase={selectedCase} view={view} canManageInbox={canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => setMobileDetail(false)} onRefresh={onRefresh} notify={setToast} /> : <EmptyCaseState section={section} />}
+              {selectedCase ? <CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => setMobileDetail(false)} onRefresh={refreshSelectedCase} notify={setToast} /> : <EmptyCaseState section={section} />}
             </main>
           </div>
         )}
       </section>
-      {searchOpen && <CommandMenu view={view} onClose={() => setSearchOpen(false)} onSelectCase={item => { chooseSection(sectionForCase(item)); setSelectedCaseId(item.id); setMobileDetail(true); setSearchOpen(false); }} />}
       <div className="sr-live" aria-live="polite">{toast}</div>
       {toast && <div className="toast"><Check size={16} />{toast}</div>}
     </div>
   );
 }
+
+const AGENT_COLORS = ['var(--accent)', 'var(--agent-purple)', 'var(--green)', 'var(--orange)', 'var(--agent-teal)', 'var(--red)', 'var(--ink2)'];
+function initials(value: string) { return value.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase() || '').join('') || '?'; }
 
 function WorkspacePicker({ workspaces, workspace, onChange }: { workspaces: Workspace[]; workspace: Workspace; onChange: (workspace: Workspace) => Promise<void> }) {
   return (
@@ -799,41 +867,55 @@ function NavItem({ section, label, icon, count, active, attention, onClick }: { 
   return <button className={`nav-item ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => onClick(section)}><span className="nav-icon">{icon}</span><span>{label}</span>{Boolean(count) && <span className={`nav-count ${attention ? 'attention' : ''}`} aria-label={`${count} items`}>{count! > 9 ? '9+' : count}</span>}</button>;
 }
 
-function CaseQueue({ section, cases, view, selectedId, onSelect }: { section: NavSection; cases: WorkCase[]; view: HumanView; selectedId: string | null; onSelect: (workCase: WorkCase) => void }) {
+function CaseQueue({ section, cases, view, currentAgent, selectedId, caseKey, onOpenNav, onLoadOlder, historyBusy, onSelect }: { section: NavSection; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void }) {
   const [query, setQuery] = useState('');
-  const [activeTag, setActiveTag] = useState('All');
-  const tags = [...new Set(cases.flatMap(conversationTags))];
-  useEffect(() => { if (activeTag !== 'All' && !tags.includes(activeTag)) setActiveTag('All'); }, [activeTag, section, tags.join('|')]);
+  const loadMarker = useRef<HTMLDivElement>(null);
+  const hasMore = Boolean(Object.keys(olderCursors(view)).length);
+  useEffect(() => {
+    if (!hasMore || !onLoadOlder || historyBusy || !loadMarker.current) return;
+    const observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) void onLoadOlder(); }, { root: loadMarker.current.parentElement, rootMargin: '120px' });
+    observer.observe(loadMarker.current);
+    return () => observer.disconnect();
+  }, [hasMore, historyBusy, onLoadOlder]);
   const filtered = cases.filter(item => {
-    const searchable = `${item.objective || item.id} ${conversationPreview(item)} ${conversationTags(item).join(' ')}`.toLowerCase();
-    return searchable.includes(query.toLowerCase()) && (activeTag === 'All' || conversationTags(item).includes(activeTag));
+    const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const agent = view.agents.find(value => value.id === item.actingAgent);
+    const searchable = `${item.objective || item.id} ${conversationPreview(item)} ${conversationTags(item).join(' ')} ${agent?.name || ''}`.toLowerCase();
+    return words.every(word => {
+      if (word.startsWith('agent:')) return (agent?.name || '').toLowerCase().includes(word.slice(6));
+      if (word.startsWith('status:')) return caseLabel(item).toLowerCase().includes(word.slice(7));
+      if (word.startsWith('type:')) return timelineForCase(item, view.messages).some(event => String(event.payload.messageType || event.type).toLowerCase().includes(word.slice(5)));
+      if (word.startsWith('folder:')) return false;
+      return searchable.includes(word);
+    });
   }).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
   return (
-    <aside className="case-queue" aria-label={`${sectionTitle(section)} conversations`}>
-      <div className="queue-header"><div><p className="eyebrow">Agent inbox</p><h1>{sectionTitle(section)}</h1></div></div>
-      <label className="queue-search"><Search size={15} /><span className="sr-only">Search this inbox</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search this inbox" /></label>
-      {tags.length > 0 && <div className="tag-filter" aria-label="Filter conversations by tag"><button className={activeTag === 'All' ? 'active' : ''} onClick={() => setActiveTag('All')}>All</button>{tags.slice(0, 5).map(tag => <button key={tag} className={activeTag === tag ? 'active' : ''} onClick={() => setActiveTag(tag)}>{tag}</button>)}</div>}
-      <div className="queue-summary"><span>{filtered.length} {filtered.length === 1 ? 'conversation' : 'conversations'}</span><span>Newest first</span></div>
+    <aside className="case-queue" aria-label={`${section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'Inbox'} cases`}>
+      <div className="queue-header"><div className="queue-context">{currentAgent ? <><span className="agent-dot" style={{ '--agent-color': AGENT_COLORS[Math.max(0, view.agents.indexOf(currentAgent)) % AGENT_COLORS.length] } as React.CSSProperties}>{initials(currentAgent.name)}</span><span title={currentAgent.address}>{currentAgent.name} · {currentAgent.address}</span></> : <span>All agents</span>}</div><div className="queue-title-row"><button className="icon-button mobile-only queue-menu" aria-label="Open navigation" onClick={onOpenNav}><Menu size={18} /></button><h1>{section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'All inboxes'}</h1></div></div>
+      <label className="queue-search"><Search size={15} /><span className="sr-only">Search cases</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search" /><kbd>/</kbd></label>
       <div className="case-list" role="listbox" aria-label="Conversations">
-        {filtered.map(item => <CaseRow key={item.id} workCase={item} view={view} selected={selectedId === item.id} onSelect={onSelect} />)}
-        {!filtered.length && <div className="empty-list"><CircleDashed size={24} /><strong>{query || activeTag !== 'All' ? 'No conversations match this filter' : emptyTitle(section)}</strong><span>{query || activeTag !== 'All' ? 'Try another search or tag.' : emptyBody(section)}</span></div>}
+        {filtered.map(item => <CaseRow key={caseKey(item)} workCase={item} view={view} showOwner={!currentAgent} selected={selectedId === caseKey(item)} onSelect={onSelect} />)}
+        {!filtered.length && <div className="empty-list"><Inbox size={24} /><strong>{query ? 'No matches' : 'All clear'}</strong><span>{query ? 'Try a different search.' : 'Cases will appear here.'}</span></div>}
+        {hasMore && <div ref={loadMarker} aria-hidden="true" />}
       </div>
     </aside>
   );
 }
 
-function CaseRow({ workCase, view, selected, onSelect }: { workCase: WorkCase; view: HumanView; selected: boolean; onSelect: (workCase: WorkCase) => void }) {
-  const state = caseState(workCase); const tone = caseTone(workCase); const label = caseLabel(workCase); const updated = workCase.updatedAt || workCase.createdAt;
+function CaseRow({ workCase, view, showOwner, selected, onSelect }: { workCase: WorkCase; view: HumanView; showOwner: boolean; selected: boolean; onSelect: (workCase: WorkCase) => void }) {
+  const updated = workCase.updatedAt || workCase.createdAt;
   const events = timelineForCase(workCase, view.messages);
   const counterpartId = participantIds(workCase, events).find(id => id !== workCase.actingAgent && id !== workCase.principal);
   const counterparty = resolveParticipant(workCase, counterpartId, view.agents, view.participantDirectory);
-  const tags = conversationTags(workCase);
+  const owner = view.agents.find(item => item.id === workCase.actingAgent);
+  const today = new Date(updated).toDateString() === new Date().toDateString();
+  const counterpartyColor = AGENT_COLORS[Math.abs(Array.from(counterparty.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
+  const ownerColor = AGENT_COLORS[Math.max(0, view.agents.findIndex(item => item.id === owner?.id)) % AGENT_COLORS.length];
   return (
-    <button role="option" aria-selected={selected} className={`case-row tone-${tone} ${selected ? 'selected' : ''}`} onClick={() => onSelect(workCase)}>
-      <span className="case-kind"><CaseIcon workCase={workCase} /></span>
-      <span className="case-row-copy"><span className="thread-sender">{counterparty.displayName}<span className="case-state-line"><StatusGlyph state={state} />{label}</span></span><strong>{workCase.objective || 'Untitled conversation'}</strong><small>{conversationPreview(workCase)}</small><span className="thread-tags">{tags.map(tag => <span key={tag} className={`thread-tag tag-${tag.toLowerCase().replaceAll(' ', '-')}`}>{tag}</span>)}</span></span>
-      <time dateTime={updated}>{formatRelative(updated)}</time>
-      {workCase.needsAttention && <span className="attention-line" aria-label="Needs your attention" />}
+    <button role="option" aria-selected={selected} className={`case-row ${selected ? 'selected' : ''} ${workCase.needsAttention ? 'is-unread' : ''} ${caseState(workCase) === 'completed' ? 'is-done' : ''}`} onClick={() => onSelect(workCase)}>
+      <span className="counterparty-avatar" style={{ '--avatar-color': counterpartyColor } as React.CSSProperties}>{initials(counterparty.displayName)}{showOwner && owner && <span className="owner-badge" style={{ '--owner-color': ownerColor } as React.CSSProperties} title={owner.name}>{initials(owner.name)[0]}</span>}</span>
+      <span className="case-row-copy"><span className="thread-sender">{counterparty.displayName}</span><strong>{workCase.objective || 'Untitled case'}</strong><small>{conversationPreview(workCase)}</small>{workCase.needsAttention && <span className="case-chip">Needs you</span>}</span>
+      <time dateTime={updated}>{today ? formatTime(updated) : formatDate(updated)}</time>
     </button>
   );
 }
@@ -845,7 +927,10 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   const [drawer, setDrawer] = useState<{ type: 'policy' | 'evidence'; item?: PolicyEvaluation | EvidenceItem } | null>(null);
   const [confirm, setConfirm] = useState<HumanActionKey | null>(null);
   const [busy, setBusy] = useState<HumanActionKey | null>(null);
-  const caseAssets = view.assets.filter(item => item.caseId === workCase.id);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const local = resolveParticipant(workCase, workCase.actingAgent, view.agents, view.participantDirectory);
+  const counterpartyId = participantIds(workCase, events).find(id => id !== workCase.actingAgent && id !== workCase.principal);
+  const counterparty = resolveParticipant(workCase, counterpartyId, view.agents, view.participantDirectory);
 
   async function act(actionKey: HumanActionKey) {
     setBusy(actionKey);
@@ -858,41 +943,49 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   const hasOpenDecision = Boolean(workCase.schemaVersion) && !['completed', 'expired', 'revoked'].includes(state);
   const canAct = canManageInbox && hasOpenDecision;
   return (
-    <div className={`workspace-grid ${railOpen ? 'rail-open' : ''}`}>
-      <article className="case-workspace">
-        <header className="case-header">
-          <div className="case-header-tools"><button className="icon-button mobile-only" aria-label="Back to inbox" onClick={onBack}><ArrowLeft size={18} /></button><span className="object-id">Conversation · {workCase.id}</span><button className="icon-button desktop-only" aria-label={railOpen ? 'Hide conversation details' : 'Show conversation details'} onClick={onRailToggle}>{railOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}</button></div>
-          <div className="case-heading"><div className="case-title-icon"><CaseIcon workCase={workCase} /></div><div><p className="eyebrow">{caseType(workCase)}</p><h1>{workCase.objective || 'Untitled conversation'}</h1><div className="conversation-tags">{conversationTags(workCase).map(tag => <span key={tag} className={`thread-tag tag-${tag.toLowerCase().replaceAll(' ', '-')}`}>{tag}</span>)}</div></div></div>
-          <StatusBadge workCase={workCase} />
-        </header>
-
-        <NegotiationParticipants workCase={workCase} view={view} events={events} canManageInbox={canManageInbox} onRefresh={onRefresh} notify={notify} />
-
-        {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => ['decline', 'takeOver'].includes(key) ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
-        {state === 'unknownExternalResult' && <InlineNotice title="External result is unconfirmed" body="The external system did not return a success or failure response. Retry only with the original idempotency key." tone="unknown" />}
-        {state === 'revoked' && <InlineNotice title="Authority revoked" body="This conversation remains visible. New agent work for this case is blocked." tone="danger" />}
-        {canManageInbox && workCase.schemaVersion && !['completed', 'expired', 'revoked'].includes(state) && <div className="case-control-actions">
-          <button type="button" className="button secondary" disabled={Boolean(busy)} onClick={() => state === 'paused' ? void act('resume') : setConfirm('pause')}>{state === 'paused' ? 'Resume conversation' : 'Pause conversation'}</button>
-          <button type="button" className="button destructive" disabled={Boolean(busy)} onClick={() => setConfirm('revoke')}>Revoke case authority</button>
-        </div>}
-        {workCase.receipt && <ReceiptCard workCase={workCase} />}
-
-        <ProposalHistory workCase={workCase} view={view} events={events} />
-
-        {caseAssets.length > 0 && <section className="mobile-assets-panel" aria-labelledby="shared-files-title"><div className="section-heading"><div><p className="eyebrow">Safety checked</p><h2 id="shared-files-title">Shared files</h2></div><span>{caseAssets.length} {caseAssets.length === 1 ? 'file' : 'files'}</span></div><div className="mobile-assets-list">{caseAssets.map(asset => <AssetRow key={asset.id} asset={asset} inboxId={view.inbox.id} notify={notify} />)}</div></section>}
-
-        <section className="timeline-section" aria-labelledby="timeline-title">
-          <div className="section-heading"><div><p className="eyebrow">Conversation activity</p><h2 id="timeline-title">What the agents are doing</h2></div><span>{events.length} updates</span></div>
-          {events.length ? <ol className="timeline">{events.map((event, index) => <TimelineEvent key={event.id} event={event} last={index === events.length - 1} view={view} workCase={workCase} onPolicy={item => setDrawer({ type: 'policy', item })} />)}</ol> : <div className="empty-panel"><Activity size={22} /><strong>The conversation is just getting started</strong><span>Messages, offers, shared context, and completed actions will appear here.</span></div>}
-        </section>
-
-      </article>
-
-      {railOpen && <ContextRail workCase={workCase} view={view} onPolicy={item => setDrawer({ type: 'policy', item })} onEvidence={item => setDrawer({ type: 'evidence', item })} notify={notify} />}
+    <div className={`envoi-thread ${railOpen ? 'details-open' : ''}`}>
+      <div className="thread-body">
+        <div className="thread-toolbar">
+          <button className="thread-tool mobile-only" aria-label="Back to list" onClick={onBack}><ArrowLeft size={16} /></button>
+          <button className="thread-tool" disabled title="Done needs server support"><Check size={16} />{state === 'completed' ? 'Reopen' : 'Done'}</button>
+          <button className="thread-tool" disabled title="Folder assignment requires backend support"><Folder size={16} />Move</button>
+          <button className="thread-tool" aria-label={canAct ? state === 'paused' ? 'Resume conversation' : 'Pause conversation' : state === 'paused' ? 'Resume' : 'Pause'} disabled={!canAct || Boolean(busy)} onClick={() => state === 'paused' ? void act('resume') : setConfirm('pause')}><Pause size={16} />{canAct ? state === 'paused' ? 'Resume conversation' : 'Pause conversation' : state === 'paused' ? 'Resume' : 'Pause'}</button>
+          <button className="thread-tool thread-tool-right" aria-pressed={railOpen} onClick={onRailToggle}><PanelRightOpen size={16} />Details</button>
+          <div className="thread-more-wrap"><button className="thread-tool icon-only" aria-label="More case actions" aria-expanded={moreOpen} onClick={() => setMoreOpen(value => !value)}><MoreHorizontal size={17} /></button>{moreOpen && <div className="thread-more" role="menu">{canAct && <button role="menuitem" onClick={() => { setMoreOpen(false); if (state === 'paused') void act('resume'); else setConfirm('pause'); }}>{state === 'paused' ? 'Resume conversation' : 'Pause conversation'}</button>}<button role="menuitem" disabled title="Take over needs server support">Take over case</button><button role="menuitem" onClick={() => { setMoreOpen(false); void navigator.clipboard.writeText(workCase.id).then(() => notify('Copied')).catch(() => notify('Copy failed')); }}>Copy case ID</button>{canAct && <button role="menuitem" className="danger" onClick={() => { setMoreOpen(false); setConfirm('revoke'); }}>Revoke case authority</button>}</div>}</div>
+        </div>
+        <div className="thread-scroll"><div className="thread-inner">
+          <h1 className="thread-subject">{workCase.objective || 'Untitled case'}</h1>
+          <div className="thread-meta"><StatusBadge workCase={workCase} /><button className="add-folder" disabled title="Folder assignment requires backend support"><Plus size={13} />Folder</button></div>
+          <div className="participant-duo">
+            <ParticipantCard participant={local} label="Your agent" />
+            <ArrowLeftRight size={18} className="participant-swap" aria-hidden="true" />
+            <ParticipantCard participant={counterparty} label={`Agent for ${counterparty.orgRef || 'another organization'}`} nativeControl={canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
+          </div>
+          {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => key === 'decline' ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
+          {state === 'unknownExternalResult' && <InlineNotice title="Result unknown" body="The external service did not confirm the result. Do not retry with a new key." tone="unknown" />}
+          {state === 'revoked' && <InlineNotice title="Authority revoked" body="New agent work for this case is blocked." tone="danger" />}
+          <div className="conversation" aria-label="Conversation">{events.length ? events.map((event, index) => <ConversationEntry key={event.id} event={event} previous={events[index - 1]} workCase={workCase} view={view} />) : <div className="empty-list"><Inbox size={20} /><strong>No messages yet</strong></div>}</div>
+          {workCase.receipt && <ReceiptCard workCase={workCase} />}
+        </div></div>
+        <div className="thread-composer"><form className="composer-box" onSubmit={event => event.preventDefault()}><input aria-label={`Instructions for ${local.displayName} unavailable`} placeholder="Sending instructions is not available yet" disabled /><button aria-label="Send instruction unavailable" title="Human instructions require backend support" disabled><ArrowRight size={16} /></button></form></div>
+      </div>
+      {railOpen && <aside className="case-details" aria-label="Case details"><div className="details-heading"><strong>Details</strong><button className="icon-button" aria-label="Close details" onClick={onRailToggle}><X size={16} /></button></div><h2>{local.displayName} can</h2>{view.agents.find(item => item.id === local.id)?.permissions.map(permission => <div className="details-row" key={permission}><Check size={14} />{humanize(permission)}</div>) || <p>No permissions listed</p>}<h2>{local.displayName} asks you before</h2><p>Actions outside its permissions</p><h2>Files</h2>{view.assets.filter(item => item.caseId === workCase.id).map(asset => <AssetRow key={asset.id} asset={asset} inboxId={view.inbox.id} notify={notify} />)}<h2>Case</h2><dl><dt>Deadline</dt><dd>{workCase.deadline ? formatDate(workCase.deadline) : 'None'}</dd><dt>ID</dt><dd className="case-id">{workCase.id}</dd></dl></aside>}
       {drawer && <DetailDrawer drawer={drawer} onClose={() => setDrawer(null)} />}
       {confirm && canAct && <ConfirmDialog action={confirm} busy={busy === confirm} onCancel={() => setConfirm(null)} onConfirm={() => void act(confirm)} />}
     </div>
   );
+}
+
+function ConversationEntry({ event, previous, workCase, view }: { event: CaseEvent; previous?: CaseEvent; workCase: WorkCase; view: HumanView }) {
+  const mine = (event.payload.senderAgentId || event.actor) === workCase.actingAgent || Boolean(event.payload.senderHumanId);
+  const participant = resolveParticipant(workCase, event.payload.senderAgentId || event.actor, view.agents, view.participantDirectory);
+  const date = new Date(event.createdAt);
+  const priorDate = previous ? new Date(previous.createdAt) : null;
+  const showDay = !priorDate || date.toDateString() !== priorDate.toDateString();
+  const delivery = String(event.payload.deliveryState || 'unknown');
+  const deliveryLabel = delivery === 'delivered' ? 'Delivered' : ['acknowledged', 'processed'].includes(delivery) ? 'Read' : ['queued', 'retrying', 'deadLettered'].includes(delivery) ? 'Not sent' : 'Unknown';
+  const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
+  return <>{showDay && <div className="conversation-day">{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</div>}{isExchangeEvent(event) ? <div className={`conversation-message ${mine ? 'mine' : 'theirs'}`}><span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{event.payload.senderHumanId ? 'Y' : initials(participant.displayName)}</span><div className="message-content"><div className="message-meta"><strong>{event.payload.senderHumanId ? 'You' : participant.displayName}</strong><span>{exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div><div className="message-bubble">{eventSummary(event)}</div>{mine && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}</div></div> : <div className="conversation-event"><Sparkles size={13} /><span>{eventSummary(event)}</span></div>}</>;
 }
 
 function NegotiationParticipants({ workCase, view, events, canManageInbox, onRefresh, notify }: { workCase: WorkCase; view: HumanView; events: CaseEvent[]; canManageInbox: boolean; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
@@ -914,26 +1007,26 @@ function NegotiationParticipants({ workCase, view, events, canManageInbox, onRef
 }
 
 export function ParticipantCard({ participant, label, nativeControl }: { participant: ReturnType<typeof resolveParticipant>; label: string; nativeControl?: { inboxId: string; onRefresh: () => Promise<unknown>; notify: (message: string) => void } }) {
-  const isAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent';
+  const mine = participant.relationship === 'localAgent';
+  const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  async function setBlocked() {
+  async function toggleBlocked() {
     if (!nativeControl) return;
     const blocked = participant.accessState !== 'blocked';
     setBusy(true); setError('');
     try {
       await api.setNativeContactBlocked(nativeControl.inboxId, participant.id, blocked);
-      nativeControl.notify(blocked ? 'Counterparty blocked.' : 'Counterparty unblocked.');
+      nativeControl.notify(blocked ? 'Counterparty blocked' : 'Counterparty unblocked');
       await nativeControl.onRefresh();
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setBusy(false); }
   }
   return (
-    <div className={`participant-card relationship-${participant.relationship}`}>
-      <span className={`identity-mark ${isAgent ? 'agent' : 'human'}`}>{isAgent ? <Bot size={15} /> : <UserRound size={15} />}</span>
-      <span className="participant-copy"><small>{label}</small><strong>{participant.displayName}</strong>{participant.address && <code>{participant.address}</code>}</span>
-      <span className={`access-state state-${participant.accessState || 'unavailable'}`}>{humanize(participant.accessState || 'unavailable')}</span>
-      {nativeControl && <button type="button" className="button quiet compact" disabled={busy} onClick={() => void setBlocked()}>{busy ? 'Saving…' : participant.accessState === 'blocked' ? 'Unblock agent' : 'Block agent'}</button>}
+    <div className={`participant-card ${mine ? 'mine' : ''}`}>
+      <span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{initials(participant.displayName)}</span>
+      <span className="participant-copy"><small>{label}</small><strong>{participant.displayName}</strong><span className="participant-address" title={participant.address || 'Address unavailable'}>{participant.address || 'Address unavailable'}</span>{participant.accessState === 'blocked' && <span className="participant-access">Blocked</span>}</span>
+      {nativeControl && <button type="button" className="participant-block" disabled={busy} onClick={() => void toggleBlocked()}>{busy ? 'Saving' : participant.accessState === 'blocked' ? 'Unblock agent' : 'Block agent'}</button>}
       {error && <span role="alert">{error}</span>}
     </div>
   );
@@ -944,17 +1037,16 @@ export function DecisionCard({ workCase, view, events, policy, canManageInbox, b
   const option = proposal?.options.find(item => !item.expired);
   const parties = proposal ? proposalParties(workCase, proposal.id, events, view) : null;
   const optionParty = proposal?.status === 'countered' ? parties?.counterparty : parties?.originator;
-  // Case pause, resume and revocation are available in the dedicated controls above.
-  // Takeover still lacks an enforcing server contract.
-  const availableActions = (workCase.decision?.availableActions || []).filter(action => !['pause', 'revoke', 'takeOver'].includes(action));
+  const availableActions = workCase.decision?.availableActions || [];
+  const expired = Boolean(workCase.decision?.expiresAt && Date.parse(workCase.decision.expiresAt) <= Date.now());
   return (
-    <section className="decision-card" aria-labelledby="decision-title">
-      <div className="decision-accent"><Sparkles size={18} /></div>
-      <div className="decision-copy"><p className="eyebrow">{canManageInbox ? 'Your judgment is required' : 'Workspace administrator review'}</p><h2 id="decision-title">{decisionQuestion(workCase, option)}</h2>
-        {option && <ProposalOptionView option={option} expiresAt={proposal?.expiresAt || null} stageLabel={proposal?.status === 'countered' ? 'Counteroffer' : 'Offer'} partyLabel={optionParty?.displayName} />}
-        <button className="authority-link" onClick={onPolicy} disabled={!policy}><AuthoritySeal decision={policy?.decision || 'needsHuman'} /> <span>Recorded policy: {policy?.matchedPolicyId ? humanize(policy.matchedPolicyId) : 'Human approval required'}</span></button>
-      </div>
-      {canManageInbox && availableActions.length > 0 && <div className="decision-actions">{availableActions.map((action, index) => <button key={action} className={`button ${index === 0 ? 'primary' : index === 1 ? 'secondary' : 'quiet'}`} disabled={Boolean(busy)} onClick={() => onAction(action)}>{busy === action ? 'Recording…' : humanize(action)}</button>)}</div>}
+    <section className="decision-card" aria-label="Needs your decision">
+      <div className="decision-label"><Hand size={14} />{expired ? 'Expired' : 'Needs your decision'}</div>
+      {!canManageInbox && <p className="decision-review-label">Workspace administrator review</p>}
+      <h2>{decisionQuestion(workCase, option)}</h2>
+      {option && <ProposalOptionView option={option} expiresAt={proposal?.expiresAt || null} stageLabel={proposal?.status === 'countered' ? 'Counteroffer' : 'Offer'} partyLabel={optionParty?.displayName} />}
+      {policy && <button className="decision-policy" onClick={onPolicy}>{humanize(policy.reasonCode)} · {humanize(policy.matchedPolicyId || 'Human approval')}</button>}
+      {canManageInbox && <div className="decision-actions"><button className="button primary" disabled={expired || Boolean(busy) || !availableActions.includes('approveOnce')} onClick={() => onAction('approveOnce')}>Approve Once</button><button className="button secondary" disabled title="Changing a proposal needs instruction support">Change</button><button className="button secondary" disabled={expired || Boolean(busy) || !availableActions.includes('decline')} onClick={() => onAction('decline')}>Decline</button><button className="button quiet" disabled title="Policy editing needs server support">Always allow this</button></div>}
     </section>
   );
 }
@@ -1121,66 +1213,87 @@ function RailEmpty({ children }: { children: ReactNode }) { return <p className=
 
 export function ReceiptCard({ workCase }: { workCase: WorkCase }) {
   const receipt = workCase.receipt!;
+  function exportReceipt() {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ caseId: workCase.id, receipt }, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `envoi-receipt-${workCase.id}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  }
   return (
-    <section className="receipt-card"><div className="receipt-mark"><ReceiptText size={24} /></div><div className="receipt-content"><p className="eyebrow">Case outcome receipt</p><h2>{receipt.result}</h2><div className="receipt-grid"><div><span>Recorded</span><strong>{formatAbsolute(receipt.createdAt || workCase.updatedAt || workCase.createdAt)}</strong></div><div><span>Human approval</span><strong>{humanize(receipt.humanApprovalStatus)}</strong></div><div><span>Authority basis</span><strong>{humanize(receipt.authorityBasis)}</strong></div>{receipt.counterparties?.length ? <div><span>Counterparties</span><strong>{receipt.counterparties.join(', ')}</strong></div> : null}{receipt.evidenceRefs?.length ? <div><span>Evidence</span><strong>{receipt.evidenceRefs.join(', ')}</strong></div> : null}{Object.entries(receipt.externalIds || {}).map(([key, value]) => <div key={key}><span>{humanize(key)}</span><code>{String(value)}</code></div>)}</div></div><button className="button secondary" onClick={() => window.print()}>Print receipt</button></section>
+    <section className="receipt-card"><div className="receipt-header"><ShieldCheck size={18} /><h2>Receipt</h2><button className="button secondary" onClick={exportReceipt}><Download size={14} />Export</button></div><div className="receipt-grid"><div><span>Outcome</span><strong>{receipt.result}</strong></div><div><span>Confirmation</span><strong>{receipt.externalIds && Object.keys(receipt.externalIds).length ? 'External ID recorded' : 'Not recorded'}</strong></div><div><span>Authority</span><strong>{humanize(receipt.authorityBasis)}</strong></div><div><span>Human approval</span><strong>{humanize(receipt.humanApprovalStatus)}</strong></div><div><span>Completed</span><strong>{formatAbsolute(receipt.createdAt || workCase.updatedAt || workCase.createdAt)}</strong></div>{receipt.counterparties?.length ? <div><span>Counterparties</span><strong>{receipt.counterparties.join(', ')}</strong></div> : null}{receipt.evidenceRefs?.length ? <div><span>Documents</span><strong>{receipt.evidenceRefs.join(', ')}</strong></div> : null}{Object.entries(receipt.externalIds || {}).map(([key, value]) => <div key={key}><span>{humanize(key)}</span><code>{String(value)}</code></div>)}</div></section>
   );
 }
 
-function SharedFilesPage({ view, notify }: { view: HumanView; notify: (message: string) => void }) {
+function SharedFilesPage({ view, notify, onOpenCase }: { view: HumanView; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void }) {
   const [query, setQuery] = useState('');
-  const [caseId, setCaseId] = useState('');
-  const [creatorId, setCreatorId] = useState('');
-  const [mimeType, setMimeType] = useState('');
-  const files = filterAssets(view.assets, view.caseQueue, view.agents, { query, caseId, creatorId, mimeType });
-  const caseOptions = view.caseQueue.filter(item => view.assets.some(asset => asset.caseId === item.id));
-  const creators = view.agents.filter(agent => view.assets.some(asset => asset.createdByAgentId === agent.id));
-  const types = [...new Set(view.assets.map(asset => asset.mimeType))].sort();
-  return <PageFrame eyebrow="Agent artifacts" title="Shared files" description="Files exchanged by your agents. Only files that passed the safety scan can be downloaded.">
-    {view.history?.assets?.hasMore && <InlineNotice title="More files may exist" body="Filters cover the files currently loaded. Load older history to search earlier files." tone="attention" />}
-    <div className="file-filters">
-      <label><span>Search files</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Name, case, creator, or type" /></label>
-      <label><span>Case</span><select value={caseId} onChange={event => setCaseId(event.target.value)}><option value="">All cases</option>{caseOptions.map(item => <option key={item.id} value={item.id}>{item.objective || item.id}</option>)}</select></label>
-      <label><span>Creator</span><select value={creatorId} onChange={event => setCreatorId(event.target.value)}><option value="">All creators</option>{creators.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label>
-      <label><span>Type</span><select value={mimeType} onChange={event => setMimeType(event.target.value)}><option value="">All types</option>{types.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+  const [direction, setDirection] = useState<'all' | 'received' | 'sent'>('all');
+  const [kind, setKind] = useState('');
+  const [layout, setLayout] = useState<'list' | 'grid'>('list');
+  const [folder, setFolder] = useState('');
+  const caseFor = (asset: Asset) => view.caseQueue.find(item => item.id === asset.caseId);
+  const folderFor = (asset: Asset) => {
+    const workCase = caseFor(asset);
+    if (!workCase) return 'Other files';
+    const events = timelineForCase(workCase, view.messages);
+    const id = participantIds(workCase, events).find(value => value !== workCase.actingAgent && value !== workCase.principal);
+    return resolveParticipant(workCase, id, view.agents, view.participantDirectory).displayName;
+  };
+  const folders = [...new Set(view.assets.map(folderFor))].sort();
+  const kinds = [{ label: 'PDFs', match: 'pdf' }, { label: 'Documents', match: 'document' }, { label: 'Spreadsheets', match: 'sheet' }, { label: 'Images', match: 'image/' }, { label: 'Archives', match: 'zip' }];
+  const files = view.assets.filter(asset => {
+    const owner = view.agents.some(agent => agent.id === asset.createdByAgentId);
+    return (!folder || folderFor(asset) === folder) && (!query || `${assetDisplayName(asset)} ${caseFor(asset)?.objective || ''} ${folderFor(asset)}`.toLowerCase().includes(query.toLowerCase())) && (direction === 'all' || (direction === 'sent') === owner) && (!kind || `${asset.mimeType} ${assetDisplayName(asset)}`.toLowerCase().includes(kind));
+  }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return <div className="files-page">
+    <div className="files-heading"><h1>Files</h1><div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div><button className="button primary" disabled title="Human uploads need server support"><Plus size={16} />New</button></div>
+    <div className="files-toolbar"><div className="files-segment" aria-label="File direction">{([['all','All'],['received','Received'],['sent','Sent by my agents']] as const).map(([value,label]) => <button key={value} aria-pressed={direction === value} onClick={() => setDirection(value)}>{label}</button>)}</div><div className="files-types">{kinds.map(item => <button key={item.label} aria-pressed={kind === item.match} onClick={() => setKind(current => current === item.match ? '' : item.match)}>{item.label}</button>)}</div><div className="files-segment layout-toggle"><button aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button></div></div>
+    <div className="files-breadcrumb"><button onClick={() => setFolder('')}>Files</button>{folder && <><ChevronRight size={16} /><span>{folder}</span></>}</div>
+    {!folder && folders.length > 0 && <section className="files-folders"><h2>Folders</h2><div className="folder-grid">{folders.map((name, index) => <button key={name} onClick={() => setFolder(name)}><Folder size={22} fill={AGENT_COLORS[index % AGENT_COLORS.length]} color={AGENT_COLORS[index % AGENT_COLORS.length]} /><span>{name}</span><small>{view.assets.filter(asset => folderFor(asset) === name).length}</small></button>)}</div></section>}
+    <section className="recent-files"><h2>{folder ? 'Files' : 'Recent files'}</h2>{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={view.agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={view.inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : <div className="files-empty"><FileText size={24} /><strong>No files here</strong><span>{query || kind ? 'Try another search or type.' : 'Files shared by agents appear here.'}</span></div>}</section>
+  </div>;
+}
+
+function FileItem({ asset, workCase, creator, inboxId, notify, onOpenCase }: { asset: Asset; workCase?: WorkCase; creator?: Agent; inboxId: string; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void }) {
+  const safe = canDownloadAsset(asset);
+  const status = safe ? 'Safe' : asset.state === 'infected' ? 'Blocked' : 'Scanning';
+  async function download() {
+    try {
+      const result = await api.downloadAsset(inboxId, asset.id);
+      const url = safeDownloadUrl(result.download.url);
+      if (!url) throw new Error('The download address is unsafe');
+      const link = document.createElement('a'); link.href = url; link.download = assetDisplayName(asset); link.rel = 'noopener'; link.referrerPolicy = 'no-referrer'; document.body.appendChild(link); link.click(); link.remove();
+      notify('Downloading');
+    } catch (caught) { notify(assetDownloadError(caught)); }
+  }
+  return <div className="file-item"><div className="file-name"><span className="file-type"><FileText size={16} /></span><div><strong>{assetDisplayName(asset)}</strong><small>{formatDate(asset.createdAt)}</small></div></div><div>{workCase ? <button className="file-case-link" onClick={() => onOpenCase(workCase)}>{workCase.objective || 'Untitled case'}</button> : 'No case'}</div><div>{creator?.name || 'Other agent'}</div><time dateTime={asset.createdAt}>{formatDate(asset.createdAt)}</time><div>{formatBytes(asset.size)}</div><div className={`file-scan ${status.toLowerCase()}`}>{safe ? <ShieldCheck size={14} /> : <Clock3 size={14} />}{status}</div>{safe && <button className="file-download" aria-label={`Download ${assetDisplayName(asset)}`} onClick={() => void download()}><Download size={15} /></button>}</div>;
+}
+
+const PLANNED_ACTION_GATES = ['Calendar availability', 'Hold times', 'Submit forms', 'Spend money'];
+
+function PoliciesPage({ entries }: { entries: AgentEntry[] }) {
+  return <PageFrame eyebrow="" title="Permissions" description="Choose what each agent can do.">
+    <div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
+      <div className="permission-table-head" role="row"><span role="columnheader">Action</span>{entries.map(({ agent }) => <span role="columnheader" key={agent.id}>{agent.name}</span>)}</div>
+      {AGENT_PERMISSION_OPTIONS.map(option => <div className="permission-table-row" role="row" key={option.id}><div role="cell"><strong>{option.label}</strong><small>{option.description}</small></div>{entries.map(entry => {
+        const { agent } = entry;
+        const enabled = agent.permissions.includes(option.id);
+        return <div role="cell" key={agent.id}><button className={`permission-pill ${enabled ? 'allowed' : 'off'}`} disabled title="Permission editing requires backend support" aria-label={`${option.label} for ${agent.name}: ${option.required ? 'Always on' : enabled ? 'Allowed' : 'Off'}; editing unavailable`}>{option.required ? 'Always on' : enabled ? 'Allowed' : 'Off'}</button></div>;
+      })}</div>)}
+      {PLANNED_ACTION_GATES.map(label => <div className="permission-table-row" role="row" key={label}><div role="cell"><strong>{label}</strong><small>Permission gating is not available yet. Execution is disabled.</small></div>{entries.map(({ agent }) => <div role="cell" key={agent.id}><button className="permission-pill off" disabled title="This action is unavailable until backend support ships" aria-label={`${label} unavailable for ${agent.name}`}>Unavailable</button></div>)}</div>)}
     </div>
-    <p className="file-count">{files.length} of {view.assets.length} loaded files</p>
-    {files.length ? <div className="shared-file-grid">{files.map(asset => {
-      const workCase = view.caseQueue.find(item => item.id === asset.caseId);
-      const creator = view.agents.find(item => item.id === asset.createdByAgentId);
-      return <article className="shared-file-card" key={asset.id}><div><strong>{workCase?.objective || asset.caseId || 'No case assigned'}</strong><small>Created by {creator?.name || asset.createdByAgentId || 'Unknown agent'} · {formatAbsolute(asset.createdAt)}</small></div><AssetRow asset={asset} inboxId={view.inbox.id} notify={notify} /></article>;
-    })}</div> : <PageEmpty icon={<FileText />} title={view.assets.length ? 'No files match these filters' : 'No shared files yet'} body={view.assets.length ? 'Try another name, case, creator, or file type.' : 'Agent-created files will appear here after they are exchanged.'} />}
+    {entries.length === 0 && <PageEmpty icon={<ShieldCheck />} title="No agents yet" body="Add an agent to see its permissions." />}
   </PageFrame>;
 }
 
-function PoliciesPage({ view }: { view: HumanView }) {
-  const policies = view.caseQueue.flatMap(item => item.policyEvaluations || []).sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt));
-  return <PageFrame eyebrow="Authority" title="Policy evaluations" description="Recorded policy decisions for agent work. This view does not independently verify agent-reported authority or outcome claims."><div className="policy-summary"><Metric value={policies.filter(item => item.decision === 'allow').length} label="Allowed evaluations" /><Metric value={policies.filter(item => item.decision === 'needsHuman').length} label="Asked for judgment" /><Metric value={policies.filter(item => item.decision === 'deny').length} label="Denied" /></div>{policies.length ? <div className="data-list">{policies.map(item => <article key={item.id} className="data-row"><AuthoritySeal decision={item.decision} /><div><strong>{humanize(item.requestedAction)}</strong><span>{humanize(item.matchedPolicyId || 'No matching grant')} · {humanize(item.grantType)}</span></div><StatusText value={item.decision} /><time>{formatAbsolute(item.effectiveAt)}</time></article>)}</div> : <PageEmpty icon={<ShieldCheck />} title="No policy evaluations yet" body="Authority checks will appear here as agents attempt consequential actions." />}</PageFrame>;
-}
-
-function IntegrationsPage({ view, workspace, agentInboxes, humanId, canManageInbox, onSelectWorkspace, onRefresh, notify }: { view: HumanView; workspace: Workspace; agentInboxes: Workspace[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+function IntegrationsPage({ view, workspace, entries, humanId, canManageInbox, onSelectWorkspace, onPermissions, onRefresh, onRefreshAgent, notify }: { view: HumanView; workspace: Workspace; entries: AgentEntry[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onPermissions: () => void; onRefresh: () => Promise<unknown>; onRefreshAgent: (inboxId: string) => Promise<void>; notify: (message: string) => void }) {
   const [enrollment, setEnrollment] = useState<EnrollmentResult | null>(null);
   const [open, setOpen] = useState(false);
-  const steps = onboardingSteps(view, agentInboxes);
-  const completeCount = steps.filter(step => step.complete).length;
-  return <PageFrame eyebrow="Closed beta setup" title="Agent connections" description="Connect your agent, share its Envoi address, and follow its conversations with other agents.">
-    {canManageInbox ? <div className="page-actions"><button className="button primary" onClick={() => setOpen(true)}><Bot size={16} />Enroll an agent</button></div> : <InlineNotice title="Limited access" body="A workspace administrator manages agent enrollment. You can observe your agent’s conversations." tone="attention" />}
-    <section className="onboarding-card" aria-labelledby="onboarding-title">
-      <header><div><p className="eyebrow">Launch checklist</p><h2 id="onboarding-title">Make the first native exchange observable</h2></div><strong>{completeCount} of {steps.length}</strong></header>
-      <div className="progress-track" aria-label={`${completeCount} of ${steps.length} onboarding steps complete`}><span style={{ width: `${(completeCount / steps.length) * 100}%` }} /></div>
-      <ol>{steps.map((step, index) => <li key={step.id} className={step.complete ? 'complete' : ''}><span className="step-mark">{step.complete ? <Check size={14} /> : index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p></div>{canManageInbox && step.id === 'enroll' && !step.complete && <button className="button tertiary compact" onClick={() => setOpen(true)}>Connect agent</button>}</li>)}</ol>
-    </section>
-    {agentInboxes.length > 0 && <section className="agent-inbox-list" aria-label="Your agent inboxes"><div className="section-heading"><div><p className="eyebrow">Agent inboxes</p><h2>Each agent has its own view</h2></div><span>{agentInboxes.length} inboxes</span></div><div className="data-list">{agentInboxes.map(agentInbox => <article className="data-row" key={agentInbox.id}><span className="identity-mark agent"><Bot size={15} /></span><div><strong>{agentInbox.name}</strong><span>Separate conversation history and permissions</span></div><StatusText value={agentInbox.status} /><button type="button" className="button secondary compact" onClick={() => void onSelectWorkspace(agentInbox)}>Open inbox</button></article>)}</div></section>}
-    <section className="beta-safeguards" aria-labelledby="safeguards-title">
-      <div className="section-heading"><div><p className="eyebrow">Beta capabilities</p><h2 id="safeguards-title">Direct agent collaboration</h2></div><span>Closed beta</span></div>
-      <div className="safeguard-grid">
-        <SafeguardCard icon={<Inbox size={18} />} title="Direct messaging" status="Beta requirement" body="An agent can message another agent immediately using its exact known Envoi address. No first-contact approval is needed." />
-        <SafeguardCard icon={<Link2 size={18} />} title="Runtime connection" status="Quick Connect" body="Paste a setup prompt into your self-hosted OpenClaw agent to connect it. Keep its host and runtime running for unattended messages. Manual bridges and Grok are available under advanced setup." />
-        <SafeguardCard icon={<FileText size={18} />} title="Shared files" status="Beta requirement" body="Agent-created files appear in Shared files. Download unlocks only after a clean malware scan." />
-      </div>
-    </section>
-    {view.agents.length ? <><div className="section-heading integration-section-heading"><div><p className="eyebrow">Enrolled agents</p><h2>Scoped identities</h2></div><span>{view.agents.length} total</span></div><div className="integration-grid">{view.agents.map(agent => <AgentCard key={agent.id} agent={agent} workspace={workspace} humanId={humanId} canManageInbox={canManageInbox} emailTransport={null} onRefresh={onRefresh} notify={notify} />)}</div></> : !agentInboxes.length && <PageEmpty icon={<PlugZap />} title="No agent inboxes yet" body="A workspace administrator can choose permissions and create a private setup prompt to add the first agent." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Enroll an agent</button> : undefined} />}
+  return <div className="agents-page"><div className="agents-heading"><div><h1>Agents</h1><p>Your agents and their inboxes.</p></div>{canManageInbox && <button className="button primary" onClick={() => setOpen(true)}><Plus size={16} />Add agent</button>}</div>
+    {entries.length ? <div className="integration-grid">{entries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={() => onRefreshAgent(inbox.id)} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}{canManageInbox && <button className="add-agent-tile" onClick={() => setOpen(true)}><Plus size={22} /><span>Add an agent</span></button>}</div> : <PageEmpty icon={<Bot />} title="No agents yet" body="Add an agent to get started." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Add agent</button> : undefined} />}
     {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
-  </PageFrame>;
+  </div>;
 }
 
 function SafeguardCard({ icon, title, status, body }: { icon: ReactNode; title: string; status: string; body: string }) {
@@ -1243,7 +1356,7 @@ function ApprovedContacts({ emailTransport, error, workspace, canManageInbox, on
   return <section className="approved-contacts" aria-labelledby="approved-contacts-title"><div className="section-heading"><div><p className="eyebrow">Public email boundary</p><h2 id="approved-contacts-title">Approved contacts</h2></div><div className="section-actions"><span>Agent-owned sending</span>{canManage && <button type="button" className="button tertiary compact" onClick={() => setOpen(current => !current)}>{open ? 'Cancel' : 'Approve contact'}</button>}</div></div>{open && canManage && <form className="contact-approval-form" onSubmit={submit}><Field label="Contact name" name="displayName" placeholder="Jordan Lee" required /><Field label="Email address" name="email" type="email" autoComplete="email" placeholder="jordan@example.com" required /><label className="field"><span>Email direction</span><select name="direction" defaultValue="both"><option value="both">Send and receive</option><option value="outbound">Send only</option><option value="inbound">Receive only</option></select></label><button className="button primary" disabled={busyId === 'new'}>{busyId === 'new' ? 'Approving…' : 'Approve exact email'}</button></form>}{actionError && <InlineNotice title="Contact update failed" body={actionError} tone="unknown" />}{error ? <div className="recoverable-state"><InlineNotice title="Contact state unavailable" body={error} tone="unknown" /><button type="button" className="button secondary compact" onClick={() => void onReload()}>Try again</button></div> : !emailTransport ? <div className="compact-empty muted"><CircleDashed size={18} /><span><strong>Checking public email readiness</strong><small>No external action is enabled until configuration and contact state are confirmed.</small></span></div> : emailTransport.contacts.length ? <div className="contact-list">{emailTransport.contacts.map(contact => { const state = contact.blocked ? 'blocked' : contact.approved ? 'approved' : 'pending'; return <article key={contact.id}><span className="identity-mark human"><UserRound size={15} /></span><div><strong>{contact.displayName}</strong><code>{contact.email}</code><small>{humanize(contact.direction)} email · updated {formatAbsolute(contact.updatedAt)}</small></div><div className="contact-actions"><StatusText value={state} />{canManageInbox && <button type="button" className="button quiet compact" disabled={busyId === contact.id} onClick={() => void setBlocked(contact, !contact.blocked)}>{busyId === contact.id ? 'Saving…' : contact.blocked ? 'Unblock' : 'Block'}</button>}</div></article>; })}</div> : <div className="compact-empty"><ShieldCheck size={18} /><span><strong>No approved public contacts</strong><small>Agents cannot send arbitrary external email. Approve an exact address before enabling contact.</small></span></div>}</section>;
 }
 
-export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTransport, onRefresh, notify }: { agent: Agent; workspace: Workspace; humanId: string; canManageInbox: boolean; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTransport, onRefresh, notify, color = 'var(--accent)', cases = [], onOpenInbox, onPermissions }: { agent: Agent; workspace: Workspace; humanId: string; canManageInbox: boolean; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void; color?: string; cases?: WorkCase[]; onOpenInbox?: () => void; onPermissions?: () => void }) {
   const pending = agent.onboardingStatus === 'pending_approval';
   const frozen = agent.status === 'revoked' || agent.credentialRevoked === true;
   const canApproveAgent = canManageInbox || (agent.principalHumanId || workspace.ownerHumanId) === humanId;
@@ -1260,9 +1373,18 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [pauseBusy, setPauseBusy] = useState(false);
   const [pauseError, setPauseError] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
+  const [showSteps, setShowSteps] = useState(false);
   const transportAgent = emailTransport?.agents.find(item => item.agentId === agent.id);
   const platformAddress = agent.platformAddress || transportAgent?.platformAddress || transportAgent?.internalAddress || agent.address;
   const publicEmailAddress = agent.publicEmailAddress || agent.identity?.externalAddress || transportAgent?.publicEmailAddress || transportAgent?.externalAddress || null;
+  const online = !frozen && agent.status === 'active' && agent.onboardingStatus === 'approved' && !agent.pausedAt;
+  const agentCases = cases.filter(item => item.actingAgent === agent.id);
+  const setupSteps = [
+    ['Create workspace', true], ['Create agent identity', true], ['Redeem one-time token', agent.onboardingStatus !== 'pending'],
+    ['Approve access', agent.onboardingStatus === 'approved'], ['Agent comes online', online],
+    ['First exchange with another agent', agentCases.length > 0], ['First completed case', agentCases.some(item => caseState(item) === 'completed')]
+  ] as const;
+  const completedSteps = setupSteps.filter(([, complete]) => complete).length;
   async function approve() {
     setApprovalBusy(true);
     setApprovalError('');
@@ -1300,18 +1422,13 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     finally { setPauseBusy(false); }
   }
   return <article className="integration-card">
-    <div className="integration-heading"><span className="identity-mark agent"><Bot size={18} /></span><div><h2>{agent.name}</h2><span className="verified-address"><code>{platformAddress}</code><CopyButton value={platformAddress} label={`Copy ${agent.name} internal platform address`} /></span><small>Internal platform address · share for agent discovery</small></div><StatusText value={frozen ? 'revoked' : pending ? 'needs human' : agent.pausedAt ? 'paused' : agent.onboardingStatus === 'approved' ? 'enrolled' : agent.status} /></div>
-    {emailTransport && <div className="public-address"><span>Public sending address</span>{publicEmailAddress ? <span className="verified-address"><code>{publicEmailAddress}</code><CopyButton value={publicEmailAddress} label={`Copy ${agent.name} public sending address`} /></span> : <strong>Not assigned</strong>}<small>{emailTransport.ready && transportAgent?.permitted ? 'Approved-contact email permission is active.' : 'Public email is unavailable for this agent.'}</small></div>}
-    <div className="capability-list">{!frozen && agent.permissions?.length ? agent.permissions.map(item => <span key={item}><Check size={12} />{humanize(item)}</span>) : <span><CircleDashed size={12} />No permissions active</span>}</div>
-    <dl><div><dt>Identity</dt><dd>{frozen ? 'Frozen identity' : agent.onboardingStatus === 'approved' ? 'Enrolled identity' : 'Pending approval'}</dd></div><div><dt>Permissions</dt><dd>{frozen ? 0 : agent.permissions?.length || 0} scoped capabilities</dd></div></dl>
+    <div className="integration-heading"><span className="agent-card-avatar" style={{ background: color }}>{initials(agent.name)}</span><div><h2>{agent.name}</h2><span className="verified-address" title={platformAddress}>{platformAddress}<CopyButton value={platformAddress} label={`Copy ${agent.name} address`} /></span></div><span className={`agent-online ${online ? 'online' : frozen ? 'frozen' : 'setting-up'}`}>{online ? 'Enrolled' : frozen ? 'Frozen' : agent.pausedAt ? 'Paused' : 'Setting up'}</span></div>
+    {online ? <><div className="agent-stats"><div><strong>{agentCases.filter(item => caseState(item) !== 'completed').length}</strong><span>Open cases</span></div><div><strong>{agentCases.filter(item => item.needsAttention).length}</strong><span>Need you</span></div><div><strong>Unknown</strong><span>Runtime</span></div></div><div className="capability-list">{agent.permissions.slice(0,4).map(item => <span key={item}>{humanize(item)}</span>)}</div></> : <div className="agent-setup"><strong>Step {Math.min(7,completedSteps + 1)} of 7: {setupSteps[Math.min(6, completedSteps)][0]}</strong>{frozen && <span>No permissions active</span>}<div className="agent-progress" role="progressbar" aria-valuenow={completedSteps} aria-valuemin={0} aria-valuemax={7}><span style={{ width: `${completedSteps / 7 * 100}%` }} /></div><button className="button secondary" onClick={() => pending ? setApprovalOpen(true) : setReconnectOpen(true)} disabled={pending ? !canApproveAgent : !canManageInbox}>{frozen ? 'Re-onboard' : pending && canApproveAgent ? 'Review agent access' : 'Continue'}</button><button className="agent-steps-toggle" aria-expanded={showSteps} onClick={() => setShowSteps(value => !value)}>{showSteps ? 'Hide steps' : 'Show all steps'}</button>{showSteps && <ol className="agent-steps">{setupSteps.map(([name, complete]) => <li key={name}>{complete ? <Check size={13} /> : <span className="step-empty" />}{name}</li>)}</ol>}</div>}
+    <div className="agent-card-actions"><button className="button secondary" onClick={onOpenInbox} disabled={!onOpenInbox}>Open inbox</button><button className="button secondary" onClick={onPermissions} disabled={!onPermissions}>Permissions</button></div>
     {revokeResult && frozen && <InlineNotice title="Agent frozen" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. Re-onboarding requires a new human-approved token. The agent identity and conversation history remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
-    {pending && canApproveAgent && <button className="button primary" onClick={() => setApprovalOpen(true)}>Review agent access</button>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
-    {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{pauseBusy ? 'Saving…' : agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}
-    {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button className="button secondary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}
-    {canManageInbox && frozen && <button className="button primary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}
-    {canManageInbox && !frozen && agent.onboardingStatus === 'approved' && <button className="button destructive" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}
+    {canManageInbox && <details className="agent-more"><summary>More</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}{publicEmailAddress && <span>{publicEmailAddress}</span>}</div></details>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />
@@ -1343,6 +1460,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
   const refresh = useRef(onRefresh);
   refresh.current = onRefresh;
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(DEFAULT_AGENT_PERMISSIONS);
+  const [step, setStep] = useState<0 | 1 | 2>(0);
   const [localPartInput, setLocalPartInput] = useState('');
   const [availability, setAvailability] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
   const localPart = localPartInput.trim().toLowerCase();
@@ -1378,6 +1496,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
   const setupCommand = `node envoi-connector.mjs setup --handoff envoi-setup.json${selectedRuntime === 'hermes' ? ' --prepare-runtime' : ''}`;
   useEffect(() => {
     if (result || reconnectAgent || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
+    if (workspace.id === previewWorkspace.id) { setAvailability('available'); return; }
     let cancelled = false;
     setAvailability('checking');
     const timer = setTimeout(() => {
@@ -1399,7 +1518,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
       setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch { setError('The setup file could not be downloaded. Save the setup JSON privately on your runtime host.'); }
   }
-  return <Modal title={result ? handoff ? `${reenroll ? 'Re-onboard' : reconnectAgent ? 'Reconnect' : 'Connect'} your ${label} agent` : 'Enrollment token created' : reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Enroll an agent'} onClose={onClose}>
+  return <Modal title={result ? 'Agent ready to connect' : reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Add an agent'} onClose={onClose}>
     {result ? <>
       {handoff ? <>
         <p className="dialog-copy">Run the setup instructions where {label} is installed. The connector detects local settings and keeps runtime and provider credentials on that host. You can give the prompt to an agent with terminal access, or use the private setup file.</p>
@@ -1434,11 +1553,13 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
       </div></div>
       </details>
       <div className="dialog-actions"><button className="button secondary" onClick={onClose}>Close</button></div>
-    </> : <form onSubmit={async event => {
+    </> : <form className="enroll-form" onSubmit={async event => {
       event.preventDefault();
+      if (step < 2) { setStep((step + 1) as 0 | 1 | 2); return; }
       setBusy(true);
       setError('');
       try {
+        if (workspace.id === previewWorkspace.id) throw new Error('Enrollment is unavailable in preview');
         if (reconnectAgent) setResult(await api.reconnectAgentToken(workspace.id, reconnectAgent.id, runtime, reenroll ? selectedAgentPermissions(selectedPermissions) : undefined));
         else {
           if (!validAgentLocalPart(localPart) || availability !== 'available') throw new Error('Choose an available agent address name');
@@ -1446,44 +1567,42 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
         }
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
-      <p className="dialog-copy">{reenroll ? `Approve new permissions for ${reconnectAgent!.name}, then pair its runtime with a new one-use token. Its address, inbox and history remain unchanged; old credentials will never work again.` : reconnectAgent ? `Reconnect ${reconnectAgent.name} while keeping ${reconnectAgent.address}, its inbox and conversation history. Redeeming the token revokes the old credentials and disconnects the old runtime.` : 'Choose your runtime and connect it with a personalized setup prompt. Each agent gets its own durable wake connection and private state.'}</p>
-      <RuntimePicker runtime={runtime} onChange={setRuntime} />
-      {!reconnectAgent && <>
-      <Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Scheduling agent" required />
-      <label className="field"><span>Agent address name</span><div className="address-entry"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" required /><span>@{agentDomain}</span></div><small>Suggested from your agent’s name; you can edit it. Choose 3–32 letters, numbers, periods or hyphens. Start with a letter. The final address is checked again when the token is redeemed.</small></label>
-      {localPartInput && <p role="status" className="address-feedback">{!validAgentLocalPart(localPart) ? 'Enter a valid, non-reserved address name.' : availability === 'checking' ? 'Checking availability…' : availability === 'available' ? `${localPart}@${agentDomain} is available now.` : availability === 'taken' ? 'That address is already taken.' : availability === 'error' ? 'Availability could not be checked. Try again.' : ''}</p>}
-      </>}
-      {(!reconnectAgent || reenroll) && <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />}
-      <RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={sinaloaOrigin} reconnect={Boolean(reconnectAgent)} />
+      <div className="enroll-steps" aria-label="Enrollment steps">{['Runtime', 'Identity', 'Access'].map((name, index) => <span key={name} className={step === index ? 'current' : step > index ? 'complete' : ''}>{index + 1}<b>{name}</b></span>)}</div>
+      {step === 0 && <div className="enroll-step"><RuntimePicker runtime={runtime} onChange={setRuntime} /><details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={sinaloaOrigin} reconnect={Boolean(reconnectAgent)} /></details></div>}
+      {step === 1 && <div className="enroll-step">{reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <><Field label="Name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Milo" required /><label className="field"><span>Address</span><span className="enroll-address"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required /><span>@{agentDomain}</span></span></label>{localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>{!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}</p>}</>}</div>}
+      {step === 2 && <div className="enroll-step"><AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} /><p className="enroll-note">Disabled permissions do not grant access. Availability of human approval depends on the specific action.</p></div>}
       <FormError message={error} />
-      <div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (!reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup prompt…' : reenroll ? 'Approve and create setup prompt' : reconnectAgent ? 'Create reconnect prompt' : 'Create setup prompt'}</button></div>
+      <div className="dialog-actions enroll-footer"><button type="button" className="button quiet" disabled={step === 0 || busy} onClick={() => setStep((step - 1) as 0 | 1 | 2)}>Back</button><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (step === 1 && !reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating token' : step === 2 ? 'Create one-time token' : 'Continue'}</button></div>
     </form>}
   </Modal>;
 }
 
 export function RuntimePicker({ runtime, onChange }: { runtime: ConnectorRuntime; onChange: (value: ConnectorRuntime) => void }) {
-  return <label className="field"><span>Agent runtime</span><select name="runtime" value={runtime} onChange={event => onChange(event.target.value as ConnectorRuntime)}>{RUNTIME_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select><small>{RUNTIME_OPTIONS.find(option => option.id === runtime)!.prerequisite}</small></label>;
+  const descriptions: Record<string, string> = { OpenClaw: 'Needs a running Gateway', Hermes: 'Needs a configured Hermes profile', Grok: 'Needs an xAI API key' };
+  return <fieldset className="runtime-picker"><legend>What runs your agent?</legend><div className="runtime-options">{['OpenClaw', 'Hermes', 'Grok', 'Muse', 'Instinct', 'Dots'].map(label => { const option = RUNTIME_OPTIONS.find(item => item.label === label); const available = Boolean(option); return <label key={label} className={`runtime-option ${!available ? 'unavailable' : ''}`}><input type="radio" name="runtime" value={option?.id || label.toLowerCase()} checked={option?.id === runtime} disabled={!available} onChange={() => option && onChange(option.id)} /><span><strong>{label}</strong><small>{available ? descriptions[label] : 'Coming soon'}</small></span></label>; })}</div></fieldset>;
 }
 
 export function RuntimePreparation({ runtime, command, apiUrl, reconnect = false }: { runtime: ConnectorRuntime; command: string; apiUrl: string; reconnect?: boolean }) {
   const downloads = apiUrl ? { connector: `${apiUrl}/web/downloads/envoi-connector.mjs`, release: `${apiUrl}/web/downloads/release.json` } : null;
-  return <div className="sdk-next-step"><p className="eyebrow">{runtimeLabel(runtime)} · preparation</p><h3>Check the runtime before enrolling</h3><p>The one-use token expires after 15 minutes. Confirm the runtime can complete a normal model request and that you have terminal access to its persistent host. Node.js 22 or newer is required. Provider credentials stay on that host.</p><p>{downloads ? <>Download the <a href={downloads.connector}>official connector</a> and <a href={downloads.release}>release metadata</a>.</> : 'Download the official connector and release metadata from this Envoi deployment.'} Verify SHA256 against <code>artifacts["envoi-connector.mjs"].sha256</code> before running:</p>{reconnect && <p>If this host already has the connection, use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check it. Preserve that directory and stop its connector before applying reconnect. Use the preparation command below for a new host or profile without an existing Envoi connection.</p>}<pre>{command}</pre>{runtime === 'hermes' && <p>Preparation reuses the configured Hermes model provider and generates or reuses the local API Server key. These keys are separate from the Envoi enrollment token. Start the selected profile Gateway in a separate terminal after preparation. A running Gateway may need an owner-approved restart; preparation does not restart it automatically.</p>}{runtime === 'grok' && <p>Configure a missing xAI API key privately on the host. The installer cannot create a provider account or substitute the Envoi token for an xAI key.</p>}{apiUrl && isLoopbackOrigin(apiUrl) && <p>This local Envoi address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}</div>;
+  return <div className="sdk-next-step"><p className="eyebrow">{runtimeLabel(runtime)} · preparation</p><h3>Check the runtime before enrolling</h3><p>The one-use token expires after 15 minutes. Confirm the runtime can complete a normal model request and that you have terminal access to its persistent host. Node.js 22 or newer is required. Provider credentials stay on that host.</p><p>{downloads ? <>Download the <a href={downloads.connector}>official connector</a> and <a href={downloads.release}>release metadata</a>.</> : 'Download the official connector and release metadata from this Envoi deployment.'} Verify SHA256 against <code>artifacts["envoi-connector.mjs"].sha256</code> before running:</p>{reconnect && <><p>This reconnect keeps the existing identity and address and revokes the old credentials when replacement setup completes.</p><p>If this host already has the connection, use <code>doctor --state-dir &lt;existing state directory&gt;</code> to check it. Preserve that directory and stop its connector before applying reconnect. Use the preparation command below for a new host or profile without an existing Envoi connection.</p></>}<pre>{command}</pre>{runtime === 'hermes' && <p>Preparation reuses the configured Hermes model provider and generates or reuses the local API Server key. These keys are separate from the Envoi enrollment token. Start the selected profile Gateway in a separate terminal after preparation. A running Gateway may need an owner-approved restart; preparation does not restart it automatically.</p>}{runtime === 'grok' && <p>Configure a missing xAI API key privately on the host. The installer cannot create a provider account or substitute the Envoi token for an xAI key.</p>}{apiUrl && isLoopbackOrigin(apiUrl) && <p>This local Envoi address cannot be reached by a remote agent. Use a reachable HTTPS deployment for remote onboarding.</p>}</div>;
 }
 
 export function AgentPermissionPicker({ selected, onChange }: { selected: string[]; onChange: (permissions: string[]) => void }) {
   return <fieldset className="permission-set"><legend>Agent permissions</legend>
-    {AGENT_PERMISSION_OPTIONS.map(option => <label key={option.id}>
+    {AGENT_PERMISSION_OPTIONS.map(option => <label key={option.id} className="permission-switch-row">
       <input type="checkbox" checked={option.required || selected.includes(option.id)} disabled={option.required} onChange={event => onChange(selectedAgentPermissions(event.target.checked ? [...selected, option.id] : selected.filter(permission => permission !== option.id)))} />
       <span><strong>{option.label}</strong><small>{option.description}</small></span>
     </label>)}
+    {['Calendar (free and busy only)', 'Hold calendar times', 'Submit forms', 'Spend money'].map(label => <label className="permission-switch-row unavailable" key={label}><input type="checkbox" disabled /><span><strong>{label}</strong><small>Unavailable until supported by the server</small></span></label>)}
   </fieldset>;
 }
 
-function ActivityPage({ view }: { view: HumanView }) {
-  return <PageFrame eyebrow="Behind the scenes" title="Activity log" description="A trustworthy history of conversations, messages, shared files, and permission changes.">{view.recentEvents.length ? <div className="activity-table" role="table"><div className="activity-head" role="row"><span>Event</span><span>Actor or object</span><span>Time</span></div>{view.recentEvents.map(event => <div className="activity-row" role="row" key={event.id}><span><Activity size={15} />{humanize(event.type)}</span><code>{auditSummary(event).split(' · ')[1] || event.id}</code><time>{formatAbsolute(event.createdAt)}</time></div>)}</div> : <PageEmpty icon={<Activity />} title="No activity recorded" body="Important operations will appear here as a durable history." />}</PageFrame>;
+function ActivityPage({ view, onOpenCase }: { view: HumanView; onOpenCase: (workCase: WorkCase) => void }) {
+  const sorted = view.recentEvents.slice().sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return <PageFrame eyebrow="" title="Activity" description="Recent actions across your agents."><div className="activity-feed">{sorted.length ? sorted.map((event, index) => { const date = new Date(event.createdAt); const prior = sorted[index - 1]; const showDay = !prior || new Date(prior.createdAt).toDateString() !== date.toDateString(); const agentId = typeof event.agentId === 'string' ? event.agentId : ''; const agent = view.agents.find(item => item.id === agentId); const workCase = view.caseQueue.find(item => item.id === event.caseId); const actor = agent?.name || 'envoi'; return <div key={event.id}>{showDay && <h2>{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</h2>}<div className="activity-feed-row"><span className="counterparty-avatar" style={{ '--avatar-color': agent ? AGENT_COLORS[Math.max(0, view.agents.indexOf(agent)) % AGENT_COLORS.length] : 'var(--ink2)' } as React.CSSProperties}>{initials(actor)}</span><div><strong>{actor}</strong><span>{humanize(event.type)}</span>{workCase && <button onClick={() => onOpenCase(workCase)}>{workCase.objective || 'Untitled case'}</button>}</div><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div></div>; }) : <PageEmpty icon={<Activity />} title="No activity yet" body="Actions will appear here." />}</div></PageFrame>;
 }
 
-function PageFrame({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children: ReactNode }) { return <><header className="page-header"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></header>{children}</>; }
+function PageFrame({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children: ReactNode }) { void eyebrow; return <><header className="page-header"><h1>{title}</h1>{description && <p>{description}</p>}</header>{children}</>; }
 function Metric({ value, label }: { value: number; label: string }) { return <div><strong>{value}</strong><span>{label}</span></div>; }
 function PageEmpty({ icon, title, body, action }: { icon: ReactNode; title: string; body: string; action?: ReactNode }) { return <div className="page-empty"><span>{icon}</span><h2>{title}</h2><p>{body}</p>{action}</div>; }
 
@@ -1501,7 +1620,7 @@ function ConfirmDialog({ action, busy, onCancel, onConfirm }: { action: HumanAct
 
 function Modal({ title, children, onClose, dismissible = true }: { title: string; children: ReactNode; onClose: () => void; dismissible?: boolean }) {
   const panel = useRef<HTMLDivElement>(null);
-  useEffect(() => { panel.current?.focus(); const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && dismissible) onClose(); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [dismissible, onClose]);
+  useEffect(() => { panel.current?.focus(); const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && dismissible) onClose(); if (event.key !== 'Tab' || !panel.current) return; const focusable = [...panel.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(item => item.getClientRects().length); if (!focusable.length) { event.preventDefault(); panel.current.focus(); return; } const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [dismissible, onClose]);
   return <div className="modal-layer"><button className="modal-scrim" aria-label={dismissible ? 'Close dialog' : undefined} onClick={dismissible ? onClose : undefined} /><div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1} ref={panel}><header><h2 id="modal-title">{title}</h2>{dismissible && <button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button>}</header>{children}</div></div>;
 }
 
@@ -1526,7 +1645,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>{copyError && <small role="alert">Could not copy. Select the value and copy it manually.</small>}</>;
 }
 function InlineNotice({ title, body, tone }: { title: string; body: string; tone: 'unknown' | 'danger' | 'attention' }) { return <div className={`inline-notice tone-${tone}`} role="status"><AlertCircle size={18} /><div><strong>{title}</strong><p>{body}</p></div></div>; }
-function StatusBadge({ workCase }: { workCase: WorkCase }) { const state = caseState(workCase); return <span className={`status-badge tone-${caseTone(workCase)}`}><StatusGlyph state={state} />{caseLabel(workCase)}</span>; }
+function StatusBadge({ workCase }: { workCase: WorkCase }) { const state = caseState(workCase); return <span className={`status-badge tone-${caseTone(workCase)}`}><StatusGlyph state={state} />{workCase.needsAttention && state === 'waitingForHuman' ? 'Needs your decision' : caseLabel(workCase)}</span>; }
 function StatusText({ value }: { value: string }) { return <span className={`status-text value-${value.replaceAll(' ', '-')}`}><span />{humanize(value)}</span>; }
 function AuthoritySeal({ decision }: { decision: PolicyEvaluation['decision'] }) { return <span className={`authority-seal decision-${decision}`} aria-hidden="true">{decision === 'allow' ? <Check size={11} /> : decision === 'deny' ? <X size={11} /> : <UserRound size={11} />}</span>; }
 
@@ -1540,7 +1659,7 @@ function emptyTitle(section: NavSection) { return section === 'inbox' ? 'Your ag
 function emptyBody(section: NavSection) { return section === 'inbox' ? 'Agent-to-agent conversations will appear here as soon as they begin.' : section === 'needsMe' ? 'Conversations will land here when your context or permission is genuinely needed.' : 'Conversations will appear here when they reach this stage.'; }
 function caseType(workCase: WorkCase) { return `${humanize(workCase.collaborationMode || 'collaboration')} conversation`; }
 function decisionQuestion(workCase: WorkCase, option?: ProposalOption) { if (workCase.decision?.question) return workCase.decision.question; if (option?.outOfPolicyFlags?.includes('outsideWorkingHours')) return 'The only viable time falls outside your preferred working hours.'; const policy = decisionPolicy(workCase); return policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.'; }
-function actionPastTense(action: HumanActionKey) { return ({ approveOnce: 'Approved once. The agent can continue.', decline: 'Declined. The conversation has been updated.', editProposal: 'Proposal edits requested.', pause: 'Conversation paused.', resume: 'Conversation resumed.', revoke: 'Authority revoked.', takeOver: 'You took over this conversation.' })[action]; }
+function actionPastTense(action: HumanActionKey) { return ({ approveOnce: 'Approved', decline: 'Declined', editProposal: 'Edits requested', pause: 'Paused', resume: 'Resumed', revoke: 'Authority revoked', takeOver: 'Taken over' })[action]; }
 function confirmTitle(action: HumanActionKey) { return ({ decline: 'Decline this proposal?', revoke: 'Revoke authority?', takeOver: 'Take over this conversation?', pause: 'Pause this conversation?', resume: 'Resume this conversation?', approveOnce: 'Approve once?', editProposal: 'Request edits?' })[action]; }
 function confirmBody(action: HumanActionKey) { return ({ decline: 'Your rejection will be recorded in the case audit history.', revoke: 'New agent work for this case will be blocked and the decision will be audited.', takeOver: 'A takeover request will be recorded in the case history.', pause: 'New agent work for this case will pause until you resume it.', resume: 'Permitted agent work can continue.', approveOnce: 'This grants one-time authority for the current action.', editProposal: 'A request for a revised option will be recorded.' })[action]; }
 function conversationTags(workCase: WorkCase) {
