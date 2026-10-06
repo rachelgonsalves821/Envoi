@@ -112,6 +112,7 @@ export class InMemoryMetadataStore {
   async updateScan(id, scan) {
     const current = this.#records.get(id);
     if (!current) return null;
+    if (current.state === 'upload-cleanup-pending' || current.state === 'deleted') return immutable(current);
     const next = { ...current, state: scan.state, scannedAt: scan.scannedAt, scan: immutable(scan.result) };
     this.#records.set(id, immutable(next));
     return immutable(next);
@@ -151,20 +152,25 @@ export class DocumentObjectMetadataStore {
   }
   async get(id) { return this.store.getJson(this.#path(id)); }
   async updateScan(id, scan) {
-    const current = await this.get(id);
-    if (!current) return null;
-    const next = { ...current, state: scan.state, scannedAt: scan.scannedAt, scan: clone(scan.result) };
-    await this.store.putJsonBatch([{ path: this.#path(id), value: next }, { path: this.#workspacePath(next), value: next }]);
-    return immutable(next);
+    return this.store.withTransaction([], async () => {
+      const current = typeof this.store.query === 'function'
+        ? (await this.store.query('SELECT value FROM sinaloa_documents WHERE path = $1 FOR UPDATE', [this.#path(id).replaceAll('\\', '/')])).rows[0]?.value
+        : await this.get(id);
+      if (!current) return null;
+      if (current.state === 'upload-cleanup-pending' || current.state === 'deleted') return immutable(current);
+      const next = { ...current, state: scan.state, scannedAt: scan.scannedAt, scan: clone(scan.result) };
+      await this.store.putJsonBatch([{ path: this.#path(id), value: next }, { path: this.#workspacePath(next), value: next }]);
+      return immutable(next);
+    });
   }
   async updateUpload(id, patch) {
     const current = await this.get(id);
     if (!current) return null;
     const next = { ...current, ...patch };
-    await this.store.putJsonBatch([{ path: this.#path(id), value: next }, { path: this.#workspacePath(next), value: next }]);
+    await this.store.putJsonBatch([{ path: this.#path(id), value: next }, ...(next.uploadCleanupReason === 'AGENT_REMOVED' ? [] : [{ path: this.#workspacePath(next), value: next }])]);
     return immutable(next);
   }
-  withUploadLock(id, operation) { return this.store.withTransaction([`object-upload:${id}`], operation); }
+  withUploadLock(id, operation, additionalKeys = []) { return this.store.withTransaction([`object-upload:${id}`, ...additionalKeys], operation); }
   async listUploadCleanupCandidates(now, limit) {
     if (typeof this.store.query === 'function') {
       const result = await this.store.query(`SELECT value FROM sinaloa_documents
@@ -526,11 +532,12 @@ export class ObjectStorageService {
     this.scanLifecycle = scanJobStore ? new DurableMalwareScanLifecycle({ jobStore: scanJobStore, adapter, metadataStore, quotaLedger, scanner, ...scanLifecycle }) : null;
   }
   async init() { await this.adapter.init?.(); }
-  async beginUpload(input) {
+  async beginUpload(input, { lockKeys = [], authorize } = {}) {
     validateUploadInput(input, this.config);
     const id = `obj_${crypto.randomUUID()}`;
     // Durable retained quota and its cleanup metadata must commit together.
     return this.metadataStore.withUploadLock(id, async () => {
+      if (authorize) await authorize();
       const reservation = await this.quotaLedger.reserve(input.workspaceId, input.size);
       const createdAt = this.clock();
       const record = { id, workspaceId: input.workspaceId, key: `workspaces/${input.workspaceId}/objects/${id}`, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId: input.caseId || null, createdByAgentId: input.createdByAgentId || null, state: 'quarantine', createdAt: createdAt.toISOString(), uploadExpiresAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000).toISOString(), cleanupAt: new Date(createdAt.getTime() + this.config.uploadUrlTtlSeconds * 1000 + this.config.uploadCleanupGraceMs).toISOString(), uploadCompletedAt: null, scannedAt: null, scan: null, reservationId: reservation.id };
@@ -543,7 +550,7 @@ export class ObjectStorageService {
         await this.quotaLedger.release(reservation.id);
         throw error;
       }
-    });
+    }, lockKeys);
   }
   async completeUpload(id) {
     const result = await this.metadataStore.withUploadLock(id, async () => {
@@ -610,6 +617,7 @@ export class ObjectStorageService {
       if (quota?.state === 'committed') await this.quotaLedger.deleteCommitted(record.reservationId);
       await this.metadataStore.updateUpload(id, { state: 'deleted', uploadCleanupCompletedAt: new Date(now).toISOString(), cleanupAt: null,
         scan: { status: 'deleted', reason: record.uploadCleanupReason || 'UPLOAD_EXPIRED', tombstone: true } });
+      if (record.uploadCleanupReason === 'AGENT_REMOVED') await this.metadataStore.remove(id);
       return true;
     } catch {
       await this.metadataStore.updateUpload(id, { state: 'upload-cleanup-pending', cleanupAt: new Date(new Date(now).getTime() + this.config.uploadCleanupRetryMs).toISOString(),
@@ -665,6 +673,13 @@ export class ObjectStorageService {
       throw new ObjectStorageError('CHECKSUM_MISMATCH', 'Stored object failed immutable size or checksum verification', 422);
     }
     return { object: record, bytes };
+  }
+  async requestRemoval(id) {
+    return this.metadataStore.withUploadLock(id, async () => {
+      const record = await this.metadataStore.get(id);
+      if (!record || record.state === 'deleted') return record;
+      return this.metadataStore.updateUpload(id, { state: 'upload-cleanup-pending', uploadCleanupReason: 'AGENT_REMOVED', cleanupAt: this.clock().toISOString(), scan: { status: 'upload-cleanup-pending', reason: 'AGENT_REMOVED' } });
+    });
   }
   async abortUpload(id) {
     return this.metadataStore.withUploadLock(id, async () => {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import {
-  Activity, AlertCircle, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
+  Activity, AlertCircle, Archive, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
   ChevronRight, CircleDashed, Clock3, Command, Copy, Database, Download, FileCheck2, FileText, Gauge, Inbox,
   KeyRound, LayoutGrid, Link2, List, ListFilter, Menu, MoreHorizontal, PanelRightClose, PanelRightOpen,
   Folder, Hand, LogOut, Pause, Play, PlugZap, Plus, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
@@ -463,6 +463,7 @@ export default function App() {
     stream.onmessage = dataEvent;
     WORKSPACE_EVENT_TYPES.forEach(type => stream.addEventListener(type, dataEvent));
     stream.addEventListener('agent.inbox_created', refreshDirectory);
+    stream.addEventListener('agent.removed', refreshDirectory);
     stream.addEventListener('ready', event => { if (current()) { if (cursor.record(event, true)) refresh(); setSyncNotice(''); } });
     const terminate = () => { if (current()) expireSession(); };
     stream.addEventListener('session.expired', terminate);
@@ -521,7 +522,7 @@ export default function App() {
   if (boot === 'signedOut' && config) return config.provider === 'workos'
     ? <LandingPage signInPath={config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
     : <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
-  if (boot === 'setup' && human) return <WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} />;
+  if (boot === 'setup' && human) return <><SignOutControl onLogout={() => { void logout(); }} /><WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} /></>;
   if (boot === 'error') return <FailureScreen message={error} onRetry={signingOut.current ? logout : loadAccount} onLogout={hadAuthenticatedSession.current && !signingOut.current ? () => { void logout(); } : undefined} />;
   if (!human || !workspace || !view || !config) return <LoadingScreen />;
 
@@ -549,13 +550,17 @@ export default function App() {
   );
 }
 
+export function SignOutControl({ onLogout }: { onLogout: () => void }) {
+  return <div className="account-actions"><button type="button" className="button secondary compact" onClick={onLogout}><LogOut size={16} aria-hidden="true" />Sign out</button></div>;
+}
+
 export function LoadingScreen({ checking = false, onLogout }: { checking?: boolean; onLogout?: () => void }) {
   return (
     <main className="center-screen" aria-live="polite">
       <div className="brand-lockup"><BrandMark /><span>Envoi</span></div>
       <div className="decision-loader" aria-hidden="true"><span /><span /><span /></div>
       <p>{checking ? 'Checking your session…' : 'Loading your delegated work…'}</p>
-      {onLogout && <button className="button secondary" onClick={onLogout}>Sign out</button>}
+      {onLogout && <SignOutControl onLogout={onLogout} />}
     </main>
   );
 }
@@ -567,7 +572,7 @@ export function FailureScreen({ message, onRetry, onLogout }: { message: string;
       <h1>Workspace unavailable</h1>
       <p>{message}</p>
       <button className="button primary" onClick={onRetry}><RefreshCw size={16} />Retry loading</button>
-      {onLogout && <button className="button secondary" onClick={onLogout}>Sign out</button>}
+      {onLogout && <SignOutControl onLogout={onLogout} />}
     </main>
   );
 }
@@ -801,6 +806,7 @@ function AppShell(props: ShellProps) {
 
   return (
     <div className="app-shell">
+      <SignOutControl onLogout={() => { void onLogout(); }} />
       <a className="skip-link" href="#main-content">Skip to content</a>
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`primary-nav ${navOpen ? 'is-open' : ''}`} aria-label="Primary">
@@ -816,6 +822,8 @@ function AppShell(props: ShellProps) {
             const color = AGENT_COLORS[index % AGENT_COLORS.length];
             return <div key={agent.id}><div className="agent-nav-row"><button className="nav-item" aria-current={inbox && workspace.id === inbox.id ? 'page' : undefined} onClick={() => inbox ? chooseInbox(inbox) : chooseSection('integrations')}><span className="agent-dot" style={{ '--agent-color': color } as React.CSSProperties}>{initials(name)}</span><span>{name}</span>{agent.onboardingStatus !== 'approved' && <span className="nav-count">Setup</span>}</button>{inbox && <button className="icon-button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${name}`} aria-expanded={expanded} onClick={() => toggleAgent(agent.id)}><ChevronDown size={14} /></button>}</div>{expanded && inbox && <div className="agent-subnav"><NavItem section="inbox" label="Inbox" icon={<Inbox />} active={workspace.id === inbox.id && section === 'inbox'} onClick={() => chooseInbox(inbox)} /><NavItem section="needsMe" label="Needs you" icon={<Hand />} active={workspace.id === inbox.id && section === 'needsMe'} onClick={() => chooseInbox(inbox, 'needsMe')} /><NavItem section="completed" label="Done" icon={<Check />} active={workspace.id === inbox.id && section === 'completed'} onClick={() => chooseInbox(inbox, 'completed')} /></div>}</div>;
           })}
+          {agentInboxes.some(inbox => inbox.status === 'removed') && <div className="nav-section-heading"><span>Archived agents</span></div>}
+          {agentInboxes.filter(inbox => inbox.status === 'removed').map(inbox => <button key={inbox.id} className="nav-item" onClick={() => chooseInbox(inbox)}><Archive size={16} /><span>{inbox.removedAgent?.name || inbox.name}</span></button>)}
           <div className="nav-section-heading"><span>Folders</span><button aria-label="Folders unavailable" title="Folder management requires backend support" disabled><Plus size={15} /></button></div>
           <div className="nav-spacer" />
           <NavItem section="documents" label="Files" icon={<FileText />} active={section === 'documents'} onClick={chooseSection} />
@@ -824,7 +832,7 @@ function AppShell(props: ShellProps) {
           <NavItem section="activity" label="Activity" icon={<Activity />} active={section === 'activity'} onClick={chooseSection} />
         </nav>
         <div className="nav-footer">
-          <div className="principal-card"><span className="counterparty-avatar" style={{ '--avatar-color': 'var(--ink2)' } as React.CSSProperties}>{initials(human.displayName)}</span><div><strong>{human.displayName}</strong><small>{human.email || ''}</small></div><button className="icon-button" aria-label="Sign out" title="Sign out" onClick={() => void onLogout()}><LogOut size={16} /></button></div>
+          <div className="principal-card"><span className="counterparty-avatar" style={{ '--avatar-color': 'var(--ink2)' } as React.CSSProperties}>{initials(human.displayName)}</span><div><strong>{human.displayName}</strong><small>{human.email || ''}</small></div></div>
         </div>
       </aside>
 
@@ -1291,7 +1299,7 @@ function IntegrationsPage({ view, workspace, entries, humanId, canManageInbox, o
   const [enrollment, setEnrollment] = useState<EnrollmentResult | null>(null);
   const [open, setOpen] = useState(false);
   return <div className="agents-page"><div className="agents-heading"><div><h1>Agents</h1><p>Your agents and their inboxes.</p></div>{canManageInbox && <button className="button primary" onClick={() => setOpen(true)}><Plus size={16} />Add agent</button>}</div>
-    {entries.length ? <div className="integration-grid">{entries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={() => onRefreshAgent(inbox.id)} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}{canManageInbox && <button className="add-agent-tile" onClick={() => setOpen(true)}><Plus size={22} /><span>Add an agent</span></button>}</div> : <PageEmpty icon={<Bot />} title="No agents yet" body="Add an agent to get started." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Add agent</button> : undefined} />}
+{entries.length ? <div className="integration-grid">{entries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}{canManageInbox && <button className="add-agent-tile" onClick={() => setOpen(true)}><Plus size={22} /><span>Add an agent</span></button>}</div> : <PageEmpty icon={<Bot />} title="No agents yet" body="Add an agent to get started." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Add agent</button> : undefined} />}
     {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </div>;
 }
@@ -1365,6 +1373,11 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [approvalError, setApprovalError] = useState('');
   const [revokeOpen, setRevokeOpen] = useState(false);
+  const [removalOpen, setRemovalOpen] = useState(false);
+  const [removalBusy, setRemovalBusy] = useState(false);
+  const [removalError, setRemovalError] = useState('');
+  const [deleteHistory, setDeleteHistory] = useState(false);
+  const [removalConfirmation, setRemovalConfirmation] = useState('');
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState('');
   const [revokeResult, setRevokeResult] = useState<{ revokedAt: string; credentialFamilyCount: number } | null>(null);
@@ -1397,6 +1410,16 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     } catch (caught) { setApprovalError(errorMessage(caught)); }
     finally { setApprovalBusy(false); }
   }
+  async function removeAgent() {
+    setRemovalBusy(true); setRemovalError('');
+    try {
+      await api.removeAgent(workspace.id, agent.id, deleteHistory, removalConfirmation);
+      setCredential(''); setRemovalOpen(false);
+      notify(deleteHistory ? 'Agent removed. Your history is deleted; owned files are queued for secure deletion.' : 'Agent removed. Its history is now read-only.');
+      await onRefresh();
+    } catch (caught) { setRemovalError(errorMessage(caught)); }
+    finally { setRemovalBusy(false); }
+  }
   async function revokeCredentials() {
     setRevokeBusy(true);
     setRevokeError('');
@@ -1428,7 +1451,17 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     {revokeResult && frozen && <InlineNotice title="Agent frozen" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. Re-onboarding requires a new human-approved token. The agent identity and conversation history remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
-    {canManageInbox && <details className="agent-more"><summary>More</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}{publicEmailAddress && <span>{publicEmailAddress}</span>}</div></details>}
+    {canManageInbox && <details className="agent-more"><summary>More</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}<button className="danger" onClick={() => { setRemovalError(''); setRemovalOpen(true); }}>Remove agent</button>{publicEmailAddress && <span>{publicEmailAddress}</span>}</div></details>}
+    {removalOpen && canManageInbox && <Modal title={`Remove ${agent.name}?`} onClose={() => setRemovalOpen(false)} dismissible={!removalBusy}>
+      <p className="dialog-copy">This immediately ends access and removes the agent from your agent list. Using it again requires new onboarding.</p>
+      <fieldset disabled={removalBusy}><legend>Conversation and file history</legend>
+        <label className="permission-option"><input type="radio" name={`removal-${agent.id}`} checked={!deleteHistory} onChange={() => setDeleteHistory(false)} />Keep history as a read-only archive</label>
+        <label className="permission-option"><input type="radio" name={`removal-${agent.id}`} checked={deleteHistory} onChange={() => setDeleteHistory(true)} />Delete my history and files</label>
+      </fieldset>
+      {deleteHistory && <><p>This cannot be undone. Other participants’ conversations and their own files remain. Minimal security records and existing backups remain subject to retention.</p><label className="field"><span>Type {agent.name} to confirm</span><input value={removalConfirmation} onChange={event => setRemovalConfirmation(event.target.value)} autoComplete="off" /></label></>}
+      <FormError message={removalError} />
+      <div className="dialog-actions"><button className="button secondary" disabled={removalBusy} onClick={() => setRemovalOpen(false)}>Cancel</button><button className="button destructive" disabled={removalBusy || (deleteHistory && removalConfirmation !== agent.name)} onClick={() => void removeAgent()}>{removalBusy ? 'Removing…' : 'Remove agent'}</button></div>
+    </Modal>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
       <AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} />

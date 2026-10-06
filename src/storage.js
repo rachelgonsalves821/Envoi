@@ -360,6 +360,28 @@ export class FileStore {
     catch (error) { if (error.code === 'ENOENT') return false; throw error; }
   }
 
+  async deleteJsonTree(relativeDir) {
+    const current = this.currentTransaction();
+    if (!current) return this.withTransaction([], () => this.deleteJsonTree(relativeDir));
+    const directory = this.file(relativeDir);
+    const targets = new Set();
+    const visit = async location => {
+      let entries;
+      try { entries = await readdir(location, { withFileTypes: true }); }
+      catch (error) { if (error.code === 'ENOENT') return; throw error; }
+      for (const entry of entries) {
+        const target = path.join(location, entry.name);
+        if (entry.isDirectory()) await visit(target);
+        else if (entry.isFile() && entry.name.endsWith('.json')) targets.add(target);
+      }
+    };
+    await visit(directory);
+    for (const target of current.writes.keys()) if (target.startsWith(`${directory}${path.sep}`) && target.endsWith('.json')) targets.add(target);
+    let deleted = 0;
+    for (const target of targets) if (await this.deleteJson(path.relative(this.root, target))) deleted += 1;
+    return deleted;
+  }
+
   async listJson(relativeDir) {
     const current = this.currentTransaction();
     if (!current) await this.transactionTail;

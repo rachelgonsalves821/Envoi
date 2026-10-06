@@ -598,14 +598,17 @@ async function assertActiveAgentSlot(humanId, excludingAgentId = null) {
   }
   if (active >= 2) throw Object.assign(new Error('Beta limit of two active agents per human reached'), { statusCode: 409, code: 'ACTIVE_AGENT_LIMIT' });
 }
-async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = []) {
+async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = [], allowRemoved = false) {
   const committedEvents = [];
-  const run = () => operation(async (type, data, createdAt = store.now(), targetInboxId = inboxId) => {
+  const run = async () => {
+    if (!allowRemoved && (await store.getJson(path.join('inboxes', inboxId, 'inbox.json')))?.status === 'removed') throw Object.assign(new Error('Removed agent history is read-only'), { statusCode: 409 });
+    return operation(async (type, data, createdAt = store.now(), targetInboxId = inboxId) => {
     const record = await auditRecord(targetInboxId, type, data, createdAt);
     await store.putJson(record.document.path, record.document.value);
     committedEvents.push({ inboxId: targetInboxId, event: record.event });
     return record.event;
-  });
+    });
+  };
   const result = typeof store.withTransaction === 'function'
     ? await store.withTransaction([...new Set([inboxId, ...relatedInboxIds])].map(inboxMutationKey).concat(additionalLockKeys), run)
     : await run();
@@ -726,6 +729,7 @@ async function canAccessInbox(human, inbox) {
 }
 
 async function canManageInbox(human, inbox) {
+  if (inbox.status === 'removed') return false;
   const membership = await getAuthorizedMembership(inbox.organizationId, human);
   return membershipCanManage(membership, auth.provider);
 }
@@ -1184,7 +1188,13 @@ async function nativeCaseDocuments(message, state, at, { revealRecipient = false
   if (revealRecipient || await store.getJson(caseRecordPath(message.recipientInboxId, message.caseId))) {
     documents.push(document(caseRecordPath(message.recipientInboxId, message.caseId), updated));
   }
-  return { case: updated, documents };
+  const visibleDocuments = [];
+  for (const entry of documents) {
+    const target = entry.path.match(/^inboxes[\\/]([^\\/]+)[\\/]/);
+    if (target && (await store.getJson(path.join('inboxes', target[1], 'inbox.json')))?.historyDeleted) continue;
+    visibleDocuments.push(entry);
+  }
+  return { case: updated, documents: visibleDocuments };
 }
 
 const permanentDeliveryError = message => Object.assign(new Error(message), { permanent: true });
@@ -2092,7 +2102,7 @@ async function route(req, res) {
     if (!human || !await getAuthorizedMembership(organizationId, human)) return fail(res, 403, 'Active organization membership required');
     const references = await store.listJson(path.join('organizations', organizationId, 'workspaces'));
     const workspaces = await Promise.all(references.map(reference => store.getJson(path.join('inboxes', reference.inboxId, 'inbox.json'))));
-    return json(res, 200, workspaces.filter(Boolean));
+    return json(res, 200, workspaces.filter(workspace => workspace && !workspace.historyDeleted));
   }
 
   const calendarCallback = url.pathname.match(/^\/api\/calendar-oauth\/(google|outlook)\/callback$/);
@@ -2330,6 +2340,8 @@ async function route(req, res) {
   const [, inboxId, suffix = ''] = match;
   const inbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
   if (!inbox) return fail(res, 404, 'Inbox not found');
+
+  if (inbox.status === 'removed' && req.method !== 'GET' && !/^agents\/[^/]+\/remove$/.test(suffix)) return fail(res, 409, 'Removed agent history is read-only');
 
   if (req.method === 'GET' && suffix !== 'events') {
     const human = await auth.getHuman(req);
@@ -2771,6 +2783,45 @@ async function route(req, res) {
     }, [], [humanAgentLimitKey(existingAgent.principalHumanId || inbox.ownerHumanId)]);
     if (decision === 'reject') disconnectAgentStreams(inboxId, agentId);
     return json(res, 200, { agent: publicAgent(result.agent), ...(result.credentials || {}) });
+  }
+
+  const removeAgent = suffix.match(/^agents\/([^/]+)\/remove$/);
+  if (req.method === 'POST' && removeAgent) {
+    const human = await auth.getHuman(req);
+    if (!membershipCanManage(await getAuthorizedMembership(inbox.organizationId, human), auth.provider)) return fail(res, 403, 'Workspace administrator required');
+    const agentId = assertSafeIdentifier(removeAgent[1], 'agentId');
+    const input = await body(req);
+    if (typeof input.deleteHistory !== 'boolean') return fail(res, 400, 'Choose whether to delete history');
+    if (inbox.kind !== 'agent' || (inbox.ownerAgentId !== agentId && inbox.removedAgent?.id !== agentId)) return fail(res, 404, 'Owned agent not found');
+    const assets = input.deleteHistory ? await store.listJson(path.join('inboxes', inboxId, 'assets')) : [];
+    const result = await withInboxMutation(inboxId, async writeAudit => {
+      const currentInbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
+      const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      if (currentInbox.status === 'removed' && (!input.deleteHistory || currentInbox.historyDeleted)) return { removed: true, agentId, deletedHistory: currentInbox.historyDeleted, removedAt: currentInbox.removedAt };
+      if (!agent && currentInbox.removedAgent?.id !== agentId) throw Object.assign(new Error('Owned agent not found'), { statusCode: 404 });
+      if (input.deleteHistory && input.confirmation !== (agent?.name || currentInbox.removedAgent?.name)) throw Object.assign(new Error('Enter the agent name to confirm permanent deletion'), { statusCode: 400 });
+      const removedAt = store.now();
+      await revokeAgentCredentialFamilies(inboxId, agentId, human.id, removedAt);
+      if (agent) {
+        await freezeAgentRecord(inboxId, agent, human.id, removedAt);
+        await store.deleteJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      }
+      if (input.deleteHistory) {
+        const currentAssets = await store.listJson(path.join('inboxes', inboxId, 'assets'));
+        if (currentAssets.some(asset => !assets.some(locked => locked.id === asset.id))) throw Object.assign(new Error('Files changed during removal; retry'), { statusCode: 409 });
+        for (const asset of currentAssets) {
+          const object = await objectStorage.metadataStore.get(asset.id);
+          if (object?.workspaceId === inboxId) await objectStorage.requestRemoval(asset.id);
+        }
+        await store.deleteJsonTree(path.join('inboxes', inboxId));
+      }
+      await store.putJson(path.join('inboxes', inboxId, 'inbox.json'), { ...currentInbox, name: input.deleteHistory ? 'Removed agent' : currentInbox.name, ownerAgentId: null, status: 'removed', removedAt, historyDeleted: input.deleteHistory, removedAgent: { id: agentId, ...(input.deleteHistory ? {} : { name: agent?.name || currentInbox.removedAgent?.name }) } });
+      await writeAudit('agent.removed', { agentId, humanId: human.id, deletedHistory: input.deleteHistory });
+      return { removed: true, agentId, deletedHistory: input.deleteHistory, removedAt };
+    }, [], assets.map(asset => `object-upload:${asset.id}`), true);
+    disconnectAgentStreams(inboxId, agentId);
+    if (input.deleteHistory) await objectStorage.reapExpiredUploads({ limit: 1000 }).catch(() => {});
+    return json(res, 200, result);
   }
 
   const revokeAgentCredentials = suffix.match(/^agents\/([^/]+)\/credentials\/revoke$/);
@@ -3381,7 +3432,9 @@ async function route(req, res) {
     let persisted = false;
     let started;
     try {
-      started = await objectStorage.beginUpload({ workspaceId: inboxId, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId, createdByAgentId: principal.id });
+      started = await objectStorage.beginUpload({ workspaceId: inboxId, filename: input.filename, mimeType: input.mimeType, size: input.size, checksumSha256: input.checksumSha256, caseId, createdByAgentId: principal.id }, { lockKeys: [inboxMutationKey(inboxId)], authorize: async () => {
+        if (!await getAgentPrincipal(req, inboxId)) throw Object.assign(new Error('Agent access ended'), { statusCode: 403 });
+      } });
       const response = { object: started.object, upload: browserObjectUrl(started.upload, req) };
       if (idempotencyPath) await completeIdempotency(store, idempotencyPath, { principalId: principal.id, requestDigest, response, createdAt: store.now() });
       persisted = true;

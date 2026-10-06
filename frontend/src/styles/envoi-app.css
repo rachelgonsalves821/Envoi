@@ -80,7 +80,9 @@
 .app-shell .principal-card strong, .app-shell .principal-card small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-shell .principal-card strong { font-size: 13px; font-weight: 500; }
 .app-shell .principal-card small { color: var(--ink2); font-size: 12px; }
-.app-shell .application { min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.account-actions { position: fixed; top: 0; right: 0; height: 48px; padding: 6px 12px; display: flex; align-items: center; z-index: calc(var(--z-modal, 50) + 20); background: var(--surface-raised, #fff); border-radius: 0 0 0 8px; }
+.account-actions .button { white-space: nowrap; }
+.app-shell .application { min-height: 0; display: flex; flex-direction: column; background: var(--bg); padding-top: 48px; }
 .app-shell .application.has-history, .app-shell .application.has-history.has-sync-notice { grid-template-rows: none; }
 .app-shell .topbar, .app-shell .history-controls { display: none; }
 .app-shell .sync-notice { padding: 8px 16px; margin: 0; border: 0; border-bottom: 1px solid var(--line); background: var(--fill); color: var(--ink2); box-shadow: none; }
@@ -316,8 +318,8 @@
 .app-shell .receipt-grid > div { min-width: 0; }
 .app-shell .receipt-grid span { color: var(--ink2); font-size: 11px; }
 .app-shell .receipt-grid strong, .app-shell .receipt-grid code { overflow-wrap: anywhere; font-size: 12px; font-weight: 500; }
-.app-shell .modal-layer { padding: 12px; }
-.app-shell .modal { width: min(520px,100%); max-height: calc(100dvh - 24px); overflow-x: hidden; overflow-y: auto; border-radius: 18px; background: #fff; padding: 24px; animation: envoi-sheet-in .18s ease-out; }
+.app-shell .modal-layer { padding: 60px 12px 12px; }
+.app-shell .modal { width: min(520px,100%); max-height: calc(100dvh - 72px); overflow-x: hidden; overflow-y: auto; border-radius: 18px; background: #fff; padding: 24px; animation: envoi-sheet-in .18s ease-out; }
 .app-shell .modal header { align-items: center; padding-bottom: 14px; }
 .app-shell .modal h2 { font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
 .app-shell .modal form { gap: 14px; padding-top: 14px; }
