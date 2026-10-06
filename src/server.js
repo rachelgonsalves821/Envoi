@@ -2531,6 +2531,60 @@ async function route(req, res) {
     return json(res, 201, { enrollmentId: record.id, ...(quickConnect ? { quickConnect, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}` } : {}), enrollmentToken: rawToken, expiresAt: record.expiresAt, agentId, address: agent.address, ...(reenroll ? { permissions } : {}) });
   }
 
+  // Owner intent only. No bearer or refresh secret may enter a browser response.
+  // Provider linking remains unavailable until Meta documents a confidential
+  // connector authorization/credential handoff for the reviewed integration.
+  const museInstallationMatch = suffix.match(/^agents\/([^/]+)\/muse-connector-installations(?:\/([^/]+)(?:\/(revoke))?)?$/);
+  if (museInstallationMatch && ['GET', 'POST'].includes(req.method)) {
+    if (process.env.SINALOA_MUSE_CONNECTOR_INSTALL_ENABLED !== '1') return fail(res, 404, 'Muse connector installation is unavailable');
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const agentId = assertSafeIdentifier(museInstallationMatch[1], 'agentId');
+    const installationId = museInstallationMatch[2] ? assertSafeIdentifier(museInstallationMatch[2], 'installationId') : null;
+    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    if (!agent || inbox.ownerAgentId !== agentId || agent.runtime !== 'muse'
+      || agent.principalHumanId !== human.id || agent.status !== 'active' || agent.onboardingStatus !== 'approved') {
+      return fail(res, 404, 'Owned active Muse agent not found');
+    }
+    const installationPath = id => path.join('inboxes', inboxId, 'muse-connector-installations', `${id}.json`);
+    if (installationId) {
+      const existing = await store.getJson(installationPath(installationId));
+      if (!existing || existing.agentId !== agentId || existing.ownerHumanId !== human.id) return fail(res, 404, 'Muse installation not found');
+      if (req.method === 'GET' && !museInstallationMatch[3]) return json(res, 200, existing);
+      if (req.method !== 'POST' || museInstallationMatch[3] !== 'revoke') return fail(res, 405, 'Unsupported installation action');
+      const revoked = await withInboxMutation(inboxId, async writeAudit => {
+        const current = await store.getJson(installationPath(installationId));
+        if (!current || current.agentId !== agentId || current.ownerHumanId !== human.id) {
+          throw Object.assign(new Error('Muse installation not found'), { statusCode: 404 });
+        }
+        if (current.status === 'revoked') return current;
+        const updated = { ...current, status: 'revoked', revokedAt: store.now(), revokedByHumanId: human.id };
+        await store.putJson(installationPath(installationId), updated);
+        await writeAudit('agent.muse_connector_installation_revoked', { agentId, installationId, humanId: human.id });
+        return updated;
+      });
+      return json(res, 200, revoked);
+    }
+    if (req.method !== 'POST') return fail(res, 405, 'Unsupported installation action');
+    const input = await body(req);
+    if (!input || Array.isArray(input) || typeof input !== 'object'
+      || Object.keys(input).some(key => key !== 'mode') || !['read', 'work'].includes(input.mode)) {
+      return fail(res, 400, 'Only mode read or work is accepted');
+    }
+    const pending = await withInboxMutation(inboxId, async writeAudit => {
+      const currentAgent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      if (!currentAgent || currentAgent.status !== 'active' || currentAgent.onboardingStatus !== 'approved'
+        || currentAgent.principalHumanId !== human.id) throw Object.assign(new Error('Owned active Muse agent not found'), { statusCode: 404 });
+      const now = store.now();
+      const installation = { id: store.id('muse_installation'), agentId, inboxId, ownerHumanId: human.id,
+        mode: input.mode, status: 'awaiting_provider_contract', credentialIssued: false, createdAt: now };
+      await store.putJson(installationPath(installation.id), installation);
+      await writeAudit('agent.muse_connector_installation_requested', { agentId, installationId: installation.id, humanId: human.id, mode: input.mode });
+      return installation;
+    });
+    return json(res, 201, pending);
+  }
+
   const museSendGrantMatch = suffix.match(/^agents\/([^/]+)\/muse-send-test-grants$/);
   if (req.method === 'POST' && museSendGrantMatch) {
     const human = await auth.getHuman(req);
