@@ -4,6 +4,10 @@ import type { Human, HumanView, Inbox, WorkspaceRequester } from './types';
 // The captured legacy check took 8–10 seconds. Bound return validation at 15s;
 // tune with staging measurements without adding deadlines to mutations.
 export const SESSION_VALIDATION_TIMEOUT_MS = 15_000;
+// A background check after a short absence blocks nothing, so it can wait longer
+// than the blocking one. Aborting a request mid-flight can also lose a refreshed
+// session cookie, which is worth avoiding when nobody is waiting.
+export const QUIET_VALIDATION_TIMEOUT_MS = 45_000;
 
 export async function withReadDeadline<T>(controller: AbortController, read: (signal: AbortSignal) => Promise<T>, timeoutMs = SESSION_VALIDATION_TIMEOUT_MS): Promise<T> {
   const { signal } = controller;

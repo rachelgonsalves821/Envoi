@@ -236,7 +236,7 @@ const applyHeaders = (res, origin, nonce) => {
     res.setHeader('vary', 'Origin');
     if (allowedOrigin !== '*') res.setHeader('access-control-allow-credentials', 'true');
   }
-  res.setHeader('access-control-allow-headers', 'content-type, authorization, idempotency-key, mcp-protocol-version, if-none-match, x-request-id, x-sinaloa-csrf, traceparent, x-amz-checksum-sha256, x-amz-meta-sinaloa-sha256');
+  res.setHeader('access-control-allow-headers', 'content-type, authorization, idempotency-key, mcp-protocol-version, if-none-match, x-request-id, x-sinaloa-csrf, x-envoi-expected-human, traceparent, x-amz-checksum-sha256, x-amz-meta-sinaloa-sha256');
   res.setHeader('access-control-allow-methods', 'GET, HEAD, POST, PUT, OPTIONS');
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('x-frame-options', 'DENY');
@@ -1668,6 +1668,15 @@ async function route(req, res) {
     || url.pathname === '/api/auth/phone/start'
     || url.pathname === '/api/auth/phone/verify';
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfExempt && parseCookies(req.headers.cookie)[sessionCookieName()] && !verifyCsrfRequest(req)) return fail(res, 403, 'CSRF validation failed');
+  // Tabs share one session cookie. If another tab signed in as someone else, a
+  // stale tab would otherwise act as the new account while still showing the old
+  // one. The browser app states which account it is displaying; a mismatch is
+  // rejected before any handler runs. Auth routes are exempt so sign-out always works.
+  const expectedHuman = String(req.headers['x-envoi-expected-human'] || '');
+  if (expectedHuman && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfExempt && !url.pathname.startsWith('/api/auth/') && parseCookies(req.headers.cookie)[sessionCookieName()]) {
+    const current = await auth.getHuman(req);
+    if (current && current.id !== expectedHuman) return json(res, 409, { error: 'You are signed in as a different account in another tab. Reload to continue.', code: 'ACCOUNT_CHANGED' });
+  }
   if (url.pathname === '/mcp') {
     const identity = await getMcpIdentity(req);
     if (!identity) {

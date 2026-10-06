@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, api, csrfHeaders, csrfToken, request, safeDownloadUrl, setCsrfCookieName, shouldNotifySessionExpired } from '../src/api';
+import { ACCOUNT_CHANGED_EVENT, ApiError, api, csrfHeaders, csrfToken, expectedHumanHeaders, request, safeDownloadUrl, setCsrfCookieName, setExpectedHuman, shouldNotifySessionExpired } from '../src/api';
 import { invalidateSessionRequests } from '../src/session-lifecycle';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setExpectedHuman(null);
   setCsrfCookieName('sinaloa_csrf');
 });
 
@@ -240,5 +241,34 @@ describe('approved external contacts', () => {
       expect((options as RequestInit).method).toBe('POST');
       expect(new Headers((options as RequestInit).headers).get('x-sinaloa-csrf')).toBe('csrf-contact');
     }
+  });
+});
+
+describe('expected account on writes', () => {
+  it('names the displayed account on writes only, never on reads or auth routes', () => {
+    expect(expectedHumanHeaders('POST', '/api/inboxes', 'human_a')).toEqual({ 'x-envoi-expected-human': 'human_a' });
+    expect(expectedHumanHeaders('delete', '/api/inboxes/x', 'human_a')).toEqual({ 'x-envoi-expected-human': 'human_a' });
+    expect(expectedHumanHeaders('GET', '/api/inboxes', 'human_a')).toEqual({});
+    expect(expectedHumanHeaders('POST', '/api/auth/logout', 'human_a')).toEqual({});
+    expect(expectedHumanHeaders('POST', '/api/inboxes', null)).toEqual({});
+  });
+
+  it('sends the header from request() and announces an account change reported by the server', async () => {
+    const browserWindow = new EventTarget(); const changed = vi.fn();
+    browserWindow.addEventListener(ACCOUNT_CHANGED_EVENT, changed); vi.stubGlobal('window', browserWindow);
+    setExpectedHuman('human_a');
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Changed', code: 'ACCOUNT_CHANGED' }), { status: 409 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(request('/api/inboxes', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: 409, code: 'ACCOUNT_CHANGED' });
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'x-envoi-expected-human': 'human_a' });
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not announce an ordinary 409', async () => {
+    const browserWindow = new EventTarget(); const changed = vi.fn();
+    browserWindow.addEventListener(ACCOUNT_CHANGED_EVENT, changed); vi.stubGlobal('window', browserWindow);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Busy', code: 'CASE_CONTROLLED' }), { status: 409 })));
+    await expect(request('/api/inboxes', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: 409 });
+    expect(changed).not.toHaveBeenCalled();
   });
 });
