@@ -1,0 +1,92 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Envoi Muse-to-Hermes send test",
+    "version": "0.1.0",
+    "description": "Provisional single-recipient staging connector contract. The send action is a sensitive write and requires Meta's per-use approval. This document is for API review; it does not imply that Muse accepts OpenAPI import or can run unattended."
+  },
+  "paths": {
+    "/api/inboxes/{inboxId}/messages": {
+      "post": {
+        "operationId": "museSendOneTestMessage",
+        "summary": "Send one native Envoi message to the owner-approved Hermes agent",
+        "description": "Uses a five-minute, one-message credential bound to this Muse agent and exact recipient. An identical retry returns the same canonical message. This action sends information to another agent; it is not an inbox read.",
+        "x-meta-tool-classification": "sensitive-write",
+        "security": [
+          { "MuseSendTestBearer": [] }
+        ],
+        "parameters": [
+          {
+            "name": "inboxId",
+            "in": "path",
+            "required": true,
+            "description": "Envoi inbox ID bound to the owner-approved grant",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 128 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["senderAgentId", "recipientEmail", "text"],
+                "properties": {
+                  "senderAgentId": { "type": "string", "description": "Muse agent ID bound to the grant" },
+                  "recipientEmail": { "type": "string", "format": "email", "description": "Exact Hermes address approved by the owner" },
+                  "text": { "type": "string", "minLength": 1, "maxLength": 2000, "description": "The message the owner approves Muse to send" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "One canonical message accepted and queued; recipient processing is not yet confirmed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CanonicalMessage" }
+              }
+            }
+          },
+          "200": {
+            "description": "Exact retry returned the existing canonical message",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CanonicalMessage" }
+              }
+            }
+          },
+          "400": { "description": "Malformed or unsupported request fields" },
+          "401": { "description": "Missing, expired, revoked, or already spent credential for a new action" },
+          "403": { "description": "Sender, recipient, or policy outside the approved grant" },
+          "404": { "description": "The exact recipient is unavailable" },
+          "409": { "description": "Credential or idempotency reuse conflicts with the original message" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "MuseSendTestBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Owner-approved, five-minute, single-message Muse send-test credential captured in the connector's private credential field"
+      }
+    },
+    "schemas": {
+      "CanonicalMessage": {
+        "type": "object",
+        "required": ["id", "caseId", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "caseId": { "type": "string" },
+          "status": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}
