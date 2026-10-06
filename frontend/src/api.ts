@@ -4,6 +4,18 @@ import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 
 export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
+export const ACCOUNT_CHANGED_EVENT = 'sinaloa:account-changed';
+let expectedHumanId: string | null = null;
+
+// The account this tab is displaying. Tabs share one session cookie, so a write
+// carries it and the server refuses it if the cookie now belongs to someone else.
+export function setExpectedHuman(id: string | null) { expectedHumanId = id; }
+
+export function expectedHumanHeaders(method = 'GET', pathname = '', humanId = expectedHumanId): Record<string, string> {
+  if (!humanId || ['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase()) || pathname.startsWith('/api/auth/')) return {};
+  return { 'x-envoi-expected-human': humanId };
+}
+
 let configuredCsrfCookieName = 'sinaloa_csrf';
 
 export function setCsrfCookieName(name?: string) {
@@ -58,6 +70,7 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
       headers: {
         ...(options.body ? { 'content-type': 'application/json' } : {}),
         ...csrfHeaders(options.method),
+        ...expectedHumanHeaders(options.method, pathname),
         ...(options.headers || {})
       }
     });
@@ -68,6 +81,7 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
       if (notifySessionExpired && response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
         window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
       }
+      if (response.status === 409 && payload.code === 'ACCOUNT_CHANGED' && typeof window !== 'undefined') window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
       throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
     }
     return payload as T;

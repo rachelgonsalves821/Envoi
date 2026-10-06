@@ -9,17 +9,17 @@ import {
   Pause, Play, PlugZap, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
-import { ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl } from './api';
+import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl, setExpectedHuman } from './api';
 import LandingPage from './LandingPage';
 import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from './agent-permissions';
 import { previewRequested } from './preview';
 import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
-import { validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
+import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
 import { RUNTIME_OPTIONS, connectorDownloads, isLoopbackOrigin, runtimeLabel, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
-import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
+import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
   eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
@@ -283,6 +283,7 @@ export default function App() {
         return;
       }
       hadAuthenticatedSession.current = true;
+      publishSessionIdentity(nextHuman.id);
       const nextWorkspaces = await loadWorkspaceDirectory();
       if (!isCurrentSession(generation)) return;
       const savedId = localStorage.getItem(WORKSPACE_KEY);
@@ -317,24 +318,28 @@ export default function App() {
 
   loadAccountRef.current = loadAccount;
 
-  const revalidateAccount = useCallback(async () => {
+  const revalidateAccount = useCallback(async (quiet = false) => {
     if (signingOut.current || endedElsewhere.current) return;
+    // A background check never takes over the screen or reloads the account just to retry.
+    if (quiet && (boot !== 'ready' || !human || !workspace)) return;
     if (boot !== 'ready' || !human || !workspace) { await loadAccount(); return; }
     if (validation.current && !validation.current.signal.aborted) return;
     const generation = sessionGeneration();
     const controller = new AbortController();
     validation.current = controller;
     const ticket = viewOrder.current.begin();
-    sessionCheckRef.current = 'checking';
-    setSessionCheck('checking');
-    setError('');
+    if (!quiet) {
+      sessionCheckRef.current = 'checking';
+      setSessionCheck('checking');
+      setError('');
+    }
     try {
       const result = await withReadDeadline(controller, signal => validateWorkspaceReturn(human.id, workspace.id, config?.provider || '', signal, {
         snapshot: signal => api.sessionView(workspace.id, signal),
         identity: signal => api.me(signal),
         directory: loadWorkspaceDirectory,
         legacyView: signal => api.humanView(workspace.id, undefined, signal)
-      }));
+      }), quiet ? QUIET_VALIDATION_TIMEOUT_MS : SESSION_VALIDATION_TIMEOUT_MS);
       if (!isCurrentSession(generation) || validation.current !== controller || !viewOrder.current.isCurrent(ticket)) return;
       controller.signal.throwIfAborted();
       if (result.kind === 'account') {
@@ -362,6 +367,7 @@ export default function App() {
     } catch (caught) {
       if (!isCurrentSession(generation) || validation.current !== controller) return;
       if (caught instanceof ApiError && caught.status === 401) expireSession();
+      else if (quiet) setSyncNotice('We could not confirm your session after you returned. Your workspace will keep retrying.');
       else {
         setError(errorMessage(caught));
         sessionCheckRef.current = 'error';
@@ -379,6 +385,15 @@ export default function App() {
     window.addEventListener(SESSION_EXPIRED_EVENT, expireSession);
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expireSession);
   }, [expireSession, isPreview, isLandingPreview]);
+
+  useEffect(() => {
+    if (isPreview || isLandingPreview) return;
+    const reload = () => { if (!signingOut.current && !endedElsewhere.current && bootRef.current !== 'signedOut') void loadAccountRef.current(); };
+    window.addEventListener(ACCOUNT_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(ACCOUNT_CHANGED_EVENT, reload);
+  }, [isPreview, isLandingPreview]);
+
+  useEffect(() => { setExpectedHuman(human?.id ?? null); }, [human?.id]);
 
   useEffect(() => {
     if (isPreview) return;
@@ -406,7 +421,13 @@ export default function App() {
       },
       resume: reason => {
         if (reason === 'tab' && loadRodeOutTabSwitch.current) { loadRodeOutTabSwitch.current = false; return; }
+        if (reason === 'quiet') { void revalidateAccountRef.current(true); return; }
         if (reason === 'history') void loadAccountRef.current(); else void revalidateAccountRef.current();
+      },
+      identityAnnounced: humanId => {
+        const current = humanRef.current;
+        if (signingOut.current || endedElsewhere.current || bootRef.current === 'signedOut' || !current || current.id === humanId) return;
+        void loadAccountRef.current();
       },
       endedElsewhere: () => {
         if (bootRef.current === 'signedOut') return;

@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SESSION_END_KEY, SESSION_ENDED_NOTICE, SESSION_NOTICE_KEY, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, trackSessionRequest, watchSessionLifecycle } from '../src/session-lifecycle';
+import { CURTAIN_RETURN_AFTER_MS, QUIET_RETURN_AFTER_MS, SESSION_END_KEY, SESSION_ENDED_NOTICE, SESSION_IDENTITY_KEY, SESSION_NOTICE_KEY, announcedHumanId, publishSessionIdentity, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, trackSessionRequest, watchSessionLifecycle } from '../src/session-lifecycle';
 
 function browserFixture(isActive?: () => boolean) {
   const browser = new EventTarget();
   const document = Object.assign(new EventTarget(), { visibilityState: 'visible' as DocumentVisibilityState });
-  const callbacks = { suspend: vi.fn(), resume: vi.fn(), endedElsewhere: vi.fn() };
-  const stop = watchSessionLifecycle(browser, document, { ...callbacks, isActive });
-  return { browser, document, callbacks, stop };
+  const clock = { time: 1_000_000 };
+  const callbacks = { suspend: vi.fn(), resume: vi.fn(), endedElsewhere: vi.fn(), identityAnnounced: vi.fn() };
+  const stop = watchSessionLifecycle(browser, document, { ...callbacks, isActive }, { now: () => clock.time });
+  const hide = () => { document.visibilityState = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); };
+  const show = () => { document.visibilityState = 'visible'; document.dispatchEvent(new Event('visibilitychange')); browser.dispatchEvent(new Event('focus')); };
+  return { browser, document, callbacks, stop, clock, hide, show };
 }
 
 describe('private page lifecycle', () => {
@@ -41,47 +44,68 @@ describe('private page lifecycle', () => {
     stop();
   });
 
-  it('still suspends and resumes once when the tab is actually hidden after a blur', () => {
-    const { browser, document, callbacks, stop } = browserFixture();
+  it('does nothing for a short absence, whether the window blurred or the tab hid', () => {
+    const { browser, clock, hide, show, callbacks, stop } = browserFixture();
     browser.dispatchEvent(new Event('blur'));
-    document.visibilityState = 'hidden';
-    document.dispatchEvent(new Event('visibilitychange'));
-    document.visibilityState = 'visible';
-    document.dispatchEvent(new Event('visibilitychange'));
+    clock.time += QUIET_RETURN_AFTER_MS - 1;
     browser.dispatchEvent(new Event('focus'));
+    hide();
+    clock.time += QUIET_RETURN_AFTER_MS - 1;
+    show();
+    expect(callbacks.suspend).not.toHaveBeenCalled();
+    expect(callbacks.resume).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('validates quietly, without suspending, after a medium absence', () => {
+    const { clock, hide, show, callbacks, stop } = browserFixture();
+    hide();
+    clock.time += 5 * 60_000;
+    show();
+    show();
+    expect(callbacks.suspend).not.toHaveBeenCalled();
+    expect(callbacks.resume).toHaveBeenCalledExactlyOnceWith('quiet');
+    stop();
+  });
+
+  it('treats a long stay in another window as an absence even though the tab stayed visible', () => {
+    const { browser, clock, callbacks, stop } = browserFixture();
+    browser.dispatchEvent(new Event('blur'));
+    clock.time += 5 * 60_000;
+    browser.dispatchEvent(new Event('focus'));
+    expect(callbacks.suspend).not.toHaveBeenCalled();
+    expect(callbacks.resume).toHaveBeenCalledExactlyOnceWith('quiet');
+    stop();
+  });
+
+  it('hides the workspace until verified only after a long absence', () => {
+    const { clock, hide, show, callbacks, stop } = browserFixture();
+    hide();
+    clock.time += CURTAIN_RETURN_AFTER_MS;
+    show();
     expect(callbacks.suspend).toHaveBeenCalledExactlyOnceWith('tab');
     expect(callbacks.resume).toHaveBeenCalledExactlyOnceWith('tab');
+    expect(callbacks.suspend.mock.invocationCallOrder[0]).toBeLessThan(callbacks.resume.mock.invocationCallOrder[0]);
     stop();
   });
 
-  it('only rides out tab switches during the initial account load', () => {
-    expect(ridesOutTabSwitch('tab', 'loading')).toBe(true);
-    expect(ridesOutTabSwitch('history', 'loading')).toBe(false);
-    for (const boot of ['ready', 'setup', 'error', 'signedOut']) expect(ridesOutTabSwitch('tab', boot)).toBe(false);
-  });
-
-  it('keeps hidden tabs private and resumes once when visible despite overlapping focus events', () => {
-    const { browser, document, callbacks, stop } = browserFixture();
-    document.visibilityState = 'hidden';
-    document.dispatchEvent(new Event('visibilitychange'));
+  it('does not count an absence while signed out toward a later check', () => {
+    let authenticated = false;
+    const { browser, clock, callbacks, stop } = browserFixture(() => authenticated);
+    browser.dispatchEvent(new Event('blur'));
+    authenticated = true;
+    clock.time += 5 * 60_000;
     browser.dispatchEvent(new Event('focus'));
-    expect(callbacks.suspend).toHaveBeenCalledTimes(1);
-    expect(callbacks.suspend).toHaveBeenCalledWith('tab');
     expect(callbacks.resume).not.toHaveBeenCalled();
-    document.visibilityState = 'visible';
-    document.dispatchEvent(new Event('visibilitychange'));
-    browser.dispatchEvent(new Event('focus'));
-    expect(callbacks.resume).toHaveBeenCalledTimes(1);
-    expect(callbacks.resume).toHaveBeenCalledWith('tab');
     stop();
   });
 
-  it('upgrades a tab curtain to discarded history state before browser navigation', () => {
-    const { browser, document, callbacks, stop } = browserFixture();
-    document.visibilityState = 'hidden';
-    document.dispatchEvent(new Event('visibilitychange'));
+  it('upgrades a hidden tab to discarded history state before browser navigation', () => {
+    const { browser, document, clock, hide, callbacks, stop } = browserFixture();
+    hide();
+    clock.time += 5 * 60_000;
     browser.dispatchEvent(new Event('pagehide'));
-    expect(callbacks.suspend.mock.calls).toEqual([['tab'], ['history']]);
+    expect(callbacks.suspend.mock.calls).toEqual([['history']]);
     document.visibilityState = 'visible';
     browser.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
     expect(callbacks.resume).toHaveBeenCalledExactlyOnceWith('history');
@@ -103,19 +127,40 @@ describe('private page lifecycle', () => {
     stop();
   });
 
-  it('does not revalidate a suspended account after another tab ends the session', () => {
+  it('does not revalidate an account after another tab ends the session', () => {
     let authenticated = true;
-    const { browser, document, callbacks, stop } = browserFixture(() => authenticated);
-    document.visibilityState = 'hidden';
-    document.dispatchEvent(new Event('visibilitychange'));
+    const { clock, hide, show, callbacks, browser, stop } = browserFixture(() => authenticated);
+    hide();
     callbacks.endedElsewhere.mockImplementation(() => { authenticated = false; });
     browser.dispatchEvent(Object.assign(new Event('storage'), { key: SESSION_END_KEY, newValue: 'remote-logout' }));
-    document.visibilityState = 'visible';
-    document.dispatchEvent(new Event('visibilitychange'));
-    browser.dispatchEvent(new Event('focus'));
+    clock.time += CURTAIN_RETURN_AFTER_MS;
+    show();
     expect(callbacks.endedElsewhere).toHaveBeenCalledTimes(1);
+    expect(callbacks.suspend).not.toHaveBeenCalled();
     expect(callbacks.resume).not.toHaveBeenCalled();
     stop();
+  });
+
+  it('reports which account another tab signed in as, and ignores everything else', () => {
+    const { browser, callbacks, stop } = browserFixture();
+    const announce = (key: string, newValue: string | null) => browser.dispatchEvent(Object.assign(new Event('storage'), { key, newValue }));
+    announce(SESSION_IDENTITY_KEY, 'human_b|1:random');
+    announce(SESSION_IDENTITY_KEY, null);
+    announce(SESSION_IDENTITY_KEY, 'malformed');
+    announce('sinaloa.workspace', 'human_c|1:random');
+    expect(callbacks.identityAnnounced).toHaveBeenCalledExactlyOnceWith('human_b');
+    stop();
+  });
+
+  it('publishes a fresh identity signal per load and tolerates unavailable storage', () => {
+    const setItem = vi.fn();
+    publishSessionIdentity('human_a', { setItem });
+    publishSessionIdentity('human_a', { setItem });
+    expect(setItem.mock.calls[0][0]).toBe(SESSION_IDENTITY_KEY);
+    expect(announcedHumanId(setItem.mock.calls[0][1])).toBe('human_a');
+    expect(setItem.mock.calls[0][1]).not.toBe(setItem.mock.calls[1][1]);
+    expect(announcedHumanId(null)).toBeNull();
+    expect(() => publishSessionIdentity('human_a', { setItem: () => { throw new Error('disabled'); } })).not.toThrow();
   });
 
   it('only responds to session-end messages and removes every listener on cleanup', () => {

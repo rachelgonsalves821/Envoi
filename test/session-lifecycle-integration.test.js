@@ -215,3 +215,24 @@ test('live events are withheld immediately after persisted session expiry', asyn
   await stream.waitForClose();
   assert.ok(stream.frames.every(frame => ['session.expired', 'session.revoked', 'session_expired', 'auth_required', 'session_ended'].includes(frame.event)), 'Expired stream received no workspace event');
 });
+
+test('a write that names a different account than the session cookie is rejected before any handler runs', async t => {
+  const server = await startServer(t);
+  const owner = await signIn(server);
+  const identity = await request(server, owner.session, '/api/auth/me');
+  const expected = (id) => ({ 'x-envoi-expected-human': id });
+
+  const stale = await request(server, owner.session, '/api/inboxes', { body: { name: 'Should not be created' }, headers: expected('human_someone_else') });
+  assert.equal(stale.response.status, 409);
+  assert.equal(stale.payload.code, 'ACCOUNT_CHANGED');
+  const missing = await request(server, owner.session, '/api/inboxes', { body: { name: 'No header sent' } });
+  assert.equal(missing.response.status, 201);
+  const matching = await request(server, owner.session, '/api/inboxes', { body: { name: 'Header matches' }, headers: expected(identity.payload.id) });
+  assert.equal(matching.response.status, 201);
+
+  const read = await request(server, owner.session, `/api/inboxes/${matching.payload.id}/human-view`, { headers: expected('human_someone_else') });
+  assert.equal(read.response.status, 200);
+  const logout = await request(server, owner.session, '/api/auth/logout', { method: 'POST', body: {}, headers: expected('human_someone_else') });
+  assert.equal(logout.response.status, 200);
+  assert.equal(logout.payload.revoked, true);
+});
