@@ -43,7 +43,11 @@ History navigation removes private workspace state before the browser snapshots
 the page. Restoration checks authentication before loading a workspace again.
 Ordinary tab switches hide and disable the mounted workspace while validating
 identity and membership on return, preserving drafts and selections when access
-is still valid. Unauthenticated verification forms retain their pending inputs.
+is still valid. Window focus changes alone (for example clicking DevTools, a
+split-screen neighbour or a file dialog) never trigger this check, because the
+page stays visible; only the tab being hidden does. A tab switch during the
+initial account load lets that load finish instead of restarting it.
+Unauthenticated verification forms retain their pending inputs.
 
 A normal return validates the selected workspace through an authorized
 `human-view` snapshot with a minimal `requester: { id, auth: { provider,

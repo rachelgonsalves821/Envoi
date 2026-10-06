@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SESSION_END_KEY, SESSION_ENDED_NOTICE, SESSION_NOTICE_KEY, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, sessionEndedNotice, sessionGeneration, trackSessionRequest, watchSessionLifecycle } from '../src/session-lifecycle';
+import { SESSION_END_KEY, SESSION_ENDED_NOTICE, SESSION_NOTICE_KEY, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, trackSessionRequest, watchSessionLifecycle } from '../src/session-lifecycle';
 
 function browserFixture(isActive?: () => boolean) {
   const browser = new EventTarget();
@@ -31,16 +31,33 @@ describe('private page lifecycle', () => {
     stop();
   });
 
-  it('revalidates after another OS window had focus even when visibility stayed visible', () => {
+  it('ignores window blur and focus while the page stays visible', () => {
     const { browser, callbacks, stop } = browserFixture();
     browser.dispatchEvent(new Event('blur'));
+    browser.dispatchEvent(new Event('focus'));
+    browser.dispatchEvent(new Event('focus'));
     expect(callbacks.suspend).not.toHaveBeenCalled();
-    browser.dispatchEvent(new Event('focus'));
-    expect(callbacks.suspend).toHaveBeenCalledTimes(1);
-    expect(callbacks.resume).toHaveBeenCalledTimes(1);
-    browser.dispatchEvent(new Event('focus'));
-    expect(callbacks.resume).toHaveBeenCalledTimes(1);
+    expect(callbacks.resume).not.toHaveBeenCalled();
     stop();
+  });
+
+  it('still suspends and resumes once when the tab is actually hidden after a blur', () => {
+    const { browser, document, callbacks, stop } = browserFixture();
+    browser.dispatchEvent(new Event('blur'));
+    document.visibilityState = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    document.visibilityState = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+    browser.dispatchEvent(new Event('focus'));
+    expect(callbacks.suspend).toHaveBeenCalledExactlyOnceWith('tab');
+    expect(callbacks.resume).toHaveBeenCalledExactlyOnceWith('tab');
+    stop();
+  });
+
+  it('only rides out tab switches during the initial account load', () => {
+    expect(ridesOutTabSwitch('tab', 'loading')).toBe(true);
+    expect(ridesOutTabSwitch('history', 'loading')).toBe(false);
+    for (const boot of ['ready', 'setup', 'error', 'signedOut']) expect(ridesOutTabSwitch('tab', boot)).toBe(false);
   });
 
   it('keeps hidden tabs private and resumes once when visible despite overlapping focus events', () => {

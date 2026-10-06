@@ -19,7 +19,7 @@ import { createRefreshCoordinator, createViewResponseOrder } from './workspace-r
 import { validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
 import { RUNTIME_OPTIONS, connectorDownloads, isLoopbackOrigin, runtimeLabel, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
-import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
+import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
   eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
@@ -129,6 +129,7 @@ export default function App() {
   const stopLiveUpdates = useRef<(() => void) | null>(null);
   const signingOut = useRef(false);
   const endedElsewhere = useRef(false);
+  const loadRodeOutTabSwitch = useRef(false);
   const validation = useRef<AbortController | null>(null);
   const viewRequests = useRef(new AbortController());
   const viewOrder = useRef(createViewResponseOrder());
@@ -384,6 +385,8 @@ export default function App() {
     return watchSessionLifecycle(window, document, {
       isActive: () => hadAuthenticatedSession.current && !signingOut.current && !endedElsewhere.current && bootRef.current !== 'signedOut',
       suspend: reason => {
+        if (ridesOutTabSwitch(reason, bootRef.current)) { loadRodeOutTabSwitch.current = true; return; }
+        loadRodeOutTabSwitch.current = false;
         // History snapshots discard private state. Ordinary tab switches keep
         // drafts mounted but hidden and inert until authorization is checked.
         flushSync(() => {
@@ -401,7 +404,10 @@ export default function App() {
           }
         });
       },
-      resume: reason => { if (reason === 'history') void loadAccountRef.current(); else void revalidateAccountRef.current(); },
+      resume: reason => {
+        if (reason === 'tab' && loadRodeOutTabSwitch.current) { loadRodeOutTabSwitch.current = false; return; }
+        if (reason === 'history') void loadAccountRef.current(); else void revalidateAccountRef.current();
+      },
       endedElsewhere: () => {
         if (bootRef.current === 'signedOut') return;
         endedElsewhere.current = true;
