@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EnrollmentDialog, RuntimePicker, RuntimePreparation } from '../src/App';
-import { api } from '../src/api';
+import { api, SESSION_EXPIRED_EVENT } from '../src/api';
 import { RUNTIME_OPTIONS, connectorDownloads, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
 import type { Inbox } from '../src/types';
 import type { QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
@@ -65,14 +65,46 @@ describe('Quick Connect handoff', () => {
       setResult: vi.fn(), onClose: vi.fn()
     }));
     expect(markup).toContain('muse-probe-enroll.mjs');
+    expect(markup).toContain('Generate five-minute probe credential');
+    expect(markup).toContain('Terminal fallback');
     expect(markup).toContain('five-minute, read-only credential');
     expect(markup).not.toContain('durable wake bridge');
     expect(markup).not.toContain('OpenClaw Gateway');
+    expect(markup).not.toContain('/?enroll=private');
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ enrollmentToken: 'private', enrollmentUrl: '/?enroll=private', expiresAt: '2099-01-01T00:15:00Z', quickConnect: { ...handoff, runtime: 'muse' } }), { status: 201 })));
     vi.stubGlobal('fetch', fetchMock);
     const issued = await api.museProbeEnrollmentToken('inbox_1', 'Muse', 'muse-test');
     expect(issued.quickConnect).toBeUndefined();
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ runtime: 'muse', permissions: ['receive_agent_messages'], agentProfile: { name: 'Muse', localPart: 'muse-test' } });
+  });
+
+  it('redeems a Muse probe token in the request body, never in a URL or browser storage', async () => {
+    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-muse-probe' });
+    const storage = { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn() };
+    vi.stubGlobal('localStorage', storage);
+    const response = { agent: { id: 'agent_muse', address: 'muse@agents.envoi-agents.com' }, agentProbeToken: 'private-five-minute-probe', agentProbeExpiresAt: '2026-10-06T02:00:00.000Z', scope: 'agent_probe' };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.museProbeRedeem('one_use_secret')).resolves.toEqual(response);
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/agent-enroll');
+    expect(options.method).toBe('POST');
+    expect(options.credentials).toBe('same-origin');
+    expect(new Headers(options.headers).get('x-sinaloa-csrf')).toBe('csrf-muse-probe');
+    expect(new Headers(options.headers).has('authorization')).toBe(false);
+    expect(JSON.parse(String(options.body))).toEqual({ enrollmentToken: 'one_use_secret', runtime: 'muse' });
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('keeps an expired one-use Muse token error in the enrollment dialog instead of ending the owner session', async () => {
+    const browserWindow = new EventTarget();
+    const expired = vi.fn();
+    browserWindow.addEventListener(SESSION_EXPIRED_EVENT, expired);
+    vi.stubGlobal('window', browserWindow);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Enrollment token is invalid, expired, or already used' }), { status: 401 })));
+    await expect(api.museProbeRedeem('expired')).rejects.toMatchObject({ status: 401 });
+    expect(expired).not.toHaveBeenCalled();
   });
 
   it('warns remote hosts about loopback and keeps reconnect identity instructions', () => {

@@ -137,6 +137,9 @@ export const api = {
   museProbeReconnectToken: (inboxId: string, agentId: string, reenroll: boolean) => request<EnrollmentResult>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/reconnect-token`, {
     method: 'POST', body: JSON.stringify({ runtime: 'muse', ...(reenroll ? { permissions: ['receive_agent_messages'] } : {}) })
   }).then(({ quickConnect, ...result }) => result),
+  museProbeRedeem: (enrollmentToken: string) => request<{ agent: Agent; agentProbeToken: string; agentProbeExpiresAt: string; scope: 'agent_probe' }>('/api/agent-enroll', {
+    method: 'POST', body: JSON.stringify({ enrollmentToken, runtime: 'muse' })
+  }, false),
   museSendTestGrant: (inboxId: string, agentId: string, recipientAddress: string) => request<{ sendTestToken: string; senderAgentId: string; senderInboxId: string; recipientAddress: string; expiresAt: string; scope: 'muse_send_test' }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/muse-send-test-grants`, {
     method: 'POST', body: JSON.stringify({ recipientAddress })
   }),
