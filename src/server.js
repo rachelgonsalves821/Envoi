@@ -1785,15 +1785,15 @@ async function route(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/agent/me') {
-    const identity = await getMcpIdentity(req);
+    const identity = await getMcpIdentity(req) || await getAgentProbeIdentity(req);
     if (!identity) return fail(res, 401, 'Active agent credential required');
     res.setHeader('cache-control', 'private, no-store');
     return json(res, 200, {
       agentId: identity.agent.id,
       inboxId: identity.inboxId,
       address: identity.agent.address,
-      permissions: identity.mcpScope ? ['mcp_read'] : identity.agent.permissions,
-      scope: identity.mcpScope ? (identity.mcpScope.caseId ? 'case_read' : 'agent_info') : 'agent',
+      permissions: identity.probeOnly ? ['work_probe'] : identity.mcpScope ? ['mcp_read'] : identity.agent.permissions,
+      scope: identity.probeOnly ? 'agent_probe' : identity.mcpScope ? (identity.mcpScope.caseId ? 'case_read' : 'agent_info') : 'agent',
       ...(identity.mcpScope?.caseId ? { caseId: identity.mcpScope.caseId } : {})
     });
   }

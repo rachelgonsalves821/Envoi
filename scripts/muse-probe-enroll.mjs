@@ -55,7 +55,7 @@ async function main() {
   console.log(`\nEnrolled ${result.agent.address}. The credential expires at ${result.agentProbeExpiresAt}.`);
   console.log('Paste the credential below ONLY into Muse Custom Connector secure credential capture. It is shown once and cannot send or claim work.');
   console.log(result.agentProbeToken);
-  console.log('Ask Muse to call GET /api/agent/work/availability using that credential.');
+  console.log('Ask Muse to call GET /api/agent/me, then GET /api/agent/work/availability using that credential.');
 }
 
 main().catch(error => { console.error(error instanceof Error ? error.message : 'Muse probe failed'); process.exitCode = 1; });

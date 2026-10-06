@@ -51,6 +51,11 @@ test('Muse enrollment issues only a bounded read probe, scoped to its inbox and 
   assert.equal(enrolled.payload.agentRefreshToken, undefined);
   const token = enrolled.payload.agentProbeToken;
   const inboxId = enrolled.payload.inbox.id;
+  const me = await request(baseUrl, '/api/agent/me', { token });
+  assert.equal(me.status, 200);
+  assert.equal(me.payload.address, enrolled.payload.agent.address);
+  assert.equal(me.payload.scope, 'agent_probe');
+  assert.deepEqual(me.payload.permissions, ['work_probe']);
   const store = new FileStore(dataDir);
   assert.deepEqual(await store.listJson(path.join('auth', 'agent-refresh-credentials')), []);
 
@@ -89,6 +94,7 @@ test('Muse enrollment issues only a bounded read probe, scoped to its inbox and 
   assert.equal(index.tokenType, 'agent_probe');
   await store.putJson(indexPath, { ...index, expiresAt: new Date(Date.now() - 1000).toISOString() });
   assert.equal((await request(baseUrl, '/api/agent/work/availability', { token })).status, 401);
+  assert.equal((await request(baseUrl, '/api/agent/me', { token })).status, 401);
   await store.putJson(indexPath, index);
   const revoked = await request(baseUrl, `/api/inboxes/${inboxId}/agents/${enrolled.payload.agent.id}/credentials/revoke`, { token: verified.payload.sessionToken, body: {} });
   assert.equal(revoked.status, 200);
