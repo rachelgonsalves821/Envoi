@@ -41,12 +41,26 @@ delete them while a cookie for that session can still be presented.
 
 History navigation removes private workspace state before the browser snapshots
 the page. Restoration checks authentication before loading a workspace again.
-Ordinary tab switches hide and disable the mounted workspace while validating
-identity and membership on return, preserving drafts and selections when access
-is still valid. Window focus changes alone (for example clicking DevTools, a
-split-screen neighbour or a file dialog) never trigger this check, because the
-page stays visible; only the tab being hidden does. A tab switch during the
-initial account load lets that load finish instead of restarting it.
+How long the user was away decides what happens on return. Window focus changes
+alone (clicking DevTools, a split-screen neighbour, a file dialog) and short
+absences under one minute do nothing. Between one and thirty minutes away, in
+another tab or another window, the workspace stays visible while the account is
+validated in the background; a failed background check shows a retry notice
+instead of taking over the screen, and a 401 still ends the session. After thirty
+minutes the mounted workspace is hidden and disabled until identity and membership
+are validated, like an idle lock, preserving drafts and selections when access is
+still valid. A tab switch during the initial account load lets that load finish
+instead of restarting it.
+
+Tabs share one session cookie, so a stale tab could otherwise act as a different
+account than it displays. A tab that loads an account announces its id through
+`localStorage`; other tabs showing a different account reload. Every write from the
+app also sends `x-envoi-expected-human` with the displayed account id, and the
+server answers `409 ACCOUNT_CHANGED` before any handler runs if the cookie now
+belongs to someone else. Reads need no such header because every `human-view`
+carries the requester id, which the client compares. Auth routes are exempt so
+sign-out always works. The header is optional so older clients and agent
+credentials keep working.
 Unauthenticated verification forms retain their pending inputs.
 
 A normal return validates the selected workspace through an authorized
