@@ -129,3 +129,18 @@ test('the server passes the recheck window when it authorizes an open event stre
   assert.match(source, /canAccessInbox\(human, inbox, \{ maxAgeMs: streamMembershipRecheckMs \}\)/);
   assert.match(source, /streamRecheckMs\(process\.env\.SINALOA_STREAM_MEMBERSHIP_RECHECK_MS\)/);
 });
+
+test('a system clock that jumps backwards cannot make an old answer look fresh', async t => {
+  // Uses the real default clock. The wall clock is replaced first, so code that read
+  // it would see an answer from the far future as "only just now" and reuse it.
+  let wallClock = 1_900_000_000_000;
+  t.mock.method(Date, 'now', () => wallClock);
+  let lookups = 0;
+  const check = createProviderMembershipCache({ lookup: async () => { lookups += 1; return { status: 'active' }; } });
+  const human = { providerUserId: 'user_1' };
+  await check(human, ORG, { maxAgeMs: 50 });
+  wallClock = 0; // the system clock jumps backwards
+  await new Promise(resolve => setTimeout(resolve, 120)); // really more than 50 ms pass
+  await check(human, ORG, { maxAgeMs: 50 });
+  assert.equal(lookups, 2);
+});

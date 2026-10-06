@@ -21,7 +21,10 @@ export function streamRecheckMs(value, fallback = DEFAULT_STREAM_RECHECK_MS) {
 
 const remembered = Symbol('provider-membership');
 
-export function createProviderMembershipCache({ lookup, now = Date.now }) {
+// `now` defaults to the monotonic clock. The wall clock can jump backwards (for
+// example after a time sync), which would make an old answer look new and extend
+// how long a removed member is trusted.
+export function createProviderMembershipCache({ lookup, now = () => performance.now() }) {
   return function providerMembership(human, organizationId, { maxAgeMs = Infinity } = {}) {
     if (!human[remembered]) Object.defineProperty(human, remembered, { value: new Map(), enumerable: false });
     const entry = human[remembered].get(organizationId);
