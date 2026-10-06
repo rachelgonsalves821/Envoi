@@ -34,6 +34,7 @@ export const agentMcpTools = Object.freeze([
   { name: 'sinaloa_complete_asset_upload', description: 'Verify an uploaded asset and run the configured malware scan. Only a clean result can be downloaded.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'create_assets' },
   { name: 'sinaloa_grant_asset', description: 'Grant an uploaded case asset to the exact counterparty agent. The REST server validates creator, case, tenant, block and recipient scope; a signed URL is not a grant.', inputSchema: schema({ assetId: identifier, caseId: identifier, recipientAgentId: identifier, idempotencyKey }, ['assetId', 'caseId', 'recipientAgentId', 'idempotencyKey']), permission: 'create_assets' },
   { name: 'sinaloa_asset_download', description: 'Return a short-lived signed download URL for a clean asset in this agent’s own inbox.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'read' },
+  { name: 'sinaloa_work_availability', description: 'Check whether this agent has eligible pending work without fetching message content or claiming a lease.', inputSchema: empty, permission: 'receive_agent_messages' },
   { name: 'sinaloa_claim_work', description: 'Claim one incoming message under a fenced lease. An empty work field means no work is available.', inputSchema: empty, permission: 'receive_agent_messages' },
   { name: 'sinaloa_renew_work', description: 'Extend the current work lease; requires its opaque fence token.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 } }, ['workId', 'leaseToken']), permission: 'receive_agent_messages' },
   { name: 'sinaloa_acknowledge_work', description: 'Record admission of claimed work using a fenced lease and idempotency key.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, idempotencyKey }, ['workId', 'leaseToken', 'idempotencyKey']), permission: 'receive_agent_messages' },
@@ -77,6 +78,7 @@ async function invokeTool(name, args, identity, callRest) {
   if (name === 'sinaloa_read_case') return callRest('GET', `${base}/cases/${args.caseId}`);
   if (name === 'sinaloa_list_messages') return callRest('GET', `${base}/messages${query(args)}`);
   if (name === 'sinaloa_list_assets') return callRest('GET', `${base}/assets${query(args)}`);
+  if (name === 'sinaloa_work_availability') return callRest('GET', '/api/agent/work/availability');
   if (name === 'sinaloa_begin_asset_upload') {
     const { idempotencyKey: key, ...metadata } = args;
     return callRest('POST', `${base}/asset-uploads`, metadata, key);

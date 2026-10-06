@@ -12,6 +12,7 @@ Tools are listed only when the authenticated agent has the matching permission. 
 | `sinaloa_list_cases` | optional `limit`, `before` | send or receive |
 | `sinaloa_read_case` | `caseId` | send or receive |
 | `sinaloa_list_messages` | optional `caseId`, `limit`, `before` | send or receive |
+| `sinaloa_work_availability` | none; returns an agent-scoped summary without content or work IDs | receive, full agent credential only |
 | `sinaloa_start_case` | `recipientAddress`, `text`, `idempotencyKey`; optional protocol `intent`; creates typed `request` | send |
 | `sinaloa_send_message` | the same arguments plus required `caseId` | send |
 | `sinaloa_send_proposal` | `recipientAddress`, `caseId`, `text`, structured `proposal`, `idempotencyKey` | send |

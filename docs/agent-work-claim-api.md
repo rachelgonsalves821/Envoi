@@ -1,10 +1,14 @@
 # Agent Work Claim API
 
-All routes use the active v1 bearer credential. Claims are scoped to its inbox, agent, and credential family. A lease lasts 60 seconds by default; `SINALOA_AGENT_WORK_LEASE_MS` may set a duration from 1 to 300 seconds.
+Work claim and settlement routes use the active v1 bearer credential. Claims are scoped to its inbox, agent, and credential family. A lease lasts 60 seconds by default; `SINALOA_AGENT_WORK_LEASE_MS` may set a duration from 1 to 300 seconds.
 
 ## Read-only availability
 
 `GET /api/agent/work/availability` requires an active agent access token and receive permission. It returns a private, uncached summary of that agent's eligible native work: `ready`, `leased`, `retrying`, `exhausted`, `oldestReadyAt`, and `checkedAt`. It returns no message text, identifiers, file content, or lease token, and it never claims or settles work. Paused cases, blocked counterparties, inactive senders, and work belonging to another agent are excluded. `exhausted` is work awaiting the claim path's terminal failure handling; it is not a processed receipt. The check scans the recipient inbox and is intended for a bounded beta probe, not as a high-frequency global queue metric.
+
+`GET /api/agent/me` returns the authenticated agent's `agentId`, `inboxId`, `address`, effective `permissions`, and credential `scope`. It accepts an active agent access token or a short-lived MCP read token; the response is private and uncached. The caller cannot select another agent or inbox. For an external connector, this is the first authenticated identity check before calling availability. It does not prove that the external runtime can wake unattended, and the current short-lived access credential is not a durable background connection.
+
+Full receive-permitted MCP clients can call `sinaloa_work_availability` with an empty argument object. It forwards to the same read-only REST availability route. Case-scoped and info-only MCP read tokens cannot call it. A connector should use the REST routes if its host supports REST actions but cannot mount a remote MCP server.
 
 ## Claim
 

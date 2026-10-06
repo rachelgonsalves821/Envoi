@@ -264,6 +264,66 @@ test('case-scoped provider tokens expose only MCP reads and stop after credentia
   assert.equal((await mcp(baseUrl, replacement.payload.mcpAccessToken, 'tools/list')).status, 401);
 });
 
+test('MCP connector can prove its identity and pending work without exposing content or claiming it', async t => {
+  const baseUrl = await startServer(t);
+  const sender = await owner(baseUrl, '1261', ['send_agent_messages']);
+  const recipient = await owner(baseUrl, '1262', ['receive_agent_messages']);
+  // Enrollment currently grants receive by default; narrow the stored sender
+  // to exercise the MCP permission boundary independently of that default.
+  const senderPath = path.join(t.dataDir, 'inboxes', sender.inbox.id, 'agents', `${sender.agent.id}.json`);
+  const senderRecord = JSON.parse(await readFile(senderPath, 'utf8'));
+  await writeFile(senderPath, JSON.stringify({ ...senderRecord, permissions: ['send_agent_messages'] }));
+  assert.equal((await api(baseUrl, '/api/agent/me')).status, 401);
+  const restIdentity = await api(baseUrl, '/api/agent/me', { token: recipient.agentApiToken });
+  assert.equal(restIdentity.status, 200);
+  assert.equal(restIdentity.payload.agentId, recipient.agent.id);
+  assert.equal(restIdentity.payload.address, recipient.agent.address);
+  assert.deepEqual(restIdentity.payload.permissions, ['receive_agent_messages']);
+  assert.equal(restIdentity.payload.scope, 'agent');
+  const info = content(await tool(baseUrl, recipient.agentApiToken, 'sinaloa_agent_info'));
+  assert.equal(info.agentId, recipient.agent.id);
+  assert.equal(info.address, recipient.agent.address);
+
+  const initial = content(await tool(baseUrl, recipient.agentApiToken, 'sinaloa_work_availability'));
+  assert.equal(initial.status, 200);
+  assert.equal(initial.payload.ready, 0);
+  assert.equal((await mcp(baseUrl, sender.agentApiToken, 'tools/list')).payload.result.tools.some(item => item.name === 'sinaloa_work_availability'), false);
+  assert.equal((await tool(baseUrl, sender.agentApiToken, 'sinaloa_work_availability')).payload.error.code, -32602);
+  assert.equal((await tool(baseUrl, recipient.agentApiToken, 'sinaloa_work_availability', { inboxId: sender.inbox.id })).payload.error.code, -32602);
+
+  const scoped = await api(baseUrl, '/api/agent/mcp-read-token', { token: recipient.agentApiToken, body: {} });
+  assert.equal(scoped.status, 201);
+  const scopedIdentity = await api(baseUrl, '/api/agent/me', { token: scoped.payload.mcpAccessToken });
+  assert.equal(scopedIdentity.status, 200);
+  assert.equal(scopedIdentity.payload.scope, 'agent_info');
+  assert.deepEqual(scopedIdentity.payload.permissions, ['mcp_read']);
+  assert.equal((await mcp(baseUrl, scoped.payload.mcpAccessToken, 'tools/list')).payload.result.tools.some(item => item.name === 'sinaloa_work_availability'), false);
+  assert.equal((await tool(baseUrl, scoped.payload.mcpAccessToken, 'sinaloa_work_availability')).payload.error.code, -32602);
+
+  const secret = 'Pending message visible only through an authorized inbox read';
+  const sent = content(await tool(baseUrl, sender.agentApiToken, 'sinaloa_start_case', {
+    recipientAddress: recipient.agent.address, text: secret, idempotencyKey: 'mcp-availability-proof'
+  }));
+  assert.equal(sent.status, 202);
+  const available = await eventually(async () => {
+    const value = content(await tool(baseUrl, recipient.agentApiToken, 'sinaloa_work_availability'));
+    return value.payload.ready === 1 ? value : null;
+  });
+  assert.equal(available.status, 200);
+  assert.deepEqual(Object.keys(available.payload).sort(), ['checkedAt', 'exhausted', 'leased', 'oldestReadyAt', 'ready', 'retrying']);
+  assert.equal(JSON.stringify(available).includes(secret), false);
+  assert.equal(JSON.stringify(available).includes(sent.payload.id), false);
+  const inbox = content(await tool(baseUrl, recipient.agentApiToken, 'sinaloa_list_messages'));
+  assert.equal(inbox.status, 200);
+  assert.ok(JSON.stringify(inbox.payload).includes(secret));
+  assert.equal(content(await tool(baseUrl, recipient.agentApiToken, 'sinaloa_work_availability')).payload.ready, 1);
+
+  const revoked = await api(baseUrl, `/api/inboxes/${recipient.inbox.id}/agents/${recipient.agent.id}/credentials/revoke`, { session: recipient.session, body: {} });
+  assert.equal(revoked.status, 200);
+  assert.equal((await mcp(baseUrl, recipient.agentApiToken, 'tools/list')).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent/me', { token: recipient.agentApiToken })).status, 401);
+});
+
 test('MCP asset tools use signed binary URLs and enforce scanner state, permission and workspace boundaries', async t => {
   const scannerUrl = await startScanner(t);
   const baseUrl = await startServer(t, { SINALOA_MALWARE_SCANNER_URL: scannerUrl });
