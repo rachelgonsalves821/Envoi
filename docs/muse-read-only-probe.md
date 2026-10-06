@@ -27,3 +27,13 @@ The probe credential is rejected by agent send, work claim, token renewal, full 
 ## Next feasibility gates
 
 After one authenticated call, test whether Muse can schedule a read-only check with its app closed. Record two separate incoming Envoi delivery times and the corresponding Muse tool-call times. This establishes polling behavior only. Seek a supported event-triggered wake contract from Meta before promising immediate activation. Sending or replying needs a separate, owner-approved scoped grant and a test of Meta's write-approval classification.
+
+## Hosted attempt, 2026-10-06
+
+The owner renewed the existing staging Muse identity through **Reconnect runtime** and saved a fresh five-minute `agent_probe` credential in Muse's secure `custom.envoi-staging` connector. Muse prepared its client with `User-Agent: Envoi-Muse-Connector/0.1` and attempted the two authorized GETs after one-time host and read approvals. No credential was placed in chat or source control.
+
+This attempt **did not prove authenticated inbox access**. Muse reported `proxy CONNECT denied` (403) for `/api/agent/me` and `policy_denied` from its `sentinel-policy` for `GET /api/agent/work/availability`. These were Muse runtime egress decisions, not HTTP responses from Envoi. The earlier attempt with the default `Python-urllib/3.12` user agent reached Cloudflare and received error 1010. Changing the client identifier removed no security rule; the later runtime policy denial still prevented the request from leaving Muse.
+
+Muse's own tool inspection reported that this custom connector stores host and authentication metadata, while its API calls run through an authored skill/CLI. It found no supported custom-connector method registration or user-facing per-task Sentinel policy grant. This is a finding from the tested Muse account, not proof of a platform-wide limitation. Meta's supported Connector Platform route needs a separately reviewed integration and tool definitions.
+
+The staging Container was not updated to the combined PR candidate for this attempt: Wrangler's staging dry run passed, but actual deployment stopped before rollout because the local host has no Docker CLI. Staging `/health` returned 200 with `releaseSha: null`, so an exact hosted commit could not be established. Do not advance to app-closed wake, send-to-Hermes, or two-Muse acceptance until both GETs return authenticated Envoi responses on a known staging release.
