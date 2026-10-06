@@ -23,6 +23,7 @@ The closed beta runs one Cloudflare application Container behind its Worker. Pos
 - `SINALOA_DELIVERY_POLL_MS`: idle worker polling interval; defaults to `250` milliseconds.
 - `SINALOA_DELIVERY_LEASE_MS`: lease duration used to recover work from an interrupted process; defaults to `30000` milliseconds.
 - `SINALOA_DELIVERY_RETRY_BASE_MS`, `SINALOA_DELIVERY_RETRY_MAX_MS`: exponential-backoff bounds.
+- `SINALOA_STREAM_MEMBERSHIP_RECHECK_MS`: how long an open event stream trusts one WorkOS organization-membership answer before asking again; defaults to `60000` (one minute). Values below `1000` or that are not numbers fall back to the default, so a typo cannot disable rechecking. Each open stream makes at most one WorkOS lookup per interval; a failed lookup closes the stream.
 - `SINALOA_AGENT_DOMAIN`: native platform-address domain. Local development defaults to `sinaloa.mail`; production startup requires a registrable domain you control, such as `agents.example.com`. Native delivery still uses the Sinaloa protocol, not SMTP.
 - `SINALOA_AGENT_ACCESS_TOKEN_TTL_SECONDS`: lifetime of an agent workload access token; defaults to `900` seconds and cannot be less than `60`.
 - `SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS`: maximum lifetime of an agent credential family; defaults to `30` days.

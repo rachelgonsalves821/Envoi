@@ -20,14 +20,20 @@ and require sign-in. Password and provider MFA requirements are unchanged.
   rotated cookies cannot regain application access after logout, even if WorkOS
   is temporarily unavailable or the application restarts.
 - Live streams check human session leases and local workspace membership before
-  each event and heartbeat. WorkOS membership is currently memoized on the human
-  object retained by a connection; it is not fetched anew for every event. Fresh
-  provider membership is checked on a new connection. Tightening this freshness
-  policy is a separate security follow-up; the loading fix does not extend stream
-  lifetimes. Explicit logout closes matching streams
-  immediately. A stream also closes at its captured access/session expiry;
-  ordinary HTTP reconnection can refresh the WorkOS cookie before new stream
-  headers are sent. Access-token renewal is not itself a terminal logout event.
+  each event and heartbeat. WorkOS organization membership is rechecked on a
+  schedule: an open stream reuses one WorkOS answer for at most
+  `SINALOA_STREAM_MEMBERSHIP_RECHECK_MS` (default 60 seconds) and then asks WorkOS
+  again, so a person removed from the organization loses an open stream within
+  about that long, not when the stream eventually closes. If WorkOS cannot be
+  reached at a recheck, the stream closes rather than continuing on a stale
+  answer. The browser's automatic reconnect goes through normal authorization, and
+  the 30-second workspace refresh keeps the page current if the reconnect fails
+  while WorkOS is still down. Ordinary
+  HTTP requests still reuse one answer for the length of the request. Explicit
+  logout closes matching streams immediately. A stream also closes at its captured
+  access/session expiry; ordinary HTTP reconnection can refresh the WorkOS cookie
+  before new stream headers are sent. Access-token renewal is not itself a
+  terminal logout event.
 - Revocation outside Sinaloa (for example in the WorkOS dashboard) is discovered
   when the access token needs renewal. This follows the existing provider JWT
   validation model; it does not provide immediate provider-webhook revocation.
@@ -123,6 +129,11 @@ In an isolated staging WorkOS environment:
    sign-in is required and open streams cannot receive private events.
 5. Interrupt provider connectivity during renewal. Verify a recoverable error,
    no mutation replay, and successful recovery when connectivity returns.
+6. Open a workspace stream as a test member, then remove that member from the
+   WorkOS organization (not from Sinaloa). Within the recheck interval (default 60
+   seconds) the stream must close and a new stream request must be denied.
+   Repeat with provider connectivity interrupted at a recheck: the stream must
+   close instead of continuing.
 6. Verify local phone-code forms survive switching tabs to retrieve a code.
 
 Do not copy production cookies or credentials into test fixtures or logs.

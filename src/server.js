@@ -51,6 +51,7 @@ import {
   verifiedHumanCaseDecision
 } from './agent-interface.js';
 import { projectWorkspaceForHuman } from './human-projection.js';
+import { createProviderMembershipCache, streamRecheckMs } from './provider-membership.js';
 
 const productionConfig = validateProductionConfiguration();
 const releaseSha = process.env.SINALOA_RELEASE_SHA || null;
@@ -103,7 +104,9 @@ const actionPermission = actionKey => actionKey.startsWith('message.') ? 'send_a
 const acknowledgementStateRank = Object.freeze({ delivered: 0, acknowledged: 1, processed: 2 });
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
 const auth = createHumanAuth(store);
-const providerMembershipCache = Symbol('provider-membership-cache');
+const rememberedProviderMembership = createProviderMembershipCache({ lookup: (userId, organizationId) => auth.getOrganizationMembership(userId, organizationId) });
+// How long an open event stream trusts one answer from WorkOS before asking again.
+const streamMembershipRecheckMs = streamRecheckMs(process.env.SINALOA_STREAM_MEMBERSHIP_RECHECK_MS);
 const streams = new Map();
 const rateBuckets = new Map();
 const emailRateBuckets = new Map();
@@ -711,21 +714,18 @@ async function getMembership(organizationId, humanId) {
   return membership?.status === 'active' ? membership : null;
 }
 
-async function getAuthorizedMembership(organizationId, human) {
+async function getAuthorizedMembership(organizationId, human, { maxAgeMs } = {}) {
   if (!human) return null;
   const membership = await getMembership(organizationId, human.id);
   if (!membership || auth.provider !== 'workos') return membership;
   const organization = await store.getJson(path.join('organizations', organizationId, 'organization.json'));
   if (!organization?.workosOrganizationId || !human.providerUserId || typeof auth.getOrganizationMembership !== 'function') return null;
-  if (!human[providerMembershipCache]) Object.defineProperty(human, providerMembershipCache, { value: new Map(), enumerable: false });
-  const cacheKey = organization.workosOrganizationId;
-  if (!human[providerMembershipCache].has(cacheKey)) human[providerMembershipCache].set(cacheKey, auth.getOrganizationMembership(human.providerUserId, cacheKey));
-  const providerMembership = await human[providerMembershipCache].get(cacheKey);
-  return providerMembership ? { ...membership, providerMembership } : null;
+  const current = await rememberedProviderMembership(human, organization.workosOrganizationId, { maxAgeMs });
+  return current ? { ...membership, providerMembership: current } : null;
 }
 
-async function canAccessInbox(human, inbox) {
-  return Boolean(await getAuthorizedMembership(inbox.organizationId, human));
+async function canAccessInbox(human, inbox, options) {
+  return Boolean(await getAuthorizedMembership(inbox.organizationId, human, options));
 }
 
 async function canManageInbox(human, inbox) {
@@ -2564,7 +2564,8 @@ async function route(req, res) {
         const valid = auth.validateSessionLease
           ? await auth.validateSessionLease(sessionLease)
           : Boolean(await auth.getSession({ headers: { cookie: `${sessionCookieName()}=${encodeURIComponent(sessionCookieValue)}` } }));
-        return valid && await canAccessInbox(human, inbox);
+        // An open stream must not trust one WorkOS answer for its whole lifetime.
+        return valid && await canAccessInbox(human, inbox, { maxAgeMs: streamMembershipRecheckMs });
       };
       const remaining = new Date(sessionLease?.expiresAt).getTime() - Date.now();
       if (!Number.isFinite(remaining) || remaining <= 0) {
