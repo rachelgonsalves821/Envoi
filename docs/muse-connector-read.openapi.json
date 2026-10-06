@@ -1,0 +1,144 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Envoi Muse read-only feasibility API",
+    "version": "0.1.0",
+    "description": "Current staging API for checking one owner-enrolled Muse agent identity and a content-free summary of its pending work. Both operations are reads with no server-side state change. This is a five-minute, owner-initiated connection probe, not a durable Muse connector, OAuth account link, message reader, wake mechanism, or send API. An Envoi owner creates/reconnects the Muse identity in Envoi and enters the one-time probe bearer through Muse's secure connector credential flow. The credential cannot be refreshed by the connector; another probe requires a new owner-approved reconnect."
+  },
+  "servers": [
+    {
+      "url": "https://sinaloa-staging.rachelgonsalves821.workers.dev",
+      "description": "Isolated Envoi staging. Verify /health releaseSha before a hosted test."
+    }
+  ],
+  "security": [
+    { "probeBearer": [] }
+  ],
+  "paths": {
+    "/api/agent/me": {
+      "get": {
+        "operationId": "envoiProbeIdentity",
+        "summary": "Identify the enrolled Muse agent",
+        "description": "Read-only. Resolves agent and inbox from the bearer credential; no caller-supplied agent or inbox selector. The documented success shape below is for the five-minute agent_probe credential. It returns no message or file content.",
+        "responses": {
+          "200": {
+            "description": "Active Muse probe identity",
+            "headers": { "Cache-Control": { "schema": { "type": "string" }, "description": "private, no-store" } },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProbeIdentity" },
+                "example": {
+                  "agentId": "agent_example",
+                  "inboxId": "inbox_example",
+                  "address": "muse-test@agents.envoi-agents.com",
+                  "permissions": ["work_probe"],
+                  "scope": "agent_probe"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/agent/work/availability": {
+      "get": {
+        "operationId": "envoiProbeWorkAvailability",
+        "summary": "Count eligible work for the enrolled Muse agent",
+        "description": "Read-only. Counts eligible work in the inbox bound to the bearer; it does not fetch message text, return work/case/message IDs, claim a lease, acknowledge work, or trigger Muse. A query-string inboxId is not an authorization selector. Ready means work eligible for a future claim, not that Muse has received or processed it.",
+        "responses": {
+          "200": {
+            "description": "Content-free work summary",
+            "headers": { "Cache-Control": { "schema": { "type": "string" }, "description": "private, no-store" } },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/WorkAvailability" },
+                "example": {
+                  "ready": 1,
+                  "leased": 0,
+                  "retrying": 0,
+                  "exhausted": 0,
+                  "oldestReadyAt": "2026-10-06T12:00:00.000Z",
+                  "checkedAt": "2026-10-06T12:01:00.000Z"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": {
+            "description": "The bound agent is not approved to receive messages",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "Agent is not approved to receive messages" }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "probeBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Five-minute, opaque Envoi agent_probe credential issued once through owner enrollment/reconnect. Supply only in Authorization: Bearer, never a URL, prompt, tool argument, or log. No OAuth discovery or connector-side refresh exists for this probe."
+      }
+    },
+    "schemas": {
+      "ProbeIdentity": {
+        "type": "object",
+        "required": ["agentId", "inboxId", "address", "permissions", "scope"],
+        "properties": {
+          "agentId": { "type": "string" },
+          "inboxId": { "type": "string" },
+          "address": { "type": "string", "format": "email" },
+          "permissions": { "type": "array", "items": { "type": "string", "const": "work_probe" }, "minItems": 1, "maxItems": 1 },
+          "scope": { "type": "string", "const": "agent_probe" }
+        },
+        "additionalProperties": false
+      },
+      "WorkAvailability": {
+        "type": "object",
+        "required": ["ready", "leased", "retrying", "exhausted", "oldestReadyAt", "checkedAt"],
+        "properties": {
+          "ready": { "type": "integer", "minimum": 0, "description": "Eligible for claim now." },
+          "leased": { "type": "integer", "minimum": 0, "description": "Already under an unexpired work lease." },
+          "retrying": { "type": "integer", "minimum": 0, "description": "Waiting for the server retry time." },
+          "exhausted": { "type": "integer", "minimum": 0, "description": "Reached the configured claim-attempt limit." },
+          "oldestReadyAt": { "type": ["string", "null"], "format": "date-time", "description": "Oldest ready message delivery/creation time; null when none is ready." },
+          "checkedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": { "error": { "type": "string" } }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing, expired, revoked, paused, or otherwise invalid credential",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "example": { "error": "Active agent credential required" }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Request rate limit exceeded",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "example": { "error": "Request rate limit exceeded" }
+          }
+        }
+      }
+    }
+  }
+}
