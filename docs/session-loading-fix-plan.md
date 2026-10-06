@@ -65,6 +65,8 @@ This phase should eliminate refresh bursts and repeated old-event work. It does 
 
 ### Separate security follow-up — Stream provider-membership freshness
 
+Status: the freshness window is implemented (`src/provider-membership.js`, default 60 seconds, `SINALOA_STREAM_MEMBERSHIP_RECHECK_MS`; a failed lookup closes the stream). Automated tests use a simulated provider and clock. The live-provider test in item 1 (remove a member in staging WorkOS while a stream is open) is still to be run by hand; see `docs/session-authentication.md`.
+
 1. Add an integration test that removes provider membership while a stream is connected, and verifies that subsequent private events are denied within the documented authorization policy. Test local membership removal separately.
 2. Separate ordinary per-HTTP-request membership reuse from membership freshness on a long-lived stream. A completed lookup must not remain the stream's lifetime authority.
 3. Specify the provider revalidation frequency and failure behavior before implementation. Sharing a concurrent lookup may reduce duplicate calls; any completed-result cache needs an explicit freshness bound. Measure replay performance and provider request volume so the security change does not create another latency or rate-limit problem.
