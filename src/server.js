@@ -333,6 +333,7 @@ const publicCalendarConnector = connector => {
 };
 const bearerToken = req => (req.headers.authorization || '').startsWith('Bearer ') ? req.headers.authorization.slice(7) : null;
 const agentCredentialPath = tokenHash => path.join('auth', 'agent-credentials', `${tokenHash}.json`);
+const museSendGrantPath = grantId => path.join('auth', 'muse-send-test-grants', `${grantId}.json`);
 const agentRefreshCredentialPath = tokenHash => path.join('auth', 'agent-refresh-credentials', `${tokenHash}.json`);
 const agentCredentialFamilyPath = (inboxId, agentId, familyId) => path.join('auth', 'agent-credential-families', inboxId, agentId, `${familyId}.json`);
 const enrollmentIndexPath = (inboxId, enrollmentId) => path.join('inboxes', inboxId, 'agent-enrollments', `${enrollmentId}.json`);
@@ -469,6 +470,35 @@ async function getAgentProbeIdentity(req) {
   if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved' || agent.runtime !== 'muse') return null;
   return { agent, familyId: index.familyId, inboxId: index.inboxId, probeOnly: true };
 }
+async function getMuseSendGrant(req, inboxId) {
+  const raw = bearerToken(req);
+  if (!raw?.startsWith('envoi_muse_send_test_')) return null;
+  const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
+  if (!index || index.tokenType !== 'muse_send_test' || index.inboxId !== inboxId || index.revokedAt
+    || !index.grantId || new Date(index.expiresAt) <= new Date()) return null;
+  const [grant, family, agent] = await Promise.all([
+    store.getJson(museSendGrantPath(index.grantId)),
+    store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId)),
+    store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`))
+  ]);
+  if (!grant || grant.id !== index.grantId || grant.agentId !== index.agentId || grant.inboxId !== inboxId
+    || grant.familyId !== index.familyId || !family?.museSendTestOnly || family.revokedAt
+    || new Date(family.refreshExpiresAt) <= new Date() || !agent || agent.runtime !== 'muse'
+    || agent.status !== 'active' || agent.onboardingStatus !== 'approved') return null;
+  return { grant, agent, familyId: index.familyId };
+}
+async function authorizedNativeSender(sender, message) {
+  if (!sender || sender.status !== 'active' || sender.onboardingStatus !== 'approved') return false;
+  if (hasPermission(sender, 'send_agent_messages')) return true;
+  if (sender.runtime !== 'muse' || !message.museSendTestGrantId) return false;
+  const grant = await store.getJson(museSendGrantPath(message.museSendTestGrantId));
+  if (!grant?.usedAt || grant.messageId !== message.id || grant.agentId !== sender.id
+    || grant.inboxId !== message.senderInboxId || grant.recipientAgentId !== message.recipientAgentId
+    || grant.recipientInboxId !== message.recipientInboxId || grant.recipientAddress !== message.recipientEmail
+    || grant.requestHash !== message.requestHash) return false;
+  const family = await store.getJson(agentCredentialFamilyPath(grant.inboxId, sender.id, grant.familyId));
+  return Boolean(family?.museSendTestOnly && !family.revokedAt && new Date(family.refreshExpiresAt) > new Date());
+}
 async function getMcpIdentity(req) {
   const full = await getAgentWorkIdentity(req);
   if (full) return full;
@@ -597,7 +627,7 @@ async function agentWorkCandidate(identity, candidate, now) {
   const caseRecord = await getCase(identity.inboxId, message.caseId);
   if (caseRecord?.state === 'paused' || caseRecord?.state === 'revoked') return null;
   const senderAgent = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
-  if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) return null;
+  if (!await authorizedNativeSender(senderAgent, message)) return null;
   const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
   const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
   if (senderContact?.blocked || recipientContact?.blocked) return null;
@@ -1251,11 +1281,12 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
     store.getJson(path.join('inboxes', senderInbox.id, 'agents', `${message.senderAgentId}.json`)),
     store.getJson(path.join('inboxes', recipientInboxId, 'agents', `${message.recipientAgentId}.json`))
   ]);
-  if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is no longer approved to send messages'), { statusCode: 403 });
+  if (!await authorizedNativeSender(senderAgent, message)) throw Object.assign(new Error('Sender agent is no longer approved to send messages'), { statusCode: 403 });
   if (!recipientAgent || !hasPermission(recipientAgent, 'receive_agent_messages')) throw Object.assign(new Error('Recipient agent is unavailable'), { statusCode: 404 });
   let senderCredentialFamilyId;
   if (agentRequest) {
-    const currentPrincipal = await getAgentPrincipal(agentRequest, senderInbox.id);
+    const sendTest = message.museSendTestGrantId ? await getMuseSendGrant(agentRequest, senderInbox.id) : null;
+    const currentPrincipal = sendTest && sendTest.grant.id === message.museSendTestGrantId ? sendTest.agent : await getAgentPrincipal(agentRequest, senderInbox.id);
     if (!currentPrincipal || currentPrincipal.id !== senderAgent.id) throw Object.assign(new Error('Valid sender agent credential required'), { statusCode: 401 });
     senderCredentialFamilyId = (await store.getJson(agentCredentialPath(hashSecret(bearerToken(agentRequest)))))?.familyId;
   } else {
@@ -1288,6 +1319,7 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
     senderInboxId: senderInbox.id,
     recipientInboxId,
     senderCredentialFamilyId,
+    ...(message.museSendTestGrantId ? { museSendTestGrantId: message.museSendTestGrantId } : {}),
     orderingKey: queued.caseId,
     requestHash: queued.requestHash,
     status: 'queued',
@@ -1310,7 +1342,7 @@ async function deliverNativeAgentMessage(outbox) {
   const queued = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
   if (!queued) throw permanentDeliveryError('Queued message no longer exists');
   const sender = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'agents', `${queued.senderAgentId}.json`));
-  if (!sender || !hasPermission(sender, 'send_agent_messages')) throw permanentDeliveryError('Sender agent is no longer approved to send messages');
+  if (!await authorizedNativeSender(sender, queued)) throw permanentDeliveryError('Sender agent is no longer approved to send messages');
   const senderFamilies = outbox.senderCredentialFamilyId
     ? [await store.getJson(agentCredentialFamilyPath(outbox.senderInboxId, queued.senderAgentId, outbox.senderCredentialFamilyId))]
     : await store.listJson(path.join('auth', 'agent-credential-families', outbox.senderInboxId, queued.senderAgentId));
@@ -1888,7 +1920,7 @@ async function route(req, res) {
       }
       await assertCaseProgressAllowed(identity.inboxId, currentMessage.caseId);
       const senderAgent = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'agents', `${currentMessage.senderAgentId}.json`));
-      if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is paused or unavailable'), { statusCode: 403 });
+      if (!await authorizedNativeSender(senderAgent, currentMessage)) throw Object.assign(new Error('Sender agent is paused or unavailable'), { statusCode: 403 });
       const senderContact = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'contacts', `${identity.agent.id}.json`));
       const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${currentMessage.senderAgentId}.json`));
       if (senderContact?.blocked || recipientContact?.blocked) {
@@ -2497,6 +2529,56 @@ async function route(req, res) {
     const publicUrl = new URL(publicBaseUrl(req)).origin;
     const quickConnect = runtime === 'muse' ? null : { version: 1, runtime, operation: 'reconnect', apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agent.name, address: agent.address };
     return json(res, 201, { enrollmentId: record.id, ...(quickConnect ? { quickConnect, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}` } : {}), enrollmentToken: rawToken, expiresAt: record.expiresAt, agentId, address: agent.address, ...(reenroll ? { permissions } : {}) });
+  }
+
+  const museSendGrantMatch = suffix.match(/^agents\/([^/]+)\/muse-send-test-grants$/);
+  if (req.method === 'POST' && museSendGrantMatch) {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const agentId = assertSafeIdentifier(museSendGrantMatch[1], 'agentId');
+    const input = await body(req);
+    if (!input || Array.isArray(input) || typeof input !== 'object'
+      || Object.keys(input).some(key => key !== 'recipientAddress')) return fail(res, 400, 'Only recipientAddress is accepted');
+    const recipientAddress = normalizedEmail(input.recipientAddress);
+    if (!validEmail(recipientAddress) || !recipientAddress.endsWith(`@${agentDomain}`)) return fail(res, 404, 'Recipient is unavailable');
+    const recipientDirectory = await store.getJson(nativeAddressDirectoryPath(recipientAddress));
+    if (!recipientDirectory?.verified || recipientDirectory.status !== 'active') return fail(res, 404, 'Recipient is unavailable');
+    const recipient = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'agents', `${recipientDirectory.agentId}.json`));
+    if (!recipient || recipient.address !== recipientAddress || recipient.runtime !== 'hermes'
+      || !hasPermission(recipient, 'receive_agent_messages')) return fail(res, 404, 'Recipient is unavailable');
+    const issued = await withInboxMutation(inboxId, async writeAudit => {
+      const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      if (inbox.ownerAgentId !== agentId || !agent || agent.runtime !== 'muse' || agent.status !== 'active'
+        || agent.onboardingStatus !== 'approved' || !hasPermission(agent, 'receive_agent_messages')) {
+        throw Object.assign(new Error('Active Muse identity required'), { statusCode: 403 });
+      }
+      const currentDirectory = await store.getJson(nativeAddressDirectoryPath(recipientAddress));
+      const currentRecipient = currentDirectory && await store.getJson(path.join('inboxes', currentDirectory.inboxId, 'agents', `${currentDirectory.agentId}.json`));
+      if (!currentRecipient || currentDirectory.inboxId !== recipientDirectory.inboxId || currentRecipient.id !== recipient.id
+        || currentRecipient.runtime !== 'hermes' || !hasPermission(currentRecipient, 'receive_agent_messages')) {
+        throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
+      }
+      const grantId = store.id('muse_send_grant');
+      const familyId = store.id('credential_family');
+      const issuedAt = store.now();
+      const expiresAt = expiresAfter(5 * 60_000);
+      const deliveryExpiresAt = expiresAfter(30 * 86_400_000);
+      const sendTestToken = `envoi_muse_send_test_${crypto.randomBytes(32).toString('base64url')}`;
+      const grant = { id: grantId, agentId, inboxId, familyId, recipientAddress, recipientAgentId: recipient.id,
+        recipientInboxId: recipientDirectory.inboxId, issuedByHumanId: human.id, issuedAt, expiresAt,
+        usedAt: null, messageId: null, requestHash: null };
+      await store.putJsonBatch([
+        document(museSendGrantPath(grantId), grant),
+        document(agentCredentialPath(hashSecret(sendTestToken)), { tokenType: 'muse_send_test', grantId, agentId, inboxId, familyId, issuedAt, expiresAt, revokedAt: null }),
+        document(agentCredentialFamilyPath(inboxId, agentId, familyId), { id: familyId, agentId, inboxId,
+          museSendTestOnly: true, createdAt: issuedAt, refreshExpiresAt: deliveryExpiresAt, rotationCounter: 0, revokedAt: null })
+      ]);
+      await writeAudit('agent.muse_send_test_granted', { agentId, recipientAgentId: recipient.id, grantId, humanId: human.id, expiresAt });
+      return { sendTestToken, tokenType: 'Bearer', scope: 'muse_send_test', senderAgentId: agentId,
+        senderInboxId: inboxId, recipientAddress, expiresAt, grantId };
+    });
+    res.setHeader('cache-control', 'private, no-store');
+    return json(res, 201, issued);
   }
 
   if (req.method === 'GET' && suffix === 'calendar-connectors') {
@@ -3317,21 +3399,31 @@ async function route(req, res) {
 
   if (req.method === 'POST' && suffix === 'messages') {
     const input = await body(req);
+    const museSendTest = await getMuseSendGrant(req, inboxId);
+    if (bearerToken(req)?.startsWith('envoi_muse_send_test_') && !museSendTest) return fail(res, 401, 'Muse test grant is invalid or expired');
+    if (museSendTest && (!input || Array.isArray(input) || typeof input !== 'object'
+      || Object.keys(input).some(key => !['senderAgentId', 'recipientEmail', 'text'].includes(key))
+      || req.headers['idempotency-key'] !== undefined
+      || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 2000)) {
+      return fail(res, 400, 'Muse test send accepts only senderAgentId, recipientEmail, and text up to 2000 characters');
+    }
     if (input.recipientAgentId != null) return fail(res, 400, 'Send by recipientEmail; raw recipient agent IDs are not accepted');
     if (!input.senderAgentId || !input.recipientEmail || !input.text) return fail(res, 400, 'senderAgentId, recipientEmail, and text are required');
-    const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
+    const idempotencyKey = museSendTest ? museSendTest.grant.id : validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
     const senderAgentId = assertSafeIdentifier(String(input.senderAgentId), 'senderAgentId');
     const sender = await store.getJson(path.join('inboxes', inboxId, 'agents', `${senderAgentId}.json`));
     if (!sender) return fail(res, 403, 'Only registered agents may send messages');
-    const principal = await getAgentPrincipal(req, inboxId);
+    const principal = museSendTest?.agent || await getAgentPrincipal(req, inboxId);
     if (!principal || principal.id !== sender.id) return fail(res, 401, 'Valid sender agent credential required');
-    if (!hasPermission(sender, 'send_agent_messages')) return fail(res, 403, 'Agent is pending approval or lacks send_agent_messages permission');
+    if (!museSendTest && !hasPermission(sender, 'send_agent_messages')) return fail(res, 403, 'Agent is pending approval or lacks send_agent_messages permission');
     const recipientEmail = normalizedEmail(input.recipientEmail);
+    if (museSendTest && (museSendTest.grant.recipientAddress !== recipientEmail || museSendTest.grant.agentId !== senderAgentId)) return fail(res, 403, 'Muse test grant is for another sender or recipient');
     if (!validEmail(recipientEmail) || !recipientEmail.endsWith(`@${agentDomain}`)) return fail(res, 404, 'Recipient is unavailable');
     const recipientDirectory = await store.getJson(nativeAddressDirectoryPath(recipientEmail));
     if (!recipientDirectory || recipientDirectory.status !== 'active' || recipientDirectory.verified !== true) return fail(res, 404, 'Recipient is unavailable');
     const recipient = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'agents', `${recipientDirectory.agentId}.json`));
     if (!recipient || recipient.address !== recipientEmail || !hasPermission(recipient, 'receive_agent_messages')) return fail(res, 404, 'Recipient is unavailable');
+    if (museSendTest && (recipient.id !== museSendTest.grant.recipientAgentId || recipientDirectory.inboxId !== museSendTest.grant.recipientInboxId || recipient.runtime !== 'hermes')) return fail(res, 403, 'Muse test grant is for another recipient');
     if (recipient.id === sender.id) return fail(res, 400, 'Sender and recipient must be different agents');
     const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
     const requestedCaseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
@@ -3339,17 +3431,23 @@ async function route(req, res) {
     const priorMessage = await store.getJson(messagePath(inboxId, messageId));
     const candidateCaseId = requestedCaseId || priorMessage?.caseId || store.id('case');
     const response = await withInboxMutation(inboxId, async writeAudit => {
+      const currentMuseSendTest = museSendTest ? await getMuseSendGrant(req, inboxId) : null;
       const [currentSenderInbox, currentSender, currentPrincipal, currentRecipientDirectory] = await Promise.all([
         store.getJson(path.join('inboxes', inboxId, 'inbox.json')),
         store.getJson(path.join('inboxes', inboxId, 'agents', `${senderAgentId}.json`)),
-        getAgentPrincipal(req, inboxId),
+        currentMuseSendTest?.agent || getAgentPrincipal(req, inboxId),
         store.getJson(nativeAddressDirectoryPath(recipientEmail))
       ]);
       if (!currentSenderInbox || !currentSender || !currentPrincipal || currentPrincipal.id !== currentSender.id) throw Object.assign(new Error('Valid sender agent credential required'), { statusCode: 401 });
-      if (!hasPermission(currentSender, 'send_agent_messages')) throw Object.assign(new Error('Agent is pending approval or lacks send_agent_messages permission'), { statusCode: 403 });
+      if (!currentMuseSendTest && !hasPermission(currentSender, 'send_agent_messages')) throw Object.assign(new Error('Agent is pending approval or lacks send_agent_messages permission'), { statusCode: 403 });
       if (!currentRecipientDirectory || currentRecipientDirectory.inboxId !== recipientDirectory.inboxId || currentRecipientDirectory.status !== 'active' || currentRecipientDirectory.verified !== true) throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
       const currentRecipient = await store.getJson(path.join('inboxes', currentRecipientDirectory.inboxId, 'agents', `${currentRecipientDirectory.agentId}.json`));
       if (!currentRecipient || currentRecipient.address !== recipientEmail || !hasPermission(currentRecipient, 'receive_agent_messages')) throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
+      if (currentMuseSendTest && (currentMuseSendTest.grant.id !== museSendTest.grant.id || currentMuseSendTest.grant.agentId !== senderAgentId
+        || currentMuseSendTest.grant.recipientAddress !== recipientEmail || currentMuseSendTest.grant.recipientAgentId !== currentRecipient.id
+        || currentMuseSendTest.grant.recipientInboxId !== currentRecipientDirectory.inboxId || currentRecipient.runtime !== 'hermes')) {
+        throw Object.assign(new Error('Muse test grant is for another sender or recipient'), { statusCode: 403 });
+      }
       if (currentRecipient.id === currentSender.id) throw Object.assign(new Error('Sender and recipient must be different agents'), { statusCode: 400 });
       const [senderContact, recipientContact] = await Promise.all([
         store.getJson(path.join('inboxes', inboxId, 'contacts', `${currentRecipient.id}.json`)),
@@ -3377,6 +3475,13 @@ async function route(req, res) {
         return { status: 200, payload: existing, queued: false };
       }
       const createdAt = store.now();
+      if (currentMuseSendTest) {
+        if (currentMuseSendTest.grant.usedAt) throw Object.assign(new Error('Muse test grant has already been used'), { statusCode: 409 });
+        const grantPath = museSendGrantPath(currentMuseSendTest.grant.id);
+        const claimedGrant = await store.claimJson(grantPath, 'usedAt', createdAt);
+        if (!claimedGrant) throw Object.assign(new Error('Muse test grant has already been used'), { statusCode: 409 });
+        await store.putJson(grantPath, { ...claimedGrant, messageId, requestHash });
+      }
       const conversationId = candidateCaseId;
       const protocol = createProtocolMessage({
         messageId,
@@ -3414,6 +3519,7 @@ async function route(req, res) {
         text: input.text,
         payload: input.payload || null,
         requestHash,
+        ...(currentMuseSendTest ? { museSendTestGrantId: currentMuseSendTest.grant.id } : {}),
         createdAt,
         queuedAt: createdAt,
         status: 'queued'
