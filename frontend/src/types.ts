@@ -33,7 +33,7 @@ export interface Human {
 }
 
 export interface Organization { id: string; name: string; slug: string; status: string }
-export interface Inbox { id: string; organizationId: string; name: string; ownerAgentId: string | null; ownerHumanId: string; parentInboxId?: string | null; kind?: 'workspace' | 'agent'; status: string; createdAt: string }
+export interface Inbox { id: string; organizationId: string; name: string; ownerAgentId: string | null; ownerHumanId: string; parentInboxId?: string | null; kind?: 'workspace' | 'agent'; status: string; createdAt: string; historyDeleted?: boolean; removedAgent?: { id: string; name?: string } }
 
 export interface Agent {
   id: string;

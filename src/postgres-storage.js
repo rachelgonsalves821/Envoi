@@ -265,6 +265,7 @@ export class PostgresStore {
   }
   async getJson(relative, fallback = null) { const result = await this.query('SELECT value FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rows[0]?.value ?? fallback; }
   async deleteJson(relative) { const result = await this.query('DELETE FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rowCount === 1; }
+  async deleteJsonTree(relativeDir) { const result = await this.query("DELETE FROM sinaloa_documents WHERE path LIKE $1 ESCAPE E'\\\\'", [likePrefix(relativeDir)]); return result.rowCount; }
   async listJson(relativeDir) { const result = await this.query("SELECT value FROM sinaloa_documents WHERE path LIKE $1 ESCAPE E'\\\\' ORDER BY path", [likePrefix(relativeDir)]); return result.rows.filter((row) => row.value && typeof row.value === 'object' && !Array.isArray(row.value)).map((row) => row.value); }
   async countJson(relativeDir, { filters = {} } = {}) {
     const values = [likePrefix(relativeDir)];

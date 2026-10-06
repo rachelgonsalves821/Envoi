@@ -22,6 +22,21 @@ import {
 
 const checksum = body => crypto.createHash('sha256').update(body).digest('base64');
 
+test('agent removal blocks late scan updates and seals owned bytes before releasing quota', async t => {
+  const local = await createLocalService();
+  t.after(() => rm(local.root, { recursive: true, force: true }));
+  const started = await createAndUpload(local);
+  await local.service.scanObject(started.object.id);
+  await local.service.requestRemoval(started.object.id);
+  const late = await local.service.metadataStore.updateScan(started.object.id, { state: 'clean', scannedAt: new Date().toISOString(), result: { status: 'clean' } });
+  assert.equal(late.state, 'upload-cleanup-pending');
+  const result = await local.service.reapExpiredUploads();
+  assert.equal(result.deleted, 1);
+  assert.equal(await local.service.metadataStore.get(started.object.id), null);
+  await assert.rejects(() => local.service.getObject(started.object.id), error => error.code === 'OBJECT_NOT_FOUND');
+  assert.equal((await local.service.quotaLedger.usage('workspace_a')).used, 0);
+});
+
 async function createLocalService({ scanner = { scan: async () => ({ status: 'clean', engine: 'test' }) }, quota = 1000, ...serviceOptions } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sinaloa-object-store-'));
   const adapter = new LocalObjectStorageAdapter(root);

@@ -41,6 +41,48 @@ async function owner(baseUrl, suffix) {
   return { session, human: verified.payload.human, ...enrolled.payload };
 }
 
+test('removal retains a read-only archive or deletes only the owned inbox and survives restart', async t => {
+  let server = await launch();
+  t.after(() => server.stop());
+  const [alice, bob] = await Promise.all([owner(server.baseUrl, '4201'), owner(server.baseUrl, '4202')]);
+  const route = `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/remove`;
+  const caseId = 'case_removal_history';
+  const bytes = Buffer.from('owned file');
+  const upload = await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/asset-uploads`, { token: alice.agentApiToken, body: { filename: 'owned.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256: crypto.createHash('sha256').update(bytes).digest('base64') } });
+  assert.equal(upload.status, 201, JSON.stringify(upload.payload));
+  assert.equal((await fetch(upload.payload.upload.url, { method: 'PUT', headers: upload.payload.upload.headers, body: bytes })).status, 204);
+  const sent = await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/messages`, { token: alice.agentApiToken, key: 'removal-message', body: { senderAgentId: alice.agent.id, recipientEmail: bob.agent.address, caseId, text: 'Keep the counterpart copy' } });
+  assert.equal(sent.status, 202);
+  await eventually(async () => (await api(server.baseUrl, `/api/inboxes/${bob.inbox.id}/messages`, { token: bob.agentApiToken })).payload.some(message => message.id === sent.payload.id && message.status === 'delivered'));
+  const stale = await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/credentials/reconnect-token`, { session: alice.session, body: {} });
+  assert.equal((await api(server.baseUrl, route, { session: bob.session, body: { deleteHistory: false } })).status, 403);
+  assert.equal((await api(server.baseUrl, route, { session: alice.session, body: {} })).status, 400);
+  assert.equal((await api(server.baseUrl, route, { session: alice.session, body: { deleteHistory: true, confirmation: 'wrong' } })).status, 400);
+  assert.equal((await api(server.baseUrl, route, { session: alice.session, body: { deleteHistory: false } })).status, 200);
+  const archive = (await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/human-view`, { session: alice.session })).payload;
+  assert.deepEqual(archive.agents, []);
+  assert.equal(archive.canManageInbox, false);
+  assert.ok(archive.messages.some(message => message.id === sent.payload.id));
+  assert.equal((await api(server.baseUrl, '/api/agent-token', { body: { agentRefreshToken: alice.agentRefreshToken } })).status, 401);
+  assert.equal((await api(server.baseUrl, '/mcp', { token: alice.agentApiToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })).status, 401);
+  assert.equal((await api(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: stale.payload.enrollmentToken } })).status, 409);
+  assert.equal((await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/resume`, { session: alice.session, body: {} })).status, 409);
+  assert.equal((await api(server.baseUrl, route, { session: alice.session, body: { deleteHistory: true, confirmation: alice.agent.name } })).status, 200);
+  const purged = (await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/human-view`, { session: alice.session })).payload;
+  assert.deepEqual(purged.messages, []);
+  assert.deepEqual(purged.caseQueue, []);
+  assert.deepEqual(purged.assets, []);
+  await assert.rejects(() => readFile(path.join(server.dataDir, 'object-storage', 'metadata', `${upload.payload.object.id}.json`)), error => error.code === 'ENOENT');
+  assert.ok((await api(server.baseUrl, `/api/inboxes/${bob.inbox.id}/messages`, { token: bob.agentApiToken })).payload.some(message => message.id === sent.payload.id));
+  const directory = await api(server.baseUrl, `/api/organizations/${alice.inbox.organizationId}/workspaces`, { session: alice.session });
+  assert.ok(!directory.payload.some(inbox => inbox.id === alice.inbox.id));
+  const dataDir = server.dataDir;
+  await server.stop(true);
+  server = await launch(dataDir);
+  assert.equal((await api(server.baseUrl, '/mcp', { token: alice.agentApiToken, body: { jsonrpc: '2.0', id: 2, method: 'tools/list' } })).status, 401);
+  assert.equal((await api(server.baseUrl, route, { session: alice.session, body: { deleteHistory: true, confirmation: alice.agent.name } })).status, 200);
+});
+
 async function eventually(check) {
   for (let i = 0; i < 100; i += 1) {
     if (await check()) return;

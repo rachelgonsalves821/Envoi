@@ -49,6 +49,16 @@ test('PostgreSQL store preserves atomic and paginated document semantics', { ski
   assert.deepEqual(compoundSecond.map(item => item.id), ['three']);
   assert.equal(await store.deleteJson(`${prefix}/messages/one.json`), true);
   assert.equal(await store.getJson(`${prefix}/messages/one.json`), null);
+  await store.putJson(`${prefix}/remove_target/deep/one.json`, { id: 'remove-me' });
+  await store.putJson(`${prefix}/remove_target_other/one.json`, { id: 'keep-me' });
+  await assert.rejects(() => store.withTransaction([], async () => {
+    assert.equal(await store.deleteJsonTree(`${prefix}/remove_target`), 1);
+    throw new Error('Rollback removal');
+  }), /Rollback removal/);
+  assert.equal((await store.getJson(`${prefix}/remove_target/deep/one.json`)).id, 'remove-me');
+  assert.equal(await store.deleteJsonTree(`${prefix}/remove_target`), 1);
+  assert.equal(await store.getJson(`${prefix}/remove_target/deep/one.json`), null);
+  assert.equal((await store.getJson(`${prefix}/remove_target_other/one.json`)).id, 'keep-me');
   const quotaWorkspace = `workspace_${crypto.randomUUID()}`;
   const quotaAttempts = await Promise.allSettled(Array.from({ length: 4 }, () => store.reserveObjectQuota(quotaWorkspace, 6, 10)));
   assert.equal(quotaAttempts.filter(attempt => attempt.status === 'fulfilled').length, 1);

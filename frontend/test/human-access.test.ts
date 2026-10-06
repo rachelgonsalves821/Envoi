@@ -12,7 +12,8 @@ describe('agent permission review', () => {
     expect(markup).toContain('Execute tasks');
     expect(markup).toContain('Share files');
     expect(markup.match(/checked=""/g)).toHaveLength(2);
-    expect(markup.match(/disabled=""/g)).toHaveLength(1);
+    expect(markup.match(/disabled=""/g)).toHaveLength(5);
+    expect(markup).toContain('Unavailable until supported by the server');
   });
 
   it('includes elevated access only when explicitly selected', () => {
@@ -36,7 +37,8 @@ describe('external runtime enrollment handoff', () => {
     expect(markup).toContain('envoi-connector.mjs prepare --runtime openclaw');
     expect(markup).toContain('Hermes');
     expect(markup).toContain('Grok');
-    expect(markup.indexOf('prepare --runtime')).toBeLessThan(markup.indexOf('Create setup prompt'));
+    expect(markup).toContain('Continue');
+    expect(markup).not.toContain('Create one-time token');
     expect(markup).not.toContain('connect-windows.ps1');
     expect(markup).not.toContain('Raw enrollment token');
   });
@@ -165,7 +167,7 @@ describe('human action visibility', () => {
     expect(observer).not.toContain('Pause conversation');
     expect(observer).not.toContain('Revoke case authority');
     expect(manager).toContain('Pause conversation');
-    expect(manager).toContain('Revoke case authority');
+    expect(manager).toContain('More case actions');
     expect(paused).toContain('Resume conversation');
     expect(paused).not.toContain('Pause conversation');
     expect(completed).not.toContain('Pause conversation');
