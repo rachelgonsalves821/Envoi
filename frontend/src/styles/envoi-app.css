@@ -115,7 +115,7 @@
 .app-shell .case-main { min-width: 0; min-height: 0; }
 .app-shell .envoi-thread { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; position: relative; }
 .app-shell .thread-body { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.app-shell .thread-toolbar { min-height: 52px; padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 2px; }
+.app-shell .thread-toolbar { min-height: 52px; padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; flex-wrap: wrap; flex-shrink: 0; gap: 4px 2px; }
 .app-shell .thread-tool { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink2); font-size: 13px; font-weight: 500; white-space: nowrap; }
 .app-shell .thread-tool:hover:not(:disabled), .app-shell .thread-tool[aria-pressed="true"] { background: rgba(0,0,0,.06); color: var(--ink); }
 .app-shell .thread-tool-right { margin-left: auto; }
@@ -392,7 +392,7 @@
   .app-shell .thread-inner { padding: 22px 16px 24px; }
   .app-shell .participant-duo { grid-template-columns: 1fr; }
   .app-shell .participant-swap { transform: rotate(90deg); }
-  .app-shell .thread-toolbar { padding: 8px; gap: 0; }
+  .app-shell .thread-toolbar { padding: 8px; gap: 4px 0; }
   .app-shell .thread-tool { padding: 0 7px; font-size: 12px; }
   .app-shell .thread-composer { padding: 8px 12px max(12px,env(safe-area-inset-bottom)); }
   .app-shell .files-heading { flex-wrap: wrap; }
