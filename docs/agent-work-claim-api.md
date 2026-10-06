@@ -2,6 +2,10 @@
 
 All routes use the active v1 bearer credential. Claims are scoped to its inbox, agent, and credential family. A lease lasts 60 seconds by default; `SINALOA_AGENT_WORK_LEASE_MS` may set a duration from 1 to 300 seconds.
 
+## Read-only availability
+
+`GET /api/agent/work/availability` requires an active agent access token and receive permission. It returns a private, uncached summary of that agent's eligible native work: `ready`, `leased`, `retrying`, `exhausted`, `oldestReadyAt`, and `checkedAt`. It returns no message text, identifiers, file content, or lease token, and it never claims or settles work. Paused cases, blocked counterparties, inactive senders, and work belonging to another agent are excluded. `exhausted` is work awaiting the claim path's terminal failure handling; it is not a processed receipt. The check scans the recipient inbox and is intended for a bounded beta probe, not as a high-frequency global queue metric.
+
 ## Claim
 
 `POST /api/agent/work/claim` takes an empty JSON object. It atomically claims one delivered or acknowledged native message, or returns an empty result.

@@ -128,6 +128,42 @@ test('claims are exclusive and fenced completion creates one replayable processe
   assert.equal((await state.claim()).payload.work, null);
 });
 
+test('read-only availability is agent-scoped and follows the same eligibility as work claims', async t => {
+  const state = await fixture(t);
+  const availability = token => request(state.server.baseUrl, '/api/agent/work/availability', { token });
+  assert.equal((await availability()).status, 401);
+  assert.deepEqual((await availability(state.recipient.agentApiToken)).payload.ready, 1);
+  const initial = await availability(state.recipient.agentApiToken);
+  assert.deepEqual({ leased: initial.payload.leased, retrying: initial.payload.retrying, exhausted: initial.payload.exhausted },
+    { leased: 0, retrying: 0, exhausted: 0 });
+  assert.equal(initial.payload.oldestReadyAt, state.message.deliveredAt);
+  assert.equal(JSON.stringify(initial.payload).includes(state.message.text), false);
+  assert.equal((await availability(state.sender.agentApiToken)).payload.ready, 0);
+
+  const contactPath = path.join('inboxes', state.recipient.inbox.id, 'contacts', `${state.sender.agent.id}.json`);
+  await state.fixtureStore.putJson(contactPath, { blocked: true });
+  assert.equal((await availability(state.recipient.agentApiToken)).payload.ready, 0);
+  assert.equal((await state.claim()).payload.work, null);
+  await state.fixtureStore.putJson(contactPath, { blocked: false });
+
+  const claimed = (await state.claim()).payload.work;
+  assert.ok(claimed);
+  const inFlight = await availability(state.recipient.agentApiToken);
+  assert.equal(inFlight.payload.ready, 0);
+  assert.equal(inFlight.payload.leased, 1);
+  assert.equal(inFlight.payload.oldestReadyAt, null);
+  assert.equal((await state.work('complete', claimed.workId, state.recipient.agentApiToken,
+    { leaseToken: claimed.leaseToken }, 'availability-complete')).status, 201);
+  const done = await availability(state.recipient.agentApiToken);
+  assert.deepEqual([done.payload.ready, done.payload.leased, done.payload.retrying, done.payload.exhausted], [0, 0, 0, 0]);
+
+  const revoked = await request(state.server.baseUrl,
+    `/api/inboxes/${state.recipient.inbox.id}/agents/${state.recipient.agent.id}/credentials/revoke`,
+    { token: state.humanToken, body: {} });
+  assert.equal(revoked.status, 200);
+  assert.equal((await availability(state.recipient.agentApiToken)).status, 401);
+});
+
 test('expired leases are reclaimed under a new fence and retry failures observe backoff', async t => {
   const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000', SINALOA_AGENT_WORK_RETRY_BASE_MS: '40' });
   const first = (await state.claim()).payload.work;

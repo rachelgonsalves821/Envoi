@@ -556,6 +556,26 @@ const messagePath = (inboxId, messageId) => path.join('inboxes', inboxId, 'messa
 const deliveryReceiptPath = (inboxId, receiptId) => path.join('inboxes', inboxId, 'delivery-receipts', `${receiptId}.json`);
 const agentWorkAttempts = claim => Number(claim?.attempts || claim?.fence || 0);
 const agentWorkRetryDelay = attempts => Math.min(15 * 60_000, agentWorkRetryBaseMs * 2 ** Math.min(20, Math.max(0, attempts - 1)));
+async function agentWorkCandidate(identity, candidate, now) {
+  if (!candidate.senderInboxId || !candidate.senderAgentId || candidate.recipientInboxId !== identity.inboxId
+    || candidate.recipientAgentId !== identity.agent.id || !['delivered', 'acknowledged'].includes(candidate.status)) return null;
+  const message = await store.getJson(messagePath(identity.inboxId, candidate.id));
+  if (!message || !['delivered', 'acknowledged'].includes(message.status) || message.senderInboxId !== candidate.senderInboxId
+    || message.senderAgentId !== candidate.senderAgentId || message.recipientAgentId !== identity.agent.id) return null;
+  const caseRecord = await getCase(identity.inboxId, message.caseId);
+  if (caseRecord?.state === 'paused' || caseRecord?.state === 'revoked') return null;
+  const senderAgent = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
+  if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) return null;
+  const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
+  const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
+  if (senderContact?.blocked || recipientContact?.blocked) return null;
+  const claim = await store.getJson(workClaimPath(identity.inboxId, message.id));
+  if (claim && ['completed', 'failed'].includes(claim.status)) return null;
+  if (claim && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(now)) return { message, claim, state: 'leased' };
+  if (claim?.status === 'retryable' && new Date(claim.retryAt) > new Date(now)) return { message, claim, state: 'retrying' };
+  if (claim && agentWorkAttempts(claim) >= agentWorkMaxAttempts) return { message, claim, state: 'exhausted' };
+  return { message, claim, state: 'ready' };
+}
 async function failAgentWorkPermanently(message, claim, reasonCode, at, writeAudit) {
   claim.status = 'failed';
   claim.failure = { retryable: false, reasonCode, createdAt: at };
@@ -1732,6 +1752,26 @@ async function route(req, res) {
     return json(res, 200, { accepted: true });
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/agent/work/availability') {
+    const identity = await getAgentWorkIdentity(req);
+    if (!identity) return fail(res, 401, 'Active v1 agent credential required');
+    if (!hasPermission(identity.agent, 'receive_agent_messages')) return fail(res, 403, 'Agent is not approved to receive messages');
+    const checkedAt = store.now();
+    const summary = { ready: 0, leased: 0, retrying: 0, exhausted: 0, oldestReadyAt: null, checkedAt };
+    const candidates = await store.listJson(path.join('inboxes', identity.inboxId, 'messages'));
+    for (const candidate of candidates) {
+      const work = await agentWorkCandidate(identity, candidate, checkedAt);
+      if (!work) continue;
+      summary[work.state] += 1;
+      if (work.state === 'ready') {
+        const at = work.message.deliveredAt || work.message.createdAt;
+        if (at && (!summary.oldestReadyAt || at < summary.oldestReadyAt)) summary.oldestReadyAt = at;
+      }
+    }
+    res.setHeader('cache-control', 'private, no-store');
+    return json(res, 200, summary);
+  }
+
   const workSettlementRoute = url.pathname.match(/^\/api\/agent\/work\/([^/]+)\/(renew|acknowledge|complete|fail)$/);
   if ((req.method === 'POST' && url.pathname === '/api/agent/work/claim') || (req.method === 'POST' && workSettlementRoute)) {
     const identity = await getAgentWorkIdentity(req);
@@ -1763,25 +1803,15 @@ async function route(req, res) {
           .filter(message => message.senderInboxId && message.senderAgentId && message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status))
           .sort((left, right) => String(left.deliveredAt || left.createdAt).localeCompare(String(right.deliveredAt || right.createdAt)) || String(left.id).localeCompare(String(right.id)));
         for (const candidate of messages) {
-          const message = await store.getJson(messagePath(identity.inboxId, candidate.id));
-          if (!message || !['delivered', 'acknowledged'].includes(message.status) || message.senderInboxId !== candidate.senderInboxId) continue;
-          const caseRecord = await getCase(identity.inboxId, message.caseId);
-          if (caseRecord?.state === 'paused' || caseRecord?.state === 'revoked') continue;
-          const senderAgent = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
-          if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) continue;
-          const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
-          const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
-          if (senderContact?.blocked || recipientContact?.blocked) continue;
-          const claimPath = workClaimPath(identity.inboxId, message.id);
-          const currentClaim = await store.getJson(claimPath);
-          if (currentClaim && ['completed', 'failed'].includes(currentClaim.status)) continue;
-          if (currentClaim && ['claimed', 'acknowledged'].includes(currentClaim.status) && new Date(currentClaim.leaseExpiresAt) > new Date()) continue;
           const now = store.now();
-          if (currentClaim?.status === 'retryable' && new Date(currentClaim.retryAt) > new Date(now)) continue;
-          if (currentClaim && agentWorkAttempts(currentClaim) >= agentWorkMaxAttempts) {
+          const work = await agentWorkCandidate(identity, candidate, now);
+          if (!work || work.state === 'leased' || work.state === 'retrying') continue;
+          const { message, claim: currentClaim } = work;
+          if (work.state === 'exhausted') {
             await failAgentWorkPermanently(message, currentClaim, 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
             continue;
           }
+          const claimPath = workClaimPath(identity.inboxId, message.id);
           const leaseToken = crypto.randomBytes(32).toString('base64url');
           const leaseExpiresAt = new Date(Date.now() + agentWorkLeaseMs).toISOString();
           const claim = {
