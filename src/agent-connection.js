@@ -17,7 +17,7 @@ const errorCodes = new Set([
   'MODEL_CONFIGURATION_INVALID', 'RUNTIME_CONFIGURATION_INVALID', 'RUNTIME_HOST_MISMATCH'
 ]);
 
-export const connectorRuntimes = new Set(['openclaw', 'hermes', 'grok']);
+export const connectorRuntimes = new Set(['openclaw', 'hermes', 'grok', 'muse']);
 
 export function validateConnectorRuntime(value, fallback = 'openclaw') {
   const runtime = value === undefined ? fallback : value;

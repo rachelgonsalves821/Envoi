@@ -1,11 +1,14 @@
 import { quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime, type QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
-export const RUNTIME_OPTIONS: { id: ConnectorRuntime; label: string; prerequisite: string }[] = [
+export type EnrollmentRuntime = ConnectorRuntime | 'muse';
+
+export const RUNTIME_OPTIONS: { id: EnrollmentRuntime; label: string; prerequisite: string }[] = [
   { id: 'openclaw', label: 'OpenClaw', prerequisite: 'A working OpenClaw Gateway and access to its host.' },
   { id: 'hermes', label: 'Hermes', prerequisite: 'A Hermes profile that can complete a normal chat. The installer reuses its model provider configuration and prepares its local API Server.' },
-  { id: 'grok', label: 'Grok', prerequisite: 'The xAI API-backed bridge. Configure XAI_API_KEY privately on the runtime host; consumer Grok chats are not connected by this bridge.' }
+  { id: 'grok', label: 'Grok', prerequisite: 'The xAI API-backed bridge. Configure XAI_API_KEY privately on the runtime host; consumer Grok chats are not connected by this bridge.' },
+  { id: 'muse', label: 'Muse (read-only test)', prerequisite: 'An experimental five-minute connection probe for personal Muse. It does not enable sending or unattended wake.' }
 ];
-export const runtimeLabel = (runtime: ConnectorRuntime) => RUNTIME_OPTIONS.find(option => option.id === runtime)!.label;
+export const runtimeLabel = (runtime: EnrollmentRuntime) => RUNTIME_OPTIONS.find(option => option.id === runtime)!.label;
 export function isLoopbackOrigin(origin: string) {
   return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
 }
@@ -22,7 +25,7 @@ export interface EnrollmentStatus {
 export interface EnrollmentResult {
   enrollmentId?: string;
   enrollmentToken: string;
-  enrollmentUrl: string;
+  enrollmentUrl?: string;
   expiresAt: string;
   agentProfile?: { name?: string; localPart?: string };
   quickConnect?: QuickConnectHandoff;

@@ -131,6 +131,12 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ runtime, permissions, agentProfile: { name, localPart } })
   }).then(result => result.quickConnect ? { ...result, quickConnect: validateQuickConnectHandoff(result.quickConnect) } : result),
+  museProbeEnrollmentToken: (inboxId: string, name: string, localPart: string) => request<EnrollmentResult>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens`, {
+    method: 'POST', body: JSON.stringify({ runtime: 'muse', permissions: ['receive_agent_messages'], agentProfile: { name, localPart } })
+  }).then(({ quickConnect, ...result }) => result),
+  museProbeReconnectToken: (inboxId: string, agentId: string, reenroll: boolean) => request<EnrollmentResult>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/reconnect-token`, {
+    method: 'POST', body: JSON.stringify({ runtime: 'muse', ...(reenroll ? { permissions: ['receive_agent_messages'] } : {}) })
+  }).then(({ quickConnect, ...result }) => result),
   enrollmentStatus: (inboxId: string, enrollmentId: string, signal?: AbortSignal) => request<EnrollmentStatus>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-enrollment-tokens/${encodeURIComponent(enrollmentId)}/status`, { signal }),
   approveAgent: (inboxId: string, agentId: string, permissions: string[]) => request<{ agent: unknown; agentApiToken?: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agent-onboarding/${encodeURIComponent(agentId)}/approve`, { method: 'POST', body: JSON.stringify({ permissions }) })
   ,revokeAgentCredentials: (inboxId: string, agentId: string) => request<{ revoked: boolean; agentId: string; credentialFamilyCount: number; revokedAt: string }>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/credentials/revoke`, { method: 'POST', body: '{}' })

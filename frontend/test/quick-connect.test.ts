@@ -37,7 +37,7 @@ describe('Quick Connect handoff', () => {
     expect(() => connectorDownloads({ ...handoff, apiUrl: 'https://user:secret@sinaloa.example' })).toThrow();
   });
 
-  it.each(RUNTIME_OPTIONS)('provides the same setup flow for $label with isolated runtime-specific preparation', option => {
+  it.each(RUNTIME_OPTIONS.filter(option => option.id !== 'muse'))('provides the same setup flow for $label with isolated runtime-specific preparation', option => {
     const selected = { ...handoff, runtime: option.id };
     const prompt = setupPrompt(selected);
     expect(prompt).toContain(`self-hosted ${option.label} agent`);
@@ -46,10 +46,33 @@ describe('Quick Connect handoff', () => {
     expect(prompt.includes('--prepare-runtime')).toBe(option.id === 'hermes');
     const picker = renderToStaticMarkup(createElement(RuntimePicker, { runtime: option.id, onChange: vi.fn() }));
     expect(picker).toContain(`value="${option.id}" selected=""`);
-    expect(picker.match(/<option /g)).toHaveLength(3);
+    expect(picker.match(/<option /g)).toHaveLength(4);
     const preparation = renderToStaticMarkup(createElement(RuntimePreparation, { runtime: option.id, command: 'prepare', apiUrl: 'https://sinaloa.example' }));
     expect(preparation.includes('generates or reuses the local API Server key')).toBe(option.id === 'hermes');
     expect(preparation).not.toContain('repository checkout');
+  });
+
+  it('keeps experimental Muse enrollment separate from durable bridge setup', async () => {
+    const picker = renderToStaticMarkup(createElement(RuntimePicker, { runtime: 'muse', onChange: vi.fn() }));
+    expect(picker).toContain('value="muse" selected=""');
+    const preparation = renderToStaticMarkup(createElement(RuntimePreparation, { runtime: 'muse', command: 'prepare', apiUrl: 'https://envoi.example' }));
+    expect(preparation).toContain('read-only experiment');
+    expect(preparation).not.toContain('envoi-connector.mjs');
+    const markup = renderToStaticMarkup(createElement(EnrollmentDialog, {
+      workspace: { id: 'inbox_1' } as Inbox,
+      reconnectAgent: { id: 'agent_1', name: 'Muse', address: 'muse@agents.envoi-agents.com', runtime: 'muse', status: 'active', onboardingStatus: 'approved' },
+      result: { enrollmentToken: 'one_use_private', enrollmentUrl: '/?enroll=private', expiresAt: '2099-01-01T00:15:00Z' },
+      setResult: vi.fn(), onClose: vi.fn()
+    }));
+    expect(markup).toContain('muse-probe-enroll.mjs');
+    expect(markup).toContain('five-minute, read-only credential');
+    expect(markup).not.toContain('durable wake bridge');
+    expect(markup).not.toContain('OpenClaw Gateway');
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ enrollmentToken: 'private', enrollmentUrl: '/?enroll=private', expiresAt: '2099-01-01T00:15:00Z', quickConnect: { ...handoff, runtime: 'muse' } }), { status: 201 })));
+    vi.stubGlobal('fetch', fetchMock);
+    const issued = await api.museProbeEnrollmentToken('inbox_1', 'Muse', 'muse-test');
+    expect(issued.quickConnect).toBeUndefined();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ runtime: 'muse', permissions: ['receive_agent_messages'], agentProfile: { name: 'Muse', localPart: 'muse-test' } });
   });
 
   it('warns remote hosts about loopback and keeps reconnect identity instructions', () => {

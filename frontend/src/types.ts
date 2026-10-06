@@ -39,6 +39,7 @@ export interface Agent {
   id: string;
   name: string;
   address: string;
+  runtime?: 'openclaw' | 'hermes' | 'grok' | 'muse';
   platformAddress?: string;
   publicEmailAddress?: string | null;
   identity?: { address?: string; externalAddress?: string | null; externalTransportStatus?: string };

@@ -377,6 +377,27 @@ async function issueAgentCredentials(agentId, inboxId, familyId = store.id('cred
   return { agentApiToken, agentRefreshToken, agentTokenExpiresAt, agentRefreshTokenExpiresAt, tokenType: 'Bearer' };
 }
 
+// A bounded compatibility probe for Muse Custom Connectors. It deliberately has
+// no access or refresh credential, and cannot be renewed without owner action.
+async function issueAgentProbeCredential(agentId, inboxId, familyId = store.id('credential_family')) {
+  const issuedAt = store.now();
+  const expiresAt = expiresAfter(5 * 60_000);
+  const familyPath = agentCredentialFamilyPath(inboxId, agentId, familyId);
+  const existingFamily = await store.getJson(familyPath);
+  if (existingFamily?.revokedAt) throw Object.assign(new Error('Agent credential family is revoked'), { statusCode: 401 });
+  const family = existingFamily || { id: familyId, agentId, inboxId, createdAt: issuedAt, rotationCounter: 0, revokedAt: null };
+  const agentProbeToken = `envoi_agent_probe_${crypto.randomBytes(32).toString('base64url')}`;
+  family.probeOnly = true;
+  family.refreshExpiresAt = expiresAt;
+  family.rotationCounter = Number(family.rotationCounter || 0) + 1;
+  family.updatedAt = issuedAt;
+  await store.putJsonBatch([
+    document(agentCredentialPath(hashSecret(agentProbeToken)), { tokenType: 'agent_probe', agentId, inboxId, familyId, issuedAt, expiresAt, revokedAt: null }),
+    document(familyPath, family)
+  ]);
+  return { agentProbeToken, agentProbeExpiresAt: expiresAt, tokenType: 'Bearer', scope: 'agent_probe' };
+}
+
 async function rotateAgentCredentials(rawRefreshToken) {
   if (!String(rawRefreshToken || '').startsWith('sinaloa_agent_refresh_')) throw Object.assign(new Error('Valid agent refresh token required'), { statusCode: 401 });
   const refreshPath = agentRefreshCredentialPath(hashSecret(rawRefreshToken));
@@ -436,6 +457,17 @@ async function getAgentWorkIdentity(req) {
   const agent = await store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`));
   if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') return null;
   return { agent, familyId: index.familyId, inboxId: index.inboxId };
+}
+async function getAgentProbeIdentity(req) {
+  const raw = bearerToken(req);
+  if (!raw?.startsWith('envoi_agent_probe_')) return null;
+  const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
+  if (!index?.inboxId || index.tokenType !== 'agent_probe' || index.revokedAt || new Date(index.expiresAt) <= new Date() || !index.familyId) return null;
+  const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));
+  if (!family?.probeOnly || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
+  const agent = await store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`));
+  if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved' || agent.runtime !== 'muse') return null;
+  return { agent, familyId: index.familyId, inboxId: index.inboxId, probeOnly: true };
 }
 async function getMcpIdentity(req) {
   const full = await getAgentWorkIdentity(req);
@@ -1753,8 +1785,8 @@ async function route(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/agent/work/availability') {
-    const identity = await getAgentWorkIdentity(req);
-    if (!identity) return fail(res, 401, 'Active v1 agent credential required');
+    const identity = await getAgentWorkIdentity(req) || await getAgentProbeIdentity(req);
+    if (!identity) return fail(res, 401, 'Active agent credential required');
     if (!hasPermission(identity.agent, 'receive_agent_messages')) return fail(res, 403, 'Agent is not approved to receive messages');
     const checkedAt = store.now();
     const summary = { ready: 0, leased: 0, retrying: 0, exhausted: 0, oldestReadyAt: null, checkedAt };
@@ -2212,11 +2244,13 @@ async function route(req, res) {
         const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId);
         const connectedAt = store.now();
         const approvedAgent = reenroll ? { ...agent, status: 'active', onboardingStatus: 'approved', permissions: claimed.permissions, revokedAt: null, approvedAt: connectedAt, approvedByHumanId: claimed.humanId, updatedAt: connectedAt } : agent;
-        const credentials = await issueAgentCredentials(agent.id, inbox.id);
-        const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken)));
+        const runtime = claimed.runtime || agent.runtime;
+        const credentials = runtime === 'muse'
+          ? await issueAgentProbeCredential(agent.id, inbox.id)
+          : await issueAgentCredentials(agent.id, inbox.id);
+        const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken || credentials.agentProbeToken)));
         const familyPath = agentCredentialFamilyPath(inbox.id, agent.id, credentialIndex.familyId);
         const family = await store.getJson(familyPath);
-        const runtime = claimed.runtime || agent.runtime;
         const connectedAgent = runtime ? { ...approvedAgent, runtime } : approvedAgent;
         const documents = [
           document(familyPath, { ...family, ...(runtime ? { runtime } : {}) }),
@@ -2277,8 +2311,10 @@ async function route(req, res) {
         document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId: inbox.id, address: agent.address, status: agent.status, verified: true })
       ]);
       if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId: inbox.id, address: publicEmailAddressForAgent(agent), status: agent.status });
-      const credentials = await issueAgentCredentials(agent.id, inbox.id);
-      const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken)));
+      const credentials = record.runtime === 'muse'
+        ? await issueAgentProbeCredential(agent.id, inbox.id)
+        : await issueAgentCredentials(agent.id, inbox.id);
+      const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken || credentials.agentProbeToken)));
       const familyPath = agentCredentialFamilyPath(inbox.id, agent.id, credentialIndex.familyId);
       const family = await store.getJson(familyPath);
       if (record.runtime) await store.putJson(familyPath, { ...family, runtime: record.runtime });
@@ -2398,6 +2434,9 @@ async function route(req, res) {
     const requested = Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages'];
     const permissions = requested.filter(permission => allowedPermissions.has(permission));
     if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
+    if (runtime === 'muse' && (permissions.length !== 1 || permissions[0] !== 'receive_agent_messages')) {
+      return fail(res, 400, 'Muse probe enrollment requires receive-only permission');
+    }
     const profileName = String(input.agentProfile?.name || '').trim();
     const requestedLocalPart = input.agentProfile?.localPart;
     if (productionConfig.mode === 'production' && !requestedLocalPart) return fail(res, 400, 'Choose an agent address before creating an enrollment token');
@@ -2413,8 +2452,8 @@ async function route(req, res) {
     ]);
     await audit(inboxId, 'agent.enrollment_token_created', { enrollmentId: record.id, humanId: human.id, permissions });
     const publicUrl = new URL(publicBaseUrl(req)).origin;
-    const quickConnect = { version: 1, runtime, apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agentProfile?.name || '', address: localPart ? agentAddressForLocalPart(localPart) : null };
-    return json(res, 201, { enrollmentId: record.id, quickConnect, enrollmentToken: rawToken, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, permissions, agentProfile });
+    const quickConnect = runtime === 'muse' ? null : { version: 1, runtime, apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agentProfile?.name || '', address: localPart ? agentAddressForLocalPart(localPart) : null };
+    return json(res, 201, { enrollmentId: record.id, ...(quickConnect ? { quickConnect, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}` } : {}), enrollmentToken: rawToken, expiresAt: record.expiresAt, permissions, agentProfile });
   }
 
   const reconnectTokenMatch = suffix.match(/^agents\/([^/]+)\/credentials\/reconnect-token$/);
@@ -2431,6 +2470,9 @@ async function route(req, res) {
     const runtime = validateConnectorRuntime(input.runtime, agent.runtime || 'openclaw');
     const permissions = reenroll ? (Array.isArray(input.permissions) ? input.permissions : ['send_agent_messages', 'receive_agent_messages']).filter(permission => allowedPermissions.has(permission)) : null;
     if (reenroll && !permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
+    if (runtime === 'muse' && (reenroll ? permissions.length !== 1 || permissions[0] !== 'receive_agent_messages' : agent.permissions.length !== 1 || agent.permissions[0] !== 'receive_agent_messages')) {
+      return fail(res, 400, 'Muse probe reconnect requires receive-only permission');
+    }
     const rawToken = crypto.randomBytes(32).toString('base64url');
     const record = { id: store.id('enrollment'), kind: reenroll ? 'reenroll' : 'reconnect', runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, agentId, accessGeneration: agent.accessGeneration || 0, ...(reenroll ? { permissions } : {}), createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
     await store.putJsonBatch([
@@ -2439,8 +2481,8 @@ async function route(req, res) {
     ]);
     await audit(inboxId, reenroll ? 'agent.reenroll_token_created' : 'agent.reconnect_token_created', { enrollmentId: record.id, agentId, humanId: human.id, ...(reenroll ? { permissions } : {}) });
     const publicUrl = new URL(publicBaseUrl(req)).origin;
-    const quickConnect = { version: 1, runtime, operation: 'reconnect', apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agent.name, address: agent.address };
-    return json(res, 201, { enrollmentId: record.id, quickConnect, enrollmentToken: rawToken, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}`, expiresAt: record.expiresAt, agentId, address: agent.address, ...(reenroll ? { permissions } : {}) });
+    const quickConnect = runtime === 'muse' ? null : { version: 1, runtime, operation: 'reconnect', apiUrl: publicUrl, enrollmentToken: rawToken, expiresAt: record.expiresAt, agentName: agent.name, address: agent.address };
+    return json(res, 201, { enrollmentId: record.id, ...(quickConnect ? { quickConnect, enrollmentUrl: `${publicUrl}/?enroll=${encodeURIComponent(rawToken)}` } : {}), enrollmentToken: rawToken, expiresAt: record.expiresAt, agentId, address: agent.address, ...(reenroll ? { permissions } : {}) });
   }
 
   if (req.method === 'GET' && suffix === 'calendar-connectors') {
