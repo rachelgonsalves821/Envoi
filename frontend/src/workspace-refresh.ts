@@ -61,6 +61,11 @@ export function createViewResponseOrder() {
 
 type ViewResponseOrder = ReturnType<typeof createViewResponseOrder>;
 
+export function applyOrderedViewResponse<T>(current: T, incoming: T, order: ViewResponseOrder, ticket: ReturnType<ViewResponseOrder['begin']>, merge: (current: T, incoming: T, stale: boolean) => T): T {
+  if (!order.isCurrent(ticket)) return current;
+  return merge(current, incoming, order.accept(ticket));
+}
+
 export type OrderedViewResponse<T> = {
   key: string;
   value: T;
