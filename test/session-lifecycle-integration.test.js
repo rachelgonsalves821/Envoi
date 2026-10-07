@@ -121,6 +121,29 @@ function assertCookiesCleared(response) {
   assert.ok(values.some(value => /^sinaloa_csrf=;/.test(value) && /Max-Age=0/i.test(value)), 'Logout clears the CSRF cookie');
 }
 
+test('authenticated identity restores a missing CSRF cookie without bypassing mutation checks', async t => {
+  const server = await startServer(t);
+  const { session } = await signIn(server);
+  session.cookies.delete('sinaloa_csrf');
+  const denied = await request(server, session, '/api/auth/logout', { body: {} });
+  assert.equal(denied.response.status, 403);
+  const restored = await request(server, session, '/api/auth/me');
+  assert.equal(restored.response.status, 200);
+  assert.ok(session.cookies.get('sinaloa_csrf'));
+  const crossOrigin = await request(server, session, '/api/auth/logout', { body: {}, headers: { origin: 'https://untrusted.example' } });
+  assert.equal(crossOrigin.response.status, 403);
+  const mismatch = await request(server, session, '/api/auth/logout', { body: {}, headers: { 'x-sinaloa-csrf': 'wrong' } });
+  assert.equal(mismatch.response.status, 403);
+  const unchanged = await request(server, session, '/api/auth/me');
+  assert.equal(unchanged.response.headers.getSetCookie().length, 0);
+  const logout = await request(server, session, '/api/auth/logout', { body: {} });
+  assert.equal(logout.response.status, 200);
+  assertCookiesCleared(logout.response);
+  const anonymous = await request(server, session, '/api/auth/me');
+  assert.equal(anonymous.response.status, 401);
+  assert.equal(anonymous.response.headers.getSetCookie().some(value => /^sinaloa_csrf=[^;]/.test(value)), false);
+});
+
 test('return snapshot binds a minimal human identity and preserves MFA and membership requirements', async t => {
   const server = await startServer(t);
   const owner = await signIn(server);

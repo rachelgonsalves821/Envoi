@@ -69,6 +69,7 @@ export function authFlowCookieHeader(browserBinding, { clear = false } = {}) {
   return attributes.join('; ');
 }
 export function sessionCookieName() { return sessionCookie; }
+export function csrfCookieName() { return csrfCookie; }
 export function sessionCookieHeader(value, { clear = false } = {}) {
   const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
   const configuredSameSite = process.env.SINALOA_COOKIE_SAMESITE || 'Lax';
