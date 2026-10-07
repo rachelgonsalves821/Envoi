@@ -8,7 +8,7 @@ import { createWaitlistSheetSync } from './waitlist-sheet-sync.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
-import { authFlowCookieHeader, authFlowCookieName, createCsrfToken, csrfCookieHeader, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
+import { authFlowCookieHeader, authFlowCookieName, createCsrfToken, csrfCookieHeader, csrfCookieName, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
 import { installSessionCookieResponse } from './session-response.js';
 import { operationalBacklogSnapshot } from './operational-backlog.js';
 import { DeliveryWorker } from './delivery-worker.js';
@@ -2165,6 +2165,7 @@ async function route(req, res) {
     if (!human) return fail(res, 401, 'Authenticated human session required');
     const session = await auth.getSession(req);
     const assurance = session?.assurance || 'provider';
+    if (session && !parseCookies(req.headers.cookie)[csrfCookieName()]) res.appendHeader('set-cookie', csrfCookieHeader(createCsrfToken()));
     const pendingStepUp = assurance === 'phone';
     const mfaSetupRequired = pendingStepUp && typeof auth.getMfaSetupRequired === 'function'
       ? await auth.getMfaSetupRequired(req)

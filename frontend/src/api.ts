@@ -50,8 +50,12 @@ export function shouldNotifySessionExpired(pathname: string) {
 
 export function csrfToken(cookieHeader = typeof document === 'undefined' ? '' : document.cookie) {
   const encodedName = encodeURIComponent(configuredCsrfCookieName);
-  const value = cookieHeader.split(';').map(item => item.trim()).find(item => item.startsWith(`${encodedName}=`))?.slice(encodedName.length + 1);
-  return value ? decodeURIComponent(value) : null;
+  for (const item of cookieHeader.split(';').map(value => value.trim()).reverse()) {
+    if (!item.startsWith(`${encodedName}=`)) continue;
+    try { return decodeURIComponent(item.slice(encodedName.length + 1)) || null; }
+    catch { continue; }
+  }
+  return null;
 }
 
 export function csrfHeaders(method = 'GET', cookieHeader?: string): Record<string, string> {
@@ -61,20 +65,43 @@ export function csrfHeaders(method = 'GET', cookieHeader?: string): Record<strin
 }
 
 export async function request<T>(pathname: string, options: RequestInit = {}, notifySessionExpired = true): Promise<T> {
+  const requestHumanId = expectedHumanId;
   const session = trackSessionRequest();
   try {
-    const response = await fetch(pathname, {
+    const send = () => fetch(pathname, {
       ...options,
       signal: options.signal ? AbortSignal.any([options.signal, session.signal]) : session.signal,
       credentials: 'same-origin',
       headers: {
         ...(options.body ? { 'content-type': 'application/json' } : {}),
         ...csrfHeaders(options.method),
-        ...expectedHumanHeaders(options.method, pathname),
+        ...expectedHumanHeaders(options.method, pathname, requestHumanId),
         ...(options.headers || {})
       }
     });
-    const payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
+    let response = await send();
+    let payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
+    session.check();
+    options.signal?.throwIfAborted();
+    if (response.status === 403 && payload.error === 'CSRF validation failed'
+      && !['GET', 'HEAD', 'OPTIONS'].includes((options.method || 'GET').toUpperCase())
+      && (options.body === undefined || typeof options.body === 'string')) {
+      const recovery = await fetch('/api/auth/me', { credentials: 'same-origin', signal: options.signal ? AbortSignal.any([options.signal, session.signal]) : session.signal });
+      const identity = await recovery.json().catch(() => ({})) as { id?: string; error?: string };
+      session.check();
+      options.signal?.throwIfAborted();
+      if (recovery.ok && identity.id && requestHumanId && identity.id !== requestHumanId) {
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
+        throw new ApiError('The signed-in account changed. Reload before continuing.', 409, 'ACCOUNT_CHANGED');
+      }
+      if ((recovery.ok && identity.id && csrfToken()) || (recovery.status === 401 && pathname === '/api/auth/logout')) {
+        response = await send();
+        payload = await response.json().catch(() => ({}));
+      } else if (recovery.status === 401) {
+        response = recovery;
+        payload = identity;
+      }
+    }
     session.check();
     options.signal?.throwIfAborted();
     if (!response.ok) {

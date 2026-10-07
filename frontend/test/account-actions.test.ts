@@ -4,6 +4,14 @@ import { expect, it, vi } from 'vitest';
 import { AgentCard, FailureScreen, LoadingScreen, SignOutControl } from '../src/App';
 import type { Agent, Inbox } from '../src/types';
 
+it('labels failed logout as retryable sign-out rather than workspace loading', () => {
+  const markup = renderToStaticMarkup(createElement(FailureScreen, { title: 'Sign out incomplete', retryLabel: 'Retry sign out', message: 'Try again', onRetry: vi.fn(), onLogout: vi.fn() }));
+  expect(markup).toContain('Sign out incomplete');
+  expect(markup).toContain('Retry sign out');
+  expect(markup).not.toContain('Workspace unavailable');
+  expect(markup).toContain('account-actions');
+});
+
 it('keeps the same explicit sign-out control on application, loading and recovery screens', () => {
   const onLogout = vi.fn();
   const controls = [

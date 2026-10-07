@@ -530,7 +530,7 @@ export default function App() {
     ? <LandingPage signInPath={config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
     : <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
   if (boot === 'setup' && human) return <><SignOutControl onLogout={() => { void logout(); }} /><WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} /></>;
-  if (boot === 'error') return <FailureScreen message={error} onRetry={signingOut.current ? logout : loadAccount} onLogout={hadAuthenticatedSession.current && !signingOut.current ? () => { void logout(); } : undefined} />;
+  if (boot === 'error') return <FailureScreen message={error} title={signingOut.current ? 'Sign out incomplete' : undefined} retryLabel={signingOut.current ? 'Retry sign out' : undefined} onRetry={signingOut.current ? logout : loadAccount} onLogout={signingOut.current || hadAuthenticatedSession.current ? () => { void logout(); } : undefined} />;
   if (!human || !workspace || !view || !config) return <LoadingScreen />;
 
   return (
@@ -579,13 +579,13 @@ export function LoadingScreen({ checking = false, onLogout }: { checking?: boole
   );
 }
 
-export function FailureScreen({ message, onRetry, onLogout }: { message: string; onRetry: () => void; onLogout?: () => void }) {
+export function FailureScreen({ message, onRetry, onLogout, title = 'Workspace unavailable', retryLabel = 'Retry loading' }: { message: string; onRetry: () => void; onLogout?: () => void; title?: string; retryLabel?: string }) {
   return (
     <main className="center-screen">
       <AlertCircle size={28} aria-hidden="true" />
-      <h1>Workspace unavailable</h1>
+      <h1>{title}</h1>
       <p>{message}</p>
-      <button className="button primary" onClick={onRetry}><RefreshCw size={16} />Retry loading</button>
+      <button className="button primary" onClick={onRetry}><RefreshCw size={16} />{retryLabel}</button>
       {onLogout && <SignOutControl onLogout={onLogout} />}
     </main>
   );

@@ -9,6 +9,68 @@ afterEach(() => {
 });
 
 describe('human API sessions', () => {
+  it('uses the last same-named CSRF cookie, matching the server parser', () => {
+    expect(csrfToken('sinaloa_csrf=older; sinaloa_csrf=newer')).toBe('newer');
+    expect(csrfToken('sinaloa_csrf=valid; sinaloa_csrf=%ZZ')).toBe('valid');
+    expect(csrfToken('sinaloa_csrf=%ZZ')).toBeNull();
+  });
+
+  it('restores a missing CSRF cookie and retries a rejected write once', async () => {
+    const cookieDocument = { cookie: '' };
+    vi.stubGlobal('document', cookieDocument);
+    setExpectedHuman('human_one');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }))
+      .mockImplementationOnce(async () => {
+        cookieDocument.cookie = 'sinaloa_csrf=restored';
+        return new Response(JSON.stringify({ id: 'human_one' }), { status: 200 });
+      })
+      .mockResolvedValueOnce(new Response(JSON.stringify({ saved: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(request('/api/inboxes/one/cases/two/inbox-preferences', { method: 'POST', body: JSON.stringify({ archive: true }) })).resolves.toEqual({ saved: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/auth/me');
+    expect(new Headers(fetchMock.mock.calls[2][1].headers).get('x-sinaloa-csrf')).toBe('restored');
+    expect(new Headers(fetchMock.mock.calls[2][1].headers).get('x-envoi-expected-human')).toBe('human_one');
+  });
+
+  it.each([['human_one', 401], ['human_other', 200]])('never replays a write after failed or changed identity recovery (%s, %s)', async (id, status) => {
+    setExpectedHuman('human_one');
+    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=existing' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id }), { status }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(request('/api/write', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: status === 401 ? 401 : 409 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not repeatedly retry CSRF failures or recover ordinary authorization denials', async () => {
+    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=existing' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'human_one' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(api.logout()).rejects.toMatchObject({ status: 403 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    fetchMock.mockReset().mockResolvedValue(new Response(JSON.stringify({ error: 'Not authorized' }), { status: 403 }));
+    await expect(request('/api/write', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: 403 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('finishes idempotent logout after recovery clears an expired session', async () => {
+    const cookieDocument = { cookie: '' };
+    vi.stubGlobal('document', cookieDocument);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Authenticated human session required' }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ revoked: false, logoutUrl: null }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(api.logout()).resolves.toEqual({ revoked: false, logoutUrl: null });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('rejects a late 401 after a caller timeout without clearing a still-valid session', async () => {
     const browserWindow = new EventTarget(); const expired = vi.fn();
     browserWindow.addEventListener('sinaloa:session-expired', expired); vi.stubGlobal('window', browserWindow);
