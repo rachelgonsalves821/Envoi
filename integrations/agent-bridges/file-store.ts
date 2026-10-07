@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { ConnectorSession, ConnectorStore, WorkMessage } from '../../sdk/typescript/src/connector';
+import { isHumanInstructionMessage, type ConnectorSession, type ConnectorStore, type WorkMessage } from '../../sdk/typescript/src/connector';
 import type { BridgeDecision, BridgeLedger } from './bridge';
 
 const safeId = (value: string) => {
@@ -31,8 +31,12 @@ export class FileBridgeStore implements ConnectorStore, BridgeLedger {
 
   async admit(message: WorkMessage) {
     const filename = path.join(this.directory, 'work', `${safeId(message.id)}.json`);
-    try { await writeFile(filename, JSON.stringify({ id: message.id, caseId: message.caseId || null, admittedAt: new Date().toISOString() }), { flag: 'wx', mode: 0o600 }); }
+    try { await writeFile(filename, JSON.stringify({ id: message.id, caseId: message.caseId || null, kind: isHumanInstructionMessage(message) ? 'humanInstruction' : 'nativeAgentMessage', admittedAt: new Date().toISOString() }), { flag: 'wx', mode: 0o600 }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+  }
+
+  async isHumanInstruction(messageId: string) {
+    return (await this.readJson<{ kind?: string }>(path.join(this.directory, 'work', `${safeId(messageId)}.json`)))?.kind === 'humanInstruction';
   }
 
   replyFor(messageId: string) { return this.readJson<BridgeDecision>(path.join(this.directory, 'work', `${safeId(messageId)}.reply.json`)); }

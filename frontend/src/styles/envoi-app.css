@@ -88,11 +88,14 @@
 .app-shell .sync-notice { padding: 8px 16px; margin: 0; border: 0; border-bottom: 1px solid var(--line); background: var(--fill); color: var(--ink2); box-shadow: none; }
 .app-shell .case-layout { display: grid; grid-template-columns: 372px minmax(0,1fr); min-height: 0; flex: 1; }
 .app-shell .case-queue { width: auto; min-width: 0; min-height: 0; border-right: 1px solid var(--line); background: var(--bg); }
-.app-shell .queue-header { padding: 18px 18px 0; }
+.app-shell .queue-header { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 6px; min-width: 0; padding: 18px 18px 0; text-align: left; }
 .app-shell .queue-header h1, .app-shell .page-header h1 { font-size: 24px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; }
-.app-shell .queue-title-row { display: flex; align-items: center; gap: 8px; }
-.app-shell .queue-context { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink2); font-size: 12px; }
-.app-shell .queue-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .queue-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; order: 0; }
+.app-shell .queue-title-row h1 { min-width: 0; margin: 0; overflow-wrap: anywhere; text-align: left; }
+.app-shell .queue-title-row .queue-menu { flex: none; }
+.app-shell .queue-context { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; order: 1; color: var(--ink2); font-size: 12px; }
+.app-shell .queue-context span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .queue-context .agent-dot { flex: none; }
 .app-shell .queue-search { height: 34px; margin: 12px 18px; padding: 0 10px; border: 0; border-radius: 9px; background: var(--fill); box-shadow: none; color: var(--ink3); }
 .app-shell .queue-search input { min-height: 0; height: 100%; border: 0; background: none; font-size: 14px; padding: 0; }
 .app-shell .queue-search kbd { border: 1px solid var(--line2); border-radius: 5px; padding: 0 5px; color: var(--ink3); font: inherit; font-size: 11px; }
@@ -111,6 +114,24 @@
 .app-shell .case-row.is-unread .thread-sender, .app-shell .case-row.is-unread strong { font-weight: 600; }
 .app-shell .case-row.is-unread time { color: var(--accent); }
 .app-shell .case-row.is-done .thread-sender, .app-shell .case-row.is-done strong { color: var(--ink2); }
+.app-shell .case-layout.inbox-list-view, .app-shell .case-layout.inbox-detail-view { display: grid; grid-template-columns: minmax(0,1fr); min-width: 0; min-height: 0; overflow: hidden; }
+.app-shell .case-layout.inbox-list-view .case-queue { display: flex; flex-direction: column; width: 100%; min-height: 0; border-right: 0; overflow: hidden; }
+.app-shell .inbox-list-view .queue-header, .app-shell .inbox-list-view .queue-search { flex: none; }
+.app-shell .inbox-list-view .queue-search input { flex: 1; min-width: 0; width: 0; }
+.app-shell .inbox-list-view .queue-search > svg, .app-shell .inbox-list-view .queue-search kbd { flex: none; }
+.app-shell .inbox-list-view .case-list { flex: 1; min-width: 0; min-height: 0; width: 100%; padding: 0 0 8px; overflow-y: auto; }
+.app-shell .case-row.inbox-message-row { align-items: center; gap: 12px; min-height: 60px; padding: 10px 18px; border-radius: 0; border-bottom: 1px solid var(--line); background: var(--fill); }
+.app-shell .case-row.inbox-message-row::before { display: none; }
+.app-shell .case-row.inbox-message-row.is-unread { background: var(--bg); }
+.app-shell .case-row.inbox-message-row:hover { background: var(--fill2); }
+.app-shell .case-row.inbox-message-row.selected { background: var(--accent-soft); }
+.app-shell .case-row.inbox-message-row .case-row-copy { display: grid; grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr) minmax(0,1.4fr); align-items: center; gap: 12px; }
+.app-shell .inbox-message-row .case-row-copy > .thread-sender, .app-shell .inbox-message-row .case-row-copy > strong, .app-shell .inbox-message-row .case-preview { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .case-row.inbox-message-row .case-row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: 0 1 104px; min-width: 0; max-width: 22%; }
+.app-shell .inbox-message-row .case-row-meta > * { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .case-row.inbox-message-row.is-unread .thread-sender, .app-shell .case-row.inbox-message-row.is-unread strong { font-weight: 700; }
+.app-shell .case-layout.inbox-detail-view .case-main { display: block; width: 100%; min-width: 0; min-height: 0; overflow-y: auto; }
+.app-shell .case-layout.inbox-detail-view .case-workspace { width: 100%; max-width: none; min-width: 0; margin: 0; }
 .app-shell .counterparty-avatar { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; flex: none; background: color-mix(in srgb, var(--avatar-color) 15%, #fff); color: var(--avatar-color); font-size: 15px; font-weight: 600; position: relative; }
 .app-shell .owner-badge { position: absolute; right: -3px; bottom: -3px; width: 16px; height: 16px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 50%; background: var(--owner-color); color: #fff; font-size: 8px; }
 .app-shell .case-chip { display: inline-flex; align-items: center; width: fit-content; height: 20px; border-radius: 6px; padding: 0 8px; background: var(--accent-soft); color: #005bb7; font-size: 12px; font-weight: 500; }
@@ -379,6 +400,10 @@
   .app-shell .file-columns span:nth-child(3), .app-shell .file-columns span:nth-child(5), .app-shell .file-items.list .file-item > div:nth-child(3), .app-shell .file-items.list .file-item > div:nth-child(5) { display: none; }
 }
 @media (max-width: 700px) {
+  .app-shell .case-row.inbox-message-row { align-items: flex-start; gap: 10px; padding: 12px; }
+  .app-shell .case-row.inbox-message-row .case-row-copy { grid-template-columns: minmax(0,1fr); gap: 2px; }
+  .app-shell .case-row.inbox-message-row .counterparty-avatar { width: 32px; height: 32px; font-size: 13px; }
+  .app-shell .case-row.inbox-message-row .case-row-meta { flex-basis: 76px; max-width: 25%; }
   .app-shell .modal { padding: 18px; }
   .app-shell .enroll-footer { flex-direction: row; gap: 4px; }
   .app-shell .enroll-footer .button { width: auto; padding-left: 8px; padding-right: 8px; font-size: 12px; }

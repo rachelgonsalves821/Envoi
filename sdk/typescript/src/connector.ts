@@ -29,13 +29,62 @@ export interface InboxEvent {
   [key: string]: unknown;
 }
 
-export interface WorkMessage extends Record<string, unknown> {
+export interface NativeWorkMessage extends Record<string, unknown> {
+  kind?: 'nativeAgentMessage';
   id: string;
   senderAgentId: string;
   recipientAgentId: string;
   from: { agentId: string; address: string };
   caseId?: string | null;
   text: string;
+}
+
+export interface HumanInstructionWorkMessage extends Record<string, unknown> {
+  id: string;
+  kind: 'humanInstruction';
+  senderType: 'human';
+  senderHumanId: string;
+  senderAgentId?: never;
+  senderInboxId?: never;
+  recipientAgentId: string;
+  recipientInboxId: string;
+  from: { humanId: string; agentId?: never; address?: never };
+  caseId: string;
+  type: 'instruction';
+  text: string;
+}
+
+export type WorkMessage = NativeWorkMessage | HumanInstructionWorkMessage;
+
+export interface HumanInstructionReply extends Record<string, unknown> {
+  id: string;
+  kind: 'humanInstructionReply';
+  inboxId: string;
+  caseId: string;
+  senderType: 'agent';
+  senderAgentId: string;
+  senderInboxId: string;
+  recipientInboxId: string;
+  recipientHumanId: string;
+  from: { agentId: string; address: string };
+  inReplyTo: string;
+  type: 'message';
+  text: string;
+  status: 'delivered';
+}
+
+export function isHumanInstructionMessage(message: WorkMessage): message is HumanInstructionWorkMessage {
+  return message.kind === 'humanInstruction';
+}
+
+function assertHumanInstructionMessage(message: HumanInstructionWorkMessage) {
+  const safeId = (value: unknown) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
+  if (message.senderType !== 'human' || message.type !== 'instruction' || !safeId(message.senderHumanId)
+    || !safeId(message.recipientInboxId) || !safeId(message.caseId) || typeof message.text !== 'string' || !message.text.trim()
+    || !message.from || typeof message.from !== 'object' || Array.isArray(message.from) || message.from.humanId !== message.senderHumanId
+    || Object.keys(message.from).some(key => key !== 'humanId') || 'senderAgentId' in message || 'senderInboxId' in message || 'senderEmail' in message) {
+    throw new SinaloaError('Envoi returned an invalid human instruction');
+  }
 }
 
 export interface WorkLease {
@@ -382,7 +431,23 @@ export class SinaloaConnector {
     }
   }
 
-  private async reply(message: WorkMessage, text: string, idempotencyKey: string, extra: Omit<NativeMessageInput, 'senderAgentId' | 'recipientEmail' | 'text' | 'caseId'> = {}): Promise<unknown> {
+  private async reply(message: WorkMessage, text: string, idempotencyKey: string, extra: Omit<NativeMessageInput, 'senderAgentId' | 'recipientEmail' | 'text' | 'caseId'> = {}, leaseToken?: string): Promise<unknown> {
+    if (isHumanInstructionMessage(message)) {
+      assertHumanInstructionMessage(message);
+      if (!idempotencyKey || idempotencyKey.length > 200 || /[\x00-\x1f\x7f]/.test(idempotencyKey)) throw new TypeError('A stable reply idempotency key is required');
+      if (Object.keys(extra).length) throw new TypeError('Human instruction replies accept text only');
+      if (!leaseToken) throw new TypeError('A current work lease token is required for a human instruction reply');
+      const reply = await this.postWork<HumanInstructionReply>(`/api/agent/instructions/${encodeURIComponent(message.id)}/reply`, { text, leaseToken }, idempotencyKey);
+      if (typeof reply.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(reply.id)
+        || reply.kind !== 'humanInstructionReply' || reply.inReplyTo !== message.id || reply.caseId !== message.caseId
+        || reply.inboxId !== message.recipientInboxId || reply.senderInboxId !== message.recipientInboxId || reply.recipientInboxId !== message.recipientInboxId
+        || reply.senderType !== 'agent' || reply.senderAgentId !== message.recipientAgentId || reply.recipientHumanId !== message.senderHumanId
+        || reply.from?.agentId !== message.recipientAgentId || typeof reply.from?.address !== 'string' || !reply.from.address
+        || reply.type !== 'message' || reply.status !== 'delivered' || reply.text !== text.trim()) {
+        throw new SinaloaError('Envoi returned an invalid human instruction reply');
+      }
+      return reply;
+    }
     if (!idempotencyKey || !message.from?.address) throw new TypeError('A stable reply idempotency key and sender address are required');
     return this.withFreshClient((client, session) => client.sendMessage(
       session.inboxId, idempotencyKey,
@@ -396,7 +461,7 @@ export class SinaloaConnector {
     if (!handler) throw new TypeError('A durable work handler is required');
     if (signal?.aborted) return false;
     let claimed: { work: WorkLease | null };
-    try { claimed = await this.postWork<{ work: WorkLease | null }>('/api/agent/work/claim', {}); }
+    try { claimed = await this.postWork<{ work: WorkLease | null }>('/api/agent/work/claim', { acceptHumanInstructions: true }); }
     catch (error) {
       if (error instanceof SinaloaError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError();
       throw error;
@@ -407,7 +472,13 @@ export class SinaloaConnector {
       throw new SinaloaError('Envoi returned an invalid work claim');
     }
     const session = validSession(await this.store.load());
-    if (work.message.recipientAgentId !== session.agentId || work.message.status === 'processed' || !work.message.from?.address) {
+    if (isHumanInstructionMessage(work.message)) {
+      assertHumanInstructionMessage(work.message);
+      if (work.message.recipientInboxId !== session.inboxId) throw new SinaloaError('Envoi returned work for the wrong inbox');
+    } else if (work.message.senderType === 'human' || 'senderHumanId' in work.message || (work.message.from && 'humanId' in work.message.from) || !work.message.from?.address) {
+      throw new SinaloaError('Envoi returned an invalid native work sender');
+    }
+    if (work.message.recipientAgentId !== session.agentId || work.message.status === 'processed') {
       throw new SinaloaError('Envoi returned work for the wrong recipient');
     }
     const workPath = `/api/agent/work/${encodeURIComponent(work.workId)}`;
@@ -436,6 +507,7 @@ export class SinaloaConnector {
     })();
     const stopRenewal = async () => { workAbort.abort(); await renewal; };
     let settled = false;
+    let humanReplyError: unknown = null;
     try {
       if (workAbort.signal.aborted) throw new SinaloaError('Work claim was interrupted before admission');
       await handler.admit(work.message);
@@ -450,9 +522,17 @@ export class SinaloaConnector {
           if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) {
             throw new SinaloaError('Work lease is no longer valid for a reply');
           }
-          return this.reply(work.message, text, key, extra);
+          try {
+            const reply = await this.reply(work.message, text, key, extra, work.leaseToken);
+            if (isHumanInstructionMessage(work.message)) humanReplyError = null;
+            return reply;
+          } catch (error) {
+            if (isHumanInstructionMessage(work.message)) humanReplyError = error;
+            throw error;
+          }
         }
       });
+      if (humanReplyError) throw humanReplyError;
       if (renewalError) throw new SinaloaError('Work lease renewal failed');
       if (signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new SinaloaError('Work lease expired before completion');
       const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey);

@@ -58,3 +58,23 @@ export function createViewResponseOrder() {
     reset: () => { epoch++; sequence = 0; applied = 0; }
   };
 }
+
+type ViewResponseOrder = ReturnType<typeof createViewResponseOrder>;
+
+export type OrderedViewResponse<T> = {
+  key: string;
+  value: T;
+  order: ViewResponseOrder;
+  ticket: ReturnType<ViewResponseOrder['begin']>;
+};
+
+export function applyOrderedViewResponses<T>(current: Record<string, T>, responses: Array<OrderedViewResponse<T> | null>): Record<string, T> {
+  let next = current;
+  for (const response of responses) {
+    if (!response || !response.order.isCurrent(response.ticket) || response.order.accept(response.ticket)) continue;
+    if (Object.hasOwn(next, response.key) && next[response.key] === response.value) continue;
+    if (next === current) next = { ...current };
+    Object.defineProperty(next, response.key, { value: response.value, enumerable: true, writable: true, configurable: true });
+  }
+  return next;
+}

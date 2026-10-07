@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { WorkMessage } from '../../sdk/typescript/src/connector';
+import { isHumanInstructionMessage, type WorkMessage } from '../../sdk/typescript/src/connector';
 import { parseAgentReply, workPrompt, type AgentTurn, type BridgeLedger } from '../agent-bridges/bridge';
 import { HermesRunStore } from './run-store';
 
@@ -114,7 +114,7 @@ export function hermesTurn(options: HermesTurnOptions): AgentTurn {
           if (signal.aborted) throw new Error('Hermes turn was interrupted');
           // The tool write marker must win before any reply is stored. Otherwise a
           // crash between this save and the outer wrapper could replay a REST reply.
-          if (await options.mcpReplySent?.(message.id)) {
+          if (!isHumanInstructionMessage(message) && await options.mcpReplySent?.(message.id)) {
             const stopped = { stop: true } as const;
             await options.replies.saveReply(message.id, stopped);
             return stopped;
