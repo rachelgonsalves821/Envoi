@@ -1,4 +1,4 @@
-import { SinaloaConnector, type ConnectorOptions } from '../../sdk/typescript/src/connector';
+import { isHumanInstructionMessage, SinaloaConnector, type ConnectorOptions } from '../../sdk/typescript/src/connector';
 import { bridgeHandler } from '../agent-bridges/bridge';
 import { loadAssetManifest, manifestAssetExchange } from '../agent-bridges/asset-manifest';
 import { FileBridgeStore } from '../agent-bridges/file-store';
@@ -34,17 +34,31 @@ export async function createOpenClawBridge(config: BridgeConfiguration, options:
     history: caseId => connector.listCaseMessages(caseId, 20)
   });
   const turn = writeEnabled ? withRecordedMcpReply(gatewayTurn, messageId => store.mcpReplySent(messageId)) : gatewayTurn;
+  let humanWorkActive = false;
+  const handler = bridgeHandler(store, turn, approvedAssets.size
+    ? (message, reply, key, signal) => manifestAssetExchange(approvedAssets, connector)(message, reply, key, signal) : undefined);
   const connectorOptions: ConnectorOptions = {
     ...(options.fetch ? { fetch: options.fetch } : {}),
     ...(options.pollIntervalMs ? { pollIntervalMs: options.pollIntervalMs } : {}),
-    handler: bridgeHandler(store, turn, approvedAssets.size
-      ? (message, reply, key, signal) => manifestAssetExchange(approvedAssets, connector)(message, reply, key, signal) : undefined)
+    handler: {
+      admit: message => handler.admit(message),
+      async process(message, context) {
+        humanWorkActive = isHumanInstructionMessage(message);
+        try { await handler.process(message, context); }
+        finally { humanWorkActive = false; }
+      }
+    }
   };
   connector = new SinaloaConnector(config.apiUrl, store, connectorOptions);
   const relay = relayToken ? await startOpenClawMcpRelay({
     connector, bearerToken: relayToken,
     port: env.OPENCLAW_MCP_RELAY_PORT ? Number(env.OPENCLAW_MCP_RELAY_PORT) : 8788,
     allowCollaborationWrites: writeEnabled,
+    authorizeWrite: async (name, args) => {
+      if (humanWorkActive) return false;
+      const messageId = mcpReplyMessageId(name, args);
+      return !messageId || !await store.isHumanInstruction(messageId);
+    },
     ...(writeEnabled ? { onSuccessfulWrite: async (name: string, args: Record<string, unknown>) => {
       const messageId = mcpReplyMessageId(name, args);
       if (messageId) await store.markMcpReplySent(messageId);

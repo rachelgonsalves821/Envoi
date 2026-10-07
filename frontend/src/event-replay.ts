@@ -10,6 +10,7 @@ export const WORKSPACE_EVENT_TYPES = [
   'policy.evaluated', 'policy.re_evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted',
   'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued',
   'message.failed', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created',
+  'human.instruction_created', 'agent.instruction_replied',
   'email.queued', 'asset.created', 'asset.granted', 'asset.upload_started',
   'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error',
   'contact.blocked', 'contact.unblocked', 'contact.approved',

@@ -11,11 +11,14 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl, setExpectedHuman } from './api';
 import LandingPage from './LandingPage';
+import { AgentRemovalDialogContent } from './AgentRemovalDialog';
+import { CreateInboxFolderContent, MoveInboxCaseContent } from './InboxFolderDialogs';
+import { applyInboxPreference, filterInboxCases, readAcknowledgementForCase } from './inbox-preferences';
 import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermissions } from './agent-permissions';
 import { previewRequested } from './preview';
 import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
-import { createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
+import { applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
 import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
 import { RUNTIME_OPTIONS, connectorDownloads, isLoopbackOrigin, runtimeLabel, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
@@ -27,7 +30,7 @@ import {
 } from './model';
 import type {
   Agent, AgentConnectionInvitation, ApprovedEmailContact, Asset, AuthConfig, CaseEvent, CaseState, EmailTransportStatus, EvidenceItem, Human, HumanActionKey,
-  HumanView, Inbox as Workspace, NavSection, Organization, PolicyEvaluation, ProposalOption, WorkCase
+  HumanView, Inbox as Workspace, InboxPreference, NavSection, Organization, PolicyEvaluation, ProposalOption, WorkCase
 } from './types';
 
 const WORKSPACE_KEY = 'sinaloa.workspace';
@@ -41,6 +44,7 @@ const previewAgents: Agent[] = [
   { id: 'agent_milo', name: 'Milo', address: 'milo@agents.envoi-agents.com', principalHumanId: previewHuman.id, status: 'active', onboardingStatus: 'approved', permissions: ['send_agent_messages', 'receive_agent_messages', 'execute_cases'] }
 ];
 const previewView: HumanView = {
+  folders: [{ id: 'folder_preview', name: 'Launch' }],
   inbox: previewWorkspace,
   mode: 'human-observer',
   canManageInbox: true,
@@ -98,7 +102,8 @@ previewView.caseQueue = previewView.cases.map(workCase => {
   const bucket = section === 'active' ? 'activeWork' : section === 'needsMe' || section === 'waiting' || section === 'completed' ? section : 'activeWork';
   const collaborationMode = workCase.proposals?.[0]?.kind === 'schedule' ? 'scheduling' : workCase.proposals?.[0]?.kind === 'negotiation' ? 'negotiation' : workCase.proposals?.[0]?.kind === 'document' ? 'artifactCreation' : 'collaboration';
   const policy = decisionPolicy(workCase);
-  return { ...workCase, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
+  const inboxPreference = { folderId: null, read: bucket !== 'needsMe', archived: section === 'completed', readThrough: bucket === 'needsMe' ? null : '0'.repeat(64), revision: '0'.repeat(64) };
+return { ...workCase, inboxPreference, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
 });
 export default function App() {
   const isPreview = typeof window !== 'undefined' && previewRequested(window.location.search, import.meta.env.DEV);
@@ -113,6 +118,7 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [view, setView] = useState<HumanView | null>(null);
+  const [requestedSection, setRequestedSection] = useState<NavSection>('inbox');
   const [error, setError] = useState('');
   const [authNotice, setAuthNotice] = useState(() => new URLSearchParams(window.location.search).has('auth_error')
     ? 'Sign-in could not be completed. Please try again.'
@@ -160,6 +166,7 @@ export default function App() {
     setWorkspace(null);
     setView(null);
     setError('');
+    setRequestedSection('inbox');
     setSyncNotice('');
     setHistoryBusy(false);
     sessionCheckRef.current = null;
@@ -539,7 +546,14 @@ export default function App() {
       syncNotice={syncNotice}
       onLoadOlder={async () => { checkRenderedSession(); await loadOlder(); }}
       historyBusy={historyBusy}
-      onSelectWorkspace={async next => { checkRenderedSession(); await selectWorkspace(next); }}
+      initialSection={requestedSection}
+      onSelectWorkspace={async (next, nextSection = 'inbox') => { checkRenderedSession(); setRequestedSection(nextSection); await selectWorkspace(next); }}
+      onPreferenceUpdated={(inboxId, caseId, preference) => {
+        checkRenderedSession();
+        if (activeWorkspace.current !== inboxId) return;
+        viewOrder.current.reset();
+        setView(current => current ? applyInboxPreference(current, caseId, preference) : current);
+      }}
       onRefresh={async () => { checkRenderedSession(); await Promise.all([quietRefresh(workspace.id), loadWorkspaceDirectory()]); }}
       onLogout={async () => { checkRenderedSession(); await logout(); }}
     />
@@ -704,24 +718,30 @@ function WorkspaceSetup({ human, onCreate }: { human: Human; onCreate: (name: st
 
 interface ShellProps {
   config: AuthConfig; human: Human; organizations: Organization[]; workspaces: Workspace[];
-  workspace: Workspace; view: HumanView; onSelectWorkspace: (workspace: Workspace) => Promise<void>;
+  workspace: Workspace; view: HumanView; onSelectWorkspace: (workspace: Workspace, section?: NavSection) => Promise<void>;
+  initialSection?: NavSection;
+  onPreferenceUpdated?: (inboxId: string, caseId: string, preference: InboxPreference) => void;
   onRefresh: () => Promise<unknown>; onLogout: () => Promise<void>; syncNotice: string;
   onLoadOlder?: () => Promise<void>; historyBusy?: boolean;
 }
 
 type AgentEntry = { agent: Agent; inbox: Workspace; view: HumanView };
 
-function AppShell(props: ShellProps) {
+export function AppShell(props: ShellProps) {
   const { human, workspaces, workspace, view, onSelectWorkspace, onRefresh, onLogout, syncNotice } = props;
   const canManageInbox = view.canManageInbox === true;
-  const [section, setSection] = useState<NavSection>('inbox');
+  const [section, setSection] = useState<NavSection>(props.initialSection || 'inbox');
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  const [mobileDetail, setMobileDetail] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState<string[]>([]);
   const [toast, setToast] = useState('');
   const [childViews, setChildViews] = useState<Record<string, HumanView>>({});
+  const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderError, setFolderError] = useState('');
   const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
   const agentInboxes = workspaces.filter(item => item.kind === 'agent' && item.parentInboxId === rootWorkspace.id);
   const agentInboxKey = agentInboxes.map(item => item.id).sort().join(',');
@@ -738,14 +758,16 @@ function AppShell(props: ShellProps) {
     assets: aggregateViews.flatMap(item => item.assets),
     participantDirectory: Object.assign({}, ...aggregateViews.map(item => item.participantDirectory || {}))
   } : view;
-  const counts = caseCounts(queueView);
+  const counts = caseCounts({ ...queueView, caseQueue: filterInboxCases(queueView.caseQueue) });
   const caseSources = aggregateViews.flatMap(item => item.caseQueue.map(workCase => ({ workCase, sourceView: item, key: `${item.inbox.id}:${workCase.id}` })));
-  const visibleCaseEntries = casesForSection(queueView.caseQueue, section, queueView.assets).flatMap(item => {
+  const inboxCases = filterInboxCases(queueView.caseQueue, { view: section === 'completed' ? 'done' : 'main', ...(selectedFolderId ? { folderId: selectedFolderId } : {}) });
+  const sectionCases = section === 'completed' ? inboxCases : casesForSection(inboxCases, section, queueView.assets);
+  const visibleCaseEntries = sectionCases.flatMap(item => {
     const source = caseSources.find(entry => entry.workCase === item);
     return source ? [source] : [];
   });
   const visibleCases = visibleCaseEntries.map(entry => entry.workCase);
-  const selectedCaseEntry = visibleCaseEntries.find(item => item.key === selectedCaseId) || visibleCaseEntries[0] || null;
+  const selectedCaseEntry = visibleCaseEntries.find(item => item.key === selectedCaseId) || null;
   const selectedCase = selectedCaseEntry?.workCase || null;
   const selectedCaseView = selectedCaseEntry?.sourceView || view;
   const currentAgent = workspace.kind === 'agent' ? view.agents.find(item => item.id === workspace.ownerAgentId) || null : null;
@@ -761,10 +783,15 @@ function AppShell(props: ShellProps) {
       loading = true;
       try {
         const results = await Promise.all(inboxes.map(async inbox => {
-          try { return [inbox.id, await api.humanView(inbox.id)] as const; }
+          const order = childResponseOrder(inbox.id);
+          const ticket = order.begin();
+          try {
+            const refreshed = await api.humanView(inbox.id);
+            return { key: inbox.id, value: refreshed, order, ticket };
+          }
           catch { return null; }
         }));
-        if (!cancelled) setChildViews(current => ({ ...current, ...Object.fromEntries(results.filter((entry): entry is readonly [string, HumanView] => entry !== null)) }));
+        if (!cancelled) setChildViews(current => cancelled ? current : applyOrderedViewResponses(current, results));
       } finally { loading = false; }
     }
     void refreshChildren();
@@ -774,29 +801,75 @@ function AppShell(props: ShellProps) {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      const editing = ['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable;
+      const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
       if (!editing && event.key === '/') { event.preventDefault(); document.querySelector<HTMLInputElement>('.queue-search input')?.focus(); }
       if (event.key === 'Escape') setNavOpen(false);
     };
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
   }, []);
-  useEffect(() => { if (!selectedCaseId && visibleCaseEntries[0]) setSelectedCaseId(visibleCaseEntries[0].key); }, [selectedCaseId, visibleCaseEntries]);
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 4200); return () => window.clearTimeout(timer); } }, [toast]);
 
   function chooseSection(next: NavSection) {
-    setSection(next); setSelectedCaseId(null); setMobileDetail(false); setNavOpen(false);
+    setSelectedFolderId(null);
+    setSection(next); setSelectedCaseId(null); setNavOpen(false);
   }
   function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox') {
     chooseSection(nextSection);
-    if (next.id !== workspace.id) void onSelectWorkspace(next).catch(caught => setToast(errorMessage(caught)));
+    if (next.id !== workspace.id) void onSelectWorkspace(next, nextSection).catch(caught => setToast(errorMessage(caught)));
   }
   async function refreshSelectedCase() {
     if (selectedCaseView.inbox.id === workspace.id) { await onRefresh(); return; }
     await refreshAgentInbox(selectedCaseView.inbox.id);
   }
   async function refreshAgentInbox(inboxId: string) {
+    const order = childResponseOrder(inboxId);
+    const ticket = order.begin();
     const refreshed = await api.humanView(inboxId);
-    setChildViews(current => ({ ...current, [inboxId]: refreshed }));
+    setChildViews(current => applyOrderedViewResponses(current, [{ key: inboxId, value: refreshed, order, ticket }]));
+  }
+  function childResponseOrder(inboxId: string) {
+    let order = childResponseOrders.current.get(inboxId);
+    if (!order) { order = createViewResponseOrder(); childResponseOrders.current.set(inboxId, order); }
+    return order;
+  }
+  function preferenceUpdated(inboxId: string, caseId: string, preference: InboxPreference) {
+    childResponseOrder(inboxId).reset();
+    setChildViews(current => current[inboxId] ? { ...current, [inboxId]: applyInboxPreference(current[inboxId], caseId, preference) } : current);
+    props.onPreferenceUpdated?.(inboxId, caseId, preference);
+  }
+  async function refreshInboxPreferences() {
+    await onRefresh();
+    await Promise.all(agentInboxes.map(inbox => refreshAgentInbox(inbox.id)));
+  }
+  async function createFolder(name: string) {
+    setFolderBusy(true); setFolderError('');
+    try {
+      if (workspace.id === previewWorkspace.id) throw new Error('Folder changes are unavailable in the design preview. Sign in to save changes.');
+      await api.createInboxFolder(workspace.id, name);
+      await refreshInboxPreferences(); setFolderDialogOpen(false); setToast('Folder created');
+    } catch (caught) { setFolderError(errorMessage(caught)); }
+    finally { setFolderBusy(false); }
+  }
+  function openCase(item: WorkCase) {
+    const source = caseSources.find(entry => entry.workCase === item);
+    if (!source) return;
+    setSelectedCaseId(source.key);
+    const patch = readAcknowledgementForCase(item);
+    if (patch && !item.inboxPreference?.read && source.sourceView.inbox.id !== previewWorkspace.id) {
+      void api.updateInboxPreference(source.sourceView.inbox.id, item.id, patch)
+        .then(result => {
+          preferenceUpdated(source.sourceView.inbox.id, item.id, result.inboxPreference);
+          return source.sourceView.inbox.id === workspace.id ? onRefresh() : refreshAgentInbox(source.sourceView.inbox.id);
+        })
+        .catch(caught => setToast(errorMessage(caught)));
+    }
+  }
+  function openCaseFromUtility(item: WorkCase) {
+    const source = caseSources.find(entry => entry.workCase.id === item.id && entry.sourceView.inbox.id === view.inbox.id)
+      || caseSources.find(entry => entry.workCase.id === item.id);
+    if (!source) { setToast('Load the conversation’s history before opening it.'); return; }
+    chooseSection(source.workCase.inboxPreference?.archived ? 'completed' : 'inbox');
+    openCase(source.workCase);
   }
   function toggleAgent(agentId: string) {
     setExpandedAgents(current => current.includes(agentId) ? current.filter(id => id !== agentId) : [...current, agentId]);
@@ -824,7 +897,8 @@ function AppShell(props: ShellProps) {
           })}
           {agentInboxes.some(inbox => inbox.status === 'removed') && <div className="nav-section-heading"><span>Archived agents</span></div>}
           {agentInboxes.filter(inbox => inbox.status === 'removed').map(inbox => <button key={inbox.id} className="nav-item" onClick={() => chooseInbox(inbox)}><Archive size={16} /><span>{inbox.removedAgent?.name || inbox.name}</span></button>)}
-          <div className="nav-section-heading"><span>Folders</span><button aria-label="Folders unavailable" title="Folder management requires backend support" disabled><Plus size={15} /></button></div>
+          <div className="nav-section-heading"><span>Folders</span><button aria-label="Create folder" disabled={!view.folders} onClick={() => { setFolderError(''); setFolderDialogOpen(true); }}><Plus size={15} /></button></div>
+          {view.folders?.map(folder => <button key={folder.id} className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { chooseSection('inbox'); setSelectedFolderId(folder.id); }}><Folder size={16} /><span>{folder.name}</span></button>)}
           <div className="nav-spacer" />
           <NavItem section="documents" label="Files" icon={<FileText />} active={section === 'documents'} onClick={chooseSection} />
           <NavItem section="integrations" label="Manage agents" icon={<UsersRound />} active={section === 'integrations'} onClick={chooseSection} />
@@ -842,22 +916,23 @@ function AppShell(props: ShellProps) {
         {utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
-            {section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={item => { chooseSection('inbox'); setSelectedCaseId(`${view.inbox.id}:${item.id}`); setMobileDetail(true); }} />}
+{section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} />}
             {section === 'policies' && <PoliciesPage entries={agentEntries} />}
             {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
-            {section === 'activity' && <ActivityPage view={view} onOpenCase={item => { chooseSection('inbox'); setSelectedCaseId(`${view.inbox.id}:${item.id}`); setMobileDetail(true); }} />}
+            {section === 'activity' && <ActivityPage view={view} onOpenCase={openCaseFromUtility} />}
           </main>
         ) : (
-          <div className={`case-layout ${mobileDetail ? 'show-detail' : ''}`}>
-            <CaseQueue section={section} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={item => { setSelectedCaseId(caseSources.find(source => source.workCase === item)?.key || null); setMobileDetail(true); }} />
-            <main id="main-content" className="case-main">
-              {selectedCase ? <CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => setMobileDetail(false)} onRefresh={refreshSelectedCase} notify={setToast} /> : <EmptyCaseState section={section} />}
-            </main>
+          <div className={`case-layout ${selectedCase ? 'inbox-detail-view show-detail' : 'inbox-list-view'}`}>
+{!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
+            {selectedCase && <main id="main-content" className="case-main">
+<CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { setSelectedCaseId(null); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); setSelectedCaseId(null); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
+            </main>}
           </div>
         )}
       </section>
       <div className="sr-live" aria-live="polite">{toast}</div>
       {toast && <div className="toast"><Check size={16} />{toast}</div>}
+      {folderDialogOpen && <Modal title="Create folder" dismissible={!folderBusy} onClose={() => setFolderDialogOpen(false)}><CreateInboxFolderContent busy={folderBusy} error={folderError} onClose={() => setFolderDialogOpen(false)} onCreate={name => void createFolder(name)} /></Modal>}
     </div>
   );
 }
@@ -875,7 +950,7 @@ function NavItem({ section, label, icon, count, active, attention, onClick }: { 
   return <button className={`nav-item ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => onClick(section)}><span className="nav-icon">{icon}</span><span>{label}</span>{Boolean(count) && <span className={`nav-count ${attention ? 'attention' : ''}`} aria-label={`${count} items`}>{count! > 9 ? '9+' : count}</span>}</button>;
 }
 
-function CaseQueue({ section, cases, view, currentAgent, selectedId, caseKey, onOpenNav, onLoadOlder, historyBusy, onSelect }: { section: NavSection; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void }) {
+function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId, caseKey, onOpenNav, onLoadOlder, historyBusy, onSelect }: { section: NavSection; folderName?: string; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void }) {
   const [query, setQuery] = useState('');
   const loadMarker = useRef<HTMLDivElement>(null);
   const hasMore = Boolean(Object.keys(olderCursors(view)).length);
@@ -893,13 +968,13 @@ function CaseQueue({ section, cases, view, currentAgent, selectedId, caseKey, on
       if (word.startsWith('agent:')) return (agent?.name || '').toLowerCase().includes(word.slice(6));
       if (word.startsWith('status:')) return caseLabel(item).toLowerCase().includes(word.slice(7));
       if (word.startsWith('type:')) return timelineForCase(item, view.messages).some(event => String(event.payload.messageType || event.type).toLowerCase().includes(word.slice(5)));
-      if (word.startsWith('folder:')) return false;
+      if (word.startsWith('folder:')) return (view.folders?.find(folder => folder.id === item.inboxPreference?.folderId)?.name || '').toLowerCase().includes(word.slice(7));
       return searchable.includes(word);
     });
   }).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
   return (
-    <aside className="case-queue" aria-label={`${section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'Inbox'} cases`}>
-      <div className="queue-header"><div className="queue-context">{currentAgent ? <><span className="agent-dot" style={{ '--agent-color': AGENT_COLORS[Math.max(0, view.agents.indexOf(currentAgent)) % AGENT_COLORS.length] } as React.CSSProperties}>{initials(currentAgent.name)}</span><span title={currentAgent.address}>{currentAgent.name} · {currentAgent.address}</span></> : <span>All agents</span>}</div><div className="queue-title-row"><button className="icon-button mobile-only queue-menu" aria-label="Open navigation" onClick={onOpenNav}><Menu size={18} /></button><h1>{section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'All inboxes'}</h1></div></div>
+    <aside id="main-content" className="case-queue" aria-label={`${section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'Inbox'} cases`}>
+      <div className="queue-header"><div className="queue-context">{currentAgent ? <><span className="agent-dot" style={{ '--agent-color': AGENT_COLORS[Math.max(0, view.agents.indexOf(currentAgent)) % AGENT_COLORS.length] } as React.CSSProperties}>{initials(currentAgent.name)}</span><span title={currentAgent.address}>{currentAgent.name} · {currentAgent.address}</span></> : <span>All agents</span>}</div><div className="queue-title-row"><button className="icon-button mobile-only queue-menu" aria-label="Open navigation" onClick={onOpenNav}><Menu size={18} /></button><h1>{folderName || (section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'All inboxes')}</h1></div></div>
       <label className="queue-search"><Search size={15} /><span className="sr-only">Search cases</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search" /><kbd>/</kbd></label>
       <div className="case-list" role="listbox" aria-label="Conversations">
         {filtered.map(item => <CaseRow key={caseKey(item)} workCase={item} view={view} showOwner={!currentAgent} selected={selectedId === caseKey(item)} onSelect={onSelect} />)}
@@ -920,15 +995,15 @@ function CaseRow({ workCase, view, showOwner, selected, onSelect }: { workCase: 
   const counterpartyColor = AGENT_COLORS[Math.abs(Array.from(counterparty.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
   const ownerColor = AGENT_COLORS[Math.max(0, view.agents.findIndex(item => item.id === owner?.id)) % AGENT_COLORS.length];
   return (
-    <button role="option" aria-selected={selected} className={`case-row ${selected ? 'selected' : ''} ${workCase.needsAttention ? 'is-unread' : ''} ${caseState(workCase) === 'completed' ? 'is-done' : ''}`} onClick={() => onSelect(workCase)}>
+<button role="option" aria-selected={selected} className={`case-row inbox-message-row ${selected ? 'selected' : ''} ${(workCase.inboxPreference ? !workCase.inboxPreference.read : workCase.needsAttention) ? 'is-unread' : ''} ${caseState(workCase) === 'completed' ? 'is-done' : ''}`} onClick={() => onSelect(workCase)}>
       <span className="counterparty-avatar" style={{ '--avatar-color': counterpartyColor } as React.CSSProperties}>{initials(counterparty.displayName)}{showOwner && owner && <span className="owner-badge" style={{ '--owner-color': ownerColor } as React.CSSProperties} title={owner.name}>{initials(owner.name)[0]}</span>}</span>
-      <span className="case-row-copy"><span className="thread-sender">{counterparty.displayName}</span><strong>{workCase.objective || 'Untitled case'}</strong><small>{conversationPreview(workCase)}</small>{workCase.needsAttention && <span className="case-chip">Needs you</span>}</span>
-      <time dateTime={updated}>{today ? formatTime(updated) : formatDate(updated)}</time>
+      <span className="case-row-copy"><span className="thread-sender">{counterparty.displayName}</span><strong>{workCase.objective || 'Untitled case'}</strong><small className="case-preview">{conversationPreview(workCase)}</small></span>
+      <span className="case-row-meta">{workCase.needsAttention && <span className="case-chip">Needs you</span>}<time dateTime={updated}>{today ? formatTime(updated) : formatDate(updated)}</time></span>
     </button>
   );
 }
 
-export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRailToggle, onBack, onRefresh, notify }: { workCase: WorkCase; view: HumanView; canManageInbox: boolean; railOpen: boolean; onRailToggle: () => void; onBack: () => void; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
+export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRailToggle, onBack, onRefresh, onPreferencesChanged, notify }: { workCase: WorkCase; view: HumanView; canManageInbox: boolean; railOpen: boolean; onRailToggle: () => void; onBack: () => void; onRefresh: () => Promise<unknown>; onPreferencesChanged: (preference: InboxPreference) => Promise<unknown>; notify: (message: string) => void }) {
   const state = caseState(workCase);
   const events = timelineForCase(workCase, view.messages);
   const policy = workCase.policyEvaluations?.find(item => item.id === workCase.decision?.policyEvaluationId) || decisionPolicy(workCase);
@@ -936,6 +1011,13 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   const [confirm, setConfirm] = useState<HumanActionKey | null>(null);
   const [busy, setBusy] = useState<HumanActionKey | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [preferenceBusy, setPreferenceBusy] = useState(false);
+  const [preferenceError, setPreferenceError] = useState('');
+  const [instruction, setInstruction] = useState('');
+  const [instructionBusy, setInstructionBusy] = useState(false);
+  const [instructionError, setInstructionError] = useState('');
+  const instructionRequest = useRef<{ text: string; key: string } | null>(null);
   const local = resolveParticipant(workCase, workCase.actingAgent, view.agents, view.participantDirectory);
   const counterpartyId = participantIds(workCase, events).find(id => id !== workCase.actingAgent && id !== workCase.principal);
   const counterparty = resolveParticipant(workCase, counterpartyId, view.agents, view.participantDirectory);
@@ -950,20 +1032,47 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
 
   const hasOpenDecision = Boolean(workCase.schemaVersion) && !['completed', 'expired', 'revoked'].includes(state);
   const canAct = canManageInbox && hasOpenDecision;
+  const canOrganize = Boolean(workCase.inboxPreference && view.folders);
+  const ownAgent = view.agents.find(agent => agent.id === view.inbox.ownerAgentId);
+  const canInstruct = canAct && state !== 'paused' && ownAgent?.status === 'active' && ownAgent.onboardingStatus === 'approved' && !ownAgent.credentialRevoked && !ownAgent.pausedAt && ownAgent.permissions.includes('receive_agent_messages');
+  async function updatePreference(patch: { archive?: boolean; folderId?: string | null }) {
+    setPreferenceBusy(true); setPreferenceError('');
+    try {
+      if (view.inbox.id === previewWorkspace.id) throw new Error('Conversation changes are unavailable in the design preview. Sign in to save changes.');
+      const result = await api.updateInboxPreference(view.inbox.id, workCase.id, patch);
+      await onPreferencesChanged(result.inboxPreference);
+      notify(patch.archive === undefined ? 'Folder updated' : patch.archive ? 'Moved to Done' : 'Moved to inbox');
+    } catch (caught) { setPreferenceError(errorMessage(caught)); }
+    finally { setPreferenceBusy(false); }
+  }
+  async function sendInstruction(event: FormEvent) {
+    event.preventDefault();
+    const text = instruction.trim();
+    if (!text || instructionBusy || !canInstruct) return;
+    if (instructionRequest.current?.text !== text) instructionRequest.current = { text, key: `human-instruction-${crypto.randomUUID()}` };
+    setInstructionBusy(true); setInstructionError('');
+    try {
+      if (view.inbox.id === previewWorkspace.id) throw new Error('Instructions are unavailable in the design preview. Sign in to send instructions.');
+      await api.sendInstruction(view.inbox.id, workCase.id, text, instructionRequest.current.key);
+      setInstruction(''); instructionRequest.current = null;
+      notify('Instruction queued for your agent'); await onRefresh();
+    } catch (caught) { setInstructionError(errorMessage(caught)); }
+    finally { setInstructionBusy(false); }
+  }
   return (
     <div className={`envoi-thread ${railOpen ? 'details-open' : ''}`}>
       <div className="thread-body">
         <div className="thread-toolbar">
-          <button className="thread-tool mobile-only" aria-label="Back to list" onClick={onBack}><ArrowLeft size={16} /></button>
-          <button className="thread-tool" disabled title="Done needs server support"><Check size={16} />{state === 'completed' ? 'Reopen' : 'Done'}</button>
-          <button className="thread-tool" disabled title="Folder assignment requires backend support"><Folder size={16} />Move</button>
+          <button className="thread-tool" aria-label="Back to list" onClick={onBack}><ArrowLeft size={16} /></button>
+          <button className="thread-tool" disabled={!canOrganize || preferenceBusy} onClick={() => void updatePreference({ archive: !workCase.inboxPreference?.archived })}><Check size={16} />{workCase.inboxPreference?.archived ? 'Move to inbox' : 'Done'}</button>
+          <button className="thread-tool" disabled={!canOrganize || preferenceBusy} onClick={() => { setPreferenceError(''); setMoveOpen(true); }}><Folder size={16} />Move</button>
           <button className="thread-tool" aria-label={canAct ? state === 'paused' ? 'Resume conversation' : 'Pause conversation' : state === 'paused' ? 'Resume' : 'Pause'} disabled={!canAct || Boolean(busy)} onClick={() => state === 'paused' ? void act('resume') : setConfirm('pause')}><Pause size={16} />{canAct ? state === 'paused' ? 'Resume conversation' : 'Pause conversation' : state === 'paused' ? 'Resume' : 'Pause'}</button>
           <button className="thread-tool thread-tool-right" aria-pressed={railOpen} onClick={onRailToggle}><PanelRightOpen size={16} />Details</button>
           <div className="thread-more-wrap"><button className="thread-tool icon-only" aria-label="More case actions" aria-expanded={moreOpen} onClick={() => setMoreOpen(value => !value)}><MoreHorizontal size={17} /></button>{moreOpen && <div className="thread-more" role="menu">{canAct && <button role="menuitem" onClick={() => { setMoreOpen(false); if (state === 'paused') void act('resume'); else setConfirm('pause'); }}>{state === 'paused' ? 'Resume conversation' : 'Pause conversation'}</button>}<button role="menuitem" disabled title="Take over needs server support">Take over case</button><button role="menuitem" onClick={() => { setMoreOpen(false); void navigator.clipboard.writeText(workCase.id).then(() => notify('Copied')).catch(() => notify('Copy failed')); }}>Copy case ID</button>{canAct && <button role="menuitem" className="danger" onClick={() => { setMoreOpen(false); setConfirm('revoke'); }}>Revoke case authority</button>}</div>}</div>
         </div>
         <div className="thread-scroll"><div className="thread-inner">
           <h1 className="thread-subject">{workCase.objective || 'Untitled case'}</h1>
-          <div className="thread-meta"><StatusBadge workCase={workCase} /><button className="add-folder" disabled title="Folder assignment requires backend support"><Plus size={13} />Folder</button></div>
+          <div className="thread-meta"><StatusBadge workCase={workCase} /><button className="add-folder" disabled={!canOrganize || preferenceBusy} onClick={() => { setPreferenceError(''); setMoveOpen(true); }}><Folder size={13} />{view.folders?.find(folder => folder.id === workCase.inboxPreference?.folderId)?.name || 'Folder'}</button></div>
           <div className="participant-duo">
             <ParticipantCard participant={local} label="Your agent" />
             <ArrowLeftRight size={18} className="participant-swap" aria-hidden="true" />
@@ -975,8 +1084,9 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
           <div className="conversation" aria-label="Conversation">{events.length ? events.map((event, index) => <ConversationEntry key={event.id} event={event} previous={events[index - 1]} workCase={workCase} view={view} />) : <div className="empty-list"><Inbox size={20} /><strong>No messages yet</strong></div>}</div>
           {workCase.receipt && <ReceiptCard workCase={workCase} />}
         </div></div>
-        <div className="thread-composer"><form className="composer-box" onSubmit={event => event.preventDefault()}><input aria-label={`Instructions for ${local.displayName} unavailable`} placeholder="Sending instructions is not available yet" disabled /><button aria-label="Send instruction unavailable" title="Human instructions require backend support" disabled><ArrowRight size={16} /></button></form></div>
+        <div className="thread-composer"><form className="composer-box" onSubmit={event => void sendInstruction(event)}><input aria-label={`Instructions for ${local.displayName}`} value={instruction} onChange={event => setInstruction(event.target.value)} maxLength={15000} placeholder={canInstruct ? 'Send an instruction to your agent' : 'Instructions require an active agent and conversation'} disabled={!canInstruct || instructionBusy} /><button aria-label="Send instruction" disabled={!canInstruct || instructionBusy || !instruction.trim()}><ArrowRight size={16} /></button></form><FormError message={instructionError || preferenceError} /></div>
       </div>
+      {moveOpen && <Modal title="Move conversation" dismissible={!preferenceBusy} onClose={() => setMoveOpen(false)}><MoveInboxCaseContent folders={view.folders || []} currentFolderId={workCase.inboxPreference?.folderId || null} busy={preferenceBusy} error={preferenceError} onClose={() => setMoveOpen(false)} onMove={folderId => void updatePreference({ folderId })} /></Modal>}
       {railOpen && <aside className="case-details" aria-label="Case details"><div className="details-heading"><strong>Details</strong><button className="icon-button" aria-label="Close details" onClick={onRailToggle}><X size={16} /></button></div><h2>{local.displayName} can</h2>{view.agents.find(item => item.id === local.id)?.permissions.map(permission => <div className="details-row" key={permission}><Check size={14} />{humanize(permission)}</div>) || <p>No permissions listed</p>}<h2>{local.displayName} asks you before</h2><p>Actions outside its permissions</p><h2>Files</h2>{view.assets.filter(item => item.caseId === workCase.id).map(asset => <AssetRow key={asset.id} asset={asset} inboxId={view.inbox.id} notify={notify} />)}<h2>Case</h2><dl><dt>Deadline</dt><dd>{workCase.deadline ? formatDate(workCase.deadline) : 'None'}</dd><dt>ID</dt><dd className="case-id">{workCase.id}</dd></dl></aside>}
       {drawer && <DetailDrawer drawer={drawer} onClose={() => setDrawer(null)} />}
       {confirm && canAct && <ConfirmDialog action={confirm} busy={busy === confirm} onCancel={() => setConfirm(null)} onConfirm={() => void act(confirm)} />}
@@ -984,16 +1094,17 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   );
 }
 
-function ConversationEntry({ event, previous, workCase, view }: { event: CaseEvent; previous?: CaseEvent; workCase: WorkCase; view: HumanView }) {
-  const mine = (event.payload.senderAgentId || event.actor) === workCase.actingAgent || Boolean(event.payload.senderHumanId);
-  const participant = resolveParticipant(workCase, event.payload.senderAgentId || event.actor, view.agents, view.participantDirectory);
+export function ConversationEntry({ event, previous, workCase, view }: { event: CaseEvent; previous?: CaseEvent; workCase: WorkCase; view: HumanView }) {
+  const ownHuman = Boolean(event.payload.senderHumanId && event.payload.senderHumanId === view.requester?.id);
+  const mine = (event.payload.senderAgentId || event.actor) === workCase.actingAgent || ownHuman;
+  const participant = resolveParticipant(workCase, event.payload.senderAgentId || event.payload.senderHumanId || event.actor, view.agents, view.participantDirectory);
   const date = new Date(event.createdAt);
   const priorDate = previous ? new Date(previous.createdAt) : null;
   const showDay = !priorDate || date.toDateString() !== priorDate.toDateString();
   const delivery = String(event.payload.deliveryState || 'unknown');
   const deliveryLabel = delivery === 'delivered' ? 'Delivered' : ['acknowledged', 'processed'].includes(delivery) ? 'Read' : ['queued', 'retrying', 'deadLettered'].includes(delivery) ? 'Not sent' : 'Unknown';
   const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
-  return <>{showDay && <div className="conversation-day">{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</div>}{isExchangeEvent(event) ? <div className={`conversation-message ${mine ? 'mine' : 'theirs'}`}><span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{event.payload.senderHumanId ? 'Y' : initials(participant.displayName)}</span><div className="message-content"><div className="message-meta"><strong>{event.payload.senderHumanId ? 'You' : participant.displayName}</strong><span>{exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div><div className="message-bubble">{eventSummary(event)}</div>{mine && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}</div></div> : <div className="conversation-event"><Sparkles size={13} /><span>{eventSummary(event)}</span></div>}</>;
+return <>{showDay && <div className="conversation-day">{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</div>}{isExchangeEvent(event) ? <div className={`conversation-message ${mine ? 'mine' : 'theirs'}`}><span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{ownHuman ? 'Y' : initials(participant.displayName)}</span><div className="message-content"><div className="message-meta"><strong>{ownHuman ? 'You' : participant.displayName}</strong><span>{exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div><div className="message-bubble">{eventSummary(event)}</div>{mine && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}</div></div> : <div className="conversation-event"><Sparkles size={13} /><span>{eventSummary(event)}</span></div>}</>;
 }
 
 function NegotiationParticipants({ workCase, view, events, canManageInbox, onRefresh, notify }: { workCase: WorkCase; view: HumanView; events: CaseEvent[]; canManageInbox: boolean; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
@@ -1376,8 +1487,6 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const [removalOpen, setRemovalOpen] = useState(false);
   const [removalBusy, setRemovalBusy] = useState(false);
   const [removalError, setRemovalError] = useState('');
-  const [deleteHistory, setDeleteHistory] = useState(false);
-  const [removalConfirmation, setRemovalConfirmation] = useState('');
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState('');
   const [revokeResult, setRevokeResult] = useState<{ revokedAt: string; credentialFamilyCount: number } | null>(null);
@@ -1410,7 +1519,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     } catch (caught) { setApprovalError(errorMessage(caught)); }
     finally { setApprovalBusy(false); }
   }
-  async function removeAgent() {
+  async function removeAgent(deleteHistory: boolean, removalConfirmation: string) {
     setRemovalBusy(true); setRemovalError('');
     try {
       await api.removeAgent(workspace.id, agent.id, deleteHistory, removalConfirmation);
@@ -1453,14 +1562,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
     {canManageInbox && <details className="agent-more"><summary>More</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && agent.status === 'active' && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.pausedAt)}>{agent.pausedAt ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}<button className="danger" onClick={() => { setRemovalError(''); setRemovalOpen(true); }}>Remove agent</button>{publicEmailAddress && <span>{publicEmailAddress}</span>}</div></details>}
     {removalOpen && canManageInbox && <Modal title={`Remove ${agent.name}?`} onClose={() => setRemovalOpen(false)} dismissible={!removalBusy}>
-      <p className="dialog-copy">This immediately ends access and removes the agent from your agent list. Using it again requires new onboarding.</p>
-      <fieldset disabled={removalBusy}><legend>Conversation and file history</legend>
-        <label className="permission-option"><input type="radio" name={`removal-${agent.id}`} checked={!deleteHistory} onChange={() => setDeleteHistory(false)} />Keep history as a read-only archive</label>
-        <label className="permission-option"><input type="radio" name={`removal-${agent.id}`} checked={deleteHistory} onChange={() => setDeleteHistory(true)} />Delete my history and files</label>
-      </fieldset>
-      {deleteHistory && <><p>This cannot be undone. Other participants’ conversations and their own files remain. Minimal security records and existing backups remain subject to retention.</p><label className="field"><span>Type {agent.name} to confirm</span><input value={removalConfirmation} onChange={event => setRemovalConfirmation(event.target.value)} autoComplete="off" /></label></>}
-      <FormError message={removalError} />
-      <div className="dialog-actions"><button className="button secondary" disabled={removalBusy} onClick={() => setRemovalOpen(false)}>Cancel</button><button className="button destructive" disabled={removalBusy || (deleteHistory && removalConfirmation !== agent.name)} onClick={() => void removeAgent()}>{removalBusy ? 'Removing…' : 'Remove agent'}</button></div>
+      <AgentRemovalDialogContent agentName={agent.name} busy={removalBusy} error={removalError} onClose={() => setRemovalOpen(false)} onConfirm={(deleteHistory, confirmation) => void removeAgent(deleteHistory, confirmation)} />
     </Modal>}
     {approvalOpen && canApproveAgent && <Modal title={`Approve ${agent.name}`} onClose={() => setApprovalOpen(false)}>
       <p>Choose what this agent may do. You can grant file sharing and task execution only if needed.</p>
@@ -1653,7 +1755,9 @@ function ConfirmDialog({ action, busy, onCancel, onConfirm }: { action: HumanAct
 
 function Modal({ title, children, onClose, dismissible = true }: { title: string; children: ReactNode; onClose: () => void; dismissible?: boolean }) {
   const panel = useRef<HTMLDivElement>(null);
-  useEffect(() => { panel.current?.focus(); const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && dismissible) onClose(); if (event.key !== 'Tab' || !panel.current) return; const focusable = [...panel.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(item => item.getClientRects().length); if (!focusable.length) { event.preventDefault(); panel.current.focus(); return; } const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [dismissible, onClose]);
+  const closeOptions = useRef({ onClose, dismissible });
+  closeOptions.current = { onClose, dismissible };
+  useEffect(() => { panel.current?.focus(); const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && closeOptions.current.dismissible) closeOptions.current.onClose(); if (event.key !== 'Tab' || !panel.current) return; const focusable = [...panel.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(item => item.getClientRects().length); if (!focusable.length) { event.preventDefault(); panel.current.focus(); return; } const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
   return <div className="modal-layer"><button className="modal-scrim" aria-label={dismissible ? 'Close dialog' : undefined} onClick={dismissible ? onClose : undefined} /><div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1} ref={panel}><header><h2 id="modal-title">{title}</h2>{dismissible && <button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button>}</header>{children}</div></div>;
 }
 
@@ -1710,10 +1814,11 @@ function conversationTags(workCase: WorkCase) {
   return [...new Set(tags.length ? tags : ['Agent task'])].slice(0, 3);
 }
 function conversationPreview(workCase: WorkCase) {
-  const projectedEvent = workCase.timeline?.at(-1);
-  if (projectedEvent) return projectedEvent.summary;
-  const event = [...(workCase.events || [])].reverse().find(item => item.payload.text || item.payload.message);
+  const events = timelineForCase(workCase, []);
+  const event = events.slice().reverse().find(item => item.payload.text || item.payload.message);
   if (event) return String(event.payload.text || event.payload.message);
+  const projectedEvent = events.at(-1);
+  if (projectedEvent) return eventSummary(projectedEvent);
   return workCase.contextualDetail || (workCase.deadline ? `Working toward ${formatDate(workCase.deadline)}` : STATE_META[caseState(workCase)].description);
 }
 function provenanceLabel(value: string) { return ({ fromVerifiedProfile: 'From verified profile', enteredForCase: 'Added for this conversation', extractedFromDocument: 'Extracted from attached document' } as Record<string, string>)[value] || humanize(value); }

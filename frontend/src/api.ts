@@ -1,4 +1,4 @@
-import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, Organization } from './types';
+import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, InboxPreference, Organization } from './types';
 import { trackSessionRequest } from './session-lifecycle';
 import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
@@ -114,6 +114,9 @@ export const api = {
   logout: () => request<{ revoked: boolean; logoutUrl?: string | null }>('/api/auth/logout', { method: 'POST', body: '{}' }),
   organizations: (signal?: AbortSignal) => request<Organization[]>('/api/organizations', { signal }),
   workspaces: (organizationId: string, signal?: AbortSignal) => request<Inbox[]>(`/api/organizations/${organizationId}/workspaces`, { signal }),
+  createInboxFolder: (inboxId: string, name: string) => request<{ folder: { id: string; name: string } }>(`/api/inboxes/${encodeURIComponent(inboxId)}/inbox-folders`, { method: 'POST', body: JSON.stringify({ name }) }),
+  updateInboxPreference: (inboxId: string, caseId: string, patch: { archive?: boolean; folderId?: string | null; read?: boolean; readThrough?: string }) => request<{ inboxPreference: InboxPreference }>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases/${encodeURIComponent(caseId)}/inbox-preferences`, { method: 'POST', body: JSON.stringify(patch) }),
+  sendInstruction: (inboxId: string, caseId: string, text: string, idempotencyKey: string) => request<unknown>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases/${encodeURIComponent(caseId)}/instructions`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ text }) }),
   createWorkspace: (name: string, organizationId?: string) => request<Inbox>('/api/inboxes', { method: 'POST', body: JSON.stringify({ name, organizationId }) }),
   humanView: (inboxId: string, history?: Record<string, string>, signal?: AbortSignal) => request<HumanView>(`/api/inboxes/${encodeURIComponent(inboxId)}/human-view${history ? `?history=${encodeURIComponent(JSON.stringify(history))}` : ''}`, { signal }),
   // Only the validation caller handles denial, to distinguish MFA from logout.

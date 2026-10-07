@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRefreshCoordinator, createViewResponseOrder } from '../src/workspace-refresh';
+import { applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from '../src/workspace-refresh';
+import type { OrderedViewResponse } from '../src/workspace-refresh';
 import { mergeHistory } from '../src/history';
 import type { HumanView } from '../src/types';
 
@@ -117,5 +118,61 @@ describe('concurrent pagination and snapshots', () => {
     const previous = order.begin(); order.reset(); order.reset();
     expect(order.isCurrent(previous)).toBe(false);
     expect(() => order.accept(previous)).toThrow(expect.objectContaining({ name: 'AbortError' }));
+  });
+});
+
+describe('applying ordered inbox responses', () => {
+  it('skips a resolved batch response reset by a mutation while another inbox is pending', async () => {
+    const firstOrder = createViewResponseOrder();
+    const secondOrder = createViewResponseOrder();
+    const firstRead = deferred<OrderedViewResponse<string>>();
+    const secondRead = deferred<OrderedViewResponse<string>>();
+    const firstResponse = { key: 'inbox_one', value: 'before-write', order: firstOrder, ticket: firstOrder.begin() };
+    const secondResponse = { key: 'inbox_two', value: 'fresh-second', order: secondOrder, ticket: secondOrder.begin() };
+    const batch = Promise.all([firstRead.promise, secondRead.promise]);
+    firstRead.resolve(firstResponse);
+    await firstRead.promise;
+    firstOrder.reset();
+    const current = Object.freeze({ inbox_one: 'after-write', inbox_two: 'old-second' });
+    secondRead.resolve(secondResponse);
+    const updated = applyOrderedViewResponses(current, await batch);
+    expect(updated).toEqual({ inbox_one: 'after-write', inbox_two: 'fresh-second' });
+    expect(updated).not.toBe(current);
+    expect(current.inbox_two).toBe('old-second');
+  });
+
+  it('keeps a newer manual response when an older batch is applied later', () => {
+    const order = createViewResponseOrder();
+    const oldResponse = { key: 'inbox_one', value: 'old', order, ticket: order.begin() };
+    const newResponse = { key: 'inbox_one', value: 'new', order, ticket: order.begin() };
+    const current = { inbox_one: 'initial', untouched: 'preserved' };
+    const updated = applyOrderedViewResponses(current, [newResponse]);
+    expect(updated).toEqual({ inbox_one: 'new', untouched: 'preserved' });
+    expect(applyOrderedViewResponses(updated, [oldResponse])).toBe(updated);
+    expect(applyOrderedViewResponses(current, [newResponse, oldResponse])).toEqual(updated);
+  });
+
+  it('returns the current record when every response is absent, obsolete or unchanged', () => {
+    const order = createViewResponseOrder();
+    const stale = { key: 'inbox_one', value: 'stale', order, ticket: order.begin() };
+    order.reset();
+    const current = { inbox_one: 'current' };
+    expect(applyOrderedViewResponses(current, [])).toBe(current);
+    expect(applyOrderedViewResponses(current, [null, stale])).toBe(current);
+    const unchanged = { key: 'inbox_one', value: current.inbox_one, order, ticket: order.begin() };
+    expect(applyOrderedViewResponses(current, [unchanged])).toBe(current);
+    expect(order.accept(unchanged.ticket)).toBe(false);
+  });
+
+  it('allows replaying an accepted updater and preserves untouched record identities', () => {
+    const order = createViewResponseOrder();
+    const untouched = { version: 0 };
+    const current = Object.freeze({ inbox_one: { version: 1 }, untouched });
+    const response = { key: 'inbox_one', value: { version: 2 }, order, ticket: order.begin() };
+    const updated = applyOrderedViewResponses(current, [response]);
+    expect(applyOrderedViewResponses(current, [response])).toEqual(updated);
+    expect(updated.untouched).toBe(untouched);
+    expect(updated.inbox_one).toBe(response.value);
+    expect(current.inbox_one.version).toBe(1);
   });
 });

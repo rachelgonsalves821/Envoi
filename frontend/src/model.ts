@@ -1,4 +1,5 @@
 import type { Agent, Asset, AssetState, AuditEvent, CaseEvent, CaseState, HumanView, Inbox, Message, NavSection, ParticipantIdentity, PolicyEvaluation, WorkCase } from './types';
+import { collapseMessageProgress } from './conversation-timeline';
 
 export interface ResolvedParticipant extends ParticipantIdentity {
   relationship: 'localAgent' | 'counterpartyAgent' | 'principal' | 'participant' | 'unknown';
@@ -115,11 +116,11 @@ export function messagesForCase(messages: Message[], caseId: string) {
 }
 
 export function timelineForCase(workCase: WorkCase, messages: Message[]): CaseEvent[] {
-  if (workCase.timeline) return workCase.timeline.map(event => ({ id: event.id, type: event.type, actor: event.actorId, createdAt: event.createdAt, payload: event.payload, linkedPolicyEvaluation: event.policyEvaluationId, precedingEventRef: null, summary: event.summary }));
+  if (workCase.timeline) return collapseMessageProgress(workCase.timeline.map(event => ({ id: event.id, type: event.type, actor: event.actorId, createdAt: event.createdAt, payload: event.payload, linkedPolicyEvaluation: event.policyEvaluationId, precedingEventRef: null, summary: event.summary })));
   const structured = workCase.events || [];
-  if (structured.length) return structured.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (structured.length) return collapseMessageProgress(structured.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
   const messageEvents: CaseEvent[] = messagesForCase(messages, workCase.id).map(message => ({ id: message.id, type: 'message', actor: message.senderAgentId || message.senderHumanId || 'external', createdAt: message.createdAt, payload: { text: message.text, messageType: message.type, deliveryState: message.status, senderAgentId: message.senderAgentId, senderHumanId: message.senderHumanId, recipientAgentId: message.recipientAgentId }, linkedPolicyEvaluation: null, precedingEventRef: null }));
-  return messageEvents;
+  return collapseMessageProgress(messageEvents);
 }
 
 export function caseLabel(workCase: WorkCase) { return workCase.stateLabel || STATE_META[caseState(workCase)].label; }

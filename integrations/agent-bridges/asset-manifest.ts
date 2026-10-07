@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import type { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { isHumanInstructionMessage, type SinaloaConnector } from '../../sdk/typescript/src/connector';
 import { shareCaseAsset } from './asset-exchange';
 import type { AssetExchange } from './bridge';
 
@@ -45,6 +45,7 @@ export async function loadAssetManifest(manifestPath: string | undefined): Promi
 export function manifestAssetExchange(manifest: Map<string, ApprovedAsset>, connector: SinaloaConnector,
   exchange: typeof shareCaseAsset = shareCaseAsset): AssetExchange {
   return async (message, reply, idempotencyKey, signal) => {
+    if (isHumanInstructionMessage(message)) throw new Error('Human instruction replies cannot target a native asset recipient');
     const entry = reply.assetHandle && manifest.get(reply.assetHandle);
     if (!entry || !message.caseId || !message.senderAgentId || !message.from?.address) throw new Error('Approved case asset and sender are required');
     if (signal.aborted) throw new Error('Work lease was interrupted');
