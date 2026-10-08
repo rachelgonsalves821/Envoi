@@ -1,0 +1,35 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "refresh-recovered",
+  "description": "The same refresh token and rotationId within the recovery window return the identical successor.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-token",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "grantType": "refresh_token",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_used",
+      "rotationId": "rotation_PLACEHOLDER_0001"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "tokenPair",
+    "body": {
+      "agentApiToken": "sinaloa_agent_access_PLACEHOLDER_successor",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_successor",
+      "agentTokenExpiresAt": "2026-10-08T12:15:00.000Z",
+      "agentRefreshTokenExpiresAt": "2026-11-07T12:00:00.000Z",
+      "tokenType": "Bearer"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "next": "Save the successor atomically and clear pendingRotation."
+  }
+}

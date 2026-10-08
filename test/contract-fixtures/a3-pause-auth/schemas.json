@@ -1,0 +1,636 @@
+{
+  "$id": "a3-pause-auth/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "a3-pause-auth v1 schemas. Fixtures name a definition in response.schema or event.schema.",
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "AGENT_PAUSED",
+        "CREDENTIAL_REVOKED",
+        "CREDENTIAL_EXPIRED",
+        "ACCESS_TOKEN_EXPIRED",
+        "AUTHENTICATION_REQUIRED",
+        "ROTATION_ID_REQUIRED",
+        "REFRESH_TOKEN_INVALID",
+        "REFRESH_REPLAY",
+        "REFRESH_RECOVERY_EXPIRED",
+        "CASE_CONTROLLED",
+        "ACCOUNT_CHANGED",
+        "RATE_LIMITED",
+        "INTERNAL_SERVER_ERROR",
+        "AUTH_UNAVAILABLE"
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "caseId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "rateLimitedError": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/errorEnvelope"
+        },
+        {
+          "required": [
+            "retryAfterSeconds"
+          ],
+          "properties": {
+            "code": {
+              "const": "RATE_LIMITED"
+            }
+          }
+        }
+      ]
+    },
+    "caseControlledError": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/errorEnvelope"
+        },
+        {
+          "required": [
+            "caseId"
+          ],
+          "properties": {
+            "code": {
+              "const": "CASE_CONTROLLED"
+            }
+          }
+        }
+      ]
+    },
+    "tokenPair": {
+      "type": "object",
+      "required": [
+        "agentApiToken",
+        "agentRefreshToken",
+        "agentTokenExpiresAt",
+        "agentRefreshTokenExpiresAt",
+        "tokenType"
+      ],
+      "properties": {
+        "agentApiToken": {
+          "type": "string",
+          "pattern": "^sinaloa_agent_access_"
+        },
+        "agentRefreshToken": {
+          "type": "string",
+          "pattern": "^sinaloa_agent_refresh_"
+        },
+        "agentTokenExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "agentRefreshTokenExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tokenType": {
+          "const": "Bearer"
+        }
+      }
+    },
+    "claimPaused": {
+      "type": "object",
+      "required": [
+        "work",
+        "state"
+      ],
+      "properties": {
+        "work": {
+          "type": "null"
+        },
+        "state": {
+          "const": "paused"
+        }
+      }
+    },
+    "claimIdle": {
+      "type": "object",
+      "required": [
+        "work",
+        "state"
+      ],
+      "properties": {
+        "work": {
+          "type": "null"
+        },
+        "state": {
+          "const": "idle"
+        }
+      }
+    },
+    "claimClaimed": {
+      "type": "object",
+      "required": [
+        "work",
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "const": "claimed"
+        },
+        "work": {
+          "type": "object",
+          "required": [
+            "workId",
+            "message",
+            "leaseToken",
+            "leaseExpiresAt"
+          ],
+          "properties": {
+            "workId": {
+              "type": "string"
+            },
+            "message": {
+              "type": "object"
+            },
+            "leaseToken": {
+              "type": "string"
+            },
+            "leaseExpiresAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      }
+    },
+    "agentSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "address",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "paused"
+          ]
+        }
+      }
+    },
+    "agentStatus": {
+      "type": "object",
+      "required": [
+        "state",
+        "agent",
+        "inboxId"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "active",
+            "paused"
+          ]
+        },
+        "agent": {
+          "$ref": "#/definitions/agentSummary"
+        },
+        "inboxId": {
+          "type": "string"
+        }
+      }
+    },
+    "messageAccepted": {
+      "type": "object",
+      "required": [
+        "id",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "caseId": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "delivered",
+            "held",
+            "cancelled"
+          ]
+        },
+        "heldReason": {
+          "enum": [
+            "sender_paused",
+            "case_ordering"
+          ]
+        },
+        "heldAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "heldBehindMessageId": {
+          "type": "string"
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "held"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "heldReason",
+          "heldAt"
+        ]
+      }
+    },
+    "reconnectRedeemed": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/tokenPair"
+        },
+        {
+          "type": "object",
+          "required": [
+            "agent",
+            "inbox",
+            "nativeMessaging"
+          ],
+          "properties": {
+            "agent": {
+              "$ref": "#/definitions/agentSummary"
+            },
+            "inbox": {
+              "type": "object",
+              "required": [
+                "id"
+              ]
+            },
+            "nativeMessaging": {
+              "const": "ready"
+            }
+          }
+        }
+      ]
+    },
+    "eventBase": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "createdAt",
+        "sequence",
+        "cursor"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "agentPausedEvent": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/eventBase"
+        },
+        {
+          "required": [
+            "agentId",
+            "status"
+          ],
+          "properties": {
+            "type": {
+              "const": "agent.paused"
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "status": {
+              "const": "paused"
+            }
+          }
+        }
+      ]
+    },
+    "agentResumedEvent": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/eventBase"
+        },
+        {
+          "required": [
+            "agentId",
+            "status"
+          ],
+          "properties": {
+            "type": {
+              "const": "agent.resumed"
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "status": {
+              "const": "active"
+            }
+          }
+        }
+      ]
+    },
+    "workAvailableEvent": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/eventBase"
+        },
+        {
+          "required": [
+            "agentId",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "const": "work.available"
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "edgeText": {
+      "type": "string"
+    },
+    "fixture": {
+      "type": "object",
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "a3-pause-auth"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "sse",
+            "network"
+          ]
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "method",
+            "path"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "GET",
+                "POST"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "headers": {
+              "type": "object"
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "status",
+            "schema"
+          ],
+          "properties": {
+            "status": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            },
+            "headers": {
+              "type": "object"
+            },
+            "schema": {
+              "type": "string"
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "body"
+              ]
+            },
+            {
+              "required": [
+                "bodyText"
+              ]
+            }
+          ]
+        },
+        "event": {
+          "type": "object",
+          "required": [
+            "schema",
+            "id",
+            "event",
+            "data"
+          ],
+          "properties": {
+            "schema": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string"
+            },
+            "data": {
+              "type": "object"
+            }
+          }
+        },
+        "network": {
+          "type": "object",
+          "required": [
+            "error"
+          ],
+          "properties": {
+            "error": {
+              "type": "string"
+            }
+          }
+        },
+        "client": {
+          "type": "object",
+          "required": [
+            "lifecycle",
+            "retry",
+            "next"
+          ],
+          "properties": {
+            "lifecycle": {
+              "$ref": "#/definitions/lifecycle"
+            },
+            "retry": {
+              "enum": [
+                "none",
+                "refresh_then_retry_once",
+                "after_retry_after",
+                "backoff",
+                "after_resume",
+                "after_case_resume"
+              ]
+            },
+            "guidance": {
+              "enum": [
+                "update_connector",
+                "owner_reconnect",
+                "owner_reenroll",
+                "reload_browser",
+                "wait_for_resume"
+              ]
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "sse"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "event"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "network"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "network"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

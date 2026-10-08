@@ -1,0 +1,34 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "rotation-id-required",
+  "description": "An old connector refreshes without a rotationId. The token is not consumed.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-token",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "grantType": "refresh_token",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_current"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ROTATION_ID_REQUIRED",
+      "error": "ROTATION_ID_REQUIRED",
+      "message": "This connector is out of date. Update it to keep this agent connected.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "NEEDS_RECONNECT",
+    "retry": "none",
+    "guidance": "update_connector",
+    "next": "Tell the human to update the connector; the stored credential remains valid."
+  }
+}

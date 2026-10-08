@@ -1,0 +1,35 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "account-changed",
+  "description": "Browser only: a mutating request names a different signed-in account.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/human-messages",
+    "headers": {
+      "x-envoi-expected-human": "human_previous",
+      "x-sinaloa-csrf": "csrf_PLACEHOLDER",
+      "content-type": "application/json"
+    },
+    "body": {
+      "text": "Example"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACCOUNT_CHANGED",
+      "error": "ACCOUNT_CHANGED",
+      "message": "You are signed in as a different account in another tab. Reload to continue.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "reload_browser",
+    "next": "Reload the browser before any other request."
+  }
+}

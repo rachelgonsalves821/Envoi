@@ -1,0 +1,26 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "event-work-available",
+  "description": "Held work became claimable after resume.",
+  "kind": "sse",
+  "event": {
+    "schema": "workAvailableEvent",
+    "id": "00000000000000000043",
+    "event": "work.available",
+    "data": {
+      "id": "evt_work",
+      "type": "work.available",
+      "createdAt": "2026-10-08T12:00:00.000Z",
+      "sequence": 43,
+      "cursor": "00000000000000000043",
+      "agentId": "agent_example",
+      "reason": "agent_resumed"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "next": "Claim work."
+  }
+}

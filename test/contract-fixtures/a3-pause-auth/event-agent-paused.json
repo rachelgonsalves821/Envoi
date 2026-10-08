@@ -1,0 +1,28 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "event-agent-paused",
+  "description": "The owner pauses the agent. The stream stays open.",
+  "kind": "sse",
+  "event": {
+    "schema": "agentPausedEvent",
+    "id": "00000000000000000041",
+    "event": "agent.paused",
+    "data": {
+      "id": "evt_paused",
+      "type": "agent.paused",
+      "createdAt": "2026-10-08T12:00:00.000Z",
+      "sequence": 41,
+      "cursor": "00000000000000000041",
+      "agentId": "agent_example",
+      "humanId": "human_example",
+      "status": "paused"
+    }
+  },
+  "client": {
+    "lifecycle": "PAUSED",
+    "retry": "none",
+    "guidance": "wait_for_resume",
+    "next": "Stop claims and actions; keep the stream and refresh."
+  }
+}

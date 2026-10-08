@@ -1,4 +1,45 @@
 {
   "version": 1,
-  "contracts": []
+  "contracts": [
+    {
+      "id": "a3-pause-auth",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#a3-pause-auth-v1",
+      "dir": "a3-pause-auth",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "access-token-expired.json",
+        "account-changed.json",
+        "agent-paused-send.json",
+        "agent-paused-settlement.json",
+        "authentication-required.json",
+        "case-controlled.json",
+        "case-ordering-held.json",
+        "claimed-work.json",
+        "credential-expired-claim.json",
+        "credential-expired-refresh.json",
+        "credential-revoked-claim.json",
+        "credential-revoked-refresh.json",
+        "edge-unavailable.json",
+        "event-agent-paused.json",
+        "event-agent-resumed.json",
+        "event-work-available.json",
+        "idle-claim.json",
+        "network-failure-refresh.json",
+        "paused-claim.json",
+        "paused-recipient-accepted.json",
+        "paused-refresh.json",
+        "paused-status.json",
+        "rate-limited.json",
+        "reconnect-while-paused.json",
+        "refresh-recovered.json",
+        "refresh-recovery-expired.json",
+        "refresh-replay.json",
+        "refresh-token-invalid.json",
+        "rotation-id-required.json",
+        "server-error.json"
+      ]
+    }
+  ]
 }

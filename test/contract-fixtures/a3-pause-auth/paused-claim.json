@@ -1,0 +1,30 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "paused-claim",
+  "description": "A paused agent claims work.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_paused",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimPaused",
+    "body": {
+      "work": null,
+      "state": "paused"
+    }
+  },
+  "client": {
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "next": "Stop claiming; wait for agent.resumed."
+  }
+}

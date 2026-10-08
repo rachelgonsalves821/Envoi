@@ -1,0 +1,27 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "network-failure-refresh",
+  "description": "A refresh request whose response is lost. The connector keeps the pending rotationId.",
+  "kind": "network",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-token",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "grantType": "refresh_token",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_current",
+      "rotationId": "rotation_PLACEHOLDER_0001"
+    }
+  },
+  "network": {
+    "error": "ECONNRESET"
+  },
+  "client": {
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "next": "Retry the refresh with the same refresh token and the same rotationId."
+  }
+}

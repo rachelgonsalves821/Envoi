@@ -1,0 +1,39 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "case-ordering-held",
+  "description": "D1: the active counterparty replies in a case where the paused agent has a held outbound message. Accepted, durably queued and held behind it.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/messages",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_counterparty",
+      "content-type": "application/json",
+      "idempotency-key": "idem_PLACEHOLDER_0001"
+    },
+    "body": {
+      "senderAgentId": "agent_counterparty",
+      "recipientEmail": "example@sinaloa.mail",
+      "caseId": "case_example",
+      "text": "Reply"
+    }
+  },
+  "response": {
+    "status": 202,
+    "schema": "messageAccepted",
+    "body": {
+      "id": "msg_reply",
+      "caseId": "case_example",
+      "status": "held",
+      "heldReason": "case_ordering",
+      "heldAt": "2026-10-08T12:00:00.000Z",
+      "heldBehindMessageId": "msg_held_example"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "next": "Nothing; the reply is delivered in order after resume or cancellation of the held message."
+  }
+}

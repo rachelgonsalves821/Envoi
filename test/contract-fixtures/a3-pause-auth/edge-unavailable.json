@@ -1,0 +1,26 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "edge-unavailable",
+  "description": "A non-JSON 503 from the edge while the container starts.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 503,
+    "schema": "edgeText",
+    "bodyText": "Service Unavailable"
+  },
+  "client": {
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "next": "Retry with bounded exponential backoff and jitter; keep credentials."
+  }
+}

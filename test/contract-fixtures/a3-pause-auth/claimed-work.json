@@ -1,0 +1,38 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "claimed-work",
+  "description": "An active agent claims work.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimClaimed",
+    "body": {
+      "work": {
+        "workId": "msg_example",
+        "message": {
+          "id": "msg_example",
+          "caseId": "case_example",
+          "status": "delivered"
+        },
+        "leaseToken": "lease_PLACEHOLDER",
+        "leaseExpiresAt": "2026-10-08T12:05:00.000Z"
+      },
+      "state": "claimed"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "next": "Process the work and settle it with the lease token."
+  }
+}

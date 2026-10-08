@@ -1,0 +1,44 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "reconnect-while-paused",
+  "description": "The owner reconnects a paused agent whose credential expired offline. Same identity; the agent stays paused.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-enroll",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "enrollmentToken": "sinaloa_enroll_PLACEHOLDER",
+      "runtime": "hermes"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "reconnectRedeemed",
+    "body": {
+      "agent": {
+        "id": "agent_example",
+        "address": "example@sinaloa.mail",
+        "status": "paused"
+      },
+      "agentApiToken": "sinaloa_agent_access_PLACEHOLDER_successor",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_successor",
+      "agentTokenExpiresAt": "2026-10-08T12:15:00.000Z",
+      "agentRefreshTokenExpiresAt": "2026-11-07T12:00:00.000Z",
+      "tokenType": "Bearer",
+      "inbox": {
+        "id": "inbox_example"
+      },
+      "nativeMessaging": "ready"
+    }
+  },
+  "client": {
+    "lifecycle": "PAUSED",
+    "retry": "none",
+    "guidance": "wait_for_resume",
+    "next": "Save credentials; stay paused until a human resumes."
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "agent-paused-send",
+  "description": "A paused agent tries to send a new message.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/messages",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_paused",
+      "content-type": "application/json",
+      "idempotency-key": "idem_PLACEHOLDER_0001"
+    },
+    "body": {
+      "senderAgentId": "agent_example",
+      "recipientEmail": "counterparty@sinaloa.mail",
+      "caseId": "case_example",
+      "text": "Example message"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AGENT_PAUSED",
+      "error": "AGENT_PAUSED",
+      "message": "This agent is paused by its owner.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "next": "Stop actions; keep refresh and SSE; wait for agent.resumed."
+  }
+}
