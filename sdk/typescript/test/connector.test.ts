@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConnectorContractError, ConnectorCredentialsError, ConnectorEnrollmentError, ConnectorPersistenceError, enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore, type WorkHandler } from '@sinaloa/protocol/connector';
+import { SinaloaError } from '@sinaloa/protocol';
 
 const session = (): ConnectorSession => ({
   agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@sinaloa.mail',
@@ -18,6 +19,44 @@ function memoryStore(initial: ConnectorSession | null = null) {
 }
 
 describe('Sinaloa outbound connector', () => {
+  it('persists rotation before transmission and recovers the same successor after a lost response and restart', async () => {
+    const memory = memoryStore({ ...session(), agentTokenExpiresAt: new Date(Date.now() - 1_000).toISOString() });
+    let firstRotationId: string | undefined;
+    let requests = 0;
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://api.example/api/agent-token');
+      const request = JSON.parse(String(init?.body));
+      expect(request.agentRefreshToken).toBe('refresh-one');
+      expect(request.rotationId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(memory.current()?.pendingRotation?.rotationId).toBe(request.rotationId);
+      firstRotationId ??= request.rotationId;
+      expect(request.rotationId).toBe(firstRotationId);
+      requests += 1;
+      if (requests === 1) throw new Error('Response lost after server committed');
+      return Response.json({ agentApiToken: 'access-two', agentRefreshToken: 'refresh-two',
+        agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+        agentRefreshTokenExpiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString() });
+    });
+    const first = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
+    await expect(first.currentAccessToken()).rejects.toBeInstanceOf(SinaloaError);
+    expect(memory.current()?.pendingRotation?.rotationId).toBe(firstRotationId);
+    expect(memory.current()?.agentRefreshToken).toBe('refresh-one');
+    const restarted = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
+    expect(await restarted.currentAccessToken()).toBe('access-two');
+    expect(memory.current()?.agentRefreshToken).toBe('refresh-two');
+    expect(memory.current()?.pendingRotation).toBeUndefined();
+    expect(requests).toBe(2);
+  });
+
+  it('does not transmit a refresh when pending rotation cannot be saved', async () => {
+    const original = { ...session(), agentTokenExpiresAt: new Date(Date.now() - 1_000).toISOString() };
+    const fetcher = vi.fn();
+    const store: ConnectorStore = { load: async () => original, save: async () => { throw new Error('private-file-path'); } };
+    const connector = new SinaloaConnector('https://api.example', store, { fetch: fetcher as typeof fetch });
+    await expect(connector.currentAccessToken()).rejects.toBeInstanceOf(ConnectorPersistenceError);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('refreshes case operations and stops after credential revocation', async () => {
     const memory = memoryStore(session());
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -254,11 +293,18 @@ describe('Sinaloa outbound connector', () => {
 
   it('stops after a rotated token cannot be persisted', async () => {
     const old = { ...session(), agentTokenExpiresAt: new Date(Date.now() - 1_000).toISOString() };
-    const store: ConnectorStore = { load: async () => old, save: async () => { throw new Error('disk full'); } };
+    let persisted: ConnectorSession = old;
+    let saves = 0;
+    const store: ConnectorStore = { load: async () => persisted, save: async next => {
+      saves += 1;
+      if (saves === 2) throw new Error('disk full');
+      persisted = next;
+    } };
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ agentApiToken: 'next', agentRefreshToken: 'next-refresh', agentTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(), agentRefreshTokenExpiresAt: old.agentRefreshTokenExpiresAt }), { status: 200 }));
     const connector = new SinaloaConnector('https://api.example', store, { fetch: fetcher as typeof fetch });
     await expect(connector.pollOnce()).rejects.toBeInstanceOf(ConnectorPersistenceError);
     expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(persisted.pendingRotation?.rotationId).toBeTruthy();
   });
 
   it('fails promptly when the rotating refresh credential has expired', async () => {

@@ -7,6 +7,11 @@ export interface ConnectorSession extends AgentTokens {
   inboxId: string;
   address: string;
   cursor: string | null;
+  pendingRotation?: {
+    rotationId: string;
+    refreshTokenFingerprint: string;
+    startedAt: string;
+  };
 }
 
 export interface ConnectorStore {
@@ -126,7 +131,7 @@ export interface ConnectorOptions extends ClientOptions {
 
 export class ConnectorPersistenceError extends Error {
   constructor(public readonly requestId?: string, public readonly status?: number) {
-    super('Connector credential persistence failed; stop this installation and re-enroll if needed');
+    super('Connector credential persistence failed; stop this installation and recover its saved rotation state');
     this.name = 'ConnectorPersistenceError';
   }
 }
@@ -182,6 +187,11 @@ function validSession(value: ConnectorSession | null): ConnectorSession {
     throw new ConnectorCredentialsError();
   }
   return value;
+}
+
+async function refreshFingerprint(token: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function eventFrom(value: Record<string, unknown>): InboxEvent {
@@ -259,11 +269,19 @@ export class SinaloaConnector {
     if (this.refreshInFlight) return this.refreshInFlight;
     this.refreshInFlight = (async () => {
       const current = validSession(await this.store.load());
-      if (!force && Date.parse(current.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return current;
+      if (!force && !current.pendingRotation && Date.parse(current.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return current;
       if (Date.parse(current.agentRefreshTokenExpiresAt) <= Date.now()) throw new ConnectorCredentialsError();
-      const rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, this.options);
-      const next = validSession({ ...current, ...rotated });
-      // A failed save is fatal: using the consumed refresh token again would replay it.
+      const fingerprint = await refreshFingerprint(current.agentRefreshToken);
+      if (current.pendingRotation && current.pendingRotation.refreshTokenFingerprint !== fingerprint) throw new ConnectorCredentialsError();
+      const pendingRotation = current.pendingRotation || { rotationId: crypto.randomUUID(), refreshTokenFingerprint: fingerprint, startedAt: new Date().toISOString() };
+      if (!current.pendingRotation) {
+        try { await this.store.save({ ...current, pendingRotation }); }
+        catch { throw new ConnectorPersistenceError(); }
+      }
+      const rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, pendingRotation.rotationId, this.options);
+      const { pendingRotation: _completedRotation, ...savedSession } = current;
+      const next = validSession({ ...savedSession, ...rotated });
+      // Keep the pending rotation on disk until replacement credentials are durable.
       try { await this.store.save(next); } catch { throw new ConnectorPersistenceError(); }
       return next;
     })();

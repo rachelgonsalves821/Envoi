@@ -82,7 +82,7 @@ describe('Sinaloa TypeScript client', () => {
     const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
     }));
-    const failure = rotateAgentToken('https://api.example', 'refresh-do-not-leak', { fetch: fetcher as typeof fetch, timeoutMs: 5 });
+    const failure = rotateAgentToken('https://api.example', 'refresh-do-not-leak', 'rotation-client-1', { fetch: fetcher as typeof fetch, timeoutMs: 5 });
     await expect(failure).rejects.toBeInstanceOf(SinaloaError);
     await expect(failure).rejects.not.toThrow(/refresh-do-not-leak/);
   });

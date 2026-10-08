@@ -86,6 +86,7 @@ describe('OpenClaw local MCP relay', () => {
     const upstream = vi.fn<typeof fetch>(async (url, init) => {
       if (String(url).endsWith('/api/agent-token')) {
         expect(JSON.parse(String(init?.body)).agentRefreshToken).toBe('private-refresh');
+        expect(JSON.parse(String(init?.body)).rotationId).toMatch(/^[0-9a-f-]{36}$/);
         return json({
           agentApiToken: 'fresh-access', agentRefreshToken: 'next-private-refresh',
           agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(),

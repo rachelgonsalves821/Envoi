@@ -148,7 +148,7 @@ test('Quick Connect enrollment and setup status remain scoped and secret-free', 
   for (const secret of [enrollmentToken, token, enrolled.payload.agentRefreshToken, crypto.createHash('sha256').update(enrollmentToken).digest('hex')]) assert.equal(JSON.stringify(ready).includes(secret), false);
   assert.equal(Object.keys(ready).some(key => /token|credential|gateway|family/i.test(key)), false);
 
-  const rotated = await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: enrolled.payload.agentRefreshToken } });
+  const rotated = await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: enrolled.payload.agentRefreshToken, rotationId: 'rotation-quick-connect-1' } });
   assert.equal(rotated.status, 200);
   assert.equal((await status()).payload.phase, 'ready');
   const error = await api(baseUrl, '/api/agent/connection-status', { token: rotated.payload.agentApiToken, body: { version: 1, runtime: 'openclaw', phase: 'error', gatewayTest: 'failed', errorCode: 'GATEWAY_UNREACHABLE' } });
@@ -247,7 +247,7 @@ test('all runtimes bind setup reports and reconnect without replacing identity o
     assert.equal((await api(baseUrl, reconnectStatus, { session: owner.session })).payload.phase, 'enrolled');
     assert.equal((await api(baseUrl, statusPath, { session: owner.session })).payload.phase, 'revoked');
     assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: enrolled.payload.agentApiToken, body: report })).status, 401);
-    assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: enrolled.payload.agentRefreshToken } })).status, 401);
+    assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: enrolled.payload.agentRefreshToken, rotationId: 'rotation-runtime-revoked-1' } })).status, 401);
     assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: renewed.payload.agentApiToken, body: report })).status, 200);
     const ready = (await api(baseUrl, reconnectStatus, { session: owner.session })).payload;
     assert.equal(ready.phase, 'ready');

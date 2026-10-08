@@ -79,6 +79,7 @@ class MockHost {
     if (url.hostname !== 'sinaloa.example.test') throw new Error('Unexpected network target');
     if (url.pathname === '/api/agent-token') {
       const body = JSON.parse(String(init.body));
+      expect(body.rotationId).toMatch(/^[0-9a-f-]{36}$/);
       if (this.revoked || body.agentRefreshToken !== this.refreshToken) return json({ error: 'Invalid refresh token' }, 401);
       this.rotationCount += 1;
       this.accessToken = `access_after_rotation_${this.rotationCount}`;
