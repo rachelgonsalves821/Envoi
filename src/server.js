@@ -3768,7 +3768,7 @@ const server = http.createServer((req, res) => route(req, res).catch((error) => 
 }));
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
-server.listen(port, host, () => console.log(`Sinaloa backend listening on http://${host}:${server.address().port}`));
+server.listen(port, host, () => console.log(`Envoi backend listening on http://${host}:${server.address().port}`));
 
 let shutdownStarted = false;
 const shutdown = () => {

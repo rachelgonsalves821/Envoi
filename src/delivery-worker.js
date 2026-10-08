@@ -70,7 +70,7 @@ export class DeliveryWorker {
 
   launchDrain() {
     this.drainPromise = this.drain()
-      .catch(error => console.error('Sinaloa delivery worker failed', safeError(error)))
+      .catch(error => console.error('Envoi delivery worker failed', safeError(error)))
       .finally(() => { this.drainPromise = null; });
   }
 
