@@ -1,7 +1,7 @@
-import { copyFile, lstat, readFile, rm } from 'node:fs/promises';
+import { copyFile, lstat, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { enrollConnector, SinaloaConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
 import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
@@ -46,6 +46,16 @@ export function startCommand(stateDir: string, platform = process.platform) {
     : args.map(value => `'${value.replaceAll("'", "'\"'\"'")}'`).join(' ');
 }
 export const noRedirectFetch = (fetcher: typeof fetch = fetch): typeof fetch => (input, init) => fetcher(input, { ...init, redirect: 'error' });
+
+async function saveExecutable(directory: string, source?: string) {
+  if (!source || path.resolve(source) === path.join(directory, 'connector.mjs')) return;
+  const temporary = path.join(directory, `.connector-${randomUUID()}.tmp`);
+  try {
+    await copyFile(source, temporary);
+    if (process.platform !== 'win32') await chmod(temporary, 0o600);
+    await rename(temporary, path.join(directory, 'connector.mjs'));
+  } finally { await rm(temporary, { force: true }); }
+}
 
 async function savedSession(directory: string): Promise<ConnectorSession | null> {
   const filename = path.join(directory, 'session.json');
@@ -96,6 +106,19 @@ async function report(saved: InstalledConnection, connector: SinaloaConnector, p
   await response.body?.cancel();
 }
 
+/** Report startup failure without becoming a second rotating credential owner. */
+export async function reportBackgroundFailure(directory: string, code: 'BACKGROUND_NOT_READY' | 'BACKGROUND_START_FAILED', fetcher: typeof fetch = fetch) {
+  const saved = await readConnection(directory);
+  const session = await savedSession(directory);
+  if (!session) return;
+  const response = await noRedirectFetch(fetcher)(`${saved.apiUrl}/api/agent/connection-status`, {
+    method: 'POST', headers: { authorization: `Bearer ${session.agentApiToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ version: 1, runtime: saved.runtime, phase: 'error', runtimeTest: 'failed', errorCode: code }),
+    signal: AbortSignal.timeout(10_000)
+  });
+  await response.body?.cancel();
+}
+
 export async function prepareConnection(runtime: ConnectorRuntime, apiUrl: string, resolveAdapter: AdapterResolver, options: AdapterOptions = {}) {
   const fetcher = noRedirectFetch(options.fetch);
   await checkSinaloa(apiUrl, fetcher);
@@ -108,11 +131,32 @@ export async function prepareConnection(runtime: ConnectorRuntime, apiUrl: strin
 export async function setupConnection(input: unknown, resolveAdapter: AdapterResolver, options: SetupOptions = {}) {
   const handoff = validateQuickConnectHandoff(input, { allowExpired: true });
   const directory = await (options.secureDirectory ?? privateDirectory)(options.stateDir ?? connectionDirectory(handoff.apiUrl, handoff.address, handoff.runtime, options));
+  const live = await queryControl(directory, 'status').catch(() => null);
+  if (live?.status === 'running' && live.runtimeChecks === 'passed') {
+    const existing = await readConnection(directory);
+    const session = await savedSession(directory);
+    if (existing.apiUrl !== handoff.apiUrl || existing.address !== handoff.address || existing.runtime !== handoff.runtime || session?.address !== handoff.address) {
+      throw new ConnectorSetupError('STATE_MISMATCH', 'The running connection belongs to another identity. Use its own agent-specific state directory.');
+    }
+    const reconnectId = handoff.operation === 'reconnect' ? createHash('sha256').update(handoff.enrollmentToken).digest('hex') : undefined;
+    if (!reconnectId || existing.lastReconnectId === reconnectId || (session as ConnectorSession & { setupRedemptionId?: string }).setupRedemptionId === reconnectId) {
+      // Stage a newly downloaded bundle for future starts and repair this
+      // identity's MCP entry without interrupting the live credential owner.
+      if (options.executableFile) {
+        await saveExecutable(directory, options.executableFile);
+        await resolveAdapter(existing.runtime).configure?.(existing.configuration, {
+          ...options, apiUrl: existing.apiUrl, stateDir: directory, fetch: noRedirectFetch(options.fetch)
+        });
+      }
+      return { stateDir: directory, runtime: existing.runtime, address: session.address, agentId: session.agentId, checks: 'passed' as const };
+    }
+  }
   const unlock = await acquireConnectorLock(directory);
   const fetcher = noRedirectFetch(options.fetch);
   let bridge: RuntimeBridge | undefined;
   let saved: InstalledConnection | undefined;
   let enrolledConnector: SinaloaConnector | undefined;
+  let control: Awaited<ReturnType<typeof startControl>> | undefined;
   try {
     const store = new FileBridgeStore(directory); await store.init();
     let session = await savedSession(directory);
@@ -132,17 +176,16 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     options.onProgress?.('Checking Envoi reachability');
     await checkSinaloa(handoff.apiUrl, fetcher);
     const adapter = resolveAdapter(handoff.runtime);
-    const context = { ...options, apiUrl: handoff.apiUrl, stateDir: directory, fetch: fetcher };
+    const context = { ...options, apiUrl: handoff.apiUrl, stateDir: directory, fetch: fetcher,
+      ...(options.installService ? { verificationTimeoutMs: 30_000 } : {}) };
+    options.onProgress?.(`Connection state directory: ${directory}`);
     options.onProgress?.(`Preparing ${handoff.runtime}`);
     const config = await adapter.discover(context, prior?.configuration);
     await adapter.preflight(config, context);
     saved = { version: 1, runtime: handoff.runtime, apiUrl: handoff.apiUrl, address: handoff.address,
       agentName: handoff.agentName, configuration: config, ...(prior?.lastReconnectId ? { lastReconnectId: prior.lastReconnectId } : {}) };
     await privateJson(path.join(directory, 'connection.json'), saved);
-    if (options.executableFile) {
-      const target = path.join(directory, 'connector.mjs');
-      if (path.resolve(options.executableFile) !== target) await copyFile(options.executableFile, target);
-    }
+    await saveExecutable(directory, options.executableFile);
     if (needsEnrollment) {
       options.onProgress?.(handoff.operation === 'reconnect' ? 'Reconnecting the existing agent' : 'Enrolling the agent');
       // Save the retry marker in the SAME atomic write as the new credentials. A crash
@@ -155,21 +198,29 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     if (!session || session.address !== handoff.address) throw new ConnectorSetupError('STATE_MISMATCH', 'The enrolled address differs from this handoff. Inspect Agent connections before starting');
     await rm(path.join(directory, 'enrollment-error.json'), { force: true });
     enrolledConnector = new SinaloaConnector(saved.apiUrl, store, { fetch: fetcher });
+    if (options.installService) await privateJson(path.join(directory, 'startup-request.json'), { version: 1, managed: true });
     await adapter.configure?.(config, context);
     // Adapters may allocate a local relay port during configure. Save it before service start.
     await privateJson(path.join(directory, 'connection.json'), saved);
     options.onProgress?.('Verifying runtime tools and Envoi access');
+    options.onProgress?.(`Saved connection recovery command: ${startCommand(directory)}`);
     bridge = await adapter.createBridge(config, context);
+    // A stdio MCP client opened during setup attaches to this owner instead of
+    // spawning a competing process that cannot acquire the enrollment lock.
+    control = await startControl(directory, { runtime: saved.runtime, address: saved.address }, () => {},
+      () => ({ status: 'starting', runtimeChecks: 'pending', phase: 'setup' }));
     await bridge.connector.pollOnce();
     await bridge.verify?.();
-    await report(saved, bridge.connector, 'ready', fetcher);
+    // Managed setup is ready only after its durable process passes checks.
+    // startConnection reports that result; temporary verification is insufficient.
+    if (!options.installService) await report(saved, bridge.connector, 'ready', fetcher);
     await privateJson(path.join(directory, 'setup-check.json'), { runtime: saved.runtime, checkedAt: new Date().toISOString(), checks: 'passed' });
     return { stateDir: directory, runtime: saved.runtime, address: session.address, agentId: session.agentId, checks: 'passed' as const };
   } catch (error) {
     if (saved && (bridge || enrolledConnector)) await report(saved, bridge?.connector ?? enrolledConnector!, 'error', fetcher,
       error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEST_FAILED').catch(() => {});
     throw error;
-  } finally { try { await bridge?.close(); } finally { await unlock(); } }
+  } finally { try { try { await control?.close(); } finally { await bridge?.close(); } } finally { await unlock(); } }
 }
 
 export async function startConnection(stateDir: string, signal: AbortSignal, resolveAdapter: AdapterResolver,
@@ -195,22 +246,27 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
       try {
         await checkSinaloa(saved.apiUrl, fetcher);
         const config = await adapter.discover(context, saved.configuration);
+        if (!bridge) {
+          // Bring the saved relay online before Gateway preflight. Otherwise a
+          // Gateway starting at login can park MCP discovery while we wait for it.
+          await adapter.configure?.(config, context);
+          saved.configuration = config;
+          await privateJson(path.join(directory, 'connection.json'), saved);
+          bridge = await adapter.createBridge(config, context);
+        }
         await adapter.preflight(config, context);
-        await adapter.configure?.(config, context);
-        saved.configuration = config;
-        await privateJson(path.join(directory, 'connection.json'), saved);
-        bridge = await adapter.createBridge(config, context);
         await bridge.connector.pollOnce(); await bridge.verify?.();
         await report(saved, bridge.connector, 'ready', fetcher);
         diagnostics = { status: 'running', runtimeChecks: 'passed', checkedAt: new Date().toISOString(), ...adapter.describe(config) };
         break;
       } catch (error) {
-        await bridge?.close(); bridge = undefined;
         if (stop.signal.aborted) return;
         const status = (error as { status?: number })?.status;
-        const transient = error instanceof ConnectorSetupError && ['ENVOI_UNREACHABLE', 'GATEWAY_UNREACHABLE', 'PROVIDER_UNREACHABLE'].includes(error.code)
+        const transient = error instanceof ConnectorSetupError && ['ENVOI_UNREACHABLE', 'GATEWAY_UNREACHABLE', 'PROVIDER_UNREACHABLE', 'TOOLS_NOT_READY'].includes(error.code)
           || typeof status === 'number' && (status === 429 || status >= 500) || error instanceof TypeError && /fetch|network/i.test(error.message);
         if (!transient) throw error;
+        // Retain the same relay through recoverable outages and discovery retries.
+        // Closing it here recreates the startup deadlock we are recovering from.
         const code = error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEMPORARILY_UNAVAILABLE';
         diagnostics = { status: 'waiting', runtimeChecks: 'pending', errorCode: code };
         options.onWaiting?.(code);
@@ -225,7 +281,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
     if (!stop.signal.aborted) throw error;
   } finally {
     signal.removeEventListener('abort', cancel);
-    try { await control?.close(); await bridge?.close(); } finally { await unlock(); }
+    try { try { await control?.close(); } finally { await bridge?.close(); } } finally { await unlock(); }
   }
 }
 

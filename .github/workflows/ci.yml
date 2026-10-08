@@ -6,6 +6,20 @@ on:
   pull_request:
 
 jobs:
+  windows-connectors:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:integrations -- integrations/connector/windows.test.ts integrations/connector/core.test.ts integrations/hermes/adapter.test.ts integrations/hermes/verify.test.ts integrations/hermes/mcp-relay.test.ts integrations/agent-bridges/bridge.test.ts
+      - run: node --test --test-concurrency=1 test/hermes-connect-download.test.js test/quick-connect-download.test.js
+        env:
+          ENVOI_TEST_MANAGED_SERVICE: '1'
   test:
     runs-on: ubuntu-latest
     services:

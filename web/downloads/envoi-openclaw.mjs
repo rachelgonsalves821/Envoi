@@ -977,9 +977,39 @@ async function me(e, t = {}) {
 	}
 }
 //#endregion
+//#region integrations/connector/adapter.ts
+var he = class extends Error {
+	code;
+	constructor(e, t) {
+		super(t), this.code = e, this.name = "ConnectorSetupError";
+	}
+}, ge = b(y);
+function K(e, t = process.env) {
+	let n = Object.entries(t).find(([e]) => e.toLowerCase() === "systemroot")?.[1] ?? Object.entries(t).find(([e]) => e.toLowerCase() === "windir")?.[1];
+	if (!n || !/^[A-Za-z]:[\\/]/.test(n) || /[\x00-\x1f<>"|?*]/.test(n)) throw new he("WINDOWS_HELPER_UNAVAILABLE", "Windows system directory could not be located. Run the connector from a normal Windows terminal with SystemRoot set; preserve any saved connection for retry.");
+	return e === "powershell.exe" ? f.win32.join(n, "System32", "WindowsPowerShell", "v1.0", e) : f.win32.join(n, "System32", e);
+}
+async function _e() {
+	try {
+		let { stdout: e } = await ge(K("whoami.exe"), [
+			"/user",
+			"/fo",
+			"csv",
+			"/nh"
+		], {
+			windowsHide: !0,
+			timeout: 1e4
+		}), t = e.match(/\bS-1-[0-9]+(?:-[0-9]+)+\b/)?.[0];
+		if (!t) throw Error();
+		return t;
+	} catch {
+		throw new he("WINDOWS_ACCOUNT_UNAVAILABLE", "Could not identify the current Windows account for private credential storage or user startup. Run the connector from your Windows account; preserve any saved connection for retry.");
+	}
+}
+//#endregion
 //#region integrations/connector/store.ts
-var K = b(y);
-async function he(t) {
+var ve = b(y);
+async function ye(t) {
 	let i = f.resolve(t);
 	await r(i, {
 		recursive: !0,
@@ -988,34 +1018,33 @@ async function he(t) {
 	let a = f.resolve(await s(i));
 	if ((await n(i)).isSymbolicLink() || (process.platform === "win32" ? a.toLowerCase() !== i.toLowerCase() : a !== i)) throw new S("Choose a private state directory without symbolic links");
 	if (process.platform === "win32") {
-		let { stdout: e } = await K("whoami.exe", [
-			"/user",
-			"/fo",
-			"csv",
-			"/nh"
-		], { windowsHide: !0 }), t = e.match(/S-1-[0-9-]+/)?.[0];
-		if (!t) throw new S("Could not identify the Windows account for credential protection");
-		let n = `$ErrorActionPreference='Stop'; $p='${i.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${t}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
+		let e = await _e(), t = `$ErrorActionPreference='Stop'; $p='${i.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${e}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
 		try {
-			await K("powershell.exe", [
+			await ve(K("powershell.exe"), [
 				"-NoProfile",
 				"-NonInteractive",
 				"-Command",
-				n
-			], { windowsHide: !0 }), (await o(i)).length && await K("icacls.exe", [
+				t
+			], {
+				windowsHide: !0,
+				timeout: 2e4
+			}), (await o(i)).length && await ve(K("icacls.exe"), [
 				f.join(i, "*"),
 				"/reset",
 				"/T",
 				"/L",
 				"/Q"
-			], { windowsHide: !0 });
+			], {
+				windowsHide: !0,
+				timeout: 2e4
+			});
 		} catch {
 			throw new S("Windows could not restrict credential storage to your account. Choose an owned private state directory and retry; this check did not redeem an enrollment token");
 		}
 	} else await e(i, 448);
 	return i;
 }
-async function ge(e, t) {
+async function be(e, t) {
 	let n = `${e}.${g()}.tmp`, r = await i(n, "wx", 384);
 	try {
 		await r.writeFile(JSON.stringify(t, null, 2));
@@ -1028,7 +1057,7 @@ async function ge(e, t) {
 		await l(n, { force: !0 });
 	}
 }
-async function _e(e) {
+async function xe(e) {
 	let t = f.join(e, "connector.lock"), n = {
 		pid: process.pid,
 		nonce: g()
@@ -1081,8 +1110,8 @@ async function _e(e) {
 }
 //#endregion
 //#region integrations/connector/service.ts
-var q = b(y), J = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), ve = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, ye = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`;
-function be(e, t = {}) {
+var q = b(y), J = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), Se = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, Ce = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`;
+function we(e, t = {}) {
 	if (t.runtime && !j.includes(t.runtime)) throw new S("Unsupported startup runtime");
 	let n = t.platform ?? process.platform, r = t.home ?? d(), i = t.node ?? process.execPath;
 	if ([
@@ -1100,7 +1129,7 @@ function be(e, t = {}) {
 	if (n === "linux") return {
 		name: o,
 		filename: f.join(r, ".config", "systemd", "user", `${o}.service`),
-		contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[i, ...s].map(ve).join(" ")}\nWorkingDirectory=${ve(e)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`,
+		contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[i, ...s].map(Se).join(" ")}\nWorkingDirectory=${Se(e)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`,
 		commands: [{
 			executable: "systemctl",
 			args: ["--user", "daemon-reload"]
@@ -1132,13 +1161,43 @@ function be(e, t = {}) {
 	}
 	if (n === "win32") {
 		if (!t.user) throw new S("Windows startup requires the current account SID");
-		let n = f.join(e, "startup-task.xml");
+		let n = f.join(e, "startup-task.xml"), r = f.join(e, "startup-run.ps1"), a = (e) => `'${e.replaceAll("'", "''")}'`, c = [
+			"-NoProfile",
+			"-NonInteractive",
+			"-WindowStyle",
+			"Hidden",
+			"-File",
+			r
+		];
 		return {
 			name: o,
 			filename: n,
-			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${J(t.user)}</UserId></LogonTrigger></Triggers><Principals><Principal id="Author"><UserId>${J(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${J(i)}</Command><Arguments>${J(s.map(ye).join(" "))}</Arguments><WorkingDirectory>${J(e)}</WorkingDirectory></Exec></Actions></Task>`,
+			files: [{
+				filename: r,
+				contents: [
+					"$ErrorActionPreference = 'Stop'",
+					"$start = New-Object System.Diagnostics.ProcessStartInfo",
+					`$start.FileName = ${a(i)}`,
+					`$start.Arguments = ${a(s.map(Ce).join(" "))}`,
+					`$start.WorkingDirectory = ${a(e)}`,
+					"$start.UseShellExecute = $false",
+					"$start.CreateNoWindow = $true",
+					"$start.RedirectStandardOutput = $true",
+					"$start.RedirectStandardError = $true",
+					"$child = [System.Diagnostics.Process]::Start($start)",
+					"$output = $child.StandardOutput.ReadToEndAsync()",
+					"$errors = $child.StandardError.ReadToEndAsync()",
+					"$child.WaitForExit()",
+					`[System.IO.File]::AppendAllText(${a(f.join(e, "service.log"))}, $output.GetAwaiter().GetResult() + $errors.GetAwaiter().GetResult())`,
+					"$code = $child.ExitCode",
+					"$child.Dispose()",
+					"exit $code",
+					""
+				].join("\r\n")
+			}],
+			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${J(t.user)}</UserId></LogonTrigger></Triggers><Principals><Principal id="Author"><UserId>${J(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${J(K("powershell.exe", t.env))}</Command><Arguments>${J(c.map(Ce).join(" "))}</Arguments><WorkingDirectory>${J(e)}</WorkingDirectory></Exec></Actions></Task>`,
 			commands: [{
-				executable: "schtasks.exe",
+				executable: K("schtasks.exe", t.env),
 				args: [
 					"/Create",
 					"/TN",
@@ -1148,7 +1207,7 @@ function be(e, t = {}) {
 					"/F"
 				]
 			}, {
-				executable: "schtasks.exe",
+				executable: K("schtasks.exe", t.env),
 				args: [
 					"/Run",
 					"/TN",
@@ -1159,11 +1218,11 @@ function be(e, t = {}) {
 	}
 	throw new S("Automatic startup supports Linux systemd, macOS launchd and Windows Task Scheduler. Use your host process supervisor");
 }
-async function xe() {
+async function Te() {
 	try {
 		if (process.platform === "linux") await q("systemctl", ["--user", "show-environment"], { timeout: 1e4 });
 		else if (process.platform === "darwin") await q("launchctl", ["list"], { timeout: 1e4 });
-		else if (process.platform === "win32") await q("schtasks.exe", [
+		else if (process.platform === "win32") await q(K("schtasks.exe"), [
 			"/Query",
 			"/FO",
 			"CSV",
@@ -1174,22 +1233,14 @@ async function xe() {
 		});
 		else throw new S("unsupported");
 	} catch {
-		throw new S("A user startup service is unavailable. Run setup without --install-service and use your host process supervisor to run the printed start command");
+		throw new S("A user startup service is unavailable. Run setup with --no-service and use your host process supervisor to run the printed start command");
 	}
 }
-async function Se(e, t = "openclaw") {
-	await xe();
+async function Ee(e, t = "openclaw") {
+	await Te();
 	let n;
-	if (process.platform === "win32") {
-		let { stdout: e } = await q("whoami.exe", [
-			"/user",
-			"/fo",
-			"csv",
-			"/nh"
-		], { windowsHide: !0 });
-		n = e.match(/S-1-[0-9-]+/)?.[0];
-	}
-	let i = be(e, {
+	process.platform === "win32" && (n = await _e());
+	let i = we(e, {
 		user: n,
 		runtime: t
 	});
@@ -1197,19 +1248,34 @@ async function Se(e, t = "openclaw") {
 		recursive: !0,
 		mode: 448
 	}), await u(i.filename, process.platform === "win32" ? Buffer.from(`\uFEFF${i.contents}`, "utf16le") : i.contents, { mode: 384 });
+	for (let e of i.files ?? []) await u(e.filename, process.platform === "win32" ? Buffer.from(`\uFEFF${e.contents}`, "utf16le") : e.contents, { mode: 384 });
 	try {
-		for (let e of i.commands) await q(e.executable, e.args, {
-			timeout: 2e4,
-			windowsHide: !0
-		});
+		for (let e of i.commands) {
+			if (process.platform === "darwin" && e.args[0] === "load") {
+				let e = `gui/${process.getuid()}/${i.name}`;
+				if (await q("launchctl", ["print", e], { timeout: 1e4 }).then(() => !0).catch(() => !1)) {
+					await q("launchctl", ["kickstart", e], { timeout: 2e4 });
+					continue;
+				}
+			}
+			await q(e.executable, e.args, {
+				timeout: 2e4,
+				windowsHide: !0
+			});
+		}
 	} catch {
 		throw new S("Startup registration failed. Your connection is saved; use the printed start command or retry install-service after checking the host service manager");
 	}
-	return i.name;
+	return await be(f.join(e, "service-registration.json"), {
+		version: 1,
+		managed: !0,
+		name: i.name,
+		registeredAt: (/* @__PURE__ */ new Date()).toISOString()
+	}), i.name;
 }
 //#endregion
 //#region integrations/agent-bridges/bridge.ts
-function Ce(e, t) {
+function De(e, t) {
 	if (![
 		"sinaloa_send_message",
 		"sinaloa_send_proposal",
@@ -1218,7 +1284,7 @@ function Ce(e, t) {
 	let n = t.idempotencyKey;
 	return (typeof n == "string" ? /^bridge:([A-Za-z0-9][A-Za-z0-9_-]{0,127}):reply:1$/.exec(n) : null)?.[1] ?? null;
 }
-function we(e, t) {
+function Oe(e, t) {
 	return async (n, r) => {
 		if (await t(n.id)) return { stop: !0 };
 		try {
@@ -1230,7 +1296,7 @@ function we(e, t) {
 		}
 	};
 }
-function Te(e, t, n) {
+function ke(e, t, n) {
 	return {
 		admit: (t) => e.admit(t),
 		async process(r, i) {
@@ -1254,7 +1320,7 @@ function Te(e, t, n) {
 		}
 	};
 }
-var Ee = /* @__PURE__ */ new Set([
+var Ae = /* @__PURE__ */ new Set([
 	"request",
 	"offer",
 	"counteroffer",
@@ -1266,32 +1332,34 @@ var Ee = /* @__PURE__ */ new Set([
 	"status",
 	"receipt",
 	"message"
-]), Y = (e) => !(!e || typeof e != "object" || Array.isArray(e)), De = (e) => Y(e) && Object.keys(e).length > 0 && Object.keys(e).length <= 32 && JSON.stringify(e).length <= 16e3;
-function Oe(e) {
+]), Y = (e) => !(!e || typeof e != "object" || Array.isArray(e)), je = (e) => Y(e) && Object.keys(e).length > 0 && Object.keys(e).length <= 32 && JSON.stringify(e).length <= 16e3;
+function Me(e) {
 	let t = e.trim();
 	if (!t) throw Error("Agent produced an empty reply");
-	let n;
+	let n = t.match(/^```(json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i), r = n && (n[1] || /^[ \t\r\n]*[\[{]/.test(n[2])) ? n : null, i;
 	try {
-		n = JSON.parse(t);
+		i = JSON.parse(r ? r[2] : t);
 	} catch {
+		if (r) throw Error("Agent returned invalid fenced JSON");
+		if (t.length > 6e4) throw Error("Agent reply is too long");
 		return {
 			text: t,
 			intent: "message"
 		};
 	}
-	if (Y(n)) {
-		let e = n;
+	if (Y(i)) {
+		let e = i;
 		if (e.stop === !0) return { stop: !0 };
-		if (typeof e.text == "string" && e.text.trim() && typeof e.intent == "string" && Ee.has(e.intent)) {
+		if (typeof e.text == "string" && e.text.trim() && typeof e.intent == "string" && Ae.has(e.intent)) {
 			let t = e.intent;
 			if (e.proposal !== void 0 || e.decision !== void 0) {
 				if (e.proposal !== void 0 && e.decision !== void 0) throw Error("Agent returned conflicting structured data");
-				if (e.proposal !== void 0 && (!["offer", "counteroffer"].includes(t) || !De(e.proposal))) throw Error("Agent returned an invalid proposal");
+				if (e.proposal !== void 0 && (!["offer", "counteroffer"].includes(t) || !je(e.proposal))) throw Error("Agent returned an invalid proposal");
 				if (e.decision !== void 0 && (![
 					"accept",
 					"reject",
 					"clarify"
-				].includes(t) || !De(e.decision))) throw Error("Agent returned an invalid decision");
+				].includes(t) || !je(e.decision))) throw Error("Agent returned an invalid decision");
 			}
 			if (e.assetHandle !== void 0 && (t !== "message" || e.proposal !== void 0 || e.decision !== void 0 || typeof e.assetHandle != "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(e.assetHandle) || Object.keys(e).some((e) => ![
 				"text",
@@ -1315,7 +1383,7 @@ function Oe(e) {
 		intent: "message"
 	};
 }
-function ke(e, t = [], n = {}) {
+function Ne(e, t = [], n = {}) {
 	let r = t.slice(-20).map((e) => ({
 		id: e.id,
 		from: e.senderAgentId || e.from,
@@ -1345,7 +1413,7 @@ function ke(e, t = [], n = {}) {
 }
 //#endregion
 //#region integrations/agent-bridges/asset-exchange.ts
-async function Ae(e) {
+async function Pe(e) {
 	if (!e.idempotencyKey || e.idempotencyKey.length > 160 || /[\x00-\x1f\x7f]/.test(e.idempotencyKey)) throw TypeError("A stable asset exchange idempotency key is required");
 	if (!e.caseId || !e.recipientAgentId || !e.recipientAddress || !e.text.trim() || !(e.bytes instanceof Uint8Array) || e.bytes.byteLength === 0) throw TypeError("A case, recipient, nonempty text and file bytes are required");
 	let t = h("sha256").update(e.bytes).digest("base64"), n = await e.connector.beginAssetUpload(`${e.idempotencyKey}:upload`, {
@@ -1385,11 +1453,11 @@ async function Ae(e) {
 }
 //#endregion
 //#region integrations/agent-bridges/asset-manifest.ts
-var je = (e, t) => {
+var Fe = (e, t) => {
 	let n = f.relative(e, t);
 	return n !== "" && n !== ".." && !n.startsWith(`..${f.sep}`) && !f.isAbsolute(n);
 };
-async function Me(e) {
+async function Ie(e) {
 	let t = /* @__PURE__ */ new Map();
 	if (!e) return t;
 	let n = f.resolve(e), r = await s(f.dirname(n)), i = JSON.parse(await a(n, "utf8"));
@@ -1399,7 +1467,7 @@ async function Me(e) {
 		let n = e;
 		if (typeof n.handle != "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(n.handle) || t.has(n.handle) || typeof n.path != "string" || f.isAbsolute(n.path) || typeof n.mimeType != "string" || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(n.mimeType) || typeof n.sha256 != "string" || !/^[a-f0-9]{64}$/i.test(n.sha256)) throw Error("Invalid approved asset entry");
 		let i = await s(f.resolve(r, n.path));
-		if (!je(r, i)) throw Error("Approved asset must stay inside the manifest directory");
+		if (!Fe(r, i)) throw Error("Approved asset must stay inside the manifest directory");
 		t.set(n.handle, {
 			handle: n.handle,
 			filename: f.basename(i),
@@ -1410,7 +1478,7 @@ async function Me(e) {
 	}
 	return t;
 }
-function Ne(e, t, n = Ae) {
+function Le(e, t, n = Pe) {
 	return async (r, i, o, c) => {
 		let l = i.assetHandle && e.get(i.assetHandle);
 		if (!l || !r.caseId || !r.senderAgentId || !r.from?.address) throw Error("Approved case asset and sender are required");
@@ -1435,7 +1503,7 @@ function Ne(e, t, n = Ae) {
 }
 //#endregion
 //#region integrations/agent-bridges/mcp-relay.ts
-var Pe = /* @__PURE__ */ new Set([
+var Re = /* @__PURE__ */ new Set([
 	"sinaloa_agent_info",
 	"sinaloa_list_cases",
 	"sinaloa_read_case",
@@ -1447,97 +1515,100 @@ var Pe = /* @__PURE__ */ new Set([
 	"sinaloa_send_message",
 	"sinaloa_send_proposal",
 	"sinaloa_send_decision"
-]), Fe = /* @__PURE__ */ new Set([
+]), ze = /* @__PURE__ */ new Set([
 	"initialize",
 	"notifications/initialized",
 	"ping",
 	"tools/list",
 	"tools/call"
-]), Ie = 1e6, Le = 4e6;
+]), Be = 1e6, Ve = 4e6;
 function Z(e, t, n) {
 	e.writeHead(t, {
 		"content-type": "application/json",
 		"cache-control": "no-store"
 	}), e.end(JSON.stringify(n));
 }
-function Re(e, t) {
+function He(e, t) {
 	let n = e.headers.authorization || "";
 	if (!n.startsWith("Bearer ")) return !1;
 	let r = Buffer.from(n.slice(7));
 	return r.length === t.length && _(r, t);
 }
-async function ze({ connector: e, bearerToken: t, port: n = 8788, allowCollaborationWrites: r = !1, collaborationToolNames: i, authorizeWrite: a, onSuccessfulToolCall: o, onSuccessfulWrite: s }) {
+async function Ue({ connector: e, bearerToken: t, port: n = 8788, allowCollaborationWrites: r = !1, collaborationToolNames: i, authorizeWrite: a, onSuccessfulToolCall: o, onSuccessfulWrite: s, onToolsListed: c }) {
 	if (typeof t != "string" || t.length < 32 || /[\r\n]/.test(t)) throw TypeError("A private MCP relay bearer token of at least 32 characters is required");
 	if (!Number.isSafeInteger(n) || n < 0 || n > 65535) throw RangeError("Invalid MCP relay port");
-	let c = Buffer.from(t);
+	let l = Buffer.from(t);
 	if (i?.some((e) => !X.has(e))) throw TypeError("Invalid collaboration tool allowlist");
-	let l = r ? new Set(i ?? X) : /* @__PURE__ */ new Set(), u = /* @__PURE__ */ new Set([...Pe, ...l]), d = x((e, t) => {
-		f(e, t).catch(() => {
+	let u = r ? new Set(i ?? X) : /* @__PURE__ */ new Set(), d = /* @__PURE__ */ new Set([...Re, ...u]), f = x((e, t) => {
+		p(e, t).catch(() => {
 			t.headersSent ? t.destroy() : Z(t, 502, { error: "Envoi MCP relay request failed" });
 		});
 	});
-	async function f(t, n) {
-		let r = d.address(), i = r && typeof r == "object" ? `127.0.0.1:${r.port}` : "";
+	async function p(t, n) {
+		let r = f.address(), i = r && typeof r == "object" ? `127.0.0.1:${r.port}` : "";
 		if (t.headers.host !== i || t.headers.origin) return Z(n, 403, { error: "MCP relay origin is unavailable" });
 		if (t.url !== "/mcp") return Z(n, 404, { error: "Not found" });
-		if (!Re(t, c)) return n.setHeader("www-authenticate", "Bearer realm=\"Envoi local MCP relay\""), Z(n, 401, { error: "MCP relay credential required" });
+		if (!He(t, l)) return n.setHeader("www-authenticate", "Bearer realm=\"Envoi local MCP relay\""), Z(n, 401, { error: "MCP relay credential required" });
 		if (t.method !== "POST") return Z(n, 405, { error: "Only POST is supported" });
 		if (!String(t.headers["content-type"] || "").startsWith("application/json")) return Z(n, 415, { error: "JSON is required" });
-		let l = [], f = 0;
+		let u = [], p = 0;
 		for await (let e of t) {
-			if (f += e.length, f > Ie) return Z(n, 413, { error: "MCP request is too large" });
-			l.push(e);
+			if (p += e.length, p > Be) return Z(n, 413, { error: "MCP request is too large" });
+			u.push(e);
 		}
-		let p = Buffer.concat(l).toString("utf8"), m;
+		let m = Buffer.concat(u).toString("utf8"), h;
 		try {
-			let e = JSON.parse(p);
+			let e = JSON.parse(m);
 			if (!e || typeof e != "object" || Array.isArray(e)) throw Error();
-			m = e;
+			h = e;
 		} catch {
 			return Z(n, 400, { error: "Invalid MCP JSON-RPC request" });
 		}
-		if (typeof m.method != "string" || !Fe.has(m.method)) return Z(n, 403, { error: "MCP method is not available" });
-		if (m.method === "tools/call") {
-			let e = m.params && typeof m.params == "object" && !Array.isArray(m.params) ? m.params : null;
-			if (!e || typeof e.name != "string" || !u.has(e.name)) return Z(n, 403, { error: "MCP tool is not available through this relay" });
+		if (typeof h.method != "string" || !ze.has(h.method)) return Z(n, 403, { error: "MCP method is not available" });
+		if (h.method === "tools/call") {
+			let e = h.params && typeof h.params == "object" && !Array.isArray(h.params) ? h.params : null;
+			if (!e || typeof e.name != "string" || !d.has(e.name)) return Z(n, 403, { error: "MCP tool is not available through this relay" });
 			if (X.has(e.name)) {
 				let t = e.arguments && typeof e.arguments == "object" && !Array.isArray(e.arguments) ? e.arguments : null, r = t?.idempotencyKey;
 				if (!t || typeof r != "string" || r.length < 1 || r.length > 200 || /[\x00-\x1f\x7f]/.test(r)) return Z(n, 400, { error: "A stable idempotencyKey is required for collaboration writes" });
 				if (a && !await a(e.name, t)) return Z(n, 403, { error: "MCP write is unavailable outside active work" });
 			}
 		}
-		let h = typeof t.headers["mcp-protocol-version"] == "string" ? t.headers["mcp-protocol-version"] : void 0, g = await e.forwardMcpRequest(p, { protocolVersion: h });
-		if (g.status === 202 || g.status === 204) return n.writeHead(g.status, { "cache-control": "no-store" }), n.end();
-		let _ = Buffer.from(await g.arrayBuffer());
-		if (_.length > Le) return Z(n, 502, { error: "Envoi MCP response is too large" });
-		let v = _;
-		if (g.ok && m.method === "tools/list") {
+		let g = typeof t.headers["mcp-protocol-version"] == "string" ? t.headers["mcp-protocol-version"] : void 0, _ = await e.forwardMcpRequest(m, { protocolVersion: g });
+		if (_.status === 202 || _.status === 204) return n.writeHead(_.status, { "cache-control": "no-store" }), n.end();
+		let v = Buffer.from(await _.arrayBuffer());
+		if (v.length > Ve) return Z(n, 502, { error: "Envoi MCP response is too large" });
+		let y = v;
+		if (_.ok && h.method === "tools/list") {
 			let e;
 			try {
-				let t = JSON.parse(_.toString("utf8"));
+				let t = JSON.parse(v.toString("utf8"));
 				if (!t || typeof t != "object" || Array.isArray(t)) throw Error();
 				e = t;
 				let n = e.result;
 				if (!Array.isArray(n?.tools)) throw Error();
-				v = Buffer.from(JSON.stringify({
+				y = Buffer.from(JSON.stringify({
 					...e,
 					result: {
 						...n,
-						tools: n.tools.filter((e) => e && typeof e == "object" && u.has(e.name))
+						tools: n.tools.filter((e) => e && typeof e == "object" && d.has(e.name))
 					}
 				}));
 			} catch {
 				return Z(n, 502, { error: "Envoi MCP tool catalog is invalid" });
 			}
+			if (!e.error) try {
+				c?.();
+			} catch {}
 		}
-		if (g.ok && m.method === "tools/call" && (o || s)) {
+		if (_.ok && h.method === "tools/call" && (o || s)) {
 			let e = null;
 			try {
-				e = JSON.parse(_.toString("utf8"));
+				e = JSON.parse(v.toString("utf8"));
 			} catch {}
 			let t = e?.result;
 			if (e && !e.error && t?.isError !== !0 && Array.isArray(t?.content) && t.content.length > 0) {
-				let e = m.params, r = e.name;
+				let e = h.params, r = e.name;
 				if (X.has(r) && s) try {
 					let n = t.content[0], i = typeof n?.text == "string" ? JSON.parse(n.text) : null;
 					typeof i?.status == "number" && i.status >= 200 && i.status < 300 && await s(r, e.arguments);
@@ -1549,26 +1620,26 @@ async function ze({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 				} catch {}
 			}
 		}
-		n.writeHead(g.status, {
-			"content-type": g.headers.get("content-type") || "application/json",
+		n.writeHead(_.status, {
+			"content-type": _.headers.get("content-type") || "application/json",
 			"cache-control": "no-store"
-		}), n.end(v);
+		}), n.end(y);
 	}
 	await new Promise((e, t) => {
-		d.once("error", t), d.listen(n, "127.0.0.1", () => {
-			d.off("error", t), e();
+		f.once("error", t), f.listen(n, "127.0.0.1", () => {
+			f.off("error", t), e();
 		});
 	});
-	let p = d.address();
-	if (!p || typeof p == "string") throw Error("MCP relay did not bind to loopback");
+	let m = f.address();
+	if (!m || typeof m == "string") throw Error("MCP relay did not bind to loopback");
 	return {
-		url: `http://127.0.0.1:${p.port}/mcp`,
-		close: () => new Promise((e, t) => d.close((n) => n ? t(n) : e()))
+		url: `http://127.0.0.1:${m.port}/mcp`,
+		close: () => new Promise((e, t) => f.close((n) => n ? t(n) : e()))
 	};
 }
 //#endregion
 //#region integrations/openclaw/turn.ts
-function Be(e) {
+function We(e) {
 	let t = new URL(e), n = [
 		"localhost",
 		"127.0.0.1",
@@ -1578,8 +1649,8 @@ function Be(e) {
 	if (t.username || t.password || t.search || t.hash || t.pathname !== "/" && t.pathname !== "") throw TypeError("OpenClaw Gateway URL must be an origin without credentials or a path");
 	return t.origin;
 }
-function Ve(e) {
-	let t = Be(e.gatewayUrl);
+function Ge(e) {
+	let t = We(e.gatewayUrl);
 	if (!e.gatewayToken) throw TypeError("OpenClaw Gateway token is required");
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e.agentId)) throw TypeError("A configured OpenClaw agent ID is required");
 	let n = e.timeoutMs ?? 6e5;
@@ -1606,7 +1677,7 @@ function Ve(e) {
 					stream: !1,
 					messages: [{
 						role: "user",
-						content: ke(i, o, {
+						content: Ne(i, o, {
 							allowSinaloaMcpWrites: e.allowSinaloaMcpWrites,
 							assetHandles: e.assetHandles
 						})
@@ -1623,7 +1694,7 @@ function Ve(e) {
 			let c = a && typeof a == "object" && !Array.isArray(a) ? a.choices : void 0, l = Array.isArray(c) ? c[0] : void 0, u = l?.message;
 			if (l?.finish_reason !== "stop" || typeof u?.content != "string" || !u.content.trim()) throw Error("OpenClaw did not return a completed text reply");
 			if (s.signal.aborted) throw Error("OpenClaw turn was canceled or timed out");
-			return Oe(u.content);
+			return Me(u.content);
 		} catch (e) {
 			throw s.signal.aborted ? Error("OpenClaw turn was canceled or timed out") : e instanceof Error && e.message.startsWith("OpenClaw ") ? e : Error("OpenClaw Gateway could not be reached");
 		} finally {
@@ -1633,14 +1704,14 @@ function Ve(e) {
 }
 //#endregion
 //#region integrations/openclaw/runtime.ts
-async function He(e, t = {}) {
+async function Ke(e, t = {}) {
 	let n = t.env ?? process.env, r = n.OPENCLAW_MCP_RELAY_TOKEN;
 	if (n.OPENCLAW_MCP_RELAY_PORT && !r) throw Error("OPENCLAW_MCP_RELAY_TOKEN is required when the relay port is configured");
 	if (n.OPENCLAW_MCP_WRITE_ENABLED && n.OPENCLAW_MCP_WRITE_ENABLED !== "true") throw Error("OPENCLAW_MCP_WRITE_ENABLED must be true when set");
 	if (n.OPENCLAW_MCP_WRITE_ENABLED && !r) throw Error("OPENCLAW_MCP_RELAY_TOKEN is required for MCP writes");
 	let i = new B(e.stateDir);
 	if (await i.init(), !await i.load()) throw Error("No connector credentials were saved. Run setup first");
-	let a, o = await Me(n.SINALOA_ASSET_MANIFEST_PATH), s = n.OPENCLAW_MCP_WRITE_ENABLED === "true", c = Ve({
+	let a, o = await Ie(n.SINALOA_ASSET_MANIFEST_PATH), s = n.OPENCLAW_MCP_WRITE_ENABLED === "true", c = Ge({
 		gatewayUrl: e.gatewayUrl,
 		gatewayToken: e.gatewayToken,
 		agentId: e.agentId,
@@ -1651,19 +1722,19 @@ async function He(e, t = {}) {
 		})),
 		...t.fetch ? { fetch: t.fetch } : {},
 		history: (e) => a.listCaseMessages(e, 20)
-	}), l = s ? we(c, (e) => i.mcpReplySent(e)) : c, u = {
+	}), l = s ? Oe(c, (e) => i.mcpReplySent(e)) : c, u = {
 		...t.fetch ? { fetch: t.fetch } : {},
 		...t.pollIntervalMs ? { pollIntervalMs: t.pollIntervalMs } : {},
-		handler: Te(i, l, o.size ? (e, t, n, r) => Ne(o, a)(e, t, n, r) : void 0)
+		handler: ke(i, l, o.size ? (e, t, n, r) => Le(o, a)(e, t, n, r) : void 0)
 	};
 	a = new oe(e.apiUrl, i, u);
-	let d = r ? await ze({
+	let d = r ? await Ue({
 		connector: a,
 		bearerToken: r,
 		port: n.OPENCLAW_MCP_RELAY_PORT ? Number(n.OPENCLAW_MCP_RELAY_PORT) : 8788,
 		allowCollaborationWrites: s,
 		...s ? { onSuccessfulWrite: async (e, t) => {
-			let n = Ce(e, t);
+			let n = De(e, t);
 			n && await i.markMcpReplySent(n);
 		} } : {}
 	}) : null;
@@ -1677,11 +1748,11 @@ async function He(e, t = {}) {
 }
 //#endregion
 //#region integrations/openclaw/quick-connect.ts
-function Ue(e, t, n = {}) {
+function qe(e, t, n = {}) {
 	let r = n.env ?? process.env, i = n.home ?? d(), a = n.platform ?? process.platform, o = h("sha256").update(`${N(e)}\n${t.toLowerCase()}`).digest("hex").slice(0, 24), s = a === "win32" ? r.LOCALAPPDATA || f.join(i, "AppData", "Local") : a === "darwin" ? f.join(i, "Library", "Application Support") : r.XDG_STATE_HOME && f.isAbsolute(r.XDG_STATE_HOME) ? r.XDG_STATE_HOME : f.join(i, ".local", "state");
 	return f.join(s, "sinaloa", "openclaw", o);
 }
-function We(e, t = process.platform, n = process.execPath) {
+function Je(e, t = process.platform, n = process.execPath) {
 	let r = [
 		n,
 		f.join(e, "connector.mjs"),
@@ -1691,7 +1762,7 @@ function We(e, t = process.platform, n = process.execPath) {
 	];
 	return t === "win32" ? `& ${r.map((e) => `'${e.replaceAll("'", "''")}'`).join(" ")}` : r.map((e) => `'${e.replaceAll("'", "'\"'\"'")}'`).join(" ");
 }
-function Ge(e = fetch) {
+function Ye(e = fetch) {
 	return (t, n) => e(t, {
 		...n,
 		redirect: "error"
@@ -1724,7 +1795,7 @@ async function $(e) {
 	if (r.version !== 1 || r.runtime !== "openclaw" || typeof r.address != "string" || !r.openclaw) throw new S("The saved connection is invalid. Inspect the private state directory");
 	return r.apiUrl = N(r.apiUrl), r;
 }
-function Ke(e, t = {}) {
+function Xe(e, t = {}) {
 	let n = t.env ?? process.env, r = {
 		...t,
 		env: n,
@@ -1744,14 +1815,14 @@ function Ke(e, t = {}) {
 	}
 	return r;
 }
-async function qe(e, n = {}) {
-	let r = Ge(n.fetch), i = ee(e, { allowExpired: !0 });
+async function Ze(e, n = {}) {
+	let r = Ye(n.fetch), i = ee(e, { allowExpired: !0 });
 	if (i.runtime !== "openclaw" || i.operation === "reconnect") throw new S("Use the unified Envoi connector for this runtime or reconnect handoff");
-	let a = n.stateDir || Ue(i.apiUrl, i.address, {
+	let a = n.stateDir || qe(i.apiUrl, i.address, {
 		home: n.homeDir,
 		env: n.env,
 		platform: n.platform
-	}), o = await (n.secureDirectory ?? he)(a), s = await _e(o);
+	}), o = await (n.secureDirectory ?? ye)(a), s = await xe(o);
 	try {
 		let a = new B(o);
 		await a.init();
@@ -1760,7 +1831,7 @@ async function qe(e, n = {}) {
 			if (c = await $(o), c.apiUrl !== i.apiUrl || c.address !== i.address || s.address !== i.address) throw new S("This state directory belongs to another connection. Choose a separate private directory");
 		} else ee(e);
 		n.onProgress?.("Detecting OpenClaw");
-		let l = await pe(c ? Ke(c.openclaw, n) : n);
+		let l = await pe(c ? Xe(c.openclaw, n) : n);
 		n.onProgress?.("Testing OpenClaw before enrollment"), await me(l, { fetch: r });
 		let u = {
 			version: 1,
@@ -1770,7 +1841,7 @@ async function qe(e, n = {}) {
 			agentName: i.agentName,
 			openclaw: l
 		};
-		if (await ge(f.join(o, "connection.json"), u), n.executableFile) {
+		if (await be(f.join(o, "connection.json"), u), n.executableFile) {
 			let e = f.join(o, "connector.mjs");
 			f.resolve(n.executableFile) !== f.resolve(e) && await t(n.executableFile, e);
 		}
@@ -1800,14 +1871,14 @@ async function qe(e, n = {}) {
 		await s();
 	}
 }
-async function Je(e, t, n = {}) {
-	let r = await (n.secureDirectory ?? he)(e), i = await _e(r), a = Ge(n.fetch), o;
+async function Qe(e, t, n = {}) {
+	let r = await (n.secureDirectory ?? ye)(e), i = await xe(r), a = Ye(n.fetch), o;
 	try {
-		let e = await $(r), i = await pe(Ke(e.openclaw, { env: n.env }));
+		let e = await $(r), i = await pe(Xe(e.openclaw, { env: n.env }));
 		await me(i, {
 			fetch: a,
 			signal: t
-		}), o = await He({
+		}), o = await Ke({
 			...i,
 			apiUrl: e.apiUrl,
 			stateDir: r
@@ -1829,7 +1900,7 @@ async function Je(e, t, n = {}) {
 		}
 	}
 }
-async function Ye(e) {
+async function $e(e) {
 	let t = await $(f.resolve(e)), n = await new B(f.resolve(e)).load();
 	if (!n) throw new S("No saved enrollment. Run setup with a fresh Envoi handoff");
 	return {
@@ -1844,10 +1915,10 @@ async function Ye(e) {
 		note: "Saved configuration does not establish live presence. Use start and a real agent exchange to verify receiving"
 	};
 }
-var Xe = "Envoi OpenClaw Quick Connect (Node.js 22+)\n\nsetup --handoff <private JSON file> [--install-service]\nsetup --handoff-stdin [--install-service]\nstart --state-dir <directory>\nstatus --state-dir <directory>\ninstall-service --state-dir <directory>\n\nOptional setup overrides: --config <openclaw.json> --agent <id> --gateway-url <origin> --state-dir <private directory>\nGateway credentials are resolved locally; never pass secrets as arguments.\n";
-async function Ze(e = process.argv.slice(2)) {
+var et = "Envoi OpenClaw Quick Connect (Node.js 22+)\n\nsetup --handoff <private JSON file> [--install-service]\nsetup --handoff-stdin [--install-service]\nstart --state-dir <directory>\nstatus --state-dir <directory>\ninstall-service --state-dir <directory>\n\nOptional setup overrides: --config <openclaw.json> --agent <id> --gateway-url <origin> --state-dir <private directory>\nGateway credentials are resolved locally; never pass secrets as arguments.\n";
+async function tt(e = process.argv.slice(2)) {
 	if (!e.length || e.includes("--help")) {
-		process.stdout.write(Xe);
+		process.stdout.write(et);
 		return;
 	}
 	if (Number(process.versions.node.split(".")[0]) < 22) throw new S("Install Node.js 22 or newer before connecting OpenClaw");
@@ -1870,7 +1941,7 @@ async function Ze(e = process.argv.slice(2)) {
 	}
 	if (t === "setup") {
 		if (i.has("--handoff") === o.has("--handoff-stdin")) throw new S("Supply either --handoff <file> or --handoff-stdin");
-		o.has("--install-service") && await xe();
+		o.has("--install-service") && await Te();
 		let e;
 		if (o.has("--handoff-stdin")) {
 			let t = [], n = 0;
@@ -1891,7 +1962,7 @@ async function Ze(e = process.argv.slice(2)) {
 		} catch {
 			throw new S("The setup file is not valid JSON. Download a fresh setup file from Envoi");
 		}
-		let r = await qe(t, {
+		let r = await Ze(t, {
 			stateDir: i.get("--state-dir"),
 			configPath: i.get("--config"),
 			agentId: i.get("--agent"),
@@ -1899,8 +1970,8 @@ async function Ze(e = process.argv.slice(2)) {
 			executableFile: v(import.meta.url),
 			onProgress: (e) => process.stderr.write(`${e}…\n`)
 		});
-		process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks passed. Remove the temporary handoff file.\nStart: ${We(r.stateDir)}\n`), o.has("--install-service") ? process.stdout.write(`${JSON.stringify({
-			startupService: await Se(r.stateDir),
+		process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks passed. Remove the temporary handoff file.\nStart: ${Je(r.stateDir)}\n`), o.has("--install-service") ? process.stdout.write(`${JSON.stringify({
+			startupService: await Ee(r.stateDir),
 			startsAt: "user login"
 		})}\n`) : process.stderr.write("Configure automatic startup with install-service --state-dir <reported directory>, or run start under your host process supervisor. A real exchange with another agent verifies unattended receiving.\n");
 		return;
@@ -1912,12 +1983,12 @@ async function Ze(e = process.argv.slice(2)) {
 	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new S("Supply a supported command and --state-dir. Run --help");
 	let s = f.resolve(i.get("--state-dir"));
 	if (t === "status") {
-		process.stdout.write(`${JSON.stringify(await Ye(s))}\n`);
+		process.stdout.write(`${JSON.stringify(await $e(s))}\n`);
 		return;
 	}
 	if (t === "install-service") {
-		await Ye(s), process.stdout.write(`${JSON.stringify({
-			startupService: await Se(s),
+		await $e(s), process.stdout.write(`${JSON.stringify({
+			startupService: await Ee(s),
 			startsAt: "user login"
 		})}\n`);
 		return;
@@ -1925,14 +1996,14 @@ async function Ze(e = process.argv.slice(2)) {
 	let c = new AbortController(), l = () => c.abort();
 	process.once("SIGINT", l), process.once("SIGTERM", l);
 	try {
-		await Je(s, c.signal, { onReady: () => process.stdout.write("Envoi connector started. Waiting for agent messages.\n") });
+		await Qe(s, c.signal, { onReady: () => process.stdout.write("Envoi connector started. Waiting for agent messages.\n") });
 	} finally {
 		process.removeListener("SIGINT", l), process.removeListener("SIGTERM", l);
 	}
 }
 //#endregion
 //#region integrations/openclaw/quick-connect-cli.ts
-Ze().catch((e) => {
+tt().catch((e) => {
 	let t = e instanceof S || e instanceof V || e instanceof M ? e.message : "Setup could not finish. Check local OpenClaw configuration, connectivity and the saved Envoi connection; run --help for recovery options";
 	process.stderr.write(`${t}\n`), process.exitCode = 1;
 });

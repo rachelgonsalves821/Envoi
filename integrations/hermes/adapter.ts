@@ -3,9 +3,10 @@ import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { ConnectorSetupError, type AdapterContext, type ConnectorAdapter } from '../connector/adapter';
 import { privateJson } from '../openclaw/quick-connect-store';
-import { discoverHermes, hermesServerName, mergeMcpConfiguration, optionalText, replaceConfiguration, setEnvValue, type HermesConfiguration } from './config';
+import { discoverHermes, hermesServerName, mergeMcpConfiguration, optionalText, replaceConfiguration, type HermesConfiguration } from './config';
 import { boundedHermesRun, preflightHermes } from './api';
 import { createHermesBridge } from './runtime';
+import { verifyHermesTools } from './verify';
 
 interface RelayState { version: 1; port: number; token: string; serverName: string }
 
@@ -39,18 +40,14 @@ async function relayState(context: AdapterContext): Promise<RelayState> {
 
 export async function configureHermes(config: HermesConfiguration, context: AdapterContext) {
   const relay = await relayState(context);
-  const variable = `SINALOA_MCP_${relay.serverName.slice(8).toUpperCase()}`;
   const original = await optionalText(config.configPath);
   const block = [
-    `  ${relay.serverName}:`, `    url: "http://127.0.0.1:${relay.port}/mcp"`, '    headers:',
-    `      Authorization: "Bearer \${${variable}}"`, '    tools:',
+    `  ${relay.serverName}:`, `    command: ${JSON.stringify(process.execPath)}`,
+    `    args: ${JSON.stringify([path.join(context.stateDir, 'connector.mjs'), 'mcp', '--state-dir', context.stateDir])}`, '    tools:',
     '      include: [sinaloa_agent_info, sinaloa_start_case, sinaloa_send_message, sinaloa_send_proposal, sinaloa_send_decision, sinaloa_list_cases, sinaloa_read_case, sinaloa_list_messages, sinaloa_list_assets, sinaloa_asset_download]',
     '      resources: false', '      prompts: false'
   ];
-  const updated = mergeMcpConfiguration(original ?? '', relay.serverName, block);
-  const envPath = path.join(config.home, '.env');
-  const originalEnv = await optionalText(envPath);
-  await replaceConfiguration(envPath, originalEnv, setEnvValue(originalEnv ?? '', variable, relay.token));
+  const updated = mergeMcpConfiguration(original ?? '', relay.serverName, block, { replaceServer: context.replaceMcpServer });
   await replaceConfiguration(config.configPath, original, updated);
 }
 
@@ -59,23 +56,29 @@ export const hermesAdapter: ConnectorAdapter<HermesConfiguration> = {
   async createBridge(config, context) {
     const relay = await relayState(context);
     let observedInfo = 0;
+    let discovery = 0;
     let bridge: Awaited<ReturnType<typeof createHermesBridge>>;
     try {
       bridge = await createHermesBridge({
         apiUrl: context.apiUrl, stateDir: context.stateDir, hermesUrl: config.apiUrl, hermesKey: config.apiKey,
         relayToken: relay.token, relayPort: relay.port, writeEnabled: true
       }, { env: { ...(context.env ?? process.env), SINALOA_ASSET_MANIFEST_PATH: config.assetManifestPath }, fetch: context.fetch, pollIntervalMs: context.pollIntervalMs,
-        onSuccessfulToolCall(name) { if (name === 'sinaloa_agent_info') observedInfo++; }
+        onSuccessfulToolCall(name) { if (name === 'sinaloa_agent_info') observedInfo++; },
+        onToolsListed() { discovery++; }
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') throw new ConnectorSetupError('RELAY_UNAVAILABLE', 'This Hermes connection relay port is occupied. Stop its prior connector or the conflicting process, then retry with the same state directory.');
       throw error;
     }
     return { connector: bridge.connector, close: bridge.close, async verify() {
-      const before = observedInfo;
-      await boundedHermesRun(config,
-        `Envoi setup verification. Call the sinaloa_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, context);
-      if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Hermes did not invoke the configured Envoi identity tool. Start a fresh API session, or restart the selected profile Gateway from a separate terminal to load its MCP configuration, then rerun setup using the same state directory. Enrollment is saved; do not create another token.');
+      await verifyHermesTools(async () => {
+        const before = observedInfo;
+        await boundedHermesRun(config,
+          `Envoi setup verification. Call the sinaloa_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, context);
+        if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Hermes did not invoke the configured Envoi identity tool. Enrollment is saved. Approve its MCP reload or open a fresh chat; ask the Gateway owner to reload the selected profile if needed. Resume the saved connection, without another token or deleting MCP configuration.');
+      }, () => discovery, { signal: context.signal, onWaiting() {
+        context.onProgress?.(`Envoi relay is online. Waiting for Hermes MCP discovery${context.verificationTimeoutMs ? '; background startup will continue checks if discovery is pending' : '. Keep this command running'}. If this Gateway predates the Envoi configuration, ask its owner to run "hermes${config.profile === 'default' ? '' : ` -p ${config.profile}`} gateway restart" in a separate terminal; do not restart an active chat automatically. State directory: ${context.stateDir}`);
+      } }, { timeoutMs: context.verificationTimeoutMs });
     } };
   },
   describe(config) { return { runtime: 'hermes', profile: config.profile, gatewayUrl: config.apiUrl, configPath: config.configPath }; }

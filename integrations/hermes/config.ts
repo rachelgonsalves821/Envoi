@@ -5,6 +5,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ConnectorSetupError, type AdapterOptions } from '../connector/adapter';
+import { windowsAccountSid, windowsExecutable } from '../connector/windows';
 
 export interface HermesConfiguration {
   home: string;
@@ -71,11 +72,11 @@ export async function replaceConfiguration(filename: string, original: string | 
 async function protectFile(filename: string) {
   if (process.platform !== 'win32') return chmod(filename, 0o600);
   const execute = promisify(execFile);
-  const { stdout } = await execute('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { windowsHide: true });
-  const sid = stdout.match(/S-1-[0-9-]+/)?.[0];
-  if (!sid) throw new ConnectorSetupError('STATE_UNAVAILABLE', 'Could not protect Hermes local credentials for the current Windows account.');
+  const sid = await windowsAccountSid();
   const script = `$ErrorActionPreference='Stop'; $p='${filename.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${sid}'); $a=New-Object System.Security.AccessControl.FileSecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','Allow'))); ([System.IO.FileInfo]::new($p)).SetAccessControl($a)`;
-  await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
+  try {
+    await execute(windowsExecutable('powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 20_000 });
+  } catch { throw new ConnectorSetupError('STATE_UNAVAILABLE', 'Windows could not protect Hermes local credentials for your account. Choose an owned profile directory and retry; preserve its private backups.'); }
 }
 
 const validProfile = (value: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value);
@@ -167,9 +168,8 @@ export async function discoverHermes(options: AdapterOptions, previous?: HermesC
   if (configuration === null && original === null) throw new ConnectorSetupError('RUNTIME_NOT_FOUND', 'The selected Hermes profile has no configuration. Configure it with hermes setup first.');
   const terminalBackend = env.TERMINAL_ENV ?? env.TERMINAL_BACKEND ?? yamlScalar(configuration ?? '', 'terminal.backend') ?? 'local';
   if (!options.configPath && !resumeSelected && env.HERMES_HOME && terminalBackend !== 'local') throw new ConnectorSetupError('RUNTIME_HOST_MISMATCH', 'Hermes terminal tools use a nonlocal backend. Run this installer directly on the persistent Gateway host and explicitly select its config with --config; do not install unattended receiving in an agent sandbox.');
-  // The shared core supplies stateDir during setup/start. Standalone prepare has
-  // no future connection identity, so existing Envoi entries require doctor
-  // or deliberate migration rather than being silently attached to a new agent.
+  // The shared core supplies the exact enrolled identity during setup/start.
+  // Standalone prepare validates existing YAML without choosing a new identity.
   const stateDir = (options as AdapterOptions & { stateDir?: string }).stateDir;
   let serverName = stateDir ? hermesServerName(stateDir) : 'sinaloa_preflight';
   if (stateDir) {
@@ -184,7 +184,8 @@ export async function discoverHermes(options: AdapterOptions, previous?: HermesC
   }
   // This validates deterministic YAML/profile conflicts before enrollment or
   // local API-key preparation. It does not allocate ports or write config.
-  mergeMcpConfiguration(configuration ?? '', serverName, [`  ${serverName}:`, '    url: "http://127.0.0.1:1/mcp"']);
+  mergeMcpConfiguration(configuration ?? '', serverName, [`  ${serverName}:`, '    url: "http://127.0.0.1:1/mcp"'],
+    { replaceServer: options.replaceMcpServer, prepareOnly: !stateDir });
   let text = original ?? '';
   let apiKey = env.HERMES_API_KEY || envValue(text, 'API_SERVER_KEY') || env.API_SERVER_KEY;
   const yamlEnabled = yamlScalar(configuration ?? '', 'gateway.platforms.api_server.enabled') ?? yamlScalar(configuration ?? '', 'platforms.api_server.enabled');
@@ -219,13 +220,15 @@ export function hermesServerName(stateDir: string) {
 }
 
 /** Conservative block-YAML edit: untouched sections remain byte-for-byte equivalent. */
-export function mergeMcpConfiguration(text: string, name: string, block: string[]): string {
+export function mergeMcpConfiguration(text: string, name: string, block: string[], options: { replaceServer?: string; prepareOnly?: boolean } = {}): string {
+  if (options.replaceServer && !/^sinaloa(?:_[a-f0-9]{16})?$/.test(options.replaceServer)) throw new ConnectorSetupError('ARGUMENT_INVALID', 'Choose the exact existing Envoi MCP server name reported by PROFILE_ALREADY_CONNECTED.');
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
   const sections = lines.map((line, index) => /^mcp_servers\s*:/.test(line) ? index : -1).filter(index => index >= 0);
   if (sections.length > 1 || (sections.length === 1 && !/^mcp_servers:\s*(?:#.*)?$/.test(lines[sections[0]]))) {
     throw new ConnectorSetupError('CONFIG_UNSUPPORTED', 'Hermes MCP configuration uses an unsupported or duplicate YAML section. Preserve it and configure the connector entry manually.');
   }
   if (!sections.length) {
+    if (options.replaceServer) throw new ConnectorSetupError('MCP_REPLACEMENT_NOT_FOUND', 'The selected Envoi MCP entry was not found. Recheck the profile before enrolling.');
     if (lines.at(-1) === '') lines.pop();
     lines.push('', 'mcp_servers:', ...block);
   } else {
@@ -240,10 +243,15 @@ export function mergeMcpConfiguration(text: string, name: string, block: string[
         throw new ConnectorSetupError('CONFIG_UNSUPPORTED', 'Hermes MCP section must use ordinary block YAML with two-space server entries.');
       }
     }
-    if (entries.some(entry => (entry.name === 'sinaloa' || entry.name.startsWith('sinaloa_')) && entry.name !== name)) {
-      throw new ConnectorSetupError('PROFILE_ALREADY_CONNECTED', 'This Hermes profile already has an Envoi MCP entry. Preserve its connection or deliberately migrate that entry; use a separate Hermes profile for another enrolled agent.');
+    const existing = entries.filter(entry => entry.name === 'sinaloa' || entry.name.startsWith('sinaloa_'));
+    if (existing.length > 1) throw new ConnectorSetupError('CONFIG_AMBIGUOUS', 'This Hermes profile has multiple Envoi MCP entries. Preserve them and select a separate profile, or resolve the duplicate entries locally.');
+    if (options.prepareOnly && !options.replaceServer) return text; // No mutation or future identity selection.
+    const conflict = existing.find(entry => entry.name !== name);
+    if (conflict && conflict.name !== options.replaceServer) {
+      throw new ConnectorSetupError('PROFILE_ALREADY_CONNECTED', `This Hermes profile already uses Envoi MCP server ${conflict.name}. To resume that identity, use its saved state directory. For another identity, select a separate Hermes profile with --profile. To deliberately migrate this profile, stop and disable its old connector first, then rerun setup with --replace-mcp-server ${conflict.name}; its private state is preserved. Do not delete mcp_servers or provider credentials.`);
     }
-    const matching = entries.filter(entry => entry.name === name);
+    const matching = entries.filter(entry => entry.name === (conflict ? options.replaceServer : name));
+    if (options.replaceServer && !matching.length) throw new ConnectorSetupError('MCP_REPLACEMENT_NOT_FOUND', 'The selected Envoi MCP entry was not found. Recheck the profile before enrolling.');
     if (matching.length > 1) throw new ConnectorSetupError('CONFIG_AMBIGUOUS', 'Hermes has duplicate connector MCP entries.');
     if (matching.length) {
       const entry = matching[0];

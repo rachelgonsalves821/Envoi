@@ -14,13 +14,16 @@ export interface AdapterOptions {
   agentId?: string;
   gatewayUrl?: string;
   prepareRuntime?: boolean;
+  replaceMcpServer?: string;
   fetch?: typeof fetch;
   signal?: AbortSignal;
+  onProgress?: (phase: string) => void;
 }
 export interface AdapterContext extends AdapterOptions {
   apiUrl: string;
   stateDir: string;
   pollIntervalMs?: number;
+  verificationTimeoutMs?: number;
 }
 export interface RuntimeBridge {
   connector: SinaloaConnector;

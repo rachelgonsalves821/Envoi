@@ -6,7 +6,7 @@ import { SinaloaConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { ConnectorSetupError, type ConnectorAdapter } from './adapter';
-import { connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, setupConnection, startConnection } from './core';
+import { connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, reportBackgroundFailure, setupConnection, startConnection } from './core';
 import { startControl, queryControl } from './control';
 import { connectorService } from './service';
 
@@ -50,6 +50,17 @@ async function fixture(runtime: ConnectorRuntime = 'hermes') {
 }
 
 describe('shared connector lifecycle', () => {
+  it('reports failed background startup without rotating or replacing saved credentials', async () => {
+    const f = await fixture();
+    await setupConnection(f.handoff, f.resolver, f.options);
+    const session = await readFile(path.join(f.options.stateDir, 'session.json'), 'utf8');
+    await reportBackgroundFailure(f.options.stateDir, 'BACKGROUND_NOT_READY', f.options.fetch);
+    const request = f.requests.at(-1)!;
+    expect(JSON.parse(String(request.init?.body))).toMatchObject({ phase: 'error', errorCode: 'BACKGROUND_NOT_READY' });
+    expect(new Headers(request.init?.headers).get('authorization')).toBe('Bearer access-secret-1');
+    expect(await readFile(path.join(f.options.stateDir, 'session.json'), 'utf8')).toBe(session);
+    expect(f.counts().enrollmentCount).toBe(1);
+  });
   for (const runtime of ['hermes', 'openclaw', 'grok'] as const) {
     it(`enrolls ${runtime} once, stores local secrets privately, and resumes after handoff expiry`, async () => {
       const f = await fixture(runtime);
@@ -247,7 +258,18 @@ describe('authenticated local management', () => {
       const checksBeforeDoctor = f.counts().checks;
       expect(await doctorConnection(f.options.stateDir, f.resolver, f.options)).toMatchObject({ status: 'running', runtimeChecks: 'passed' });
       expect(f.counts().checks).toBe(checksBeforeDoctor);
-      await expect(setupConnection(f.handoff, f.resolver, f.options)).rejects.toThrow('already running');
+      await expect(setupConnection({ ...f.handoff, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options)).resolves.toMatchObject({ address: f.handoff.address, checks: 'passed' });
+      expect(f.counts().enrollmentCount).toBe(1);
+      const upgrade = path.join(f.directory, 'downloaded-new-version.mjs');
+      await writeFile(upgrade, '// new connector version');
+      const configure = vi.fn().mockResolvedValue(undefined);
+      f.adapter.configure = configure;
+      const owner = await queryControl(f.options.stateDir, 'status');
+      await setupConnection(f.handoff, f.resolver, { ...f.options, executableFile: upgrade });
+      expect(await readFile(path.join(f.options.stateDir, 'connector.mjs'), 'utf8')).toBe('// new connector version');
+      expect(configure).toHaveBeenCalledWith(expect.objectContaining({ providerKey: 'local-model-provider-secret' }), expect.objectContaining({ stateDir: f.options.stateDir }));
+      expect((await queryControl(f.options.stateDir, 'status')).pid).toBe(owner.pid);
+      expect(f.counts().enrollmentCount).toBe(1);
     } finally { stop.abort(); await started; }
     expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped' });
     await expect(readFile(path.join(f.options.stateDir, 'connector.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -281,5 +303,33 @@ describe('authenticated local management', () => {
     expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped' });
     f.healthFails(false); f.preflightFails();
     await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver, f.options)).rejects.toMatchObject({ code: 'MODEL_NOT_READY' });
+  });
+  it('keeps one relay alive across Gateway startup and missing-tool retries without reenrollment', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const closesBefore = f.counts().closes;
+    const create = f.adapter.createBridge;
+    let created = 0, relayOnline = false, waiting = 0;
+    const stop = new AbortController();
+    f.adapter.preflight = async () => {
+      expect(relayOnline).toBe(true); // Gateway discovery can connect before API readiness.
+      if (!waiting) throw new ConnectorSetupError('GATEWAY_UNREACHABLE', 'Starting Gateway');
+    };
+    f.adapter.createBridge = async (config, context) => {
+      created++; relayOnline = true;
+      const bridge = await create(config, context);
+      return { ...bridge,
+        async verify() { if (waiting < 2) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Parked discovery'); },
+        async close() { relayOnline = false; await bridge.close(); }
+      };
+    };
+    await startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, retryDelayMs: 1,
+      onWaiting() { waiting++; expect(relayOnline).toBe(true); expect(f.counts().closes).toBe(closesBefore); },
+      onReady() { stop.abort(); }
+    });
+    expect(created).toBe(1);
+    expect(waiting).toBe(2);
+    expect(f.counts().enrollmentCount).toBe(1);
+    expect(f.counts().closes).toBe(closesBefore + 1);
+    expect(relayOnline).toBe(false);
   });
 });

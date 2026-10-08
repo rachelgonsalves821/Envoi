@@ -96,7 +96,7 @@ test(`distributed ${artifact} runs without repository dependencies and protects 
   await writeFile(configPath, JSON.stringify({ gateway: { port: gateway.server.address().port, auth: { token: gatewayToken },
     http: { endpoints: { chatCompletions: { enabled: true } } } }, agents: { list: [{ id: 'main' }] } }), { mode: 0o600 });
 
-  const args = ['setup', '--handoff-stdin', '--config', configPath, '--state-dir', stateDir];
+  const args = ['setup', '--handoff-stdin', ...(unified ? ['--no-service'] : []), '--config', configPath, '--state-dir', stateDir];
   const setup = await run(download, args, directory, JSON.stringify(handoff));
   assert.equal(setup.code, 0, setup.stderr);
   assert.equal(JSON.parse(setup.stdout).checks, 'passed');
@@ -141,7 +141,7 @@ test(`distributed ${artifact} runs without repository dependencies and protects 
     assert.equal((await stat(stateDir)).mode & 0o077, 0);
     assert.equal((await stat(path.join(stateDir, 'session.json'))).mode & 0o077, 0);
   }
-  const expired = await run(download, ['setup', '--handoff-stdin', '--config', configPath, '--state-dir', path.join(directory, 'new state')], directory,
+  const expired = await run(download, ['setup', '--handoff-stdin', ...(unified ? ['--no-service'] : []), '--config', configPath, '--state-dir', path.join(directory, 'new state')], directory,
     JSON.stringify({ ...handoff, expiresAt: '2000-01-01T00:00:00Z' }));
   assert.equal(expired.code, 1); assert.match(expired.stderr, /expired/); assert.equal(enrollments, 1);
 });
@@ -190,7 +190,7 @@ test('distributed connector pairs a password-mode Gateway and stops before enrol
     const configPath = path.join(directory, `${name}.json`);
     await writeFile(configPath, JSON.stringify({ gateway: { port: gateway.server.address().port, auth,
       http: { endpoints: { chatCompletions: { enabled: true } } } }, agents: { list: [{ id: 'main' }] } }), { mode: 0o600 });
-    return run(download, ['setup', '--handoff-stdin', '--config', configPath, '--state-dir', path.join(directory, `${name} state`)], directory, JSON.stringify(handoff));
+    return run(download, ['setup', '--handoff-stdin', '--no-service', '--config', configPath, '--state-dir', path.join(directory, `${name} state`)], directory, JSON.stringify(handoff));
   };
 
   const disabled = await setup('none', { mode: 'none' });

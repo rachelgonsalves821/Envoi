@@ -128,7 +128,7 @@ describe('handoff and startup configuration', () => {
     expect(linux.contents).toContain('%%n/$$HOME'); expect(linux.contents).toContain('Restart=on-failure');
     const mac = connectorService(directory, { ...options, platform: 'darwin' });
     expect(mac.contents).toContain('<key>ProgramArguments</key>'); expect(mac.commands[0].executable).toBe('launchctl');
-    const win = connectorService(directory, { ...options, platform: 'win32', user: 'S-1-5-123' });
+    const win = connectorService(directory, { ...options, platform: 'win32', user: 'S-1-5-123', env: { SystemRoot: 'C:\\Windows' } });
     expect(win.contents).toContain('LeastPrivilege'); expect(win.contents).toContain('InteractiveToken');
     for (const service of [linux, mac, win]) expect(service.contents).not.toMatch(/enrollmentToken|gatewayToken|agentApiToken/);
     expect(() => connectorService('/private/\nExecStart=evil', options)).toThrow('control');

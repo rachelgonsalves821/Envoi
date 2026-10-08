@@ -19,7 +19,7 @@ export interface HermesBridgeConfiguration {
 
 /** Shared by the existing manual bridge and the unified installer. Recovery stays intact. */
 export async function createHermesBridge(config: HermesBridgeConfiguration,
-  options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number; onSuccessfulToolCall?: (name: string) => void } = {}) {
+  options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number; onSuccessfulToolCall?: (name: string) => void; onToolsListed?: () => void } = {}) {
   const env = options.env ?? process.env;
   const store = new FileBridgeStore(config.stateDir);
   await store.init();
@@ -49,6 +49,7 @@ export async function createHermesBridge(config: HermesBridgeConfiguration,
     collaborationToolNames: ['sinaloa_start_case', 'sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision'],
     authorizeWrite: (name, args) => authorizedHermesWrite(active, name, args),
     onSuccessfulToolCall: options.onSuccessfulToolCall,
+    onToolsListed: options.onToolsListed,
     onSuccessfulWrite: async (name, args) => { const id = mcpReplyMessageId(name, args); if (id) await store.markMcpReplySent(id); }
   }) : null;
   return { connector, store, relayUrl: relay?.url, close: async () => { await relay?.close(); } };

@@ -111,19 +111,44 @@ describe('Hermes profile discovery and preparation', () => {
   it('rejects deterministic MCP conflicts before runtime preparation and resumes only its own entry', async () => {
     const f = await fixture();
     const originalEnv = await readFile(path.join(f.home, '.env'), 'utf8');
+    const stateDir = path.join(f.root, 'own-state'); await mkdir(stateDir);
     for (const yaml of ['mcp_servers: {other: {}}\n', 'mcp_servers:\n  sinaloa:\n    url: "http://localhost:8789/mcp"\n']) {
       await writeFile(f.config.configPath, yaml);
-      await expect(discoverHermes({ ...f.options, prepareRuntime: true })).rejects.toBeTruthy();
+      await expect(discoverHermes({ ...f.options, stateDir, prepareRuntime: true } as never)).rejects.toBeTruthy();
       expect(await readFile(path.join(f.home, '.env'), 'utf8')).toBe(originalEnv);
     }
     await writeFile(f.config.configPath, 'model:\n  default: existing\n');
-    const stateDir = path.join(f.root, 'own-state'); await mkdir(stateDir);
     const context = { ...f.options, stateDir, apiUrl: 'https://sinaloa.test' };
     await configureHermes(f.config, context);
     const saved = await discoverHermes(context, f.config);
     expect(saved.home).toBe(f.home);
     const differentState = path.join(f.root, 'other-state'); await mkdir(differentState);
     await expect(discoverHermes({ ...context, stateDir: differentState })).rejects.toMatchObject({ code: 'PROFILE_ALREADY_CONNECTED' });
+    const before = await readFile(f.config.configPath, 'utf8');
+    await expect(discoverHermes(f.options)).resolves.toMatchObject({ home: f.home });
+    expect(await readFile(f.config.configPath, 'utf8')).toBe(before); // prepare never replaces an enrolled identity.
+  });
+  it('migrates only an explicitly selected MCP entry, preserves other settings and resumes idempotently', async () => {
+    const f = await fixture();
+    const old = 'sinaloa_1234567890abcdef';
+    const original = `model:\n  default: existing-model\nmcp_servers:\n  other:\n    command: existing-tool\n  ${old}:\n    url: "http://127.0.0.1:1234/mcp"\n`;
+    await writeFile(f.config.configPath, original);
+    const stateDir = path.join(f.root, 'new-agent'); await mkdir(stateDir);
+    const context = { ...f.options, apiUrl: 'https://sinaloa.test', stateDir, replaceMcpServer: old };
+    await expect(discoverHermes({ ...context, replaceMcpServer: 'sinaloa_ffffffffffffffff' })).rejects.toMatchObject({ code: 'PROFILE_ALREADY_CONNECTED' });
+    await expect(discoverHermes({ ...context, replaceMcpServer: 'other' })).rejects.toMatchObject({ code: 'ARGUMENT_INVALID' });
+    expect(await readFile(f.config.configPath, 'utf8')).toBe(original);
+    const found = await discoverHermes(context);
+    await configureHermes(found, context);
+    const updated = await readFile(f.config.configPath, 'utf8');
+    expect(updated).not.toContain(`  ${old}:`);
+    expect(updated).toContain('  other:\n    command: existing-tool');
+    expect(updated).toContain('model:\n  default: existing-model');
+    const backups = (await readdir(f.home)).filter(name => name.startsWith('config.yaml.sinaloa-backup-'));
+    expect(backups).toHaveLength(1);
+    expect(await readFile(path.join(f.home, backups[0]), 'utf8')).toBe(original);
+    await configureHermes(await discoverHermes(context, found), context);
+    expect(await readFile(f.config.configPath, 'utf8')).toBe(updated);
   });
   it('requires deliberate host selection for nonlocal Hermes terminal backends', async () => {
     const f = await fixture();
@@ -202,7 +227,10 @@ describe('Hermes profile MCP configuration', () => {
     expect(a.token).not.toBe(b.token); expect(a.serverName).not.toBe(b.serverName);
     const yaml = await readFile(f.config.configPath, 'utf8');
     expect(yaml).toContain('model:\n  default: existing-model');
-    expect(yaml).toContain(`http://127.0.0.1:${a.port}/mcp`);
+    expect(yaml).toContain(JSON.stringify(process.execPath));
+    expect(yaml).toContain(JSON.stringify(path.join(stateA, 'connector.mjs')));
+    expect(yaml).toContain('"mcp","--state-dir"');
+    expect(yaml).not.toContain('Authorization:');
     expect(yaml).not.toContain(a.token);
     const saved = await readFile(path.join(stateA, 'hermes-relay.json'), 'utf8');
     await configureHermes(f.config, contextA);
@@ -224,11 +252,15 @@ describe('Hermes profile MCP configuration', () => {
       }
       return payload({ run_id: 'verify_1', status: 'completed', output: 'I called the tool' });
     });
-    const bridge = await hermesAdapter.createBridge(f.config, { ...context, fetch: fetcher });
+    const stop = new AbortController();
+    const bridge = await hermesAdapter.createBridge(f.config, { ...context, fetch: fetcher, signal: stop.signal, onProgress: () => stop.abort() });
     try {
-      await expect(bridge.verify!()).rejects.toMatchObject({ code: 'TOOLS_NOT_READY' });
-      invoke = true;
-      await expect(bridge.verify!()).resolves.toBeUndefined();
+      await expect(bridge.verify!()).rejects.toMatchObject({ code: 'SETUP_CANCELLED' });
     } finally { await bridge.close(); }
+    const readyBridge = await hermesAdapter.createBridge(f.config, { ...context, fetch: fetcher });
+    try {
+      invoke = true;
+      await expect(readyBridge.verify!()).resolves.toBeUndefined();
+    } finally { await readyBridge.close(); }
   });
 });

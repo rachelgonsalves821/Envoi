@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EnrollmentDialog, RuntimePicker, RuntimePreparation } from '../src/App';
 import { api } from '../src/api';
-import { RUNTIME_OPTIONS, connectorDownloads, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, enrollmentRecovery, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
 import type { Inbox } from '../src/types';
 import type { QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
@@ -22,8 +22,10 @@ describe('Quick Connect handoff', () => {
     expect(prompt).toContain('0600');
     expect(prompt).toContain('remove the handoff file');
     expect(prompt).toContain('Setup exits after configuration and checks');
-    expect(prompt).toContain('append --install-service');
-    expect(prompt).toContain('existing process supervisor');
+    expect(prompt).toContain('background startup by default');
+    expect(prompt).toContain('--no-service');
+    expect(prompt).toContain('process supervisor');
+    expect(prompt).toContain('no connector terminal needs to stay open');
     expect(prompt).toContain('If multiple agents');
     expect(prompt).not.toContain('provider_secret_should_not_be_sent');
     const setup = JSON.parse(prompt.split('Setup data:\n')[1]);
@@ -59,6 +61,10 @@ describe('Quick Connect handoff', () => {
     expect(prompt).toContain('retains the agent address and history');
     expect(prompt).toContain('generates or reuses the local key');
     expect(prompt).toContain('do not interrupt this session');
+    expect(prompt).toContain('saved background connector stays available during recovery');
+    expect(prompt).toContain('PROFILE_ALREADY_CONNECTED');
+    expect(prompt).toContain('--replace-mcp-server');
+    expect(prompt).toContain('Do not delete mcp_servers');
   });
 
   it('reconnects through runtime preparation without asking for a new name, address or permissions', () => {
@@ -120,6 +126,11 @@ describe('Quick Connect handoff', () => {
 });
 
 describe('bounded enrollment progress', () => {
+  it('explains tool and startup recovery without sending the user back to enrollment', () => {
+    expect(enrollmentRecovery('TOOLS_NOT_READY')).toContain('do not create another token');
+    expect(enrollmentRecovery('BACKGROUND_NOT_READY')).toContain('repair startup');
+    expect(enrollmentRecovery('MODEL_NOT_READY')).toContain('normal chat');
+  });
   function watch(request: (signal: AbortSignal) => Promise<EnrollmentStatus>, options: Partial<Parameters<typeof watchEnrollmentStatus>[0]> = {}) {
     const onStatus = vi.fn(), onError = vi.fn(), onTimeout = vi.fn();
     const stop = watchEnrollmentStatus({ enrollmentId: 'enrollment_1', expiresAt: handoff.expiresAt, request, onStatus, onError, onTimeout, ...options });
@@ -149,6 +160,17 @@ describe('bounded enrollment progress', () => {
     expect(request).toHaveBeenCalledTimes(2);
     expect(repaired.onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'ready' }));
     expect(repaired.onError).not.toHaveBeenCalled();
+  });
+
+  it('keeps watching paired tool-discovery recovery until the background connector passes', async () => {
+    vi.useFakeTimers();
+    const request = vi.fn().mockResolvedValueOnce({ ...status('error'), errorCode: 'TOOLS_NOT_READY' })
+      .mockResolvedValueOnce({ ...status('error'), errorCode: 'GATEWAY_UNREACHABLE' }).mockResolvedValue(status('ready'));
+    const monitor = watch(request, { expiresAt: new Date(Date.now() - 1).toISOString() });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(monitor.onStatus.mock.calls.map(([value]) => value.phase)).toEqual(['error', 'error', 'ready']);
+    expect(monitor.onTimeout).not.toHaveBeenCalled();
   });
 
   it('cancels an in-flight status request and ignores its later result when closed', async () => {

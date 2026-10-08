@@ -37,12 +37,14 @@ export interface McpRelayOptions {
   authorizeWrite?: (name: string, arguments_: Record<string, unknown>) => boolean | Promise<boolean>;
   /** Local diagnostic hook; invoked only after a successful upstream tool response. */
   onSuccessfulToolCall?: (name: string) => void;
+  /** Authenticated catalog discovery; readiness still requires a real tool call. */
+  onToolsListed?: () => void;
   /** Persist a completed native write before reporting success to the MCP client. */
   onSuccessfulWrite?: (name: string, arguments_: Record<string, unknown>) => Promise<void>;
 }
 
 /** Local MCP endpoint; the Envoi refresh credential stays in the bridge store. */
-export async function startMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false, collaborationToolNames, authorizeWrite, onSuccessfulToolCall, onSuccessfulWrite }: McpRelayOptions) {
+export async function startMcpRelay({ connector, bearerToken, port = 8788, allowCollaborationWrites = false, collaborationToolNames, authorizeWrite, onSuccessfulToolCall, onSuccessfulWrite, onToolsListed }: McpRelayOptions) {
   if (typeof bearerToken !== 'string' || bearerToken.length < 32 || /[\r\n]/.test(bearerToken)) {
     throw new TypeError('A private MCP relay bearer token of at least 32 characters is required');
   }
@@ -123,6 +125,7 @@ export async function startMcpRelay({ connector, bearerToken, port = 8788, allow
           tool => tool && typeof tool === 'object' && allowedTools.has((tool as Record<string, unknown>).name as string)
         ) } }));
       } catch { return send(res, 502, { error: 'Envoi MCP tool catalog is invalid' }); }
+      if (!payload.error) { try { onToolsListed?.(); } catch { /* Diagnostics do not alter discovery. */ } }
     }
     if (upstream.ok && request.method === 'tools/call' && (onSuccessfulToolCall || onSuccessfulWrite)) {
       let payload: Record<string, unknown> | null = null;
