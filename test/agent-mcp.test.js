@@ -14,6 +14,7 @@ import { FileStore } from '../src/storage.js';
 async function startServer(t, environment = {}, dataDirOverride = null) {
   const dataDir = dataDirOverride || await mkdtemp(path.join(tmpdir(), 'sinaloa-mcp-'));
   t.dataDir = dataDir;
+  t.serverOutput = '';
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
     env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, ...environment },
@@ -23,10 +24,12 @@ async function startServer(t, environment = {}, dataDirOverride = null) {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10_000);
     child.once('exit', code => reject(new Error(`Server exited with ${code}`)));
     child.stdout.on('data', chunk => {
+      t.serverOutput += chunk.toString();
       const match = chunk.toString().match(/http:\/\/127\.0\.0\.1:(\d+)/);
       if (match) { clearTimeout(timer); resolve(`http://127.0.0.1:${match[1]}`); }
     });
   });
+  child.stderr.on('data', chunk => { t.serverOutput += chunk.toString(); });
   t.after(async () => {
     await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); });
     await rm(dataDir, { recursive: true, force: true });
@@ -385,14 +388,54 @@ test('trusted relay renews an expired access token before a late MCP call and ke
   const credential = await store.getJson(credentialPath);
   await store.putJson(credentialPath, { ...credential, expiresAt: new Date(Date.now() - 1000).toISOString() });
   assert.equal((await mcp(baseUrl, alice.agentApiToken, 'tools/list')).status, 401);
-  const renewed = await api(baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: alice.agentRefreshToken } });
+  const renewed = await api(baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: alice.agentRefreshToken, rotationId: 'rotation-mcp-1' } });
   assert.equal(renewed.status, 200);
   const lateCall = await tool(baseUrl, renewed.payload.agentApiToken, 'sinaloa_agent_info');
   assert.equal(lateCall.status, 200);
   assert.equal(content(lateCall).agentId, alice.agent.id);
   assert.equal(JSON.stringify(lateCall).includes(renewed.payload.agentApiToken), false);
-  assert.equal((await api(baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: alice.agentRefreshToken } })).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: alice.agentRefreshToken, rotationId: 'rotation-mcp-other' } })).status, 401);
   assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/credentials/revoke`, { session: alice.session, body: {} })).status, 200);
   assert.equal((await mcp(baseUrl, renewed.payload.agentApiToken, 'tools/list')).status, 401);
-  assert.equal((await api(baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: renewed.payload.agentRefreshToken } })).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: renewed.payload.agentRefreshToken, rotationId: 'rotation-mcp-revoked' } })).status, 401);
+});
+
+test('agent refresh rolls inactivity expiry and recovers one encrypted successor after concurrent or lost responses', async t => {
+  const baseUrl = await startServer(t);
+  const alice = await owner(baseUrl, '1701');
+  const store = new FileStore(t.dataDir);
+  const oldHash = crypto.createHash('sha256').update(alice.agentRefreshToken).digest('hex');
+  const oldCredential = await store.getJson(path.join('auth', 'agent-refresh-credentials', `${oldHash}.json`));
+  const familyPath = path.join('auth', 'agent-credential-families', alice.inbox.id, alice.agent.id, `${oldCredential.familyId}.json`);
+  const family = await store.getJson(familyPath);
+  const shortenedExpiry = new Date(Date.now() + 600_000).toISOString();
+  await store.putJson(familyPath, { ...family, refreshExpiresAt: shortenedExpiry });
+  const requestBody = { grantType: 'refresh_token', agentRefreshToken: alice.agentRefreshToken, rotationId: 'rotation-concurrent-1' };
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: { ...requestBody, rotationId: undefined } })).status, 400);
+  const concurrent = await Promise.all(Array.from({ length: 6 }, () => api(baseUrl, '/api/agent-token', { body: requestBody })));
+  assert.ok(concurrent.every(response => response.status === 200));
+  assert.ok(concurrent.every(response => JSON.stringify(response.payload) === JSON.stringify(concurrent[0].payload)));
+  const successor = concurrent[0].payload;
+  const renewedFamily = await store.getJson(familyPath);
+  assert.ok(Date.parse(renewedFamily.refreshExpiresAt) > Date.parse(shortenedExpiry) + 28 * 86_400_000);
+  assert.equal(successor.agentRefreshTokenExpiresAt, renewedFamily.refreshExpiresAt);
+  assert.equal(renewedFamily.rotationCounter, family.rotationCounter + 1);
+  const recoveryPath = path.join('auth', 'agent-rotation-recovery', `${oldHash}.json`);
+  const recovery = await store.getJson(recoveryPath);
+  assert.ok(recovery.encrypted.ciphertext);
+  assert.equal(JSON.stringify(recovery).includes(successor.agentApiToken), false);
+  assert.equal(JSON.stringify(recovery).includes(successor.agentRefreshToken), false);
+  assert.equal(JSON.stringify(recovery).includes(alice.agentRefreshToken), false);
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: { ...requestBody, rotationId: 'rotation-different-1' } })).status, 401);
+  assert.deepEqual((await api(baseUrl, '/api/agent-token', { body: requestBody })).payload, successor);
+  await store.putJson(recoveryPath, { ...recovery, expiresAt: new Date(Date.now() - 1_000).toISOString() });
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: requestBody })).status, 401);
+  const nextRotation = { grantType: 'refresh_token', agentRefreshToken: successor.agentRefreshToken, rotationId: 'rotation-revocation-1' };
+  const next = await api(baseUrl, '/api/agent-token', { body: nextRotation });
+  assert.equal(next.status, 200);
+  assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/credentials/revoke`, { session: alice.session, body: {} })).status, 200);
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: nextRotation })).status, 401);
+  for (const secret of [alice.agentRefreshToken, successor.agentApiToken, successor.agentRefreshToken, next.payload.agentRefreshToken]) {
+    assert.equal(t.serverOutput.includes(secret), false);
+  }
 });

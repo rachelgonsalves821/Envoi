@@ -63,7 +63,7 @@ test('removal retains a read-only archive or deletes only the owned inbox and su
   assert.deepEqual(archive.agents, []);
   assert.equal(archive.canManageInbox, false);
   assert.ok(archive.messages.some(message => message.id === sent.payload.id));
-  assert.equal((await api(server.baseUrl, '/api/agent-token', { body: { agentRefreshToken: alice.agentRefreshToken } })).status, 401);
+  assert.equal((await api(server.baseUrl, '/api/agent-token', { body: { agentRefreshToken: alice.agentRefreshToken, rotationId: 'rotation-removed-1' } })).status, 401);
   assert.equal((await api(server.baseUrl, '/mcp', { token: alice.agentApiToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })).status, 401);
   assert.equal((await api(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: stale.payload.enrollmentToken } })).status, 409);
   assert.equal((await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/resume`, { session: alice.session, body: {} })).status, 409);
@@ -159,7 +159,7 @@ test('human pause, case pause, block and revoke gate REST, MCP, work and assets'
   assert.equal(frozen.credentialRevoked, true);
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents`, { session: bob.session })).payload.find(agent => agent.id === bob.agent.id).status, 'revoked');
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents/${bob.agent.id}/resume`, { session: bob.session, body: {} })).status, 409);
-  assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: bob.agentRefreshToken } })).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: bob.agentRefreshToken, rotationId: 'rotation-paused-1' } })).status, 401);
   assert.equal((await api(baseUrl, '/mcp', { token: bob.agentApiToken, body: { jsonrpc: '2.0', id: 2, method: 'tools/list' } })).status, 401);
   assert.equal((await api(baseUrl, '/api/agent/work/claim', { token: bob.agentApiToken, body: {} })).status, 401);
   assert.equal((await send(alice, bob, 'revoked-recipient', 'Must not be delivered')).status, 404);
@@ -176,7 +176,7 @@ test('human pause, case pause, block and revoke gate REST, MCP, work and assets'
   assert.deepEqual(restored.payload.agent.permissions, ['receive_agent_messages']);
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/human-view`, { session: bob.session })).payload.agents.find(agent => agent.id === bob.agent.id).status, 'active');
   assert.equal((await api(baseUrl, '/mcp', { token: bob.agentApiToken, body: { jsonrpc: '2.0', id: 3, method: 'tools/list' } })).status, 401);
-  assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: bob.agentRefreshToken } })).status, 401);
+  assert.equal((await api(baseUrl, '/api/agent-token', { body: { agentRefreshToken: bob.agentRefreshToken, rotationId: 'rotation-revoked-2' } })).status, 401);
   assert.equal((await api(baseUrl, '/api/agent/connection-status', { token: restored.payload.agentApiToken, body: { version: 1, runtime: 'openclaw', phase: 'ready', runtimeTest: 'passed' } })).status, 200);
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/messages`, { token: restored.payload.agentApiToken, key: 'reenrolled-limited', body: { senderAgentId: bob.agent.id, recipientEmail: alice.agent.address, caseId, type: 'request', text: 'Send permission not restored' } })).status, 403);
 });
@@ -199,7 +199,7 @@ test('startup freezes previously revoked credential families without restoring o
   const frozen = (await api(current.baseUrl, `/api/inboxes/${account.inbox.id}/human-view`, { session: account.session })).payload.agents.find(item => item.id === account.agent.id);
   assert.equal(frozen.status, 'revoked');
   assert.deepEqual(frozen.permissions, []);
-  assert.equal((await api(current.baseUrl, '/api/agent-token', { body: { agentRefreshToken: account.agentRefreshToken } })).status, 401);
+  assert.equal((await api(current.baseUrl, '/api/agent-token', { body: { agentRefreshToken: account.agentRefreshToken, rotationId: 'rotation-restart-1' } })).status, 401);
   assert.equal((await api(current.baseUrl, '/mcp', { token: account.agentApiToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })).status, 401);
   assert.equal(JSON.parse(await readFile(agentPath, 'utf8')).status, 'revoked');
   assert.equal(JSON.parse(await readFile(directoryPath, 'utf8')).status, 'revoked');

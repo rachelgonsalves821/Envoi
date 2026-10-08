@@ -269,11 +269,16 @@ export async function putSignedAsset(upload: SignedAssetRequest, body: Uint8Arra
   if (!response.ok) throw new SinaloaError(`Signed upload failed with HTTP ${response.status}`, response.status);
 }
 
-export async function rotateAgentToken(baseUrl: string, agentRefreshToken: string, options: ClientOptions = {}): Promise<AgentTokens> {
+export async function rotateAgentToken(baseUrl: string, agentRefreshToken: string, rotationId: string, options: ClientOptions = {}): Promise<AgentTokens> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(rotationId)) throw new TypeError('Valid rotationId required');
   const response = await fetchWithTimeout(options.fetch || fetch, `${baseUrl.replace(/\/$/, '')}/api/agent-token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ grantType: 'refresh_token', agentRefreshToken })
+    body: JSON.stringify({ grantType: 'refresh_token', agentRefreshToken, rotationId })
   }, timeoutMs(options.timeoutMs));
-  return responsePayload<AgentTokens>(response, 'Envoi token rotation failed');
+  const result = await responsePayload<AgentTokens>(response, 'Envoi token rotation failed');
+  return {
+    agentApiToken: result.agentApiToken, agentRefreshToken: result.agentRefreshToken,
+    agentTokenExpiresAt: result.agentTokenExpiresAt, agentRefreshTokenExpiresAt: result.agentRefreshTokenExpiresAt
+  };
 }
