@@ -62,8 +62,10 @@ for (const [name, input, message] of [
 test('staging deploy refuses an untracked file before invoking Wrangler', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'envoi-staging-deploy-'));
   try {
-    const git = (...argv) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...argv], { cwd, stdio: 'ignore' });
+    const git = (...argv) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...argv], { cwd, stdio: 'ignore' });
     git('init', '-q');
+    // A local config that hides untracked files must not hide them from the deploy check.
+    git('config', 'status.showUntrackedFiles', 'no');
     git('commit', '-q', '--allow-empty', '-m', 'base');
     await writeFile(join(cwd, 'stray.txt'), 'uncommitted');
     await assert.rejects(deployStaging({ cwd, env: {} }), /clean worktree/);

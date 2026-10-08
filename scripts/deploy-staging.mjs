@@ -14,7 +14,7 @@ export async function deployStaging({ cwd = fileURLToPath(new URL('../', import.
   await checkDeploymentConfiguration();
   const git = (...argv) => execFileSync('git', argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   const sha = git('rev-parse', 'HEAD');
-  const args = stagingDeployArgs({ sha, clean: git('status', '--porcelain').length === 0 });
+  const args = stagingDeployArgs({ sha, clean: git('status', '--porcelain', '--untracked-files=all').length === 0 });
   const wrangler = resolve(cwd, 'node_modules/wrangler/bin/wrangler.js');
   const result = spawnSync(process.execPath, [wrangler, ...args], {
     cwd, env: { ...env, CLOUDFLARE_ACCOUNT_ID: RELEASE_ACCOUNT_ID }, stdio: 'inherit'
