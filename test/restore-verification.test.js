@@ -117,6 +117,8 @@ test('configuration requires operator attestations and forces verified productio
   assert.equal(options.source.ssl.ca, 'source fixture CA');
   assert.equal(options.target.ssl.ca, 'target fixture CA');
   assert.equal(options.source.max, 1);
+  const renamedEnv = Object.fromEntries(Object.entries(env).map(([key, value]) => [key.replace(/^SINALOA_/, 'ENVOI_'), value]));
+  assert.equal(validateRestoreConfiguration(renamedEnv).source.ssl.ca, 'source fixture CA');
   assert.throws(() => validateRestoreConfiguration({ ...env, SINALOA_RESTORE_TARGET_ISOLATED: '0' }), { code: 'RESTORE_ATTESTATION_REQUIRED' });
   assert.throws(() => validateRestoreConfiguration({ ...env, SINALOA_RESTORE_SOURCE_QUIESCED: undefined }), { code: 'RESTORE_ATTESTATION_REQUIRED' });
   assert.throws(() => validateRestoreConfiguration({ ...env, SINALOA_RESTORE_SOURCE_DATABASE_URL: `${env.SINALOA_RESTORE_SOURCE_DATABASE_URL}?ssl=false` }), { code: 'RESTORE_CONFIGURATION_INVALID' });

@@ -9,7 +9,7 @@ const defaults = { target: 'staging', sha: main, headSha: main, mainSha: main, c
 test('promotion defaults to a dry-run on the explicit target and records the runtime SHA', () => {
   const plan = promotionPlan(defaults);
   assert.equal(plan.accountId, RELEASE_ACCOUNT_ID);
-  assert.deepEqual(plan.args, ['deploy', '--env', 'staging', '--var', `SINALOA_RELEASE_SHA:${main}`, '--dry-run', '--containers-rollout=none']);
+  assert.deepEqual(plan.args, ['deploy', '--env', 'staging', '--var', `ENVOI_RELEASE_SHA:${main}`, '--dry-run', '--containers-rollout=none']);
 });
 test('premerge candidate can be dry-run but cannot be published', () => {
   const input = { ...defaults, sha: candidate, headSha: candidate };
@@ -18,7 +18,7 @@ test('premerge candidate can be dry-run but cannot be published', () => {
 });
 test('accepted main can publish only the explicit beta target', () => {
   assert.deepEqual(promotionPlan({ ...defaults, target: 'beta', deploy: true }).args,
-    ['deploy', '--env', 'beta', '--var', `SINALOA_RELEASE_SHA:${main}`]);
+    ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]);
 });
 for (const [name, overrides, message] of [
   ['old production target', { target: 'production' }, /explicit staging or beta/],
@@ -31,17 +31,18 @@ for (const [name, overrides, message] of [
 
 test('secret-name gate accepts encrypted names without reading values', () => {
   assert.doesNotThrow(() => requireSecretNames(APP_SECRET_NAMES.map(name => ({ name, type: 'secret_text' }))));
+  assert.doesNotThrow(() => requireSecretNames(APP_SECRET_NAMES.map(name => ({ name: name.replace('ENVOI_', 'SINALOA_'), type: 'secret_text' }))));
 });
 test('secret-name gate reports only missing names and rejects plaintext vars', () => {
   assert.throws(() => requireSecretNames([{ name: 'DATABASE_URL', type: 'plain_text' }], ['DATABASE_URL']),
     /Missing encrypted runtime secrets: DATABASE_URL/);
 });
 test('secret-name gate allows a policy keyring and requires a separate scanner credential', () => {
-  const names = APP_SECRET_NAMES.map(name => ({ name: name === 'SINALOA_POLICY_SIGNING_KEY' ? 'SINALOA_POLICY_SIGNING_KEYS' : name, type: 'secret_text' }));
+  const names = APP_SECRET_NAMES.map(name => ({ name: name === 'ENVOI_POLICY_SIGNING_KEY' ? 'ENVOI_POLICY_SIGNING_KEYS' : name, type: 'secret_text' }));
   assert.doesNotThrow(() => requireSecretNames(names));
-  assert.throws(() => requireSecretNames(names, ['SINALOA_SCANNER_TOKEN']), /SINALOA_SCANNER_TOKEN/);
+  assert.throws(() => requireSecretNames(names, ['ENVOI_SCANNER_TOKEN']), /ENVOI_SCANNER_TOKEN/);
 });
 test('automatic beta Builds pins the exact Git SHA and never selects the old production Worker', () => {
-  assert.deepEqual(betaBuildDeployArgs(main), ['deploy', '--env', 'beta', '--var', `SINALOA_RELEASE_SHA:${main}`]);
+  assert.deepEqual(betaBuildDeployArgs(main), ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]);
   assert.throws(() => betaBuildDeployArgs('short-sha'), /full Git commit SHA/);
 });

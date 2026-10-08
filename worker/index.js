@@ -22,15 +22,15 @@ export class SinaloaContainer extends Container {
   envVars = selectEnvironment(runtimeEnv, CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS);
 
   onStart() {
-    console.log('Sinaloa container started');
+    console.log('Envoi container started');
   }
 
   onStop({ exitCode, reason }) {
-    console.log('Sinaloa container stopped', { exitCode, reason });
+    console.log('Envoi container stopped', { exitCode, reason });
   }
 
   onError(error) {
-    console.error('Sinaloa container failed', {
+    console.error('Envoi container failed', {
       name: error instanceof Error ? error.name : 'Error'
     });
     throw error;
@@ -41,7 +41,7 @@ async function probeContainer(env) {
   const container = getContainer(env.SINALOA_CONTAINER, CONTAINER_NAME);
   const response = await container.fetch(new Request('https://sinaloa-container.internal/ready', {
     method: 'GET',
-    headers: { 'user-agent': 'sinaloa-cloudflare-wake/1.0' },
+    headers: { 'user-agent': 'envoi-cloudflare-wake/1.0' },
     signal: AbortSignal.timeout(25_000)
   }));
   response.body?.cancel();
@@ -51,7 +51,9 @@ async function probeContainer(env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (!isAllowedHostname(url, env.SINALOA_EDGE_ALLOWED_HOSTS)) {
+    if (env.ENVOI_EDGE_ALLOWED_HOSTS !== undefined && env.SINALOA_EDGE_ALLOWED_HOSTS !== undefined
+      && env.ENVOI_EDGE_ALLOWED_HOSTS !== env.SINALOA_EDGE_ALLOWED_HOSTS) return serviceUnavailableResponse();
+    if (!isAllowedHostname(url, env.ENVOI_EDGE_ALLOWED_HOSTS ?? env.SINALOA_EDGE_ALLOWED_HOSTS)) {
       return new Response('Misdirected Request', {
         status: 421,
         headers: { 'cache-control': 'private, no-store' }
@@ -63,7 +65,7 @@ export default {
       const response = await container.fetch(createForwardedRequest(request));
       return withNoStoreHeaders(response);
     } catch (error) {
-      console.error('Sinaloa container request failed', {
+      console.error('Envoi container request failed', {
         name: error instanceof Error ? error.name : 'Error'
       });
       return serviceUnavailableResponse();

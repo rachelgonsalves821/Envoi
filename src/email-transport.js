@@ -1,13 +1,14 @@
 import { Resend } from 'resend';
+import './envoi-environment-bootstrap.js';
 
 const disabledReason = ({ provider, apiKey, webhookSecret, publicDomain, domainVerified }) => {
-  if (provider !== 'resend') return 'SINALOA_EMAIL_PROVIDER must be set to resend';
+  if (provider !== 'resend') return 'ENVOI_EMAIL_PROVIDER must be set to resend';
   if (!apiKey) return 'RESEND_API_KEY is required';
   if (!webhookSecret) return 'RESEND_WEBHOOK_SECRET is required';
-  if (!publicDomain) return 'SINALOA_PUBLIC_EMAIL_DOMAIN is required';
-  if (publicDomain.length > 253 || !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(publicDomain)) return 'SINALOA_PUBLIC_EMAIL_DOMAIN must be a valid public DNS name';
-  if (publicDomain === 'sinaloa.mail' || publicDomain.endsWith('.mail')) return '.mail is not a delegated public top-level domain';
-  if (!domainVerified) return 'SINALOA_EMAIL_DOMAIN_VERIFIED=true is required after provider DNS verification';
+  if (!publicDomain) return 'ENVOI_PUBLIC_EMAIL_DOMAIN is required';
+  if (publicDomain.length > 253 || !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(publicDomain)) return 'ENVOI_PUBLIC_EMAIL_DOMAIN must be a valid public DNS name';
+  if (publicDomain.endsWith('.mail')) return '.mail is not a delegated public top-level domain';
+  if (!domainVerified) return 'ENVOI_EMAIL_DOMAIN_VERIFIED=true is required after provider DNS verification';
   return null;
 };
 
@@ -22,11 +23,11 @@ const transportError = error => {
 
 export class ResendEmailTransport {
   constructor({
-    provider = process.env.SINALOA_EMAIL_PROVIDER || 'disabled',
+    provider = process.env.ENVOI_EMAIL_PROVIDER || 'disabled',
     apiKey = process.env.RESEND_API_KEY || '',
     webhookSecret = process.env.RESEND_WEBHOOK_SECRET || '',
-    publicDomain = String(process.env.SINALOA_PUBLIC_EMAIL_DOMAIN || '').trim().toLowerCase(),
-    domainVerified = process.env.SINALOA_EMAIL_DOMAIN_VERIFIED === 'true',
+    publicDomain = String(process.env.ENVOI_PUBLIC_EMAIL_DOMAIN || '').trim().toLowerCase(),
+    domainVerified = process.env.ENVOI_EMAIL_DOMAIN_VERIFIED === 'true',
     baseUrl = process.env.RESEND_API_BASE_URL || undefined
   } = {}) {
     this.provider = provider;

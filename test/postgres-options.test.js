@@ -12,6 +12,13 @@ test('production PostgreSQL requires certificate-verified TLS', () => {
   assert.deepEqual(options.ssl, { rejectUnauthorized: true, ca: 'test-ca' });
 });
 
+test('PostgreSQL reads ENVOI-prefixed TLS settings', () => {
+  const options = createPostgresOptions('postgresql://user:secret@db.example/envoi', {
+    ENVOI_AUTH_MODE: 'production', ENVOI_DB_SSL_MODE: 'verify-full', ENVOI_DB_CA: 'test-ca'
+  });
+  assert.deepEqual(options.ssl, { rejectUnauthorized: true, ca: 'test-ca' });
+});
+
 test('PostgreSQL options reject URL-level TLS overrides and invalid timeouts', () => {
   assert.throws(() => createPostgresOptions('postgresql://db.example/sinaloa?sslmode=require', {}), /not DATABASE_URL query parameters/);
   assert.throws(() => createPostgresOptions('postgresql://db.example/sinaloa', { SINALOA_DB_POOL_SIZE: 'NaN' }), /positive integer/);

@@ -164,5 +164,9 @@ test('public scanner admission rejects missing/wrong tokens before opening a Con
   }
   const noConfiguredToken = await handler.fetch(new Request('https://scanner.example/health', { headers: { authorization: 'Bearer fixture-token' } }), {});
   assert.equal(noConfiguredToken.status, 401);
+  const renamedToken = await handler.fetch(new Request('https://scanner.example/health', { headers: { authorization: 'Bearer wrong' } }), { ENVOI_SCANNER_TOKEN: 'fixture-token' });
+  assert.equal(renamedToken.status, 401);
+  const conflictingTokens = await handler.fetch(new Request('https://scanner.example/health', { headers: { authorization: 'Bearer fixture-token' } }), { ENVOI_SCANNER_TOKEN: 'fixture-token', SINALOA_SCANNER_TOKEN: 'different-token' });
+  assert.equal(conflictingTokens.status, 503);
   assert.equal(accesses, 0);
 });

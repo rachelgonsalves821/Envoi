@@ -28,6 +28,16 @@ test('only allowlisted non-empty environment values reach the container', () => 
   ), { NODE_ENV: 'production', SAFE: 'value' });
 });
 
+test('Envoi container settings accept matching legacy aliases and reject conflicting values', () => {
+  assert.deepEqual(selectEnvironment({ SINALOA_PUBLIC_URL: 'https://www.envoi-agents.com' }, ['ENVOI_PUBLIC_URL']), {
+    ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com'
+  });
+  assert.deepEqual(selectEnvironment({ ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com' }, ['ENVOI_PUBLIC_URL']), {
+    ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com'
+  });
+  assert.throws(() => selectEnvironment({ ENVOI_PUBLIC_URL: 'https://a.example', SINALOA_PUBLIC_URL: 'https://b.example' }, ['ENVOI_PUBLIC_URL']), /Conflicting Envoi environment aliases/);
+});
+
 test('forwarded headers are derived from the trusted request URL and Cloudflare IP', async () => {
   const original = new Request('https://www.envoi-agents.com:8443/api/messages?cursor=a%2Fb', {
     method: 'POST',

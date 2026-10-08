@@ -6,7 +6,7 @@ import { RELEASE_ACCOUNT_ID } from './promote-release.mjs';
 
 export function betaBuildDeployArgs(sha) {
   if (!/^[a-f0-9]{40}$/.test(sha || '')) throw new Error('Beta build requires a full Git commit SHA');
-  return ['deploy', '--env', 'beta', '--var', `SINALOA_RELEASE_SHA:${sha}`];
+  return ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${sha}`];
 }
 
 export async function deployBetaBuild({ cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env } = {}) {

@@ -156,7 +156,7 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
       return sendJson(res, 200, rpcError(id, -32602, 'Invalid initialize parameters'));
     }
     const protocolVersion = supportedVersions.has(request.params.protocolVersion) ? request.params.protocolVersion : currentVersion;
-    return sendJson(res, 200, rpcResult(id, { protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'sinaloa', version: '0.1.0' } }));
+    return sendJson(res, 200, rpcResult(id, { protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'envoi', version: '0.1.0' } }));
   }
   const version = req.headers['mcp-protocol-version'];
   if (version && !supportedVersions.has(String(version))) return sendJson(res, 400, rpcError(id, -32600, 'Unsupported MCP protocol version'));

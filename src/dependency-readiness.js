@@ -1,7 +1,10 @@
+import { applyEnvoiEnvironmentAliases } from './envoi-environment.js';
+
 export function scannerHealthUrl(env) {
-  const scanner = new URL(env.SINALOA_MALWARE_SCANNER_URL);
-  const health = env.SINALOA_MALWARE_SCANNER_HEALTH_URL
-    ? new URL(env.SINALOA_MALWARE_SCANNER_HEALTH_URL)
+  env = applyEnvoiEnvironmentAliases({ ...env });
+  const scanner = new URL(env.ENVOI_MALWARE_SCANNER_URL);
+  const health = env.ENVOI_MALWARE_SCANNER_HEALTH_URL
+    ? new URL(env.ENVOI_MALWARE_SCANNER_HEALTH_URL)
     : new URL('/health', scanner);
   if (health.origin !== scanner.origin || health.username || health.password) {
     throw new Error('Scanner health endpoint must use the scanner origin');
@@ -10,10 +13,11 @@ export function scannerHealthUrl(env) {
 }
 
 export async function checkScannerHealth(env, { signal, fetchImpl = fetch } = {}) {
+  env = applyEnvoiEnvironmentAliases({ ...env });
   const response = await fetchImpl(scannerHealthUrl(env), {
     method: 'GET', redirect: 'error', signal,
-    headers: env.SINALOA_MALWARE_SCANNER_TOKEN
-      ? { authorization: `Bearer ${env.SINALOA_MALWARE_SCANNER_TOKEN}` }
+    headers: env.ENVOI_MALWARE_SCANNER_TOKEN
+      ? { authorization: `Bearer ${env.ENVOI_MALWARE_SCANNER_TOKEN}` }
       : {}
   });
   if (response.status !== 200) {
@@ -27,7 +31,8 @@ export async function checkScannerHealth(env, { signal, fetchImpl = fetch } = {}
 // These probes establish connectivity/configuration, not end-to-end provider
 // functionality. Signed uploads and actual sign-in are separate release gates.
 export function dependencyReadinessChecks({ store, adapter, provider, env, externalEmailEnabled, emailTransport }) {
-  const production = env.SINALOA_AUTH_MODE === 'production';
+  env = applyEnvoiEnvironmentAliases({ ...env });
+  const production = env.ENVOI_AUTH_MODE === 'production';
   return [
     { name: 'database', run: () => store.queryJson('readiness-probe', { limit: 1 }) },
     { name: 'objectStorageReadAccess', critical: production, run: async () => {

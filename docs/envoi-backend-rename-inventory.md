@@ -1,15 +1,16 @@
 # Envoi backend rename inventory
 
-Audited against `origin/main` at `376c760bc100b38c8f1c9f689875019f58327724` on 2026-10-08. This is a source inventory, not a fresh Cloudflare dashboard audit. The mapping for every `SINALOA_*` environment key below is the same suffix under `ENVOI_*` (for example, `SINALOA_PUBLIC_URL` → `ENVOI_PUBLIC_URL`). No runtime key or Cloudflare resource was renamed by this inventory change.
+Audited against `origin/main` at `376c760bc100b38c8f1c9f689875019f58327724` on 2026-10-08. This is a source inventory, not a fresh Cloudflare dashboard audit. The mapping for every `SINALOA_*` environment key below is the same suffix under `ENVOI_*` (for example, `SINALOA_PUBLIC_URL` → `ENVOI_PUBLIC_URL`). This branch updates backend reads, Worker forwarding, scanner lookup, examples, package identity, and user-visible service labels. Existing Cloudflare settings remain untouched. During the transition, old and new key names are accepted only when their values agree.
 
-## Change now without a cutover
+## Changed in code without a live cutover
 
-- Human-readable process logs: `Sinaloa delivery worker failed` and `Sinaloa backend listening` can say Envoi. These two log strings are changed with this inventory. They are not structured event identifiers.
-- Future comments and purely internal local identifiers may be renamed when their owning code is touched, provided exported names, stored data, and wire formats are unchanged.
+- Human-readable process logs, the private npm package name, WorkOS metadata on newly created organizations, MCP server display name, and `/health`/`/ready` `service` now say Envoi. The deployment smoke script accepts either service label while older releases remain live.
+- Backend code reads `ENVOI_*` names; the Container startup, migration entry point, production validator, and PostgreSQL option builder accept existing `SINALOA_*` settings through a conflict-detecting compatibility layer. The Worker allowlist forwards `ENVOI_*`, falling back to old dashboard names. The scanner accepts either token name, but refuses conflicting tokens.
+- The development-only agent domain defaults to `envoi.mail`; production already uses `agents.envoi-agents.com`. This does not migrate previously stored development addresses.
 
 ## Runtime environment keys: rename only as one coordinated migration
 
-These are live configuration interfaces, not just variable labels. `worker/runtime-config.js` forwards allowed keys to the Container; `src/production-config.js`, `src/server.js`, `src/auth.js`, `src/workos-auth.js`, storage and scanner modules read or validate them; `wrangler.jsonc` and the environment examples declare values. A Cloudflare dashboard rename before all consumers support `ENVOI_*` can prevent startup or disable a security check. Preserve existing encrypted secret **values** during the transition; do not print or copy them into source control.
+These are live configuration interfaces, not just variable labels. This branch prepares new consumers, but `wrangler.jsonc` and the current dashboard still declare old names. Existing `SINALOA_*` values continue to work after this code is deployed. Do not change dashboard keys ahead of a reviewed staging deployment and a secret-safe cutover. Preserve existing encrypted secret **values** during the transition; do not print or copy them into source control.
 
 | Group | Exact current keys (`SINALOA_` prefix omitted; proposed prefix `ENVOI_`) |
 | --- | --- |
@@ -21,7 +22,7 @@ These are live configuration interfaces, not just variable labels. `worker/runti
 | Limits, health and release | `MAX_BODY_BYTES`, `MAX_SSE_PER_PRINCIPAL`, `READINESS_TIMEOUT_MS`, `REQUEST_TIMEOUT_MS`, `RELEASE_SHA` |
 | Restore and stress tooling only | `RESTORE_SOURCE_DATABASE_URL`, `RESTORE_SOURCE_DB_CA`, `RESTORE_SOURCE_QUIESCED`, `RESTORE_TARGET_DATABASE_URL`, `RESTORE_TARGET_DB_CA`, `RESTORE_TARGET_ISOLATED`, `STRESS_READS`, `STRESS_WRITES_PER_CASE` |
 
-`SINALOA_CONTAINER` is a **Cloudflare Durable Object binding**, not an environment variable. It appears in Wrangler and Worker code and must be changed as a binding migration. `SINALOA_SCANNER_TOKEN` is the scanner Worker's side of the shared scanner credential; its name must change together with app-side `SINALOA_MALWARE_SCANNER_TOKEN` and both Worker configurations. Generic `DATABASE_URL`, `WORKOS_*`, and other provider keys do not need a product-name rename.
+`SINALOA_CONTAINER` is a **Cloudflare Durable Object binding**, not an environment variable. It appears in Wrangler and Worker code and must be changed as a binding migration. `SINALOA_SCANNER_TOKEN` is the scanner Worker's side of the shared scanner credential; the code also accepts `ENVOI_SCANNER_TOKEN`. Generic `DATABASE_URL`, `WORKOS_*`, and other provider keys do not need a product-name rename.
 
 ## Names that are not runtime variables
 
@@ -29,17 +30,20 @@ These are live configuration interfaces, not just variable labels. `worker/runti
 | --- | --- | --- |
 | Cloudflare resources | Worker `sinaloa`, staging/beta/scanner Worker and Container names, R2 bucket names, and `SinaloaContainer` class | These identify deployed resources and state. Plan a distinct infrastructure migration; do not search-and-replace them in a backend cleanup. |
 | PostgreSQL | `sinaloa_*` tables, migration ledger and advisory lock, plus existing Neon project/database names | Keep physical names until a tested migration and restore path exist. Renaming JavaScript SQL strings alone would break persistence. |
-| Agent protocol | `sinaloa_*` MCP tool IDs, server info, schema `$id`, connector download paths and package names | Existing clients depend on these names. Add tested aliases/versioning before retiring old IDs. They need not change for the public Envoi domain to function. |
-| Observability and API | `sinaloa.operational_backlog` event, `sinaloa.operational_backlog_error`, and `/health`/`/ready` `service: "sinaloa"` | Monitoring and smoke scripts can consume these. Change only with dashboard, alert and test updates, or keep as compatibility identifiers. |
-| WorkOS and cookies | WorkOS organization metadata `product: "sinaloa"`, default `sinaloa_session` and `sinaloa_csrf` cookie names | Metadata may be used by the provider; cookie rename signs users out and needs coordinated settings. |
-| Development sentinels | `sinaloa.mail`, `sinaloa.invalid`, development-only key derivation salts and readiness object name | Preserve until tests, local fixtures and any security semantics are reviewed. These are not the public agent-address domain. |
+| Agent protocol | `sinaloa_*` MCP tool IDs, schema `$id`, connector-internal names and stored token prefixes | Existing clients depend on these names. Add tested aliases/versioning before retiring old IDs. The MCP server's display name now says Envoi. |
+| Observability and API | `sinaloa.operational_backlog` and `sinaloa.operational_backlog_error` structured events | Monitoring may consume these. The health/readiness service label now says Envoi; update any external alert or dashboard matching the old value before promoting the branch. |
+| WorkOS and cookies | Existing WorkOS organization metadata `product: "sinaloa"`, default `sinaloa_session` and `sinaloa_csrf` cookie names | New organization metadata says Envoi. Existing records are historical; cookie rename signs users out and needs coordinated settings. |
+| Development sentinels | Development-only key derivation salts and readiness object name | Preserve until local persistence and security semantics are reviewed. These are not the public agent-address domain. |
 | Historical evidence | Older docs, audit records, PR links and incident evidence | Keep historically accurate. Current operator docs can add Envoi terminology without rewriting dated observations. |
 
-## Safe migration order after this inventory is reviewed
+## Manual actions after this branch is deployed and staging passes
 
-1. Add one centralized environment reader for each `ENVOI_*` key with a documented fallback to the corresponding `SINALOA_*` key. If both are set with different values, fail startup for security-critical settings rather than silently choosing one. Update Worker forwarding, preflight, examples and tests in the same candidate.
-2. Validate staging with the **existing** names, then add new names with identical values to the staging Worker and scanner. Confirm Container startup, `/ready`, sign-in, database, R2 and scanner. Never log secret values.
-3. Move beta configuration only after staging evidence. Rotate secrets only when independently required; a rename is not a rotation. Once all deployments and rollback targets consume new names, remove old names in a later release.
-4. Treat Cloudflare resource identities, database names, MCP tool IDs, cookies and monitoring schemas as separate migrations with their own compatibility and rollback decisions. No production-domain move depends on renaming those internals.
+1. **Cloudflare → Workers & Pages → `sinaloa-staging` → Settings → Variables and Secrets:** for each existing `SINALOA_*` runtime key, add the matching `ENVOI_*` key with the same value. Start with non-secrets; obtain encrypted values only from the authorized secret source or rotate them. Never paste values into chat, GitHub, or docs. Confirm `/ready`, sign-in, database, R2 and scanner against the exact deployed SHA. Do not delete old keys until rollback also understands new names.
+2. Repeat for the **beta application Worker** only after staging passes. The sensitive encrypted keys include `SINALOA_DATA_ENCRYPTION_KEY`, `SINALOA_POLICY_SIGNING_KEY`/`SINALOA_POLICY_SIGNING_KEYS`, `SINALOA_S3_ACCESS_KEY_ID`, `SINALOA_S3_SECRET_ACCESS_KEY`, and `SINALOA_MALWARE_SCANNER_TOKEN`. `SINALOA_BETA_INVITED_EMAILS` is a configuration value containing private addresses; handle it accordingly. `DATABASE_URL`, `WORKOS_API_KEY`, and `WORKOS_COOKIE_PASSWORD` retain their existing names.
+3. **Cloudflare → scanner Workers (`sinaloa-scanner-staging` and `sinaloa-scanner-beta`) → Settings → Variables and Secrets:** add `ENVOI_SCANNER_TOKEN` with the same stage-specific value as `SINALOA_SCANNER_TOKEN`. The app Worker's `ENVOI_MALWARE_SCANNER_TOKEN` must match its scanner. Do not reuse the staging token in beta. Verify authenticated scanner health and one clean/infected fixture before deleting old names.
+4. **Cloudflare → Workers & Pages → Builds and routes:** review the connected staging/beta build commands, custom-domain routes, the old `beta.sinaloa-inbox.com` route, and any external checks expecting `/health` `service: "sinaloa"`. The old hostname and `wrangler.jsonc` route are still present; retire them only with the domain release. A rename of Worker, Container, Durable Object binding/class or R2 bucket needs a distinct migration with rollback; it is not a dashboard variable edit.
+5. **WorkOS dashboard:** optionally relabel the existing `Sinaloa Beta`/`Sinaloa Staging` applications. Do not change client IDs, callback URLs or cookie names merely to change display text. Existing organization metadata can remain historical.
+6. **Neon dashboard:** project/database names `sinaloa-beta`, `sinaloa-staging`, `sinaloa_beta`, and `sinaloa_staging` are resource identities. Leave them until there is a separate backed-up database migration; no agent-facing Envoi address depends on their names.
+7. After all deployed releases and rollback targets consume `ENVOI_*`, remove old aliases in a later PR. Treat database tables, MCP tool IDs, token prefixes, cookies and structured monitoring event names as separate compatibility migrations.
 
-This inventory intentionally does **not** instruct an operator to rename Cloudflare dashboard keys now.
+Do **not** rename Cloudflare dashboard keys before this branch is deployed and tested in staging. A key rename is not a credential rotation.

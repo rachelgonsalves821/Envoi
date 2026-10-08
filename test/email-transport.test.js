@@ -30,7 +30,7 @@ test('email transport remains fail-closed until provider, public domain, webhook
     provider: 'resend',
     apiKey: 're_test',
     webhookSecret: `whsec_${Buffer.alloc(32, 1).toString('base64')}`,
-    publicDomain: 'sinaloa.mail',
+    publicDomain: 'envoi.mail',
     domainVerified: true
   });
   assert.equal(reservedDomain.ready, false);

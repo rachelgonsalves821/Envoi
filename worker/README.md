@@ -1,6 +1,6 @@
 # Cloudflare Containers deployment
 
-This adapter runs one beta Sinaloa application container behind a Cloudflare Worker. All HTTP methods, cookies, CSRF headers, encoded paths, streaming response bodies, and Server-Sent Events pass through to the Node application. Authenticated responses are marked `no-store` at the edge.
+This adapter runs one beta Envoi application container behind a Cloudflare Worker. All HTTP methods, cookies, CSRF headers, encoded paths, streaming response bodies, and Server-Sent Events pass through to the Node application. Authenticated responses are marked `no-store` at the edge.
 
 The Worker uses a stable Durable Object name and `max_instances: 1`, so every request reaches the same beta container. A one-minute Cron Trigger calls `/ready`; this wakes a stopped container and continually resets the five-minute idle timeout while scheduling is healthy. If multiple application containers are introduced later, move delivery polling to a separately leased worker before increasing `max_instances`.
 
@@ -8,7 +8,7 @@ The Worker uses a stable Durable Object name and `max_instances: 1`, so every re
 
 Follow the [closed-beta launch runbook](../docs/closed-beta-launch-runbook.md) for release gates and evidence. Promote one reviewed, merged-main commit explicitly to `sinaloa-staging`, then to `sinaloa-beta`. Record its full SHA, successful CI run, deployment outputs, Worker versions and Container image identifiers in the release evidence. Recheck `git rev-parse HEAD` against the recorded SHA before each deploy. Use a clean checkout; any fix requires a new merged SHA and renewed staging acceptance.
 
-The old production Worker `sinaloa` must remain disconnected from Git Builds. The unqualified `npm run cf:deploy` deliberately fails. Use the promotion wrapper below for release deployments. It selects the intended Cloudflare account, validates the recorded SHA and clean checkout, and supplies `SINALOA_RELEASE_SHA` to the selected environment. Actual deployment requires HEAD to equal both the recorded SHA and the fetched `origin/main`; dry-run permits a candidate descended from `origin/main`.
+The old production Worker `sinaloa` must remain disconnected from Git Builds. The unqualified `npm run cf:deploy` deliberately fails. Use the promotion wrapper below for release deployments. It selects the intended Cloudflare account, validates the recorded SHA and clean checkout, and supplies `ENVOI_RELEASE_SHA` to the selected environment. Actual deployment requires HEAD to equal both the recorded SHA and the fetched `origin/main`; dry-run permits a candidate descended from `origin/main`.
 
 | Target | Deploy command | First application smoke origin |
 | --- | --- | --- |

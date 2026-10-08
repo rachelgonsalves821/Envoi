@@ -127,7 +127,7 @@ test('the server passes the recheck window when it authorizes an open event stre
   // the one line in src/server.js that connects the two.
   const source = await readFile(new URL('../src/server.js', import.meta.url), 'utf8');
   assert.match(source, /canAccessInbox\(human, inbox, \{ maxAgeMs: streamMembershipRecheckMs \}\)/);
-  assert.match(source, /streamRecheckMs\(process\.env\.SINALOA_STREAM_MEMBERSHIP_RECHECK_MS\)/);
+  assert.match(source, /streamRecheckMs\(process\.env\.ENVOI_STREAM_MEMBERSHIP_RECHECK_MS\)/);
 });
 
 test('a system clock that jumps backwards cannot make an old answer look fresh', async t => {
