@@ -45,7 +45,7 @@ export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', 
   const headSha = git('rev-parse', 'HEAD');
   const mainSha = git('rev-parse', 'origin/main');
   const plan = promotionPlan({ target, sha, headSha, mainSha,
-    clean: git('status', '--porcelain').length === 0,
+    clean: git('status', '--porcelain', '--untracked-files=all').length === 0,
     descendedFromMain: spawnSync('git', ['merge-base', '--is-ancestor', mainSha, headSha], { cwd }).status === 0,
     deploy: flags.includes('--deploy') });
   await checkDeploymentConfiguration();
