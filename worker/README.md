@@ -15,7 +15,7 @@ The old production Worker `sinaloa` must remain disconnected from Git Builds. Th
 | Staging | `node scripts/promote-release.mjs staging FULL_SHA --deploy` | `https://sinaloa-staging.rachelgonsalves821.workers.dev/` |
 | Beta | `node scripts/promote-release.mjs beta FULL_SHA --deploy` | `https://www.envoi-agents.com/` |
 
-Replace `FULL_SHA` with the recorded full 40-hex SHA. Omit `--deploy` for a dry-run. Fetch `origin/main` before selecting the merged release candidate. The underlying `cf:deploy:staging` and `cf:deploy:beta` scripts remain explicit target commands, but the release wrapper also stamps the SHA needed for hosted evidence.
+Replace `FULL_SHA` with the recorded full 40-hex SHA. Omit `--deploy` for a dry-run. Fetch `origin/main` before selecting the merged release candidate. The underlying `cf:deploy:staging` and `cf:deploy:beta` scripts remain explicit target commands. Both stamp `SINALOA_RELEASE_SHA` from `git rev-parse HEAD`, and `cf:deploy:staging` (`scripts/deploy-staging.mjs`) also refuses a dirty worktree, including untracked files, so staging `/health` always names the source that was deployed.
 
 Beta is **custom-domain-only**: `env.beta.workers_dev` is false and its edge hostname allowlist contains `www.envoi-agents.com` plus the temporary existing `beta.sinaloa-inbox.com` route. Do not smoke the beta application's workers.dev hostname or widen the allowlist to accommodate it. The first new-domain application smoke occurs after custom-domain binding. The separate beta scanner uses its own workers.dev origin and authenticated health contract.
 
@@ -23,9 +23,18 @@ The beta deploy binds `www.envoi-agents.com`, retains `beta.sinaloa-inbox.com` d
 
 ## Workers Builds
 
-As recorded in the launch audit, **Workers & Pages → sinaloa-staging → Settings → Builds** tracks `codex/staging-readiness`, with preview-branch builds off. A merge to `main` does not automatically promote that SHA to staging. Use the explicit recorded-SHA procedure above, and freeze concurrent staging Builds during acceptance so another deployment cannot replace the candidate under test. Record the deployed Worker version for each acceptance run. Changing the Builds branch or resuming automatic builds is a separate provider configuration decision.
+As recorded in the launch audit, **Workers & Pages → sinaloa-staging → Settings → Builds** tracks `codex/staging-readiness`, with preview-branch builds off, and its deploy command `npx wrangler deploy --env staging` does not set `SINALOA_RELEASE_SHA`, so staging `/health` reports `releaseSha: null`. A merge to `main` does not automatically promote that SHA to staging. Use the explicit recorded-SHA procedure above, and freeze concurrent staging Builds during acceptance so another deployment cannot replace the candidate under test. Record the deployed Worker version for each acceptance run. Changing the Builds branch or resuming automatic builds is a separate provider configuration decision.
 
 The staging Builds configuration uses root directory `/`, Node 22 from `.node-version`, build command `npm run build`, and deploy command `npx wrangler deploy --env staging`. Workers Builds installs lockfile dependencies; GitHub CI runs the broader suite.
+
+### Staging dashboard change for the agent-native build (human-only, H-2)
+
+The agent-native build runs its hosted gates on exact `integration/agent-native` SHAs. Only the human owner changes Cloudflare settings. Choose **one** option in **Workers & Pages → sinaloa-staging → Settings → Builds**:
+
+- **Option 1 — keep automatic builds on the integration branch.** Set the production branch to `integration/agent-native`, keep preview-branch builds off, keep build command `npm run build`, and change the deploy command to `npm run cf:deploy:staging`. Every integration push then redeploys staging with its own SHA. The deploy fails if `npm run build` leaves the checkout dirty, which means committed generated files (`web/**`, `release.json`) are stale; fix that on the branch rather than relaxing the check. Pause builds while a gate is being run so the SHA under test is not replaced.
+- **Option 2 — deploy staging only by hand (recommended during gates).** Disconnect the Git repository or turn off automatic builds. Deploy each gate SHA from a clean checkout with `git checkout <sha>`, `npm ci`, `npm run build`, then `npm run cf:deploy:staging` (or `node scripts/promote-release.mjs staging <sha> --deploy` once that SHA is on `main`).
+
+Either way, after deploying, confirm `npm run smoke:deployment -- https://sinaloa-staging.rachelgonsalves821.workers.dev/ <sha>` passes. That check requires `/health` and `/ready` to report the exact `releaseSha`.
 
 Container deployments must use `wrangler deploy`; `wrangler versions upload` does not publish updated container images.
 
