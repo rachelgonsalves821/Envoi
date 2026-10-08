@@ -78,6 +78,7 @@ const policyKeyring = Object.freeze({ activeKeyId: policyActiveKeyId, keys: Obje
 const emailTransport = createEmailTransport();
 const agentAccessTokenTtlSeconds = Math.max(60, Number(process.env.SINALOA_AGENT_ACCESS_TOKEN_TTL_SECONDS || 900));
 const agentRefreshTokenTtlDays = Math.max(1, Number(process.env.SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS || 30));
+const agentRotationRecoveryMs = 5 * 60_000;
 const configuredAgentWorkLeaseMs = Number(process.env.SINALOA_AGENT_WORK_LEASE_MS || 60_000);
 const agentWorkLeaseMs = Number.isFinite(configuredAgentWorkLeaseMs) ? Math.max(1_000, Math.min(300_000, configuredAgentWorkLeaseMs)) : 60_000;
 const configuredAgentWorkMaxAttempts = Number(process.env.SINALOA_AGENT_WORK_MAX_ATTEMPTS || 5);
@@ -337,6 +338,7 @@ const publicCalendarConnector = connector => {
 const bearerToken = req => (req.headers.authorization || '').startsWith('Bearer ') ? req.headers.authorization.slice(7) : null;
 const agentCredentialPath = tokenHash => path.join('auth', 'agent-credentials', `${tokenHash}.json`);
 const agentRefreshCredentialPath = tokenHash => path.join('auth', 'agent-refresh-credentials', `${tokenHash}.json`);
+const agentRotationRecoveryPath = tokenHash => path.join('auth', 'agent-rotation-recovery', `${tokenHash}.json`);
 const agentCredentialFamilyPath = (inboxId, agentId, familyId) => path.join('auth', 'agent-credential-families', inboxId, agentId, `${familyId}.json`);
 const enrollmentIndexPath = (inboxId, enrollmentId) => path.join('inboxes', inboxId, 'agent-enrollments', `${enrollmentId}.json`);
 const expiresAfter = milliseconds => new Date(Date.now() + milliseconds).toISOString();
@@ -351,7 +353,7 @@ function scopedMcpReadRequest(req, inboxId, caseId) {
     && [...url.searchParams.keys()].every(key => ['caseId', 'limit', 'before'].includes(key));
 }
 
-async function issueAgentCredentials(agentId, inboxId, familyId = store.id('credential_family')) {
+async function issueAgentCredentials(agentId, inboxId, familyId = store.id('credential_family'), rollRefreshExpiry = false) {
   const issuedAt = store.now();
   const familyPath = agentCredentialFamilyPath(inboxId, agentId, familyId);
   const existingFamily = await store.getJson(familyPath);
@@ -366,6 +368,7 @@ async function issueAgentCredentials(agentId, inboxId, familyId = store.id('cred
     revokedAt: null
   };
   if (new Date(family.refreshExpiresAt) <= new Date()) throw Object.assign(new Error('Agent credential family is expired'), { statusCode: 401 });
+  if (rollRefreshExpiry) family.refreshExpiresAt = expiresAfter(agentRefreshTokenTtlDays * 86_400_000);
   const agentApiToken = `sinaloa_agent_access_${crypto.randomBytes(32).toString('base64url')}`;
   const agentRefreshToken = `sinaloa_agent_refresh_${crypto.randomBytes(48).toString('base64url')}`;
   const agentTokenExpiresAt = expiresAfter(agentAccessTokenTtlSeconds * 1000);
@@ -380,23 +383,67 @@ async function issueAgentCredentials(agentId, inboxId, familyId = store.id('cred
   return { agentApiToken, agentRefreshToken, agentTokenExpiresAt, agentRefreshTokenExpiresAt, tokenType: 'Bearer' };
 }
 
-async function rotateAgentCredentials(rawRefreshToken) {
+const invalidAgentRefresh = () => Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
+const rotationRecoveryKey = rawRefreshToken => crypto.hkdfSync('sha256', Buffer.from(rawRefreshToken), connectorEncryptionKey(), Buffer.from('envoi-agent-rotation-recovery-v1'), 32);
+const rotationRecoveryContext = (tokenHash, familyId, rotationIdHash) => `${tokenHash}:${familyId}:${rotationIdHash}`;
+function encryptAgentRotation(rawRefreshToken, context, successor) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', rotationRecoveryKey(rawRefreshToken), iv);
+  cipher.setAAD(Buffer.from(context));
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(successor), 'utf8'), cipher.final()]);
+  return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') };
+}
+function decryptAgentRotation(rawRefreshToken, context, encrypted) {
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', rotationRecoveryKey(rawRefreshToken), Buffer.from(encrypted.iv, 'base64'));
+    decipher.setAAD(Buffer.from(context));
+    decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
+    return JSON.parse(Buffer.concat([decipher.update(Buffer.from(encrypted.ciphertext, 'base64')), decipher.final()]).toString('utf8'));
+  } catch { throw invalidAgentRefresh(); }
+}
+
+async function rotateAgentCredentials(rawRefreshToken, rotationId) {
   if (!String(rawRefreshToken || '').startsWith('sinaloa_agent_refresh_')) throw Object.assign(new Error('Valid agent refresh token required'), { statusCode: 401 });
-  const refreshPath = agentRefreshCredentialPath(hashSecret(rawRefreshToken));
+  if (typeof rotationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(rotationId)) throw Object.assign(new Error('Valid rotationId required'), { statusCode: 400 });
+  const tokenHash = hashSecret(rawRefreshToken);
+  const rotationIdHash = hashSecret(rotationId);
+  const refreshPath = agentRefreshCredentialPath(tokenHash);
   const pending = await store.getJson(refreshPath);
-  if (!pending?.inboxId) throw Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
+  if (!pending?.inboxId) throw invalidAgentRefresh();
   const rotate = async () => {
     const current = await store.getJson(refreshPath);
-    if (!current || current.tokenType !== 'refresh' || current.revokedAt || current.usedAt || new Date(current.expiresAt) <= new Date()) throw Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
+    if (!current || current.tokenType !== 'refresh' || current.revokedAt) throw invalidAgentRefresh();
     const family = await store.getJson(agentCredentialFamilyPath(current.inboxId, current.agentId, current.familyId));
     if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) throw Object.assign(new Error('Agent credential family is invalid or revoked'), { statusCode: 401 });
     const agent = await store.getJson(path.join('inboxes', current.inboxId, 'agents', `${current.agentId}.json`));
     if (agent?.status !== 'active' || agent.onboardingStatus !== 'approved') throw Object.assign(new Error('Agent is not active and approved'), { statusCode: 401 });
+    if (current.usedAt) {
+      const recovery = await store.getJson(agentRotationRecoveryPath(tokenHash));
+      if (!recovery || recovery.rotationIdHash !== rotationIdHash || recovery.familyId !== current.familyId || new Date(recovery.expiresAt) <= new Date()) throw invalidAgentRefresh();
+      return decryptAgentRotation(rawRefreshToken, rotationRecoveryContext(tokenHash, current.familyId, rotationIdHash), recovery.encrypted);
+    }
+    if (new Date(current.expiresAt) <= new Date()) throw invalidAgentRefresh();
     const claimed = await store.claimJson(refreshPath, 'usedAt', store.now());
-    if (!claimed) throw Object.assign(new Error('Agent refresh token is invalid, expired, or already used'), { statusCode: 401 });
-    return issueAgentCredentials(current.agentId, current.inboxId, current.familyId);
+    if (!claimed) throw invalidAgentRefresh();
+    const successor = await issueAgentCredentials(current.agentId, current.inboxId, current.familyId, true);
+    await store.putJson(agentRotationRecoveryPath(tokenHash), {
+      tokenHash, familyId: current.familyId, rotationIdHash,
+      expiresAt: expiresAfter(agentRotationRecoveryMs),
+      encrypted: encryptAgentRotation(rawRefreshToken, rotationRecoveryContext(tokenHash, current.familyId, rotationIdHash), successor)
+    });
+    return successor;
   };
   return typeof store.withTransaction === 'function' ? store.withTransaction([inboxMutationKey(pending.inboxId)], rotate) : rotate();
+}
+
+async function reapAgentRotationRecovery() {
+  const records = await store.listJson(path.join('auth', 'agent-rotation-recovery'));
+  const now = Date.now();
+  for (const record of records) {
+    if (/^[a-f0-9]{64}$/.test(record.tokenHash) && Date.parse(record.expiresAt) <= now) {
+      await store.deleteJson(agentRotationRecoveryPath(record.tokenHash));
+    }
+  }
 }
 
 const getAgentPrincipal = async (req, inboxId) => {
@@ -2111,7 +2158,7 @@ async function route(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/agent-token') {
     const input = await body(req);
     if ((input.grantType || 'refresh_token') !== 'refresh_token') return fail(res, 400, 'Only refresh_token grant is supported');
-    return json(res, 200, await rotateAgentCredentials(input.agentRefreshToken));
+    return json(res, 200, await rotateAgentCredentials(input.agentRefreshToken, input.rotationId));
   }
 
   if (req.method === 'GET' && ['/api/auth/workos/sign-in', '/api/auth/workos/sign-up'].includes(url.pathname)) {
@@ -3752,6 +3799,8 @@ operationalBacklogLogger.unref?.();
 void logOperationalBacklog();
 const objectQuotaReaper = setInterval(() => objectStorage.reapExpiredUploads({ limit: 25 }).catch(error => console.error('Object upload cleanup failed', { name: error?.name || 'Error', code: error?.code || 'UPLOAD_CLEANUP_FAILED' })), Number(process.env.SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
 objectQuotaReaper.unref?.();
+const agentRotationReaper = setInterval(() => { void reapAgentRotationRecovery().catch(() => console.error('Agent rotation recovery cleanup failed')); }, agentRotationRecoveryMs);
+agentRotationReaper.unref?.();
 const objectScanWorker = scanJobStore ? setInterval(() => { void runObjectScans(); }, objectScanWorkerIntervalMs) : null;
 const objectScanRetentionWorker = scanJobStore ? setInterval(() => { void runObjectScanRetention(); }, objectScanRetentionIntervalMs) : null;
 objectScanWorker?.unref?.();
@@ -3776,6 +3825,7 @@ const shutdown = () => {
   shutdownStarted = true;
   scanLifecycleStopping = true;
   clearInterval(objectQuotaReaper);
+  clearInterval(agentRotationReaper);
   clearInterval(operationalBacklogLogger);
   if (waitlistSheetInterval) clearInterval(waitlistSheetInterval);
   if (objectScanWorker) clearInterval(objectScanWorker);

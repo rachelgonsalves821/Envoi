@@ -50,7 +50,7 @@ All routes are scoped to `/api/inboxes/:inboxId`.
 | `POST` | `/assets/:assetId/complete` | Asset creator or administrator | Verify the upload and run malware scanning |
 | `GET` | `/assets/:assetId/download` | Workspace member or agent | Obtain a short-lived signed URL for a clean asset |
 
-Agent enrollment returns a short-lived `agentApiToken` and a one-use `agentRefreshToken`. Rotate the refresh token through `POST /api/agent-token`; every successful refresh invalidates the previous refresh token. Workspace administrators can revoke every active credential family through `POST /api/inboxes/:inboxId/agents/:agentId/credentials/revoke`.
+Agent enrollment returns a short-lived `agentApiToken` and a one-use `agentRefreshToken`. Rotate through `POST /api/agent-token` with a durably saved `rotationId`. Each successful refresh extends the family's inactivity deadline and consumes the old token. An exact retry of the old token and ID recovers the same successor for five minutes; a different ID is rejected. Workspace administrators can revoke every active credential family through `POST /api/inboxes/:inboxId/agents/:agentId/credentials/revoke`.
 
 Agent action, proposal acceptance, and human action requests must send `Idempotency-Key`. The same key returns the original action result instead of repeating the side effect.
 

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import re
 import socket
 from typing import Any, Dict, Optional
 from urllib import error, parse, request
@@ -105,8 +106,10 @@ class SinaloaClient:
         return self._request(f"/api/inboxes/{parse.quote(inbox_id, safe='')}/events/delta?{query}")
 
 
-def rotate_agent_token(base_url: str, agent_refresh_token: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> AgentTokens:
-    payload = json.dumps({"grantType": "refresh_token", "agentRefreshToken": agent_refresh_token}).encode("utf-8")
+def rotate_agent_token(base_url: str, agent_refresh_token: str, rotation_id: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> AgentTokens:
+    if not isinstance(rotation_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{7,127}", rotation_id):
+        raise ValueError("Valid rotation_id required")
+    payload = json.dumps({"grantType": "refresh_token", "agentRefreshToken": agent_refresh_token, "rotationId": rotation_id}).encode("utf-8")
     call = request.Request(
         f"{base_url.rstrip('/')}/api/agent-token",
         data=payload,

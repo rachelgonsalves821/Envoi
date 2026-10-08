@@ -1,6 +1,6 @@
 # Sinaloa TypeScript SDK
 
-`SinaloaClient` uses a 30-second timeout. Override it with `{ timeoutMs: 10_000 }`; accepted values are integer milliseconds from 1 through 300000. `rotateAgentToken` accepts the same options.
+`SinaloaClient` uses a 30-second timeout. Override it with `{ timeoutMs: 10_000 }`; accepted values are integer milliseconds from 1 through 300000. Direct callers of `rotateAgentToken(baseUrl, refreshToken, rotationId, options)` must save a stable `rotationId` before the network request and reuse it after a timeout. `SinaloaConnector` handles this automatically through its durable store.
 
 Failures raise `SinaloaError` with a sanitized status, message, and optional code. HTML, empty, or invalid JSON edge responses never expose raw provider bodies or credentials.
 

@@ -196,12 +196,14 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.ok(enrolled.payload.agentRefreshToken.startsWith('sinaloa_agent_refresh_'));
   assert.ok(new Date(enrolled.payload.agentTokenExpiresAt) > new Date());
   assert.equal('credentialHash' in enrolled.payload.agent, false);
-  const rotated = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: enrolled.payload.agentRefreshToken } });
+  const rotated = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: enrolled.payload.agentRefreshToken, rotationId: 'rotation-enrollment-1' } });
   assert.equal(rotated.status, 200);
   assert.notEqual(rotated.payload.agentApiToken, enrolled.payload.agentApiToken);
   assert.notEqual(rotated.payload.agentRefreshToken, enrolled.payload.agentRefreshToken);
-  const replayedRefresh = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: enrolled.payload.agentRefreshToken } });
-  assert.equal(replayedRefresh.status, 401);
+  const replayedRefresh = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: enrolled.payload.agentRefreshToken, rotationId: 'rotation-enrollment-1' } });
+  assert.equal(replayedRefresh.status, 200);
+  assert.deepEqual(replayedRefresh.payload, rotated.payload);
+  assert.equal((await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: enrolled.payload.agentRefreshToken, rotationId: 'rotation-enrollment-other' } })).status, 401);
   enrolled.payload.agentApiToken = rotated.payload.agentApiToken;
   enrolled.payload.agentRefreshToken = rotated.payload.agentRefreshToken;
   const senderInboxId = enrolled.payload.inbox.id;
@@ -225,7 +227,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(reconnected.payload.inbox.id, senderInboxId);
   assert.equal(reconnected.payload.agent.address, enrolled.payload.agent.address);
   assert.equal((await request(server.baseUrl, `/api/inboxes/${senderInboxId}/agent-view?agentId=${enrolled.payload.agent.id}`, { token: previousAccessToken })).status, 401);
-  assert.equal((await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: previousRefreshToken } })).status, 401);
+  assert.equal((await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: previousRefreshToken, rotationId: 'rotation-revoked-1' } })).status, 401);
   assert.equal((await request(server.baseUrl, '/api/agent-enroll', { body: { enrollmentToken: reconnectToken.payload.enrollmentToken } })).status, 401);
   enrolled.payload.agentApiToken = reconnected.payload.agentApiToken;
   enrolled.payload.agentRefreshToken = reconnected.payload.agentRefreshToken;
@@ -542,7 +544,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(await waitForStreamClose(recipientReader), true);
   const rejectedRecipientRead = await request(server.baseUrl, `/api/inboxes/${recipientInboxId}/events/delta`, { token: recipient.payload.agentApiToken });
   assert.equal(rejectedRecipientRead.status, 401);
-  const rejectedRecipientRefresh = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: recipient.payload.agentRefreshToken } });
+  const rejectedRecipientRefresh = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: recipient.payload.agentRefreshToken, rotationId: 'rotation-rejected-1' } });
   assert.equal(rejectedRecipientRefresh.status, 401);
 
   const revokedDeliveryId = await queueDelayedMessage('msg_revoked_before_delivery', raceRecipient.payload, 1500);

@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 from urllib import error
 
-from sinaloa_protocol import SinaloaClient, SinaloaError
+from sinaloa_protocol import SinaloaClient, SinaloaError, rotate_agent_token
 
 
 class Response:
@@ -49,6 +49,19 @@ class ClientTests(unittest.TestCase):
     def test_timeout_is_bounded(self):
         with self.assertRaises(ValueError): SinaloaClient("https://api.example", "token", timeout=0)
         with self.assertRaises(ValueError): SinaloaClient("https://api.example", "token", timeout=301)
+
+    @patch("sinaloa_protocol.request.urlopen")
+    def test_rotation_requires_and_transmits_a_stable_request_id(self, urlopen):
+        urlopen.return_value = Response(json.dumps({
+            "agentApiToken": "access-two", "agentRefreshToken": "refresh-two",
+            "agentTokenExpiresAt": "2030-01-01T00:00:00Z", "agentRefreshTokenExpiresAt": "2030-02-01T00:00:00Z"
+        }).encode())
+        with self.assertRaises(ValueError): rotate_agent_token("https://api.example", "refresh-one", "short")
+        self.assertFalse(urlopen.called)
+        rotated = rotate_agent_token("https://api.example", "refresh-one", "rotation-python-1")
+        self.assertEqual(rotated.agent_refresh_token, "refresh-two")
+        body = json.loads(urlopen.call_args.args[0].data)
+        self.assertEqual(body, {"grantType": "refresh_token", "agentRefreshToken": "refresh-one", "rotationId": "rotation-python-1"})
 
 
 if __name__ == "__main__": unittest.main()
