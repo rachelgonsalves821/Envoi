@@ -1,6 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { reapAgentRotationRecovery } from './agent-rotation-recovery.js';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { FileStore } from './storage.js';
 import { joinWaitlist } from './waitlist.js';
@@ -434,16 +435,6 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId) {
     return successor;
   };
   return typeof store.withTransaction === 'function' ? store.withTransaction([inboxMutationKey(pending.inboxId)], rotate) : rotate();
-}
-
-async function reapAgentRotationRecovery() {
-  const records = await store.listJson(path.join('auth', 'agent-rotation-recovery'));
-  const now = Date.now();
-  for (const record of records) {
-    if (/^[a-f0-9]{64}$/.test(record.tokenHash) && Date.parse(record.expiresAt) <= now) {
-      await store.deleteJson(agentRotationRecoveryPath(record.tokenHash));
-    }
-  }
 }
 
 const getAgentPrincipal = async (req, inboxId) => {
@@ -3799,7 +3790,7 @@ operationalBacklogLogger.unref?.();
 void logOperationalBacklog();
 const objectQuotaReaper = setInterval(() => objectStorage.reapExpiredUploads({ limit: 25 }).catch(error => console.error('Object upload cleanup failed', { name: error?.name || 'Error', code: error?.code || 'UPLOAD_CLEANUP_FAILED' })), Number(process.env.SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
 objectQuotaReaper.unref?.();
-const agentRotationReaper = setInterval(() => { void reapAgentRotationRecovery().catch(() => console.error('Agent rotation recovery cleanup failed')); }, agentRotationRecoveryMs);
+const agentRotationReaper = setInterval(() => { void reapAgentRotationRecovery(store).catch(() => console.error('Agent rotation recovery cleanup failed')); }, agentRotationRecoveryMs);
 agentRotationReaper.unref?.();
 const objectScanWorker = scanJobStore ? setInterval(() => { void runObjectScans(); }, objectScanWorkerIntervalMs) : null;
 const objectScanRetentionWorker = scanJobStore ? setInterval(() => { void runObjectScanRetention(); }, objectScanRetentionIntervalMs) : null;
