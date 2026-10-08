@@ -2,7 +2,7 @@ name: Backend CI
 
 on:
   push:
-    branches: [main, codex/deployment-recovery]
+    branches: [main, codex/deployment-recovery, integration/agent-native]
   pull_request:
 
 jobs:
