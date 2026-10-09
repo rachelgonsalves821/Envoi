@@ -73,7 +73,7 @@ test(`distributed ${artifact} runs without repository dependencies and protects 
   const api = await listen(async (request, response) => {
     const source = await body(request);
     leakedGatewayCredential ||= source.includes(gatewayToken) || JSON.stringify(request.headers).includes(gatewayToken);
-    if (request.url === '/health') return json(response, { service: 'sinaloa' });
+    if (request.url === '/health') return json(response, { service: 'envoi' });
     if (request.url === '/api/agent-enroll') {
       enrollments++; order.push('enroll');
       if (JSON.parse(source).enrollmentToken !== enrollmentToken) return json(response, { error: 'wrong token' }, 401);
@@ -169,7 +169,7 @@ test('distributed connector pairs a password-mode Gateway and stops before enrol
   const api = await listen(async (request, response) => {
     const source = await body(request);
     leakedGatewayCredential ||= source.includes(password) || JSON.stringify(request.headers).includes(password);
-    if (request.url === '/health') return json(response, { service: 'sinaloa' });
+    if (request.url === '/health') return json(response, { service: 'envoi' });
     if (request.url === '/api/agent-enroll') {
       enrollments++;
       enrollmentRequestId = request.headers['x-request-id'];
