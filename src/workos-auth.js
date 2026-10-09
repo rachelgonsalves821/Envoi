@@ -1,3 +1,4 @@
+import './envoi-environment-bootstrap.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { WorkOS } from '@workos-inc/node';
@@ -11,9 +12,9 @@ export const membershipCanManage = (membership, provider = 'local') => membershi
   && ['owner', 'admin'].includes(String(membership.role || '').toLowerCase())
   && (provider !== 'workos' || providerMembershipCanManage(membership.providerMembership));
 
-const flowMinutes = Number(process.env.SINALOA_AUTH_FLOW_MINUTES || 10);
+const flowMinutes = Number(process.env.ENVOI_AUTH_FLOW_MINUTES || 10);
 const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
-const csrfCookie = process.env.SINALOA_CSRF_COOKIE_NAME || 'sinaloa_csrf';
+const csrfCookie = process.env.ENVOI_CSRF_COOKIE_NAME || 'sinaloa_csrf';
 const requestHuman = Symbol('workos-request-human');
 const requestSession = Symbol('workos-request-session');
 const requestResponse = Symbol('workos-request-response');
@@ -32,7 +33,7 @@ export const safeReturnPath = value => {
     let decoded = value;
     for (let index = 0; index < 2; index += 1) decoded = decodeURIComponent(decoded);
     if (!decoded.startsWith('/') || decoded.startsWith('//') || decoded.includes('\\')) return '/';
-    const origin = 'https://sinaloa.invalid';
+    const origin = 'https://envoi.invalid';
     const resolved = new URL(value, origin);
     return resolved.origin === origin ? `${resolved.pathname}${resolved.search}${resolved.hash}` : '/';
   } catch {
@@ -64,32 +65,32 @@ export function parseCookies(header = '') {
 export function authFlowCookieName() { return 'sinaloa_workos_flow'; }
 export function authFlowCookieHeader(browserBinding, { clear = false } = {}) {
   const attributes = [`${authFlowCookieName()}=${clear ? '' : encodeURIComponent(browserBinding)}`, 'Path=/api/auth/workos', 'HttpOnly', 'SameSite=Lax'];
-  if (process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true') attributes.push('Secure');
+  if (process.env.ENVOI_AUTH_MODE === 'production' || process.env.ENVOI_COOKIE_SECURE === 'true') attributes.push('Secure');
   attributes.push(`Max-Age=${clear ? 0 : flowMinutes * 60}`);
   return attributes.join('; ');
 }
 export function sessionCookieName() { return sessionCookie; }
 export function csrfCookieName() { return csrfCookie; }
 export function sessionCookieHeader(value, { clear = false } = {}) {
-  const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
-  const configuredSameSite = process.env.SINALOA_COOKIE_SAMESITE || 'Lax';
+  const secure = process.env.ENVOI_AUTH_MODE === 'production' || process.env.ENVOI_COOKIE_SECURE === 'true';
+  const configuredSameSite = process.env.ENVOI_COOKIE_SAMESITE || 'Lax';
   const sameSite = ['Lax', 'Strict', 'None'].includes(configuredSameSite) ? configuredSameSite : 'Lax';
   const attributes = [`${sessionCookie}=${clear ? '' : encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', `SameSite=${sameSite}`];
   if (secure) attributes.push('Secure');
   if (process.env.WORKOS_COOKIE_DOMAIN && /^[a-z0-9.-]+$/i.test(process.env.WORKOS_COOKIE_DOMAIN)) attributes.push(`Domain=${process.env.WORKOS_COOKIE_DOMAIN}`);
   if (clear) attributes.push('Max-Age=0');
-  else attributes.push(`Max-Age=${Number(process.env.SINALOA_SESSION_HOURS || 24) * 3600}`);
+  else attributes.push(`Max-Age=${Number(process.env.ENVOI_SESSION_HOURS || 24) * 3600}`);
   return attributes.join('; ');
 }
 
 export function createCsrfToken() { return crypto.randomBytes(32).toString('base64url'); }
 
 export function csrfCookieHeader(value, { clear = false } = {}) {
-  const secure = process.env.SINALOA_AUTH_MODE === 'production' || process.env.SINALOA_COOKIE_SECURE === 'true';
+  const secure = process.env.ENVOI_AUTH_MODE === 'production' || process.env.ENVOI_COOKIE_SECURE === 'true';
   const attributes = [`${csrfCookie}=${clear ? '' : encodeURIComponent(value)}`, 'Path=/', 'SameSite=Strict'];
   if (secure) attributes.push('Secure');
   if (clear) attributes.push('Max-Age=0');
-  else attributes.push(`Max-Age=${Number(process.env.SINALOA_SESSION_HOURS || 24) * 3600}`);
+  else attributes.push(`Max-Age=${Number(process.env.ENVOI_SESSION_HOURS || 24) * 3600}`);
   return attributes.join('; ');
 }
 
@@ -101,9 +102,9 @@ export function verifyCsrfRequest(req) {
   const headerBytes = Buffer.from(headerToken);
   if (cookieBytes.length !== headerBytes.length || !crypto.timingSafeEqual(cookieBytes, headerBytes)) return false;
   try {
-    const expectedOrigin = process.env.SINALOA_PUBLIC_URL
-      ? new URL(process.env.SINALOA_PUBLIC_URL).origin
-      : process.env.SINALOA_AUTH_MODE !== 'production' && req.headers.host
+    const expectedOrigin = process.env.ENVOI_PUBLIC_URL
+      ? new URL(process.env.ENVOI_PUBLIC_URL).origin
+      : process.env.ENVOI_AUTH_MODE !== 'production' && req.headers.host
         ? `http://${req.headers.host}`
         : null;
     if (!expectedOrigin) return false;
@@ -127,9 +128,9 @@ export class WorkOSAuthService {
     }
     if (this.cookiePassword.length < 32) throw new Error('WORKOS_COOKIE_PASSWORD must be at least 32 characters');
     this.workos = options.workos || new WorkOS(this.apiKey, { clientId: this.clientId, issuer: this.issuer });
-    this.invitedEmails = new Set(String(options.invitedEmails ?? process.env.SINALOA_BETA_INVITED_EMAILS ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
+    this.invitedEmails = new Set(String(options.invitedEmails ?? process.env.ENVOI_BETA_INVITED_EMAILS ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
     this.now = options.now || Date.now;
-    this.sessionHours = Number(options.sessionHours ?? process.env.SINALOA_SESSION_HOURS ?? 24);
+    this.sessionHours = Number(options.sessionHours ?? process.env.ENVOI_SESSION_HOURS ?? 24);
     if (!Number.isFinite(this.sessionHours) || this.sessionHours <= 0) throw new Error('Session duration must be positive');
   }
 
@@ -444,7 +445,7 @@ export class WorkOSAuthService {
       try { await provider.revokeSession({ sessionId }); providerRevoked = true; }
       catch { /* Durable local revocation remains authoritative during outages. */ }
     }
-    const returnTo = process.env.SINALOA_PUBLIC_URL || new URL(this.redirectUri).origin;
+    const returnTo = process.env.ENVOI_PUBLIC_URL || new URL(this.redirectUri).origin;
     let logoutUrl = null;
     try {
       logoutUrl = provider.getLogoutUrl
@@ -455,7 +456,7 @@ export class WorkOSAuthService {
   }
   async createProviderOrganization({ name, externalId, idempotencyKey, userId }) {
     const organization = await this.workos.organizations.createOrganization(
-      { name, externalId, metadata: { product: 'sinaloa' } },
+      { name, externalId, metadata: { product: 'envoi' } },
       { idempotencyKey }
     );
     await this.workos.userManagement.createOrganizationMembership({ organizationId: organization.id, userId, roleSlug: 'admin' });

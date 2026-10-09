@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from '../src/workspace-refresh';
+import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from '../src/workspace-refresh';
 import type { OrderedViewResponse } from '../src/workspace-refresh';
 import { mergeHistory } from '../src/history';
 import type { HumanView } from '../src/types';
@@ -12,6 +12,26 @@ function deferred<T>() {
 }
 
 describe('quiet workspace refreshes', () => {
+  it('does not restore an active conversation from a queued read after Done resets its epoch', () => {
+    const order = createViewResponseOrder();
+    const ticket = order.begin();
+    const beforeDone = { archived: false };
+    const afterDone = { archived: true };
+    const queuedUpdate = (current: typeof beforeDone) => applyOrderedViewResponse(current, beforeDone, order, ticket, (_previous, incoming) => incoming);
+    expect(order.isCurrent(ticket)).toBe(true);
+    order.reset();
+    expect(queuedUpdate(afterDone)).toBe(afterDone);
+  });
+
+  it('validates refresh order at updater execution rather than fetch completion', () => {
+    const order = createViewResponseOrder();
+    const older = order.begin();
+    const newer = order.begin();
+    const merge = (_current: string, incoming: string, stale: boolean) => stale ? _current : incoming;
+    const fresh = applyOrderedViewResponse('initial', 'after-done', order, newer, merge);
+    expect(applyOrderedViewResponse(fresh, 'before-done', order, older, merge)).toBe('after-done');
+  });
+
   it('turns ten triggers into one active read and one follow-up', async () => {
     const first = deferred<number>(); const next = deferred<number>();
     const load = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(next.promise);

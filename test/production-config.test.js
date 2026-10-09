@@ -4,50 +4,59 @@ import { validateProductionConfiguration } from '../src/production-config.js';
 import { deploymentPreflight } from '../src/deployment-preflight.js';
 
 const validProduction = (overrides = {}) => ({
-  SINALOA_AUTH_MODE: 'production',
-  SINALOA_PUBLIC_URL: 'https://app.sinaloa.example',
+  ENVOI_AUTH_MODE: 'production',
+  ENVOI_PUBLIC_URL: 'https://app.sinaloa.example',
   DATABASE_URL: 'postgresql://user:secret@db.example/sinaloa',
-  SINALOA_DB_SSL_MODE: 'verify-full',
-  SINALOA_HUMAN_AUTH_PROVIDER: 'workos',
+  ENVOI_DB_SSL_MODE: 'verify-full',
+  ENVOI_HUMAN_AUTH_PROVIDER: 'workos',
   WORKOS_CLIENT_ID: 'client_123',
   WORKOS_API_KEY: 'sk_live_123',
   WORKOS_COOKIE_PASSWORD: 'a'.repeat(32),
   WORKOS_REDIRECT_URI: 'https://app.sinaloa.example/api/auth/workos/callback',
-  SINALOA_BETA_INVITED_EMAILS: 'alice@example.com,bob@example.com',
-  SINALOA_DATA_ENCRYPTION_KEY: 'b'.repeat(32),
-  SINALOA_POLICY_ACTIVE_KEY_ID: 'primary',
-  SINALOA_POLICY_SIGNING_KEY: 'c'.repeat(32),
-  SINALOA_COOKIE_SECURE: 'true',
-  SINALOA_COOKIE_SAMESITE: 'Lax',
-  SINALOA_CORS_ORIGIN: 'https://app.sinaloa.example',
-  SINALOA_AGENT_DOMAIN: 'agents.sinaloa.example',
-  SINALOA_OBJECT_STORAGE_PROVIDER: 's3',
-  SINALOA_S3_ENDPOINT: 'https://s3.ca-central-1.amazonaws.com',
-  SINALOA_S3_BUCKET: 'sinaloa-private',
-  SINALOA_S3_REGION: 'ca-central-1',
-  SINALOA_S3_ACCESS_KEY_ID: 'access',
-  SINALOA_S3_SECRET_ACCESS_KEY: 'secret',
-  SINALOA_MALWARE_SCANNER_URL: 'https://scanner.sinaloa.example/scan',
-  SINALOA_MALWARE_SCANNER_TOKEN: 'private-scanner-test-token',
-  SINALOA_ENABLE_EXTERNAL_EMAIL: 'false',
+  ENVOI_BETA_INVITED_EMAILS: 'alice@example.com,bob@example.com',
+  ENVOI_DATA_ENCRYPTION_KEY: 'b'.repeat(32),
+  ENVOI_POLICY_ACTIVE_KEY_ID: 'primary',
+  ENVOI_POLICY_SIGNING_KEY: 'c'.repeat(32),
+  ENVOI_COOKIE_SECURE: 'true',
+  ENVOI_COOKIE_SAMESITE: 'Lax',
+  ENVOI_CORS_ORIGIN: 'https://app.sinaloa.example',
+  ENVOI_AGENT_DOMAIN: 'agents.sinaloa.example',
+  ENVOI_OBJECT_STORAGE_PROVIDER: 's3',
+  ENVOI_S3_ENDPOINT: 'https://s3.ca-central-1.amazonaws.com',
+  ENVOI_S3_BUCKET: 'sinaloa-private',
+  ENVOI_S3_REGION: 'ca-central-1',
+  ENVOI_S3_ACCESS_KEY_ID: 'access',
+  ENVOI_S3_SECRET_ACCESS_KEY: 'secret',
+  ENVOI_MALWARE_SCANNER_URL: 'https://scanner.sinaloa.example/scan',
+  ENVOI_MALWARE_SCANNER_TOKEN: 'private-scanner-test-token',
+  ENVOI_ENABLE_EXTERNAL_EMAIL: 'false',
   ...overrides
 });
 
+test('production accepts existing SINALOA-prefixed settings during migration', () => {
+  const legacy = Object.fromEntries(Object.entries(validProduction()).map(([key, value]) => [
+    key.startsWith('ENVOI_') ? `SINALOA_${key.slice('ENVOI_'.length)}` : key,
+    value
+  ]));
+  assert.equal(validateProductionConfiguration(legacy).validated, true);
+  assert.throws(() => validateProductionConfiguration({ ...legacy, ENVOI_PUBLIC_URL: 'https://other.example' }), /Conflicting Envoi environment aliases/);
+});
+
 test('production requires an exact invite list without SMS credentials', () => {
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_BETA_INVITED_EMAILS: '' })), /SINALOA_BETA_INVITED_EMAILS is required/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_BETA_INVITED_EMAILS: 'example.com' })), /exact email addresses/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: '' })), /ENVOI_BETA_INVITED_EMAILS is required/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: 'example.com' })), /exact email addresses/);
   assert.equal(validateProductionConfiguration(validProduction()).validated, true);
 });
 
 test('development configuration remains local while production fails unsafe dependencies closed', () => {
-  assert.deepEqual(validateProductionConfiguration({ SINALOA_AUTH_MODE: 'development' }), { mode: 'development', validated: false });
-  assert.throws(() => validateProductionConfiguration(validProduction({ DATABASE_URL: '', SINALOA_OBJECT_STORAGE_PROVIDER: 'local', SINALOA_AGENT_DOMAIN: 'sinaloa.mail' })), /DATABASE_URL is required[\s\S]*must be s3[\s\S]*cannot use \.mail/);
+  assert.deepEqual(validateProductionConfiguration({ ENVOI_AUTH_MODE: 'development' }), { mode: 'development', validated: false });
+  assert.throws(() => validateProductionConfiguration(validProduction({ DATABASE_URL: '', ENVOI_OBJECT_STORAGE_PROVIDER: 'local', ENVOI_AGENT_DOMAIN: 'envoi.mail' })), /DATABASE_URL is required[\s\S]*must be s3[\s\S]*cannot use \.mail/);
 });
 
 test('production scanner health stays on the authenticated scanner origin', () => {
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_MALWARE_SCANNER_HEALTH_URL: 'https://unrelated.example/health' })), /must use the scanner origin/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_MALWARE_SCANNER_URL: 'https://user:password@scanner.example/scan' })), /must not contain embedded credentials/);
-  assert.equal(validateProductionConfiguration(validProduction({ SINALOA_MALWARE_SCANNER_HEALTH_URL: 'https://scanner.sinaloa.example/status' })).validated, true);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_MALWARE_SCANNER_HEALTH_URL: 'https://unrelated.example/health' })), /must use the scanner origin/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_MALWARE_SCANNER_URL: 'https://user:password@scanner.example/scan' })), /must not contain embedded credentials/);
+  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_MALWARE_SCANNER_HEALTH_URL: 'https://scanner.sinaloa.example/status' })).validated, true);
 });
 
 test('production supports native platform routing without SMTP and conditionally validates public email', () => {
@@ -56,13 +65,13 @@ test('production supports native platform routing without SMTP and conditionally
   assert.equal(nativeOnly.externalEmailEnabled, false);
   assert.equal(nativeOnly.emailDomain, null);
 
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_ENABLE_EXTERNAL_EMAIL: 'true' })), /SINALOA_EMAIL_PROVIDER must be resend[\s\S]*RESEND_API_KEY is required/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_ENABLE_EXTERNAL_EMAIL: 'true' })), /ENVOI_EMAIL_PROVIDER must be resend[\s\S]*RESEND_API_KEY is required/);
 
   const dualTransport = validateProductionConfiguration(validProduction({
-    SINALOA_ENABLE_EXTERNAL_EMAIL: 'true',
-    SINALOA_EMAIL_PROVIDER: 'resend',
-    SINALOA_PUBLIC_EMAIL_DOMAIN: 'mail.sinaloa.example',
-    SINALOA_EMAIL_DOMAIN_VERIFIED: 'true',
+    ENVOI_ENABLE_EXTERNAL_EMAIL: 'true',
+    ENVOI_EMAIL_PROVIDER: 'resend',
+    ENVOI_PUBLIC_EMAIL_DOMAIN: 'mail.sinaloa.example',
+    ENVOI_EMAIL_DOMAIN_VERIFIED: 'true',
     RESEND_API_KEY: 're_live_123',
     RESEND_WEBHOOK_SECRET: 'whsec_123'
   }));
@@ -71,14 +80,14 @@ test('production supports native platform routing without SMTP and conditionally
 });
 
 test('production rejects insecure database TLS and invalid numeric limits', () => {
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_SSL_MODE: 'disable' })), /verify-full/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_DB_POOL_SIZE: 'NaN', SINALOA_REQUEST_TIMEOUT_MS: '0' })), /SINALOA_DB_POOL_SIZE must be a positive integer[\s\S]*SINALOA_REQUEST_TIMEOUT_MS must be a positive integer/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_MAX_BODY_BYTES: '104857601', SINALOA_DB_POOL_SIZE: '201', SINALOA_OBJECT_MAX_BYTES: '5368709121', SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS: '366', SINALOA_SCAN_MAX_ATTEMPTS: '101' })), /SINALOA_MAX_BODY_BYTES must not exceed[\s\S]*SINALOA_DB_POOL_SIZE must not exceed[\s\S]*SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS must not exceed[\s\S]*SINALOA_OBJECT_MAX_BYTES must not exceed[\s\S]*SINALOA_SCAN_MAX_ATTEMPTS must not exceed/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_SCAN_RETRY_BASE_MS: '1000', SINALOA_SCAN_RETRY_MAX_MS: '999' })), /SCAN_RETRY_BASE_MS must not exceed/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_DB_SSL_MODE: 'disable' })), /verify-full/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_DB_POOL_SIZE: 'NaN', ENVOI_REQUEST_TIMEOUT_MS: '0' })), /ENVOI_DB_POOL_SIZE must be a positive integer[\s\S]*ENVOI_REQUEST_TIMEOUT_MS must be a positive integer/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_MAX_BODY_BYTES: '104857601', ENVOI_DB_POOL_SIZE: '201', ENVOI_OBJECT_MAX_BYTES: '5368709121', ENVOI_AGENT_REFRESH_TOKEN_TTL_DAYS: '366', ENVOI_SCAN_MAX_ATTEMPTS: '101' })), /ENVOI_MAX_BODY_BYTES must not exceed[\s\S]*ENVOI_DB_POOL_SIZE must not exceed[\s\S]*ENVOI_AGENT_REFRESH_TOKEN_TTL_DAYS must not exceed[\s\S]*ENVOI_OBJECT_MAX_BYTES must not exceed[\s\S]*ENVOI_SCAN_MAX_ATTEMPTS must not exceed/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_SCAN_RETRY_BASE_MS: '1000', ENVOI_SCAN_RETRY_MAX_MS: '999' })), /SCAN_RETRY_BASE_MS must not exceed/);
 });
 
 test('deployment preflight rejects database URLs that cannot start the container', () => {
-  const environment = validProduction({ SINALOA_EDGE_ALLOWED_HOSTS: 'app.sinaloa.example' });
+  const environment = validProduction({ ENVOI_EDGE_ALLOWED_HOSTS: 'app.sinaloa.example' });
   assert.equal(deploymentPreflight(environment).ready, true);
   for (const parameter of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert']) {
     const report = deploymentPreflight({ ...environment, DATABASE_URL: `${environment.DATABASE_URL}?${parameter}=require` });
@@ -95,46 +104,46 @@ test('deployment preflight rejects database URLs that cannot start the container
 });
 
 test('production requires complete same-origin calendar OAuth when writes are enabled', () => {
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_ENABLE_CALENDAR_WRITES: 'true' })), /complete calendar OAuth provider/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_ENABLE_CALENDAR_WRITES: 'true', GOOGLE_CALENDAR_CLIENT_ID: 'client' })), /GOOGLE_CALENDAR OAuth configuration/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_ENABLE_CALENDAR_WRITES: 'true' })), /complete calendar OAuth provider/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_ENABLE_CALENDAR_WRITES: 'true', GOOGLE_CALENDAR_CLIENT_ID: 'client' })), /GOOGLE_CALENDAR OAuth configuration/);
   const configured = validateProductionConfiguration(validProduction({
-    SINALOA_ENABLE_CALENDAR_WRITES: 'true',
+    ENVOI_ENABLE_CALENDAR_WRITES: 'true',
     GOOGLE_CALENDAR_CLIENT_ID: 'client',
     GOOGLE_CALENDAR_CLIENT_SECRET: 'secret',
     GOOGLE_CALENDAR_REDIRECT_URI: 'https://app.sinaloa.example/api/calendar-oauth/google/callback',
-    SINALOA_CALENDAR_OAUTH_TIMEOUT_MS: '15000'
+    ENVOI_CALENDAR_OAUTH_TIMEOUT_MS: '15000'
   }));
   assert.equal(configured.validated, true);
 });
 
 test('production validates policy key rotation and strict policy bounds', () => {
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_SIGNING_KEY: '', SINALOA_POLICY_ACTIVE_KEY_ID: 'missing' })), /active policy signing key/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_SIGNING_KEY: 'example-signing-key'.padEnd(32, 'x') })), /Policy signing keys must not use development or example values/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_SIGNING_KEY: '', SINALOA_POLICY_SIGNING_KEYS: JSON.stringify({ primary: 'changeme'.padEnd(32, 'x') }) })), /Policy signing keys must not use development or example values/);
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_POLICY_DECISION_TTL_SECONDS: '1', SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS: 'NaN' })), /SINALOA_POLICY_DECISION_TTL_SECONDS[\s\S]*SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_POLICY_SIGNING_KEY: '', ENVOI_POLICY_ACTIVE_KEY_ID: 'missing' })), /active policy signing key/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_POLICY_SIGNING_KEY: 'example-signing-key'.padEnd(32, 'x') })), /Policy signing keys must not use development or example values/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_POLICY_SIGNING_KEY: '', ENVOI_POLICY_SIGNING_KEYS: JSON.stringify({ primary: 'changeme'.padEnd(32, 'x') }) })), /Policy signing keys must not use development or example values/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_POLICY_DECISION_TTL_SECONDS: '1', ENVOI_POLICY_EXECUTE_AT_TOLERANCE_SECONDS: 'NaN' })), /ENVOI_POLICY_DECISION_TTL_SECONDS[\s\S]*ENVOI_POLICY_EXECUTE_AT_TOLERANCE_SECONDS/);
   const rotated = validateProductionConfiguration(validProduction({
-    SINALOA_POLICY_SIGNING_KEY: '',
-    SINALOA_POLICY_ACTIVE_KEY_ID: 'new',
-    SINALOA_POLICY_SIGNING_KEYS: JSON.stringify({ old: 'o'.repeat(32), new: 'n'.repeat(32) })
+    ENVOI_POLICY_SIGNING_KEY: '',
+    ENVOI_POLICY_ACTIVE_KEY_ID: 'new',
+    ENVOI_POLICY_SIGNING_KEYS: JSON.stringify({ old: 'o'.repeat(32), new: 'n'.repeat(32) })
   }));
   assert.equal(rotated.policyActiveKeyId, 'new');
 });
 
 test('production calendar writes require one complete same-origin HTTPS provider', () => {
-  assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_ENABLE_CALENDAR_WRITES: 'true' })), /complete calendar OAuth provider/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_ENABLE_CALENDAR_WRITES: 'true' })), /complete calendar OAuth provider/);
   assert.throws(() => validateProductionConfiguration(validProduction({
-    SINALOA_ENABLE_CALENDAR_WRITES: 'true',
+    ENVOI_ENABLE_CALENDAR_WRITES: 'true',
     GOOGLE_CALENDAR_CLIENT_ID: 'google-client',
     GOOGLE_CALENDAR_CLIENT_SECRET: 'google-secret'
   })), /must include client ID, client secret, and redirect URI/);
   assert.throws(() => validateProductionConfiguration(validProduction({
-    SINALOA_ENABLE_CALENDAR_WRITES: 'true',
+    ENVOI_ENABLE_CALENDAR_WRITES: 'true',
     GOOGLE_CALENDAR_CLIENT_ID: 'google-client',
     GOOGLE_CALENDAR_CLIENT_SECRET: 'google-secret',
     GOOGLE_CALENDAR_REDIRECT_URI: 'https://other.example/api/calendar-oauth/google/callback'
-  })), /must use the SINALOA_PUBLIC_URL origin/);
+  })), /must use the ENVOI_PUBLIC_URL origin/);
   const configured = validateProductionConfiguration(validProduction({
-    SINALOA_ENABLE_CALENDAR_WRITES: 'true',
+    ENVOI_ENABLE_CALENDAR_WRITES: 'true',
     GOOGLE_CALENDAR_CLIENT_ID: 'google-client',
     GOOGLE_CALENDAR_CLIENT_SECRET: 'google-secret',
     GOOGLE_CALENDAR_REDIRECT_URI: 'https://app.sinaloa.example/api/calendar-oauth/google/callback'
@@ -145,21 +154,21 @@ test('production calendar writes require one complete same-origin HTTPS provider
 
 test('production requires scanner authentication before deployment with redacted diagnostics', () => {
   for (const token of [undefined, '', '   ']) {
-    const env = validProduction({ SINALOA_MALWARE_SCANNER_TOKEN: token, SINALOA_EDGE_ALLOWED_HOSTS: 'app.sinaloa.example' });
-    assert.throws(() => validateProductionConfiguration(env), /SINALOA_MALWARE_SCANNER_TOKEN is required/);
+    const env = validProduction({ ENVOI_MALWARE_SCANNER_TOKEN: token, ENVOI_EDGE_ALLOWED_HOSTS: 'app.sinaloa.example' });
+    assert.throws(() => validateProductionConfiguration(env), /ENVOI_MALWARE_SCANNER_TOKEN is required/);
     const report = deploymentPreflight(env);
     assert.equal(report.ready, false);
-    assert.ok(report.errors.some(message => message.includes('SINALOA_MALWARE_SCANNER_TOKEN')));
+    assert.ok(report.errors.some(message => message.includes('ENVOI_MALWARE_SCANNER_TOKEN')));
     assert.doesNotMatch(JSON.stringify(report), /private-scanner-test-token|user:secret|sk_live_123/);
   }
   assert.equal(validateProductionConfiguration(validProduction()).validated, true);
-  assert.equal(validateProductionConfiguration({ SINALOA_AUTH_MODE: 'development' }).validated, false);
+  assert.equal(validateProductionConfiguration({ ENVOI_AUTH_MODE: 'development' }).validated, false);
 });
 
 test('production permits legacy deployments without a release SHA but validates supplied provenance', () => {
   assert.equal(validateProductionConfiguration(validProduction()).validated, true);
-  assert.equal(validateProductionConfiguration(validProduction({ SINALOA_RELEASE_SHA: 'a'.repeat(40) })).validated, true);
+  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_RELEASE_SHA: 'a'.repeat(40) })).validated, true);
   for (const sha of ['', 'main', 'a'.repeat(7), 'g'.repeat(40), 'A'.repeat(40)]) {
-    assert.throws(() => validateProductionConfiguration(validProduction({ SINALOA_RELEASE_SHA: sha })), /SINALOA_RELEASE_SHA must be a full lowercase/);
+    assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_RELEASE_SHA: sha })), /ENVOI_RELEASE_SHA must be a full lowercase/);
   }
 });

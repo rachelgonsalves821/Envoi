@@ -15,7 +15,11 @@ export function isAllowedHostname(url, configuredHostnames) {
 export function selectEnvironment(source, keys, defaults = {}) {
   const selected = { ...defaults };
   for (const key of keys) {
-    const value = source?.[key];
+    const legacyKey = key.startsWith('ENVOI_') ? `SINALOA_${key.slice('ENVOI_'.length)}` : null;
+    const value = source?.[key] ?? (legacyKey ? source?.[legacyKey] : undefined);
+    if (legacyKey && source?.[key] !== undefined && source?.[legacyKey] !== undefined && source[key] !== source[legacyKey]) {
+      throw new Error(`Conflicting Envoi environment aliases: ${key} and ${legacyKey}`);
+    }
     if (typeof value === 'string' && value.length > 0) selected[key] = value;
   }
   return selected;

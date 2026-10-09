@@ -1,11 +1,12 @@
+import './envoi-environment-bootstrap.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { generateSecret, generateSync, generateURI, verifySync } from 'otplib';
 import { csrfCookieHeader, parseCookies, sessionCookieHeader, sessionCookieName } from './workos-auth.js';
 
-const mode = process.env.SINALOA_AUTH_MODE || 'development';
-const challengeMinutes = Number(process.env.SINALOA_OTP_EXPIRY_MINUTES || 10);
-const sessionHours = Number(process.env.SINALOA_SESSION_HOURS || 24);
+const mode = process.env.ENVOI_AUTH_MODE || 'development';
+const challengeMinutes = Number(process.env.ENVOI_OTP_EXPIRY_MINUTES || 10);
+const sessionHours = Number(process.env.ENVOI_SESSION_HOURS || 24);
 const requestResponse = Symbol('local-auth-response');
 
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -16,7 +17,7 @@ const normalizePhone = value => {
   return phone;
 };
 const encryptionKey = () => {
-  const configured = process.env.SINALOA_DATA_ENCRYPTION_KEY;
+  const configured = process.env.ENVOI_DATA_ENCRYPTION_KEY;
   if (mode === 'production' && !configured) throw Object.assign(new Error('Data encryption key is not configured'), { statusCode: 503 });
   return crypto.createHash('sha256').update(configured || 'sinaloa-development-only').digest();
 };

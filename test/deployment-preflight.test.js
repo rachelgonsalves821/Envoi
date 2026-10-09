@@ -6,7 +6,7 @@ test('empty runtime configuration fails with actionable names and no secret valu
   const report = deploymentPreflight({ WORKOS_API_KEY: 'never-print-this-value' });
   assert.equal(report.ready, false);
   assert.ok(report.errors.some(message => message.includes('DATABASE_URL')));
-  assert.ok(report.errors.some(message => message.includes('SINALOA_EDGE_ALLOWED_HOSTS')));
+  assert.ok(report.errors.some(message => message.includes('ENVOI_EDGE_ALLOWED_HOSTS')));
   assert.ok(report.configuredNames.includes('WORKOS_API_KEY'));
   assert.doesNotMatch(JSON.stringify(report), /never-print-this-value/);
 });

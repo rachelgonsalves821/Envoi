@@ -73,7 +73,7 @@ export async function checkDeploymentConfiguration() {
   assert.equal(betaScanner.containers?.[0]?.class_name, 'ClamAVContainer');
   assert.ok(betaScanner.triggers?.crons?.includes('*/5 * * * *'));
   assert.equal(new Set(CONTAINER_ENV_KEYS).size, CONTAINER_ENV_KEYS.length, 'Runtime allowlist contains duplicates');
-  assert.equal(CONTAINER_DEFAULTS.SINALOA_PORT, '8787');
+  assert.equal(CONTAINER_DEFAULTS.ENVOI_PORT, '8787');
   const docker = await readFile(new URL('Dockerfile.cloudflare', root), 'utf8');
   assert.match(docker, /FROM node:22-alpine/);
   assert.match(docker, /EXPOSE 8787/);

@@ -7,7 +7,8 @@ import { RELEASE_ACCOUNT_ID } from './promote-release.mjs';
 export function stagingDeployArgs({ sha, clean }) {
   if (!/^[a-f0-9]{40}$/.test(sha || '')) throw new Error('Staging deploy requires a full lowercase 40-hex Git commit SHA');
   if (!clean) throw new Error('Staging deploy requires a clean worktree, including untracked files, so the release SHA matches the deployed source');
-  return ['deploy', '--env', 'staging', '--var', `SINALOA_RELEASE_SHA:${sha}`];
+  // Set both names: kept dashboard vars must not leave a conflicting legacy alias behind.
+  return ['deploy', '--env', 'staging', '--var', `ENVOI_RELEASE_SHA:${sha}`, '--var', `SINALOA_RELEASE_SHA:${sha}`];
 }
 
 export async function deployStaging({ cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env } = {}) {

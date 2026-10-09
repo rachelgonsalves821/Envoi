@@ -1,3 +1,4 @@
+import './envoi-environment-bootstrap.js';
 import crypto from 'node:crypto';
 import net from 'node:net';
 
@@ -6,7 +7,7 @@ function normalizedIp(value) {
   return net.isIP(candidate) ? candidate : '';
 }
 
-export function clientIp(req, trustedProxy = process.env.SINALOA_TRUSTED_PROXY) {
+export function clientIp(req, trustedProxy = process.env.ENVOI_TRUSTED_PROXY) {
   if (trustedProxy === 'cloudflare') {
     const forwarded = normalizedIp(req.headers?.['x-forwarded-for']);
     if (forwarded) return forwarded;

@@ -12,7 +12,7 @@
 export const DEFAULT_STREAM_RECHECK_MS = 60_000;
 const MINIMUM_STREAM_RECHECK_MS = 1_000;
 
-// Reads SINALOA_STREAM_MEMBERSHIP_RECHECK_MS. Anything that is not a number of at
+// Reads ENVOI_STREAM_MEMBERSHIP_RECHECK_MS. Anything that is not a number of at
 // least one second falls back to the default, so a typo cannot disable rechecking.
 export function streamRecheckMs(value, fallback = DEFAULT_STREAM_RECHECK_MS) {
   const parsed = Number(value);

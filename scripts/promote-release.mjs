@@ -6,16 +6,17 @@ import { checkDeploymentConfiguration } from './check-deployment.mjs';
 export const RELEASE_ACCOUNT_ID = '54a5d6c680bd813fa60f8e088b098b8d';
 export const APP_SECRET_NAMES = Object.freeze([
   'DATABASE_URL', 'WORKOS_API_KEY', 'WORKOS_COOKIE_PASSWORD',
-  'SINALOA_BETA_INVITED_EMAILS', 'SINALOA_DATA_ENCRYPTION_KEY',
-  'SINALOA_POLICY_SIGNING_KEY', 'SINALOA_S3_ACCESS_KEY_ID',
-  'SINALOA_S3_SECRET_ACCESS_KEY', 'SINALOA_MALWARE_SCANNER_TOKEN'
+  'ENVOI_BETA_INVITED_EMAILS', 'ENVOI_DATA_ENCRYPTION_KEY',
+  'ENVOI_POLICY_SIGNING_KEY', 'ENVOI_S3_ACCESS_KEY_ID',
+  'ENVOI_S3_SECRET_ACCESS_KEY', 'ENVOI_MALWARE_SCANNER_TOKEN'
 ]);
 
 export function requireSecretNames(inventory, required = APP_SECRET_NAMES) {
   if (!Array.isArray(inventory)) throw new Error('Worker secret inventory must be a JSON array');
   const names = new Set(inventory.filter(item => item?.type === 'secret_text').map(item => item.name));
-  const missing = required.filter(name => !names.has(name)
-    && !(name === 'SINALOA_POLICY_SIGNING_KEY' && names.has('SINALOA_POLICY_SIGNING_KEYS')));
+  const hasSecret = name => names.has(name) || (name.startsWith('ENVOI_') && names.has(`SINALOA_${name.slice('ENVOI_'.length)}`));
+  const missing = required.filter(name => !hasSecret(name)
+    && !(name === 'ENVOI_POLICY_SIGNING_KEY' && hasSecret('ENVOI_POLICY_SIGNING_KEYS')));
   if (missing.length) throw new Error(`Missing encrypted runtime secrets: ${missing.join(', ')}`);
 }
 
@@ -30,7 +31,7 @@ export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedF
   if (deploy && sha !== mainSha) throw new Error('Live promotion requires HEAD to equal fetched origin/main; merge and fetch the reviewed fixes first');
   return {
     target, sha, accountId: RELEASE_ACCOUNT_ID, deploy,
-    args: ['deploy', '--env', target, '--var', `SINALOA_RELEASE_SHA:${sha}`,
+    args: ['deploy', '--env', target, '--var', `ENVOI_RELEASE_SHA:${sha}`, '--var', `SINALOA_RELEASE_SHA:${sha}`,
       ...(deploy ? [] : ['--dry-run', '--containers-rollout=none'])]
   };
 }
@@ -63,7 +64,7 @@ export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', 
     };
     requireSecretNames(inventory('--env', target));
     if (target === 'beta') {
-      requireSecretNames(inventory('--config', 'scanner/wrangler.beta.jsonc'), ['SINALOA_SCANNER_TOKEN']);
+      requireSecretNames(inventory('--config', 'scanner/wrangler.beta.jsonc'), ['ENVOI_SCANNER_TOKEN']);
     }
   }
   console.log(JSON.stringify({ target: plan.target, releaseSha: plan.sha, accountId: plan.accountId,
