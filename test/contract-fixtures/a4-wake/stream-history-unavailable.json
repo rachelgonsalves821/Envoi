@@ -1,0 +1,33 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-history-unavailable",
+  "description": "History that needs a server-side cursor migration is reported before the stream opens, not as an endless replay_error.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream",
+      "last-event-id": "00000000000000000044"
+    }
+  },
+  "response": {
+    "status": 503,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "EVENT_HISTORY_UNAVAILABLE",
+      "error": "EVENT_HISTORY_UNAVAILABLE",
+      "message": "Event history is temporarily unavailable. Retry shortly.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "claim": false,
+    "next": "Retry with backoff; keep the disconnected safety timer (claim every 15 s ±20%)."
+  }
+}

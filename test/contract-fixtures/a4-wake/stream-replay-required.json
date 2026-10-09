@@ -1,0 +1,52 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-replay-required",
+  "description": "The server cannot finish replay on this connection: it sends what it can, then replay_required (no id) and closes.",
+  "kind": "sse-session",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream",
+      "last-event-id": "00000000000000000100"
+    }
+  },
+  "frames": [
+    {
+      "id": "00000000000000000101",
+      "event": "message.delivered",
+      "data": {
+        "id": "evt_delivered_101",
+        "type": "message.delivered",
+        "createdAt": "2026-10-09T12:00:00.000Z",
+        "sequence": 101,
+        "cursor": "00000000000000000101",
+        "messageId": "msg_gap_1",
+        "caseId": "case_example",
+        "senderAgentId": "agent_counterparty",
+        "recipientAgentId": "agent_example",
+        "senderInboxId": "inbox_counterparty",
+        "recipientInboxId": "inbox_example",
+        "deliveryId": "delivery_msg_gap_1"
+      },
+      "schema": "messageDeliveredEvent"
+    },
+    {
+      "event": "replay_required",
+      "data": {
+        "cursor": "00000000000000000101",
+        "hasMore": true
+      },
+      "schema": "replayRequiredFrame"
+    }
+  ],
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Page events/delta from your last processed cursor until hasMore is false, reconnect from the newest cursor, then claim once."
+  }
+}

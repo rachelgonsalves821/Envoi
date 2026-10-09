@@ -264,3 +264,231 @@ When the connector receives `agent.resumed`, it leaves `PAUSED` and claims once 
   - the fixture now carries the complete stored native message;
   - `claimClaimed.work.message` now requires `nativeWorkMessage` (or a human instruction);
   - the fixture test also checks the message's protocol envelope with the server's own `assertValidProtocolMessage`.
+
+## a4-wake v1
+
+**Contract:** `a4-wake`, version 1. **Status:** published for review, not approved.
+
+**Fixtures:** [`test/contract-fixtures/a4-wake/`](../../../test/contract-fixtures/a4-wake/), which holds:
+- `schemas.json`: the schemas plus the `x-codes` table;
+- one JSON file per case.
+
+**Owner:** Lane A. **Consumer:** Lane B (B-2 resilient wake). **Implemented by:** task A-2. Nothing here changes server behavior until A-2; anything A-2 changes is marked **Current behavior**.
+
+This contract builds on `a3-pause-auth` v1:
+- its error envelope and codes;
+- `credential.ended`;
+- `GET /api/agent/status`;
+- the `agent.paused`, `agent.resumed` and `work.available` events (a3 §5).
+
+It defines how a connector learns that work may be waiting:
+- the event stream and resume rules;
+- the delta endpoint for gaps;
+- which events trigger a claim;
+- the claim hint;
+- the bounded polling a connector must keep.
+
+**The queue stays authoritative.** Every wake signal is only a hint to call `POST /api/agent/work/claim`. A connector that misses every event must still settle all work through claims. There is no new WebSocket service and no parallel queue (v3 §21–§26).
+
+### 1. Cursors
+
+- **Scope.** A cursor identifies one stored event in one inbox. Clients store the last *processed* cursor **keyed by `inboxId`**.
+- **Format.** A cursor is the event's sequence number written as exactly 20 decimal digits, zero-padded (for example `00000000000000000042`). Sequences are allocated per inbox in commit order, so within one inbox comparing two cursors as strings is the same as comparing them as numbers.
+  - Clients may compare cursors of the same inbox to drop duplicates or detect regressions. The TypeScript connector already does this.
+  - Clients never construct cursors and never compare cursors across inboxes.
+- **No other format is served.** The server never serves events without a sequence. If an inbox still has such legacy events, its history is reported as `EVENT_HISTORY_UNAVAILABLE` (§5) until migrated. **Current behavior:** a `createdAt|id` fallback cursor exists in code for unmigrated events.
+- **Validation.** A resume cursor is rejected with `EVENT_CURSOR_INVALID` if it is:
+  - not exactly 20 digits;
+  - or greater than the inbox's newest sequence, for example after a database restore restarted sequences or when it comes from another inbox.
+
+  Silently accepting such a cursor would skip events.
+
+### 2. Event stream
+
+`GET /api/inboxes/{inboxId}/events` (SSE).
+
+**Authentication**
+- The stream takes the agent's **access** token and is allowed while paused (a3 §3).
+- An `mcp_read` token is rejected with 401 `AUTHENTICATION_REQUIRED`.
+- A request that carries a human session cookie is treated as a human stream, so connectors must not send cookies.
+- **Current behavior:** auth failures on this route use the old `{ error }` shape. A-2 uses the a3 envelope.
+
+**Where the stream starts**
+
+| Request | Start |
+| --- | --- |
+| `Last-Event-ID` header (takes precedence) or `?cursor=` | After that cursor. An empty value means no cursor. |
+| `?from=latest` and no cursor | No replay. `ready` reports the inbox's newest cursor. Intended for a fresh connector, which then claims. (New in A-2.) |
+| Neither | Replay from the beginning of the inbox history. |
+
+**Replay limit.** One connection replays at most 500 events (5 pages of 100). Beyond that the server sends `replay_required`, and the client continues through delta (§3).
+
+**Frames**
+
+| Frame | SSE `id` | `data` | Meaning and client action |
+| --- | --- | --- | --- |
+| Stored event (e.g. `message.delivered`) | its cursor | the event JSON `{ id, type, createdAt, sequence, cursor, ... }` | Apply it, then store `cursor`. Ids increase strictly on one connection and start above the resume cursor. Drop anything at or below the stored cursor. |
+| `ready` | none | `{ inboxId, at, cursor }`; `cursor` is the last cursor sent on this connection, otherwise the resume cursor, otherwise `null` | Replay is complete and live events follow. **Claim once** (§4). |
+| `replay_required` | none | `{ cursor, hasMore: true }`; `cursor` follows the same rule as `ready` | The server could not finish replay on this connection and closes it. Page delta from your own last processed cursor until `hasMore` is false, reconnect from the newest cursor, then claim once. |
+| `replay_error` | none | `{}` | Transient server failure, and the stream closes. Reconnect with backoff (§6). |
+| `credential.ended` | none | a3 §5 | Apply the lifecycle for `data.code`. Do not reconnect with that credential. |
+| `: keepalive <ISO time>` (comment) | — | — | Every 20 s. With no frame or comment for 60 s, close the stream and reconnect. |
+
+Frames without an `id` never move the cursor. Clients ignore unknown event types and fields, but still store their cursor. Human-only frames (`session.recheck`, `session.expired`, `session.revoked`) are never sent to an agent stream.
+
+**Current behavior:**
+- `replay_required` carries `{}` only when a live stream's write queue overflows. A-2 sends `{ cursor, hasMore: true }` there too.
+- A history that needs migration currently produces `replay_error`. A-2 detects it before opening the stream and returns 503 `EVENT_HISTORY_UNAVAILABLE` instead, so `replay_error` only ever means transient.
+
+### 3. Delta endpoint
+
+`GET /api/inboxes/{inboxId}/events/delta?cursor=<cursor>&limit=<1-200>`
+
+**Request and response**
+- The default limit is 100. Authentication is the same as the stream, and the endpoint is allowed while paused.
+- The response is `200 { events, nextCursor, hasMore }`, where:
+  - `events` are the events after `cursor`, in cursor order, with the same JSON as stream `data`;
+  - `nextCursor` is the last returned cursor, or the request cursor when the page is empty, or `null` with no cursor;
+  - `hasMore: true` implies the page is non-empty.
+- Repeat with `cursor = nextCursor` until `hasMore` is false. A valid cursor equal to the newest event returns an empty page with the same cursor.
+
+**Errors** (all use the a3 envelope)
+
+| Code | When |
+| --- | --- |
+| `EVENT_CURSOR_INVALID` | Invalid cursor (§1). |
+| `EVENT_LIMIT_INVALID` | Invalid limit. |
+| `EVENT_HISTORY_UNAVAILABLE` | Unmigrated history. |
+
+**Use:** delta is for recovery after `replay_required` only. Connectors do **not** poll delta periodically; the safety timer claims instead (§6).
+
+**Current behavior:**
+- A cursor longer than 512 characters returns `{ error: "Event cursor is invalid" }`.
+- Other cursor, limit and history errors return `{ error: "REQUEST_FAILED", message, requestId }`.
+- The stream's cursor 400 uses the `{ error }` shape.
+- Cursors beyond the newest event are accepted silently.
+
+### 4. When a connector claims
+
+**Single flight.** At most one claim request is in flight. Triggers that arrive meanwhile collapse into at most one follow-up claim, sent when the current one returns.
+
+**Triggers**
+1. Startup.
+2. `ready` on a new stream.
+3. The end of delta recovery after `replay_required`.
+4. `work.available` (any `reason`).
+5. `agent.resumed`.
+6. `message.delivered` or `human.instruction_created` whose `recipientAgentId` is this agent. A `message.delivered` for this agent's *own sent* message, whose `recipientAgentId` is someone else, is not a trigger.
+7. A finished piece of work. The connector keeps claiming until the claim returns `idle`.
+8. The safety timer or claim hint (§6).
+
+All other events only advance the cursor.
+
+**Paused.** A claim returning `state: "paused"` stops triggers 1–8 until the connector sees the agent active again, by either route:
+- `agent.resumed`;
+- or `GET /api/agent/status` returning `state: "active"`. A paused connector reads status after every `ready` or reconnect and every 30–60 s with jitter, so a missed or unreplayable `agent.resumed` cannot keep it paused forever.
+
+**`work.available` reasons.** Consumers must accept any `reason` string; producers emit only these. Every event is written to the agent's own inbox and carries exactly `{ id, type, createdAt, sequence, cursor, agentId, reason }` plus `caseId` where noted. It never names the human or the other workspace.
+
+| `reason` | `caseId` | Emitted when |
+| --- | --- | --- |
+| `agent_resumed` | no | The owner resumed this agent and inbound work is waiting (a3). |
+| `case_resumed` | yes | A human (from either side) resumed a paused case. One event goes to each participant inbox whose agent has claimable inbound work in that case, in the same case mutation. |
+| `counterparty_resumed` | no | An agent that had sent this agent delivered-but-unclaimable work (claims skip work from a sender that cannot act) was resumed. |
+| `lease_released` | no | A reconnect issued a new credential family. The server released this agent's live leases held by the replaced families, without using an attempt (like the a3 pause re-offer), so the new installation can claim them now rather than waiting up to the lease length. |
+
+Normal arrivals produce `message.delivered`, not `work.available`.
+
+**Safety timer only.** These changes make work claimable with no event:
+- retry delays ending;
+- lease expiry;
+- a contact being unblocked;
+- human-instruction authority being restored.
+
+They are covered by the claim hint (§5) and the safety timer (§6).
+
+### 5. Claim hint
+
+An empty claim (`state: "idle"`) may carry two fields:
+- **`nextAvailableAt`**: an ISO time, never in the past;
+- **`nextAvailableInMs`**: a non-negative integer, the same instant measured from the response.
+
+Clients schedule from `nextAvailableInMs`, so clock skew does not matter.
+
+The value is the earliest of two times, considering only work that passes every eligibility filter of the claim itself except time:
+- the request's `acceptHumanInstructions`;
+- the case not paused or revoked;
+- the sender able to act;
+- no block;
+- attempts remaining;
+- human-instruction authority.
+
+The two times are:
+- the `retryAt` of this agent's retryable work;
+- the `leaseExpiresAt` of this agent's live leases from any of its credential families.
+
+Both fields are absent when nothing is scheduled. They are never sent with `state: "paused"` and never refer to other agents' work. **Current behavior:** never sent.
+
+### 6. Polling and backoff
+
+**Safety timer**
+
+| State | Rule |
+| --- | --- |
+| Healthy stream | Claim every 30–60 s, uniform jitter. A hint earlier than that schedules one claim at that time, at least 1 s away. |
+| Disconnected or degraded (reconnecting, `replay_error`, missed keepalive) | Claim every 15 s ±20 % jitter. |
+| Paused | No claims. Status as in §4. |
+
+**Reconnect**
+- Use exponential backoff from 1 s to 30 s with full jitter.
+- Reset the backoff only after a stream has stayed open for 60 s.
+- Close the previous stream before opening a new one.
+- A 429 `RATE_LIMITED` on connect (for example too many concurrent streams) waits at least `retry-after`.
+
+**Exactly-once settlement.** The claim fence and settlement idempotency keys (existing) make each piece of work settle exactly once. A handler can still run twice if its lease expires mid-run, so connectors renew leases while working and handlers dedupe by `workId`. Gate GA4 checks that retry-delayed work and work that arrived offline each settle exactly once after reconnect, with no new event.
+
+### 7. Codes added to the a3 envelope
+
+| Code | HTTP | Returned when | Next allowed operation | Lifecycle | Guidance |
+| --- | --- | --- | --- | --- | --- |
+| `EVENT_CURSOR_INVALID` | 400 | The resume cursor is malformed, or beyond the inbox's newest event (§1). | Discard the stored cursor for this inbox, reconnect with `from=latest`, and claim once. Work is not lost because the queue is authoritative. | `UNCHANGED` | `none` |
+| `EVENT_LIMIT_INVALID` | 400 | The delta limit is not an integer from 1 to 200. | Keep the cursor and fix the limit. This is a client bug, so do not retry the same request. | `UNCHANGED` | `none` |
+| `EVENT_HISTORY_UNAVAILABLE` | 503 | The inbox history needs a server-side cursor migration (stream connect or delta). | Retry with backoff and keep the disconnected safety timer. | `DEGRADED` | `service_unavailable` |
+
+### 8. Fixtures
+
+**Fields.** Fixtures use the a3 §6 fields, with two additions:
+- **`client.claim`**: whether the outcome triggers exactly one claim.
+- **`kind: "sse-session"`**: has a `request` (with resume headers or query) and `frames`, an ordered list. Each frame is either `{ id?, event, data, schema }` (`schema` is required on event frames) or `{ comment }`.
+
+**What the fixture test checks**
+- **Stream frames:** control frames carry no `id`, and stored events do. Ids rise above the resume cursor. `ready` and `replay_required` report the right cursor.
+- **Delta pages:** `nextCursor` and `hasMore` are consistent, and cursors rise above the request cursor.
+- **Events:** producer schemas are closed.
+
+| Group | Fixtures |
+| --- | --- |
+| Stream | `stream-resume-last-event-id`, `stream-resume-query-cursor`, `stream-ready-no-replay`, `stream-from-latest`, `stream-replay-required`, `stream-replay-error`, `stream-keepalive`, `stream-credential-ended`, `stream-cursor-invalid`, `stream-cursor-beyond-newest`, `stream-history-unavailable`, `stream-mcp-read-rejected` |
+| Wake events | `event-message-delivered-to-agent`, `event-message-delivered-own-send`, `event-work-available-case-resumed`, `event-work-available-counterparty-resumed`, `event-work-available-lease-released` |
+| Delta | `delta-page-more`, `delta-last-page`, `delta-empty-after-cursor`, `delta-cursor-invalid`, `delta-limit-invalid`, `delta-history-unavailable` |
+| Claim | `claim-idle-next-available`, `claim-idle-no-hint`, `claim-paused-no-hint` |
+
+### 9. Compatibility and B-2 notes
+
+**Server changes are additive for a3 clients:**
+- the new `work.available` reasons;
+- the claim hint;
+- coded stream and delta errors;
+- `from=latest`;
+- `cursor` always present in `replay_required`;
+- releasing old-family leases on reconnect.
+
+No new endpoints and no data migration.
+
+**Consumer changes for B-2:**
+- stop polling delta every 5 s (`sdk/typescript/src/connector.ts`, `deltaPollMs`) and use the §6 safety timer instead;
+- key stored cursors by `inboxId`;
+- read status while paused;
+- treat `EVENT_CURSOR_INVALID` as "restart with `from=latest`".
+
+**Rollback:** reverting A-2 removes the hints, the new reasons and `from=latest`. Clients fall back to the safety timer, which they must keep anyway.

@@ -1,0 +1,28 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "event-work-available-counterparty-resumed",
+  "description": "A sender whose delivered work this agent could not claim (sender paused) was resumed.",
+  "kind": "sse",
+  "event": {
+    "schema": "workAvailableEvent",
+    "id": "00000000000000000048",
+    "event": "work.available",
+    "data": {
+      "id": "evt_work_48",
+      "type": "work.available",
+      "createdAt": "2026-10-09T12:00:00.000Z",
+      "sequence": 48,
+      "cursor": "00000000000000000048",
+      "agentId": "agent_example",
+      "reason": "counterparty_resumed"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Claim once."
+  }
+}

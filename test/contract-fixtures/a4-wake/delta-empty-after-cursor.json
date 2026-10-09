@@ -1,0 +1,30 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "delta-empty-after-cursor",
+  "description": "The cursor is the newest event: empty page, same cursor back.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events/delta?cursor=00000000000000000104",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "deltaPage",
+    "body": {
+      "events": [],
+      "nextCursor": "00000000000000000104",
+      "hasMore": false
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Reconnect the stream from the same cursor and claim once."
+  }
+}

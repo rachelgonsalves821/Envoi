@@ -1,0 +1,31 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "delta-cursor-invalid",
+  "description": "A malformed delta cursor.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events/delta?cursor=not-a-cursor",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "EVENT_CURSOR_INVALID",
+      "error": "EVENT_CURSOR_INVALID",
+      "message": "The event cursor is invalid. Reconnect with from=latest.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Discard this inbox cursor, reconnect with from=latest, and claim once."
+  }
+}

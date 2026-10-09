@@ -1,0 +1,677 @@
+{
+  "$id": "a4-wake/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "a4-wake v1 schemas. Fixtures name a definition in response.schema, event.schema or frames[].schema. x-codes is handoffs.md a4-wake §7 (plus the a3 code used here).",
+  "x-codes": {
+    "EVENT_CURSOR_INVALID": {
+      "status": 400,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "none"
+    },
+    "EVENT_LIMIT_INVALID": {
+      "status": 400,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "none"
+    },
+    "EVENT_HISTORY_UNAVAILABLE": {
+      "status": 503,
+      "lifecycle": "DEGRADED",
+      "retry": "backoff",
+      "guidance": "service_unavailable"
+    },
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "lifecycle": "UNCHANGED",
+      "retry": "refresh_then_retry_once",
+      "guidance": "none"
+    }
+  },
+  "x-work-available-reasons": [
+    "agent_resumed",
+    "case_resumed",
+    "counterparty_resumed",
+    "lease_released"
+  ],
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "EVENT_CURSOR_INVALID",
+        "EVENT_LIMIT_INVALID",
+        "EVENT_HISTORY_UNAVAILABLE",
+        "AUTHENTICATION_REQUIRED"
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "not": {
+            "pattern": "(?:sinaloa_agent_(?:access|refresh)_|sinaloa_mcp_read_|sinaloa_enroll_)"
+          }
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        }
+      }
+    },
+    "cursor": {
+      "type": "string",
+      "pattern": "^[0-9]{20}$"
+    },
+    "nullableCursor": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/cursor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "eventBase": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "createdAt",
+        "sequence",
+        "cursor"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cursor": {
+          "$ref": "#/definitions/cursor"
+        }
+      }
+    },
+    "messageDeliveredEvent": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "createdAt",
+        "sequence",
+        "cursor",
+        "messageId",
+        "caseId",
+        "senderAgentId",
+        "recipientAgentId",
+        "senderInboxId",
+        "recipientInboxId"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "const": "message.delivered"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cursor": {
+          "$ref": "#/definitions/cursor"
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "caseId": {
+          "type": "string"
+        },
+        "senderAgentId": {
+          "type": "string"
+        },
+        "recipientAgentId": {
+          "type": "string"
+        },
+        "senderInboxId": {
+          "type": "string"
+        },
+        "recipientInboxId": {
+          "type": "string"
+        },
+        "deliveryId": {
+          "type": "string"
+        }
+      }
+    },
+    "workAvailableEvent": {
+      "description": "Producer shape (closed). Consumers must still accept unknown reasons and fields.",
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "createdAt",
+        "sequence",
+        "cursor",
+        "agentId",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "const": "work.available"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cursor": {
+          "$ref": "#/definitions/cursor"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "agent_resumed",
+            "case_resumed",
+            "counterparty_resumed",
+            "lease_released"
+          ]
+        },
+        "caseId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "reason": {
+                "const": "case_resumed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "caseId"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "caseId"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "readyFrame": {
+      "type": "object",
+      "required": [
+        "inboxId",
+        "at",
+        "cursor"
+      ],
+      "properties": {
+        "inboxId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cursor": {
+          "$ref": "#/definitions/nullableCursor"
+        }
+      },
+      "additionalProperties": false
+    },
+    "replayRequiredFrame": {
+      "type": "object",
+      "required": [
+        "cursor",
+        "hasMore"
+      ],
+      "properties": {
+        "cursor": {
+          "$ref": "#/definitions/nullableCursor"
+        },
+        "hasMore": {
+          "const": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "emptyFrame": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "credentialEndedFrame": {
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "CREDENTIAL_REVOKED",
+            "CREDENTIAL_EXPIRED"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "revoked",
+            "replaced",
+            "refresh_replay"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "deltaPage": {
+      "type": "object",
+      "required": [
+        "events",
+        "nextCursor",
+        "hasMore"
+      ],
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/eventBase"
+          }
+        },
+        "nextCursor": {
+          "$ref": "#/definitions/nullableCursor"
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "claimIdleWithHint": {
+      "type": "object",
+      "required": [
+        "work",
+        "state",
+        "nextAvailableAt",
+        "nextAvailableInMs"
+      ],
+      "properties": {
+        "work": {
+          "type": "null"
+        },
+        "state": {
+          "const": "idle"
+        },
+        "nextAvailableAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "nextAvailableInMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "claimIdleNoHint": {
+      "type": "object",
+      "required": [
+        "work",
+        "state"
+      ],
+      "properties": {
+        "work": {
+          "type": "null"
+        },
+        "state": {
+          "const": "idle"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "nextAvailableAt"
+            ]
+          },
+          {
+            "required": [
+              "nextAvailableInMs"
+            ]
+          }
+        ]
+      }
+    },
+    "claimPausedNoHint": {
+      "type": "object",
+      "required": [
+        "work",
+        "state"
+      ],
+      "properties": {
+        "work": {
+          "type": "null"
+        },
+        "state": {
+          "const": "paused"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "nextAvailableAt"
+            ]
+          },
+          {
+            "required": [
+              "nextAvailableInMs"
+            ]
+          }
+        ]
+      }
+    },
+    "frame": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/cursor"
+        },
+        "event": {
+          "type": "string",
+          "minLength": 1
+        },
+        "comment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data": {
+          "type": "object"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "event",
+            "data",
+            "schema"
+          ],
+          "not": {
+            "required": [
+              "comment"
+            ]
+          }
+        },
+        {
+          "required": [
+            "comment"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "event"
+                ]
+              },
+              {
+                "required": [
+                  "data"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "fixture": {
+      "type": "object",
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "a4-wake"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "sse",
+            "sse-session"
+          ]
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "method",
+            "path"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "GET",
+                "POST"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "headers": {
+              "type": "object"
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "status",
+            "schema",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            },
+            "headers": {
+              "type": "object"
+            },
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "event": {
+          "type": "object",
+          "required": [
+            "schema",
+            "id",
+            "event",
+            "data"
+          ],
+          "properties": {
+            "schema": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string"
+            },
+            "data": {
+              "type": "object"
+            }
+          }
+        },
+        "frames": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/frame"
+          }
+        },
+        "client": {
+          "type": "object",
+          "required": [
+            "lifecycle",
+            "retry",
+            "guidance",
+            "claim",
+            "next"
+          ],
+          "properties": {
+            "lifecycle": {
+              "$ref": "#/definitions/lifecycle"
+            },
+            "retry": {
+              "enum": [
+                "none",
+                "backoff",
+                "after_resume",
+                "refresh_then_retry_once"
+              ]
+            },
+            "guidance": {
+              "enum": [
+                "none",
+                "service_unavailable"
+              ]
+            },
+            "claim": {
+              "type": "boolean",
+              "description": "Whether this outcome triggers exactly one claim (handoff a4-wake §4)."
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "sse"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "event"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "sse-session"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "frames"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

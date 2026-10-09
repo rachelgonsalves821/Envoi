@@ -1,0 +1,31 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "delta-history-unavailable",
+  "description": "Event history needs a server-side cursor migration before it can be paged.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events/delta?cursor=00000000000000000104",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active"
+    }
+  },
+  "response": {
+    "status": 503,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "EVENT_HISTORY_UNAVAILABLE",
+      "error": "EVENT_HISTORY_UNAVAILABLE",
+      "message": "Event history is temporarily unavailable. Retry shortly.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "claim": false,
+    "next": "Retry with backoff; keep claiming on the disconnected safety timer."
+  }
+}

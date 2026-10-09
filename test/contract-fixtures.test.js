@@ -15,6 +15,46 @@ async function readJson(file) {
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
+const controlFrames = new Set(['ready', 'replay_required', 'replay_error', 'credential.ended']);
+const requestCursor = request => {
+  const query = new URL(request.path, 'http://fixture.invalid').searchParams;
+  return request.headers?.['last-event-id'] || query.get('cursor') || null;
+};
+
+// a4-wake §2: stored events carry their cursor as the SSE id and rise above the resume
+// cursor; control frames carry none; ready and replay_required report the right cursor.
+function checkStreamFrames(fixture, label, check, validator) {
+  const resume = requestCursor(fixture.request);
+  let last = resume;
+  for (const [index, frame] of fixture.frames.entries()) {
+    const frameLabel = `${label} frame ${index}`;
+    if (frame.comment) continue;
+    check(validator(frame.schema), frame.data, frameLabel);
+    if (controlFrames.has(frame.event)) {
+      assert.equal(frame.id, undefined, `${frameLabel}: control frames carry no id`);
+      const fromLatest = new URL(fixture.request.path, 'http://fixture.invalid').searchParams.get('from') === 'latest';
+      if (['ready', 'replay_required'].includes(frame.event) && !fromLatest) assert.equal(frame.data.cursor, last, `${frameLabel}: reports the last cursor sent, else the resume cursor`);
+      continue;
+    }
+    assert.equal(frame.id, frame.data.cursor, `${frameLabel}: SSE id is the cursor`);
+    assert.equal(frame.event, frame.data.type, `${frameLabel}: SSE event name`);
+    if (last) assert.ok(frame.id > last, `${frameLabel}: ids rise above the resume cursor and each other`);
+    last = frame.id;
+  }
+}
+
+// a4-wake §3: delta pages are ordered after the request cursor and report a consistent next cursor.
+function checkDeltaPage(fixture, label) {
+  const { events, nextCursor, hasMore } = fixture.response.body;
+  let last = requestCursor(fixture.request);
+  for (const event of events) {
+    if (last) assert.ok(event.cursor > last, `${label}: events rise above the request cursor`);
+    last = event.cursor;
+  }
+  assert.equal(nextCursor, last, `${label}: nextCursor is the last event cursor, else the request cursor`);
+  if (hasMore) assert.ok(events.length > 0, `${label}: hasMore implies a non-empty page`);
+}
+
 test('contract fixture registry has a versioned shape', async () => {
   const index = await readJson(path.join(root, 'index.json'));
   assert.equal(Number.isInteger(index.version) && index.version >= 1, true);
@@ -98,6 +138,8 @@ test('every fixture matches its declared schema', async () => {
         if (fixture.event.id !== undefined) assert.equal(fixture.event.id, fixture.event.data.cursor, `${label}: SSE id is the cursor`);
         else assert.equal('cursor' in fixture.event.data, false, `${label}: control events carry no cursor`);
       }
+      if (fixture.frames) checkStreamFrames(fixture, label, check, validator);
+      if (fixture.response?.schema === 'deltaPage') checkDeltaPage(fixture, label);
       assert.doesNotMatch(JSON.stringify(fixture), /(?:sinaloa_agent_(?:access|refresh)_|sinaloa_mcp_read_|sinaloa_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }

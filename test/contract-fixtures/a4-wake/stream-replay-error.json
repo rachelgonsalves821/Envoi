@@ -1,0 +1,30 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-replay-error",
+  "description": "A transient server error ends the stream.",
+  "kind": "sse-session",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream",
+      "last-event-id": "00000000000000000041"
+    }
+  },
+  "frames": [
+    {
+      "event": "replay_error",
+      "data": {},
+      "schema": "emptyFrame"
+    }
+  ],
+  "client": {
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "claim": false,
+    "next": "Reconnect from your last processed cursor with 1-30 s full-jitter backoff; claim every 15 s ±20% while disconnected."
+  }
+}

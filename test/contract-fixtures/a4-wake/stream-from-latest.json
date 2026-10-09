@@ -1,0 +1,33 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-from-latest",
+  "description": "Fresh connector without a cursor asks for from=latest: no history replay, ready reports the newest cursor.",
+  "kind": "sse-session",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events?from=latest",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream"
+    }
+  },
+  "frames": [
+    {
+      "event": "ready",
+      "data": {
+        "inboxId": "inbox_example",
+        "at": "2026-10-09T12:00:00.000Z",
+        "cursor": "00000000000000000044"
+      },
+      "schema": "readyFrame"
+    }
+  ],
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Store the ready cursor for this inbox and claim once; the queue, not history, holds pending work."
+  }
+}

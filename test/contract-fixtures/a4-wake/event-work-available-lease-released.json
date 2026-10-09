@@ -1,0 +1,28 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "event-work-available-lease-released",
+  "description": "A reconnect replaced the credential family; leases held by the old family were released without using an attempt.",
+  "kind": "sse",
+  "event": {
+    "schema": "workAvailableEvent",
+    "id": "00000000000000000049",
+    "event": "work.available",
+    "data": {
+      "id": "evt_work_49",
+      "type": "work.available",
+      "createdAt": "2026-10-09T12:00:00.000Z",
+      "sequence": 49,
+      "cursor": "00000000000000000049",
+      "agentId": "agent_example",
+      "reason": "lease_released"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Claim once; the new installation receives the released work with a new fence."
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-resume-last-event-id",
+  "description": "Resume with Last-Event-ID: later events replay with their cursor as SSE id, then ready (no id) carries the last cursor.",
+  "kind": "sse-session",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream",
+      "last-event-id": "00000000000000000041"
+    }
+  },
+  "frames": [
+    {
+      "id": "00000000000000000042",
+      "event": "message.delivered",
+      "data": {
+        "id": "evt_delivered_42",
+        "type": "message.delivered",
+        "createdAt": "2026-10-09T12:00:00.000Z",
+        "sequence": 42,
+        "cursor": "00000000000000000042",
+        "messageId": "msg_example",
+        "caseId": "case_example",
+        "senderAgentId": "agent_counterparty",
+        "recipientAgentId": "agent_example",
+        "senderInboxId": "inbox_counterparty",
+        "recipientInboxId": "inbox_example",
+        "deliveryId": "delivery_msg_example"
+      },
+      "schema": "messageDeliveredEvent"
+    },
+    {
+      "id": "00000000000000000043",
+      "event": "message.delivered",
+      "data": {
+        "id": "evt_delivered_43",
+        "type": "message.delivered",
+        "createdAt": "2026-10-09T12:00:00.000Z",
+        "sequence": 43,
+        "cursor": "00000000000000000043",
+        "messageId": "msg_second",
+        "caseId": "case_example",
+        "senderAgentId": "agent_counterparty",
+        "recipientAgentId": "agent_example",
+        "senderInboxId": "inbox_counterparty",
+        "recipientInboxId": "inbox_example",
+        "deliveryId": "delivery_msg_second"
+      },
+      "schema": "messageDeliveredEvent"
+    },
+    {
+      "event": "ready",
+      "data": {
+        "inboxId": "inbox_example",
+        "at": "2026-10-09T12:00:00.000Z",
+        "cursor": "00000000000000000043"
+      },
+      "schema": "readyFrame"
+    }
+  ],
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Store each cursor after processing; claim once after ready (single flight), then claim until idle."
+  }
+}

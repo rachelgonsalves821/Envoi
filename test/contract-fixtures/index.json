@@ -49,6 +49,42 @@
         "sender-paused-held-message.json",
         "server-error.json"
       ]
+    },
+    {
+      "id": "a4-wake",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#a4-wake-v1",
+      "dir": "a4-wake",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "claim-idle-next-available.json",
+        "claim-idle-no-hint.json",
+        "claim-paused-no-hint.json",
+        "delta-cursor-invalid.json",
+        "delta-empty-after-cursor.json",
+        "delta-history-unavailable.json",
+        "delta-last-page.json",
+        "delta-limit-invalid.json",
+        "delta-page-more.json",
+        "event-message-delivered-own-send.json",
+        "event-message-delivered-to-agent.json",
+        "event-work-available-case-resumed.json",
+        "event-work-available-counterparty-resumed.json",
+        "event-work-available-lease-released.json",
+        "stream-credential-ended.json",
+        "stream-cursor-beyond-newest.json",
+        "stream-cursor-invalid.json",
+        "stream-from-latest.json",
+        "stream-history-unavailable.json",
+        "stream-keepalive.json",
+        "stream-mcp-read-rejected.json",
+        "stream-ready-no-replay.json",
+        "stream-replay-error.json",
+        "stream-replay-required.json",
+        "stream-resume-last-event-id.json",
+        "stream-resume-query-cursor.json"
+      ]
     }
   ]
 }
