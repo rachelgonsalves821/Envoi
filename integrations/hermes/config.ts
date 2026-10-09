@@ -5,6 +5,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ConnectorSetupError, type AdapterOptions } from '../connector/adapter';
+import { windowsAccountSid, windowsExecutable } from '../connector/windows';
 
 export interface HermesConfiguration {
   home: string;
@@ -71,11 +72,11 @@ export async function replaceConfiguration(filename: string, original: string | 
 async function protectFile(filename: string) {
   if (process.platform !== 'win32') return chmod(filename, 0o600);
   const execute = promisify(execFile);
-  const { stdout } = await execute('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { windowsHide: true });
-  const sid = stdout.match(/S-1-[0-9-]+/)?.[0];
-  if (!sid) throw new ConnectorSetupError('STATE_UNAVAILABLE', 'Could not protect Hermes local credentials for the current Windows account.');
+  const sid = await windowsAccountSid();
   const script = `$ErrorActionPreference='Stop'; $p='${filename.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${sid}'); $a=New-Object System.Security.AccessControl.FileSecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','Allow'))); ([System.IO.FileInfo]::new($p)).SetAccessControl($a)`;
-  await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
+  try {
+    await execute(windowsExecutable('powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 20_000 });
+  } catch { throw new ConnectorSetupError('STATE_UNAVAILABLE', 'Windows could not protect Hermes local credentials for your account. Choose an owned profile directory and retry; preserve its private backups.'); }
 }
 
 const validProfile = (value: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value);
