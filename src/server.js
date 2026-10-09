@@ -60,6 +60,9 @@ import { createProviderMembershipCache, streamRecheckMs } from './provider-membe
 
 const productionConfig = validateProductionConfiguration();
 const releaseSha = process.env.ENVOI_RELEASE_SHA || null;
+// Shipped connectors refuse to start unless /health reports exactly this identity. It stays
+// 'sinaloa' after the Envoi rename until every supported connector also accepts 'envoi'.
+const serviceIdentity = 'sinaloa';
 const host = process.env.ENVOI_HOST || '127.0.0.1';
 const port = Number(process.env.ENVOI_PORT || 8787);
 const dataDir = path.resolve(process.env.ENVOI_DATA_DIR || 'data');
@@ -190,7 +193,7 @@ async function readinessReport() {
   const checks = dependencyReadinessChecks({ store, adapter: objectStorageAdapter,
     provider: objectStorageProvider, env: process.env, externalEmailEnabled, emailTransport });
   const report = await evaluateReadiness(checks, { timeoutMs: readinessTimeoutMs, at: store.now() });
-  return { ...report, service: 'envoi', mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha };
+  return { ...report, service: serviceIdentity, mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha };
 }
 
 const rateIdentity = req => hashSecret(String(req.headers.authorization || req.headers.cookie || clientIp(req))).slice(0, 32);
@@ -1970,7 +1973,7 @@ async function route(req, res) {
     }
     catch (error) { if (error.code === 'ENOENT') return fail(res, 404, 'Web asset not found'); throw error; }
   }
-  if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'envoi', time: store.now(), mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha });
+  if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: serviceIdentity, time: store.now(), mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha });
   if (req.method === 'GET' && url.pathname === '/ready') {
     const readiness = await readinessReport();
     return json(res, readiness.ready ? 200 : 503, readiness);
