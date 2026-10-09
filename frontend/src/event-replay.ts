@@ -6,10 +6,12 @@ export const WORKSPACE_EVENT_TYPES = [
   'agent.onboarding_approved', 'agent.onboarding_rejected', 'agent.credentials_revoked', 'agent.removed',
   'agent.revocation_reconciled', 'agent.reenroll_token_created', 'agent.reconnect_token_created',
   'agent.connection_setup_checked', 'agent.mcp_read_token_issued', 'agent.work_claimed', 'agent.work_failed',
+  'agent.paused', 'agent.resumed', 'agent.refresh_replay_detected', 'work.available',
   'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed',
   'policy.evaluated', 'policy.re_evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted',
   'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued',
   'message.failed', 'message.delivered', 'message.acknowledged', 'message.processed', 'message.created',
+  'message.cancelled',
   'human.instruction_created', 'agent.instruction_replied',
   'email.queued', 'asset.created', 'asset.granted', 'asset.upload_started',
   'asset.scan_clean', 'asset.scan_infected', 'asset.scan_error',
@@ -17,7 +19,7 @@ export const WORKSPACE_EVENT_TYPES = [
   'calendar.connected', 'calendar.connection_started', 'calendar.disconnected',
   'invitation.accepted', 'invitation.declined'
 ] as const;
-export const PROGRESS_ONLY_EVENTS = new Set<string>(['agent.mcp_read_token_issued', 'agent.work_claimed', 'agent.work_failed', 'agent.connection_setup_checked']);
+export const PROGRESS_ONLY_EVENTS = new Set<string>(['agent.mcp_read_token_issued', 'agent.work_claimed', 'agent.work_failed', 'agent.connection_setup_checked', 'work.available']);
 
 function validCursor(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 512 && !/[\r\n\0]/.test(value);

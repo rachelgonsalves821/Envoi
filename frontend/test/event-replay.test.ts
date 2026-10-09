@@ -82,4 +82,11 @@ it('covers the literal data events emitted by the server and keeps control event
   expect(WORKSPACE_EVENT_TYPES).not.toContain('ready');
   expect(PROGRESS_ONLY_EVENTS.has('agent.mcp_read_token_issued')).toBe(true);
   expect(PROGRESS_ONLY_EVENTS.has('case.action_recorded')).toBe(false);
+  // Pause/resume use a template literal in server.js, outside the literal-event scan.
+  for (const type of ['agent.paused', 'agent.resumed', 'agent.refresh_replay_detected', 'message.cancelled']) {
+    expect(WORKSPACE_EVENT_TYPES).toContain(type);
+    expect(PROGRESS_ONLY_EVENTS.has(type)).toBe(false);
+  }
+  expect(WORKSPACE_EVENT_TYPES).toContain('work.available');
+  expect(PROGRESS_ONLY_EVENTS.has('work.available')).toBe(true);
 });

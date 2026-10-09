@@ -282,15 +282,18 @@ describe('authenticated local management', () => {
       return bridge;
     };
     const started = startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, retryDelayMs: 10, onWaiting: waiting, onReady: ready });
+    // Surface a startup failure instead of hanging on a callback that will never fire.
+    const prematureExit = started.then(() => { throw new Error('Connector exited before startup recovery'); });
     try {
-      await waited;
+      await Promise.race([waited, prematureExit]);
       expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'waiting' });
       expect(await doctorConnection(f.options.stateDir, f.resolver)).toMatchObject({ runtimeChecks: 'pending', errorCode: 'ENVOI_UNREACHABLE' });
-      f.healthFails(false); await startedReady;
+      f.healthFails(false); await Promise.race([startedReady, prematureExit]);
       expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'running' });
       expect(f.counts().enrollmentCount).toBe(1);
     } finally { stop.abort(); await started; }
-  });
+  // Real filesystem and authenticated loopback requests need margin under full-suite load.
+  }, 60_000);
   it('stops gracefully during startup retry and fails promptly on invalid configuration', async () => {
     const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
     f.healthFails(); const stop = new AbortController();
