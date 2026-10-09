@@ -18,7 +18,7 @@ import { AGENT_PERMISSION_OPTIONS, DEFAULT_AGENT_PERMISSIONS, selectedAgentPermi
 import { previewRequested } from './preview';
 import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
-import { applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
+import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
 import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
 import { RUNTIME_OPTIONS, connectorDownloads, isLoopbackOrigin, runtimeLabel, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
@@ -214,8 +214,10 @@ export default function App() {
       const next = await api.humanView(workspaceId, undefined, viewRequests.current.signal);
       if (!isCurrentSession(generation) || !viewOrder.current.isCurrent(ticket) || activeWorkspace.current !== workspaceId) throw new SessionRequestCancelled();
       checkViewIdentity(next, workspaceId);
-      const stale = viewOrder.current.accept(ticket);
-      setView(current => quiet ? mergeHistory(current, next, undefined, stale) : next);
+      setView(current => {
+        if (!isCurrentSession(generation) || activeWorkspace.current !== workspaceId) return current;
+        return applyOrderedViewResponse<HumanView | null>(current, next, viewOrder.current, ticket, (previous, incoming, stale) => incoming ? quiet ? mergeHistory(previous, incoming, undefined, stale) : incoming : previous);
+      });
       return next;
     } catch (caught) {
       if (isCurrentSession(generation) && viewOrder.current.isCurrent(ticket) && caught instanceof ApiError && caught.status === 403) loseWorkspaceAccess(workspaceId);
@@ -259,8 +261,10 @@ export default function App() {
       const next = await api.humanView(workspaceId, cursors, viewRequests.current.signal);
       if (isCurrentSession(generation) && viewOrder.current.isCurrent(ticket) && activeWorkspace.current === workspaceId) {
         checkViewIdentity(next, workspaceId);
-        const stale = viewOrder.current.accept(ticket);
-        setView(current => current ? mergeHistory(current, next, cursors, stale) : current);
+        setView(current => {
+          if (!isCurrentSession(generation) || activeWorkspace.current !== workspaceId) return current;
+          return applyOrderedViewResponse<HumanView | null>(current, next, viewOrder.current, ticket, (previous, incoming, stale) => previous && incoming ? mergeHistory(previous, incoming, cursors, stale) : previous);
+        });
       }
     } catch (caught) {
       if (!isCurrentSession(generation) || !viewOrder.current.isCurrent(ticket)) return;
