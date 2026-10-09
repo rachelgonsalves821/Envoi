@@ -45,11 +45,18 @@ jobs:
       - run: npm run build
       - run: npm run cf:check
       - name: Build actual production container
-        # The Dockerfile stays on node:22-alpine; pre-load that official image from the mirror so the
-        # build uses the local copy instead of an anonymous Docker Hub pull.
+        # The Dockerfile stays on node:22-alpine; pre-load that official image so the build uses the
+        # local copy. Both anonymous registries throttle shared runners, so retry the mirror, then Docker Hub.
         run: |
-          docker pull public.ecr.aws/docker/library/node:22-alpine
-          docker tag public.ecr.aws/docker/library/node:22-alpine node:22-alpine
+          pulled=
+          for attempt in 1 2 3 4; do
+            if docker pull public.ecr.aws/docker/library/node:22-alpine; then
+              docker tag public.ecr.aws/docker/library/node:22-alpine node:22-alpine; pulled=1; break
+            fi
+            if docker pull node:22-alpine; then pulled=1; break; fi
+            sleep $((attempt * 15))
+          done
+          test -n "$pulled"
           docker build -f Dockerfile.cloudflare -t sinaloa-ci .
       - name: Verify missing production configuration fails closed
         run: |
