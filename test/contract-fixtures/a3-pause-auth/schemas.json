@@ -315,19 +315,177 @@
           ],
           "properties": {
             "workId": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "message": {
-              "type": "object"
+              "oneOf": [
+                {
+                  "$ref": "#/definitions/nativeWorkMessage"
+                },
+                {
+                  "$ref": "#/definitions/humanInstructionWorkMessageRef"
+                }
+              ]
             },
             "leaseToken": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "leaseExpiresAt": {
               "type": "string",
               "format": "date-time"
             }
           }
+        }
+      }
+    },
+    "nativeWorkMessage": {
+      "description": "The stored native agent message exactly as claim returns it today (unchanged by v1). Clients reject work without these fields.",
+      "type": "object",
+      "required": [
+        "id",
+        "messageId",
+        "caseId",
+        "conversationId",
+        "senderType",
+        "senderAgentId",
+        "senderInboxId",
+        "recipientAgentId",
+        "recipientInboxId",
+        "recipientEmail",
+        "from",
+        "to",
+        "transport",
+        "type",
+        "text",
+        "status",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "senderType": {
+          "const": "agent"
+        },
+        "senderAgentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "senderInboxId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recipientAgentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recipientInboxId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recipientEmail": {
+          "type": "string",
+          "minLength": 3
+        },
+        "from": {
+          "type": "object",
+          "required": [
+            "agentId",
+            "address"
+          ],
+          "properties": {
+            "agentId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "address": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "not": {
+            "required": [
+              "humanId"
+            ]
+          }
+        },
+        "to": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "agentId",
+              "address"
+            ]
+          }
+        },
+        "transport": {
+          "const": "native"
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "delivered",
+            "acknowledged"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "senderHumanId"
+            ]
+          },
+          {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "humanInstruction"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "humanInstructionWorkMessageRef": {
+      "description": "Human instructions (claimed with acceptHumanInstructions: true) keep their current shape; v1 does not restate it.",
+      "type": "object",
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "humanInstruction"
         }
       }
     },

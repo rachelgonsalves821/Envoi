@@ -5,6 +5,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+import { assertValidProtocolMessage } from '../src/protocol-v1.js';
+
+const protocolFields = ['schemaVersion', 'messageId', 'conversationId', 'taskId', 'correlationId', 'causationId', 'from', 'to', 'intent', 'content', 'proposal', 'authority', 'artifactRefs', 'requiresAck', 'traceparent', 'signature', 'createdAt'];
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'contract-fixtures');
 
@@ -77,6 +80,15 @@ test('every fixture matches its declared schema', async () => {
           assert.equal(fixture.client.guidance, guidance, `${label}: guidance for ${value.code}`);
         } else if (fixture.response.status >= 400 && schemas['x-codes']) {
           assert.equal(fixture.response.schema, 'edgeText', `${label}: error responses must use the error envelope`);
+        }
+        const workMessage = fixture.response.body?.work?.message;
+        if (workMessage && workMessage.kind !== 'humanInstruction') {
+          // Claimed native work must be a stored message the server could have produced.
+          assert.doesNotThrow(() => assertValidProtocolMessage(Object.fromEntries(protocolFields.map((key) => [key, workMessage[key]]))), `${label}: protocol envelope`);
+          assert.equal(workMessage.id, workMessage.messageId, `${label}: id is the protocol messageId`);
+          assert.equal(workMessage.caseId, workMessage.conversationId, `${label}: caseId is the conversationId`);
+          assert.equal(workMessage.from.agentId, workMessage.senderAgentId, `${label}: from is the sender`);
+          assert.ok(workMessage.to.some((recipient) => recipient.agentId === workMessage.recipientAgentId), `${label}: to includes the recipient`);
         }
         if (fixture.response.status === 429) assert.equal(fixture.response.headers?.['retry-after'], String(value.retryAfterSeconds), `${label}: retry-after`);
       }

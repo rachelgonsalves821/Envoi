@@ -139,7 +139,7 @@ Every claim response gets a `state` field:
 - `"idle"` when there is nothing to claim;
 - `"paused"` as above.
 
-The rest of the claim response does not change. `nextAvailableAt` is reserved for `a4-wake`.
+The rest of the claim response does not change. `work.message` remains the stored message record: either the full native agent message (schema `nativeWorkMessage`: protocol envelope fields plus `senderType`, `senderAgentId`, `senderInboxId`, `recipientAgentId`, `recipientInboxId`, `recipientEmail`, `transport: "native"`, `text` and `status`), or a human instruction in its current shape. `nextAvailableAt` is reserved for `a4-wake`.
 
 **Current behavior:** a paused agent's claim, MCP request and status read all return `401`. Its `mcp_read` token is rejected too, because `getAgentPrincipal` requires `active`.
 
@@ -257,3 +257,10 @@ When the connector receives `agent.resumed`, it leaves `PAUSED` and claims once 
 - the used refresh-credential document gains one field (§2.2).
 
 **Rollback.** Reverting A-1 restores today's behavior. The rollback procedure written with A-1 must move messages left in `held` back to `queued`. Families revoked by a replay stay revoked.
+
+### 8. Revisions within v1
+
+- **MISMATCH round 1, from Lane B, against `564b9dd`.** `claimed-work.json` returned a cut-down `work.message` with no sender or recipient fields, and the existing SDK correctly rejected it. This was a fixture error, not a contract change, so the version stays 1:
+  - the fixture now carries the complete stored native message;
+  - `claimClaimed.work.message` now requires `nativeWorkMessage` (or a human instruction);
+  - the fixture test also checks the message's protocol envelope with the server's own `assertValidProtocolMessage`.

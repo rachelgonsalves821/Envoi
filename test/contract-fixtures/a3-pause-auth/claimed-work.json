@@ -21,8 +21,56 @@
         "workId": "msg_example",
         "message": {
           "id": "msg_example",
+          "schemaVersion": "1.0",
+          "messageId": "msg_example",
+          "conversationId": "case_example",
+          "taskId": null,
+          "correlationId": null,
+          "causationId": null,
+          "from": {
+            "agentId": "agent_counterparty",
+            "address": "counterparty@sinaloa.mail"
+          },
+          "to": [
+            {
+              "agentId": "agent_example",
+              "address": "example@sinaloa.mail"
+            }
+          ],
+          "intent": "message",
+          "content": [
+            {
+              "type": "text",
+              "text": "Example message"
+            }
+          ],
+          "proposal": null,
+          "authority": {
+            "scope": "message.send",
+            "humanApproval": "notRequired",
+            "policyEvaluationId": null
+          },
+          "artifactRefs": [],
+          "requiresAck": true,
+          "traceparent": null,
+          "signature": null,
+          "unverifiedAuthorityClaim": null,
+          "unverifiedSignatureClaim": null,
           "caseId": "case_example",
-          "status": "delivered"
+          "senderInboxId": "inbox_counterparty",
+          "recipientInboxId": "inbox_example",
+          "senderType": "agent",
+          "senderAgentId": "agent_counterparty",
+          "recipientAgentId": "agent_example",
+          "recipientEmail": "example@sinaloa.mail",
+          "transport": "native",
+          "type": "message",
+          "text": "Example message",
+          "payload": null,
+          "createdAt": "2026-10-08T12:00:00.000Z",
+          "queuedAt": "2026-10-08T12:00:00.000Z",
+          "status": "delivered",
+          "deliveredAt": "2026-10-08T12:00:00.000Z"
         },
         "leaseToken": "lease_PLACEHOLDER",
         "leaseExpiresAt": "2026-10-08T12:05:00.000Z"
