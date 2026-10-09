@@ -68,16 +68,25 @@ test('every fixture matches its declared schema', async () => {
         check(validator(fixture.response.schema), value, `${label} response`);
         if (value && typeof value === 'object' && 'code' in value) {
           assert.equal(value.error, value.code, `${label}: error must equal code`);
-          assert.equal(fixture.response.status >= 400, true, `${label}: error body on a success status`);
+          const entry = schemas['x-codes']?.[value.code];
+          assert.ok(entry, `${label}: ${value.code} is not in x-codes`);
+          assert.equal(fixture.response.status, entry.status, `${label}: HTTP status for ${value.code}`);
+          assert.equal(fixture.client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
+          assert.equal(fixture.client.retry, entry.retry, `${label}: retry for ${value.code}`);
+          const guidance = value.reason ? entry.guidanceByReason?.[value.reason] : entry.guidance;
+          assert.equal(fixture.client.guidance, guidance, `${label}: guidance for ${value.code}`);
+        } else if (fixture.response.status >= 400 && schemas['x-codes']) {
+          assert.equal(fixture.response.schema, 'edgeText', `${label}: error responses must use the error envelope`);
         }
         if (fixture.response.status === 429) assert.equal(fixture.response.headers?.['retry-after'], String(value.retryAfterSeconds), `${label}: retry-after`);
       }
       if (fixture.event) {
         check(validator(fixture.event.schema), fixture.event.data, `${label} event`);
-        assert.equal(fixture.event.event, fixture.event.data.type, `${label}: SSE event name`);
-        assert.equal(fixture.event.id, fixture.event.data.cursor, `${label}: SSE id is the cursor`);
+        if (fixture.event.id !== undefined) assert.equal(fixture.event.event, fixture.event.data.type, `${label}: SSE event name`);
+        if (fixture.event.id !== undefined) assert.equal(fixture.event.id, fixture.event.data.cursor, `${label}: SSE id is the cursor`);
+        else assert.equal('cursor' in fixture.event.data, false, `${label}: control events carry no cursor`);
       }
-      assert.doesNotMatch(JSON.stringify(fixture), /sinaloa_agent_(?:access|refresh)_(?!PLACEHOLDER_)/, `${label}: tokens must be placeholders`);
+      assert.doesNotMatch(JSON.stringify(fixture), /(?:sinaloa_agent_(?:access|refresh)_|sinaloa_mcp_read_|sinaloa_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }
 });

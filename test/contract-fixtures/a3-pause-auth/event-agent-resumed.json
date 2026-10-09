@@ -22,6 +22,7 @@
   "client": {
     "lifecycle": "RUNNING",
     "retry": "none",
+    "guidance": "none",
     "next": "Claim once immediately."
   }
 }

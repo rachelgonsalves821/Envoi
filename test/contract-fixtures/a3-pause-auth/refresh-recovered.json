@@ -30,6 +30,7 @@
   "client": {
     "lifecycle": "UNCHANGED",
     "retry": "none",
+    "guidance": "none",
     "next": "Save the successor atomically and clear pendingRotation."
   }
 }

@@ -2,7 +2,7 @@
   "contract": "a3-pause-auth",
   "version": 1,
   "id": "paused-refresh",
-  "description": "A paused agent refreshes. Refresh grants no action rights.",
+  "description": "A paused agent refreshes. The response is identical to an active refresh and grants no action rights; the connector learns pause state from claim, status or events.",
   "kind": "http",
   "request": {
     "method": "POST",
@@ -28,8 +28,9 @@
     }
   },
   "client": {
-    "lifecycle": "PAUSED",
+    "lifecycle": "UNCHANGED",
     "retry": "none",
-    "next": "Save the successor; stay paused."
+    "guidance": "none",
+    "next": "Save the successor; keep the current state."
   }
 }

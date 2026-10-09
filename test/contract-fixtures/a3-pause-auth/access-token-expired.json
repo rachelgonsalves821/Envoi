@@ -26,6 +26,7 @@
   "client": {
     "lifecycle": "UNCHANGED",
     "retry": "refresh_then_retry_once",
+    "guidance": "none",
     "next": "Refresh once, then retry the original request once."
   }
 }

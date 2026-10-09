@@ -33,6 +33,7 @@
   "client": {
     "lifecycle": "RUNNING",
     "retry": "none",
+    "guidance": "none",
     "next": "Process the work and settle it with the lease token."
   }
 }

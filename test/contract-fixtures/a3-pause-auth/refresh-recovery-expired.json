@@ -22,7 +22,7 @@
     "body": {
       "code": "REFRESH_RECOVERY_EXPIRED",
       "error": "REFRESH_RECOVERY_EXPIRED",
-      "message": "The refresh could not be recovered in time. Ask the owner to reconnect the agent.",
+      "message": "The refresh could not be recovered in time. Ask the owner to reconnect this agent.",
       "requestId": "req_example"
     }
   },

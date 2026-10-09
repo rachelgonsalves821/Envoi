@@ -8,9 +8,10 @@
     "method": "POST",
     "path": "/api/inboxes/inbox_example/human-messages",
     "headers": {
-      "x-envoi-expected-human": "human_previous",
+      "cookie": "sinaloa_session=PLACEHOLDER",
       "x-sinaloa-csrf": "csrf_PLACEHOLDER",
-      "content-type": "application/json"
+      "content-type": "application/json",
+      "x-envoi-expected-human": "human_previous"
     },
     "body": {
       "text": "Example"

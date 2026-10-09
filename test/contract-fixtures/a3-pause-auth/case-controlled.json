@@ -21,7 +21,7 @@
   },
   "response": {
     "status": 409,
-    "schema": "caseControlledError",
+    "schema": "errorEnvelope",
     "body": {
       "code": "CASE_CONTROLLED",
       "error": "CASE_CONTROLLED",
@@ -33,6 +33,7 @@
   "client": {
     "lifecycle": "UNCHANGED",
     "retry": "after_case_resume",
+    "guidance": "case_paused",
     "next": "Skip this case; keep working other cases."
   }
 }

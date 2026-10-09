@@ -21,6 +21,7 @@
   "client": {
     "lifecycle": "DEGRADED",
     "retry": "backoff",
+    "guidance": "service_unavailable",
     "next": "Retry with bounded exponential backoff and jitter; keep credentials."
   }
 }

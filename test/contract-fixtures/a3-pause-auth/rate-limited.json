@@ -18,7 +18,7 @@
     "headers": {
       "retry-after": "30"
     },
-    "schema": "rateLimitedError",
+    "schema": "errorEnvelope",
     "body": {
       "code": "RATE_LIMITED",
       "error": "RATE_LIMITED",
@@ -30,6 +30,7 @@
   "client": {
     "lifecycle": "DEGRADED",
     "retry": "after_retry_after",
+    "guidance": "service_busy",
     "next": "Wait at least retry-after seconds, then retry with jitter."
   }
 }

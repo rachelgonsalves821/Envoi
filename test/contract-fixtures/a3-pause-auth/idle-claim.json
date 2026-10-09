@@ -24,6 +24,7 @@
   "client": {
     "lifecycle": "RUNNING",
     "retry": "none",
+    "guidance": "none",
     "next": "Wait for the next event or safety poll."
   }
 }

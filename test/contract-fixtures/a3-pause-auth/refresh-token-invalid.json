@@ -22,7 +22,7 @@
     "body": {
       "code": "REFRESH_TOKEN_INVALID",
       "error": "REFRESH_TOKEN_INVALID",
-      "message": "This refresh token is not valid. Ask the owner to reconnect the agent.",
+      "message": "This refresh token is not valid. Ask the owner to reconnect this agent.",
       "requestId": "req_example"
     }
   },

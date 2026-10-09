@@ -13,7 +13,7 @@
   },
   "response": {
     "status": 200,
-    "schema": "agentStatus",
+    "schema": "pausedAgentStatus",
     "body": {
       "state": "paused",
       "agent": {
@@ -26,7 +26,8 @@
   },
   "client": {
     "lifecycle": "PAUSED",
-    "retry": "none",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
     "next": "Stay paused until agent.resumed."
   }
 }

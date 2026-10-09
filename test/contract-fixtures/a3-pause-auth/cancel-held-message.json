@@ -1,0 +1,33 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "cancel-held-message",
+  "description": "A workspace manager cancels a held message. If it was the last sender_paused message in the case, the barrier is released; the agent stays paused.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/messages/msg_held_example/cancel",
+    "headers": {
+      "cookie": "sinaloa_session=PLACEHOLDER",
+      "x-sinaloa-csrf": "csrf_PLACEHOLDER",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "cancelledMessage",
+    "body": {
+      "id": "msg_held_example",
+      "caseId": "case_example",
+      "status": "cancelled",
+      "cancelledAt": "2026-10-08T12:00:00.000Z"
+    }
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Browser shows the message as cancelled."
+  }
+}

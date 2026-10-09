@@ -1,7 +1,98 @@
 {
   "$id": "a3-pause-auth/schemas.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "a3-pause-auth v1 schemas. Fixtures name a definition in response.schema or event.schema.",
+  "description": "a3-pause-auth v1 schemas. Fixtures name a definition in response.schema or event.schema. x-codes is the code table from handoffs.md §2.",
+  "x-codes": {
+    "AGENT_PAUSED": {
+      "status": 409,
+      "lifecycle": "PAUSED",
+      "retry": "after_resume",
+      "guidance": "wait_for_resume"
+    },
+    "CREDENTIAL_REVOKED": {
+      "status": 401,
+      "lifecycle": "REVOKED",
+      "retry": "none",
+      "guidance": "owner_reenroll",
+      "guidanceByReason": {
+        "revoked": "owner_reenroll",
+        "refresh_replay": "owner_reenroll",
+        "replaced": "replaced_by_reconnect"
+      }
+    },
+    "CREDENTIAL_EXPIRED": {
+      "status": 401,
+      "lifecycle": "NEEDS_RECONNECT",
+      "retry": "none",
+      "guidance": "owner_reconnect"
+    },
+    "ACCESS_TOKEN_EXPIRED": {
+      "status": 401,
+      "lifecycle": "UNCHANGED",
+      "retry": "refresh_then_retry_once",
+      "guidance": "none"
+    },
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "lifecycle": "UNCHANGED",
+      "retry": "refresh_then_retry_once",
+      "guidance": "none"
+    },
+    "ROTATION_ID_REQUIRED": {
+      "status": 400,
+      "lifecycle": "NEEDS_RECONNECT",
+      "retry": "none",
+      "guidance": "update_connector"
+    },
+    "REFRESH_TOKEN_INVALID": {
+      "status": 401,
+      "lifecycle": "NEEDS_RECONNECT",
+      "retry": "none",
+      "guidance": "owner_reconnect"
+    },
+    "REFRESH_REPLAY": {
+      "status": 401,
+      "lifecycle": "REVOKED",
+      "retry": "none",
+      "guidance": "owner_reenroll"
+    },
+    "REFRESH_RECOVERY_EXPIRED": {
+      "status": 401,
+      "lifecycle": "NEEDS_RECONNECT",
+      "retry": "none",
+      "guidance": "owner_reconnect"
+    },
+    "CASE_CONTROLLED": {
+      "status": 409,
+      "lifecycle": "UNCHANGED",
+      "retry": "after_case_resume",
+      "guidance": "case_paused"
+    },
+    "ACCOUNT_CHANGED": {
+      "status": 409,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "reload_browser"
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "lifecycle": "DEGRADED",
+      "retry": "after_retry_after",
+      "guidance": "service_busy"
+    },
+    "INTERNAL_SERVER_ERROR": {
+      "status": 500,
+      "lifecycle": "DEGRADED",
+      "retry": "backoff",
+      "guidance": "service_unavailable"
+    },
+    "AUTH_UNAVAILABLE": {
+      "status": 503,
+      "lifecycle": "DEGRADED",
+      "retry": "backoff",
+      "guidance": "service_unavailable"
+    }
+  },
   "definitions": {
     "lifecycle": {
       "enum": [
@@ -14,6 +105,20 @@
         "STOPPED",
         "UNCHANGED",
         "NOT_APPLICABLE"
+      ]
+    },
+    "guidance": {
+      "enum": [
+        "none",
+        "wait_for_resume",
+        "owner_reenroll",
+        "replaced_by_reconnect",
+        "owner_reconnect",
+        "update_connector",
+        "case_paused",
+        "reload_browser",
+        "service_busy",
+        "service_unavailable"
       ]
     },
     "errorCode": {
@@ -52,12 +157,14 @@
         "message": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 500
+          "maxLength": 500,
+          "not": {
+            "pattern": "(?:sinaloa_agent_(?:access|refresh)_|sinaloa_mcp_read_|sinaloa_enroll_)"
+          }
         },
         "requestId": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 128
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
         },
         "retryAfterSeconds": {
           "type": "integer",
@@ -66,38 +173,62 @@
         "caseId": {
           "type": "string",
           "minLength": 1
+        },
+        "reason": {
+          "enum": [
+            "revoked",
+            "replaced",
+            "refresh_replay"
+          ]
         }
-      }
-    },
-    "rateLimitedError": {
+      },
       "allOf": [
         {
-          "$ref": "#/definitions/errorEnvelope"
-        },
-        {
-          "required": [
-            "retryAfterSeconds"
-          ],
-          "properties": {
-            "code": {
-              "const": "RATE_LIMITED"
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
             }
+          },
+          "then": {
+            "required": [
+              "retryAfterSeconds"
+            ]
           }
-        }
-      ]
-    },
-    "caseControlledError": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/errorEnvelope"
         },
         {
-          "required": [
-            "caseId"
-          ],
-          "properties": {
-            "code": {
-              "const": "CASE_CONTROLLED"
+          "if": {
+            "properties": {
+              "code": {
+                "const": "CASE_CONTROLLED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "caseId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "CREDENTIAL_REVOKED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ]
             }
           }
         }
@@ -242,9 +373,66 @@
         "inboxId": {
           "type": "string"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "paused"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "agent": {
+                "properties": {
+                  "status": {
+                    "const": "paused"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "active"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "agent": {
+                "properties": {
+                  "status": {
+                    "const": "active"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
-    "messageAccepted": {
+    "pausedAgentStatus": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/agentStatus"
+        },
+        {
+          "properties": {
+            "state": {
+              "const": "paused"
+            }
+          }
+        }
+      ]
+    },
+    "sendAccepted": {
+      "description": "A fresh send (202). Always queued, and never reveals a pause or a barrier to the sender.",
       "type": "object",
       "required": [
         "id",
@@ -258,12 +446,45 @@
           "type": "string"
         },
         "status": {
-          "enum": [
-            "queued",
-            "delivered",
-            "held",
-            "cancelled"
-          ]
+          "const": "queued"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "heldReason"
+            ]
+          },
+          {
+            "required": [
+              "heldBehindMessageId"
+            ]
+          },
+          {
+            "required": [
+              "heldAt"
+            ]
+          }
+        ]
+      }
+    },
+    "messageRecord": {
+      "type": "object",
+      "required": [
+        "id",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "caseId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
         },
         "heldReason": {
           "enum": [
@@ -277,20 +498,130 @@
         },
         "heldBehindMessageId": {
           "type": "string"
+        },
+        "cancelledAt": {
+          "type": "string",
+          "format": "date-time"
         }
       },
-      "if": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "held"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "heldReason",
+              "heldAt"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "heldReason"
+            ],
+            "properties": {
+              "heldReason": {
+                "const": "case_ordering"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "heldBehindMessageId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "cancelled"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "cancelledAt"
+            ]
+          }
+        }
+      ]
+    },
+    "heldSenderMessageList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/messageRecord"
+      },
+      "contains": {
         "properties": {
           "status": {
             "const": "held"
+          },
+          "heldReason": {
+            "const": "sender_paused"
+          }
+        },
+        "required": [
+          "status",
+          "heldReason"
+        ]
+      }
+    },
+    "cancelledMessage": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/messageRecord"
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "cancelled"
+            }
           }
         }
-      },
-      "then": {
-        "required": [
-          "heldReason",
-          "heldAt"
-        ]
+      ]
+    },
+    "reconnectTokenIssued": {
+      "type": "object",
+      "required": [
+        "enrollmentId",
+        "enrollmentToken",
+        "expiresAt",
+        "agentId",
+        "quickConnect"
+      ],
+      "properties": {
+        "enrollmentId": {
+          "type": "string"
+        },
+        "enrollmentToken": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "quickConnect": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "operation": {
+              "const": "reconnect"
+            }
+          }
+        }
       }
     },
     "reconnectRedeemed": {
@@ -307,7 +638,18 @@
           ],
           "properties": {
             "agent": {
-              "$ref": "#/definitions/agentSummary"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/agentSummary"
+                },
+                {
+                  "properties": {
+                    "status": {
+                      "const": "paused"
+                    }
+                  }
+                }
+              ]
             },
             "inbox": {
               "type": "object",
@@ -360,6 +702,7 @@
         {
           "required": [
             "agentId",
+            "humanId",
             "status"
           ],
           "properties": {
@@ -367,6 +710,9 @@
               "const": "agent.paused"
             },
             "agentId": {
+              "type": "string"
+            },
+            "humanId": {
               "type": "string"
             },
             "status": {
@@ -384,6 +730,7 @@
         {
           "required": [
             "agentId",
+            "humanId",
             "status"
           ],
           "properties": {
@@ -391,6 +738,9 @@
               "const": "agent.resumed"
             },
             "agentId": {
+              "type": "string"
+            },
+            "humanId": {
               "type": "string"
             },
             "status": {
@@ -424,6 +774,57 @@
           }
         }
       ]
+    },
+    "messageCancelledEvent": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/eventBase"
+        },
+        {
+          "required": [
+            "messageId",
+            "caseId",
+            "humanId"
+          ],
+          "properties": {
+            "type": {
+              "const": "message.cancelled"
+            },
+            "messageId": {
+              "type": "string"
+            },
+            "caseId": {
+              "type": "string"
+            },
+            "humanId": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "credentialEndedEvent": {
+      "description": "Stream control event: no SSE id, not persisted, does not advance the cursor. The stream closes after it.",
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "CREDENTIAL_REVOKED",
+            "CREDENTIAL_EXPIRED"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "revoked",
+            "replaced",
+            "refresh_replay"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "edgeText": {
       "type": "string"
@@ -518,7 +919,6 @@
           "type": "object",
           "required": [
             "schema",
-            "id",
             "event",
             "data"
           ],
@@ -553,6 +953,7 @@
           "required": [
             "lifecycle",
             "retry",
+            "guidance",
             "next"
           ],
           "properties": {
@@ -570,13 +971,7 @@
               ]
             },
             "guidance": {
-              "enum": [
-                "update_connector",
-                "owner_reconnect",
-                "owner_reenroll",
-                "reload_browser",
-                "wait_for_resume"
-              ]
+              "$ref": "#/definitions/guidance"
             },
             "next": {
               "type": "string",

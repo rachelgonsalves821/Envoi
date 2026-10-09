@@ -2,7 +2,7 @@
   "contract": "a3-pause-auth",
   "version": 1,
   "id": "authentication-required",
-  "description": "The bearer token is unknown to the server.",
+  "description": "The bearer token is unknown to the server, or belongs to another inbox.",
   "kind": "http",
   "request": {
     "method": "POST",
@@ -26,6 +26,7 @@
   "client": {
     "lifecycle": "UNCHANGED",
     "retry": "refresh_then_retry_once",
+    "guidance": "none",
     "next": "Refresh once if a refresh token is stored; then follow the refresh result."
   }
 }

@@ -2,7 +2,7 @@
   "contract": "a3-pause-auth",
   "version": 1,
   "id": "reconnect-while-paused",
-  "description": "The owner reconnects a paused agent whose credential expired offline. Same identity; the agent stays paused.",
+  "description": "The connector redeems the reconnect token. Same identity; every earlier family is revoked; the agent stays paused.",
   "kind": "http",
   "request": {
     "method": "POST",
@@ -37,7 +37,7 @@
   },
   "client": {
     "lifecycle": "PAUSED",
-    "retry": "none",
+    "retry": "after_resume",
     "guidance": "wait_for_resume",
     "next": "Save credentials; stay paused until a human resumes."
   }

@@ -21,7 +21,7 @@
   },
   "client": {
     "lifecycle": "PAUSED",
-    "retry": "none",
+    "retry": "after_resume",
     "guidance": "wait_for_resume",
     "next": "Stop claims and actions; keep the stream and refresh."
   }

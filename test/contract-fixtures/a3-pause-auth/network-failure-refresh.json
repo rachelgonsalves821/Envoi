@@ -22,6 +22,7 @@
   "client": {
     "lifecycle": "DEGRADED",
     "retry": "backoff",
+    "guidance": "service_unavailable",
     "next": "Retry the refresh with the same refresh token and the same rotationId."
   }
 }

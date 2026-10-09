@@ -2,7 +2,7 @@
   "contract": "a3-pause-auth",
   "version": 1,
   "id": "refresh-replay",
-  "description": "An already-used refresh token presented with a different rotationId.",
+  "description": "An already-used refresh token presented with a different rotationId. The server revokes the family.",
   "kind": "http",
   "request": {
     "method": "POST",
@@ -22,14 +22,14 @@
     "body": {
       "code": "REFRESH_REPLAY",
       "error": "REFRESH_REPLAY",
-      "message": "This refresh token was already used by another request. Ask the owner to reconnect the agent.",
+      "message": "This refresh token was used twice, so the credential was revoked for safety. Ask the owner to reconnect the agent.",
       "requestId": "req_example"
     }
   },
   "client": {
-    "lifecycle": "NEEDS_RECONNECT",
+    "lifecycle": "REVOKED",
     "retry": "none",
-    "guidance": "owner_reconnect",
-    "next": "Do not retry with another rotationId; wait for the owner."
+    "guidance": "owner_reenroll",
+    "next": "Stop all activity; the family is revoked."
   }
 }
