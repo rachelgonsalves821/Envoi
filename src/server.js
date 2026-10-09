@@ -60,9 +60,9 @@ import { createProviderMembershipCache, streamRecheckMs } from './provider-membe
 
 const productionConfig = validateProductionConfiguration();
 const releaseSha = process.env.ENVOI_RELEASE_SHA || null;
-// Shipped connectors refuse to start unless /health reports exactly this identity. It stays
-// 'sinaloa' after the Envoi rename until every supported connector also accepts 'envoi'.
-const serviceIdentity = 'sinaloa';
+// Connectors refuse to start unless /health reports exactly this identity, so it changes
+// only together with the connector check (integrations/connector/core.ts).
+const serviceIdentity = 'envoi';
 const host = process.env.ENVOI_HOST || '127.0.0.1';
 const port = Number(process.env.ENVOI_PORT || 8787);
 const dataDir = path.resolve(process.env.ENVOI_DATA_DIR || 'data');
