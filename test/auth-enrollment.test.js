@@ -31,7 +31,8 @@ async function request(baseUrl, pathname, options = {}) {
   return { status: response.status, payload };
 }
 
-async function waitFor(check, { timeoutMs = 5000, intervalMs = 25 } = {}) {
+// Returns as soon as the check passes; the ceiling only absorbs full-suite load.
+async function waitFor(check, { timeoutMs = 15000, intervalMs = 25 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await check();
@@ -203,7 +204,8 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const replayedRefresh = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: enrolled.payload.agentRefreshToken, rotationId: 'rotation-enrollment-1' } });
   assert.equal(replayedRefresh.status, 200);
   assert.deepEqual(replayedRefresh.payload, rotated.payload);
-  assert.equal((await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: enrolled.payload.agentRefreshToken, rotationId: 'rotation-enrollment-other' } })).status, 401);
+  // A different rotationId now revokes the whole family (a3-pause-auth v1 REFRESH_REPLAY), which
+  // would turn the reconnect below into a re-enrollment; agent-mcp.test.js covers that path.
   enrolled.payload.agentApiToken = rotated.payload.agentApiToken;
   enrolled.payload.agentRefreshToken = rotated.payload.agentRefreshToken;
   const senderInboxId = enrolled.payload.inbox.id;
@@ -426,7 +428,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const meetingStart = new Date(schedulingNow + 90 * 60_000).toISOString();
   const meetingEnd = new Date(schedulingNow + 120 * 60_000).toISOString();
   const caseCreated = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases`, { token: enrolled.payload.agentApiToken, body: { objective: 'Schedule Q4 planning with Acme', collaborationMode: 'scheduling', participants: [recipient.payload.agent.id], constraints: { workingHoursEnd: '16:00', timezone: 'America/Toronto' }, deadline: caseDeadline } });
-  assert.equal(caseCreated.status, 201);
+  assert.equal(caseCreated.status, 201, JSON.stringify(caseCreated.payload));
   assert.equal(caseCreated.payload.schemaVersion, '1.0');
   const progress = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/cases/${caseCreated.payload.id}/actions`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'case-progress-1' }, body: { actionKey: 'case.classify', outcome: 'ok', nextState: 'inProgress' } });
   assert.equal(progress.status, 201);

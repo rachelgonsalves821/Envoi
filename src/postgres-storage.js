@@ -108,11 +108,13 @@ export class PostgresStore {
     });
   }
   async getOutbox(id) { const result = await this.query('SELECT * FROM sinaloa_outbox WHERE id = $1', [id]); return this.rowToOutbox(result.rows[0]); }
-  async queryOutbox({ inboxId = null, status = null, limit = 100 } = {}) {
+  async queryOutbox({ inboxId = null, status = null, orderingKey = null, senderInboxId = null, limit = 100 } = {}) {
     const values = [];
     const conditions = [];
     if (inboxId) { values.push(inboxId); conditions.push(`(value->>'senderInboxId' = $${values.length} OR value->>'recipientInboxId' = $${values.length})`); }
     if (status) { values.push(status); conditions.push(`status = $${values.length}`); }
+    if (orderingKey) { values.push(orderingKey); conditions.push(`value->>'orderingKey' = $${values.length}`); }
+    if (senderInboxId) { values.push(senderInboxId); conditions.push(`value->>'senderInboxId' = $${values.length}`); }
     values.push(Math.max(1, Math.min(Number(limit) || 100, 200)));
     const result = await this.query(`SELECT * FROM sinaloa_outbox ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT $${values.length}`, values);
     return result.rows.map(row => this.rowToOutbox(row));
@@ -127,7 +129,7 @@ export class PostgresStore {
         SELECT 1 FROM sinaloa_outbox AS earlier
         WHERE earlier.id <> pending.id
           AND earlier.value->>'orderingKey' = pending.value->>'orderingKey'
-          AND earlier.status NOT IN ('delivered', 'deadLettered')
+          AND earlier.status NOT IN ('delivered', 'deadLettered', 'cancelled')
           AND earlier.delivery_sequence < pending.delivery_sequence
       )
       ORDER BY pending.available_at, pending.delivery_sequence
@@ -173,6 +175,56 @@ export class PostgresStore {
       if (!current.rowCount) return null;
       await this.writeDocuments(client, documents);
       const result = await client.query(`UPDATE sinaloa_outbox SET status = 'queued', attempts = 0, available_at = NOW(), updated_at = NOW(), locked_at = NULL, locked_by = NULL, last_error = NULL, dead_lettered_at = NULL, value = value || jsonb_build_object('leaseToken', NULL::text) WHERE id = $1 RETURNING *`, [id]);
+      return this.rowToOutbox(result.rows[0]);
+    });
+  }
+  bySequence(records) { return records.sort((a, b) => a.sequence - b.sequence); }
+  async holdOutbox(id, documents, { reason, lease = null }) {
+    return this.transactional(async client => {
+      await this.assertOutboxLease(client, id, lease);
+      await this.writeDocuments(client, documents);
+      const result = await client.query(`UPDATE sinaloa_outbox SET
+        status = 'held', updated_at = NOW(), locked_at = NULL, locked_by = NULL,
+        value = value || jsonb_build_object('leaseToken', NULL::text, 'heldReason', $2::text, 'heldAt', $3::text,
+          'heldFromStatus', CASE WHEN attempts > 0 THEN 'retrying' ELSE 'queued' END)
+        WHERE id = $1 RETURNING *`, [id, reason, new Date().toISOString()]);
+      return this.rowToOutbox(result.rows[0]);
+    });
+  }
+  async holdQueuedOutbox({ senderInboxId, reason, heldAt = null }) {
+    if (!senderInboxId) throw new TypeError('senderInboxId is required');
+    return this.transactional(async client => {
+      const locked = await client.query(`SELECT id FROM sinaloa_outbox
+        WHERE value->>'senderInboxId' = $1 AND status IN ('queued', 'retrying') ORDER BY delivery_sequence FOR UPDATE`, [senderInboxId]);
+      if (!locked.rowCount) return [];
+      const result = await client.query(`UPDATE sinaloa_outbox SET
+        status = 'held', updated_at = NOW(),
+        value = value || jsonb_build_object('heldReason', $2::text, 'heldAt', $3::text, 'heldFromStatus', status)
+        WHERE id = ANY($1::text[]) AND status IN ('queued', 'retrying') RETURNING *`, [locked.rows.map(row => row.id), reason, heldAt ?? new Date().toISOString()]);
+      return this.bySequence(result.rows.map(row => this.rowToOutbox(row)));
+    });
+  }
+  async releaseHeldOutbox({ senderInboxId }) {
+    if (!senderInboxId) throw new TypeError('senderInboxId is required');
+    return this.transactional(async client => {
+      const locked = await client.query(`SELECT id FROM sinaloa_outbox
+        WHERE value->>'senderInboxId' = $1 AND status = 'held' ORDER BY delivery_sequence FOR UPDATE`, [senderInboxId]);
+      if (!locked.rowCount) return [];
+      const result = await client.query(`UPDATE sinaloa_outbox SET
+        status = COALESCE(NULLIF(value->>'heldFromStatus', ''), 'queued'), updated_at = NOW(),
+        value = value - 'heldReason' - 'heldAt' - 'heldFromStatus'
+        WHERE id = ANY($1::text[]) AND status = 'held' RETURNING *`, [locked.rows.map(row => row.id)]);
+      return this.bySequence(result.rows.map(row => this.rowToOutbox(row)));
+    });
+  }
+  async cancelHeldOutbox(id, documents = []) {
+    return this.transactional(async client => {
+      const current = await client.query("SELECT id FROM sinaloa_outbox WHERE id = $1 AND status = 'held' FOR UPDATE", [id]);
+      if (!current.rowCount) return null;
+      await this.writeDocuments(client, documents);
+      const result = await client.query(`UPDATE sinaloa_outbox SET status = 'cancelled', updated_at = NOW(),
+        value = (value - 'heldReason' - 'heldAt' - 'heldFromStatus') || jsonb_build_object('cancelledAt', $2::text)
+        WHERE id = $1 RETURNING *`, [id, new Date().toISOString()]);
       return this.rowToOutbox(result.rows[0]);
     });
   }

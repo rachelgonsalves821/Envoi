@@ -259,8 +259,11 @@ test('case-scoped provider tokens expose only MCP reads and stop after credentia
   const agentPath = path.join(t.dataDir, 'inboxes', alice.inbox.id, 'agents', `${alice.agent.id}.json`);
   const agentRecord = JSON.parse(await readFile(agentPath, 'utf8'));
   await writeFile(agentPath, JSON.stringify({ ...agentRecord, status: 'paused' }));
-  assert.equal((await mcp(baseUrl, replacement.payload.mcpAccessToken, 'tools/list')).status, 401);
-  assert.equal((await mcp(baseUrl, alice.agentApiToken, 'tools/list')).status, 401);
+  // a3-pause-auth v1: a paused agent's model-held read token stops with AGENT_PAUSED, not a generic 401.
+  const pausedRead = await mcp(baseUrl, replacement.payload.mcpAccessToken, 'tools/list');
+  assert.deepEqual([pausedRead.status, pausedRead.payload.code], [409, 'AGENT_PAUSED']);
+  const pausedAccess = await mcp(baseUrl, alice.agentApiToken, 'tools/list');
+  assert.deepEqual([pausedAccess.status, pausedAccess.payload.code], [409, 'AGENT_PAUSED']);
   await writeFile(agentPath, JSON.stringify(agentRecord));
   const revoked = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/credentials/revoke`, { session: alice.session, body: {} });
   assert.equal(revoked.status, 200);
@@ -411,7 +414,9 @@ test('agent refresh rolls inactivity expiry and recovers one encrypted successor
   const shortenedExpiry = new Date(Date.now() + 600_000).toISOString();
   await store.putJson(familyPath, { ...family, refreshExpiresAt: shortenedExpiry });
   const requestBody = { grantType: 'refresh_token', agentRefreshToken: alice.agentRefreshToken, rotationId: 'rotation-concurrent-1' };
-  assert.equal((await api(baseUrl, '/api/agent-token', { body: { ...requestBody, rotationId: undefined } })).status, 400);
+  const missingRotation = await api(baseUrl, '/api/agent-token', { body: { ...requestBody, rotationId: undefined } });
+  assert.equal(missingRotation.status, 400);
+  assert.equal(missingRotation.payload.code, 'ROTATION_ID_REQUIRED');
   const concurrent = await Promise.all(Array.from({ length: 6 }, () => api(baseUrl, '/api/agent-token', { body: requestBody })));
   assert.ok(concurrent.every(response => response.status === 200));
   assert.ok(concurrent.every(response => JSON.stringify(response.payload) === JSON.stringify(concurrent[0].payload)));
@@ -426,13 +431,21 @@ test('agent refresh rolls inactivity expiry and recovers one encrypted successor
   assert.equal(JSON.stringify(recovery).includes(successor.agentApiToken), false);
   assert.equal(JSON.stringify(recovery).includes(successor.agentRefreshToken), false);
   assert.equal(JSON.stringify(recovery).includes(alice.agentRefreshToken), false);
-  assert.equal((await api(baseUrl, '/api/agent-token', { body: { ...requestBody, rotationId: 'rotation-different-1' } })).status, 401);
   assert.deepEqual((await api(baseUrl, '/api/agent-token', { body: requestBody })).payload, successor);
   await store.putJson(recoveryPath, { ...recovery, expiresAt: new Date(Date.now() - 1_000).toISOString() });
-  assert.equal((await api(baseUrl, '/api/agent-token', { body: requestBody })).status, 401);
+  const lateRecovery = await api(baseUrl, '/api/agent-token', { body: requestBody });
+  assert.equal(lateRecovery.status, 401);
+  assert.equal(lateRecovery.payload.code, 'REFRESH_RECOVERY_EXPIRED');
   const nextRotation = { grantType: 'refresh_token', agentRefreshToken: successor.agentRefreshToken, rotationId: 'rotation-revocation-1' };
   const next = await api(baseUrl, '/api/agent-token', { body: nextRotation });
   assert.equal(next.status, 200);
+  // A used token presented with a different rotationId means two holders: the family is revoked.
+  const replay = await api(baseUrl, '/api/agent-token', { body: { ...nextRotation, rotationId: 'rotation-different-1' } });
+  assert.equal(replay.status, 401);
+  assert.equal(replay.payload.code, 'REFRESH_REPLAY');
+  const afterReplay = await api(baseUrl, '/api/agent-token', { body: nextRotation });
+  assert.equal(afterReplay.status, 401);
+  assert.deepEqual([afterReplay.payload.code, afterReplay.payload.reason], ['CREDENTIAL_REVOKED', 'refresh_replay']);
   assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/credentials/revoke`, { session: alice.session, body: {} })).status, 200);
   assert.equal((await api(baseUrl, '/api/agent-token', { body: nextRotation })).status, 401);
   for (const secret of [alice.agentRefreshToken, successor.agentApiToken, successor.agentRefreshToken, next.payload.agentRefreshToken]) {

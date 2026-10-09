@@ -11,11 +11,13 @@ test('file-backed outbox logs only aggregate backlog and age', async () => {
   await store.init();
   await store.putJson('outbox/delivery_1.json', { id: 'delivery_1', status: 'queued', createdAt: '2026-09-29T00:00:00.000Z', senderInboxId: 'secret-tenant', lastError: 'private content' });
   await store.putJson('outbox/delivery_2.json', { id: 'delivery_2', status: 'deadLettered', createdAt: '2026-09-29T00:01:00.000Z' });
+  // Held for a paused sender: counted, but it does not age the pending backlog.
+  await store.putJson('outbox/delivery_3.json', { id: 'delivery_3', status: 'held', createdAt: '2026-09-28T00:00:00.000Z' });
   const snapshot = await operationalBacklogSnapshot({ store, at: new Date('2026-09-29T00:02:00.000Z') });
   assert.deepEqual(snapshot, {
     event: 'sinaloa.operational_backlog',
     at: '2026-09-29T00:02:00.000Z',
-    outbox: { queued: 1, retrying: 0, processing: 0, deadLettered: 1, oldestPendingAgeSeconds: 120 },
+    outbox: { queued: 1, retrying: 0, processing: 0, held: 1, deadLettered: 1, oldestPendingAgeSeconds: 120 },
     scans: null
   });
   assert.doesNotMatch(JSON.stringify(snapshot), /secret-tenant|private content|delivery_1/);

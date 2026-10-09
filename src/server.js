@@ -21,7 +21,7 @@ import { PostgresMalwareScanJobStore } from './object-scan-lifecycle.js';
 import { validateProductionConfiguration } from './production-config.js';
 import { evaluateReadiness } from './readiness.js';
 import { dependencyReadinessChecks } from './dependency-readiness.js';
-import { clientIp, publicHttpError } from './http-security.js';
+import { clientIp, errorBody, publicHttpError, requestIdFrom } from './http-security.js';
 import { createPkcePair, exchangeCalendarAuthorizationCode } from './calendar-oauth.js';
 import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from './path-safety.js';
 import { claimIdempotency, completeIdempotency, replayResponse, scopedIdempotencyPath, semanticDigest, validateIdempotencyKey } from './idempotency.js';
@@ -286,7 +286,28 @@ const reserveIdentity = async (address, value) => {
   const relative = path.join('identities', `${identityKey(address)}.json`);
   return store.putJsonIfAbsent(relative, value);
 };
-const hasPermission = (agent, permission) => agent.status === 'active' && agent.onboardingStatus === 'approved' && agent.permissions?.includes(permission);
+const canAct = (agent, permission) => agent.status === 'active' && agent.onboardingStatus === 'approved' && agent.permissions?.includes(permission);
+// A paused agent stays addressable: it may receive and observe, but not act.
+const canReceive = agent => ['active', 'paused'].includes(agent?.status) && agent.onboardingStatus === 'approved' && agent.permissions?.includes('receive_agent_messages');
+const codedError = (statusCode, code, message, publicFields) => Object.assign(new Error(message), { statusCode, code, ...(publicFields ? { publicFields } : {}) });
+const credentialMessages = {
+  AUTHENTICATION_REQUIRED: 'A valid agent credential is required.',
+  CREDENTIAL_EXPIRED: 'This agent credential expired after inactivity. Ask the owner to reconnect this agent.',
+  ACCESS_TOKEN_EXPIRED: 'The access token expired. Refresh it and retry.',
+  ROTATION_ID_REQUIRED: 'This connector is out of date. Update it to keep this agent connected.',
+  REFRESH_TOKEN_INVALID: 'This refresh token is not valid. Ask the owner to reconnect this agent.',
+  REFRESH_REPLAY: 'This refresh token was used twice, so the credential was revoked for safety. Ask the owner to reconnect the agent.',
+  REFRESH_RECOVERY_EXPIRED: 'The refresh could not be recovered in time. Ask the owner to reconnect this agent.'
+};
+const revokedMessages = {
+  revoked: 'This agent credential was revoked.',
+  replaced: 'This connection was replaced by a newer reconnect of the same agent.',
+  refresh_replay: 'This credential was revoked because a refresh token was used twice.'
+};
+const credentialError = (code, reason) => code === 'CREDENTIAL_REVOKED'
+  ? codedError(401, code, revokedMessages[reason] || revokedMessages.revoked, { reason: revokedMessages[reason] ? reason : 'revoked' })
+  : codedError(code === 'ROTATION_ID_REQUIRED' ? 400 : 401, code, credentialMessages[code]);
+const agentPausedError = () => codedError(409, 'AGENT_PAUSED', 'This agent is paused by its owner.');
 const hashSecret = value => crypto.createHash('sha256').update(value).digest('hex');
 const publicEmailAddressForAgent = agent => emailTransport.addressForSlug(agent.slug);
 const publicIdentity = (slug) => ({
@@ -318,7 +339,7 @@ const publicEmailTransportProjection = (agents, contacts) => ({
     agentId: agent.id,
     platformAddress: agent.address,
     publicEmailAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null,
-    permitted: hasPermission(agent, 'use_email_transport')
+    permitted: canAct(agent, 'use_email_transport')
   })),
   contacts: contacts.sort((left, right) => String(left.email).localeCompare(String(right.email)))
 });
@@ -405,28 +426,42 @@ function decryptAgentRotation(rawRefreshToken, context, encrypted) {
 }
 
 async function rotateAgentCredentials(rawRefreshToken, rotationId) {
-  if (!String(rawRefreshToken || '').startsWith('sinaloa_agent_refresh_')) throw Object.assign(new Error('Valid agent refresh token required'), { statusCode: 401 });
-  if (typeof rotationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(rotationId)) throw Object.assign(new Error('Valid rotationId required'), { statusCode: 400 });
+  // Checked before any lookup: reveals nothing about the token and never consumes it.
+  if (typeof rotationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(rotationId)) throw credentialError('ROTATION_ID_REQUIRED');
+  if (!String(rawRefreshToken || '').startsWith('sinaloa_agent_refresh_')) throw credentialError('REFRESH_TOKEN_INVALID');
   const tokenHash = hashSecret(rawRefreshToken);
   const rotationIdHash = hashSecret(rotationId);
   const refreshPath = agentRefreshCredentialPath(tokenHash);
   const pending = await store.getJson(refreshPath);
-  if (!pending?.inboxId) throw invalidAgentRefresh();
+  if (!pending?.inboxId) throw credentialError('REFRESH_TOKEN_INVALID');
   const rotate = async () => {
     const current = await store.getJson(refreshPath);
-    if (!current || current.tokenType !== 'refresh' || current.revokedAt) throw invalidAgentRefresh();
-    const family = await store.getJson(agentCredentialFamilyPath(current.inboxId, current.agentId, current.familyId));
-    if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) throw Object.assign(new Error('Agent credential family is invalid or revoked'), { statusCode: 401 });
+    if (!current || current.tokenType !== 'refresh') throw credentialError('REFRESH_TOKEN_INVALID');
+    const familyPath = agentCredentialFamilyPath(current.inboxId, current.agentId, current.familyId);
+    const family = await store.getJson(familyPath);
     const agent = await store.getJson(path.join('inboxes', current.inboxId, 'agents', `${current.agentId}.json`));
-    if (agent?.status !== 'active' || agent.onboardingStatus !== 'approved') throw Object.assign(new Error('Agent is not active and approved'), { statusCode: 401 });
+    if (!family || family.revokedAt || current.revokedAt || !agent || ['revoked', 'removed'].includes(agent.status)) throw credentialError('CREDENTIAL_REVOKED', family?.revokedReason);
+    if (new Date(family.refreshExpiresAt) <= new Date()) throw credentialError('CREDENTIAL_EXPIRED');
     if (current.usedAt) {
+      if (!current.usedRotationIdHash) throw credentialError('REFRESH_TOKEN_INVALID');
+      if (current.usedRotationIdHash !== rotationIdHash) {
+        // Two holders of one refresh token: revoke the family rather than let either keep it.
+        // Returned, not thrown, so the revocation commits with the transaction.
+        const revokedAt = store.now();
+        await store.putJson(familyPath, { ...family, revokedAt, revokedReason: 'refresh_replay', updatedAt: revokedAt });
+        return { replayed: { inboxId: current.inboxId, agentId: current.agentId, familyId: current.familyId } };
+      }
       const recovery = await store.getJson(agentRotationRecoveryPath(tokenHash));
-      if (!recovery || recovery.rotationIdHash !== rotationIdHash || recovery.familyId !== current.familyId || new Date(recovery.expiresAt) <= new Date()) throw invalidAgentRefresh();
-      return decryptAgentRotation(rawRefreshToken, rotationRecoveryContext(tokenHash, current.familyId, rotationIdHash), recovery.encrypted);
+      if (!recovery || recovery.rotationIdHash !== rotationIdHash || recovery.familyId !== current.familyId || new Date(recovery.expiresAt) <= new Date()) throw credentialError('REFRESH_RECOVERY_EXPIRED');
+      try { return decryptAgentRotation(rawRefreshToken, rotationRecoveryContext(tokenHash, current.familyId, rotationIdHash), recovery.encrypted); }
+      catch { throw credentialError('REFRESH_RECOVERY_EXPIRED'); }
     }
-    if (new Date(current.expiresAt) <= new Date()) throw invalidAgentRefresh();
+    if (new Date(current.expiresAt) <= new Date()) throw credentialError('REFRESH_TOKEN_INVALID');
+    if (agent.onboardingStatus !== 'approved' || !['active', 'paused'].includes(agent.status)) throw Object.assign(new Error('Agent is not active and approved'), { statusCode: 401 });
     const claimed = await store.claimJson(refreshPath, 'usedAt', store.now());
-    if (!claimed) throw invalidAgentRefresh();
+    if (!claimed) throw credentialError('REFRESH_TOKEN_INVALID');
+    // Remember which rotation consumed the token so replay and late recovery stay distinguishable.
+    await store.putJson(refreshPath, { ...claimed, usedRotationIdHash: rotationIdHash });
     const successor = await issueAgentCredentials(current.agentId, current.inboxId, current.familyId, true);
     await store.putJson(agentRotationRecoveryPath(tokenHash), {
       tokenHash, familyId: current.familyId, rotationIdHash,
@@ -435,7 +470,30 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId) {
     });
     return successor;
   };
-  return typeof store.withTransaction === 'function' ? store.withTransaction([inboxMutationKey(pending.inboxId)], rotate) : rotate();
+  const result = typeof store.withTransaction === 'function' ? await store.withTransaction([inboxMutationKey(pending.inboxId)], rotate) : await rotate();
+  if (!result.replayed) return result;
+  const { inboxId, agentId, familyId } = result.replayed;
+  await audit(inboxId, 'agent.refresh_replay_detected', { agentId, credentialFamilyId: familyId });
+  closeAgentStreams(inboxId, agentId, { code: 'CREDENTIAL_REVOKED', reason: 'refresh_replay' });
+  throw credentialError('REFRESH_REPLAY');
+}
+
+// Resolves a bearer credential to one stable outcome (a3-pause-auth v1 §2.1). Pending
+// agents keep their legacy behaviour (`legacy`), since the contract does not cover them.
+async function resolveAgentCredential(req, { inboxId = null, tokenTypes = ['access'] } = {}) {
+  const raw = bearerToken(req);
+  if (!raw) return { error: credentialError('AUTHENTICATION_REQUIRED') };
+  const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
+  if (!index?.inboxId || !index.familyId || !tokenTypes.includes(index.tokenType) || (inboxId && index.inboxId !== inboxId)) return { error: credentialError('AUTHENTICATION_REQUIRED') };
+  const [family, agent] = await Promise.all([
+    store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId)),
+    store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`))
+  ]);
+  if (!family || family.revokedAt || index.revokedAt || !agent || ['revoked', 'removed'].includes(agent.status)) return { error: credentialError('CREDENTIAL_REVOKED', family?.revokedReason) };
+  if (new Date(family.refreshExpiresAt) <= new Date()) return { error: credentialError('CREDENTIAL_EXPIRED') };
+  if (new Date(index.expiresAt) <= new Date()) return { error: credentialError('ACCESS_TOKEN_EXPIRED') };
+  if (agent.onboardingStatus !== 'approved' || !['active', 'paused'].includes(agent.status)) return { legacy: true };
+  return { identity: { agent, familyId: index.familyId, inboxId: index.inboxId, tokenType: index.tokenType, caseId: index.caseId, paused: agent.status === 'paused' } };
 }
 
 const getAgentPrincipal = async (req, inboxId) => {
@@ -453,7 +511,8 @@ const getAgentPrincipal = async (req, inboxId) => {
     if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
   }
   const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${index.agentId}.json`));
-  return agent?.status === 'active' && agent.onboardingStatus === 'approved' ? agent : null;
+  if (agent?.onboardingStatus !== 'approved') return null;
+  return agent.status === 'active' || agent.status === 'paused' && ['GET', 'HEAD'].includes(req.method) ? agent : null;
 };
 async function issueMcpReadToken(identity, caseId) {
   if (caseId && !await getCase(identity.inboxId, caseId)) throw Object.assign(new Error('Case not found'), { statusCode: 404 });
@@ -468,16 +527,46 @@ async function issueMcpReadToken(identity, caseId) {
 }
 const workClaimPath = (inboxId, workId) => path.join('inboxes', inboxId, 'work-claims', `${workId}.json`);
 
+// Active or paused access credential; callers decide what a paused agent may do.
+const pausedAgentRoutes = new Set(['POST /api/agent/work/claim', 'POST /api/agent/connection-status', 'GET /api/agent/status']);
+// a3-pause-auth v1 §2.1 and §3, applied before any route handler so precedence is uniform.
+async function enforceAgentCredential(req, url, res) {
+  try { await checkAgentCredential(req, url); }
+  catch (error) {
+    if (url.pathname === '/mcp' && error.statusCode === 401) res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
+    throw error;
+  }
+}
+
+async function checkAgentCredential(req, url) {
+  const agentRoute = url.pathname === '/mcp' || url.pathname.startsWith('/api/agent/') || url.pathname.startsWith('/api/inboxes/');
+  const raw = agentRoute ? bearerToken(req) : null;
+  if (!raw) {
+    if (url.pathname.startsWith('/api/agent/') || url.pathname === '/mcp') throw credentialError('AUTHENTICATION_REQUIRED');
+    return;
+  }
+  const inboxRoute = url.pathname.startsWith('/api/inboxes/');
+  if (inboxRoute) {
+    // Human bearer sessions and legacy untyped development tokens keep their per-route handling.
+    if (!/^sinaloa_(?:agent_access|mcp_read)_/.test(raw)) return;
+    const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
+    if (index && !index.tokenType) return;
+  }
+  let routeInboxId = null;
+  if (inboxRoute) {
+    try { routeInboxId = decodeURIComponent(url.pathname.split('/')[3] || ''); } catch { routeInboxId = ''; }
+  }
+  const resolved = await resolveAgentCredential(req, { inboxId: routeInboxId, tokenTypes: url.pathname.startsWith('/api/agent/') ? ['access'] : ['access', 'mcp_read'] });
+  if (resolved.error) throw resolved.error;
+  const identity = resolved.identity;
+  if (!identity?.paused) return;
+  const readOnly = ['GET', 'HEAD'].includes(req.method) && inboxRoute;
+  if (identity.tokenType === 'mcp_read' || url.pathname === '/mcp' || !(readOnly || pausedAgentRoutes.has(`${req.method} ${url.pathname}`))) throw agentPausedError();
+}
+
 async function getAgentWorkIdentity(req) {
-  const raw = bearerToken(req);
-  if (!raw) return null;
-  const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
-  if (!index?.inboxId || index.tokenType !== 'access' || index.revokedAt || new Date(index.expiresAt) <= new Date() || !index.familyId) return null;
-  const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));
-  if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
-  const agent = await store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`));
-  if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') return null;
-  return { agent, familyId: index.familyId, inboxId: index.inboxId };
+  const resolved = await resolveAgentCredential(req);
+  return resolved.identity ? { agent: resolved.identity.agent, familyId: resolved.identity.familyId, inboxId: resolved.identity.inboxId, paused: resolved.identity.paused } : null;
 }
 async function getMcpIdentity(req) {
   const full = await getAgentWorkIdentity(req);
@@ -489,7 +578,7 @@ async function getMcpIdentity(req) {
   const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));
   if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
   const agent = await store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`));
-  if (!agent || agent.status !== 'active' || agent.onboardingStatus !== 'approved') return null;
+  if (!agent || !['active', 'paused'].includes(agent.status) || agent.onboardingStatus !== 'approved') return null;
   return { agent, familyId: index.familyId, inboxId: index.inboxId, mcpScope: { caseId: index.caseId } };
 }
 const body = async (req, limit = maxBodyBytes) => {
@@ -574,12 +663,13 @@ const publish = (inboxId, event) => {
     } else sendStreamEvent(subscription, event);
   }
 };
-const disconnectAgentStreams = (inboxId, agentId) => {
+// Not a persisted event: no SSE id, so the client's cursor does not move.
+const closeAgentStreams = (inboxId, agentId, ended = { code: 'CREDENTIAL_REVOKED', reason: 'revoked' }) => {
   const subscriptions = streams.get(inboxId);
   if (!subscriptions) return;
   for (const subscription of [...subscriptions]) {
     if (subscription.agentId !== agentId) continue;
-    subscription.close?.();
+    subscription.close?.('credential.ended', ended);
   }
   if (!subscriptions.size) streams.delete(inboxId);
 };
@@ -694,15 +784,16 @@ async function withCaseMutation(inboxId, caseId, operation, { allowPaused = fals
 }
 async function assertCaseProgressAllowed(inboxId, caseId) {
   const value = await getCase(inboxId, caseId);
-  if (value?.state === 'paused' || value?.state === 'revoked') throw Object.assign(new Error('Case is paused or revoked'), { statusCode: 409, code: 'CASE_CONTROLLED' });
+  if (value?.state === 'paused' || value?.state === 'revoked') throw codedError(409, 'CASE_CONTROLLED', 'This case is paused or revoked by a human.', { caseId });
 }
 
-async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedAt = store.now()) {
+async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedAt = store.now(), revokedReason = 'revoked') {
   const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
   const active = families.filter(family => !family.revokedAt);
   await store.putJsonBatch(active.map(family => document(agentCredentialFamilyPath(inboxId, agentId, family.id), {
     ...family,
     revokedAt,
+    revokedReason,
     revokedByHumanId: humanId,
     updatedAt: revokedAt
   })));
@@ -977,11 +1068,11 @@ async function assetReadAccess(asset, inbox, reader) {
     }));
     if (agents.some(agent => !agent || agent.status !== 'active')) return { allowed: false };
   }
-  if ((asset.workspaceId || asset.inboxId) === inbox.id) return { allowed: Boolean(reader.manager || reader.agent?.id === asset.createdByAgentId && hasPermission(reader.agent, 'create_assets')), owner: true };
+  if ((asset.workspaceId || asset.inboxId) === inbox.id) return { allowed: Boolean(reader.manager || reader.agent?.id === asset.createdByAgentId && canAct(reader.agent, 'create_assets')), owner: true };
   const grant = await store.getJson(assetGrantPath(inbox.id, asset.id));
   if (!grant || grant.assetId !== asset.id || grant.caseId !== asset.caseId || grant.ownerInboxId !== asset.workspaceId
     || grant.ownerAgentId !== asset.createdByAgentId || grant.recipientInboxId !== inbox.id
-    || !reader.manager && (reader.agent?.id !== grant.recipientAgentId || !hasPermission(reader.agent, 'receive_agent_messages'))
+    || !reader.manager && (reader.agent?.id !== grant.recipientAgentId || !canAct(reader.agent, 'receive_agent_messages'))
     || !await assetPair(asset, grant.recipientAgentId, inbox.id)) return { allowed: false };
   if (await assetRelationshipBlocked(asset, grant.recipientAgentId, inbox.id)) return { allowed: false, blocked: true };
   return { allowed: true, owner: false, grant };
@@ -1101,7 +1192,7 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
     agentId: agent.id,
     requestedAction,
     actionPayload,
-    permissionGranted: hasPermission(agent, requiredPermission),
+    permissionGranted: canAct(agent, requiredPermission),
     caseDeadline: caseRecord.deadline,
     requestedExpiresAt: input.expiresAt,
     contactApproved: contact ? contact.approved && !contact.blocked && ['outbound', 'both'].includes(contact.direction || 'both') : false,
@@ -1270,8 +1361,8 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
     store.getJson(path.join('inboxes', senderInbox.id, 'agents', `${message.senderAgentId}.json`)),
     store.getJson(path.join('inboxes', recipientInboxId, 'agents', `${message.recipientAgentId}.json`))
   ]);
-  if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is no longer approved to send messages'), { statusCode: 403 });
-  if (!recipientAgent || !hasPermission(recipientAgent, 'receive_agent_messages')) throw Object.assign(new Error('Recipient agent is unavailable'), { statusCode: 404 });
+  if (!senderAgent || !canAct(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is no longer approved to send messages'), { statusCode: 403 });
+  if (!recipientAgent || !canReceive(recipientAgent)) throw Object.assign(new Error('Recipient agent is unavailable'), { statusCode: 404 });
   let senderCredentialFamilyId;
   if (agentRequest) {
     const currentPrincipal = await getAgentPrincipal(agentRequest, senderInbox.id);
@@ -1329,15 +1420,15 @@ async function deliverNativeAgentMessage(outbox) {
   const queued = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
   if (!queued) throw permanentDeliveryError('Queued message no longer exists');
   const sender = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'agents', `${queued.senderAgentId}.json`));
-  if (!sender || !hasPermission(sender, 'send_agent_messages')) throw permanentDeliveryError('Sender agent is no longer approved to send messages');
+  if (!sender || !canAct(sender, 'send_agent_messages')) throw permanentDeliveryError('Sender agent is no longer approved to send messages');
   const senderFamilies = outbox.senderCredentialFamilyId
     ? [await store.getJson(agentCredentialFamilyPath(outbox.senderInboxId, queued.senderAgentId, outbox.senderCredentialFamilyId))]
     : await store.listJson(path.join('auth', 'agent-credential-families', outbox.senderInboxId, queued.senderAgentId));
   if (!senderFamilies.some(family => family && !family.revokedAt && new Date(family.refreshExpiresAt) > new Date())) throw permanentDeliveryError('Sender agent credential is revoked or expired');
   const directory = await store.getJson(path.join('directory', 'agents', `${queued.recipientAgentId}.json`));
-  if (!directory || directory.status !== 'active' || directory.inboxId !== outbox.recipientInboxId) throw permanentDeliveryError('Recipient agent is unavailable');
+  if (!directory || !['active', 'paused'].includes(directory.status) || directory.inboxId !== outbox.recipientInboxId) throw permanentDeliveryError('Recipient agent is unavailable');
   const recipient = await store.getJson(path.join('inboxes', directory.inboxId, 'agents', `${queued.recipientAgentId}.json`));
-  if (!recipient || !hasPermission(recipient, 'receive_agent_messages')) throw permanentDeliveryError('Recipient is not approved to receive messages');
+  if (!recipient || !canReceive(recipient)) throw permanentDeliveryError('Recipient is not approved to receive messages');
   const contact = await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${queued.senderAgentId}.json`));
   const senderContact = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'contacts', `${queued.recipientAgentId}.json`));
   if (contact?.blocked || senderContact?.blocked) throw permanentDeliveryError('The agent relationship is blocked for delivery');
@@ -1386,7 +1477,7 @@ async function deliverExternalEmail(outbox) {
   const queued = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
   if (!queued) throw permanentDeliveryError('Queued external email no longer exists');
   const sender = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'agents', `${queued.senderAgentId}.json`));
-  if (!sender || !hasPermission(sender, 'use_email_transport')) throw permanentDeliveryError('Sender is not approved to use external email');
+  if (!sender || !canAct(sender, 'use_email_transport')) throw permanentDeliveryError('Sender is not approved to use external email');
   const contact = await store.getJson(externalContactPath(outbox.senderInboxId, queued.recipientEmail));
   if (!contact?.approved || contact.blocked || !['outbound', 'both'].includes(contact.direction || 'both')) throw permanentDeliveryError('External recipient is not an approved outbound contact');
   const externalAddress = publicEmailAddressForAgent(sender);
@@ -1462,7 +1553,7 @@ async function processInboundEmail(event, prepared) {
   if (!route?.inboxId || !route?.agentId) throw permanentDeliveryError('Inbound email is not addressed to a verified reply alias');
   if (route.inboxId !== prepared.route.inboxId || route.agentId !== prepared.route.agentId || route.caseId !== prepared.route.caseId) throw new Error('Inbound email route changed; retry routing');
   const recipient = await store.getJson(path.join('inboxes', route.inboxId, 'agents', `${route.agentId}.json`));
-  if (!recipient || !hasPermission(recipient, 'receive_agent_messages')) throw permanentDeliveryError('Inbound recipient is unavailable');
+  if (!recipient || !canReceive(recipient)) throw permanentDeliveryError('Inbound recipient is unavailable');
   const senderEmailMatch = String(inbound.from || '').match(/<([^<>]+)>\s*$/);
   const senderEmail = normalizedEmail(senderEmailMatch?.[1] || inbound.from);
   if (!validEmail(senderEmail)) throw permanentDeliveryError('Inbound sender address is invalid');
@@ -1534,7 +1625,55 @@ async function processEmailWebhook(outbox, prepared) {
   return event.type === 'email.received' ? processInboundEmail(event, prepared) : processOutboundEmailEvent(event, prepared);
 }
 
+async function holdIfSenderPaused(outbox) {
+  if (!['nativeAgentMessage', 'externalEmail'].includes(outbox.kind) || !outbox.messageId) return;
+  const queued = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
+  if (!queued?.senderAgentId) return;
+  const sender = await store.getJson(path.join('inboxes', outbox.senderInboxId, 'agents', `${queued.senderAgentId}.json`));
+  if (sender?.status === 'paused') throw Object.assign(new Error('Sender agent is paused'), { hold: 'sender_paused' });
+}
+
+async function heldMessageDocuments(record, reason, heldAt) {
+  if (!record.messageId) return [];
+  const message = await store.getJson(messagePath(record.senderInboxId, record.messageId));
+  return message ? [document(messagePath(record.senderInboxId, message.id), { ...message, status: 'held', heldReason: reason, heldAt, updatedAt: heldAt })] : [];
+}
+
+async function releasedMessageDocuments(record, at) {
+  if (!record.messageId) return [];
+  const message = await store.getJson(messagePath(record.senderInboxId, record.messageId));
+  if (!message || message.status !== 'held') return [];
+  const { heldReason: _reason, heldAt: _heldAt, ...rest } = message;
+  return [document(messagePath(record.senderInboxId, message.id), { ...rest, status: record.status === 'retrying' ? 'retrying' : 'queued', updatedAt: at })];
+}
+
+async function cancelHeldSends(inboxId, humanId, at, writeAudit) {
+  for (;;) {
+    const held = await store.queryOutbox({ senderInboxId: inboxId, status: 'held', limit: 200 });
+    let cancelled = 0;
+    for (const record of held) {
+      const message = record.messageId ? await store.getJson(messagePath(inboxId, record.messageId)) : null;
+      const documents = [];
+      if (message) {
+        const { heldReason: _reason, heldAt: _heldAt, ...rest } = message;
+        documents.push(document(messagePath(inboxId, message.id), { ...rest, status: 'cancelled', cancelledAt: at, cancelledReason: 'agent_access_ended', updatedAt: at }));
+      }
+      if (!await store.cancelHeldOutbox(record.id, documents)) continue;
+      cancelled += 1;
+      await writeAudit('message.cancelled', { messageId: record.messageId, caseId: record.orderingKey, humanId }, at);
+    }
+    if (!cancelled) return;
+  }
+}
+
+async function releaseHeldSends(inboxId, at = store.now()) {
+  const released = await store.releaseHeldOutbox({ senderInboxId: inboxId });
+  await store.putJsonBatch((await Promise.all(released.map(record => releasedMessageDocuments(record, at)))).flat());
+  return released.length;
+}
+
 async function deliverQueuedMessage(outbox, prepared) {
+  await holdIfSenderPaused(outbox);
   if (outbox.kind === 'nativeAgentMessage') return deliverNativeAgentMessage(outbox);
   if (outbox.kind === 'externalEmail') return deliverExternalEmail(outbox);
   if (outbox.kind === 'emailWebhook') return processEmailWebhook(outbox, prepared);
@@ -1603,6 +1742,15 @@ const deliveryWorker = new DeliveryWorker({
   prepare: prepareEmailDelivery,
   deliver: deliverQueuedMessage,
   onFailure: recordDeliveryFailure,
+  onHold: async (record, reason) => ({ documents: await heldMessageDocuments(record, reason, store.now()), events: [] }),
+  onHeld: async record => {
+    const released = await withInboxMutation(record.senderInboxId, async () => {
+      const queued = record.messageId ? await store.getJson(messagePath(record.senderInboxId, record.messageId)) : null;
+      const sender = queued?.senderAgentId ? await store.getJson(path.join('inboxes', record.senderInboxId, 'agents', `${queued.senderAgentId}.json`)) : null;
+      return sender?.status === 'paused' ? 0 : releaseHeldSends(record.senderInboxId);
+    }, [], [], true);
+    if (released) deliveryWorker.kick();
+  },
   onSettled: async (_record, events) => {
     for (const { inboxId, event } of events) publish(inboxId, event);
   }
@@ -1704,7 +1852,7 @@ async function agentView(inboxId, inbox, agentId) {
     mode: 'agent-operator',
     agent: publicAgent(agent),
     capabilities: [...new Set((Array.isArray(agent.permissions) ? agent.permissions : [])
-      .filter(permission => allowedPermissions.has(permission) && hasPermission(agent, permission)))],
+      .filter(permission => allowedPermissions.has(permission) && canAct(agent, permission)))],
     queue: {
       assignedMessages: messages.filter((item) => item.recipientAgentId === agentId),
       authoredMessages: messages.filter((item) => item.senderAgentId === agentId),
@@ -1764,8 +1912,8 @@ async function route(req, res) {
   // Apply a stable source-IP bound on every route before trusting bearer or
   // cookie headers. Rotating invalid credentials must not reset this limit.
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
-  if (!consumeRateLimit(req, res, url.pathname, ipKey)) return fail(res, 429, 'Request rate limit exceeded');
-  if (url.pathname !== '/mcp' && !consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
+  if (!consumeRateLimit(req, res, url.pathname, ipKey)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
+  if (url.pathname !== '/mcp' && !consumeRateLimit(req, res, url.pathname)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
   const csrfExempt = url.pathname === '/api/email-webhooks/resend'
     || url.pathname.startsWith('/api/object-storage/local-upload/')
     || url.pathname === '/api/auth/phone/start'
@@ -1778,15 +1926,16 @@ async function route(req, res) {
   const expectedHuman = String(req.headers['x-envoi-expected-human'] || '');
   if (expectedHuman && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfExempt && !url.pathname.startsWith('/api/auth/') && parseCookies(req.headers.cookie)[sessionCookieName()]) {
     const current = await auth.getHuman(req);
-    if (current && current.id !== expectedHuman) return json(res, 409, { error: 'You are signed in as a different account in another tab. Reload to continue.', code: 'ACCOUNT_CHANGED' });
+    if (current && current.id !== expectedHuman) throw codedError(409, 'ACCOUNT_CHANGED', 'You are signed in as a different account in another tab. Reload to continue.');
   }
+  await enforceAgentCredential(req, url, res);
   if (url.pathname === '/mcp') {
     const identity = await getMcpIdentity(req);
     if (!identity) {
       res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
       return fail(res, 401, 'Active v1 agent credential required');
     }
-    if (!consumeRateLimit(req, res, url.pathname)) return fail(res, 429, 'Request rate limit exceeded');
+    if (!consumeRateLimit(req, res, url.pathname)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
     const callRest = async (method, pathname, input, idempotencyKey) => {
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Local API is unavailable');
@@ -1840,7 +1989,11 @@ async function route(req, res) {
   if ((req.method === 'POST' && url.pathname === '/api/agent/work/claim') || (req.method === 'POST' && workSettlementRoute)) {
     const identity = await getAgentWorkIdentity(req);
     if (!identity) return fail(res, 401, 'Active v1 agent credential required');
-    if (!hasPermission(identity.agent, 'receive_agent_messages')) return fail(res, 403, 'Agent is not approved to receive messages');
+    if (identity.paused) {
+      if (workSettlementRoute) throw agentPausedError();
+      return json(res, 200, { work: null, state: 'paused' });
+    }
+    if (!canAct(identity.agent, 'receive_agent_messages')) return fail(res, 403, 'Agent is not approved to receive messages');
     const input = await body(req);
     const workId = workSettlementRoute ? assertSafeIdentifier(workSettlementRoute[1], 'workId') : null;
     const action = instructionReplyRoute ? 'reply' : workSettlementRoute?.[2] || 'claim';
@@ -1862,7 +2015,7 @@ async function route(req, res) {
     if (action === 'reply') {
       if (!input || Object.keys(input).some(key => !['text', 'leaseToken'].includes(key))) return fail(res, 400, 'Only text and leaseToken are accepted');
       input.text = validateHumanInstructionInput({ text: input.text }).text;
-      if (!hasPermission(identity.agent, 'send_agent_messages')) return fail(res, 403, 'Agent is not approved to send replies');
+      if (!canAct(identity.agent, 'send_agent_messages')) return fail(res, 403, 'Agent is not approved to send replies');
     }
     if (action === 'acknowledge' || action === 'complete' || action === 'reply') {
       idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'], { required: true });
@@ -1872,9 +2025,13 @@ async function route(req, res) {
     const result = await withInboxMutation(identity.inboxId, async writeAudit => {
       const currentIdentity = await getAgentWorkIdentity(req);
       if (!currentIdentity || currentIdentity.inboxId !== identity.inboxId || currentIdentity.agent.id !== identity.agent.id || currentIdentity.familyId !== identity.familyId) {
-        throw Object.assign(new Error('Agent credential is revoked or no longer active'), { statusCode: 401 });
+        throw (await resolveAgentCredential(req)).error || Object.assign(new Error('Agent credential is revoked or no longer active'), { statusCode: 401 });
       }
-      if (!hasPermission(currentIdentity.agent, 'receive_agent_messages')) throw Object.assign(new Error('Agent is not approved to receive messages'), { statusCode: 403 });
+      if (currentIdentity.paused) {
+        if (action !== 'claim') throw agentPausedError();
+        return { status: 200, payload: { work: null, state: 'paused' } };
+      }
+      if (!canAct(currentIdentity.agent, 'receive_agent_messages')) throw Object.assign(new Error('Agent is not approved to receive messages'), { statusCode: 403 });
       for (const caseId of humanCaseIds) {
         const binding = await store.getJson(caseBindingPath(caseId));
         if (binding?.inboxIds?.some(id => id !== identity.inboxId && !relatedWorkInboxes.includes(id))) throw Object.assign(new Error('Case participants changed while acquiring the mutation lock; retry'), { statusCode: 409 });
@@ -1895,7 +2052,7 @@ async function route(req, res) {
             catch (error) { if ([400, 403, 404, 409, 422].includes(error.statusCode)) continue; throw error; }
           } else {
             const senderAgent = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
-            if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) continue;
+            if (!senderAgent || !canAct(senderAgent, 'send_agent_messages')) continue;
             const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
             const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
             if (senderContact?.blocked || recipientContact?.blocked) continue;
@@ -1906,7 +2063,8 @@ async function route(req, res) {
           if (currentClaim && ['claimed', 'acknowledged'].includes(currentClaim.status) && new Date(currentClaim.leaseExpiresAt) > new Date()) continue;
           const now = store.now();
           if (currentClaim?.status === 'retryable' && new Date(currentClaim.retryAt) > new Date(now)) continue;
-          if (currentClaim && agentWorkAttempts(currentClaim) >= agentWorkMaxAttempts) {
+          const reoffer = currentClaim?.reofferWithoutAttempt === true;
+          if (currentClaim && !reoffer && agentWorkAttempts(currentClaim) >= agentWorkMaxAttempts) {
             await failAgentWorkPermanently(message, currentClaim, 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
             continue;
           }
@@ -1919,7 +2077,7 @@ async function route(req, res) {
             inboxId: identity.inboxId,
             credentialFamilyId: identity.familyId,
             fence: Number(currentClaim?.fence || 0) + 1,
-            attempts: agentWorkAttempts(currentClaim) + 1,
+            attempts: agentWorkAttempts(currentClaim) + (reoffer ? 0 : 1),
             leaseTokenHash: hashSecret(leaseToken),
             leaseExpiresAt,
             retryAt: null,
@@ -1929,9 +2087,9 @@ async function route(req, res) {
           };
           await store.putJson(claimPath, claim);
           await writeAudit('agent.work_claimed', { workId: message.id, agentId: identity.agent.id, fence: claim.fence }, now);
-          return { status: 200, payload: { work: { workId: message.id, message, leaseToken, leaseExpiresAt } } };
+          return { status: 200, payload: { work: { workId: message.id, message, leaseToken, leaseExpiresAt }, state: 'claimed' } };
         }
-        return { status: 200, payload: { work: null } };
+        return { status: 200, payload: { work: null, state: 'idle' } };
       }
 
       const currentMessage = await store.getJson(messagePath(identity.inboxId, workId));
@@ -1944,7 +2102,7 @@ async function route(req, res) {
       } else {
         if (action === 'reply') throw Object.assign(new Error('Human instruction required'), { statusCode: 404 });
         const senderAgent = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'agents', `${currentMessage.senderAgentId}.json`));
-        if (!senderAgent || !hasPermission(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is paused or unavailable'), { statusCode: 403 });
+        if (!senderAgent || !canAct(senderAgent, 'send_agent_messages')) throw Object.assign(new Error('Sender agent is paused or unavailable'), { statusCode: 403 });
         const senderContact = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'contacts', `${identity.agent.id}.json`));
         const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${currentMessage.senderAgentId}.json`));
         if (senderContact?.blocked || recipientContact?.blocked) throw Object.assign(new Error('Message receive permission was lost'), { statusCode: 403 });
@@ -1963,7 +2121,7 @@ async function route(req, res) {
         if (claim.status === 'completed' && replay) return { status: 200, payload: replay };
       }
       if (action === 'reply') {
-        if (!hasPermission(currentIdentity.agent, 'send_agent_messages')) throw Object.assign(new Error('Agent is not approved to send replies'), { statusCode: 403 });
+        if (!canAct(currentIdentity.agent, 'send_agent_messages')) throw Object.assign(new Error('Agent is not approved to send replies'), { statusCode: 403 });
         const replay = replayResponse(await store.getJson(idempotencyPath), { principalId: identity.agent.id, requestDigest });
         if (replay && (live || claim.status === 'completed')) {
           const durableReply = await store.getJson(messagePath(identity.inboxId, replay.id));
@@ -2125,6 +2283,13 @@ async function route(req, res) {
     if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some(key => key !== 'caseId')) return fail(res, 400, 'Only an optional caseId is accepted');
     const caseId = input.caseId == null ? null : assertSafeIdentifier(input.caseId, 'caseId');
     return json(res, 201, await issueMcpReadToken(identity, caseId));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/agent/status') {
+    const identity = await getAgentWorkIdentity(req);
+    if (!identity) return fail(res, 401, 'Active agent access credential required');
+    const { agent } = identity;
+    return json(res, 200, { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/agent/connection-status') {
@@ -2323,7 +2488,7 @@ async function route(req, res) {
         const reenroll = currentRecord.kind === 'reenroll';
         const state = agent ? await agentControlState(currentRecord.inboxId, agent) : null;
         if (!inbox || inbox.ownerAgentId !== currentRecord.agentId || !agent
-          || (reenroll ? !state.credentialRevoked : agent.status !== 'active' || agent.onboardingStatus !== 'approved' || state.credentialRevoked)
+          || (reenroll ? !state.credentialRevoked : !['active', 'paused'].includes(agent.status) || agent.onboardingStatus !== 'approved' || state.credentialRevoked)
           || (agent.accessGeneration || 0) !== (currentRecord.accessGeneration || 0)) {
           throw Object.assign(new Error('Agent is not available for this enrollment'), { statusCode: 409 });
         }
@@ -2345,7 +2510,7 @@ async function route(req, res) {
         if (reenroll) await assertActiveAgentSlot(agent.principalHumanId || inbox.ownerHumanId);
         const claimed = await store.claimJson(tokenPath, 'usedAt', store.now());
         if (!claimed) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
-        const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId);
+        const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId, store.now(), reenroll ? 'revoked' : 'replaced');
         const connectedAt = store.now();
         const approvedAgent = reenroll ? { ...agent, status: 'active', onboardingStatus: 'approved', permissions: claimed.permissions, revokedAt: null, approvedAt: connectedAt, approvedByHumanId: claimed.humanId, updatedAt: connectedAt } : agent;
         const credentials = await issueAgentCredentials(agent.id, inbox.id);
@@ -2370,7 +2535,9 @@ async function route(req, res) {
         await writeAudit(reenroll ? 'agent.reenrolled' : 'agent.credentials_reconnected', { agentId: agent.id, humanId: claimed.humanId, credentialFamilyCount, ...(reenroll ? { permissions: connectedAgent.permissions } : {}) });
         return { agent: connectedAgent, inbox, credentials };
       }, [], [enrollmentMutationKey(tokenHash), ...(pendingRecord.kind === 'reenroll' ? [humanAgentLimitKey(pendingRecord.humanId)] : [])]);
-      disconnectAgentStreams(reconnected.inbox.id, reconnected.agent.id);
+      closeAgentStreams(reconnected.inbox.id, reconnected.agent.id, { code: 'CREDENTIAL_REVOKED', reason: 'replaced' });
+      // A re-enrollment after a replay revocation makes the agent active again: nothing may stay held.
+      if (reconnected.agent.status === 'active' && await withInboxMutation(reconnected.inbox.id, () => releaseHeldSends(reconnected.inbox.id))) deliveryWorker.kick();
       return json(res, 200, { agent: publicAgent(reconnected.agent), ...reconnected.credentials, inbox: reconnected.inbox, nativeMessaging: 'ready' });
     }
     const plannedInboxId = store.id('inbox');
@@ -2564,7 +2731,7 @@ async function route(req, res) {
     const agentId = assertSafeIdentifier(reconnectTokenMatch[1], 'agentId');
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
     const reenroll = agent ? (await agentControlState(inboxId, agent)).credentialRevoked : false;
-    if (inbox.ownerAgentId !== agentId || !agent || !reenroll && (agent.status !== 'active' || agent.onboardingStatus !== 'approved')) {
+    if (inbox.ownerAgentId !== agentId || !agent || !reenroll && (!['active', 'paused'].includes(agent.status) || agent.onboardingStatus !== 'approved')) {
       return fail(res, 404, 'Enrolled agent not found');
     }
     const input = await body(req);
@@ -2692,11 +2859,23 @@ async function route(req, res) {
     const cursor = String(req.headers['last-event-id'] || url.searchParams.get('cursor') || '');
     if (cursor.length > 512 || /[\r\n\0]/.test(cursor)) return fail(res, 400, 'Event cursor is invalid');
     const connectionKey = rateIdentity(req);
-    if (Number(sseCounts.get(connectionKey) || 0) >= maxSsePerPrincipal) return fail(res, 429, 'Too many concurrent event streams');
+    if (Number(sseCounts.get(connectionKey) || 0) >= maxSsePerPrincipal) {
+      res.setHeader('retry-after', '30');
+      throw codedError(429, 'RATE_LIMITED', 'Too many concurrent event streams. Retry after the indicated delay.', { retryAfterSeconds: 30 });
+    }
     sseCounts.set(connectionKey, Number(sseCounts.get(connectionKey) || 0) + 1);
     req.setTimeout(0);
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'private, no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     const subscription = { res, cursor, sentIds: new Set(), heartbeat: null, expiryTimer: null, sessionKey, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
+    if (agent && !human) {
+      // Re-check the credential on every heartbeat: pause keeps the stream, revocation or expiry ends it.
+      const credentialRequest = { headers: { authorization: req.headers.authorization }, method: 'GET' };
+      subscription.credentialEnded = async () => {
+        const resolved = await resolveAgentCredential(credentialRequest, { inboxId, tokenTypes: ['access'] });
+        if (!['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED'].includes(resolved.error?.code)) return null;
+        return { code: resolved.error.code, ...(resolved.error.publicFields?.reason ? { reason: resolved.error.publicFields.reason } : {}) };
+      };
+    }
     const set = streams.get(inboxId) || new Set(); set.add(subscription); streams.set(inboxId, set);
     let cleaned = false;
     const cleanup = () => {
@@ -2710,9 +2889,9 @@ async function route(req, res) {
       if (remaining) sseCounts.set(connectionKey, remaining); else sseCounts.delete(connectionKey);
     };
     res.on('close', cleanup);
-    subscription.close = event => {
+    subscription.close = (event, data = {}) => {
       if (cleaned) return;
-      if (event && !res.destroyed && !res.writableEnded) res.write(`event: ${event}\ndata: {}\n\n`);
+      if (event && !res.destroyed && !res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       cleanup();
       res.end();
     };
@@ -2761,6 +2940,8 @@ async function route(req, res) {
       subscription.heartbeat = setInterval(async () => {
         try {
           if (subscription.authorize && !await subscription.authorize()) return subscription.close(subscription.authFailureEvent);
+          const ended = subscription.credentialEnded && await subscription.credentialEnded();
+          if (ended) return subscription.close('credential.ended', ended);
           if (!cleaned && !res.destroyed && !res.writableEnded) res.write(`: keepalive ${store.now()}\n\n`);
         } catch { subscription.close('replay_error'); }
       }, 20_000);
@@ -2859,11 +3040,69 @@ async function route(req, res) {
           document(nativeAddressDirectoryPath(agent.address), { agentId, inboxId, address: agent.address, status, verified: true })
         ]);
         await writeAudit(`agent.${action}d`, { agentId, humanId: human.id, status });
+        const at = store.now();
+        if (action === 'pause') {
+          const held = await store.holdQueuedOutbox({ senderInboxId: inboxId, reason: 'sender_paused', heldAt: at });
+          await store.putJsonBatch((await Promise.all(held.map(record => heldMessageDocuments(record, 'sender_paused', at)))).flat());
+          // A lease claimed before the pause can no longer settle. The work is offered again on
+          // resume as the same attempt, so the pause never costs one.
+          const claims = await store.listJson(path.join('inboxes', inboxId, 'work-claims'));
+          await store.putJsonBatch(claims
+            .filter(claim => claim.agentId === agentId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(at))
+            .map(claim => document(workClaimPath(inboxId, claim.workId), { ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, pausedAt: at, updatedAt: at })));
+        } else {
+          await releaseHeldSends(inboxId, at);
+          const inbound = await store.listJson(path.join('inboxes', inboxId, 'messages'));
+          if (inbound.some(message => message.recipientAgentId === agentId && ['delivered', 'acknowledged'].includes(message.status))) {
+            await writeAudit('work.available', { agentId, reason: 'agent_resumed' });
+          }
+        }
       }
       return agentControlState(inboxId, agent);
     });
-    if (action === 'pause') disconnectAgentStreams(inboxId, agentId);
+    if (action === 'resume') deliveryWorker.kick();
     return json(res, 200, result);
+  }
+
+  const cancelMatch = suffix.match(/^messages\/([^/]+)\/cancel$/);
+  if (req.method === 'POST' && cancelMatch) {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Authenticated workspace administrator required');
+    const messageId = assertSafeIdentifier(cancelMatch[1], 'messageId');
+    const cancelled = await withInboxMutation(inboxId, async writeAudit => {
+      const message = await store.getJson(messagePath(inboxId, messageId));
+      const outbox = await store.getOutbox(`delivery_${messageId}`);
+      if (!message || !outbox || outbox.senderInboxId !== inboxId || outbox.status !== 'held') throw Object.assign(new Error('Held message not found'), { statusCode: 404 });
+      const at = store.now();
+      const { heldReason: _reason, heldAt: _heldAt, ...rest } = message;
+      const updated = { ...rest, status: 'cancelled', cancelledAt: at, cancelledByHumanId: human.id, updatedAt: at };
+      // Cancelling releases the case barrier without resuming the agent.
+      if (!await store.cancelHeldOutbox(outbox.id, [document(messagePath(inboxId, messageId), updated)])) throw Object.assign(new Error('Held message not found'), { statusCode: 404 });
+      await writeAudit('message.cancelled', { messageId, caseId: message.caseId, humanId: human.id }, at);
+      return updated;
+    });
+    deliveryWorker.kick();
+    return json(res, 200, cancelled);
+  }
+
+  if (req.method === 'GET' && suffix === 'held-work') {
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Authenticated workspace administrator required');
+    const held = await store.queryOutbox({ senderInboxId: inboxId, status: 'held', limit: 200 });
+    let truncated = held.length === 200;
+    const items = held.map(record => ({ messageId: record.messageId, caseId: record.orderingKey, status: 'held', heldReason: record.heldReason, heldAt: record.heldAt }));
+    // D1: later items in a case with a held message wait behind it, in both directions.
+    for (const caseId of new Set(held.map(record => record.orderingKey).filter(Boolean))) {
+      const first = held.filter(record => record.orderingKey === caseId).sort((a, b) => Number(a.sequence) - Number(b.sequence))[0];
+      const waiting = await store.queryOutbox({ orderingKey: caseId, limit: 200 });
+      if (waiting.length === 200) truncated = true;
+      for (const record of waiting) {
+        if (!['queued', 'retrying'].includes(record.status) || Number(record.sequence) <= Number(first.sequence)) continue;
+        items.push({ messageId: record.messageId, caseId, status: 'held', heldReason: 'case_ordering', heldAt: record.createdAt, heldBehindMessageId: first.messageId });
+      }
+    }
+    const oldestHeldAt = items.map(item => item.heldAt).filter(Boolean).sort()[0] || null;
+    return json(res, 200, { heldCount: items.length, oldestHeldAt, truncated, items });
   }
 
   const blockMatch = suffix.match(/^contacts\/([^/]+)\/(block|unblock)$/);
@@ -2942,7 +3181,7 @@ async function route(req, res) {
       await writeAudit(`agent.onboarding_${decision}ed`, { agentId: agent.id, humanId: human.id, permissions: agent.permissions });
       return { agent, credentials };
     }, [], [humanAgentLimitKey(existingAgent.principalHumanId || inbox.ownerHumanId)]);
-    if (decision === 'reject') disconnectAgentStreams(inboxId, agentId);
+    if (decision === 'reject') closeAgentStreams(inboxId, agentId);
     return json(res, 200, { agent: publicAgent(result.agent), ...(result.credentials || {}) });
   }
 
@@ -2962,6 +3201,7 @@ async function route(req, res) {
       if (!agent && currentInbox.removedAgent?.id !== agentId) throw Object.assign(new Error('Owned agent not found'), { statusCode: 404 });
       if (input.deleteHistory && input.confirmation !== (agent?.name || currentInbox.removedAgent?.name)) throw Object.assign(new Error('Enter the agent name to confirm permanent deletion'), { statusCode: 400 });
       const removedAt = store.now();
+      await cancelHeldSends(inboxId, human.id, removedAt, writeAudit);
       await revokeAgentCredentialFamilies(inboxId, agentId, human.id, removedAt);
       if (agent) {
         await freezeAgentRecord(inboxId, agent, human.id, removedAt);
@@ -2980,7 +3220,7 @@ async function route(req, res) {
       await writeAudit('agent.removed', { agentId, humanId: human.id, deletedHistory: input.deleteHistory });
       return { removed: true, agentId, deletedHistory: input.deleteHistory, removedAt };
     }, [], assets.map(asset => `object-upload:${asset.id}`), true);
-    disconnectAgentStreams(inboxId, agentId);
+    closeAgentStreams(inboxId, agentId);
     if (input.deleteHistory) await objectStorage.reapExpiredUploads({ limit: 1000 }).catch(() => {});
     return json(res, 200, result);
   }
@@ -2997,22 +3237,23 @@ async function route(req, res) {
       const current = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
       if (!current || current.status === 'revoked') throw Object.assign(new Error('Agent is already revoked'), { statusCode: 409 });
       const credentialFamilyCount = await revokeAgentCredentialFamilies(inboxId, agentId, human.id, revokedAt);
+      await cancelHeldSends(inboxId, human.id, revokedAt, writeAudit);
       await freezeAgentRecord(inboxId, current, human.id, revokedAt);
       await writeAudit('agent.credentials_revoked', { agentId, humanId: human.id, credentialFamilyCount });
       return { revoked: true, agentId, credentialFamilyCount, revokedAt };
     });
-    disconnectAgentStreams(inboxId, agentId);
+    closeAgentStreams(inboxId, agentId);
     return json(res, 200, revoked);
   }
 
   if (req.method === 'POST' && suffix === 'cases') {
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
+    if (!principal || !canAct(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!String(input.objective || '').trim()) return fail(res, 400, 'A structured case objective is required');
     const value = await withInboxMutation(inboxId, async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
-      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      if (!currentPrincipal || !canAct(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const now = store.now();
       const created = createAgentCase({ id: store.id('case'), objective: input.objective, collaborationMode: input.collaborationMode || 'collaboration', principal: inbox.ownerHumanId, actingAgent: currentPrincipal.id, participants: input.participants || [], constraints: input.constraints || {}, deadline: input.deadline || null, createdAt: now });
       if (!await store.putJsonIfAbsent(caseRecordPath(inboxId, created.id), created)) throw Object.assign(new Error('Case ID already exists'), { statusCode: 409 });
@@ -3046,12 +3287,12 @@ async function route(req, res) {
 
   if (req.method === 'POST' && caseRoute?.[2] === 'events') {
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
+    if (!principal || !canAct(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!['message', 'error'].includes(input.type)) return fail(res, 400, 'Direct event writes support only message or error; use actions for stateful work');
     const event = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
-      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      if (!currentPrincipal || !canAct(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
       if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
@@ -3067,12 +3308,12 @@ async function route(req, res) {
 
   if (req.method === 'POST' && caseRoute?.[2] === 'policy-evaluations') {
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
+    if (!principal || !canAct(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!input.requestedAction) return fail(res, 400, 'requestedAction is required');
     const evaluation = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
-      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      if (!currentPrincipal || !canAct(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
       if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
@@ -3091,11 +3332,11 @@ async function route(req, res) {
 
   if (req.method === 'POST' && caseRoute?.[2] === 'proposals') {
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
+    if (!principal || !canAct(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     const proposal = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
-      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      if (!currentPrincipal || !canAct(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
       if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
@@ -3116,16 +3357,16 @@ async function route(req, res) {
     const human = await auth.getHuman(req);
     const principal = await getAgentPrincipal(req, inboxId);
     const humanCanManage = human ? await canManageInbox(human, inbox) : false;
-    if (!humanCanManage && (!principal || !hasPermission(principal, 'execute_cases'))) return fail(res, 403, 'Workspace administrator or agent credential with execute_cases permission required');
+    if (!humanCanManage && (!principal || !canAct(principal, 'execute_cases'))) return fail(res, 403, 'Workspace administrator or agent credential with execute_cases permission required');
     const response = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentHuman = humanCanManage ? await auth.getHuman(req) : null;
       if (humanCanManage && (!currentHuman || currentHuman.id !== human.id || !await canManageInbox(currentHuman, inbox))) throw Object.assign(new Error('Authenticated workspace administrator required'), { statusCode: 403 });
       const currentPrincipal = humanCanManage ? null : await getAgentPrincipal(req, inboxId);
-      if (!humanCanManage && (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases'))) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      if (!humanCanManage && (!currentPrincipal || !canAct(currentPrincipal, 'execute_cases'))) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
       const replayingAction = value.events.some(event => event.payload?.action?.idempotencyKey === idempotencyKey);
-      if ((value.state === 'paused' || value.state === 'revoked') && !(humanCanManage && ['resume', 'revoke'].includes(input.actionKey)) && !replayingAction) throw Object.assign(new Error('Case is paused or revoked'), { statusCode: 409, code: 'CASE_CONTROLLED' });
+      if ((value.state === 'paused' || value.state === 'revoked') && !(humanCanManage && ['resume', 'revoke'].includes(input.actionKey)) && !replayingAction) throw codedError(409, 'CASE_CONTROLLED', 'This case is paused or revoked by a human.', { caseId: caseRoute[1] });
       const now = store.now();
       let result;
       if (humanCanManage) {
@@ -3179,11 +3420,11 @@ async function route(req, res) {
   const proposalRoute = suffix.match(/^cases\/([^/]+)\/proposals\/([^/]+)\/(counter|accept)$/);
   if (req.method === 'POST' && proposalRoute) {
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
+    if (!principal || !canAct(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     const response = await withCaseMutation(inboxId, proposalRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
-      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      if (!currentPrincipal || !canAct(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, proposalRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
       if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
@@ -3220,12 +3461,12 @@ async function route(req, res) {
 
   if (req.method === 'POST' && caseRoute?.[2] === 'receipt') {
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal || principal.id === undefined || !hasPermission(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
+    if (!principal || principal.id === undefined || !canAct(principal, 'execute_cases')) return fail(res, 403, 'Agent credential with execute_cases permission required');
     const input = await body(req);
     if (!input.result || !input.authorityBasis) return fail(res, 400, 'Receipt result and authorityBasis are required');
     const receipt = await withCaseMutation(inboxId, caseRoute[1], async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
-      if (!currentPrincipal || !hasPermission(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
+      if (!currentPrincipal || !canAct(currentPrincipal, 'execute_cases')) throw Object.assign(new Error('Agent credential with execute_cases permission required'), { statusCode: 403 });
       const value = await getCase(inboxId, caseRoute[1]);
       if (!value?.schemaVersion) throw Object.assign(new Error('Structured case not found'), { statusCode: 404 });
       if (!isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
@@ -3368,7 +3609,7 @@ async function route(req, res) {
     const acknowledgementIdempotencyPath = scopedIdempotencyPath('acknowledgements', inboxId, principal.id, idempotencyKey);
     const response = await withInboxMutation(inboxId, async writeAudit => {
       const currentPrincipal = await getAgentPrincipal(req, inboxId);
-      if (!currentPrincipal || currentPrincipal.id !== principal.id || !hasPermission(currentPrincipal, 'receive_agent_messages')) throw Object.assign(new Error('Recipient agent credential required'), { statusCode: 401 });
+      if (!currentPrincipal || currentPrincipal.id !== principal.id || !canAct(currentPrincipal, 'receive_agent_messages')) throw Object.assign(new Error('Recipient agent credential required'), { statusCode: 401 });
       const currentMessage = await store.getJson(messagePath(inboxId, acknowledgementRoute[1]));
       if (!currentMessage || currentMessage.recipientAgentId !== currentPrincipal.id) throw Object.assign(new Error('Delivered message not found for this agent'), { statusCode: 404 });
       if (isHumanInstruction(currentMessage) || currentMessage.senderInboxId && currentMessage.senderAgentId) throw Object.assign(new Error('Agent work messages require fenced settlement'), { statusCode: 410 });
@@ -3411,7 +3652,7 @@ async function route(req, res) {
     const sender = await store.getJson(path.join('inboxes', inboxId, 'agents', `${senderAgentId}.json`));
     const principal = await getAgentPrincipal(req, inboxId);
     if (!sender || !principal || principal.id !== sender.id) return fail(res, 401, 'Valid sender agent credential required');
-    if (!hasPermission(sender, 'send_agent_messages') || !hasPermission(sender, 'use_email_transport')) return fail(res, 403, 'Agent lacks send_agent_messages or use_email_transport permission');
+    if (!canAct(sender, 'send_agent_messages') || !canAct(sender, 'use_email_transport')) return fail(res, 403, 'Agent lacks send_agent_messages or use_email_transport permission');
     const recipientEmail = normalizedEmail(input.recipientEmail);
     if (!validEmail(recipientEmail)) return fail(res, 400, 'A valid recipientEmail is required');
     if (recipientEmail.endsWith(`@${emailTransport.publicDomain}`)) return fail(res, 400, 'Use the native agent transport for Envoi recipients');
@@ -3430,7 +3671,7 @@ async function route(req, res) {
         store.getJson(path.join('inboxes', inboxId, 'agents', `${senderAgentId}.json`))
       ]);
       if (!currentSender || !currentPrincipal || currentPrincipal.id !== currentSender.id) throw Object.assign(new Error('Valid sender agent credential required'), { statusCode: 401 });
-      if (!hasPermission(currentSender, 'send_agent_messages') || !hasPermission(currentSender, 'use_email_transport')) throw Object.assign(new Error('Agent lacks send_agent_messages or use_email_transport permission'), { statusCode: 403 });
+      if (!canAct(currentSender, 'send_agent_messages') || !canAct(currentSender, 'use_email_transport')) throw Object.assign(new Error('Agent lacks send_agent_messages or use_email_transport permission'), { statusCode: 403 });
       const existing = await store.getJson(messagePath(inboxId, messageId));
       if (existing) {
         if (existing.requestHash !== requestHash) throw Object.assign(new Error('Idempotency key was already used for a different email'), { statusCode: 409 });
@@ -3467,13 +3708,13 @@ async function route(req, res) {
     if (!sender) return fail(res, 403, 'Only registered agents may send messages');
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || principal.id !== sender.id) return fail(res, 401, 'Valid sender agent credential required');
-    if (!hasPermission(sender, 'send_agent_messages')) return fail(res, 403, 'Agent is pending approval or lacks send_agent_messages permission');
+    if (!canAct(sender, 'send_agent_messages')) return fail(res, 403, 'Agent is pending approval or lacks send_agent_messages permission');
     const recipientEmail = normalizedEmail(input.recipientEmail);
     if (!validEmail(recipientEmail) || !recipientEmail.endsWith(`@${agentDomain}`)) return fail(res, 404, 'Recipient is unavailable');
     const recipientDirectory = await store.getJson(nativeAddressDirectoryPath(recipientEmail));
-    if (!recipientDirectory || recipientDirectory.status !== 'active' || recipientDirectory.verified !== true) return fail(res, 404, 'Recipient is unavailable');
+    if (!recipientDirectory || !['active', 'paused'].includes(recipientDirectory.status) || recipientDirectory.verified !== true) return fail(res, 404, 'Recipient is unavailable');
     const recipient = await store.getJson(path.join('inboxes', recipientDirectory.inboxId, 'agents', `${recipientDirectory.agentId}.json`));
-    if (!recipient || recipient.address !== recipientEmail || !hasPermission(recipient, 'receive_agent_messages')) return fail(res, 404, 'Recipient is unavailable');
+    if (!recipient || recipient.address !== recipientEmail || !canReceive(recipient)) return fail(res, 404, 'Recipient is unavailable');
     if (recipient.id === sender.id) return fail(res, 400, 'Sender and recipient must be different agents');
     const messageId = `msg_${hashSecret(`${sender.id}:${idempotencyKey}`).slice(0, 32)}`;
     const requestedCaseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
@@ -3488,10 +3729,10 @@ async function route(req, res) {
         store.getJson(nativeAddressDirectoryPath(recipientEmail))
       ]);
       if (!currentSenderInbox || !currentSender || !currentPrincipal || currentPrincipal.id !== currentSender.id) throw Object.assign(new Error('Valid sender agent credential required'), { statusCode: 401 });
-      if (!hasPermission(currentSender, 'send_agent_messages')) throw Object.assign(new Error('Agent is pending approval or lacks send_agent_messages permission'), { statusCode: 403 });
-      if (!currentRecipientDirectory || currentRecipientDirectory.inboxId !== recipientDirectory.inboxId || currentRecipientDirectory.status !== 'active' || currentRecipientDirectory.verified !== true) throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
+      if (!canAct(currentSender, 'send_agent_messages')) throw Object.assign(new Error('Agent is pending approval or lacks send_agent_messages permission'), { statusCode: 403 });
+      if (!currentRecipientDirectory || currentRecipientDirectory.inboxId !== recipientDirectory.inboxId || !['active', 'paused'].includes(currentRecipientDirectory.status) || currentRecipientDirectory.verified !== true) throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
       const currentRecipient = await store.getJson(path.join('inboxes', currentRecipientDirectory.inboxId, 'agents', `${currentRecipientDirectory.agentId}.json`));
-      if (!currentRecipient || currentRecipient.address !== recipientEmail || !hasPermission(currentRecipient, 'receive_agent_messages')) throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
+      if (!currentRecipient || currentRecipient.address !== recipientEmail || !canReceive(currentRecipient)) throw Object.assign(new Error('Recipient is unavailable'), { statusCode: 404 });
       if (currentRecipient.id === currentSender.id) throw Object.assign(new Error('Sender and recipient must be different agents'), { statusCode: 400 });
       const [senderContact, recipientContact] = await Promise.all([
         store.getJson(path.join('inboxes', inboxId, 'contacts', `${currentRecipient.id}.json`)),
@@ -3577,7 +3818,7 @@ async function route(req, res) {
     const recipientAgentId = assertSafeIdentifier(input.recipientAgentId, 'recipientAgentId');
     const recipient = await store.getJson(path.join('inboxes', inboxId, 'agents', `${recipientAgentId}.json`));
     if (!recipient) return fail(res, 404, 'Recipient agent not found');
-    if (!hasPermission(recipient, 'receive_agent_messages')) return fail(res, 403, 'Recipient agent is not approved to receive messages');
+    if (!canReceive(recipient)) return fail(res, 403, 'Recipient agent is not approved to receive messages');
     const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${recipientAgentId}.json`), { approved: true, blocked: false });
     if (contact.blocked) return fail(res, 403, 'Recipient is blocked');
     if (contact.approved === false) return fail(res, 403, 'Recipient is not an approved human contact');
@@ -3593,7 +3834,7 @@ async function route(req, res) {
   if (req.method === 'POST' && suffix === 'asset-uploads') {
     const input = await body(req);
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal || !hasPermission(principal, 'create_assets')) return fail(res, 403, 'Agent credential with create_assets permission required');
+    if (!principal || !canAct(principal, 'create_assets')) return fail(res, 403, 'Agent credential with create_assets permission required');
     if (input.createdByAgentId && input.createdByAgentId !== principal.id) return fail(res, 403, 'createdByAgentId must match the authenticated agent');
     const caseId = input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null;
     if (caseId) {
@@ -3641,7 +3882,7 @@ async function route(req, res) {
   if (req.method === 'POST' && grantAsset) {
     const input = await body(req);
     const principal = await getAgentPrincipal(req, inboxId);
-    if (!principal || !hasPermission(principal, 'create_assets')) return fail(res, 403, 'Asset creator credential with create_assets permission required');
+    if (!principal || !canAct(principal, 'create_assets')) return fail(res, 403, 'Asset creator credential with create_assets permission required');
     const caseId = assertSafeIdentifier(input.caseId, 'caseId');
     const recipientAgentId = assertSafeIdentifier(input.recipientAgentId, 'recipientAgentId');
     const idempotencyKey = validateIdempotencyKey(req.headers['idempotency-key'] || input.idempotencyKey, { required: true });
@@ -3663,9 +3904,9 @@ async function route(req, res) {
         store.getJson(path.join('inboxes', recipientInboxId, 'agents', `${recipientAgentId}.json`)),
         store.getJson(path.join('directory', 'agents', `${recipientAgentId}.json`))
       ]);
-      if (currentPrincipal?.id !== principal.id || !hasPermission(currentPrincipal, 'create_assets')) throw Object.assign(new Error('Asset creator credential required'), { statusCode: 403 });
+      if (currentPrincipal?.id !== principal.id || !canAct(currentPrincipal, 'create_assets')) throw Object.assign(new Error('Asset creator credential required'), { statusCode: 403 });
       if (!currentAsset || currentAsset.workspaceId !== inboxId || currentAsset.createdByAgentId !== principal.id || currentAsset.caseId !== caseId) throw Object.assign(new Error('Asset creator and case membership required'), { statusCode: 403 });
-      if (currentRecipientDirectory?.inboxId !== recipientInboxId || !currentRecipient || !hasPermission(currentRecipient, 'receive_agent_messages')
+      if (currentRecipientDirectory?.inboxId !== recipientInboxId || !currentRecipient || !canReceive(currentRecipient)
         || !await assetPair(currentAsset, recipientAgentId, recipientInboxId)) throw caseParticipantMismatch();
       if (await assetRelationshipBlocked(currentAsset, recipientAgentId, recipientInboxId)) throw Object.assign(new Error('The agent relationship is blocked'), { statusCode: 403, code: 'AGENT_BLOCKED' });
       const priorKey = await store.getJson(keyPath);
@@ -3709,7 +3950,7 @@ async function route(req, res) {
     if (!input.name || !input.contentBase64 || !input.createdByAgentId) return fail(res, 400, 'name, contentBase64, and createdByAgentId are required');
     const createdByAgentId = assertSafeIdentifier(input.createdByAgentId, 'createdByAgentId');
     const assetAgent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${createdByAgentId}.json`));
-    if (!assetAgent || !hasPermission(assetAgent, 'create_assets')) return fail(res, 403, 'Agent is pending approval or lacks create_assets permission');
+    if (!assetAgent || !canAct(assetAgent, 'create_assets')) return fail(res, 403, 'Agent is pending approval or lacks create_assets permission');
     const principal = await getAgentPrincipal(req, inboxId);
     if (!principal || principal.id !== assetAgent.id) return fail(res, 401, 'Valid creator agent credential required');
     const asset = { id: store.id('asset'), inboxId, caseId: input.caseId ? assertSafeIdentifier(input.caseId, 'caseId') : null, name: input.name, mimeType: input.mimeType || 'application/octet-stream', size: Buffer.byteLength(input.contentBase64, 'base64'), createdByAgentId, createdAt: store.now() };
@@ -3802,7 +4043,7 @@ if (scanJobStore) {
   void runObjectScanRetention();
 }
 const server = http.createServer((req, res) => route(req, res).catch((error) => {
-  const requestId = String(req.headers['x-request-id'] || crypto.randomUUID()).slice(0, 128);
+  const requestId = requestIdFrom(req.headers['x-request-id']);
   const response = publicHttpError(error, requestId);
   if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
   return json(res, response.status, response.body);

@@ -108,18 +108,29 @@ test('human pause, case pause, block and revoke gate REST, MCP, work and assets'
   assert.equal(pause.status, 200, `${JSON.stringify(pause.payload)} ${server.stderr}`);
   assert.equal(pause.payload.paused, true);
   assert.equal(pause.payload.credentialRevoked, false);
-  assert.equal((await api(baseUrl, '/api/agent/work/claim', { token: bob.agentApiToken, body: {} })).status, 401);
-  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/renew`, { token: bob.agentApiToken, body: { leaseToken: claim.payload.work.leaseToken } })).status, 401);
-  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/complete`, { token: bob.agentApiToken, key: 'paused-complete', body: { leaseToken: claim.payload.work.leaseToken } })).status, 401);
-  assert.equal((await api(baseUrl, '/mcp', { token: bob.agentApiToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })).status, 401);
-  assert.equal((await send(alice, bob, 'paused-recipient', 'Must wait')).status, 404);
+  // a3-pause-auth v1: a paused agent stays authenticated and addressable but cannot act.
+  const pausedClaim = await api(baseUrl, '/api/agent/work/claim', { token: bob.agentApiToken, body: {} });
+  assert.deepEqual([pausedClaim.status, pausedClaim.payload], [200, { work: null, state: 'paused' }]);
+  const pausedRenew = await api(baseUrl, `/api/agent/work/${first.payload.id}/renew`, { token: bob.agentApiToken, body: { leaseToken: claim.payload.work.leaseToken } });
+  assert.deepEqual([pausedRenew.status, pausedRenew.payload.code], [409, 'AGENT_PAUSED']);
+  const pausedComplete = await api(baseUrl, `/api/agent/work/${first.payload.id}/complete`, { token: bob.agentApiToken, key: 'paused-complete', body: { leaseToken: claim.payload.work.leaseToken } });
+  assert.deepEqual([pausedComplete.status, pausedComplete.payload.code], [409, 'AGENT_PAUSED']);
+  const pausedMcp = await api(baseUrl, '/mcp', { token: bob.agentApiToken, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
+  assert.deepEqual([pausedMcp.status, pausedMcp.payload.code], [409, 'AGENT_PAUSED']);
+  const toPaused = await send(alice, bob, 'paused-recipient', 'Accepted while paused');
+  assert.deepEqual([toPaused.status, toPaused.payload.status], [202, 'queued'], JSON.stringify(toPaused.payload));
   const bobView = await api(baseUrl, `/api/inboxes/${bob.inbox.id}/human-view`, { session: bob.session });
   assert.equal(bobView.payload.agents.find(agent => agent.id === bob.agent.id).paused, true);
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents/${bob.agent.id}/resume`, { session: outsider.session, body: {} })).status, 403);
   const resume = await api(baseUrl, `/api/inboxes/${bob.inbox.id}/agents/${bob.agent.id}/resume`, { session: bob.session, body: {} });
   assert.equal(resume.status, 200);
   assert.equal(resume.payload.paused, false);
-  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/renew`, { token: bob.agentApiToken, body: { leaseToken: claim.payload.work.leaseToken } })).status, 200);
+  // The pause invalidated the pre-pause lease without using an attempt; the same work is offered again.
+  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/renew`, { token: bob.agentApiToken, body: { leaseToken: claim.payload.work.leaseToken } })).status, 409);
+  const reclaimed = await api(baseUrl, '/api/agent/work/claim', { token: bob.agentApiToken, body: {} });
+  assert.deepEqual([reclaimed.status, reclaimed.payload.state, reclaimed.payload.work?.workId], [200, 'claimed', first.payload.id]);
+  const lease = reclaimed.payload.work.leaseToken;
+  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/renew`, { token: bob.agentApiToken, body: { leaseToken: lease } })).status, 200);
 
   const unauthorizedDecision = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${caseId}/actions`, { session: outsider.session, key: 'outsider-decision', body: { actionKey: 'approveOnce', externalRefs: { requestedAction: 'case.complete', result: 'forged' } } });
   assert.equal(unauthorizedDecision.status, 403);
@@ -130,7 +141,7 @@ test('human pause, case pause, block and revoke gate REST, MCP, work and assets'
   assert.equal(pauseReplay.status, 200);
   assert.equal(pauseReplay.payload.action.id, casePause.payload.action.id);
   assert.equal((await send(alice, bob, 'paused-case-send', 'Must wait')).status, 409);
-  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/complete`, { token: bob.agentApiToken, key: 'case-paused-complete', body: { leaseToken: claim.payload.work.leaseToken } })).status, 409);
+  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/complete`, { token: bob.agentApiToken, key: 'case-paused-complete', body: { leaseToken: lease } })).status, 409);
   const caseResume = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${caseId}/actions`, { session: alice.session, key: 'case-resume', body: { actionKey: 'resume' } });
   assert.equal(caseResume.status, 201, JSON.stringify(caseResume.payload));
   assert.equal(caseResume.payload.case.state, 'inProgress');
@@ -143,7 +154,7 @@ test('human pause, case pause, block and revoke gate REST, MCP, work and assets'
   const blocked = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/contacts/${bob.agent.id}/block`, { session: alice.session, body: {} });
   assert.equal(blocked.status, 200);
   assert.equal((await send(bob, alice, 'blocked-send', 'Must be blocked')).status, 403);
-  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/renew`, { token: bob.agentApiToken, body: { leaseToken: claim.payload.work.leaseToken } })).status, 403);
+  assert.equal((await api(baseUrl, `/api/agent/work/${first.payload.id}/renew`, { token: bob.agentApiToken, body: { leaseToken: lease } })).status, 403);
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/assets/${upload.payload.object.id}/download`, { token: bob.agentApiToken })).status, 403);
   assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/contacts/${bob.agent.id}/approve`, { session: alice.session, body: {} })).status, 404);
   assert.equal((await api(baseUrl, `/api/inboxes/${alice.inbox.id}/contacts/${bob.agent.id}/unblock`, { session: alice.session, body: {} })).status, 200);

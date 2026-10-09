@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { clientIp, publicHttpError } from '../src/http-security.js';
+import { clientIp, errorBody, publicHttpError, requestIdFrom } from '../src/http-security.js';
 
 test('temporary session failures offer recovery without exposing provider details', () => {
   const response = publicHttpError({ statusCode: 503, code: 'auth_unavailable', message: 'private provider credentials' }, 'request-auth');
   assert.deepEqual(response, {
     status: 503,
-    body: { error: 'AUTH_UNAVAILABLE', message: 'Your session could not be checked right now. Please try again.', requestId: 'request-auth' }
+    body: { code: 'AUTH_UNAVAILABLE', error: 'AUTH_UNAVAILABLE', message: 'Your session could not be checked right now. Please try again.', requestId: 'request-auth' }
   });
 });
 
@@ -30,12 +30,20 @@ test('client IP rejects malformed forwarding values', () => {
 test('unexpected server errors are sanitized while expected client errors remain useful', () => {
   assert.deepEqual(publicHttpError(new Error('postgres://secret@db/private'), 'req_internal'), {
     status: 500,
-    body: { error: 'INTERNAL_SERVER_ERROR', message: 'An internal error occurred', requestId: 'req_internal' }
+    body: { code: 'INTERNAL_SERVER_ERROR', error: 'INTERNAL_SERVER_ERROR', message: 'An internal error occurred', requestId: 'req_internal' }
   });
   assert.deepEqual(publicHttpError(Object.assign(new Error('Object is not clean'), { statusCode: 423, code: 'OBJECT_NOT_CLEAN' }), 'req_client'), {
     status: 423,
-    body: { error: 'OBJECT_NOT_CLEAN', message: 'Object is not clean', requestId: 'req_client' }
+    body: { code: 'OBJECT_NOT_CLEAN', error: 'OBJECT_NOT_CLEAN', message: 'Object is not clean', requestId: 'req_client' }
   });
+});
+
+test('error envelope carries only allowlisted public fields and safe request IDs', () => {
+  const error = Object.assign(new Error('Case is paused'), { statusCode: 409, code: 'CASE_CONTROLLED', publicFields: { caseId: 'case_1', internalPath: '/secret' } });
+  assert.deepEqual(publicHttpError(error, 'req_case').body, { code: 'CASE_CONTROLLED', error: 'CASE_CONTROLLED', message: 'Case is paused', requestId: 'req_case', caseId: 'case_1' });
+  assert.deepEqual(errorBody('RATE_LIMITED', 'Slow down', 'req_rate', { retryAfterSeconds: 30 }), { code: 'RATE_LIMITED', error: 'RATE_LIMITED', message: 'Slow down', requestId: 'req_rate', retryAfterSeconds: 30 });
+  assert.equal(requestIdFrom('req_abc-1.2:3'), 'req_abc-1.2:3');
+  for (const unsafe of ['', 'has space', '<script>', 'x'.repeat(129), 'line\nbreak']) assert.match(requestIdFrom(unsafe), /^[0-9a-f-]{36}$/);
 });
 
 // Exercise the actual HTTP handler: a unit test of a fixed key cannot detect

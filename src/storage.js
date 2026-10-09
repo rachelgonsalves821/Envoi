@@ -135,11 +135,13 @@ export class FileStore {
 
   async getOutbox(id) { return this.getJson(path.join('outbox', `${id}.json`)); }
 
-  async queryOutbox({ inboxId = null, status = null, limit = 100 } = {}) {
+  async queryOutbox({ inboxId = null, status = null, orderingKey = null, senderInboxId = null, limit = 100 } = {}) {
     const values = await this.listJson('outbox');
     return values
       .filter(value => !inboxId || value.senderInboxId === inboxId || value.recipientInboxId === inboxId)
       .filter(value => !status || value.status === status)
+      .filter(value => !orderingKey || value.orderingKey === orderingKey)
+      .filter(value => !senderInboxId || value.senderInboxId === senderInboxId)
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
       .slice(0, Math.max(1, Math.min(Number(limit) || 100, 200)));
   }
@@ -155,7 +157,7 @@ export class FileStore {
         })
         .filter(record => !record.orderingKey || !records.some(earlier => earlier.id !== record.id
           && earlier.orderingKey === record.orderingKey
-          && !['delivered', 'deadLettered'].includes(earlier.status)
+          && !['delivered', 'deadLettered', 'cancelled'].includes(earlier.status)
           && Number(earlier.sequence || 0) < Number(record.sequence || 0)))
         .sort((a, b) => String(a.availableAt).localeCompare(String(b.availableAt)) || Number(a.sequence || 0) - Number(b.sequence || 0))[0];
       if (!next) return null;
@@ -169,10 +171,14 @@ export class FileStore {
     });
   }
 
+  assertOutboxLease(record, lease) {
+    if (!record || record.status !== 'processing' || !lease?.leaseToken || record.leaseToken !== lease.leaseToken || record.lockedBy !== lease.lockedBy) throw Object.assign(new Error('Delivery lease was lost'), { code: 'LEASE_LOST', statusCode: 409 });
+  }
+
   async completeOutbox(id, documents, result = {}, lease = null) {
     return this.withOutboxMutation(async () => {
       const record = await this.getOutbox(id);
-      if (!record || record.status !== 'processing' || !lease?.leaseToken || record.leaseToken !== lease.leaseToken || record.lockedBy !== lease.lockedBy) throw Object.assign(new Error('Delivery lease was lost'), { code: 'LEASE_LOST', statusCode: 409 });
+      this.assertOutboxLease(record, lease);
       const now = this.now();
       await this.putJsonBatch(documents);
       Object.assign(record, { status: 'delivered', deliveredAt: now, updatedAt: now, lockedAt: null, lockedBy: null, leaseToken: null, lastError: null, result });
@@ -184,7 +190,7 @@ export class FileStore {
   async failOutbox(id, documents, { error, nextAttemptAt, forceDeadLetter = false, lease = null }) {
     return this.withOutboxMutation(async () => {
       const record = await this.getOutbox(id);
-      if (!record || record.status !== 'processing' || !lease?.leaseToken || record.leaseToken !== lease.leaseToken || record.lockedBy !== lease.lockedBy) throw Object.assign(new Error('Delivery lease was lost'), { code: 'LEASE_LOST', statusCode: 409 });
+      this.assertOutboxLease(record, lease);
       const now = this.now();
       const attempts = Number(record.attempts || 0) + 1;
       const deadLettered = forceDeadLetter || attempts >= Number(record.maxAttempts || 5);
@@ -212,6 +218,78 @@ export class FileStore {
       const now = this.now();
       await this.putJsonBatch(documents);
       Object.assign(record, { status: 'queued', attempts: 0, availableAt: now, updatedAt: now, lockedAt: null, lockedBy: null, leaseToken: null, lastError: null, deadLetteredAt: null });
+      await this.putJson(path.join('outbox', `${id}.json`), record);
+      return record;
+    });
+  }
+
+  async holdOutbox(id, documents, { reason, lease = null }) {
+    return this.withOutboxMutation(async () => {
+      const record = await this.getOutbox(id);
+      this.assertOutboxLease(record, lease);
+      const now = this.now();
+      await this.putJsonBatch(documents);
+      Object.assign(record, {
+        status: 'held',
+        heldReason: reason,
+        heldAt: now,
+        heldFromStatus: Number(record.attempts || 0) > 0 ? 'retrying' : 'queued',
+        updatedAt: now,
+        lockedAt: null,
+        lockedBy: null,
+        leaseToken: null
+      });
+      await this.putJson(path.join('outbox', `${id}.json`), record);
+      return record;
+    });
+  }
+
+  async holdQueuedOutbox({ senderInboxId, reason, heldAt = null }) {
+    if (!senderInboxId) throw new TypeError('senderInboxId is required');
+    return this.withOutboxMutation(async () => {
+      const now = this.now();
+      const records = (await this.listJson('outbox'))
+        .filter(record => record.senderInboxId === senderInboxId && ['queued', 'retrying'].includes(record.status))
+        .sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0));
+      for (const record of records) {
+        Object.assign(record, { heldFromStatus: record.status, status: 'held', heldReason: reason, heldAt: heldAt ?? now, updatedAt: now });
+        await this.putJson(path.join('outbox', `${record.id}.json`), record);
+      }
+      return records;
+    });
+  }
+
+  async releaseHeldOutbox({ senderInboxId }) {
+    if (!senderInboxId) throw new TypeError('senderInboxId is required');
+    return this.withOutboxMutation(async () => {
+      const now = this.now();
+      const records = (await this.listJson('outbox'))
+        .filter(record => record.senderInboxId === senderInboxId && record.status === 'held')
+        .sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0));
+      for (const record of records) {
+        record.status = record.heldFromStatus || 'queued';
+        record.updatedAt = now;
+        delete record.heldReason;
+        delete record.heldAt;
+        delete record.heldFromStatus;
+        await this.putJson(path.join('outbox', `${record.id}.json`), record);
+      }
+      return records;
+    });
+  }
+
+  async cancelHeldOutbox(id, documents = []) {
+    return this.withOutboxMutation(async () => {
+      const record = await this.getOutbox(id);
+      if (!record || record.status !== 'held') return null;
+      const now = this.now();
+      await this.putJsonBatch(documents);
+      record.status = 'cancelled';
+      record.cancelledAt = now;
+      record.updatedAt = now;
+      delete record.heldReason;
+      delete record.heldAt;
+      delete record.heldFromStatus;
       await this.putJson(path.join('outbox', `${id}.json`), record);
       return record;
     });
