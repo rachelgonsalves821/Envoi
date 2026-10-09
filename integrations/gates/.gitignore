@@ -1,0 +1,4 @@
+.runtime/
+evidence/**/result.json
+evidence/**/server.log
+evidence/**/connector.log
