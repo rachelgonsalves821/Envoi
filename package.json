@@ -18,7 +18,7 @@
     "test:integrations": "vitest run --config integrations/vitest.config.ts",
     "test:sdk:python": "cd sdk/python && python -m unittest discover -s tests -p test_*.py",
     "test": "node --test --test-concurrency=1 test/*.test.js",
-    "test:postgres": "node --test test/postgres-storage.test.js",
+    "test:postgres": "node --test --test-concurrency=1 test/postgres-storage.test.js test/a3-held-work.test.js",
     "test:storage:live": "node --test test/object-storage-live.test.js",
     "preflight:config": "node scripts/preflight.mjs",
     "smoke:deployment": "node scripts/smoke-deployment.mjs",

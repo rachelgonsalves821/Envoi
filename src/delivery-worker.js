@@ -9,6 +9,7 @@ export class DeliveryWorker {
     deliver,
     prepare = async () => ({}),
     onFailure = async () => ({ documents: [] }),
+    onHold = async () => ({ documents: [] }),
     onSettled = () => {},
     workerId = `delivery_${crypto.randomUUID()}`,
     pollIntervalMs = Number(process.env.ENVOI_DELIVERY_POLL_MS || 250),
@@ -20,6 +21,7 @@ export class DeliveryWorker {
     this.deliver = deliver;
     this.prepare = prepare;
     this.onFailure = onFailure;
+    this.onHold = onHold;
     this.onSettled = onSettled;
     this.workerId = workerId;
     this.pollIntervalMs = pollIntervalMs;
@@ -92,6 +94,18 @@ export class DeliveryWorker {
       });
     } catch (error) {
       if (error?.code === 'LEASE_LOST') return true;
+      // A hold (for example a paused sender) parks the record without using an attempt.
+      if (error?.hold) {
+        try {
+          notification = await this.store.withTransaction(lockKeys, async () => {
+            const held = await this.onHold(record, error.hold, { context });
+            const settled = await this.store.holdOutbox(record.id, held.documents || [], { reason: error.hold, lease: record });
+            return { settled, events: held.events || [] };
+          });
+        } catch (holdError) { if (holdError?.code === 'LEASE_LOST') return true; throw holdError; }
+        await this.onSettled(notification.settled, notification.events);
+        return true;
+      }
       const attempt = Number(record.attempts || 0) + 1;
       const deadLettered = Boolean(error?.permanent) || attempt >= Number(record.maxAttempts || 5);
       const nextAttemptAt = new Date(Date.now() + this.retryDelay(attempt)).toISOString();

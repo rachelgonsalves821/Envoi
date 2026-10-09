@@ -209,11 +209,12 @@ test('claims persist across restart and settlement rejects revoked credentials o
   assert.equal(permissionLost.status, 403);
   await state.fixtureStore.putJson(path.join('inboxes', state.recipient.inbox.id, 'agents', `${state.recipient.agent.id}.json`), { ...state.recipient.agent, status: 'paused' });
   const paused = await state.work('renew', work.workId, state.recipient.agentApiToken, { leaseToken: work.leaseToken });
-  assert.equal(paused.status, 401);
+  // a3-pause-auth v1: a paused agent's settlement is refused as AGENT_PAUSED, never a generic 401.
+  assert.deepEqual([paused.status, paused.payload.code], [409, 'AGENT_PAUSED']);
   await state.fixtureStore.putJson(path.join('inboxes', state.recipient.inbox.id, 'agents', `${state.recipient.agent.id}.json`), state.recipient.agent);
 
   const revoked = await request(state.server.baseUrl, `/api/inboxes/${state.recipient.inbox.id}/agents/${state.recipient.agent.id}/credentials/revoke`, { token: state.humanToken, body: {} });
   assert.equal(revoked.status, 200);
   const settlementAfterRevoke = await state.work('fail', work.workId, state.recipient.agentApiToken, { leaseToken: work.leaseToken, retryable: false });
-  assert.equal(settlementAfterRevoke.status, 401);
+  assert.deepEqual([settlementAfterRevoke.status, settlementAfterRevoke.payload.code], [401, 'CREDENTIAL_REVOKED']);
 });

@@ -119,6 +119,120 @@ test('PostgreSQL delivery lease rejects stale document writes', { skip: !process
   assert.deepEqual(await store.getJson(`${prefix}/current.json`), { current: true });
 });
 
+async function createHeldOutboxFixture(t) {
+  const store = new PostgresStore(process.env.DATABASE_URL);
+  const run = crypto.randomUUID();
+  const created = [];
+  t.after(async () => {
+    try { await store.pool.query('DELETE FROM sinaloa_outbox WHERE id = ANY($1::text[])', [created]); }
+    finally { await store.close(); }
+  });
+  await store.init();
+  const past = '2026-01-01T00:00:00.000Z';
+  const name = value => `${value}_${run}`;
+  const enqueue = async (id, { sender = 'sender', key = 'case_one', availableAt = past } = {}) => {
+    created.push(name(id));
+    return store.enqueueOutbox([], { id: name(id), kind: 'test', messageId: name(id), senderInboxId: name(sender), recipientInboxId: name('recipient'), orderingKey: name(key), status: 'queued', attempts: 0, maxAttempts: 5, availableAt, createdAt: availableAt, updatedAt: availableAt });
+  };
+  return { store, past, name, enqueue, prefix: `test/${run}` };
+}
+
+const heldFieldsOf = value => [value.heldReason, value.heldAt, value.heldFromStatus];
+
+test('PostgreSQL outbox hold keeps attempts and requires the current lease', { skip: !process.env.DATABASE_URL }, async t => {
+  const { store, past, name, enqueue, prefix } = await createHeldOutboxFixture(t);
+  await enqueue('first');
+  const claimed = await store.claimOutbox('worker_one');
+  assert.equal(claimed.id, name('first'));
+  await assert.rejects(() => store.holdOutbox(name('first'), [{ path: `${prefix}/stale.json`, value: { stale: true } }], { reason: 'sender_paused', lease: { ...claimed, leaseToken: 'wrong' } }), error => error.code === 'LEASE_LOST' && error.statusCode === 409);
+  assert.equal(await store.getJson(`${prefix}/stale.json`), null);
+  const held = await store.holdOutbox(name('first'), [{ path: `${prefix}/held.json`, value: { status: 'held' } }], { reason: 'sender_paused', lease: claimed });
+  assert.equal(held.status, 'held');
+  assert.equal(held.attempts, 0);
+  assert.equal(held.availableAt, past);
+  assert.equal(held.heldReason, 'sender_paused');
+  assert.equal(held.heldFromStatus, 'queued');
+  assert.ok(!Number.isNaN(Date.parse(held.heldAt)));
+  assert.equal(held.lockedAt, null);
+  assert.equal(held.lockedBy, null);
+  assert.equal(held.leaseToken, null);
+  assert.deepEqual(await store.getJson(`${prefix}/held.json`), { status: 'held' });
+
+  await enqueue('second', { key: 'case_two' });
+  const firstAttempt = await store.claimOutbox('worker_one');
+  assert.equal(firstAttempt.id, name('second'));
+  await store.failOutbox(name('second'), [], { error: 'timeout', nextAttemptAt: past, lease: firstAttempt });
+  const secondAttempt = await store.claimOutbox('worker_one');
+  assert.equal(secondAttempt.id, name('second'));
+  const heldRetry = await store.holdOutbox(name('second'), [], { reason: 'sender_paused', lease: secondAttempt });
+  assert.equal(heldRetry.attempts, 1);
+  assert.equal(heldRetry.heldFromStatus, 'retrying');
+  assert.equal(heldRetry.lastError, 'timeout');
+  assert.equal(await store.claimOutbox('worker_one', 0), null);
+});
+
+test('PostgreSQL held outbox records block their case until released in sequence order', { skip: !process.env.DATABASE_URL }, async t => {
+  const { store, past, name, enqueue } = await createHeldOutboxFixture(t);
+  await enqueue('processing', { key: 'case_processing' });
+  const processing = await store.claimOutbox('worker_one');
+  assert.equal(processing.id, name('processing'));
+  await enqueue('first');
+  const attempt = await store.claimOutbox('worker_one');
+  assert.equal(attempt.id, name('first'));
+  await store.failOutbox(name('first'), [], { error: 'timeout', nextAttemptAt: past, lease: attempt });
+  await enqueue('second');
+  await enqueue('reply', { sender: 'active' });
+  await enqueue('other', { sender: 'active', key: 'case_two' });
+
+  const heldAt = '2026-02-01T00:00:00.000Z';
+  const held = await store.holdQueuedOutbox({ senderInboxId: name('sender'), reason: 'sender_paused', heldAt });
+  assert.deepEqual(held.map(value => [value.id, value.heldFromStatus, value.attempts]), [[name('first'), 'retrying', 1], [name('second'), 'queued', 0]]);
+  assert.ok(held.every(value => value.status === 'held' && value.heldReason === 'sender_paused' && value.heldAt === heldAt));
+  assert.equal((await store.getOutbox(name('processing'))).status, 'processing');
+  assert.equal((await store.getOutbox(name('reply'))).status, 'queued');
+  assert.deepEqual((await store.queryOutbox({ senderInboxId: name('sender'), status: 'held' })).map(value => value.id).sort(), [name('first'), name('second')].sort());
+  assert.deepEqual((await store.queryOutbox({ orderingKey: name('case_one') })).map(value => value.id).sort(), [name('first'), name('second'), name('reply')].sort());
+  assert.deepEqual((await store.queryOutbox({ orderingKey: name('case_one'), senderInboxId: name('active') })).map(value => value.id), [name('reply')]);
+
+  const other = await store.claimOutbox('worker_one');
+  assert.equal(other.id, name('other'));
+  await store.completeOutbox(name('other'), [], {}, other);
+  await store.completeOutbox(name('processing'), [], {}, processing);
+  assert.equal(await store.claimOutbox('worker_one'), null);
+
+  const released = await store.releaseHeldOutbox({ senderInboxId: name('sender') });
+  assert.deepEqual(released.map(value => [value.id, value.status, value.attempts]), [[name('first'), 'retrying', 1], [name('second'), 'queued', 0]]);
+  assert.ok(released.every(value => value.availableAt === past && heldFieldsOf(value).every(field => field === undefined)));
+  assert.deepEqual(await store.releaseHeldOutbox({ senderInboxId: name('sender') }), []);
+  const delivered = [];
+  for (let claimed = await store.claimOutbox('worker_one'); claimed; claimed = await store.claimOutbox('worker_one')) {
+    delivered.push(claimed.id);
+    await store.completeOutbox(claimed.id, [], {}, claimed);
+  }
+  assert.deepEqual(delivered, [name('first'), name('second'), name('reply')]);
+});
+
+test('PostgreSQL cancelling a held outbox record releases its case barrier', { skip: !process.env.DATABASE_URL }, async t => {
+  const { store, name, enqueue, prefix } = await createHeldOutboxFixture(t);
+  await enqueue('paused');
+  await enqueue('reply', { sender: 'active' });
+  await store.holdQueuedOutbox({ senderInboxId: name('sender'), reason: 'sender_paused' });
+  assert.equal(await store.cancelHeldOutbox(name('reply'), [{ path: `${prefix}/reply.json`, value: { status: 'cancelled' } }]), null);
+  assert.equal(await store.getJson(`${prefix}/reply.json`), null);
+  assert.equal((await store.getOutbox(name('reply'))).status, 'queued');
+  assert.equal(await store.claimOutbox('worker_one'), null);
+
+  const cancelled = await store.cancelHeldOutbox(name('paused'), [{ path: `${prefix}/paused.json`, value: { status: 'cancelled' } }]);
+  assert.equal(cancelled.status, 'cancelled');
+  assert.ok(!Number.isNaN(Date.parse(cancelled.cancelledAt)));
+  assert.ok(heldFieldsOf(cancelled).every(field => field === undefined));
+  assert.deepEqual(await store.getJson(`${prefix}/paused.json`), { status: 'cancelled' });
+  assert.equal(await store.cancelHeldOutbox(name('paused')), null);
+  const claimed = await store.claimOutbox('worker_one');
+  assert.equal(claimed.id, name('reply'));
+  await store.completeOutbox(name('reply'), [], {}, claimed);
+});
+
 test('PostgreSQL scan lease fences stale verdicts and settles metadata with its job', { skip: !process.env.DATABASE_URL }, async t => {
   const store = new PostgresStore(process.env.DATABASE_URL);
   t.after(() => store.close());
