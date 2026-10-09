@@ -23,9 +23,9 @@ The beta deploy binds `www.envoi-agents.com`, retains `beta.sinaloa-inbox.com` d
 
 ## Workers Builds
 
-As recorded in the launch audit, **Workers & Pages → sinaloa-staging → Settings → Builds** tracks `codex/staging-readiness`, with preview-branch builds off, and its deploy command `npx wrangler deploy --env staging` does not set `SINALOA_RELEASE_SHA`. Staging `/health` reports `releaseSha: null` until the first stamped deploy; after that, an unstamped Builds deploy would keep reporting the **old** SHA (`keep_vars`). A merge to `main` does not automatically promote that SHA to staging. Use the explicit recorded-SHA procedure above, and freeze concurrent staging Builds during acceptance so another deployment cannot replace the candidate under test. Record the deployed Worker version for each acceptance run. Changing the Builds branch or resuming automatic builds is a separate provider configuration decision.
+**Workers & Pages → sinaloa-staging → Settings → Build** tracks `integration/agent-native` (changed from `codex/staging-readiness` on 2026-10-09 for the agent-native build, H-2 Option 1), with preview-branch builds off and deploy command `npm run cf:deploy:staging`, so every staging build stamps `SINALOA_RELEASE_SHA` with its own commit. A merge to `main` does not automatically promote that SHA to staging. Freeze staging Builds during hosted acceptance so another deployment cannot replace the candidate under test, and record the deployed Worker version for each acceptance run. Changing the Builds branch or resuming automatic builds is a separate provider configuration decision.
 
-The staging Builds configuration uses root directory `/`, Node 22 from `.node-version`, build command `npm run build`, and deploy command `npx wrangler deploy --env staging`. Workers Builds installs lockfile dependencies; GitHub CI runs the broader suite.
+The staging Builds configuration uses root directory `/`, Node 22 from `.node-version`, build command `npm run build`, and deploy command `npm run cf:deploy:staging`. Workers Builds installs lockfile dependencies; GitHub CI runs the broader suite.
 
 ### Staging dashboard change for the agent-native build (human-only, H-2)
 
