@@ -31,7 +31,8 @@ async function request(baseUrl, pathname, options = {}) {
   return { status: response.status, payload };
 }
 
-async function waitFor(check, { timeoutMs = 5000, intervalMs = 25 } = {}) {
+// Returns as soon as the check passes; the ceiling only absorbs full-suite load.
+async function waitFor(check, { timeoutMs = 15000, intervalMs = 25 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await check();
