@@ -131,8 +131,8 @@ globalThis.fetch = async (...args) => {
   await killOwned(connector);
   await killOwned(server);
   await mkdir(output, { recursive: true });
-  await writeFile(path.join(output, 'connector.log'), sanitize(connectorLog));
-  await writeFile(path.join(output, 'server.log'), sanitize(serverLog));
+  await writeFile(path.join(output, 'connector.log'), sanitize(connectorLog).replace(/[ \t]+$/gm, ''));
+  await writeFile(path.join(output, 'server.log'), sanitize(serverLog).replace(/[ \t]+$/gm, ''));
   const result = { testedIntegrationSha: sha, artifactSha256: artifactHash, node: process.version,
     instrumentation: 'Node --import records only the built CLI health request and a cloned response; no request/response mutation', serverCommand: 'npm start', storage: 'FileStore', authMode: 'development', recordedAt: new Date().toISOString(), mismatch, infrastructureError };
   await writeFile(path.join(output, 'result.json'), sanitize(JSON.stringify(result, null, 2)) + '\n');
