@@ -530,7 +530,15 @@ const workClaimPath = (inboxId, workId) => path.join('inboxes', inboxId, 'work-c
 // Active or paused access credential; callers decide what a paused agent may do.
 const pausedAgentRoutes = new Set(['POST /api/agent/work/claim', 'POST /api/agent/connection-status', 'GET /api/agent/status']);
 // a3-pause-auth v1 §2.1 and §3, applied before any route handler so precedence is uniform.
-async function enforceAgentCredential(req, url) {
+async function enforceAgentCredential(req, url, res) {
+  try { await checkAgentCredential(req, url); }
+  catch (error) {
+    if (url.pathname === '/mcp' && error.statusCode === 401) res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
+    throw error;
+  }
+}
+
+async function checkAgentCredential(req, url) {
   const agentRoute = url.pathname === '/mcp' || url.pathname.startsWith('/api/agent/') || url.pathname.startsWith('/api/inboxes/');
   const raw = agentRoute ? bearerToken(req) : null;
   if (!raw) {
@@ -1545,7 +1553,7 @@ async function processInboundEmail(event, prepared) {
   if (!route?.inboxId || !route?.agentId) throw permanentDeliveryError('Inbound email is not addressed to a verified reply alias');
   if (route.inboxId !== prepared.route.inboxId || route.agentId !== prepared.route.agentId || route.caseId !== prepared.route.caseId) throw new Error('Inbound email route changed; retry routing');
   const recipient = await store.getJson(path.join('inboxes', route.inboxId, 'agents', `${route.agentId}.json`));
-  if (!recipient || !canAct(recipient, 'receive_agent_messages')) throw permanentDeliveryError('Inbound recipient is unavailable');
+  if (!recipient || !canReceive(recipient)) throw permanentDeliveryError('Inbound recipient is unavailable');
   const senderEmailMatch = String(inbound.from || '').match(/<([^<>]+)>\s*$/);
   const senderEmail = normalizedEmail(senderEmailMatch?.[1] || inbound.from);
   if (!validEmail(senderEmail)) throw permanentDeliveryError('Inbound sender address is invalid');
@@ -1639,6 +1647,31 @@ async function releasedMessageDocuments(record, at) {
   return [document(messagePath(record.senderInboxId, message.id), { ...rest, status: record.status === 'retrying' ? 'retrying' : 'queued', updatedAt: at })];
 }
 
+async function cancelHeldSends(inboxId, humanId, at, writeAudit) {
+  for (;;) {
+    const held = await store.queryOutbox({ senderInboxId: inboxId, status: 'held', limit: 200 });
+    let cancelled = 0;
+    for (const record of held) {
+      const message = record.messageId ? await store.getJson(messagePath(inboxId, record.messageId)) : null;
+      const documents = [];
+      if (message) {
+        const { heldReason: _reason, heldAt: _heldAt, ...rest } = message;
+        documents.push(document(messagePath(inboxId, message.id), { ...rest, status: 'cancelled', cancelledAt: at, cancelledReason: 'agent_access_ended', updatedAt: at }));
+      }
+      if (!await store.cancelHeldOutbox(record.id, documents)) continue;
+      cancelled += 1;
+      await writeAudit('message.cancelled', { messageId: record.messageId, caseId: record.orderingKey, humanId }, at);
+    }
+    if (!cancelled) return;
+  }
+}
+
+async function releaseHeldSends(inboxId, at = store.now()) {
+  const released = await store.releaseHeldOutbox({ senderInboxId: inboxId });
+  await store.putJsonBatch((await Promise.all(released.map(record => releasedMessageDocuments(record, at)))).flat());
+  return released.length;
+}
+
 async function deliverQueuedMessage(outbox, prepared) {
   await holdIfSenderPaused(outbox);
   if (outbox.kind === 'nativeAgentMessage') return deliverNativeAgentMessage(outbox);
@@ -1710,6 +1743,14 @@ const deliveryWorker = new DeliveryWorker({
   deliver: deliverQueuedMessage,
   onFailure: recordDeliveryFailure,
   onHold: async (record, reason) => ({ documents: await heldMessageDocuments(record, reason, store.now()), events: [] }),
+  onHeld: async record => {
+    const released = await withInboxMutation(record.senderInboxId, async () => {
+      const queued = record.messageId ? await store.getJson(messagePath(record.senderInboxId, record.messageId)) : null;
+      const sender = queued?.senderAgentId ? await store.getJson(path.join('inboxes', record.senderInboxId, 'agents', `${queued.senderAgentId}.json`)) : null;
+      return sender?.status === 'paused' ? 0 : releaseHeldSends(record.senderInboxId);
+    }, [], [], true);
+    if (released) deliveryWorker.kick();
+  },
   onSettled: async (_record, events) => {
     for (const { inboxId, event } of events) publish(inboxId, event);
   }
@@ -1887,7 +1928,7 @@ async function route(req, res) {
     const current = await auth.getHuman(req);
     if (current && current.id !== expectedHuman) throw codedError(409, 'ACCOUNT_CHANGED', 'You are signed in as a different account in another tab. Reload to continue.');
   }
-  await enforceAgentCredential(req, url);
+  await enforceAgentCredential(req, url, res);
   if (url.pathname === '/mcp') {
     const identity = await getMcpIdentity(req);
     if (!identity) {
@@ -1984,7 +2025,7 @@ async function route(req, res) {
     const result = await withInboxMutation(identity.inboxId, async writeAudit => {
       const currentIdentity = await getAgentWorkIdentity(req);
       if (!currentIdentity || currentIdentity.inboxId !== identity.inboxId || currentIdentity.agent.id !== identity.agent.id || currentIdentity.familyId !== identity.familyId) {
-        throw Object.assign(new Error('Agent credential is revoked or no longer active'), { statusCode: 401 });
+        throw (await resolveAgentCredential(req)).error || Object.assign(new Error('Agent credential is revoked or no longer active'), { statusCode: 401 });
       }
       if (currentIdentity.paused) {
         if (action !== 'claim') throw agentPausedError();
@@ -2495,6 +2536,8 @@ async function route(req, res) {
         return { agent: connectedAgent, inbox, credentials };
       }, [], [enrollmentMutationKey(tokenHash), ...(pendingRecord.kind === 'reenroll' ? [humanAgentLimitKey(pendingRecord.humanId)] : [])]);
       closeAgentStreams(reconnected.inbox.id, reconnected.agent.id, { code: 'CREDENTIAL_REVOKED', reason: 'replaced' });
+      // A re-enrollment after a replay revocation makes the agent active again: nothing may stay held.
+      if (reconnected.agent.status === 'active' && await withInboxMutation(reconnected.inbox.id, () => releaseHeldSends(reconnected.inbox.id))) deliveryWorker.kick();
       return json(res, 200, { agent: publicAgent(reconnected.agent), ...reconnected.credentials, inbox: reconnected.inbox, nativeMessaging: 'ready' });
     }
     const plannedInboxId = store.id('inbox');
@@ -2829,7 +2872,7 @@ async function route(req, res) {
       const credentialRequest = { headers: { authorization: req.headers.authorization }, method: 'GET' };
       subscription.credentialEnded = async () => {
         const resolved = await resolveAgentCredential(credentialRequest, { inboxId, tokenTypes: ['access'] });
-        if (!resolved.error || resolved.error.code === 'ACCESS_TOKEN_EXPIRED') return null;
+        if (!['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED'].includes(resolved.error?.code)) return null;
         return { code: resolved.error.code, ...(resolved.error.publicFields?.reason ? { reason: resolved.error.publicFields.reason } : {}) };
       };
     }
@@ -3008,8 +3051,7 @@ async function route(req, res) {
             .filter(claim => claim.agentId === agentId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(at))
             .map(claim => document(workClaimPath(inboxId, claim.workId), { ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, pausedAt: at, updatedAt: at })));
         } else {
-          const released = await store.releaseHeldOutbox({ senderInboxId: inboxId });
-          await store.putJsonBatch((await Promise.all(released.map(record => releasedMessageDocuments(record, at)))).flat());
+          await releaseHeldSends(inboxId, at);
           const inbound = await store.listJson(path.join('inboxes', inboxId, 'messages'));
           if (inbound.some(message => message.recipientAgentId === agentId && ['delivered', 'acknowledged'].includes(message.status))) {
             await writeAudit('work.available', { agentId, reason: 'agent_resumed' });
@@ -3047,18 +3089,20 @@ async function route(req, res) {
     const human = await auth.getHuman(req);
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Authenticated workspace administrator required');
     const held = await store.queryOutbox({ senderInboxId: inboxId, status: 'held', limit: 200 });
+    let truncated = held.length === 200;
     const items = held.map(record => ({ messageId: record.messageId, caseId: record.orderingKey, status: 'held', heldReason: record.heldReason, heldAt: record.heldAt }));
     // D1: later items in a case with a held message wait behind it, in both directions.
     for (const caseId of new Set(held.map(record => record.orderingKey).filter(Boolean))) {
       const first = held.filter(record => record.orderingKey === caseId).sort((a, b) => Number(a.sequence) - Number(b.sequence))[0];
       const waiting = await store.queryOutbox({ orderingKey: caseId, limit: 200 });
+      if (waiting.length === 200) truncated = true;
       for (const record of waiting) {
         if (!['queued', 'retrying'].includes(record.status) || Number(record.sequence) <= Number(first.sequence)) continue;
         items.push({ messageId: record.messageId, caseId, status: 'held', heldReason: 'case_ordering', heldAt: record.createdAt, heldBehindMessageId: first.messageId });
       }
     }
     const oldestHeldAt = items.map(item => item.heldAt).filter(Boolean).sort()[0] || null;
-    return json(res, 200, { heldCount: items.length, oldestHeldAt, items });
+    return json(res, 200, { heldCount: items.length, oldestHeldAt, truncated, items });
   }
 
   const blockMatch = suffix.match(/^contacts\/([^/]+)\/(block|unblock)$/);
@@ -3157,6 +3201,7 @@ async function route(req, res) {
       if (!agent && currentInbox.removedAgent?.id !== agentId) throw Object.assign(new Error('Owned agent not found'), { statusCode: 404 });
       if (input.deleteHistory && input.confirmation !== (agent?.name || currentInbox.removedAgent?.name)) throw Object.assign(new Error('Enter the agent name to confirm permanent deletion'), { statusCode: 400 });
       const removedAt = store.now();
+      await cancelHeldSends(inboxId, human.id, removedAt, writeAudit);
       await revokeAgentCredentialFamilies(inboxId, agentId, human.id, removedAt);
       if (agent) {
         await freezeAgentRecord(inboxId, agent, human.id, removedAt);
@@ -3192,6 +3237,7 @@ async function route(req, res) {
       const current = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
       if (!current || current.status === 'revoked') throw Object.assign(new Error('Agent is already revoked'), { statusCode: 409 });
       const credentialFamilyCount = await revokeAgentCredentialFamilies(inboxId, agentId, human.id, revokedAt);
+      await cancelHeldSends(inboxId, human.id, revokedAt, writeAudit);
       await freezeAgentRecord(inboxId, current, human.id, revokedAt);
       await writeAudit('agent.credentials_revoked', { agentId, humanId: human.id, credentialFamilyCount });
       return { revoked: true, agentId, credentialFamilyCount, revokedAt };
@@ -3772,7 +3818,7 @@ async function route(req, res) {
     const recipientAgentId = assertSafeIdentifier(input.recipientAgentId, 'recipientAgentId');
     const recipient = await store.getJson(path.join('inboxes', inboxId, 'agents', `${recipientAgentId}.json`));
     if (!recipient) return fail(res, 404, 'Recipient agent not found');
-    if (!canAct(recipient, 'receive_agent_messages')) return fail(res, 403, 'Recipient agent is not approved to receive messages');
+    if (!canReceive(recipient)) return fail(res, 403, 'Recipient agent is not approved to receive messages');
     const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${recipientAgentId}.json`), { approved: true, blocked: false });
     if (contact.blocked) return fail(res, 403, 'Recipient is blocked');
     if (contact.approved === false) return fail(res, 403, 'Recipient is not an approved human contact');
@@ -3860,7 +3906,7 @@ async function route(req, res) {
       ]);
       if (currentPrincipal?.id !== principal.id || !canAct(currentPrincipal, 'create_assets')) throw Object.assign(new Error('Asset creator credential required'), { statusCode: 403 });
       if (!currentAsset || currentAsset.workspaceId !== inboxId || currentAsset.createdByAgentId !== principal.id || currentAsset.caseId !== caseId) throw Object.assign(new Error('Asset creator and case membership required'), { statusCode: 403 });
-      if (currentRecipientDirectory?.inboxId !== recipientInboxId || !currentRecipient || !canAct(currentRecipient, 'receive_agent_messages')
+      if (currentRecipientDirectory?.inboxId !== recipientInboxId || !currentRecipient || !canReceive(currentRecipient)
         || !await assetPair(currentAsset, recipientAgentId, recipientInboxId)) throw caseParticipantMismatch();
       if (await assetRelationshipBlocked(currentAsset, recipientAgentId, recipientInboxId)) throw Object.assign(new Error('The agent relationship is blocked'), { statusCode: 403, code: 'AGENT_BLOCKED' });
       const priorKey = await store.getJson(keyPath);

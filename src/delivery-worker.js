@@ -10,6 +10,7 @@ export class DeliveryWorker {
     prepare = async () => ({}),
     onFailure = async () => ({ documents: [] }),
     onHold = async () => ({ documents: [] }),
+    onHeld = async () => {},
     onSettled = () => {},
     workerId = `delivery_${crypto.randomUUID()}`,
     pollIntervalMs = Number(process.env.ENVOI_DELIVERY_POLL_MS || 250),
@@ -22,6 +23,7 @@ export class DeliveryWorker {
     this.prepare = prepare;
     this.onFailure = onFailure;
     this.onHold = onHold;
+    this.onHeld = onHeld;
     this.onSettled = onSettled;
     this.workerId = workerId;
     this.pollIntervalMs = pollIntervalMs;
@@ -104,6 +106,7 @@ export class DeliveryWorker {
           });
         } catch (holdError) { if (holdError?.code === 'LEASE_LOST') return true; throw holdError; }
         await this.onSettled(notification.settled, notification.events);
+        await this.onHeld(notification.settled);
         return true;
       }
       const attempt = Number(record.attempts || 0) + 1;

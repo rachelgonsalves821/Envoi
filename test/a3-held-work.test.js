@@ -188,4 +188,35 @@ test(`[${backend.name}] D1 (b): human cancellation of the held message releases 
   assert.equal(status.status, 200, status.text);
   assert.equal(status.payload.state, 'paused');
 });
+
+for (const ending of ['revoke', 'remove']) {
+  test(`[${backend.name}] ${ending} while paused cancels held sends so the counterparty's case is released`, async t => {
+    const server = await launch(backend.env);
+    t.after(() => server.stop());
+    const { baseUrl } = server;
+    const outbox = await outboxAccess(t, backend, server);
+    const suffix = ending === 'revoke' ? '2401' : '2501';
+    const [alice, bob] = await Promise.all([owner(baseUrl, suffix), owner(baseUrl, String(Number(suffix) + 1))]);
+    const caseId = `case_a3_${ending}_held`;
+    const { gate, m1 } = await queueBehindGate(outbox, server, alice, bob, caseId);
+    await pauseAgent(baseUrl, alice);
+    await gate.remove();
+    await heldM1(server, alice, m1.id);
+    const reply = await send(baseUrl, bob, alice, { caseId, text: 'Reply behind a held message' });
+    assert.equal(reply.status, 202, reply.text);
+    await sleep(SETTLE_MS);
+    assert.notEqual((await outbox.read(reply.payload.id)).status, 'delivered', 'the reply waits behind M1');
+
+    // Resume is impossible after either action, so the held message must not keep blocking the case.
+    const route = ending === 'revoke'
+      ? `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/credentials/revoke`
+      : `/api/inboxes/${alice.inbox.id}/agents/${alice.agent.id}/remove`;
+    const ended = await api(baseUrl, route, { session: alice.session, body: ending === 'revoke' ? {} : { deleteHistory: false } });
+    assert.equal(ended.status, 200, ended.text);
+    assert.equal((await outbox.read(m1.id)).status, 'cancelled');
+    // The reply is no longer blocked. Its recipient is now gone, so it settles as a dead letter.
+    await eventually(async () => (await outbox.read(reply.payload.id))?.status === 'deadLettered', { message: 'reply released from the barrier and settled' });
+    assert.equal((await ownerMessages(baseUrl, bob)).some(item => item.id === m1.id), false, 'the cancelled message is never delivered');
+  });
+}
 }
