@@ -2,7 +2,17 @@
 
 **Prepared:** 2026-10-09 by Lane A (Claude), audited against `integration/agent-native` @ `0b6e6a8`. **Decision owner:** the human (pjsk02).
 
-**Status:** draft for review. This document changes no code.
+**Status:** decided 2026-10-09 (see §0). This document changes no code; each phase lands through its own reviewed PRs.
+
+## 0. Decisions (human, 2026-10-09)
+
+1. **Rename everything, properly:** N1, N2 and N3.
+2. **N1 lands before H-5.**
+3. **No beta testers are on the system yet,** so there are no installed connectors, SDK users or live sessions to protect. Every rename is therefore a **clean cutover**:
+   - both sides change in the same integration SHA, as the health identity did (PRs #46 and #48);
+   - there are no deprecated `sinaloa_*` aliases and no alias window;
+   - the one exception is data already stored in staging or beta. Stored credentials, cookies, R2 object metadata, database tables and Cloudflare resources are migrated or reissued, not aliased.
+4. **The environment should be ready before beta testers arrive.**
 
 The product is **Envoi**. "Sinaloa" was the working name. The goal is that Envoi is the only name people, agents, SDK users and operators see.
 
@@ -110,7 +120,7 @@ These names are never seen by customers or agents. Renaming them costs downtime 
 - **Neon:** rename projects and databases (cosmetic, dashboard only).
 - **Local folder:** rename `D:\vsc\NEU\Sinaloa` between work sessions, and recreate the agent worktrees afterwards.
 
-## 5. Decisions for the human
+## 5. Decisions for the human (answered in §0)
 
 1. **Timing of N1.** Do the agent-facing renames before H-5, so beta users upgrade once (recommended), or after Phase A?
 2. **Alias window.** How long the old MCP tool names, token prefix and SDK names keep working after H-5. The proposal is at least 30 days, announced to beta users.
