@@ -28,6 +28,6 @@
     "retry": "none",
     "guidance": "none",
     "claim": true,
-    "next": "Store the ready cursor for this inbox and claim once; the queue, not history, holds pending work."
+    "next": "Baseline exception (§2 cursor persistence): with no stored cursor for this inbox, store ready.cursor as the starting cursor, then claim once; the queue, not history, holds pending work."
   }
 }

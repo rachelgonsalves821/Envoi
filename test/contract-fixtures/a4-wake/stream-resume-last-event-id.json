@@ -67,6 +67,6 @@
     "retry": "none",
     "guidance": "none",
     "claim": true,
-    "next": "Store each cursor after processing; claim once after ready (single flight), then claim until idle."
+    "next": "Store each event cursor after processing it; ready does not move the stored cursor; claim once after ready (single flight), then claim until idle."
   }
 }
