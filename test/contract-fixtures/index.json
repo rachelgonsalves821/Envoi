@@ -4,7 +4,7 @@
     {
       "id": "a3-pause-auth",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#a3-pause-auth-v1",
       "dir": "a3-pause-auth",
       "schemas": "schemas.json",

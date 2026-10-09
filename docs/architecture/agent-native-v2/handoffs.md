@@ -18,7 +18,7 @@ This file records shared contracts **before** their implementation. The integrat
 
 ## a3-pause-auth v1
 
-**Contract:** `a3-pause-auth`, version 1. **Status:** published for review, not approved.
+**Contract:** `a3-pause-auth`, version 1. **Status:** approved by the human on 2026-10-09 (`CONTRACT-APPROVED a3-pause-auth v1 @e97853c`, build board #34) after Lane B `CONTRACT-ACK`. Frozen: changes need a new version.
 
 **Fixtures:** [`test/contract-fixtures/a3-pause-auth/`](../../../test/contract-fixtures/a3-pause-auth/). It holds:
 - `schemas.json`, which contains the draft-07 schemas and the machine-readable code table `x-codes`;
