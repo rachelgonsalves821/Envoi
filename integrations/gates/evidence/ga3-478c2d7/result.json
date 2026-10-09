@@ -1,0 +1,111 @@
+{
+  "testedIntegrationSha": "478c2d758f0360704fb96d5940a287b85453f44a",
+  "artifactSha256": "e37fe31c3ee6e30cdd72492b5dfeff77455dfd62fc8cd17178ae4bda6a98ccab",
+  "node": "v22.15.0",
+  "instrumentation": "Node --import records only the built CLI health request and a cloned response; no request/response mutation",
+  "serverCommand": "npm start",
+  "storage": "FileStore",
+  "authMode": "development",
+  "recordedAt": "2026-10-09T18:16:17.200Z",
+  "mismatch": {
+    "id": "a3-pause-auth v1 GA3/A2 connector-health",
+    "request": {
+      "method": "GET",
+      "url": "http://127.0.0.1:59380/health",
+      "body": null
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "access-control-allow-headers": "content-type, authorization, idempotency-key, mcp-protocol-version, if-none-match, x-request-id, x-sinaloa-csrf, x-envoi-expected-human, traceparent, x-amz-checksum-sha256, x-amz-meta-sinaloa-sha256",
+        "access-control-allow-methods": "GET, HEAD, POST, PUT, OPTIONS",
+        "cache-control": "no-store",
+        "connection": "keep-alive",
+        "content-security-policy": "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; script-src 'nonce-S6sjeAzVaYjJ+qvRcOKNopeL' 'strict-dynamic'; style-src 'nonce-S6sjeAzVaYjJ+qvRcOKNopeL'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://www.envoi-agents.com",
+        "content-type": "application/json; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "date": "Fri, 09 Oct 2026 18:16:14 GMT",
+        "keep-alive": "timeout=65",
+        "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "ratelimit-limit": "1200",
+        "ratelimit-remaining": "1198",
+        "ratelimit-reset": "1791569833",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "DENY"
+      },
+      "body": "{\"ok\":true,\"service\":\"envoi\",\"time\":\"2026-10-09T18:16:14.005Z\",\"mode\":\"development\",\"configurationValidated\":false,\"releaseSha\":\"478c2d758f0360704fb96d5940a287b85453f44a\"}"
+    },
+    "expected": "HTTP 200 Envoi health is accepted; installed connector proceeds to adapter preflight and lifecycle scenarios.",
+    "observed": "Built connector rejects service=envoi as ENVOI_UNREACHABLE; status=waiting, lifecycle=DEGRADED/NETWORK_ERROR; retries before adapter preflight.",
+    "source": "integrations/connector/core.ts:98 requires service=sinaloa; src/server.js:1973 returns service=envoi",
+    "gateResult": "FAIL at startup prerequisite",
+    "notRun": [
+      "restart",
+      "outage",
+      "pause",
+      "held work",
+      "resume",
+      "refresh across pause",
+      "revoke"
+    ],
+    "snapshots": [
+      {
+        "command": "status",
+        "output": {
+          "runtime": "hermes",
+          "address": "a3-9301@envoi.mail",
+          "apiUrl": "http://127.0.0.1:59380",
+          "agentId": "agent_3617e5b3-b6b0-4d0d-a908-30b69dad27fb",
+          "credentialState": "saved",
+          "lifecycle": {
+            "state": "DEGRADED",
+            "paused": false,
+            "changedAt": "2026-10-09T18:16:14.018Z",
+            "failures": 1,
+            "code": "NETWORK_ERROR",
+            "guidance": "Envoi is unavailable; retry after the saved delay",
+            "retryAt": "2026-10-09T18:16:14.625Z"
+          },
+          "guidance": "Envoi is unavailable; retry after the saved delay",
+          "stateDir": "<private-gate-dir>\\connector",
+          "status": "waiting",
+          "credentialExpiresAt": "2026-10-09T18:31:13.063Z",
+          "refreshExpiresAt": "2026-11-08T18:16:13.063Z",
+          "note": "A running connector is not proof of successful message delivery. Verify a real agent exchange"
+        }
+      },
+      {
+        "command": "doctor",
+        "output": {
+          "runtime": "hermes",
+          "address": "a3-9301@envoi.mail",
+          "apiUrl": "http://127.0.0.1:59380",
+          "agentId": "agent_3617e5b3-b6b0-4d0d-a908-30b69dad27fb",
+          "credentialState": "saved",
+          "lifecycle": {
+            "state": "DEGRADED",
+            "paused": false,
+            "changedAt": "2026-10-09T18:16:14.018Z",
+            "failures": 1,
+            "code": "NETWORK_ERROR",
+            "guidance": "Envoi is unavailable; retry after the saved delay",
+            "retryAt": "2026-10-09T18:16:14.625Z"
+          },
+          "guidance": "Envoi is unavailable; retry after the saved delay",
+          "stateDir": "<private-gate-dir>\\connector",
+          "status": "waiting",
+          "credentialExpiresAt": "2026-10-09T18:31:13.063Z",
+          "refreshExpiresAt": "2026-11-08T18:16:13.063Z",
+          "note": "Checks are from the running connector; verify a real message exchange",
+          "pid": 22060,
+          "startedAt": "2026-10-09T18:16:13.968Z",
+          "runtimeChecks": "pending",
+          "errorCode": "ENVOI_UNREACHABLE"
+        }
+      }
+    ]
+  }
+}
