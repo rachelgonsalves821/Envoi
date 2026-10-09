@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # Same official image via the AWS public mirror: shared runners hit Docker Hub's anonymous pull limit.
+        image: public.ecr.aws/docker/library/postgres:16-alpine
         env:
           POSTGRES_USER: sinaloa
           POSTGRES_PASSWORD: sinaloa_test
@@ -44,7 +45,12 @@ jobs:
       - run: npm run build
       - run: npm run cf:check
       - name: Build actual production container
-        run: docker build -f Dockerfile.cloudflare -t sinaloa-ci .
+        # The Dockerfile stays on node:22-alpine; pre-load that official image from the mirror so the
+        # build uses the local copy instead of an anonymous Docker Hub pull.
+        run: |
+          docker pull public.ecr.aws/docker/library/node:22-alpine
+          docker tag public.ecr.aws/docker/library/node:22-alpine node:22-alpine
+          docker build -f Dockerfile.cloudflare -t sinaloa-ci .
       - name: Verify missing production configuration fails closed
         run: |
           set +e
