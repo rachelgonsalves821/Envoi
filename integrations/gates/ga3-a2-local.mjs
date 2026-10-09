@@ -206,6 +206,18 @@ finally {
     responseSemantics: 'real fetch, observation via response.clone(); no mocks or response mutation', result: scenarios.length === 7 && scenarios.every(item => item.result === 'PASS') ? 'PASS' : 'FAIL', scenarios, allConnectorExchanges: allEntries };
   await writeFile(path.join(output, 'result.json'), sanitize(JSON.stringify(result, null, 2)) + '\n');
   await writeFile(path.join(output, 'connector.log'), sanitize(workerLog)); await writeFile(path.join(output, 'server.log'), sanitize(serverLog));
+  const summary = Object.fromEntries(['testedIntegrationSha', 'artifactSha256', 'node', 'recordedAt', 'serverCommand', 'storage', 'authMode',
+    'connector', 'handler', 'overrides', 'responseSemantics', 'result'].map(key => [key, result[key]]));
+  summary.scenarios = scenarios.map(({ id, result }) => ({ id, result }));
+  if (result.result === 'PASS') summary.verification = {
+    processRestartPreservesIdentityAndCredentials: true, offlineWorkProcessedOnce: true,
+    outagePersistsDegradedStateAndRetryDeadline: true, outageRecoversAutomatically: true,
+    knownPausedClaims: 0, pausedRefreshRotatesAndPersistsSuccessor: true, refreshPreservesPauseAndIdentity: true,
+    heldDeliveryAttemptsAndBackoffUnchanged: true, d1ReplyStaysQueued: true, resumeDeliversHeldBeforeReply: true,
+    inFlightRevokeAbortsHandler: true, lateCompletionRequests: 0, postRevokeRefreshClaimMcpRequests: 0, revokedRestartNetworkRequests: 0
+  };
+  summary.detailedEvidence = 'Generated result.json and logs remain local; public summary contains no HTTP payloads, credentials, agent/account identifiers or configuration.';
+  await writeFile(path.join(output, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
   assert.equal(path.dirname(path.resolve(scratch)), path.resolve(tmpdir())); assert.ok(path.basename(scratch).startsWith('envoi-ga3-private-'));
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log(`${result.result} GA3/A2 ${sha}; evidence: ${output}`); if (result.result !== 'PASS') process.exitCode = 1;
