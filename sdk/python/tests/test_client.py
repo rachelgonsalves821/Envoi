@@ -46,6 +46,15 @@ class ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(SinaloaError, "timed out"):
             SinaloaClient("https://api.example", "token").delta("inbox")
 
+    @patch("sinaloa_protocol.request.urlopen")
+    def test_stable_error_uses_display_message_and_preserves_code(self, urlopen):
+        urlopen.side_effect = error.HTTPError("https://api.example", 409, "Conflict", {},
+            io.BytesIO(b'{"error":"AGENT_PAUSED","code":"AGENT_PAUSED","message":"This agent is paused"}'))
+        with self.assertRaises(SinaloaError) as raised:
+            SinaloaClient("https://api.example", "token").delta("inbox")
+        self.assertEqual(str(raised.exception), "This agent is paused")
+        self.assertEqual(raised.exception.code, "AGENT_PAUSED")
+
     def test_timeout_is_bounded(self):
         with self.assertRaises(ValueError): SinaloaClient("https://api.example", "token", timeout=0)
         with self.assertRaises(ValueError): SinaloaClient("https://api.example", "token", timeout=301)

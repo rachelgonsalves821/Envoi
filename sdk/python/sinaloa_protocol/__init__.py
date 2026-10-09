@@ -41,7 +41,7 @@ def _safe_error(raw: bytes, status: int) -> SinaloaError:
     except (UnicodeDecodeError, json.JSONDecodeError):
         payload = None
     if isinstance(payload, dict):
-        message = payload.get("error") or payload.get("message")
+        message = payload.get("message") or payload.get("error")
         code = payload.get("code")
         if isinstance(message, str) and 0 < len(message) <= 500:
             return SinaloaError(message, status=status, code=code if isinstance(code, str) else None)

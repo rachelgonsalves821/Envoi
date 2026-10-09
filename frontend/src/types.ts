@@ -6,7 +6,7 @@ export type CaseState =
 export type CollaborationMode = 'scheduling' | 'negotiation' | 'collaboration' | 'knowledgeSharing' | 'artifactCreation';
 export type CaseBucket = 'needsMe' | 'activeWork' | 'waiting' | 'completed';
 export type StateTone = 'neutral' | 'attention' | 'waiting' | 'success' | 'danger' | 'unknown' | 'tentative';
-export type DeliveryState = 'queued' | 'retrying' | 'delivered' | 'acknowledged' | 'processed' | 'deadLettered' | 'received';
+export type DeliveryState = 'queued' | 'retrying' | 'delivered' | 'acknowledged' | 'processed' | 'deadLettered' | 'received' | 'held' | 'cancelled';
 export type EmailDeliveryState = 'accepted' | 'delivered' | 'delivery_delayed' | 'bounced' | 'complained' | 'failed' | 'suppressed' | 'received';
 
 export type EventType = 'message' | 'decision' | 'policyEvaluation' | 'toolAction' | 'humanAction' | 'stateChange' | 'error' | 'receipt';

@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SinaloaError } from '../../sdk/typescript/src/index';
 import { SinaloaConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
@@ -297,5 +298,31 @@ describe('authenticated local management', () => {
     expect(await connectionStatus(f.options.stateDir)).toMatchObject({ status: 'stopped' });
     f.healthFails(false); f.preflightFails();
     await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver, f.options)).rejects.toMatchObject({ code: 'MODEL_NOT_READY' });
+  });
+});
+
+describe('durable lifecycle in the installed runtimes', () => {
+  for (const runtime of ['hermes', 'openclaw', 'grok'] as const) {
+    it(runtime + ' refuses a revoked installation before any service or provider request', async () => {
+      const f = await fixture(runtime); await setupConnection(f.handoff, f.resolver, f.options);
+      const c = new SinaloaConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
+      await c.observeError(new SinaloaError('Revoked', 418, 'CREDENTIAL_REVOKED', { reason: 'replaced' }));
+      const calls = f.requests.length;
+      await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver, f.options)).rejects.toMatchObject({ code: 'CREDENTIAL_REVOKED' });
+      expect(f.requests).toHaveLength(calls); expect(f.counts().enrollmentCount).toBe(1);
+      expect(await connectionStatus(f.options.stateDir)).toMatchObject({ lifecycle: { state: 'REVOKED' }, guidance: expect.stringContaining('replaced') });
+    });
+  }
+  it('starts paused with deferred MCP verification, exposes pause, and preserves it after stop', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const c = new SinaloaConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
+    await c.observeError(new SinaloaError('Paused', 409, 'AGENT_PAUSED')); f.toolFails(true);
+    const stop = new AbortController(); let ready!: () => void; const readyPromise = new Promise<void>(resolve => { ready = resolve; });
+    const running = startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, onReady: ready });
+    try { await readyPromise; expect(await doctorConnection(f.options.stateDir, f.resolver, f.options)).toMatchObject({ status: 'paused', lifecycle: { state: 'PAUSED' }, runtimeChecks: 'deferred_while_paused' }); }
+    finally { stop.abort(); await running; }
+    expect(await connectionStatus(f.options.stateDir)).toMatchObject({ lifecycle: { state: 'STOPPED', paused: true } });
+    const restarted = new SinaloaConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
+    await restarted.start(); expect(await restarted.lifecycle()).toMatchObject({ state: 'PAUSED', paused: true });
   });
 });

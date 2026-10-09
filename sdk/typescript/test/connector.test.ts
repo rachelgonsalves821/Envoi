@@ -66,7 +66,7 @@ describe('Sinaloa outbound connector', () => {
         agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString()
       }), { status: 200 });
       const auth = new Headers(init?.headers).get('authorization');
-      if (auth === 'Bearer access-one') return new Response(JSON.stringify({ error: 'Expired' }), { status: 401 });
+      if (auth === 'Bearer access-one') return new Response(JSON.stringify({ code: 'ACCESS_TOKEN_EXPIRED', error: 'ACCESS_TOKEN_EXPIRED', message: 'Expired' }), { status: 401 });
       if (String(url).includes('/asset-uploads')) {
         expect(new Headers(init?.headers).get('Idempotency-Key')).toBe('asset-a-1');
         return new Response(JSON.stringify({ error: 'Revoked' }), { status: 403 });
@@ -100,7 +100,7 @@ describe('Sinaloa outbound connector', () => {
       expect(new Headers(init?.headers).get('accept')).toContain('text/event-stream');
       expect(JSON.stringify(init?.headers)).not.toContain('refresh-one');
       const auth = new Headers(init?.headers).get('authorization');
-      if (auth === 'Bearer access-one') return new Response('{}', { status: 401 });
+      if (auth === 'Bearer access-one') return Response.json({ code: 'ACCESS_TOKEN_EXPIRED', message: 'Expired' }, { status: 401 });
       expect(auth).toBe('Bearer access-two');
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { tools: [] } }));
     });
@@ -142,7 +142,7 @@ describe('Sinaloa outbound connector', () => {
       expect(JSON.parse(String(init?.body))).toEqual({ caseId: 'case_one' });
       const authorization = new Headers(init?.headers).get('authorization');
       expect(JSON.stringify(init?.body)).not.toContain('refresh-one');
-      if (authorization === 'Bearer access-one') return new Response('{}', { status: 401 });
+      if (authorization === 'Bearer access-one') return Response.json({ code: 'ACCESS_TOKEN_EXPIRED', message: 'Expired' }, { status: 401 });
       expect(authorization).toBe('Bearer access-two');
       return new Response(JSON.stringify({ mcpAccessToken: 'mcp-read-one', tokenType: 'Bearer',
         scope: 'case_read', caseId: 'case_one', expiresAt: new Date(Date.now() + 300_000).toISOString() }), { status: 201 });
@@ -274,7 +274,7 @@ describe('Sinaloa outbound connector', () => {
     expect(memory.current()?.agentRefreshToken).toBe('refresh-two');
   });
 
-  it('rotates once after a 401 on delta and retries with the new access token', async () => {
+  it('rotates once after ACCESS_TOKEN_EXPIRED on delta and retries with the new access token', async () => {
     const memory = memoryStore(session());
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       if (String(url).endsWith('/api/agent-token')) return new Response(JSON.stringify({
@@ -282,7 +282,7 @@ describe('Sinaloa outbound connector', () => {
         agentTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
         agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString()
       }), { status: 200 });
-      if (new Headers(init?.headers).get('authorization') === 'Bearer access-one') return new Response(JSON.stringify({ error: 'Expired' }), { status: 401 });
+      if (new Headers(init?.headers).get('authorization') === 'Bearer access-one') return new Response(JSON.stringify({ code: 'ACCESS_TOKEN_EXPIRED', error: 'ACCESS_TOKEN_EXPIRED', message: 'Expired' }), { status: 401 });
       return new Response(JSON.stringify({ events: [], nextCursor: null, hasMore: false }), { status: 200 });
     });
     const connector = new SinaloaConnector('https://api.example', memory.store, { fetch: fetcher as typeof fetch });
