@@ -4,6 +4,7 @@ import {
   createForwardedRequest,
   isAllowedHostname,
   parseAllowedHostnames,
+  releaseIsStale,
   selectEnvironment,
   serviceUnavailableResponse,
   withNoStoreHeaders
@@ -92,4 +93,16 @@ test('container failures return a sanitized retryable response', async () => {
     error: 'SERVICE_UNAVAILABLE',
     message: 'Envoi is temporarily unavailable'
   });
+});
+
+test('a running container is stale only when it reports a different configured release', () => {
+  const deployed = 'a'.repeat(40);
+  assert.equal(releaseIsStale(deployed, deployed), false);
+  assert.equal(releaseIsStale(deployed, 'b'.repeat(40)), true);
+  assert.equal(releaseIsStale(deployed, null), true);
+  assert.equal(releaseIsStale(deployed, undefined), true);
+  // Without a stamped release there is nothing to converge to, so never restart.
+  assert.equal(releaseIsStale(undefined, null), false);
+  assert.equal(releaseIsStale('', 'b'.repeat(40)), false);
+  assert.equal(releaseIsStale('short', null), false);
 });
