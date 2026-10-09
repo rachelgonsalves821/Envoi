@@ -1,0 +1,173 @@
+{
+  "contract": "envoi-names",
+  "version": 1,
+  "id": "mcp-tools-list",
+  "description": "An access token lists exactly the 19 Envoi tools; no sinaloa_* name appears.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDERxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolsList",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "tools": [
+          {
+            "name": "envoi_agent_info",
+            "description": "Envoi tool agent info.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_list_cases",
+            "description": "Envoi tool list cases.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_read_case",
+            "description": "Envoi tool read case.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_list_messages",
+            "description": "Envoi tool list messages.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_start_case",
+            "description": "Envoi tool start case.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_send_message",
+            "description": "Envoi tool send message.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_send_proposal",
+            "description": "Envoi tool send proposal.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_send_decision",
+            "description": "Envoi tool send decision.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_send_completion",
+            "description": "Envoi tool send completion.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_claim_work",
+            "description": "Envoi tool claim work.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_renew_work",
+            "description": "Envoi tool renew work.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_acknowledge_work",
+            "description": "Envoi tool acknowledge work.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_complete_work",
+            "description": "Envoi tool complete work.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_fail_work",
+            "description": "Envoi tool fail work.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_list_assets",
+            "description": "Envoi tool list assets.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_begin_asset_upload",
+            "description": "Envoi tool begin asset upload.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_complete_asset_upload",
+            "description": "Envoi tool complete asset upload.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_asset_download",
+            "description": "Envoi tool asset download.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_grant_asset",
+            "description": "Envoi tool grant asset.",
+            "inputSchema": {
+              "type": "object"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Call tools only by these names."
+  }
+}

@@ -264,3 +264,103 @@ When the connector receives `agent.resumed`, it leaves `PAUSED` and claims once 
   - the fixture now carries the complete stored native message;
   - `claimClaimed.work.message` now requires `nativeWorkMessage` (or a human instruction);
   - the fixture test also checks the message's protocol envelope with the server's own `assertValidProtocolMessage`.
+
+- **v2 (`envoi-names` v1, Envoi naming N1), defined but not yet published.** The only change is the credential prefixes in fixtures and schemas: `envoi_agent_access_`, `envoi_agent_refresh_` and `envoi_mcp_read_`, with example addresses on `envoi.mail`. Codes, statuses, lifecycle, events and behaviour are identical to v1. The regenerated v2 fixtures land in the N1 implementation PR together with the server change, so fixtures and server never disagree on one SHA. It needs a Lane B ACK and human approval like any version.
+
+## envoi-names v1
+
+**Contract:** `envoi-names`, version 1. **Status:** published for review, not approved.
+
+**Fixtures:** [`test/contract-fixtures/envoi-names/`](../../../test/contract-fixtures/envoi-names/). **Owner:** Lane A. **Consumer:** Lane B. **Implemented by:** N1 (see [`docs/architecture/envoi-naming-plan.md`](../envoi-naming-plan.md)).
+
+**What it changes:** every agent-facing name moves from Sinaloa to Envoi.
+
+**Decision (human, 2026-10-09).** There are no beta testers yet, so this is a **clean cutover**:
+- the server and every client change on **one integration SHA**;
+- the server offers **no `sinaloa_*` aliases**;
+- credentials issued before the cutover stop working, and their owners reconnect (§2).
+
+This contract also defines **`a3-pause-auth` v2**. The only change is the credential prefixes in a3's fixtures and schemas; everything else is unchanged from v1. The regenerated a3 v2 fixtures are published with the N1 implementation PR, so the server and its fixtures change on the same SHA.
+
+`a4-wake` v1, which is not yet approved, uses the new prefixes in its fixtures within v1.
+
+### 1. MCP tool names
+
+`tools/list` returns these names, and `tools/call` accepts only them. A call to a `sinaloa_*` name gets JSON-RPC error `-32602` "Tool not available to this agent", the same response as any unknown tool. Arguments, results and scopes are unchanged.
+
+| Old | New |
+| --- | --- |
+| `sinaloa_agent_info` | `envoi_agent_info` |
+| `sinaloa_list_cases` | `envoi_list_cases` |
+| `sinaloa_read_case` | `envoi_read_case` |
+| `sinaloa_list_messages` | `envoi_list_messages` |
+| `sinaloa_start_case` | `envoi_start_case` |
+| `sinaloa_send_message` | `envoi_send_message` |
+| `sinaloa_send_proposal` | `envoi_send_proposal` |
+| `sinaloa_send_decision` | `envoi_send_decision` |
+| `sinaloa_send_completion` | `envoi_send_completion` |
+| `sinaloa_claim_work` | `envoi_claim_work` |
+| `sinaloa_renew_work` | `envoi_renew_work` |
+| `sinaloa_acknowledge_work` | `envoi_acknowledge_work` |
+| `sinaloa_complete_work` | `envoi_complete_work` |
+| `sinaloa_fail_work` | `envoi_fail_work` |
+| `sinaloa_list_assets` | `envoi_list_assets` |
+| `sinaloa_begin_asset_upload` | `envoi_begin_asset_upload` |
+| `sinaloa_complete_asset_upload` | `envoi_complete_asset_upload` |
+| `sinaloa_asset_download` | `envoi_asset_download` |
+| `sinaloa_grant_asset` | `envoi_grant_asset` |
+
+A model-held `mcp_read` token still lists only `envoi_agent_info`, `envoi_read_case` and `envoi_list_messages`. The MCP `serverInfo.name` stays `envoi`.
+
+### 2. Credential formats
+
+| Credential | Format |
+| --- | --- |
+| Access token | `envoi_agent_access_` + 43 base64url characters |
+| Refresh token | `envoi_agent_refresh_` + 64 base64url characters |
+| Case read token (`mcp_read`) | `envoi_mcp_read_` + 43 base64url characters |
+
+**Issuing.** The server issues only these formats. That covers enrollment, reconnect, refresh, the A1 recovery successor and `mcp-read-token`.
+
+**Accepting.** The server accepts only these formats. Credentials are stored hashed, so a credential issued before the cutover carries the old `sinaloa_` prefix and is refused with an a3 code:
+- an access or `mcp_read` token gets `AUTHENTICATION_REQUIRED`;
+- a refresh token gets `REFRESH_TOKEN_INVALID`.
+
+The connector moves to `NEEDS_RECONNECT` and the owner reconnects the same identity (a3 §4), which issues `envoi_` credentials. Agent identity, address, cases and history are kept.
+
+**On staging and beta:** the cutover deploy is announced on the build board, and any test agent reconnects once.
+
+### 3. Other agent-facing names
+
+- **Health identity.** `/health` and `/ready` report `service: "envoi"` (already integrated: PRs #46 and #48).
+- **Protocol schema `$id`:**
+  - the message schema is `https://envoi-agents.com/schemas/protocol/v1/message.json`, in file `protocol/envoi-protocol-v1.schema.json`;
+  - the agent interface is `https://envoi-agents.com/schemas/agent-interface/v1.json`.
+
+  Messages themselves carry `schemaVersion: "1.0"` and do not change.
+- **Downloads.** `web/downloads/` serves only `envoi-connector.mjs` and `envoi-openclaw.mjs`, and `release.json` lists only those. The `sinaloa-*.mjs` duplicates are no longer built (`scripts/package-openclaw.mjs`, Lane A) or served.
+
+### 4. Client names (Lane B; informative)
+
+Lane B owns these names. They are listed so the cutover is complete on one SHA:
+- **TypeScript:** `@envoi/protocol` with `EnvoiClient`, `EnvoiConnector`, `EnvoiError` and `EnvoiIntent`.
+- **Python:** `envoi-protocol` / `envoi_protocol`.
+- **Connector:**
+  - internal identifiers and every user-visible string;
+  - the state directory `…/envoi/<runtime>/<id>`, migrating an existing `…/sinaloa/…` directory once on first start;
+  - OS service labels `com.envoi.*`;
+  - Hermes, OpenClaw and xAI adapter prompts and relays use only the `envoi_*` tool names.
+
+### 5. Fixtures
+
+**Fixtures:**
+- `mcp-tools-list`
+- `mcp-tools-list-case-read`
+- `mcp-call-old-name`
+- `credentials-issued`
+- `access-old-prefix`
+- `refresh-old-prefix`
+- `mcp-read-old-prefix`
+- `health-identity`
+
+`schemas.json` carries the tool-name mapping as `x-tool-names`. Clients can assert their adapters reference only the new names.

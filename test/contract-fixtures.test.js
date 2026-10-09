@@ -98,7 +98,7 @@ test('every fixture matches its declared schema', async () => {
         if (fixture.event.id !== undefined) assert.equal(fixture.event.id, fixture.event.data.cursor, `${label}: SSE id is the cursor`);
         else assert.equal('cursor' in fixture.event.data, false, `${label}: control events carry no cursor`);
       }
-      assert.doesNotMatch(JSON.stringify(fixture), /(?:sinaloa_agent_(?:access|refresh)_|sinaloa_mcp_read_|sinaloa_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
+      assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }
 });

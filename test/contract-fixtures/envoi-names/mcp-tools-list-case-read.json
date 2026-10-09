@@ -1,0 +1,61 @@
+{
+  "contract": "envoi-names",
+  "version": 1,
+  "id": "mcp-tools-list-case-read",
+  "description": "A model-held case read token lists only the three Envoi read tools.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "headers": {
+      "authorization": "Bearer envoi_mcp_read_PLACEHOLDERxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolsListCaseRead",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "tools": [
+          {
+            "name": "envoi_agent_info",
+            "description": "Envoi tool agent info.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_read_case",
+            "description": "Envoi tool read case.",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "envoi_list_messages",
+            "description": "Envoi tool list messages.",
+            "inputSchema": {
+              "type": "object"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "The model may only read its scoped case."
+  }
+}

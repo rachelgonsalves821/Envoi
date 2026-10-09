@@ -1,0 +1,382 @@
+{
+  "$id": "envoi-names/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "envoi-names v1 schemas. x-tool-names maps every retired MCP tool name to its Envoi name.",
+  "x-codes": {
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "lifecycle": "UNCHANGED",
+      "retry": "refresh_then_retry_once",
+      "guidance": "none"
+    },
+    "REFRESH_TOKEN_INVALID": {
+      "status": 401,
+      "lifecycle": "NEEDS_RECONNECT",
+      "retry": "none",
+      "guidance": "owner_reconnect"
+    }
+  },
+  "x-tool-names": {
+    "sinaloa_agent_info": "envoi_agent_info",
+    "sinaloa_list_cases": "envoi_list_cases",
+    "sinaloa_read_case": "envoi_read_case",
+    "sinaloa_list_messages": "envoi_list_messages",
+    "sinaloa_start_case": "envoi_start_case",
+    "sinaloa_send_message": "envoi_send_message",
+    "sinaloa_send_proposal": "envoi_send_proposal",
+    "sinaloa_send_decision": "envoi_send_decision",
+    "sinaloa_send_completion": "envoi_send_completion",
+    "sinaloa_claim_work": "envoi_claim_work",
+    "sinaloa_renew_work": "envoi_renew_work",
+    "sinaloa_acknowledge_work": "envoi_acknowledge_work",
+    "sinaloa_complete_work": "envoi_complete_work",
+    "sinaloa_fail_work": "envoi_fail_work",
+    "sinaloa_list_assets": "envoi_list_assets",
+    "sinaloa_begin_asset_upload": "envoi_begin_asset_upload",
+    "sinaloa_complete_asset_upload": "envoi_complete_asset_upload",
+    "sinaloa_asset_download": "envoi_asset_download",
+    "sinaloa_grant_asset": "envoi_grant_asset"
+  },
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "AUTHENTICATION_REQUIRED",
+        "REFRESH_TOKEN_INVALID"
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "pattern": "(?:envoi|sinaloa)_(?:agent_|mcp_read_)"
+          }
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        }
+      }
+    },
+    "toolEntry": {
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "inputSchema"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "envoi_agent_info",
+            "envoi_list_cases",
+            "envoi_read_case",
+            "envoi_list_messages",
+            "envoi_start_case",
+            "envoi_send_message",
+            "envoi_send_proposal",
+            "envoi_send_decision",
+            "envoi_send_completion",
+            "envoi_claim_work",
+            "envoi_renew_work",
+            "envoi_acknowledge_work",
+            "envoi_complete_work",
+            "envoi_fail_work",
+            "envoi_list_assets",
+            "envoi_begin_asset_upload",
+            "envoi_complete_asset_upload",
+            "envoi_asset_download",
+            "envoi_grant_asset"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "not": {
+            "pattern": "[Ss][Ii][Nn][Aa][Ll][Oo][Aa]"
+          }
+        },
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    },
+    "mcpToolsList": {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {},
+        "result": {
+          "type": "object",
+          "required": [
+            "tools"
+          ],
+          "properties": {
+            "tools": {
+              "type": "array",
+              "minItems": 19,
+              "maxItems": 19,
+              "items": {
+                "$ref": "#/definitions/toolEntry"
+              },
+              "uniqueItems": true
+            }
+          }
+        }
+      }
+    },
+    "mcpToolsListCaseRead": {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {},
+        "result": {
+          "type": "object",
+          "required": [
+            "tools"
+          ],
+          "properties": {
+            "tools": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/toolEntry"
+                  },
+                  {
+                    "properties": {
+                      "name": {
+                        "enum": [
+                          "envoi_agent_info",
+                          "envoi_read_case",
+                          "envoi_list_messages"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "mcpToolUnavailable": {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {},
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "const": -32602
+            },
+            "message": {
+              "const": "Tool not available to this agent"
+            }
+          }
+        }
+      }
+    },
+    "tokenPair": {
+      "type": "object",
+      "required": [
+        "agentApiToken",
+        "agentRefreshToken",
+        "agentTokenExpiresAt",
+        "agentRefreshTokenExpiresAt",
+        "tokenType"
+      ],
+      "properties": {
+        "agentApiToken": {
+          "type": "string",
+          "pattern": "^envoi_agent_access_[A-Za-z0-9_-]{43}$"
+        },
+        "agentRefreshToken": {
+          "type": "string",
+          "pattern": "^envoi_agent_refresh_[A-Za-z0-9_-]{64}$"
+        },
+        "agentTokenExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "agentRefreshTokenExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tokenType": {
+          "const": "Bearer"
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "required": [
+        "ok",
+        "service"
+      ],
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "service": {
+          "const": "envoi"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "request",
+        "response",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "envoi-names"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "http"
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "method",
+            "path"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "GET",
+                "POST"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "headers": {
+              "type": "object"
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "status",
+            "schema",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "type": "integer"
+            },
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "client": {
+          "type": "object",
+          "required": [
+            "lifecycle",
+            "retry",
+            "guidance",
+            "next"
+          ],
+          "properties": {
+            "lifecycle": {
+              "$ref": "#/definitions/lifecycle"
+            },
+            "retry": {
+              "enum": [
+                "none",
+                "refresh_then_retry_once"
+              ]
+            },
+            "guidance": {
+              "enum": [
+                "none",
+                "owner_reconnect"
+              ]
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

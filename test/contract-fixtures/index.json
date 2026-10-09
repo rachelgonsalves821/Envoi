@@ -49,6 +49,24 @@
         "sender-paused-held-message.json",
         "server-error.json"
       ]
+    },
+    {
+      "id": "envoi-names",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#envoi-names-v1",
+      "dir": "envoi-names",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "access-old-prefix.json",
+        "credentials-issued.json",
+        "health-identity.json",
+        "mcp-call-old-name.json",
+        "mcp-read-old-prefix.json",
+        "mcp-tools-list-case-read.json",
+        "mcp-tools-list.json",
+        "refresh-old-prefix.json"
+      ]
     }
   ]
 }

@@ -1,0 +1,30 @@
+{
+  "contract": "envoi-names",
+  "version": 1,
+  "id": "mcp-read-old-prefix",
+  "description": "A case read token issued before the cutover is refused.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/cases/case_example",
+    "headers": {
+      "authorization": "Bearer sinaloa_mcp_read_PLACEHOLDERxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "A valid agent credential is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "refresh_then_retry_once",
+    "guidance": "none",
+    "next": "Issue a new case read token with the connector access token."
+  }
+}

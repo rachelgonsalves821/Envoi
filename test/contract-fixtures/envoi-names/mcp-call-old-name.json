@@ -1,0 +1,44 @@
+{
+  "contract": "envoi-names",
+  "version": 1,
+  "id": "mcp-call-old-name",
+  "description": "A retired sinaloa_* tool name is not an alias: it is unavailable like any unknown tool.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDERxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "sinaloa_claim_work",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolUnavailable",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32602,
+        "message": "Tool not available to this agent"
+      }
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Fix the adapter to use the envoi_* name from x-tool-names."
+  }
+}
