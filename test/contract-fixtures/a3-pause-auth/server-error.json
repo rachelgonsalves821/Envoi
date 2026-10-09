@@ -1,0 +1,32 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "server-error",
+  "description": "An unexpected server error. Never an authorization decision.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 500,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "INTERNAL_SERVER_ERROR",
+      "error": "INTERNAL_SERVER_ERROR",
+      "message": "An internal error occurred",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "next": "Retry with bounded exponential backoff and jitter; keep credentials."
+  }
+}

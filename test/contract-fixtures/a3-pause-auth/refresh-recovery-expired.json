@@ -1,0 +1,35 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "refresh-recovery-expired",
+  "description": "An already-used refresh token with the same rotationId after the 5-minute recovery window.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-token",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "grantType": "refresh_token",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_used",
+      "rotationId": "rotation_PLACEHOLDER_0001"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REFRESH_RECOVERY_EXPIRED",
+      "error": "REFRESH_RECOVERY_EXPIRED",
+      "message": "The refresh could not be recovered in time. Ask the owner to reconnect this agent.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "NEEDS_RECONNECT",
+    "retry": "none",
+    "guidance": "owner_reconnect",
+    "next": "Wait for the owner to reconnect the same identity."
+  }
+}

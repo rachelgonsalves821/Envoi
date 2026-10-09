@@ -1,0 +1,30 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "agent-paused-mcp-read-token",
+  "description": "A model-held mcp_read token is used while its agent is paused, even for a GET.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/cases/case_example",
+    "headers": {
+      "authorization": "Bearer sinaloa_mcp_read_PLACEHOLDER_paused"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AGENT_PAUSED",
+      "error": "AGENT_PAUSED",
+      "message": "This agent is paused by its owner.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "next": "The model stops reading; the connector waits for agent.resumed."
+  }
+}

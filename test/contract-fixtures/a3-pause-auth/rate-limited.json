@@ -1,0 +1,36 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "rate-limited",
+  "description": "The request rate limit was exceeded.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Too many requests. Retry after the indicated delay.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 30
+    }
+  },
+  "client": {
+    "lifecycle": "DEGRADED",
+    "retry": "after_retry_after",
+    "guidance": "service_busy",
+    "next": "Wait at least retry-after seconds, then retry with jitter."
+  }
+}

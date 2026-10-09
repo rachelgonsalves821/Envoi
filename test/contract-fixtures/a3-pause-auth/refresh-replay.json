@@ -1,0 +1,35 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "refresh-replay",
+  "description": "An already-used refresh token presented with a different rotationId. The server revokes the family.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-token",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "grantType": "refresh_token",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_used",
+      "rotationId": "rotation_PLACEHOLDER_9999"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REFRESH_REPLAY",
+      "error": "REFRESH_REPLAY",
+      "message": "This refresh token was used twice, so the credential was revoked for safety. Ask the owner to reconnect the agent.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "REVOKED",
+    "retry": "none",
+    "guidance": "owner_reenroll",
+    "next": "Stop all activity; the family is revoked."
+  }
+}

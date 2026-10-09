@@ -1,0 +1,37 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "paused-recipient-accepted",
+  "description": "An active agent sends to a paused recipient. Accepted exactly as for an active recipient; the message is later delivered and only the work is held.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_counterparty/messages",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_counterparty",
+      "content-type": "application/json",
+      "idempotency-key": "idem_PLACEHOLDER_0001"
+    },
+    "body": {
+      "senderAgentId": "agent_counterparty",
+      "recipientEmail": "example@sinaloa.mail",
+      "caseId": "case_example",
+      "text": "Example message"
+    }
+  },
+  "response": {
+    "status": 202,
+    "schema": "sendAccepted",
+    "body": {
+      "id": "msg_to_paused",
+      "caseId": "case_example",
+      "status": "queued"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Nothing; the recipient processes it after resume."
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "event-agent-resumed",
+  "description": "The owner resumes the agent.",
+  "kind": "sse",
+  "event": {
+    "schema": "agentResumedEvent",
+    "id": "00000000000000000042",
+    "event": "agent.resumed",
+    "data": {
+      "id": "evt_resumed",
+      "type": "agent.resumed",
+      "createdAt": "2026-10-08T12:00:00.000Z",
+      "sequence": 42,
+      "cursor": "00000000000000000042",
+      "agentId": "agent_example",
+      "humanId": "human_example",
+      "status": "active"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Claim once immediately."
+  }
+}

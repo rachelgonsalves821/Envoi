@@ -1,0 +1,37 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "agent-paused-mcp",
+  "description": "Any /mcp request from a paused agent, including initialize and tools/list, is an HTTP 409 with the error envelope, not a JSON-RPC result.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_paused",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AGENT_PAUSED",
+      "error": "AGENT_PAUSED",
+      "message": "This agent is paused by its owner.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "next": "Surface as a transport error; the model does no work while paused."
+  }
+}

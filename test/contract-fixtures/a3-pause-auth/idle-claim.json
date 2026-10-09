@@ -1,0 +1,30 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "idle-claim",
+  "description": "An active agent with nothing to do claims work.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimIdle",
+    "body": {
+      "work": null,
+      "state": "idle"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Wait for the next event or safety poll."
+  }
+}

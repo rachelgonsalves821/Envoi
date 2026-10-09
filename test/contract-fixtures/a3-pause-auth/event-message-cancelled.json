@@ -1,0 +1,28 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "event-message-cancelled",
+  "description": "A human cancelled a held message.",
+  "kind": "sse",
+  "event": {
+    "schema": "messageCancelledEvent",
+    "id": "00000000000000000044",
+    "event": "message.cancelled",
+    "data": {
+      "id": "evt_cancelled",
+      "type": "message.cancelled",
+      "createdAt": "2026-10-08T12:00:00.000Z",
+      "sequence": 44,
+      "cursor": "00000000000000000044",
+      "messageId": "msg_held_example",
+      "caseId": "case_example",
+      "humanId": "human_example"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Drop any local copy of the cancelled message."
+  }
+}

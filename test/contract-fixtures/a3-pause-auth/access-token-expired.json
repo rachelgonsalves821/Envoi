@@ -1,0 +1,32 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "access-token-expired",
+  "description": "The access token expired but its family is valid.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_expired",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACCESS_TOKEN_EXPIRED",
+      "error": "ACCESS_TOKEN_EXPIRED",
+      "message": "The access token expired. Refresh it and retry.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "refresh_then_retry_once",
+    "guidance": "none",
+    "next": "Refresh once, then retry the original request once."
+  }
+}

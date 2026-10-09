@@ -1,0 +1,47 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "reconnect-token-while-paused",
+  "description": "The owner issues a reconnect token for a paused, approved agent.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/credentials/reconnect-token",
+    "headers": {
+      "cookie": "sinaloa_session=PLACEHOLDER",
+      "x-sinaloa-csrf": "csrf_PLACEHOLDER",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runtime": "hermes"
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "reconnectTokenIssued",
+    "body": {
+      "enrollmentId": "enrollment_example",
+      "quickConnect": {
+        "version": 1,
+        "runtime": "hermes",
+        "operation": "reconnect",
+        "apiUrl": "https://envoi.example",
+        "enrollmentToken": "sinaloa_enroll_PLACEHOLDER",
+        "expiresAt": "2026-10-08T12:15:00.000Z",
+        "agentName": "Example",
+        "address": "example@sinaloa.mail"
+      },
+      "enrollmentToken": "sinaloa_enroll_PLACEHOLDER",
+      "enrollmentUrl": "https://envoi.example/?enroll=sinaloa_enroll_PLACEHOLDER",
+      "expiresAt": "2026-10-08T12:15:00.000Z",
+      "agentId": "agent_example",
+      "address": "example@sinaloa.mail"
+    }
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Give the reconnect token to the agent host."
+  }
+}

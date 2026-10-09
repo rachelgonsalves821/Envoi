@@ -1,0 +1,34 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "sender-paused-held-message",
+  "description": "The paused agent (or its owner) lists the case; its queued outbound message is held, without using attempts.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/messages?caseId=case_example",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_paused"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "heldSenderMessageList",
+    "body": [
+      {
+        "id": "msg_held_example",
+        "caseId": "case_example",
+        "status": "held",
+        "heldReason": "sender_paused",
+        "heldAt": "2026-10-08T12:00:00.000Z",
+        "deliveryAttempts": 1
+      }
+    ]
+  },
+  "client": {
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "next": "Nothing; the message is delivered after resume."
+  }
+}

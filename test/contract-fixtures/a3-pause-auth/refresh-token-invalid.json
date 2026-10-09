@@ -1,0 +1,35 @@
+{
+  "contract": "a3-pause-auth",
+  "version": 1,
+  "id": "refresh-token-invalid",
+  "description": "The refresh token is unknown or no longer retained.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-token",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "grantType": "refresh_token",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_unknown",
+      "rotationId": "rotation_PLACEHOLDER_0001"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REFRESH_TOKEN_INVALID",
+      "error": "REFRESH_TOKEN_INVALID",
+      "message": "This refresh token is not valid. Ask the owner to reconnect this agent.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "NEEDS_RECONNECT",
+    "retry": "none",
+    "guidance": "owner_reconnect",
+    "next": "Wait for the owner to reconnect the same identity."
+  }
+}
