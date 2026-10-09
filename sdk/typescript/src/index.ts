@@ -1,7 +1,7 @@
 export const SINALOA_PROTOCOL_VERSION = '1.0' as const;
 
 export type SinaloaIntent = 'request' | 'offer' | 'counteroffer' | 'accept' | 'reject' | 'clarify' | 'commit' | 'cancel' | 'status' | 'receipt' | 'message';
-export type DeliveryState = 'pendingContactApproval' | 'queued' | 'retrying' | 'accepted' | 'delivered' | 'acknowledged' | 'processed' | 'declined' | 'deadLettered';
+export type DeliveryState = 'pendingContactApproval' | 'queued' | 'retrying' | 'accepted' | 'delivered' | 'acknowledged' | 'processed' | 'declined' | 'deadLettered' | 'held' | 'cancelled';
 
 export interface AgentRef { agentId: string; address: string }
 export interface ContentPart { type: 'text' | 'json' | 'artifactRef'; text?: string; data?: unknown; artifactRef?: string }
@@ -86,10 +86,15 @@ export interface ClientOptions {
   fetch?: typeof fetch;
 }
 
+export interface ErrorDetails { reason?: string; retryAfterSeconds?: number; requestId?: string }
 export class SinaloaError extends Error {
-  constructor(message: string, public readonly status?: number, public readonly code?: string) {
+  readonly reason?: string;
+  readonly retryAfterSeconds?: number;
+  readonly requestId?: string;
+  constructor(message: string, public readonly status?: number, public readonly code?: string, details: ErrorDetails = {}) {
     super(message);
     this.name = 'SinaloaError';
+    this.reason = details.reason; this.retryAfterSeconds = details.retryAfterSeconds; this.requestId = details.requestId;
   }
 }
 
@@ -108,14 +113,22 @@ const safePayload = (text: string): Record<string, unknown> | unknown[] | null =
   }
 };
 
-async function responsePayload<T>(response: Response, fallback: string): Promise<T> {
+export async function responsePayload<T>(response: Response, fallback: string): Promise<T> {
   const text = await response.text();
   const payload = safePayload(text);
   if (!response.ok) {
     const errorBody = payload && !Array.isArray(payload) ? payload : null;
-    const remoteMessage = typeof errorBody?.error === 'string' ? errorBody.error : typeof errorBody?.message === 'string' ? errorBody.message : null;
+    const remoteMessage = typeof errorBody?.message === 'string' && errorBody.message.length > 0 && errorBody.message.length <= 500 ? errorBody.message : typeof errorBody?.error === 'string' ? errorBody.error : null;
     const message = remoteMessage && remoteMessage.length <= 500 ? remoteMessage : `${fallback} with HTTP ${response.status}`;
-    throw new SinaloaError(message, response.status, typeof errorBody?.code === 'string' ? errorBody.code : undefined);
+    const header = response.headers.get('retry-after');
+    const headerSeconds = header ? (/^\d+$/.test(header) ? Number(header) : Math.max(0, (Date.parse(header) - Date.now()) / 1000)) : 0;
+    const bodySeconds = typeof errorBody?.retryAfterSeconds === 'number' ? errorBody.retryAfterSeconds : 0;
+    const retryAfterSeconds = Math.max(Number.isFinite(headerSeconds) ? headerSeconds : 0, Number.isFinite(bodySeconds) ? bodySeconds : 0);
+    throw new SinaloaError(message, response.status, typeof errorBody?.code === 'string' ? errorBody.code : undefined, {
+      ...(retryAfterSeconds > 0 ? { retryAfterSeconds } : {}),
+      ...(typeof errorBody?.reason === 'string' && ['revoked', 'replaced', 'refresh_replay'].includes(errorBody.reason) ? { reason: errorBody.reason } : {}),
+      ...(typeof errorBody?.requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(errorBody.requestId) ? { requestId: errorBody.requestId } : {})
+    });
   }
   if (!text) throw new SinaloaError('Envoi returned an empty response', response.status);
   if (payload === null) throw new SinaloaError('Envoi returned an invalid JSON response', response.status);
@@ -130,8 +143,8 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
   try {
     return await fetcher(url, { ...init, signal: controller.signal });
   } catch (error) {
-    if (controller.signal.aborted && !init.signal?.aborted) throw new SinaloaError('Envoi request timed out');
-    throw new SinaloaError('Envoi could not be reached');
+    if (controller.signal.aborted && !init.signal?.aborted) throw new SinaloaError('Envoi request timed out', undefined, 'TIMEOUT');
+    throw new SinaloaError('Envoi could not be reached', undefined, 'NETWORK_ERROR');
   } finally {
     clearTimeout(timer);
     init.signal?.removeEventListener('abort', onAbort);

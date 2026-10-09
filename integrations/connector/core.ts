@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { lifecyclePolicy } from '../../sdk/typescript/src/lifecycle';
+import { SinaloaError } from '../../sdk/typescript/src/index';
 import { enrollConnector, SinaloaConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
 import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { FileBridgeStore } from '../agent-bridges/file-store';
@@ -96,14 +98,9 @@ export async function checkSinaloa(apiUrl: string, fetcher: typeof fetch) {
     if (!response.ok || (await response.json() as { service?: string }).service !== 'sinaloa') throw new Error();
   } catch { throw new ConnectorSetupError('ENVOI_UNREACHABLE', 'The selected URL did not return Envoi health. Check the deployment origin before enrolling'); }
 }
-async function report(saved: InstalledConnection, connector: SinaloaConnector, phase: 'ready' | 'error', fetcher: typeof fetch, errorCode?: string) {
-  const response = await fetcher(`${saved.apiUrl}/api/agent/connection-status`, {
-    method: 'POST', headers: { authorization: `Bearer ${await connector.currentAccessToken()}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ version: 1, runtime: saved.runtime, phase, runtimeTest: phase === 'ready' ? 'passed' : 'failed', ...(errorCode ? { errorCode } : {}) }),
-    signal: AbortSignal.timeout(10_000)
-  });
-  if (!response.ok) throw new ConnectorSetupError(response.status === 429 || response.status >= 500 ? 'ENVOI_UNREACHABLE' : 'CONNECTION_TEST_FAILED', `Envoi could not record setup checks (HTTP ${response.status}). The saved connection can be resumed`);
-  await response.body?.cancel();
+async function report(saved: InstalledConnection, connector: SinaloaConnector, phase: 'ready' | 'error', _fetcher: typeof fetch, errorCode?: string) {
+  await connector.reportConnectionStatus({ version: 1, runtime: saved.runtime, phase,
+    runtimeTest: phase === 'ready' ? 'passed' : 'failed', ...(errorCode ? { errorCode } : {}) });
 }
 
 export async function prepareConnection(runtime: ConnectorRuntime, apiUrl: string, resolveAdapter: AdapterResolver, options: AdapterOptions = {}) {
@@ -167,11 +164,13 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     await privateJson(path.join(directory, 'connection.json'), saved);
     options.onProgress?.('Verifying runtime tools and Envoi access');
     bridge = await adapter.createBridge(config, context);
+    await bridge.connector.start();
     await bridge.connector.pollOnce();
-    await bridge.verify?.();
-    await report(saved, bridge.connector, 'ready', fetcher);
-    await privateJson(path.join(directory, 'setup-check.json'), { runtime: saved.runtime, checkedAt: new Date().toISOString(), checks: 'passed' });
-    return { stateDir: directory, runtime: saved.runtime, address: session.address, agentId: session.agentId, checks: 'passed' as const };
+    const paused = (await bridge.connector.lifecycle()).paused;
+    if (!paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
+    const checks = paused ? 'deferred_while_paused' as const : 'passed' as const;
+    await privateJson(path.join(directory, 'setup-check.json'), { runtime: saved.runtime, checkedAt: new Date().toISOString(), checks });
+    return { stateDir: directory, runtime: saved.runtime, address: session.address, agentId: session.agentId, checks };
   } catch (error) {
     if (saved && (bridge || enrolledConnector)) await report(saved, bridge?.connector ?? enrolledConnector!, 'error', fetcher,
       error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEST_FAILED').catch(() => {});
@@ -194,10 +193,13 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
   try {
     saved = await readConnection(directory);
     if (!await savedSession(directory)) throw new ConnectorSetupError('STATE_INVALID', 'Saved credentials are missing; reconnect through Envoi before starting');
+    const startup = new SinaloaConnector(saved.apiUrl, new FileBridgeStore(directory), { fetch: fetcher });
+    await startup.start();
     const adapter = resolveAdapter(saved.runtime);
     const context = { ...options, signal: stop.signal, apiUrl: saved.apiUrl, stateDir: directory, fetch: fetcher };
     if (options.control !== false) control = await startControl(directory, { runtime: saved.runtime, address: saved.address }, cancel, () => diagnostics);
-    let attempt = 0;
+    const initialState = await startup.lifecycle();
+    if (initialState.retryAt) await delay(Math.max(0, Date.parse(initialState.retryAt) - Date.now()), undefined, { signal: stop.signal }).catch(error => { if (!stop.signal.aborted) throw error; });
     while (!stop.signal.aborted) {
       try {
         await checkSinaloa(saved.apiUrl, fetcher);
@@ -207,21 +209,26 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         saved.configuration = config;
         await privateJson(path.join(directory, 'connection.json'), saved);
         bridge = await adapter.createBridge(config, context);
-        await bridge.connector.pollOnce(); await bridge.verify?.();
-        await report(saved, bridge.connector, 'ready', fetcher);
-        diagnostics = { status: 'running', runtimeChecks: 'passed', checkedAt: new Date().toISOString(), ...adapter.describe(config) };
+        bridge.connector.onState(lifecycle => { diagnostics = { ...diagnostics, status: lifecycle.state === 'DEGRADED' ? 'waiting' : lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance }; });
+        await bridge.connector.start();
+        await bridge.connector.pollOnce();
+        if (!(await bridge.connector.lifecycle()).paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
+        const lifecycle = await bridge.connector.lifecycle();
+        diagnostics = { status: lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance, runtimeChecks: lifecycle.paused ? 'deferred_while_paused' : 'passed', checkedAt: new Date().toISOString(), ...adapter.describe(config) };
         break;
       } catch (error) {
         await bridge?.close(); bridge = undefined;
         if (stop.signal.aborted) return;
-        const status = (error as { status?: number })?.status;
         const transient = error instanceof ConnectorSetupError && ['ENVOI_UNREACHABLE', 'GATEWAY_UNREACHABLE', 'PROVIDER_UNREACHABLE'].includes(error.code)
-          || typeof status === 'number' && (status === 429 || status >= 500) || error instanceof TypeError && /fetch|network/i.test(error.message);
+          || error instanceof SinaloaError && lifecyclePolicy(error).lifecycle === 'DEGRADED'
+          || error instanceof TypeError && /fetch|network/i.test(error.message);
         if (!transient) throw error;
         const code = error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEMPORARILY_UNAVAILABLE';
-        diagnostics = { status: 'waiting', runtimeChecks: 'pending', errorCode: code };
+        if (!(error instanceof SinaloaError)) await startup.observeError(new SinaloaError('Runtime connection unavailable', undefined, 'NETWORK_ERROR'));
+        const lifecycle = await startup.lifecycle();
+        diagnostics = { status: 'waiting', lifecycle, guidance: lifecycle.guidance, runtimeChecks: 'pending', errorCode: code };
         options.onWaiting?.(code);
-        await delay(options.retryDelayMs ?? Math.min(60_000, 1_000 * 2 ** Math.min(attempt++, 6)), undefined, { signal: stop.signal }).catch(error => { if (!stop.signal.aborted) throw error; });
+        await delay(Math.max(error instanceof SinaloaError ? (error.retryAfterSeconds ?? 0) * 1000 : 0, options.retryDelayMs ?? Math.max(0, Date.parse(lifecycle.retryAt ?? '') - Date.now())), undefined, { signal: stop.signal }).catch(error => { if (!stop.signal.aborted) throw error; });
       }
     }
     if (stop.signal.aborted || !bridge) return;
@@ -244,7 +251,7 @@ export async function connectionStatus(stateDir: string) {
   const checks = await readFile(path.join(directory, 'setup-check.json'), 'utf8').then(text => JSON.parse(text) as { checkedAt?: string }).catch(() => null);
   const enrollmentError = await readEnrollmentDiagnostic(directory);
   return { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl, agentId: session?.agentId,
-    credentialState: session ? 'saved' : 'missing', ...(enrollmentError ? { enrollmentError } : {}),
+    credentialState: session ? 'saved' : 'missing', lifecycle: session?.lifecycle, guidance: session?.lifecycle?.guidance, ...(enrollmentError ? { enrollmentError } : {}),
     stateDir: directory, status: live?.status ?? 'stopped', checkedAt: live?.checkedAt ?? checks?.checkedAt,
     credentialExpiresAt: session?.agentTokenExpiresAt, refreshExpiresAt: session?.agentRefreshTokenExpiresAt,
     note: 'A running connector is not proof of successful message delivery. Verify a real agent exchange' };

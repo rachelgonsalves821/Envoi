@@ -36,7 +36,7 @@ function fixture(message: Record<string, unknown> = instruction(), process?: Wor
     if (path.endsWith('/fail')) return json({ workId, status: 'retryable' });
     if (path === '/api/agent-token') return json({ ...saved, agentApiToken: 'access-two', agentRefreshToken: 'refresh-two' });
     if (path === '/api/agent/instructions/instruction_one/reply') {
-      if (options.rejectReply && new Headers(init?.headers).get('authorization') === 'Bearer access-one') return json({ error: 'Expired' }, 401);
+      if (options.rejectReply && new Headers(init?.headers).get('authorization') === 'Bearer access-one') return json({ code: 'ACCESS_TOKEN_EXPIRED', error: 'ACCESS_TOKEN_EXPIRED', message: 'Expired' }, 401);
       expect(body.leaseToken).toBe(`fence_${attempts}`);
       return json({ id: 'local_reply', kind: 'humanInstructionReply', inboxId: 'inbox_one', caseId: 'case_one',
         senderType: 'agent', senderAgentId: 'agent_one', senderInboxId: 'inbox_one', recipientInboxId: 'inbox_one',

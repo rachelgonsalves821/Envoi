@@ -1,4 +1,6 @@
-import { rotateAgentToken, SinaloaClient, SinaloaError, type AgentTokens, type AssetUploadInput, type CaseMessageInput, type ClientOptions, type NativeMessageInput } from './index';
+import { responsePayload, rotateAgentToken, SinaloaClient, SinaloaError, type AgentTokens, type AssetUploadInput, type CaseMessageInput, type ClientOptions, type NativeMessageInput } from './index';
+import { lifecyclePolicy, retryDelay, guidanceText, type ConnectorLifecycle, type ConnectorState } from './lifecycle';
+export type { ConnectorLifecycle, ConnectorState } from './lifecycle';
 import { CONNECTOR_RUNTIMES, type ConnectorRuntime } from './quick-connect';
 
 /** Persist the whole record atomically, including each replacement refresh token. */
@@ -7,6 +9,7 @@ export interface ConnectorSession extends AgentTokens {
   inboxId: string;
   address: string;
   cursor: string | null;
+  lifecycle?: ConnectorLifecycle;
   pendingRotation?: {
     rotationId: string;
     refreshTokenFingerprint: string;
@@ -127,6 +130,7 @@ export interface ConnectorOptions extends ClientOptions {
   onEvent?: (event: InboxEvent) => Promise<void> | void;
   /** Enables fenced work processing when the server work routes are available. */
   handler?: WorkHandler;
+  onState?: (lifecycle: ConnectorLifecycle) => void;
 }
 
 export class ConnectorPersistenceError extends Error {
@@ -164,9 +168,9 @@ export class ConnectorContractError extends Error {
   }
 }
 
-export class ConnectorCredentialsError extends Error {
+export class ConnectorCredentialsError extends SinaloaError {
   constructor() {
-    super('Connector credentials are missing or expired; re-enrollment is required');
+    super('Connector credentials are missing or expired; ask the owner to reconnect this existing agent', undefined, 'CREDENTIAL_EXPIRED');
     this.name = 'ConnectorCredentialsError';
   }
 }
@@ -238,7 +242,8 @@ export async function enrollConnector(baseUrl: string, enrollmentToken: string, 
         agentId: String(agent?.id || ''), inboxId: String(inbox?.id || ''), address: String(agent?.address || ''),
         agentApiToken: String(payload?.agentApiToken || ''), agentRefreshToken: String(payload?.agentRefreshToken || ''),
         agentTokenExpiresAt: String(payload?.agentTokenExpiresAt || ''),
-        agentRefreshTokenExpiresAt: String(payload?.agentRefreshTokenExpiresAt || ''), cursor: null
+        agentRefreshTokenExpiresAt: String(payload?.agentRefreshTokenExpiresAt || ''), cursor: null,
+        lifecycle: { state: agent?.status === 'paused' ? 'PAUSED' : 'STARTING', paused: agent?.status === 'paused', changedAt: new Date().toISOString(), failures: 0 }
       });
     } catch { throw new ConnectorEnrollmentError('ENROLLMENT_RESPONSE_INVALID', requestId, response.status); }
     if (!session.address) throw new ConnectorEnrollmentError('ENROLLMENT_RESPONSE_INVALID', requestId, response.status);
@@ -252,6 +257,15 @@ export class SinaloaConnector {
   private readonly pageSize: number;
   private readonly pollIntervalMs: number;
   private readonly refreshSkewMs: number;
+  private writes: Promise<unknown> = Promise.resolve();
+  private actionEpoch = 0;
+  private persistenceFailed = false;
+  private readonly observedErrors = new WeakSet<SinaloaError>();
+  private wake = new AbortController();
+  private readonly activeActions = new Set<AbortController>();
+  private readonly activeRefresh = new Set<AbortController>();
+  private readonly activeWork = new Set<AbortController>();
+  private stateObserver?: (lifecycle: ConnectorLifecycle) => void;
   private refreshInFlight: Promise<ConnectorSession> | null = null;
 
   constructor(baseUrl: string, private readonly store: ConnectorStore, private readonly options: ConnectorOptions = {}) {
@@ -265,7 +279,111 @@ export class SinaloaConnector {
     if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 300_000)) throw new RangeError('timeoutMs must be an integer from 1 to 300000');
   }
 
+  /** Diagnostics contain no tokens. Lifecycle updates share the atomic credential record. */
+  async lifecycle(): Promise<ConnectorLifecycle> {
+    await this.writes;
+    const session = validSession(await this.store.load());
+    return session.lifecycle ?? { state: 'STARTING', paused: false, changedAt: new Date().toISOString(), failures: 0 };
+  }
+
+  /** Check saved terminal state before allocating a runtime or contacting a service. */
+  async assertActive() { await this.guard(); }
+
+  async start(): Promise<void> {
+    await this.guard();
+    const state = await this.lifecycle();
+    if (!(await this.store.load())?.lifecycle) await this.transition('STARTING');
+    if (state.state === 'STOPPED') await this.transition(state.paused ? 'PAUSED' : 'STARTING');
+  }
+
+  onState(observer: (lifecycle: ConnectorLifecycle) => void) { this.stateObserver = observer; }
+
+  private mutate(update: (current: ConnectorSession) => ConnectorSession): Promise<ConnectorSession> {
+    const write = this.writes.then(async () => {
+      if (this.persistenceFailed) throw new ConnectorPersistenceError();
+      const current = validSession(await this.store.load());
+      const next = update(current);
+      if (next === current) return current;
+      try { await this.store.save(next); } catch {
+        this.persistenceFailed = true;
+        this.actionEpoch++;
+        for (const controller of [...this.activeActions, ...this.activeWork, ...this.activeRefresh]) controller.abort();
+        throw new ConnectorPersistenceError();
+      }
+      return next;
+    });
+    this.writes = write.then(() => undefined, () => undefined);
+    return write;
+  }
+
+  private async transition(state: ConnectorState, patch: Partial<ConnectorLifecycle> = {}): Promise<void> {
+    let applied = false;
+    const next = await this.mutate(current => {
+      const previous = current.lifecycle ?? { state: 'STARTING', paused: false, changedAt: new Date().toISOString(), failures: 0 };
+      // A terminal installation can only be replaced by explicit owner enrollment.
+      if (['REVOKED', 'NEEDS_RECONNECT'].includes(previous.state)) return current;
+      if (['REVOKED', 'NEEDS_RECONNECT'].includes(state)) for (const controller of this.activeRefresh) controller.abort();
+      applied = true;
+      const lifecycle = { ...previous, ...patch, state, changedAt: new Date().toISOString() };
+      if (lifecycle.paused || ['REVOKED', 'NEEDS_RECONNECT', 'STOPPED'].includes(state)) {
+        this.actionEpoch++;
+        for (const controller of [...this.activeActions, ...this.activeWork]) controller.abort();
+      }
+      return { ...current, lifecycle };
+    });
+    if (applied && next.lifecycle) {
+      // Observation hooks cannot bypass persistence or change request outcomes.
+      try { this.options.onState?.(next.lifecycle); this.stateObserver?.(next.lifecycle); } catch { /* diagnostic only */ }
+    }
+  }
+
+  /** Apply a stable response code. Unknown auth statuses never imply revoke or refresh. */
+  async observeError(error: unknown): Promise<void> {
+    if (!(error instanceof SinaloaError) || this.observedErrors.has(error)) return;
+    this.observedErrors.add(error);
+    const policy = lifecyclePolicy(error);
+    if (policy.lifecycle === 'UNCHANGED' || policy.lifecycle === 'NOT_APPLICABLE') return;
+    const previous = await this.lifecycle();
+    const failures = policy.lifecycle === 'DEGRADED' ? previous.failures + 1 : 0;
+    await this.transition(policy.lifecycle, { code: error.code, reason: error.reason, guidance: guidanceText(policy.guidance),
+      paused: policy.lifecycle === 'PAUSED' || previous.paused, failures,
+      retryAt: failures ? new Date(Date.now() + retryDelay(failures, Math.random(), error.retryAfterSeconds)).toISOString() : undefined });
+  }
+
+  /** Accept delta/SSE lifecycle events; credential.ended has no observation cursor. */
+  async observeEvent(event: Record<string, unknown>, type = String(event.type ?? '')): Promise<void> {
+    if (type === 'credential.ended') {
+      if (typeof event.code === 'string') await this.observeError(new SinaloaError('Credential ended', undefined, event.code,
+        { reason: typeof event.reason === 'string' ? event.reason : undefined }));
+      return;
+    }
+    const session = validSession(await this.store.load());
+    if (event.agentId !== session.agentId) return;
+    if (type === 'agent.paused') await this.observeError(new SinaloaError('Paused', undefined, 'AGENT_PAUSED'));
+    if (type === 'agent.resumed') {
+      await this.transition('RUNNING', { paused: false, failures: 0, retryAt: undefined, code: undefined, reason: undefined, guidance: undefined });
+      this.wake.abort();
+    }
+  }
+
+  private async guard(action = false): Promise<void> {
+    if (this.persistenceFailed) throw new ConnectorPersistenceError();
+    const lifecycle = await this.lifecycle();
+    if (['REVOKED', 'NEEDS_RECONNECT'].includes(lifecycle.state))
+      throw new SinaloaError(lifecycle.guidance ?? 'Ask the owner to reconnect this installation', undefined, lifecycle.code ?? 'CREDENTIAL_EXPIRED');
+    if (action && (lifecycle.paused || lifecycle.state === 'STOPPED'))
+      throw new SinaloaError(lifecycle.guidance ?? 'Connector actions are stopped', undefined, lifecycle.paused ? 'AGENT_PAUSED' : 'CONNECTOR_STOPPED');
+  }
+
+  private async healthy(): Promise<void> {
+    const current = await this.lifecycle();
+    if (current.state === 'STARTING' || current.state === 'DEGRADED')
+      await this.transition(current.paused ? 'PAUSED' : 'RUNNING', { failures: 0, retryAt: undefined, code: current.paused ? 'AGENT_PAUSED' : undefined,
+        guidance: current.paused ? guidanceText('wait_for_resume') : undefined });
+  }
+
   private async freshSession(force = false): Promise<ConnectorSession> {
+    await this.guard();
     if (this.refreshInFlight) return this.refreshInFlight;
     this.refreshInFlight = (async () => {
       const current = validSession(await this.store.load());
@@ -274,32 +392,67 @@ export class SinaloaConnector {
       const fingerprint = await refreshFingerprint(current.agentRefreshToken);
       if (current.pendingRotation && current.pendingRotation.refreshTokenFingerprint !== fingerprint) throw new ConnectorCredentialsError();
       const pendingRotation = current.pendingRotation || { rotationId: crypto.randomUUID(), refreshTokenFingerprint: fingerprint, startedAt: new Date().toISOString() };
-      if (!current.pendingRotation) {
-        try { await this.store.save({ ...current, pendingRotation }); }
-        catch { throw new ConnectorPersistenceError(); }
-      }
-      const rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, pendingRotation.rotationId, this.options);
-      const { pendingRotation: _completedRotation, ...savedSession } = current;
-      const next = validSession({ ...savedSession, ...rotated });
-      // Keep the pending rotation on disk until replacement credentials are durable.
-      try { await this.store.save(next); } catch { throw new ConnectorPersistenceError(); }
-      return next;
+      if (!current.pendingRotation) await this.mutate(latest => ({ ...latest, pendingRotation }));
+      await this.guard();
+      const controller = new AbortController();
+      this.activeRefresh.add(controller);
+      let rotated: AgentTokens;
+      try {
+        rotated = await rotateAgentToken(this.origin, current.agentRefreshToken, pendingRotation.rotationId, {
+          ...this.options, fetch: (input, init) => (this.options.fetch || fetch)(input, { ...init,
+            signal: init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal }) });
+      } finally { this.activeRefresh.delete(controller); }
+      await this.guard();
+      // Read the latest record under the write queue: late rotations cannot erase a pause or cursor.
+      return this.mutate(latest => {
+        if (['REVOKED', 'NEEDS_RECONNECT'].includes(latest.lifecycle?.state ?? ''))
+          throw new SinaloaError(latest.lifecycle?.guidance ?? 'Credential ended', undefined, latest.lifecycle?.code);
+        const { pendingRotation: _completed, ...saved } = latest;
+        return validSession({ ...saved, ...rotated });
+      });
     })();
-    try { return await this.refreshInFlight; } finally { this.refreshInFlight = null; }
+    try { return await this.refreshInFlight; }
+    catch (error) { await this.observeError(error); throw error; }
+    finally { this.refreshInFlight = null; }
   }
 
-  private async withFreshSession<T>(run: (session: ConnectorSession) => Promise<T>): Promise<T> {
+  private async withFreshSession<T>(run: (session: ConnectorSession, signal?: AbortSignal) => Promise<T>, action = false): Promise<T> {
+    await this.guard(action);
     const session = await this.freshSession();
-    try { return await run(session); }
-    catch (error) {
-      if (!(error instanceof SinaloaError) || error.status !== 401) throw error;
-      const current = validSession(await this.store.load());
-      return run(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
-    }
+    await this.guard(action);
+    const epoch = this.actionEpoch;
+    const controller = new AbortController();
+    if (action) this.activeActions.add(controller);
+    const invoke = async (current: ConnectorSession) => {
+      await this.guard(action);
+      if (action && epoch !== this.actionEpoch) throw new SinaloaError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
+      const result = await run(current, controller.signal);
+      await this.guard(action);
+      if (action && epoch !== this.actionEpoch) throw new SinaloaError('Connector action was interrupted');
+      await this.healthy();
+      return result;
+    };
+    try {
+      try { return await invoke(session); }
+      catch (error) {
+        if (!(error instanceof SinaloaError) || lifecyclePolicy(error).retry !== 'refresh_then_retry_once') throw error;
+        await this.guard(action);
+        const current = validSession(await this.store.load());
+        return await invoke(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
+      }
+    } catch (error) {
+      if (action && controller.signal.aborted) {
+        await this.guard(action);
+        throw new SinaloaError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
+      }
+      await this.observeError(error); throw error;
+    } finally { this.activeActions.delete(controller); }
   }
 
-  private withFreshClient<T>(operation: (client: SinaloaClient, session: ConnectorSession) => Promise<T>): Promise<T> {
-    return this.withFreshSession(session => operation(new SinaloaClient(this.origin, session.agentApiToken, this.options), session));
+  private withFreshClient<T>(operation: (client: SinaloaClient, session: ConnectorSession) => Promise<T>, action = true): Promise<T> {
+    return this.withFreshSession((session, signal) => operation(new SinaloaClient(this.origin, session.agentApiToken,
+      { ...this.options, fetch: (input, init) => (this.options.fetch || fetch)(input, { ...init,
+        signal: init?.signal && signal ? AbortSignal.any([init.signal, signal]) : signal }) }), session), action);
   }
 
   /** Trusted bridge code may pass only this short-lived access token to a remote MCP provider. */
@@ -320,17 +473,17 @@ export class SinaloaConnector {
     if (caseId !== null && (typeof caseId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(caseId))) {
       throw new TypeError('A safe case ID is required for an MCP read token');
     }
-    return this.withFreshSession(async session => {
+    return this.withFreshSession(async (session, actionSignal) => {
       const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
       let response: Response;
       try {
         response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/mcp-read-token`, {
-          method: 'POST', redirect: 'error', signal: timeout,
+          method: 'POST', redirect: 'error', signal: AbortSignal.any([timeout, actionSignal!]),
           headers: { authorization: `Bearer ${session.agentApiToken}`, 'content-type': 'application/json' },
           body: JSON.stringify(caseId === null ? {} : { caseId })
         });
-      } catch { throw new SinaloaError(timeout.aborted ? 'Envoi MCP token request timed out' : 'Envoi MCP token service could not be reached'); }
-      if (!response.ok) throw new SinaloaError('Envoi MCP read credential was denied', response.status);
+      } catch { throw new SinaloaError(timeout.aborted ? 'Envoi MCP token request timed out' : 'Envoi MCP token service could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR'); }
+      if (!response.ok) await responsePayload(response, 'Envoi MCP read credential was denied');
       let payload: Record<string, unknown>;
       try { payload = await response.json() as Record<string, unknown>; }
       catch { throw new SinaloaError('Envoi returned an invalid MCP read credential'); }
@@ -340,15 +493,15 @@ export class SinaloaConnector {
         throw new SinaloaError('Envoi returned an invalid or short-lived MCP read credential');
       }
       return payload as unknown as McpReadToken;
-    });
+    }, true);
   }
 
   /** Trusted host only: forwards MCP JSON-RPC without exposing the rotating refresh token. */
   forwardMcpRequest(body: string, { protocolVersion, signal }: { protocolVersion?: string; signal?: AbortSignal } = {}): Promise<Response> {
     if (protocolVersion && !/^\d{4}-\d{2}-\d{2}$/.test(protocolVersion)) throw new TypeError('Invalid MCP protocol version');
-    return this.withFreshSession(async session => {
+    return this.withFreshSession(async (session, actionSignal) => {
       const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
-      const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      const requestSignal = AbortSignal.any([timeout, actionSignal!, ...(signal ? [signal] : [])]);
       let response: Response;
       try {
         response = await (this.options.fetch || fetch)(`${this.origin}/mcp`, {
@@ -361,10 +514,23 @@ export class SinaloaConnector {
           }
         });
       } catch {
-        throw new SinaloaError(requestSignal.aborted ? 'Envoi MCP request timed out or canceled' : 'Envoi MCP could not be reached');
+        throw new SinaloaError(requestSignal.aborted ? 'Envoi MCP request timed out or canceled' : 'Envoi MCP could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR');
       }
-      if (response.status === 401) throw new SinaloaError('Envoi MCP credential was rejected', 401);
+      if (!response.ok) await responsePayload(response.clone(), 'Envoi MCP request failed');
       return response;
+    }, true);
+  }
+
+  /** Status reporting remains available while paused and observes the same credential codes. */
+  reportConnectionStatus(body: Record<string, unknown>): Promise<void> {
+    return this.withFreshSession(async session => {
+      let response: Response;
+      try { response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/connection-status`, {
+        method: 'POST', headers: { authorization: `Bearer ${session.agentApiToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body), signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000) }); }
+      catch { throw new SinaloaError('Envoi status service could not be reached', undefined, 'NETWORK_ERROR'); }
+      if (!response.ok) await responsePayload(response, 'Envoi could not record setup checks');
+      else await response.body?.cancel();
     });
   }
 
@@ -378,15 +544,15 @@ export class SinaloaConnector {
   }
 
   listCases(limit = 50, before?: string) {
-    return this.withFreshClient((client, session) => client.listCases(session.inboxId, limit, before));
+    return this.withFreshClient((client, session) => client.listCases(session.inboxId, limit, before), false);
   }
 
   getCase(caseId: string) {
-    return this.withFreshClient((client, session) => client.getCase(session.inboxId, caseId));
+    return this.withFreshClient((client, session) => client.getCase(session.inboxId, caseId), false);
   }
 
   listCaseMessages(caseId: string, limit = 50, before?: string) {
-    return this.withFreshClient((client, session) => client.listCaseMessages(session.inboxId, caseId, limit, before));
+    return this.withFreshClient((client, session) => client.listCaseMessages(session.inboxId, caseId, limit, before), false);
   }
 
   beginAssetUpload(idempotencyKey: string, input: AssetUploadInput) {
@@ -402,51 +568,26 @@ export class SinaloaConnector {
   }
 
   listAssets() {
-    return this.withFreshClient((client, session) => client.listAssets(session.inboxId));
+    return this.withFreshClient((client, session) => client.listAssets(session.inboxId), false);
   }
 
   getCleanAssetDownload(assetId: string) {
-    return this.withFreshClient((client, session) => client.getCleanAssetDownload(session.inboxId, assetId));
+    return this.withFreshClient((client, session) => client.getCleanAssetDownload(session.inboxId, assetId), false);
   }
 
   private async postWork<T>(path: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
-    const send = async (accessToken: string): Promise<T> => {
-      const controller = new AbortController();
-      const duration = this.options.timeoutMs ?? 30_000;
-      const timer = setTimeout(() => controller.abort(), duration);
+    return this.withFreshSession(async (session, actionSignal) => {
+      const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
       let response: Response;
       try {
         response = await (this.options.fetch || fetch)(`${this.origin}${path}`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json', authorization: `Bearer ${accessToken}`,
-            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
-          },
-          body: JSON.stringify(body), signal: controller.signal
+          method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${session.agentApiToken}`,
+            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
+          body: JSON.stringify(body), signal: AbortSignal.any([timeout, actionSignal!])
         });
-      } catch {
-        throw new SinaloaError(controller.signal.aborted ? 'Envoi request timed out' : 'Envoi could not be reached');
-      } finally { clearTimeout(timer); }
-      let payload: Record<string, unknown> | null = null;
-      try {
-        const parsed: unknown = await response.json();
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
-      } catch { /* Never expose a raw provider body. */ }
-      if (!response.ok) {
-        const remote = payload?.error;
-        throw new SinaloaError(typeof remote === 'string' && remote.length <= 500 ? remote : `Envoi work request failed with HTTP ${response.status}`, response.status);
-      }
-      if (!payload) throw new SinaloaError('Envoi returned an invalid work response', response.status);
-      return payload as T;
-    };
-    const session = await this.freshSession();
-    try { return await send(session.agentApiToken); }
-    catch (error) {
-      if (!(error instanceof SinaloaError) || error.status !== 401) throw error;
-      const current = validSession(await this.store.load());
-      const next = current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current;
-      return send(next.agentApiToken);
-    }
+      } catch { throw new SinaloaError(timeout.aborted ? 'Envoi request timed out' : 'Envoi could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : timeout.aborted ? 'TIMEOUT' : 'NETWORK_ERROR'); }
+      return responsePayload<T>(response, 'Envoi work request failed');
+    }, true);
   }
 
   private async reply(message: WorkMessage, text: string, idempotencyKey: string, extra: Omit<NativeMessageInput, 'senderAgentId' | 'recipientEmail' | 'text' | 'caseId'> = {}, leaseToken?: string): Promise<unknown> {
@@ -478,12 +619,15 @@ export class SinaloaConnector {
     const handler = this.options.handler;
     if (!handler) throw new TypeError('A durable work handler is required');
     if (signal?.aborted) return false;
-    let claimed: { work: WorkLease | null };
-    try { claimed = await this.postWork<{ work: WorkLease | null }>('/api/agent/work/claim', { acceptHumanInstructions: true }); }
+    await this.guard();
+    if ((await this.lifecycle()).paused) return false;
+    let claimed: { work: WorkLease | null; state?: string };
+    try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions: true }); }
     catch (error) {
       if (error instanceof SinaloaError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError();
       throw error;
     }
+    if (claimed.state === 'paused') { await this.observeError(new SinaloaError('Paused', undefined, 'AGENT_PAUSED')); return false; }
     if (claimed.work === null) return false;
     const work = claimed.work;
     if (!work || typeof work.workId !== 'string' || typeof work.leaseToken !== 'string' || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || typeof work.message?.id !== 'string' || !work.message.id) {
@@ -506,6 +650,7 @@ export class SinaloaConnector {
     const acknowledgeKey = `connector:${work.message.id}:${attemptId}:ack`;
     const completeKey = `connector:${work.message.id}:${attemptId}:complete`;
     const workAbort = new AbortController();
+    this.activeWork.add(workAbort);
     const onAbort = () => workAbort.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) workAbort.abort();
@@ -528,12 +673,14 @@ export class SinaloaConnector {
     let humanReplyError: unknown = null;
     try {
       if (workAbort.signal.aborted) throw new SinaloaError('Work claim was interrupted before admission');
+      await this.guard(true);
       await handler.admit(work.message);
       if (workAbort.signal.aborted) throw new SinaloaError('Work lease was interrupted before acknowledgement');
       const acknowledged = await this.postWork<WorkSettlement>(`${workPath}/acknowledge`, { leaseToken: work.leaseToken }, acknowledgeKey);
       if (acknowledged.workId !== work.workId || acknowledged.status !== 'acknowledged' || acknowledged.receipt?.state !== 'acknowledged' || acknowledged.receipt.messageId !== work.message.id) {
         throw new SinaloaError('Envoi returned an invalid acknowledgement');
       }
+      if (workAbort.signal.aborted) throw new SinaloaError('Work lease was interrupted before processing');
       await handler.process(work.message, {
         signal: workAbort.signal,
         reply: async (text, key, extra) => {
@@ -551,8 +698,8 @@ export class SinaloaConnector {
         }
       });
       if (humanReplyError) throw humanReplyError;
-      if (renewalError) throw new SinaloaError('Work lease renewal failed');
-      if (signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new SinaloaError('Work lease expired before completion');
+      if (renewalError) throw renewalError;
+      if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new SinaloaError('Work lease expired before completion');
       const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey);
       if (completed.workId !== work.workId || completed.status !== 'processed' || completed.receipt?.state !== 'processed' || completed.receipt.messageId !== work.message.id) {
         throw new SinaloaError('Envoi returned an invalid completion');
@@ -561,12 +708,19 @@ export class SinaloaConnector {
       await stopRenewal();
       return true;
     } catch (error) {
+      const interrupted = workAbort.signal.aborted;
       await stopRenewal();
-      if (!renewalError && !settled && !signal?.aborted && Date.parse(leaseExpiresAt) > Date.now()) {
+      if (!interrupted && !renewalError && !settled && !signal?.aborted && !(await this.lifecycle()).paused
+        && !['REVOKED', 'NEEDS_RECONNECT', 'STOPPED'].includes((await this.lifecycle()).state)
+        && !(error instanceof SinaloaError && error.code === 'CASE_CONTROLLED') && Date.parse(leaseExpiresAt) > Date.now()) {
         await this.postWork(`${workPath}/fail`, { leaseToken: work.leaseToken, retryable: true, reasonCode: 'HANDLER_FAILED' }).catch(() => {});
       }
+      if (interrupted && !renewalError && error instanceof SinaloaError && !error.code)
+        throw new SinaloaError(error.message, error.status, 'REQUEST_CANCELLED');
+      if (!(error instanceof SinaloaError)) await this.observeError(new SinaloaError('Work handler failed', undefined, 'HANDLER_FAILED'));
       throw error;
     } finally {
+      this.activeWork.delete(workAbort);
       signal?.removeEventListener('abort', onAbort);
       await stopRenewal();
     }
@@ -574,30 +728,24 @@ export class SinaloaConnector {
 
   /** Reads one durable delta page. The callback must complete before its cursor is committed. */
   async pollOnce(): Promise<{ count: number; hasMore: boolean }> {
-    let session = await this.freshSession();
-    const client = new SinaloaClient(this.origin, session.agentApiToken, this.options);
-    let page: { events: Array<Record<string, unknown>>; nextCursor: string | null; hasMore: boolean };
-    try {
-      page = await client.delta(session.inboxId, session.cursor || undefined, this.pageSize);
-    } catch (error) {
-      if (!(error instanceof SinaloaError) || error.status !== 401) throw error;
-      session = await this.freshSession(true);
-      client.setAccessToken(session.agentApiToken);
-      page = await client.delta(session.inboxId, session.cursor || undefined, this.pageSize);
-    }
+    let session = validSession(await this.store.load());
+    const page = await this.withFreshSession(async current => {
+      session = current;
+      return new SinaloaClient(this.origin, current.agentApiToken, this.options).delta(current.inboxId, current.cursor || undefined, this.pageSize);
+    });
     if (!Array.isArray(page.events) || typeof page.hasMore !== 'boolean') throw new SinaloaError('Envoi returned an invalid event page');
     if (page.hasMore && page.events.length === 0) throw new SinaloaError('Envoi returned an invalid event page');
     let count = 0;
     for (const raw of page.events) {
       const event = eventFrom(raw);
       if (session.cursor && event.cursor <= session.cursor) throw new SinaloaError('Envoi event cursor did not advance');
+      await this.observeEvent(event);
       await this.options.onEvent?.(event);
       // An event callback may send a reply and rotate credentials. Preserve its
       // new refresh token when committing the observation cursor.
       const current = validSession(await this.store.load());
       if (current.agentId !== session.agentId || current.inboxId !== session.inboxId) throw new SinaloaError('Connector session changed while reading events');
-      session = { ...current, cursor: event.cursor };
-      await this.store.save(session);
+      session = await this.mutate(latest => ({ ...latest, cursor: event.cursor }));
       count += 1;
     }
     return { count, hasMore: page.hasMore };
@@ -605,22 +753,36 @@ export class SinaloaConnector {
 
   /** Polls until stopped; failures retry with bounded exponential backoff and jitter. */
   async run(signal: AbortSignal): Promise<void> {
-    let failures = 0;
-    while (!signal.aborted) {
-      try {
-        if (this.options.handler && await this.processWorkOnce(signal)) { failures = 0; continue; }
-        const page = await this.pollOnce();
-        failures = 0;
-        if (page.hasMore) continue;
-        await delay(this.pollIntervalMs, signal);
-      } catch (error) {
+    await this.start();
+    const onAbort = () => { this.actionEpoch++; for (const controller of [...this.activeActions, ...this.activeWork, ...this.activeRefresh]) controller.abort(); };
+    signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      while (!signal.aborted) {
+        const state = await this.lifecycle();
+        if (state.retryAt) await delay(Math.max(0, Date.parse(state.retryAt) - Date.now()), signal);
         if (signal.aborted) break;
-        // Authentication/credential persistence requires operator intervention.
-        if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError || error instanceof ConnectorCredentialsError || (error instanceof SinaloaError && [401, 403].includes(error.status || 0))) throw error;
-        failures += 1;
-        const ceiling = Math.min(30_000, 500 * 2 ** Math.min(failures, 6));
-        await delay(Math.round(ceiling / 2 + Math.random() * ceiling / 2), signal);
+        try {
+          if (this.options.handler && await this.processWorkOnce(signal)) continue;
+          const page = await this.pollOnce();
+          if (page.hasMore || this.wake.signal.aborted) { this.wake = new AbortController(); continue; }
+          await delay(this.pollIntervalMs, AbortSignal.any([signal, this.wake.signal]));
+          this.wake = new AbortController();
+        } catch (error) {
+          if (signal.aborted) break;
+          if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError) throw error;
+          const current = await this.lifecycle();
+          if (['REVOKED', 'NEEDS_RECONNECT'].includes(current.state)) throw error;
+          if (error instanceof SinaloaError && (error.code === 'REQUEST_CANCELLED' || current.paused && error.code === 'AGENT_PAUSED')) continue;
+          if (current.retryAt && current.state === 'DEGRADED' && (!(error instanceof SinaloaError) || lifecyclePolicy(error).lifecycle === 'DEGRADED')) continue;
+          if (error instanceof SinaloaError && error.code === 'CASE_CONTROLLED') { await delay(this.pollIntervalMs, signal); continue; }
+          throw error;
+        }
       }
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+      onAbort();
+      const current = await this.lifecycle();
+      if (!['REVOKED', 'NEEDS_RECONNECT'].includes(current.state)) await this.transition('STOPPED');
     }
   }
 }
