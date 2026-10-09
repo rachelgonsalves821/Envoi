@@ -3279,7 +3279,7 @@ async function tn(e, t) {
 		throw new O("ENVOI_UNREACHABLE", "Envoi is unreachable from this host. A remote agent cannot reach another computer’s localhost URL; use the correct public HTTPS deployment");
 	}
 	try {
-		if (!n.ok || (await n.json()).service !== "sinaloa") throw Error();
+		if (!n.ok || (await n.json()).service !== "envoi") throw Error();
 	} catch {
 		throw new O("ENVOI_UNREACHABLE", "The selected URL did not return Envoi health. Check the deployment origin before enrolling");
 	}

@@ -1,0 +1,61 @@
+{
+  "testedIntegrationSha": "14ce3c45c0089dfb4314dcc632afebb3588b5104",
+  "artifactSha256": "89cc0cbb20bdb3a8dfdcd05ba019f74d589a29db11458a7508adf977f5b63936",
+  "node": "v22.15.0",
+  "recordedAt": "2026-10-09T21:51:02.790Z",
+  "serverCommand": "npm start",
+  "storage": "FileStore",
+  "authMode": "development",
+  "connector": "production startConnection + SinaloaConnector, separate child process",
+  "handler": "controlled local durable handler; no real runtime host",
+  "overrides": "100ms event/work polling for bounded local test; default production retry policy retained; only local saved access-expiry changed to trigger real refresh",
+  "responseSemantics": "real fetch, observation via response.clone(); no mocks or response mutation",
+  "result": "PASS",
+  "scenarios": [
+    {
+      "id": "restart",
+      "result": "PASS"
+    },
+    {
+      "id": "outage",
+      "result": "PASS"
+    },
+    {
+      "id": "pause",
+      "result": "PASS"
+    },
+    {
+      "id": "refresh across pause",
+      "result": "PASS"
+    },
+    {
+      "id": "held work",
+      "result": "PASS"
+    },
+    {
+      "id": "resume",
+      "result": "PASS"
+    },
+    {
+      "id": "revoke",
+      "result": "PASS"
+    }
+  ],
+  "verification": {
+    "processRestartPreservesIdentityAndCredentials": true,
+    "offlineWorkProcessedOnce": true,
+    "outagePersistsDegradedStateAndRetryDeadline": true,
+    "outageRecoversAutomatically": true,
+    "knownPausedClaims": 0,
+    "pausedRefreshRotatesAndPersistsSuccessor": true,
+    "refreshPreservesPauseAndIdentity": true,
+    "heldDeliveryAttemptsAndBackoffUnchanged": true,
+    "d1ReplyStaysQueued": true,
+    "resumeDeliversHeldBeforeReply": true,
+    "inFlightRevokeAbortsHandler": true,
+    "lateCompletionRequests": 0,
+    "postRevokeRefreshClaimMcpRequests": 0,
+    "revokedRestartNetworkRequests": 0
+  },
+  "detailedEvidence": "Generated result.json and logs remain local; public summary contains no HTTP payloads, credentials, agent/account identifiers or configuration."
+}

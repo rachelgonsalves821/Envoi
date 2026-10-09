@@ -7,7 +7,7 @@ import { SinaloaConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { ConnectorSetupError, type ConnectorAdapter } from './adapter';
-import { connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, setupConnection, startConnection } from './core';
+import { checkSinaloa, connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, setupConnection, startConnection } from './core';
 import { startControl, queryControl } from './control';
 import { connectorService } from './service';
 
@@ -22,7 +22,7 @@ async function fixture(runtime: ConnectorRuntime = 'hermes') {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
     requests.push({ url: String(url), init });
-    if (String(url).endsWith('/health')) return Response.json({ service: failHealth ? 'other' : 'sinaloa' });
+    if (String(url).endsWith('/health')) return Response.json({ service: failHealth ? 'other' : 'envoi' });
     if (String(url).endsWith('/api/agent-enroll')) {
       enrollmentCount++;
       return Response.json({ agent: { id: `agent_${runtime}`, address: handoff.address }, inbox: { id: `inbox_${runtime}` },
@@ -51,6 +51,20 @@ async function fixture(runtime: ConnectorRuntime = 'hermes') {
 }
 
 describe('shared connector lifecycle', () => {
+  it('accepts the Envoi service health response used by the local server', async () => {
+    const fetcher = vi.fn(async () => Response.json({ ok: true, service: 'envoi',
+      time: '2026-10-09T18:16:14.005Z', mode: 'development', configurationValidated: false,
+      releaseSha: '478c2d758f0360704fb96d5940a287b85453f44a' }));
+    await expect(checkSinaloa('https://envoi.example', fetcher as typeof fetch)).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledWith('https://envoi.example/health', { signal: expect.any(AbortSignal) });
+  });
+
+  it('rejects the legacy service identity even when HTTP health is successful', async () => {
+    const fetcher = vi.fn(async () => Response.json({ ok: true, service: 'sinaloa' }));
+    await expect(checkSinaloa('https://envoi.example', fetcher as typeof fetch))
+      .rejects.toMatchObject({ code: 'ENVOI_UNREACHABLE' });
+  });
+
   it('replaces the saved executable atomically and preserves it when copying fails', async () => {
     const f = await fixture();
     const source = path.join(f.directory, 'downloaded.mjs');
@@ -85,7 +99,7 @@ describe('shared connector lifecycle', () => {
       expect(JSON.parse(String(reports[0].init?.body))).toMatchObject({ runtime, runtimeTest: 'passed' });
     });
   }
-  it('does not consume enrollment on Sinaloa reachability or runtime model failure', async () => {
+  it('does not consume enrollment on Envoi reachability or runtime model failure', async () => {
     const health = await fixture(); health.healthFails();
     await expect(setupConnection(health.handoff, health.resolver, health.options)).rejects.toMatchObject({ code: 'ENVOI_UNREACHABLE' });
     expect(health.counts().enrollmentCount).toBe(0); expect(health.counts().checks).toBe(0);

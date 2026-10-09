@@ -95,7 +95,7 @@ export async function checkSinaloa(apiUrl: string, fetcher: typeof fetch) {
   try { response = await fetcher(`${quickConnectOrigin(apiUrl)}/health`, { signal: AbortSignal.timeout(10_000) }); }
   catch { throw new ConnectorSetupError('ENVOI_UNREACHABLE', 'Envoi is unreachable from this host. A remote agent cannot reach another computer’s localhost URL; use the correct public HTTPS deployment'); }
   try {
-    if (!response.ok || (await response.json() as { service?: string }).service !== 'sinaloa') throw new Error();
+    if (!response.ok || (await response.json() as { service?: string }).service !== 'envoi') throw new Error();
   } catch { throw new ConnectorSetupError('ENVOI_UNREACHABLE', 'The selected URL did not return Envoi health. Check the deployment origin before enrolling'); }
 }
 async function report(saved: InstalledConnection, connector: SinaloaConnector, phase: 'ready' | 'error', _fetcher: typeof fetch, errorCode?: string) {
