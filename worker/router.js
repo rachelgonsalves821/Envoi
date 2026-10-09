@@ -25,6 +25,12 @@ export function selectEnvironment(source, keys, defaults = {}) {
   return selected;
 }
 
+// A container keeps the environment it was started with. A rollout can restart it
+// with the previous Worker version's variables, so the reported release may lag.
+export function releaseIsStale(expectedSha, reportedSha) {
+  return /^[a-f0-9]{40}$/.test(expectedSha || '') && reportedSha !== expectedSha;
+}
+
 export function createForwardedRequest(request) {
   const url = new URL(request.url);
   const headers = new Headers(request.headers);

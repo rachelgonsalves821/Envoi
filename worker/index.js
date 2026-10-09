@@ -3,6 +3,7 @@ import { env as runtimeEnv } from 'cloudflare:workers';
 import {
   createForwardedRequest,
   isAllowedHostname,
+  releaseIsStale,
   selectEnvironment,
   serviceUnavailableResponse,
   withNoStoreHeaders
@@ -20,6 +21,18 @@ export class SinaloaContainer extends Container {
   pingEndpoint = 'localhost/ready';
   enableInternet = true;
   envVars = selectEnvironment(runtimeEnv, CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS);
+
+  // Only an object running the Worker version that carries this SHA may restart the
+  // container; an older object would start it again with the same stale variables.
+  // At most one restart per release, so a container that still disagrees cannot flap.
+  async restartForRelease(expectedSha) {
+    if (this.envVars.ENVOI_RELEASE_SHA !== expectedSha) return false;
+    if (await this.ctx.storage.get('restartedForRelease') === expectedSha) return false;
+    await this.ctx.storage.put('restartedForRelease', expectedSha);
+    console.log('Restarting Envoi container for the deployed release');
+    await this.stop();
+    return true;
+  }
 
   onStart() {
     console.log('Envoi container started');
@@ -44,8 +57,13 @@ async function probeContainer(env) {
     headers: { 'user-agent': 'envoi-cloudflare-wake/1.0' },
     signal: AbortSignal.timeout(25_000)
   }));
-  response.body?.cancel();
-  if (!response.ok) throw new Error(`Container readiness probe returned ${response.status}`);
+  if (!response.ok) {
+    response.body?.cancel();
+    throw new Error(`Container readiness probe returned ${response.status}`);
+  }
+  const reported = await response.json().catch(() => null);
+  const expected = selectEnvironment(env, ['ENVOI_RELEASE_SHA']).ENVOI_RELEASE_SHA;
+  if (releaseIsStale(expected, reported?.releaseSha)) await container.restartForRelease(expected);
 }
 
 export default {
