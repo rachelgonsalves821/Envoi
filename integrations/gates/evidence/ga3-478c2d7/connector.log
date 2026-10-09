@@ -1,0 +1,3 @@
+[stderr] Connection temporarily unavailable (ENVOI_UNREACHABLE); retrying automatically.
+[stderr] Connection temporarily unavailable (ENVOI_UNREACHABLE); retrying automatically.
+[control stop] {"status":"stop requested","note":"An external supervisor may restart this service. Disable it to keep the connection stopped"}

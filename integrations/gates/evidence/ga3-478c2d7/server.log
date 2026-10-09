@@ -1,0 +1,6 @@
+[stdout] 
+> envoi@0.1.0 start
+> node src/server.js
+
+[stdout] Envoi backend listening on http://127.0.0.1:59380
+[stdout] {"event":"sinaloa.operational_backlog","at":"2026-10-09T18:16:12.570Z","outbox":{"queued":0,"retrying":0,"processing":0,"held":0,"deadLettered":0,"oldestPendingAgeSeconds":null},"scans":null}
