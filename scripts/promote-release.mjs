@@ -31,7 +31,7 @@ export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedF
   if (deploy && sha !== mainSha) throw new Error('Live promotion requires HEAD to equal fetched origin/main; merge and fetch the reviewed fixes first');
   return {
     target, sha, accountId: RELEASE_ACCOUNT_ID, deploy,
-    args: ['deploy', '--env', target, '--var', `ENVOI_RELEASE_SHA:${sha}`,
+    args: ['deploy', '--env', target, '--var', `ENVOI_RELEASE_SHA:${sha}`, '--var', `SINALOA_RELEASE_SHA:${sha}`,
       ...(deploy ? [] : ['--dry-run', '--containers-rollout=none'])]
   };
 }
