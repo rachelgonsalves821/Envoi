@@ -160,7 +160,7 @@ test('work validation rejects spoofed or changed messages, identities and missin
   const state = await fixture(context);
   const { payload: message } = await state.send(state.request);
   for (const change of [{ senderAgentId: 'agent_peer' }, { senderInboxId: 'inbox_peer' },
-    { from: { humanId: 'human_owner', address: 'peer@sinaloa.mail' } }, { recipientInboxId: 'inbox_other' }]) {
+    { from: { humanId: 'human_owner', address: 'peer@envoi.mail' } }, { recipientInboxId: 'inbox_other' }]) {
     await rejects(() => assertHumanInstructionWork(state.store, { ...message, ...change }, identity), 403);
   }
   await rejects(() => assertHumanInstructionWork(state.store, { ...message, text: 'Tampered text' }, identity), 409);

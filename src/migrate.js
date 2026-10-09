@@ -1,3 +1,4 @@
+import './envoi-environment-bootstrap.js';
 import pg from 'pg';
 import { runMigrations } from './migrations.js';
 import { createPostgresOptions } from './postgres-options.js';

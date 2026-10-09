@@ -16,7 +16,7 @@ export async function smokeDeployment(origin, expectedSha, { fetchImpl = fetch, 
       const body = await response.json();
       if (pathname === '/ready') {
         if (body.ready !== true || body.configurationValidated !== true || body.mode !== 'production') throw new Error('Production readiness was not confirmed');
-      } else if (body.service !== 'sinaloa' || body.mode !== 'production' || body.configurationValidated !== true) {
+      } else if (!['envoi', 'sinaloa'].includes(body.service) || body.mode !== 'production' || body.configurationValidated !== true) {
         throw new Error('Unexpected service or non-production mode');
       }
       if (expectedSha !== undefined && body.releaseSha !== expectedSha) {

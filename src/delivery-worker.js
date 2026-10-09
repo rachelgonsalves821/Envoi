@@ -1,3 +1,4 @@
+import './envoi-environment-bootstrap.js';
 import crypto from 'node:crypto';
 
 const safeError = error => String(error?.message || error || 'Unknown delivery failure').slice(0, 1000);
@@ -10,10 +11,10 @@ export class DeliveryWorker {
     onFailure = async () => ({ documents: [] }),
     onSettled = () => {},
     workerId = `delivery_${crypto.randomUUID()}`,
-    pollIntervalMs = Number(process.env.SINALOA_DELIVERY_POLL_MS || 250),
-    leaseMs = Number(process.env.SINALOA_DELIVERY_LEASE_MS || 30_000),
-    retryBaseMs = Number(process.env.SINALOA_DELIVERY_RETRY_BASE_MS || 1_000),
-    retryMaxMs = Number(process.env.SINALOA_DELIVERY_RETRY_MAX_MS || 60_000)
+    pollIntervalMs = Number(process.env.ENVOI_DELIVERY_POLL_MS || 250),
+    leaseMs = Number(process.env.ENVOI_DELIVERY_LEASE_MS || 30_000),
+    retryBaseMs = Number(process.env.ENVOI_DELIVERY_RETRY_BASE_MS || 1_000),
+    retryMaxMs = Number(process.env.ENVOI_DELIVERY_RETRY_MAX_MS || 60_000)
   }) {
     this.store = store;
     this.deliver = deliver;
@@ -70,7 +71,7 @@ export class DeliveryWorker {
 
   launchDrain() {
     this.drainPromise = this.drain()
-      .catch(error => console.error('Sinaloa delivery worker failed', safeError(error)))
+      .catch(error => console.error('Envoi delivery worker failed', safeError(error)))
       .finally(() => { this.drainPromise = null; });
   }
 

@@ -191,7 +191,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.deepEqual(concurrentEnrollment.map(result => result.status).sort(), [201, 401]);
   const enrolled = concurrentEnrollment.find(result => result.status === 201);
   assert.equal(enrolled.status, 201);
-  assert.equal(enrolled.payload.agent.address, 'worker@sinaloa.mail');
+  assert.equal(enrolled.payload.agent.address, 'worker@envoi.mail');
   assert.ok(enrolled.payload.agentApiToken.startsWith('sinaloa_agent_'));
   assert.ok(enrolled.payload.agentRefreshToken.startsWith('sinaloa_agent_refresh_'));
   assert.ok(new Date(enrolled.payload.agentTokenExpiresAt) > new Date());
@@ -245,7 +245,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   assert.equal(rawRecipientId.status, 400);
   const mixedRecipientIdentifiers = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'mixed-id-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientAgentId: recipient.payload.agent.id, recipientEmail: recipient.payload.agent.address, text: 'not address only' } });
   assert.equal(mixedRecipientIdentifiers.status, 400);
-  const unavailableRecipient = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'unknown-address-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: 'unknown@sinaloa.mail', text: 'unknown' } });
+  const unavailableRecipient = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'unknown-address-1' }, body: { senderAgentId: enrolled.payload.agent.id, recipientEmail: 'unknown@envoi.mail', text: 'unknown' } });
   assert.equal(unavailableRecipient.status, 404);
   const messageBody = { senderAgentId: enrolled.payload.agent.id, recipientEmail: recipient.payload.agent.address, text: 'authenticated cross-inbox message' };
   const sent = await request(server.baseUrl, `/api/inboxes/${senderInboxId}/messages`, { token: enrolled.payload.agentApiToken, headers: { 'Idempotency-Key': 'message-1' }, body: messageBody });
@@ -519,14 +519,14 @@ test('verified human issues a single-use permissioned agent enrollment', async t
     id: enrolled.payload.agent.id,
     type: 'internalAgent',
     displayName: 'Worker',
-    address: 'worker@sinaloa.mail',
+    address: 'worker@envoi.mail',
     organizationId: workspace.payload.organizationId,
     inboxId: senderInboxId,
     accessState: 'active'
   });
   assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].type, 'externalAgent');
   assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].displayName, 'Recipient');
-  assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].address, 'recipient@sinaloa.mail');
+  assert.equal(projectedHumanView.payload.participantDirectory[recipient.payload.agent.id].address, 'recipient@envoi.mail');
   assert.equal(projectedHumanView.payload.recentEvents.filter(event => event.type === 'policy.re_evaluated' && event.policyEvaluationId === paymentPolicy.payload.id && event.decision === 'allow').length, 1);
 
   const recipientStream = await fetch(`${server.baseUrl}/api/inboxes/${recipientInboxId}/events`, { headers: { authorization: `Bearer ${recipient.payload.agentApiToken}` } });

@@ -1,1 +1,3 @@
-export const humanConversationMessagingEnabled = (env = process.env) => env.SINALOA_AUTH_MODE !== 'production';
+import { applyEnvoiEnvironmentAliases } from './envoi-environment.js';
+
+export const humanConversationMessagingEnabled = (env = process.env) => applyEnvoiEnvironmentAliases({ ...env }).ENVOI_AUTH_MODE !== 'production';

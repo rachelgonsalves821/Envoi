@@ -1,3 +1,4 @@
+import './envoi-environment-bootstrap.js';
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -57,32 +58,32 @@ import { getPrefsForCases } from './inbox-preferences.js';
 import { createProviderMembershipCache, streamRecheckMs } from './provider-membership.js';
 
 const productionConfig = validateProductionConfiguration();
-const releaseSha = process.env.SINALOA_RELEASE_SHA || null;
-const host = process.env.SINALOA_HOST || '127.0.0.1';
-const port = Number(process.env.SINALOA_PORT || 8787);
-const dataDir = path.resolve(process.env.SINALOA_DATA_DIR || 'data');
-const maxBodyBytes = Number(process.env.SINALOA_MAX_BODY_BYTES || 10 * 1024 * 1024);
-const corsOrigin = process.env.SINALOA_CORS_ORIGIN || 'http://localhost:3000';
-const agentDomain = process.env.SINALOA_AGENT_DOMAIN || 'sinaloa.mail';
-const deliveryMaxAttempts = Number(process.env.SINALOA_DELIVERY_MAX_ATTEMPTS || 5);
-const externalEmailEnabled = process.env.SINALOA_ENABLE_EXTERNAL_EMAIL === 'true';
-const calendarWritesEnabled = process.env.SINALOA_ENABLE_CALENDAR_WRITES === 'true';
-const consequentialActionsEnabled = process.env.SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS === 'true';
-const policyActiveKeyId = process.env.SINALOA_POLICY_ACTIVE_KEY_ID || 'primary';
+const releaseSha = process.env.ENVOI_RELEASE_SHA || null;
+const host = process.env.ENVOI_HOST || '127.0.0.1';
+const port = Number(process.env.ENVOI_PORT || 8787);
+const dataDir = path.resolve(process.env.ENVOI_DATA_DIR || 'data');
+const maxBodyBytes = Number(process.env.ENVOI_MAX_BODY_BYTES || 10 * 1024 * 1024);
+const corsOrigin = process.env.ENVOI_CORS_ORIGIN || 'http://localhost:3000';
+const agentDomain = process.env.ENVOI_AGENT_DOMAIN || 'envoi.mail';
+const deliveryMaxAttempts = Number(process.env.ENVOI_DELIVERY_MAX_ATTEMPTS || 5);
+const externalEmailEnabled = process.env.ENVOI_ENABLE_EXTERNAL_EMAIL === 'true';
+const calendarWritesEnabled = process.env.ENVOI_ENABLE_CALENDAR_WRITES === 'true';
+const consequentialActionsEnabled = process.env.ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS === 'true';
+const policyActiveKeyId = process.env.ENVOI_POLICY_ACTIVE_KEY_ID || 'primary';
 const policySigningKeys = (() => {
-  const configured = process.env.SINALOA_POLICY_SIGNING_KEYS ? JSON.parse(process.env.SINALOA_POLICY_SIGNING_KEYS) : {};
-  const single = process.env.SINALOA_POLICY_SIGNING_KEY || process.env.SINALOA_DATA_ENCRYPTION_KEY || 'sinaloa-development-policy-signing-key';
+  const configured = process.env.ENVOI_POLICY_SIGNING_KEYS ? JSON.parse(process.env.ENVOI_POLICY_SIGNING_KEYS) : {};
+  const single = process.env.ENVOI_POLICY_SIGNING_KEY || process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-policy-signing-key';
   return { ...configured, [policyActiveKeyId]: configured[policyActiveKeyId] || single };
 })();
 const policyKeyring = Object.freeze({ activeKeyId: policyActiveKeyId, keys: Object.freeze(policySigningKeys) });
 const emailTransport = createEmailTransport();
-const agentAccessTokenTtlSeconds = Math.max(60, Number(process.env.SINALOA_AGENT_ACCESS_TOKEN_TTL_SECONDS || 900));
-const agentRefreshTokenTtlDays = Math.max(1, Number(process.env.SINALOA_AGENT_REFRESH_TOKEN_TTL_DAYS || 30));
-const configuredAgentWorkLeaseMs = Number(process.env.SINALOA_AGENT_WORK_LEASE_MS || 60_000);
+const agentAccessTokenTtlSeconds = Math.max(60, Number(process.env.ENVOI_AGENT_ACCESS_TOKEN_TTL_SECONDS || 900));
+const agentRefreshTokenTtlDays = Math.max(1, Number(process.env.ENVOI_AGENT_REFRESH_TOKEN_TTL_DAYS || 30));
+const configuredAgentWorkLeaseMs = Number(process.env.ENVOI_AGENT_WORK_LEASE_MS || 60_000);
 const agentWorkLeaseMs = Number.isFinite(configuredAgentWorkLeaseMs) ? Math.max(1_000, Math.min(300_000, configuredAgentWorkLeaseMs)) : 60_000;
-const configuredAgentWorkMaxAttempts = Number(process.env.SINALOA_AGENT_WORK_MAX_ATTEMPTS || 5);
+const configuredAgentWorkMaxAttempts = Number(process.env.ENVOI_AGENT_WORK_MAX_ATTEMPTS || 5);
 const agentWorkMaxAttempts = Number.isSafeInteger(configuredAgentWorkMaxAttempts) && configuredAgentWorkMaxAttempts > 0 ? Math.min(20, configuredAgentWorkMaxAttempts) : 5;
-const configuredAgentWorkRetryBaseMs = Number(process.env.SINALOA_AGENT_WORK_RETRY_BASE_MS || 5_000);
+const configuredAgentWorkRetryBaseMs = Number(process.env.ENVOI_AGENT_WORK_RETRY_BASE_MS || 5_000);
 const agentWorkRetryBaseMs = Number.isSafeInteger(configuredAgentWorkRetryBaseMs) && configuredAgentWorkRetryBaseMs > 0 ? configuredAgentWorkRetryBaseMs : 5_000;
 const calendarProviders = Object.freeze({
   google: {
@@ -109,53 +110,53 @@ const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.j
 const auth = createHumanAuth(store);
 const rememberedProviderMembership = createProviderMembershipCache({ lookup: (userId, organizationId) => auth.getOrganizationMembership(userId, organizationId) });
 // How long an open event stream trusts one answer from WorkOS before asking again.
-const streamMembershipRecheckMs = streamRecheckMs(process.env.SINALOA_STREAM_MEMBERSHIP_RECHECK_MS);
+const streamMembershipRecheckMs = streamRecheckMs(process.env.ENVOI_STREAM_MEMBERSHIP_RECHECK_MS);
 const streams = new Map();
 const rateBuckets = new Map();
 const emailRateBuckets = new Map();
 const sseCounts = new Map();
-const requestTimeoutMs = Number(process.env.SINALOA_REQUEST_TIMEOUT_MS || 30_000);
-const calendarOAuthTimeoutMs = Number(process.env.SINALOA_CALENDAR_OAUTH_TIMEOUT_MS || 15_000);
-const maxSsePerPrincipal = Number(process.env.SINALOA_MAX_SSE_PER_PRINCIPAL || 10);
-const objectStorageProvider = process.env.SINALOA_OBJECT_STORAGE_PROVIDER || 'local';
-const objectMaxBytes = Number(process.env.SINALOA_OBJECT_MAX_BYTES || 25 * 1024 * 1024);
-const objectQuotaBytes = Number(process.env.SINALOA_WORKSPACE_OBJECT_QUOTA_BYTES || 1024 * 1024 * 1024);
-const objectStorageRequestTimeoutMs = Number(process.env.SINALOA_S3_REQUEST_TIMEOUT_MS || 30_000);
-const objectScanWorkerIntervalMs = Number(process.env.SINALOA_SCAN_WORKER_INTERVAL_MS || 1_000);
-const objectScanRetentionIntervalMs = Number(process.env.SINALOA_SCAN_RETENTION_INTERVAL_MS || 60_000);
-const operationalBacklogLogIntervalMs = Number(process.env.SINALOA_OPERATIONAL_BACKLOG_LOG_INTERVAL_MS || 60_000);
-if (!Number.isSafeInteger(objectScanWorkerIntervalMs) || objectScanWorkerIntervalMs < 1) throw new TypeError('SINALOA_SCAN_WORKER_INTERVAL_MS must be a positive integer');
-if (!Number.isSafeInteger(objectScanRetentionIntervalMs) || objectScanRetentionIntervalMs < 1) throw new TypeError('SINALOA_SCAN_RETENTION_INTERVAL_MS must be a positive integer');
-if (!Number.isSafeInteger(operationalBacklogLogIntervalMs) || operationalBacklogLogIntervalMs < 10_000) throw new TypeError('SINALOA_OPERATIONAL_BACKLOG_LOG_INTERVAL_MS must be an integer of at least 10000');
-const objectAllowedMimeTypes = (process.env.SINALOA_OBJECT_ALLOWED_MIME_TYPES || 'application/pdf,image/jpeg,image/png,text/plain,text/csv,application/json').split(',').map(value => value.trim()).filter(Boolean);
+const requestTimeoutMs = Number(process.env.ENVOI_REQUEST_TIMEOUT_MS || 30_000);
+const calendarOAuthTimeoutMs = Number(process.env.ENVOI_CALENDAR_OAUTH_TIMEOUT_MS || 15_000);
+const maxSsePerPrincipal = Number(process.env.ENVOI_MAX_SSE_PER_PRINCIPAL || 10);
+const objectStorageProvider = process.env.ENVOI_OBJECT_STORAGE_PROVIDER || 'local';
+const objectMaxBytes = Number(process.env.ENVOI_OBJECT_MAX_BYTES || 25 * 1024 * 1024);
+const objectQuotaBytes = Number(process.env.ENVOI_WORKSPACE_OBJECT_QUOTA_BYTES || 1024 * 1024 * 1024);
+const objectStorageRequestTimeoutMs = Number(process.env.ENVOI_S3_REQUEST_TIMEOUT_MS || 30_000);
+const objectScanWorkerIntervalMs = Number(process.env.ENVOI_SCAN_WORKER_INTERVAL_MS || 1_000);
+const objectScanRetentionIntervalMs = Number(process.env.ENVOI_SCAN_RETENTION_INTERVAL_MS || 60_000);
+const operationalBacklogLogIntervalMs = Number(process.env.ENVOI_OPERATIONAL_BACKLOG_LOG_INTERVAL_MS || 60_000);
+if (!Number.isSafeInteger(objectScanWorkerIntervalMs) || objectScanWorkerIntervalMs < 1) throw new TypeError('ENVOI_SCAN_WORKER_INTERVAL_MS must be a positive integer');
+if (!Number.isSafeInteger(objectScanRetentionIntervalMs) || objectScanRetentionIntervalMs < 1) throw new TypeError('ENVOI_SCAN_RETENTION_INTERVAL_MS must be a positive integer');
+if (!Number.isSafeInteger(operationalBacklogLogIntervalMs) || operationalBacklogLogIntervalMs < 10_000) throw new TypeError('ENVOI_OPERATIONAL_BACKLOG_LOG_INTERVAL_MS must be an integer of at least 10000');
+const objectAllowedMimeTypes = (process.env.ENVOI_OBJECT_ALLOWED_MIME_TYPES || 'application/pdf,image/jpeg,image/png,text/plain,text/csv,application/json').split(',').map(value => value.trim()).filter(Boolean);
 const objectStorageAdapter = createObjectStorageAdapter(objectStorageProvider === 's3' ? {
   provider: 's3',
-  endpoint: process.env.SINALOA_S3_ENDPOINT || `https://s3.${process.env.SINALOA_S3_REGION || 'ca-central-1'}.amazonaws.com`,
-  bucket: process.env.SINALOA_S3_BUCKET,
-  region: process.env.SINALOA_S3_REGION || 'ca-central-1',
-  accessKeyId: process.env.SINALOA_S3_ACCESS_KEY_ID,
-  secretAccessKey: process.env.SINALOA_S3_SECRET_ACCESS_KEY,
-  sessionToken: process.env.SINALOA_S3_SESSION_TOKEN,
+  endpoint: process.env.ENVOI_S3_ENDPOINT || `https://s3.${process.env.ENVOI_S3_REGION || 'ca-central-1'}.amazonaws.com`,
+  bucket: process.env.ENVOI_S3_BUCKET,
+  region: process.env.ENVOI_S3_REGION || 'ca-central-1',
+  accessKeyId: process.env.ENVOI_S3_ACCESS_KEY_ID,
+  secretAccessKey: process.env.ENVOI_S3_SECRET_ACCESS_KEY,
+  sessionToken: process.env.ENVOI_S3_SESSION_TOKEN,
   requestTimeoutMs: objectStorageRequestTimeoutMs,
   maxObjectBytes: objectMaxBytes,
   allowedMimeTypes: objectAllowedMimeTypes
 } : { provider: 'local', root: path.join(dataDir, 'object-storage'), maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
-const objectScanner = process.env.SINALOA_MALWARE_SCANNER_URL ? new HttpMalwareScanner({ endpoint: process.env.SINALOA_MALWARE_SCANNER_URL, token: process.env.SINALOA_MALWARE_SCANNER_TOKEN || null }) : new FailClosedScanner();
+const objectScanner = process.env.ENVOI_MALWARE_SCANNER_URL ? new HttpMalwareScanner({ endpoint: process.env.ENVOI_MALWARE_SCANNER_URL, token: process.env.ENVOI_MALWARE_SCANNER_TOKEN || null }) : new FailClosedScanner();
 const scanJobStore = process.env.DATABASE_URL ? new PostgresMalwareScanJobStore(store) : null;
 const objectQuotaLedger = new PersistentQuotaLedger(store, { defaultQuotaBytes: objectQuotaBytes });
 const scanLifecycle = {
-  maxAttempts: Number(process.env.SINALOA_SCAN_MAX_ATTEMPTS || 5),
-  leaseMs: Number(process.env.SINALOA_SCAN_LEASE_MS || 60_000),
-  retryBaseMs: Number(process.env.SINALOA_SCAN_RETRY_BASE_MS || 5_000),
-  retryMaxMs: Number(process.env.SINALOA_SCAN_RETRY_MAX_MS || 15 * 60_000),
-  infectedRetentionMs: Number(process.env.SINALOA_SCAN_INFECTED_RETENTION_MS || 30 * 24 * 60 * 60_000),
-  deadLetterRetentionMs: Number(process.env.SINALOA_SCAN_DEAD_LETTER_RETENTION_MS || 7 * 24 * 60 * 60_000),
-  completedJobRetentionMs: Number(process.env.SINALOA_SCAN_COMPLETED_JOB_RETENTION_MS || 90 * 24 * 60 * 60_000),
-  retentionRetryMs: Number(process.env.SINALOA_SCAN_RETENTION_RETRY_MS || 60 * 60_000)
+  maxAttempts: Number(process.env.ENVOI_SCAN_MAX_ATTEMPTS || 5),
+  leaseMs: Number(process.env.ENVOI_SCAN_LEASE_MS || 60_000),
+  retryBaseMs: Number(process.env.ENVOI_SCAN_RETRY_BASE_MS || 5_000),
+  retryMaxMs: Number(process.env.ENVOI_SCAN_RETRY_MAX_MS || 15 * 60_000),
+  infectedRetentionMs: Number(process.env.ENVOI_SCAN_INFECTED_RETENTION_MS || 30 * 24 * 60 * 60_000),
+  deadLetterRetentionMs: Number(process.env.ENVOI_SCAN_DEAD_LETTER_RETENTION_MS || 7 * 24 * 60 * 60_000),
+  completedJobRetentionMs: Number(process.env.ENVOI_SCAN_COMPLETED_JOB_RETENTION_MS || 90 * 24 * 60 * 60_000),
+  retentionRetryMs: Number(process.env.ENVOI_SCAN_RETENTION_RETRY_MS || 60 * 60_000)
 };
 const objectStorage = new ObjectStorageService({ adapter: objectStorageAdapter, metadataStore: new DocumentObjectMetadataStore(store), quotaLedger: objectQuotaLedger, scanner: objectScanner, scanJobStore, scanLifecycle, maxObjectBytes: objectMaxBytes, allowedMimeTypes: objectAllowedMimeTypes });
 if (scanJobStore && !['processNextScan', 'reapScanRetention'].every(method => typeof objectStorage[method] === 'function')) throw new TypeError('Object storage durable scan lifecycle is not configured');
-const readinessTimeoutMs = Number(process.env.SINALOA_READINESS_TIMEOUT_MS || 5_000);
+const readinessTimeoutMs = Number(process.env.ENVOI_READINESS_TIMEOUT_MS || 5_000);
 
 let scanLifecycleStopping = false;
 let objectScanRun = null;
@@ -187,7 +188,7 @@ async function readinessReport() {
   const checks = dependencyReadinessChecks({ store, adapter: objectStorageAdapter,
     provider: objectStorageProvider, env: process.env, externalEmailEnabled, emailTransport });
   const report = await evaluateReadiness(checks, { timeoutMs: readinessTimeoutMs, at: store.now() });
-  return { ...report, service: 'sinaloa', mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha };
+  return { ...report, service: 'envoi', mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha };
 }
 
 const rateIdentity = req => hashSecret(String(req.headers.authorization || req.headers.cookie || clientIp(req))).slice(0, 32);
@@ -219,8 +220,8 @@ const consumeExternalEmailLimit = (agentId, recipientEmail) => {
   const now = Date.now();
   const windowMs = 60 * 60_000;
   const limits = [
-    { key: `agent:${agentId}`, limit: Number(process.env.SINALOA_EXTERNAL_EMAIL_AGENT_HOURLY_LIMIT || 100) },
-    { key: `recipient:${agentId}:${externalContactKey(recipientEmail)}`, limit: Number(process.env.SINALOA_EXTERNAL_EMAIL_RECIPIENT_HOURLY_LIMIT || 20) }
+    { key: `agent:${agentId}`, limit: Number(process.env.ENVOI_EXTERNAL_EMAIL_AGENT_HOURLY_LIMIT || 100) },
+    { key: `recipient:${agentId}:${externalContactKey(recipientEmail)}`, limit: Number(process.env.ENVOI_EXTERNAL_EMAIL_RECIPIENT_HOURLY_LIMIT || 20) }
   ];
   for (const policy of limits) {
     const current = emailRateBuckets.get(policy.key);
@@ -250,8 +251,8 @@ const applyHeaders = (res, origin, nonce) => {
   res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
   res.setHeader('cross-origin-opener-policy', 'same-origin');
   res.setHeader('x-dns-prefetch-control', 'off');
-  res.setHeader('content-security-policy', `default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://www.envoi-agents.com https://beta.sinaloa-inbox.com https://sinaloa-inbox.com https://www.sinaloa-inbox.com`);
-  if (process.env.SINALOA_AUTH_MODE === 'production') res.setHeader('strict-transport-security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader('content-security-policy', `default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://www.envoi-agents.com`);
+  if (process.env.ENVOI_AUTH_MODE === 'production') res.setHeader('strict-transport-security', 'max-age=63072000; includeSubDomains; preload');
 };
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -295,7 +296,7 @@ const publicIdentity = (slug) => ({
   externalAddress: emailTransport.addressForSlug(slug),
   externalTransportStatus: emailTransport.ready ? 'ready' : 'unconfigured'
 });
-const connectorEncryptionKey = () => crypto.createHash('sha256').update(process.env.SINALOA_DATA_ENCRYPTION_KEY || 'sinaloa-development-only').digest();
+const connectorEncryptionKey = () => crypto.createHash('sha256').update(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only').digest();
 const encryptConnectorTokens = value => {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', connectorEncryptionKey(), iv);
@@ -406,7 +407,7 @@ const getAgentPrincipal = async (req, inboxId) => {
   const index = await store.getJson(agentCredentialPath(credentialHash));
   if (!index || index.inboxId !== inboxId) return null;
   if (!index.tokenType) {
-    if (process.env.SINALOA_AUTH_MODE === 'production') return null;
+    if (process.env.ENVOI_AUTH_MODE === 'production') return null;
   } else {
     if (!['access', 'mcp_read'].includes(index.tokenType) || index.revokedAt || new Date(index.expiresAt) <= new Date()) return null;
     if (index.tokenType === 'mcp_read' && !scopedMcpReadRequest(req, inboxId, index.caseId)) return null;
@@ -490,12 +491,12 @@ const rawBuffer = async (req) => {
   }
   return Buffer.concat(chunks);
 };
-const publicBaseUrl = req => (process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
+const publicBaseUrl = req => (process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
 const mcpOriginAllowed = req => {
   if (!req.headers.origin) return true;
   const allowed = corsOrigin.split(',').map(value => value.trim()).filter(value => value && value !== '*');
-  if (process.env.SINALOA_PUBLIC_URL) {
-    try { allowed.push(new URL(process.env.SINALOA_PUBLIC_URL).origin); }
+  if (process.env.ENVOI_PUBLIC_URL) {
+    try { allowed.push(new URL(process.env.ENVOI_PUBLIC_URL).origin); }
     catch { return false; }
   }
   return allowed.includes(req.headers.origin);
@@ -868,7 +869,7 @@ async function synchronizePublicEmailDirectory() {
 
 const calendarConnectorPath = (inboxId, provider) => path.join('inboxes', inboxId, 'calendar-connectors', `${provider}.json`);
 const calendarProviderStatus = () => Object.fromEntries(Object.entries(calendarProviders).map(([id, provider]) => [id, { id, label: provider.label, configured: Boolean(provider.clientId && provider.clientSecret) }]));
-const calendarRedirectUri = (provider, req) => process.env[provider === 'google' ? 'GOOGLE_CALENDAR_REDIRECT_URI' : 'MICROSOFT_CALENDAR_REDIRECT_URI'] || `${(process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '')}/api/calendar-oauth/${provider}/callback`;
+const calendarRedirectUri = (provider, req) => process.env[provider === 'google' ? 'GOOGLE_CALENDAR_REDIRECT_URI' : 'MICROSOFT_CALENDAR_REDIRECT_URI'] || `${(process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '')}/api/calendar-oauth/${provider}/callback`;
 const tokenAccountLabel = tokenSet => {
   try {
     const payload = JSON.parse(Buffer.from(String(tokenSet.id_token || '').split('.')[1], 'base64url').toString('utf8'));
@@ -1013,10 +1014,10 @@ async function activeWorkspacePolicy(inboxId) {
   return createWorkspacePolicy({
     ...configured,
     id: configured.id || 'sinaloa-default-authority',
-    version: configured.version || process.env.SINALOA_POLICY_VERSION || '2026-09-27',
-    decisionTtlSeconds: configured.decisionTtlSeconds ?? Number(process.env.SINALOA_POLICY_DECISION_TTL_SECONDS || 600),
-    executeAtToleranceSeconds: configured.executeAtToleranceSeconds ?? Number(process.env.SINALOA_POLICY_EXECUTE_AT_TOLERANCE_SECONDS || 60),
-    maxPaymentMinorWithoutHuman: configured.maxPaymentMinorWithoutHuman ?? Number(process.env.SINALOA_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR || 0),
+    version: configured.version || process.env.ENVOI_POLICY_VERSION || '2026-09-27',
+    decisionTtlSeconds: configured.decisionTtlSeconds ?? Number(process.env.ENVOI_POLICY_DECISION_TTL_SECONDS || 600),
+    executeAtToleranceSeconds: configured.executeAtToleranceSeconds ?? Number(process.env.ENVOI_POLICY_EXECUTE_AT_TOLERANCE_SECONDS || 60),
+    maxPaymentMinorWithoutHuman: configured.maxPaymentMinorWithoutHuman ?? Number(process.env.ENVOI_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR || 0),
     consequentialActionsEnabled: consequentialActionsEnabled && configured.consequentialActionsEnabled !== false,
     externalEmailEnabled: externalEmailEnabled && configured.externalEmailEnabled !== false,
     calendarWritesEnabled: calendarWritesEnabled && configured.calendarWritesEnabled !== false
@@ -1782,12 +1783,12 @@ async function route(req, res) {
     }
     catch (error) { if (error.code === 'ENOENT') return fail(res, 404, 'Web asset not found'); throw error; }
   }
-  if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'sinaloa', time: store.now(), mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha });
+  if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'envoi', time: store.now(), mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha });
   if (req.method === 'GET' && url.pathname === '/ready') {
     const readiness = await readinessReport();
     return json(res, readiness.ready ? 200 : 503, readiness);
   }
-  if (req.method === 'GET' && url.pathname === '/api/email-transport/status') return json(res, 200, { ...emailTransport.status(), enabled: externalEmailEnabled, internalAgentDomain: agentDomain, internalIdentityOnly: agentDomain === 'sinaloa.mail' });
+  if (req.method === 'GET' && url.pathname === '/api/email-transport/status') return json(res, 200, { ...emailTransport.status(), enabled: externalEmailEnabled, internalAgentDomain: agentDomain, internalIdentityOnly: agentDomain.endsWith('.mail') });
   if (req.method === 'POST' && url.pathname === '/api/waitlist') {
     res.setHeader('cache-control', 'no-store');
     if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) return fail(res, 415, 'JSON is required');
@@ -2260,7 +2261,7 @@ async function route(req, res) {
     };
     await store.putJson(calendarConnectorPath(pending.inboxId, providerId), connector);
     await audit(pending.inboxId, 'calendar.connected', { provider: providerId, humanId: pending.humanId });
-    const returnUrl = new URL(pending.returnTo || '/', process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`);
+    const returnUrl = new URL(pending.returnTo || '/', process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`);
     returnUrl.searchParams.set('calendarConnected', providerId);
     return redirect(res, returnUrl.toString());
   }
@@ -2568,7 +2569,7 @@ async function route(req, res) {
     if (!provider.clientId || !provider.clientSecret) return fail(res, 503, `${provider.label} is not configured`);
     const state = crypto.randomBytes(32).toString('base64url');
     const pkce = createPkcePair();
-    const publicUrl = (process.env.SINALOA_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
+    const publicUrl = (process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
     const stateRecord = { provider: providerId, inboxId, humanId: human.id, codeVerifier: pkce.verifier, returnTo: `${publicUrl}/?workspace=${encodeURIComponent(inboxId)}`, createdAt: store.now(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), usedAt: null };
     await store.putJson(path.join('auth', 'calendar-oauth', `${hashSecret(state)}.json`), stateRecord);
     const authorizationUrl = new URL(provider.authorizeUrl);
@@ -3713,7 +3714,7 @@ async function route(req, res) {
     if (!asset) return fail(res, 404, 'Asset not found');
     const access = await assetReadAccess(asset, inbox, await assetReader(req, inbox));
     if (!access.allowed || !access.owner) return fail(res, 404, 'ASSET_NOT_FOUND');
-    if (asset.key || process.env.SINALOA_AUTH_MODE === 'production') return fail(res, 410, 'Use the scanner-gated signed download endpoint');
+    if (asset.key || process.env.ENVOI_AUTH_MODE === 'production') return fail(res, 410, 'Use the scanner-gated signed download endpoint');
     res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${asset.name.replace(/"/g, '')}"`, 'x-content-type-options': 'nosniff' });
     return res.end(await readFile(resolvePathWithin(dataDir, 'inboxes', inboxId, 'assets', asset.id, 'content.bin')));
   }
@@ -3750,7 +3751,7 @@ const logOperationalBacklog = () => operationalBacklogSnapshot({ store, scanJobS
 const operationalBacklogLogger = setInterval(() => { void logOperationalBacklog(); }, operationalBacklogLogIntervalMs);
 operationalBacklogLogger.unref?.();
 void logOperationalBacklog();
-const objectQuotaReaper = setInterval(() => objectStorage.reapExpiredUploads({ limit: 25 }).catch(error => console.error('Object upload cleanup failed', { name: error?.name || 'Error', code: error?.code || 'UPLOAD_CLEANUP_FAILED' })), Number(process.env.SINALOA_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
+const objectQuotaReaper = setInterval(() => objectStorage.reapExpiredUploads({ limit: 25 }).catch(error => console.error('Object upload cleanup failed', { name: error?.name || 'Error', code: error?.code || 'UPLOAD_CLEANUP_FAILED' })), Number(process.env.ENVOI_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
 objectQuotaReaper.unref?.();
 const objectScanWorker = scanJobStore ? setInterval(() => { void runObjectScans(); }, objectScanWorkerIntervalMs) : null;
 const objectScanRetentionWorker = scanJobStore ? setInterval(() => { void runObjectScanRetention(); }, objectScanRetentionIntervalMs) : null;
@@ -3768,7 +3769,7 @@ const server = http.createServer((req, res) => route(req, res).catch((error) => 
 }));
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
-server.listen(port, host, () => console.log(`Sinaloa backend listening on http://${host}:${server.address().port}`));
+server.listen(port, host, () => console.log(`Envoi backend listening on http://${host}:${server.address().port}`));
 
 let shutdownStarted = false;
 const shutdown = () => {

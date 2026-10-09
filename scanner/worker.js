@@ -55,7 +55,10 @@ export default {
     if (!((path === '/health' && request.method === 'GET') || (path === '/scan' && request.method === 'POST'))) {
       return json({ error: 'NOT_FOUND' }, 404);
     }
-    if (!await authorized(request, env.SINALOA_SCANNER_TOKEN)) return json({ error: 'UNAUTHORIZED' }, 401);
+    const scannerToken = env.ENVOI_SCANNER_TOKEN ?? env.SINALOA_SCANNER_TOKEN;
+    if (env.ENVOI_SCANNER_TOKEN !== undefined && env.SINALOA_SCANNER_TOKEN !== undefined
+      && env.ENVOI_SCANNER_TOKEN !== env.SINALOA_SCANNER_TOKEN) return json({ error: 'SCANNER_CONFIGURATION_CONFLICT' }, 503);
+    if (!await authorized(request, scannerToken)) return json({ error: 'UNAUTHORIZED' }, 401);
     if (path === '/scan') {
       const length = Number(request.headers.get('content-length'));
       if (Number.isFinite(length) && length > MAX_SCAN_BYTES) return json({ error: 'SCAN_TOO_LARGE' }, 413);

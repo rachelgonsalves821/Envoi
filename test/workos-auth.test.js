@@ -35,8 +35,8 @@ test('WorkOS return paths cannot escape the application origin', () => {
 });
 
 test('WorkOS cookie mutations require a matching CSRF token and exact origin', () => {
-  const previousPublicUrl = process.env.SINALOA_PUBLIC_URL;
-  process.env.SINALOA_PUBLIC_URL = 'https://app.sinaloa.example';
+  const previousPublicUrl = process.env.ENVOI_PUBLIC_URL;
+  process.env.ENVOI_PUBLIC_URL = 'https://app.sinaloa.example';
   try {
     const token = createCsrfToken();
     const cookie = csrfCookieHeader(token).split(';')[0];
@@ -44,8 +44,8 @@ test('WorkOS cookie mutations require a matching CSRF token and exact origin', (
     assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://evil.example', 'x-sinaloa-csrf': token } }), false);
     assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://app.sinaloa.example', 'x-sinaloa-csrf': 'wrong' } }), false);
   } finally {
-    if (previousPublicUrl === undefined) delete process.env.SINALOA_PUBLIC_URL;
-    else process.env.SINALOA_PUBLIC_URL = previousPublicUrl;
+    if (previousPublicUrl === undefined) delete process.env.ENVOI_PUBLIC_URL;
+    else process.env.ENVOI_PUBLIC_URL = previousPublicUrl;
   }
 });
 
@@ -163,8 +163,8 @@ function emittedSessionCookie(auth, req) {
 }
 
 test('authorization binding cookie is private, short-lived and secure in production', () => {
-  const previousMode = process.env.SINALOA_AUTH_MODE;
-  process.env.SINALOA_AUTH_MODE = 'production';
+  const previousMode = process.env.ENVOI_AUTH_MODE;
+  process.env.ENVOI_AUTH_MODE = 'production';
   try {
     const header = authFlowCookieHeader('binding');
     assert.match(header, new RegExp(`^${authFlowCookieName()}=binding;`));
@@ -176,8 +176,8 @@ test('authorization binding cookie is private, short-lived and secure in product
     assert.doesNotMatch(header, /Domain=/);
     assert.match(authFlowCookieHeader('', { clear: true }), /Max-Age=0/);
   } finally {
-    if (previousMode === undefined) delete process.env.SINALOA_AUTH_MODE;
-    else process.env.SINALOA_AUTH_MODE = previousMode;
+    if (previousMode === undefined) delete process.env.ENVOI_AUTH_MODE;
+    else process.env.ENVOI_AUTH_MODE = previousMode;
   }
 });
 

@@ -109,7 +109,7 @@ test('Quick Connect enrollment and setup status remain scoped and secret-free', 
   const { enrollmentId, enrollmentToken, quickConnect } = created.payload;
   assert.deepEqual(quickConnect, {
     version: 1, runtime: 'openclaw', apiUrl: 'https://www.envoi-agents.com', enrollmentToken,
-    expiresAt: created.payload.expiresAt, agentName: 'Potato', address: 'quick-potato@sinaloa.mail'
+    expiresAt: created.payload.expiresAt, agentName: 'Potato', address: 'quick-potato@envoi.mail'
   });
   const statusPath = `/api/inboxes/${workspaceId}/agent-enrollment-tokens/${enrollmentId}/status`;
   const status = async () => api(baseUrl, statusPath, { session: owner.session });
@@ -187,7 +187,7 @@ test('Quick Connect enrollment and setup status remain scoped and secret-free', 
 
 test('setup projection cannot revive revoked families or agents and ignores unknown reports', () => {
   const record = { id: 'enrollment_a', usedAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-01T00:15:00Z', agentInboxId: 'inbox_a' };
-  const agent = { id: 'agent_a', status: 'active', onboardingStatus: 'approved', name: 'Potato', address: 'potato@sinaloa.mail' };
+  const agent = { id: 'agent_a', status: 'active', onboardingStatus: 'approved', name: 'Potato', address: 'potato@envoi.mail' };
   const family = { refreshExpiresAt: '2030-01-01T00:00:00Z', connectionSetup: { version: 1, runtime: 'openclaw', phase: 'ready', gatewayTest: 'passed', checkedAt: '2026-01-01T00:10:00Z' } };
   assert.equal(enrollmentConnectionStatus(record, agent, family).phase, 'ready', 'token expiry is irrelevant after redemption');
   assert.equal(enrollmentConnectionStatus(record, agent, { ...family, revokedAt: '2026-01-02' }).phase, 'revoked');
