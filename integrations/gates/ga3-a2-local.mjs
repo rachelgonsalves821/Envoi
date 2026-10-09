@@ -1,4 +1,4 @@
-// PowerShell: npx vite build --config vite.ga3-worker.config.ts; node integrations/gates/ga3-a2-local.mjs
+// PowerShell: npx vite build --config integrations/gates/worker.vite.config.ts; node integrations/gates/ga3-a2-local.mjs
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -15,7 +15,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const sha = '14ce3c45c0089dfb4314dcc632afebb3588b5104';
 await exec('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd: root });
 assert.equal((await exec('git', ['diff', sha, '--', '.', ':(exclude)integrations/gates', ':(exclude)sdk/typescript/reviews',
-  ':(exclude)vitest.a4-review.config.ts', ':(exclude)vitest.names-review.config.ts', ':(exclude)vite.ga3-worker.config.ts'], { cwd: root })).stdout, '', 'Production sources, fixtures and generated artifacts must match the requested integration SHA');
+  ':(exclude)vitest.a4-review.config.ts', ':(exclude)vitest.names-review.config.ts', ':(exclude)integrations/gates/worker.vite.config.ts'], { cwd: root })).stdout, '', 'Production sources, fixtures and generated artifacts must match the requested integration SHA');
 const artifact = await readFile(path.join(root, 'web/downloads/envoi-connector.mjs'));
 const artifactSha256 = createHash('sha256').update(artifact).digest('hex');
 assert.equal(artifactSha256, JSON.parse(await readFile(path.join(root, 'web/downloads/release.json'))).artifacts['envoi-connector.mjs'].sha256);

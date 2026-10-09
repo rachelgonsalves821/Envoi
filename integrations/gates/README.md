@@ -28,7 +28,7 @@ testing; later scenarios assert identity/token preservation.
 | Revoke | Revoke in-flight handler; real MCP CREDENTIAL_REVOKED persists terminal state and aborts handler; no late completion or further refresh/claim/MCP requests; revoked restart stops before HTTP. |
 
 ```powershell
-npx vite build --config vite.ga3-worker.config.ts
+npx vite build --config integrations/gates/worker.vite.config.ts
 node integrations/gates/ga3-a2-local.mjs
 ```
 
