@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { windowsAccountSid, windowsExecutable } from './windows';
 
 const execute = promisify(execFile);
 
@@ -16,16 +17,14 @@ export async function privateDirectory(directory: string) {
     throw new QuickConnectError('Choose a private state directory without symbolic links');
   }
   if (process.platform === 'win32') {
-    const { stdout } = await execute('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { windowsHide: true });
-    const sid = stdout.match(/S-1-[0-9-]+/)?.[0];
-    if (!sid) throw new QuickConnectError('Could not identify the Windows account for credential protection');
+    const sid = await windowsAccountSid();
     // Replace explicit as well as inherited grants; chmod does not protect files on Windows.
     // Use .NET directly: an inherited PowerShell 7 module path can break Windows
     // PowerShell's Set-Acl autoload. Terminating errors prevent unprotected setup.
     const script = `$ErrorActionPreference='Stop'; $p='${absolute.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${sid}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
     try {
-      await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
-      if ((await readdir(absolute)).length) await execute('icacls.exe', [path.join(absolute, '*'), '/reset', '/T', '/L', '/Q'], { windowsHide: true });
+      await execute(windowsExecutable('powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 20_000 });
+      if ((await readdir(absolute)).length) await execute(windowsExecutable('icacls.exe'), [path.join(absolute, '*'), '/reset', '/T', '/L', '/Q'], { windowsHide: true, timeout: 20_000 });
     } catch { throw new QuickConnectError('Windows could not restrict credential storage to your account. Choose an owned private state directory and retry; this check did not redeem an enrollment token'); }
   } else await chmod(absolute, 0o700);
   return absolute;

@@ -80,9 +80,15 @@ const validStructuredData = (value: unknown) => isRecord(value) && Object.keys(v
 export function parseAgentReply(value: string): BridgeDecision {
   const raw = value.trim();
   if (!raw) throw new Error('Agent produced an empty reply');
+  const fenced = raw.match(/^```(json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
+  const fence = fenced && (fenced[1] || /^[ \t\r\n]*[\[{]/.test(fenced[2])) ? fenced : null;
   let parsed: unknown;
-  try { parsed = JSON.parse(raw); }
-  catch { return { text: raw, intent: 'message' }; }
+  try { parsed = JSON.parse(fence ? fence[2] : raw); }
+  catch {
+    if (fence) throw new Error('Agent returned invalid fenced JSON');
+    if (raw.length > 60_000) throw new Error('Agent reply is too long');
+    return { text: raw, intent: 'message' };
+  }
   if (isRecord(parsed)) {
     const item = parsed;
     if (item.stop === true) return { stop: true };

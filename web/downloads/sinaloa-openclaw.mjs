@@ -53,7 +53,7 @@ async function D(e, t, n, r) {
 		clearTimeout(a), n.signal?.removeEventListener("abort", o);
 	}
 }
-var O = class {
+var ee = class {
 	baseUrl;
 	accessToken;
 	requestTimeoutMs;
@@ -165,7 +165,7 @@ var O = class {
 		return this.request(`/api/inboxes/${encodeURIComponent(e)}/events/delta?${r}`);
 	}
 };
-async function k(e, t, n = {}) {
+async function O(e, t, n = {}) {
 	if (e.method !== "PUT") throw TypeError("Signed upload must use PUT");
 	let r = new URL(e.url);
 	if (r.protocol !== "https:" && !(r.protocol === "http:" && [
@@ -181,7 +181,7 @@ async function k(e, t, n = {}) {
 	}, w(n.timeoutMs));
 	if (!i.ok) throw new C(`Signed upload failed with HTTP ${i.status}`, i.status);
 }
-async function A(e, t, n, r = {}) {
+async function k(e, t, n, r = {}) {
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(n)) throw TypeError("Valid rotationId required");
 	let i = await E(await D(r.fetch || fetch, `${e.replace(/\/$/, "")}/api/agent-token`, {
 		method: "POST",
@@ -201,43 +201,43 @@ async function A(e, t, n, r = {}) {
 }
 //#endregion
 //#region sdk/typescript/src/quick-connect.ts
-var j = [
+var A = [
 	"openclaw",
 	"hermes",
 	"grok"
-], M = class extends TypeError {
+], j = class extends TypeError {
 	constructor(e) {
 		super(e), this.name = "QuickConnectHandoffError";
 	}
 };
-function N(e) {
+function M(e) {
 	let t;
 	try {
 		t = new URL(e);
 	} catch {
-		throw new M("The Envoi URL must be an HTTPS origin");
+		throw new j("The Envoi URL must be an HTTPS origin");
 	}
 	let n = [
 		"localhost",
 		"127.0.0.1",
 		"[::1]"
 	].includes(t.hostname);
-	if (t.protocol !== "https:" && !(t.protocol === "http:" && n)) throw new M("Envoi requires HTTPS; HTTP is supported only on loopback for development");
-	if (t.username || t.password || t.search || t.hash || t.pathname !== "/") throw new M("The Envoi URL must be an origin without credentials, a path, or a query");
+	if (t.protocol !== "https:" && !(t.protocol === "http:" && n)) throw new j("Envoi requires HTTPS; HTTP is supported only on loopback for development");
+	if (t.username || t.password || t.search || t.hash || t.pathname !== "/") throw new j("The Envoi URL must be an origin without credentials, a path, or a query");
 	return t.origin;
 }
-function ee(e, t = {}) {
-	if (!e || typeof e != "object" || Array.isArray(e)) throw new M("Invalid Envoi setup file");
+function te(e, t = {}) {
+	if (!e || typeof e != "object" || Array.isArray(e)) throw new j("Invalid Envoi setup file");
 	let n = e;
-	if (n.version !== 1 || !j.includes(n.runtime)) throw new M("Unsupported Envoi setup version or runtime");
-	if (n.operation !== void 0 && !["enroll", "reconnect"].includes(n.operation)) throw new M("Unsupported setup operation");
-	if (typeof n.apiUrl != "string") throw new M("The setup file is missing the Envoi URL");
-	let r = N(n.apiUrl);
-	if (typeof n.enrollmentToken != "string" || !/^[A-Za-z0-9_-]{20,256}$/.test(n.enrollmentToken)) throw new M("The setup file has an invalid one-time enrollment token");
-	if (typeof n.expiresAt != "string" || !Number.isFinite(Date.parse(n.expiresAt))) throw new M("The setup file has an invalid expiry");
-	if (!t.allowExpired && Date.parse(n.expiresAt) <= (t.now ?? Date.now())) throw new M("This setup link expired. Create a new connection in Envoi and copy its setup prompt");
-	if (typeof n.agentName != "string" || !n.agentName.trim() || n.agentName.length > 200) throw new M("The setup file has an invalid agent name");
-	if (typeof n.address != "string" || !/^[a-z][a-z0-9.-]{2,31}@[a-z0-9.-]+$/i.test(n.address) || n.address.length > 254) throw new M("The setup file has an invalid Envoi address");
+	if (n.version !== 1 || !A.includes(n.runtime)) throw new j("Unsupported Envoi setup version or runtime");
+	if (n.operation !== void 0 && !["enroll", "reconnect"].includes(n.operation)) throw new j("Unsupported setup operation");
+	if (typeof n.apiUrl != "string") throw new j("The setup file is missing the Envoi URL");
+	let r = M(n.apiUrl);
+	if (typeof n.enrollmentToken != "string" || !/^[A-Za-z0-9_-]{20,256}$/.test(n.enrollmentToken)) throw new j("The setup file has an invalid one-time enrollment token");
+	if (typeof n.expiresAt != "string" || !Number.isFinite(Date.parse(n.expiresAt))) throw new j("The setup file has an invalid expiry");
+	if (!t.allowExpired && Date.parse(n.expiresAt) <= (t.now ?? Date.now())) throw new j("This setup link expired. Create a new connection in Envoi and copy its setup prompt");
+	if (typeof n.agentName != "string" || !n.agentName.trim() || n.agentName.length > 200) throw new j("The setup file has an invalid agent name");
+	if (typeof n.address != "string" || !/^[a-z][a-z0-9.-]{2,31}@[a-z0-9.-]+$/i.test(n.address) || n.address.length > 254) throw new j("The setup file has an invalid Envoi address");
 	return {
 		version: 1,
 		runtime: n.runtime,
@@ -251,26 +251,26 @@ function ee(e, t = {}) {
 }
 //#endregion
 //#region sdk/typescript/src/connector.ts
-function P(e) {
+function N(e) {
 	return e.kind === "humanInstruction";
 }
-function te(e) {
+function ne(e) {
 	let t = (e) => typeof e == "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e);
 	if (e.senderType !== "human" || e.type !== "instruction" || !t(e.senderHumanId) || !t(e.recipientInboxId) || !t(e.caseId) || typeof e.text != "string" || !e.text.trim() || !e.from || typeof e.from != "object" || Array.isArray(e.from) || e.from.humanId !== e.senderHumanId || Object.keys(e.from).some((e) => e !== "humanId") || "senderAgentId" in e || "senderInboxId" in e || "senderEmail" in e) throw new C("Envoi returned an invalid human instruction");
 }
-var F = class extends Error {
+var P = class extends Error {
 	requestId;
 	status;
 	constructor(e, t) {
 		super("Connector credential persistence failed; stop this installation and recover its saved rotation state"), this.requestId = e, this.status = t, this.name = "ConnectorPersistenceError";
 	}
-}, I = class extends C {
+}, F = class extends C {
 	requestId;
 	constructor(e, t, n) {
 		super(`Envoi enrollment failed (${e}${n ? `; HTTP ${n}` : ""})`, n, e), this.requestId = t, this.name = "ConnectorEnrollmentError";
 	}
 };
-function ne(e) {
+function re(e) {
 	if (e?.code === "ACTIVE_AGENT_LIMIT" || e?.error === "ACTIVE_AGENT_LIMIT") return "ENROLLMENT_AGENT_LIMIT";
 	if (e?.error === "AUTH_UNAVAILABLE") return "ENROLLMENT_AUTH_UNAVAILABLE";
 	switch (e?.error === "REQUEST_FAILED" ? e.message : e?.error) {
@@ -282,16 +282,16 @@ function ne(e) {
 		default: return "ENROLLMENT_HTTP_ERROR";
 	}
 }
-var re = class extends Error {
+var ie = class extends Error {
 	constructor() {
 		super("Envoi fenced work API is unavailable; agent processing cannot start"), this.name = "ConnectorContractError";
 	}
-}, L = class extends Error {
+}, I = class extends Error {
 	constructor() {
 		super("Connector credentials are missing or expired; re-enrollment is required"), this.name = "ConnectorCredentialsError";
 	}
 };
-function ie(e) {
+function ae(e) {
 	let t = new URL(e), n = [
 		"localhost",
 		"127.0.0.1",
@@ -301,22 +301,22 @@ function ie(e) {
 	if (t.username || t.password || t.search || t.hash) throw TypeError("Connector API URL cannot contain credentials or a query");
 	return t.toString().replace(/\/$/, "");
 }
-function R(e) {
-	if (!e || !e.agentId || !e.inboxId || !e.agentApiToken || !e.agentRefreshToken || !Number.isFinite(Date.parse(e.agentTokenExpiresAt)) || !Number.isFinite(Date.parse(e.agentRefreshTokenExpiresAt))) throw new L();
+function L(e) {
+	if (!e || !e.agentId || !e.inboxId || !e.agentApiToken || !e.agentRefreshToken || !Number.isFinite(Date.parse(e.agentTokenExpiresAt)) || !Number.isFinite(Date.parse(e.agentRefreshTokenExpiresAt))) throw new I();
 	return e;
 }
-async function ae(e) {
+async function oe(e) {
 	let t = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(e));
 	return Array.from(new Uint8Array(t), (e) => e.toString(16).padStart(2, "0")).join("");
 }
-function oe(e) {
+function se(e) {
 	if (typeof e.id != "string" || typeof e.type != "string" || typeof e.cursor != "string" || !e.cursor) throw new C("Envoi returned an invalid event");
 	return e;
 }
-async function se(e, t, n, r = {}) {
-	let i = ie(e);
+async function ce(e, t, n, r = {}) {
+	let i = ae(e);
 	if (!t) throw TypeError("Enrollment token is required");
-	if (r.runtime !== void 0 && !j.includes(r.runtime)) throw TypeError("Unsupported connector runtime");
+	if (r.runtime !== void 0 && !A.includes(r.runtime)) throw TypeError("Unsupported connector runtime");
 	let a = new AbortController(), o = r.timeoutMs ?? 3e4;
 	if (!Number.isSafeInteger(o) || o < 1 || o > 3e5) throw RangeError("timeoutMs must be an integer from 1 to 300000");
 	let s = crypto.randomUUID(), c = setTimeout(() => a.abort(), o);
@@ -337,19 +337,19 @@ async function se(e, t, n, r = {}) {
 				signal: a.signal
 			});
 		} catch {
-			throw new I(a.signal.aborted ? "ENROLLMENT_TIMEOUT" : "ENROLLMENT_TRANSPORT_FAILED", s);
+			throw new F(a.signal.aborted ? "ENROLLMENT_TIMEOUT" : "ENROLLMENT_TRANSPORT_FAILED", s);
 		}
 		let o = null;
 		try {
 			let t = await e.json();
 			t && typeof t == "object" && !Array.isArray(t) && (o = t);
 		} catch {
-			if (a.signal.aborted) throw new I("ENROLLMENT_TIMEOUT", s, e.status);
+			if (a.signal.aborted) throw new F("ENROLLMENT_TIMEOUT", s, e.status);
 		}
-		if (!e.ok) throw new I(ne(o), s, e.status);
+		if (!e.ok) throw new F(re(o), s, e.status);
 		let c = o?.agent, l = o?.inbox, u;
 		try {
-			u = R({
+			u = L({
 				agentId: String(c?.id || ""),
 				inboxId: String(l?.id || ""),
 				address: String(c?.address || ""),
@@ -360,20 +360,20 @@ async function se(e, t, n, r = {}) {
 				cursor: null
 			});
 		} catch {
-			throw new I("ENROLLMENT_RESPONSE_INVALID", s, e.status);
+			throw new F("ENROLLMENT_RESPONSE_INVALID", s, e.status);
 		}
-		if (!u.address) throw new I("ENROLLMENT_RESPONSE_INVALID", s, e.status);
+		if (!u.address) throw new F("ENROLLMENT_RESPONSE_INVALID", s, e.status);
 		try {
 			await n.save(u);
 		} catch {
-			throw new F(s, e.status);
+			throw new P(s, e.status);
 		}
 		return u;
 	} finally {
 		clearTimeout(c);
 	}
 }
-var ce = class {
+var le = class {
 	store;
 	options;
 	origin;
@@ -382,7 +382,7 @@ var ce = class {
 	refreshSkewMs;
 	refreshInFlight = null;
 	constructor(e, t, n = {}) {
-		if (this.store = t, this.options = n, this.origin = ie(e), this.pageSize = n.pageSize ?? 100, this.pollIntervalMs = n.pollIntervalMs ?? 5e3, this.refreshSkewMs = n.refreshSkewMs ?? 6e4, !Number.isSafeInteger(this.pageSize) || this.pageSize < 1 || this.pageSize > 200) throw RangeError("pageSize must be from 1 to 200");
+		if (this.store = t, this.options = n, this.origin = ae(e), this.pageSize = n.pageSize ?? 100, this.pollIntervalMs = n.pollIntervalMs ?? 5e3, this.refreshSkewMs = n.refreshSkewMs ?? 6e4, !Number.isSafeInteger(this.pageSize) || this.pageSize < 1 || this.pageSize > 200) throw RangeError("pageSize must be from 1 to 200");
 		if (!Number.isSafeInteger(this.pollIntervalMs) || this.pollIntervalMs < 1) throw RangeError("pollIntervalMs must be positive");
 		if (!Number.isSafeInteger(this.refreshSkewMs) || this.refreshSkewMs < 0) throw RangeError("refreshSkewMs must be nonnegative");
 		if (n.timeoutMs !== void 0 && (!Number.isSafeInteger(n.timeoutMs) || n.timeoutMs < 1 || n.timeoutMs > 3e5)) throw RangeError("timeoutMs must be an integer from 1 to 300000");
@@ -390,11 +390,11 @@ var ce = class {
 	async freshSession(e = !1) {
 		if (this.refreshInFlight) return this.refreshInFlight;
 		this.refreshInFlight = (async () => {
-			let t = R(await this.store.load());
+			let t = L(await this.store.load());
 			if (!e && !t.pendingRotation && Date.parse(t.agentTokenExpiresAt) > Date.now() + this.refreshSkewMs) return t;
-			if (Date.parse(t.agentRefreshTokenExpiresAt) <= Date.now()) throw new L();
-			let n = await ae(t.agentRefreshToken);
-			if (t.pendingRotation && t.pendingRotation.refreshTokenFingerprint !== n) throw new L();
+			if (Date.parse(t.agentRefreshTokenExpiresAt) <= Date.now()) throw new I();
+			let n = await oe(t.agentRefreshToken);
+			if (t.pendingRotation && t.pendingRotation.refreshTokenFingerprint !== n) throw new I();
 			let r = t.pendingRotation || {
 				rotationId: crypto.randomUUID(),
 				refreshTokenFingerprint: n,
@@ -406,16 +406,16 @@ var ce = class {
 					pendingRotation: r
 				});
 			} catch {
-				throw new F();
+				throw new P();
 			}
-			let i = await A(this.origin, t.agentRefreshToken, r.rotationId, this.options), { pendingRotation: a, ...o } = t, s = R({
+			let i = await k(this.origin, t.agentRefreshToken, r.rotationId, this.options), { pendingRotation: a, ...o } = t, s = L({
 				...o,
 				...i
 			});
 			try {
 				await this.store.save(s);
 			} catch {
-				throw new F();
+				throw new P();
 			}
 			return s;
 		})();
@@ -431,17 +431,17 @@ var ce = class {
 			return await e(t);
 		} catch (n) {
 			if (!(n instanceof C) || n.status !== 401) throw n;
-			let r = R(await this.store.load());
+			let r = L(await this.store.load());
 			return e(r.agentApiToken === t.agentApiToken ? await this.freshSession(!0) : r);
 		}
 	}
 	withFreshClient(e) {
-		return this.withFreshSession((t) => e(new O(this.origin, t.agentApiToken, this.options), t));
+		return this.withFreshSession((t) => e(new ee(this.origin, t.agentApiToken, this.options), t));
 	}
 	async currentAccessToken(e = this.refreshSkewMs) {
 		if (!Number.isSafeInteger(e) || e < 0 || e > 3e5) throw RangeError("minValidityMs must be an integer from 0 to 300000");
 		let t = await this.freshSession();
-		if (Date.parse(t.agentTokenExpiresAt) <= Date.now() + e && (t = await this.freshSession(!0)), Date.parse(t.agentTokenExpiresAt) <= Date.now() + e) throw new L();
+		if (Date.parse(t.agentTokenExpiresAt) <= Date.now() + e && (t = await this.freshSession(!0)), Date.parse(t.agentTokenExpiresAt) <= Date.now() + e) throw new I();
 		return t.agentApiToken;
 	}
 	mintMcpReadToken(e = null) {
@@ -568,13 +568,13 @@ var ce = class {
 			return await r(i.agentApiToken);
 		} catch (e) {
 			if (!(e instanceof C) || e.status !== 401) throw e;
-			let t = R(await this.store.load());
+			let t = L(await this.store.load());
 			return r((t.agentApiToken === i.agentApiToken ? await this.freshSession(!0) : t).agentApiToken);
 		}
 	}
 	async reply(e, t, n, r = {}, i) {
-		if (P(e)) {
-			if (te(e), !n || n.length > 200 || /[\x00-\x1f\x7f]/.test(n)) throw TypeError("A stable reply idempotency key is required");
+		if (N(e)) {
+			if (ne(e), !n || n.length > 200 || /[\x00-\x1f\x7f]/.test(n)) throw TypeError("A stable reply idempotency key is required");
 			if (Object.keys(r).length) throw TypeError("Human instruction replies accept text only");
 			if (!i) throw TypeError("A current work lease token is required for a human instruction reply");
 			let a = await this.postWork(`/api/agent/instructions/${encodeURIComponent(e.id)}/reply`, {
@@ -605,14 +605,14 @@ var ce = class {
 				404,
 				405,
 				501
-			].includes(e.status || 0) ? new re() : e;
+			].includes(e.status || 0) ? new ie() : e;
 		}
 		if (n.work === null) return !1;
 		let r = n.work;
 		if (!r || typeof r.workId != "string" || typeof r.leaseToken != "string" || !Number.isFinite(Date.parse(r.leaseExpiresAt)) || typeof r.message?.id != "string" || !r.message.id) throw new C("Envoi returned an invalid work claim");
-		let i = R(await this.store.load());
-		if (P(r.message)) {
-			if (te(r.message), r.message.recipientInboxId !== i.inboxId) throw new C("Envoi returned work for the wrong inbox");
+		let i = L(await this.store.load());
+		if (N(r.message)) {
+			if (ne(r.message), r.message.recipientInboxId !== i.inboxId) throw new C("Envoi returned work for the wrong inbox");
 		} else if (r.message.senderType === "human" || "senderHumanId" in r.message || r.message.from && "humanId" in r.message.from || !r.message.from?.address) throw new C("Envoi returned an invalid native work sender");
 		if (r.message.recipientAgentId !== i.agentId || r.message.status === "processed") throw new C("Envoi returned work for the wrong recipient");
 		let a = `/api/agent/work/${encodeURIComponent(r.workId)}`, o = globalThis.crypto.randomUUID(), s = `connector:${r.message.id}:${o}:ack`, c = `connector:${r.message.id}:${o}:complete`, l = new AbortController(), u = () => l.abort();
@@ -620,7 +620,7 @@ var ce = class {
 		let d = r.leaseExpiresAt, f = null, p = (async () => {
 			for (; !l.signal.aborted;) {
 				let e = Date.parse(d) - Date.now();
-				if (await le(Math.max(100, Math.min(3e4, Math.floor(e / 3))), l.signal), l.signal.aborted) break;
+				if (await R(Math.max(100, Math.min(3e4, Math.floor(e / 3))), l.signal), l.signal.aborted) break;
 				try {
 					let e = await this.postWork(`${a}/renew`, { leaseToken: r.leaseToken });
 					if (e.workId !== r.workId || e.leaseToken !== r.leaseToken || !Number.isFinite(Date.parse(e.leaseExpiresAt))) throw new C("Envoi returned an invalid lease renewal");
@@ -644,9 +644,9 @@ var ce = class {
 					if (l.signal.aborted || e?.aborted || Date.parse(d) <= Date.now()) throw new C("Work lease is no longer valid for a reply");
 					try {
 						let e = await this.reply(r.message, t, n, i, r.leaseToken);
-						return P(r.message) && (g = null), e;
+						return N(r.message) && (g = null), e;
 					} catch (e) {
-						throw P(r.message) && (g = e), e;
+						throw N(r.message) && (g = e), e;
 					}
 				}
 			}), g) throw g;
@@ -666,7 +666,7 @@ var ce = class {
 		}
 	}
 	async pollOnce() {
-		let e = await this.freshSession(), t = new O(this.origin, e.agentApiToken, this.options), n;
+		let e = await this.freshSession(), t = new ee(this.origin, e.agentApiToken, this.options), n;
 		try {
 			n = await t.delta(e.inboxId, e.cursor || void 0, this.pageSize);
 		} catch (r) {
@@ -676,10 +676,10 @@ var ce = class {
 		if (!Array.isArray(n.events) || typeof n.hasMore != "boolean" || n.hasMore && n.events.length === 0) throw new C("Envoi returned an invalid event page");
 		let r = 0;
 		for (let t of n.events) {
-			let n = oe(t);
+			let n = se(t);
 			if (e.cursor && n.cursor <= e.cursor) throw new C("Envoi event cursor did not advance");
 			await this.options.onEvent?.(n);
-			let i = R(await this.store.load());
+			let i = L(await this.store.load());
 			if (i.agentId !== e.agentId || i.inboxId !== e.inboxId) throw new C("Connector session changed while reading events");
 			e = {
 				...i,
@@ -700,17 +700,17 @@ var ce = class {
 			}
 			let n = await this.pollOnce();
 			if (t = 0, n.hasMore) continue;
-			await le(this.pollIntervalMs, e);
+			await R(this.pollIntervalMs, e);
 		} catch (n) {
 			if (e.aborted) break;
-			if (n instanceof F || n instanceof re || n instanceof L || n instanceof C && [401, 403].includes(n.status || 0)) throw n;
+			if (n instanceof P || n instanceof ie || n instanceof I || n instanceof C && [401, 403].includes(n.status || 0)) throw n;
 			t += 1;
 			let r = Math.min(3e4, 500 * 2 ** Math.min(t, 6));
-			await le(Math.round(r / 2 + Math.random() * r / 2), e);
+			await R(Math.round(r / 2 + Math.random() * r / 2), e);
 		}
 	}
 };
-function le(e, t) {
+function R(e, t) {
 	return t.aborted ? Promise.resolve() : new Promise((n) => {
 		let r = setTimeout(i, e);
 		function i() {
@@ -765,7 +765,7 @@ var z = (e) => {
 			await u(t, JSON.stringify({
 				id: e.id,
 				caseId: e.caseId || null,
-				kind: P(e) ? "humanInstruction" : "nativeAgentMessage",
+				kind: N(e) ? "humanInstruction" : "nativeAgentMessage",
 				admittedAt: (/* @__PURE__ */ new Date()).toISOString()
 			}), {
 				flag: "wx",
@@ -967,22 +967,22 @@ async function ge(e = {}) {
 	let E = [...new Set(T)], D = e.agentId ?? t.OPENCLAW_AGENT_ID ?? l?.agentId;
 	if (!D && E.length > 1) throw new V(`Choose the agent to connect by setting OPENCLAW_AGENT_ID. Available agents: ${E.join(", ")}.`);
 	if (D ??= E[0] ?? "main", E.length && !E.includes(D)) throw new V(`The selected OpenClaw agent is not configured. Set OPENCLAW_AGENT_ID to one of: ${E.join(", ")}.`);
-	let O = U(U(U(u.http).endpoints).chatCompletions).enabled === !0, k, A = f[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
+	let ee = U(U(U(u.http).endpoints).chatCompletions).enabled === !0, O, k = f[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
 	try {
-		k = he(y ?? A, t, y ? "token" : _);
+		O = he(y ?? k, t, y ? "token" : _);
 	} catch (t) {
-		let n = U(A), r = typeof A == "string" ? A.includes("${") && !A.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && ue.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
+		let n = U(k), r = typeof k == "string" ? k.includes("${") && !k.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && ue.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
 		if (y || !r || !i || W(i.gatewayUrl) !== x) throw t;
-		k = i.gatewayToken;
+		O = i.gatewayToken;
 	}
-	let j = {
+	let A = {
 		gatewayUrl: x,
-		gatewayToken: k,
+		gatewayToken: O,
 		agentId: D,
 		configPath: s,
-		chatCompletionsEnabled: c && !v ? O : void 0
+		chatCompletionsEnabled: c && !v ? ee : void 0
 	};
-	return G(j), j;
+	return G(A), A;
 }
 async function _e(e, t = {}) {
 	let n = G(e);
@@ -1035,9 +1035,39 @@ async function _e(e, t = {}) {
 	}
 }
 //#endregion
+//#region integrations/connector/adapter.ts
+var ve = class extends Error {
+	code;
+	constructor(e, t) {
+		super(t), this.code = e, this.name = "ConnectorSetupError";
+	}
+}, ye = b(y);
+function K(e, t = process.env) {
+	let n = Object.entries(t).find(([e]) => e.toLowerCase() === "systemroot")?.[1] ?? Object.entries(t).find(([e]) => e.toLowerCase() === "windir")?.[1];
+	if (!n || !/^[A-Za-z]:[\\/]/.test(n) || /[\x00-\x1f<>"|?*]/.test(n)) throw new ve("WINDOWS_HELPER_UNAVAILABLE", "Windows system directory could not be located. Run the connector from a normal Windows terminal with SystemRoot set; preserve any saved connection for retry.");
+	return e === "powershell.exe" ? f.win32.join(n, "System32", "WindowsPowerShell", "v1.0", e) : f.win32.join(n, "System32", e);
+}
+async function be() {
+	try {
+		let { stdout: e } = await ye(K("whoami.exe"), [
+			"/user",
+			"/fo",
+			"csv",
+			"/nh"
+		], {
+			windowsHide: !0,
+			timeout: 1e4
+		}), t = e.match(/\bS-1-[0-9]+(?:-[0-9]+)+\b/)?.[0];
+		if (!t) throw Error();
+		return t;
+	} catch {
+		throw new ve("WINDOWS_ACCOUNT_UNAVAILABLE", "Could not identify the current Windows account for private credential storage or user startup. Run the connector from your Windows account; preserve any saved connection for retry.");
+	}
+}
+//#endregion
 //#region integrations/connector/store.ts
-var K = b(y);
-async function ve(t) {
+var xe = b(y);
+async function Se(t) {
 	let i = f.resolve(t);
 	await r(i, {
 		recursive: !0,
@@ -1046,34 +1076,33 @@ async function ve(t) {
 	let a = f.resolve(await s(i));
 	if ((await n(i)).isSymbolicLink() || (process.platform === "win32" ? a.toLowerCase() !== i.toLowerCase() : a !== i)) throw new S("Choose a private state directory without symbolic links");
 	if (process.platform === "win32") {
-		let { stdout: e } = await K("whoami.exe", [
-			"/user",
-			"/fo",
-			"csv",
-			"/nh"
-		], { windowsHide: !0 }), t = e.match(/S-1-[0-9-]+/)?.[0];
-		if (!t) throw new S("Could not identify the Windows account for credential protection");
-		let n = `$ErrorActionPreference='Stop'; $p='${i.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${t}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
+		let e = await be(), t = `$ErrorActionPreference='Stop'; $p='${i.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${e}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
 		try {
-			await K("powershell.exe", [
+			await xe(K("powershell.exe"), [
 				"-NoProfile",
 				"-NonInteractive",
 				"-Command",
-				n
-			], { windowsHide: !0 }), (await o(i)).length && await K("icacls.exe", [
+				t
+			], {
+				windowsHide: !0,
+				timeout: 2e4
+			}), (await o(i)).length && await xe(K("icacls.exe"), [
 				f.join(i, "*"),
 				"/reset",
 				"/T",
 				"/L",
 				"/Q"
-			], { windowsHide: !0 });
+			], {
+				windowsHide: !0,
+				timeout: 2e4
+			});
 		} catch {
 			throw new S("Windows could not restrict credential storage to your account. Choose an owned private state directory and retry; this check did not redeem an enrollment token");
 		}
 	} else await e(i, 448);
 	return i;
 }
-async function ye(e, t) {
+async function Ce(e, t) {
 	let n = `${e}.${g()}.tmp`, r = await i(n, "wx", 384);
 	try {
 		await r.writeFile(JSON.stringify(t, null, 2));
@@ -1086,7 +1115,7 @@ async function ye(e, t) {
 		await l(n, { force: !0 });
 	}
 }
-async function be(e) {
+async function we(e) {
 	let t = f.join(e, "connector.lock"), n = {
 		pid: process.pid,
 		nonce: g()
@@ -1139,9 +1168,9 @@ async function be(e) {
 }
 //#endregion
 //#region integrations/connector/service.ts
-var q = b(y), J = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), xe = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, Se = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`;
-function Ce(e, t = {}) {
-	if (t.runtime && !j.includes(t.runtime)) throw new S("Unsupported startup runtime");
+var q = b(y), J = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), Te = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, Ee = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`;
+function De(e, t = {}) {
+	if (t.runtime && !A.includes(t.runtime)) throw new S("Unsupported startup runtime");
 	let n = t.platform ?? process.platform, r = t.home ?? d(), i = t.node ?? process.execPath;
 	if ([
 		e,
@@ -1158,7 +1187,7 @@ function Ce(e, t = {}) {
 	if (n === "linux") return {
 		name: o,
 		filename: f.join(r, ".config", "systemd", "user", `${o}.service`),
-		contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[i, ...s].map(xe).join(" ")}\nWorkingDirectory=${xe(e)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`,
+		contents: `[Unit]\nDescription=Envoi agent connector\nStartLimitIntervalSec=300\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=${[i, ...s].map(Te).join(" ")}\nWorkingDirectory=${Te(e)}\nRestart=on-failure\nRestartSec=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`,
 		commands: [{
 			executable: "systemctl",
 			args: ["--user", "daemon-reload"]
@@ -1194,9 +1223,9 @@ function Ce(e, t = {}) {
 		return {
 			name: o,
 			filename: n,
-			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${J(t.user)}</UserId></LogonTrigger></Triggers><Principals><Principal id="Author"><UserId>${J(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${J(i)}</Command><Arguments>${J(s.map(Se).join(" "))}</Arguments><WorkingDirectory>${J(e)}</WorkingDirectory></Exec></Actions></Task>`,
+			contents: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${J(t.user)}</UserId></LogonTrigger></Triggers><Principals><Principal id="Author"><UserId>${J(t.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>5</Count></RestartOnFailure></Settings><Actions Context="Author"><Exec><Command>${J(i)}</Command><Arguments>${J(s.map(Ee).join(" "))}</Arguments><WorkingDirectory>${J(e)}</WorkingDirectory></Exec></Actions></Task>`,
 			commands: [{
-				executable: "schtasks.exe",
+				executable: K("schtasks.exe", t.env),
 				args: [
 					"/Create",
 					"/TN",
@@ -1206,7 +1235,7 @@ function Ce(e, t = {}) {
 					"/F"
 				]
 			}, {
-				executable: "schtasks.exe",
+				executable: K("schtasks.exe", t.env),
 				args: [
 					"/Run",
 					"/TN",
@@ -1217,11 +1246,11 @@ function Ce(e, t = {}) {
 	}
 	throw new S("Automatic startup supports Linux systemd, macOS launchd and Windows Task Scheduler. Use your host process supervisor");
 }
-async function we() {
+async function Oe() {
 	try {
 		if (process.platform === "linux") await q("systemctl", ["--user", "show-environment"], { timeout: 1e4 });
 		else if (process.platform === "darwin") await q("launchctl", ["list"], { timeout: 1e4 });
-		else if (process.platform === "win32") await q("schtasks.exe", [
+		else if (process.platform === "win32") await q(K("schtasks.exe"), [
 			"/Query",
 			"/FO",
 			"CSV",
@@ -1235,19 +1264,11 @@ async function we() {
 		throw new S("A user startup service is unavailable. Run setup without --install-service and use your host process supervisor to run the printed start command");
 	}
 }
-async function Te(e, t = "openclaw") {
-	await we();
+async function ke(e, t = "openclaw") {
+	await Oe();
 	let n;
-	if (process.platform === "win32") {
-		let { stdout: e } = await q("whoami.exe", [
-			"/user",
-			"/fo",
-			"csv",
-			"/nh"
-		], { windowsHide: !0 });
-		n = e.match(/S-1-[0-9-]+/)?.[0];
-	}
-	let i = Ce(e, {
+	process.platform === "win32" && (n = await be());
+	let i = De(e, {
 		user: n,
 		runtime: t
 	});
@@ -1267,7 +1288,7 @@ async function Te(e, t = "openclaw") {
 }
 //#endregion
 //#region integrations/agent-bridges/bridge.ts
-function Ee(e, t) {
+function Ae(e, t) {
 	if (![
 		"sinaloa_send_message",
 		"sinaloa_send_proposal",
@@ -1276,9 +1297,9 @@ function Ee(e, t) {
 	let n = t.idempotencyKey;
 	return (typeof n == "string" ? /^bridge:([A-Za-z0-9][A-Za-z0-9_-]{0,127}):reply:1$/.exec(n) : null)?.[1] ?? null;
 }
-function De(e, t) {
+function je(e, t) {
 	return async (n, r) => {
-		if (P(n)) return e(n, r);
+		if (N(n)) return e(n, r);
 		if (await t(n.id)) return { stop: !0 };
 		try {
 			let i = await e(n, r);
@@ -1289,18 +1310,18 @@ function De(e, t) {
 		}
 	};
 }
-function Oe(e, t, n) {
+function Me(e, t, n) {
 	return {
 		admit: (t) => e.admit(t),
 		async process(r, i) {
 			let a = await e.replyFor(r.id);
 			if (!a) {
-				if (a = !P(r) && r.intent === "receipt" ? { stop: !0 } : await t(r, i.signal), !("stop" in a) && !a.text.trim()) throw Error("Agent produced an empty reply");
+				if (a = !N(r) && r.intent === "receipt" ? { stop: !0 } : await t(r, i.signal), !("stop" in a) && !a.text.trim()) throw Error("Agent produced an empty reply");
 				await e.saveReply(r.id, a);
 			}
 			if (i.signal.aborted) throw Error("Work lease was interrupted");
 			if ("stop" in a) return;
-			if (P(r)) {
+			if (N(r)) {
 				if (a.assetHandle || a.proposal || a.decision || a.intent !== "message") throw Error("Human instruction replies accept a local text message only");
 				await i.reply(a.text, `bridge:${r.id}:reply:1`);
 				return;
@@ -1318,7 +1339,7 @@ function Oe(e, t, n) {
 		}
 	};
 }
-var ke = /* @__PURE__ */ new Set([
+var Ne = /* @__PURE__ */ new Set([
 	"request",
 	"offer",
 	"counteroffer",
@@ -1330,32 +1351,34 @@ var ke = /* @__PURE__ */ new Set([
 	"status",
 	"receipt",
 	"message"
-]), Y = (e) => !(!e || typeof e != "object" || Array.isArray(e)), Ae = (e) => Y(e) && Object.keys(e).length > 0 && Object.keys(e).length <= 32 && JSON.stringify(e).length <= 16e3;
-function je(e) {
+]), Y = (e) => !(!e || typeof e != "object" || Array.isArray(e)), Pe = (e) => Y(e) && Object.keys(e).length > 0 && Object.keys(e).length <= 32 && JSON.stringify(e).length <= 16e3;
+function Fe(e) {
 	let t = e.trim();
 	if (!t) throw Error("Agent produced an empty reply");
-	let n;
+	let n = t.match(/^```(json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i), r = n && (n[1] || /^[ \t\r\n]*[\[{]/.test(n[2])) ? n : null, i;
 	try {
-		n = JSON.parse(t);
+		i = JSON.parse(r ? r[2] : t);
 	} catch {
+		if (r) throw Error("Agent returned invalid fenced JSON");
+		if (t.length > 6e4) throw Error("Agent reply is too long");
 		return {
 			text: t,
 			intent: "message"
 		};
 	}
-	if (Y(n)) {
-		let e = n;
+	if (Y(i)) {
+		let e = i;
 		if (e.stop === !0) return { stop: !0 };
-		if (typeof e.text == "string" && e.text.trim() && typeof e.intent == "string" && ke.has(e.intent)) {
+		if (typeof e.text == "string" && e.text.trim() && typeof e.intent == "string" && Ne.has(e.intent)) {
 			let t = e.intent;
 			if (e.proposal !== void 0 || e.decision !== void 0) {
 				if (e.proposal !== void 0 && e.decision !== void 0) throw Error("Agent returned conflicting structured data");
-				if (e.proposal !== void 0 && (!["offer", "counteroffer"].includes(t) || !Ae(e.proposal))) throw Error("Agent returned an invalid proposal");
+				if (e.proposal !== void 0 && (!["offer", "counteroffer"].includes(t) || !Pe(e.proposal))) throw Error("Agent returned an invalid proposal");
 				if (e.decision !== void 0 && (![
 					"accept",
 					"reject",
 					"clarify"
-				].includes(t) || !Ae(e.decision))) throw Error("Agent returned an invalid decision");
+				].includes(t) || !Pe(e.decision))) throw Error("Agent returned an invalid decision");
 			}
 			if (e.assetHandle !== void 0 && (t !== "message" || e.proposal !== void 0 || e.decision !== void 0 || typeof e.assetHandle != "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(e.assetHandle) || Object.keys(e).some((e) => ![
 				"text",
@@ -1379,8 +1402,8 @@ function je(e) {
 		intent: "message"
 	};
 }
-function Me(e, t = [], n = {}) {
-	let r = P(e), i = t.slice(-20).map((e) => ({
+function Ie(e, t = [], n = {}) {
+	let r = N(e), i = t.slice(-20).map((e) => ({
 		id: e.id,
 		from: e.senderAgentId || e.from,
 		intent: e.intent,
@@ -1414,7 +1437,7 @@ function Me(e, t = [], n = {}) {
 }
 //#endregion
 //#region integrations/agent-bridges/asset-exchange.ts
-async function Ne(e) {
+async function Le(e) {
 	if (!e.idempotencyKey || e.idempotencyKey.length > 160 || /[\x00-\x1f\x7f]/.test(e.idempotencyKey)) throw TypeError("A stable asset exchange idempotency key is required");
 	if (!e.caseId || !e.recipientAgentId || !e.recipientAddress || !e.text.trim() || !(e.bytes instanceof Uint8Array) || e.bytes.byteLength === 0) throw TypeError("A case, recipient, nonempty text and file bytes are required");
 	let t = h("sha256").update(e.bytes).digest("base64"), n = await e.connector.beginAssetUpload(`${e.idempotencyKey}:upload`, {
@@ -1427,7 +1450,7 @@ async function Ne(e) {
 	if (r?.state !== "clean") {
 		let t = null;
 		try {
-			await k(n.upload, e.bytes, { fetch: e.fetch });
+			await O(n.upload, e.bytes, { fetch: e.fetch });
 		} catch (e) {
 			t = e;
 		}
@@ -1454,11 +1477,11 @@ async function Ne(e) {
 }
 //#endregion
 //#region integrations/agent-bridges/asset-manifest.ts
-var Pe = (e, t) => {
+var Re = (e, t) => {
 	let n = f.relative(e, t);
 	return n !== "" && n !== ".." && !n.startsWith(`..${f.sep}`) && !f.isAbsolute(n);
 };
-async function Fe(e) {
+async function ze(e) {
 	let t = /* @__PURE__ */ new Map();
 	if (!e) return t;
 	let n = f.resolve(e), r = await s(f.dirname(n)), i = JSON.parse(await a(n, "utf8"));
@@ -1468,7 +1491,7 @@ async function Fe(e) {
 		let n = e;
 		if (typeof n.handle != "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(n.handle) || t.has(n.handle) || typeof n.path != "string" || f.isAbsolute(n.path) || typeof n.mimeType != "string" || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(n.mimeType) || typeof n.sha256 != "string" || !/^[a-f0-9]{64}$/i.test(n.sha256)) throw Error("Invalid approved asset entry");
 		let i = await s(f.resolve(r, n.path));
-		if (!Pe(r, i)) throw Error("Approved asset must stay inside the manifest directory");
+		if (!Re(r, i)) throw Error("Approved asset must stay inside the manifest directory");
 		t.set(n.handle, {
 			handle: n.handle,
 			filename: f.basename(i),
@@ -1479,9 +1502,9 @@ async function Fe(e) {
 	}
 	return t;
 }
-function Ie(e, t, n = Ne) {
+function Be(e, t, n = Le) {
 	return async (r, i, o, c) => {
-		if (P(r)) throw Error("Human instruction replies cannot target a native asset recipient");
+		if (N(r)) throw Error("Human instruction replies cannot target a native asset recipient");
 		let l = i.assetHandle && e.get(i.assetHandle);
 		if (!l || !r.caseId || !r.senderAgentId || !r.from?.address) throw Error("Approved case asset and sender are required");
 		if (c.aborted) throw Error("Work lease was interrupted");
@@ -1505,7 +1528,7 @@ function Ie(e, t, n = Ne) {
 }
 //#endregion
 //#region integrations/agent-bridges/mcp-relay.ts
-var Le = /* @__PURE__ */ new Set([
+var Ve = /* @__PURE__ */ new Set([
 	"sinaloa_agent_info",
 	"sinaloa_list_cases",
 	"sinaloa_read_case",
@@ -1517,31 +1540,31 @@ var Le = /* @__PURE__ */ new Set([
 	"sinaloa_send_message",
 	"sinaloa_send_proposal",
 	"sinaloa_send_decision"
-]), Re = /* @__PURE__ */ new Set([
+]), He = /* @__PURE__ */ new Set([
 	"initialize",
 	"notifications/initialized",
 	"ping",
 	"tools/list",
 	"tools/call"
-]), ze = 1e6, Be = 4e6;
+]), Ue = 1e6, We = 4e6;
 function Z(e, t, n) {
 	e.writeHead(t, {
 		"content-type": "application/json",
 		"cache-control": "no-store"
 	}), e.end(JSON.stringify(n));
 }
-function Ve(e, t) {
+function Ge(e, t) {
 	let n = e.headers.authorization || "";
 	if (!n.startsWith("Bearer ")) return !1;
 	let r = Buffer.from(n.slice(7));
 	return r.length === t.length && _(r, t);
 }
-async function He({ connector: e, bearerToken: t, port: n = 8788, allowCollaborationWrites: r = !1, collaborationToolNames: i, authorizeWrite: a, onSuccessfulToolCall: o, onSuccessfulWrite: s }) {
+async function Ke({ connector: e, bearerToken: t, port: n = 8788, allowCollaborationWrites: r = !1, collaborationToolNames: i, authorizeWrite: a, onSuccessfulToolCall: o, onSuccessfulWrite: s }) {
 	if (typeof t != "string" || t.length < 32 || /[\r\n]/.test(t)) throw TypeError("A private MCP relay bearer token of at least 32 characters is required");
 	if (!Number.isSafeInteger(n) || n < 0 || n > 65535) throw RangeError("Invalid MCP relay port");
 	let c = Buffer.from(t);
 	if (i?.some((e) => !X.has(e))) throw TypeError("Invalid collaboration tool allowlist");
-	let l = r ? new Set(i ?? X) : /* @__PURE__ */ new Set(), u = /* @__PURE__ */ new Set([...Le, ...l]), d = x((e, t) => {
+	let l = r ? new Set(i ?? X) : /* @__PURE__ */ new Set(), u = /* @__PURE__ */ new Set([...Ve, ...l]), d = x((e, t) => {
 		f(e, t).catch(() => {
 			t.headersSent ? t.destroy() : Z(t, 502, { error: "Envoi MCP relay request failed" });
 		});
@@ -1550,12 +1573,12 @@ async function He({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 		let r = d.address(), i = r && typeof r == "object" ? `127.0.0.1:${r.port}` : "";
 		if (t.headers.host !== i || t.headers.origin) return Z(n, 403, { error: "MCP relay origin is unavailable" });
 		if (t.url !== "/mcp") return Z(n, 404, { error: "Not found" });
-		if (!Ve(t, c)) return n.setHeader("www-authenticate", "Bearer realm=\"Envoi local MCP relay\""), Z(n, 401, { error: "MCP relay credential required" });
+		if (!Ge(t, c)) return n.setHeader("www-authenticate", "Bearer realm=\"Envoi local MCP relay\""), Z(n, 401, { error: "MCP relay credential required" });
 		if (t.method !== "POST") return Z(n, 405, { error: "Only POST is supported" });
 		if (!String(t.headers["content-type"] || "").startsWith("application/json")) return Z(n, 415, { error: "JSON is required" });
 		let l = [], f = 0;
 		for await (let e of t) {
-			if (f += e.length, f > ze) return Z(n, 413, { error: "MCP request is too large" });
+			if (f += e.length, f > Ue) return Z(n, 413, { error: "MCP request is too large" });
 			l.push(e);
 		}
 		let p = Buffer.concat(l).toString("utf8"), m;
@@ -1566,7 +1589,7 @@ async function He({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 		} catch {
 			return Z(n, 400, { error: "Invalid MCP JSON-RPC request" });
 		}
-		if (typeof m.method != "string" || !Re.has(m.method)) return Z(n, 403, { error: "MCP method is not available" });
+		if (typeof m.method != "string" || !He.has(m.method)) return Z(n, 403, { error: "MCP method is not available" });
 		if (m.method === "tools/call") {
 			let e = m.params && typeof m.params == "object" && !Array.isArray(m.params) ? m.params : null;
 			if (!e || typeof e.name != "string" || !u.has(e.name)) return Z(n, 403, { error: "MCP tool is not available through this relay" });
@@ -1579,7 +1602,7 @@ async function He({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 		let h = typeof t.headers["mcp-protocol-version"] == "string" ? t.headers["mcp-protocol-version"] : void 0, g = await e.forwardMcpRequest(p, { protocolVersion: h });
 		if (g.status === 202 || g.status === 204) return n.writeHead(g.status, { "cache-control": "no-store" }), n.end();
 		let _ = Buffer.from(await g.arrayBuffer());
-		if (_.length > Be) return Z(n, 502, { error: "Envoi MCP response is too large" });
+		if (_.length > We) return Z(n, 502, { error: "Envoi MCP response is too large" });
 		let v = _;
 		if (g.ok && m.method === "tools/list") {
 			let e;
@@ -1638,7 +1661,7 @@ async function He({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 }
 //#endregion
 //#region integrations/openclaw/turn.ts
-function Ue(e) {
+function qe(e) {
 	let t = new URL(e), n = [
 		"localhost",
 		"127.0.0.1",
@@ -1648,8 +1671,8 @@ function Ue(e) {
 	if (t.username || t.password || t.search || t.hash || t.pathname !== "/" && t.pathname !== "") throw TypeError("OpenClaw Gateway URL must be an origin without credentials or a path");
 	return t.origin;
 }
-function We(e) {
-	let t = Ue(e.gatewayUrl);
+function Je(e) {
+	let t = qe(e.gatewayUrl);
 	if (!e.gatewayToken) throw TypeError("OpenClaw Gateway token is required");
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e.agentId)) throw TypeError("A configured OpenClaw agent ID is required");
 	let n = e.timeoutMs ?? 6e5;
@@ -1676,7 +1699,7 @@ function We(e) {
 					stream: !1,
 					messages: [{
 						role: "user",
-						content: Me(i, o, {
+						content: Ie(i, o, {
 							allowSinaloaMcpWrites: e.allowSinaloaMcpWrites,
 							assetHandles: e.assetHandles
 						})
@@ -1693,7 +1716,7 @@ function We(e) {
 			let c = a && typeof a == "object" && !Array.isArray(a) ? a.choices : void 0, l = Array.isArray(c) ? c[0] : void 0, u = l?.message;
 			if (l?.finish_reason !== "stop" || typeof u?.content != "string" || !u.content.trim()) throw Error("OpenClaw did not return a completed text reply");
 			if (s.signal.aborted) throw Error("OpenClaw turn was canceled or timed out");
-			return je(u.content);
+			return Fe(u.content);
 		} catch (e) {
 			throw s.signal.aborted ? Error("OpenClaw turn was canceled or timed out") : e instanceof Error && e.message.startsWith("OpenClaw ") ? e : Error("OpenClaw Gateway could not be reached");
 		} finally {
@@ -1703,14 +1726,14 @@ function We(e) {
 }
 //#endregion
 //#region integrations/openclaw/runtime.ts
-async function Ge(e, t = {}) {
+async function Ye(e, t = {}) {
 	let n = t.env ?? process.env, r = n.OPENCLAW_MCP_RELAY_TOKEN;
 	if (n.OPENCLAW_MCP_RELAY_PORT && !r) throw Error("OPENCLAW_MCP_RELAY_TOKEN is required when the relay port is configured");
 	if (n.OPENCLAW_MCP_WRITE_ENABLED && n.OPENCLAW_MCP_WRITE_ENABLED !== "true") throw Error("OPENCLAW_MCP_WRITE_ENABLED must be true when set");
 	if (n.OPENCLAW_MCP_WRITE_ENABLED && !r) throw Error("OPENCLAW_MCP_RELAY_TOKEN is required for MCP writes");
 	let i = new B(e.stateDir);
 	if (await i.init(), !await i.load()) throw Error("No connector credentials were saved. Run setup first");
-	let a, o = await Fe(n.SINALOA_ASSET_MANIFEST_PATH), s = n.OPENCLAW_MCP_WRITE_ENABLED === "true", c = We({
+	let a, o = await ze(n.SINALOA_ASSET_MANIFEST_PATH), s = n.OPENCLAW_MCP_WRITE_ENABLED === "true", c = Je({
 		gatewayUrl: e.gatewayUrl,
 		gatewayToken: e.gatewayToken,
 		agentId: e.agentId,
@@ -1721,13 +1744,13 @@ async function Ge(e, t = {}) {
 		})),
 		...t.fetch ? { fetch: t.fetch } : {},
 		history: (e) => a.listCaseMessages(e, 20)
-	}), l = s ? De(c, (e) => i.mcpReplySent(e)) : c, u = !1, d = Oe(i, l, o.size ? (e, t, n, r) => Ie(o, a)(e, t, n, r) : void 0), f = {
+	}), l = s ? je(c, (e) => i.mcpReplySent(e)) : c, u = !1, d = Me(i, l, o.size ? (e, t, n, r) => Be(o, a)(e, t, n, r) : void 0), f = {
 		...t.fetch ? { fetch: t.fetch } : {},
 		...t.pollIntervalMs ? { pollIntervalMs: t.pollIntervalMs } : {},
 		handler: {
 			admit: (e) => d.admit(e),
 			async process(e, t) {
-				u = P(e);
+				u = N(e);
 				try {
 					await d.process(e, t);
 				} finally {
@@ -1736,19 +1759,19 @@ async function Ge(e, t = {}) {
 			}
 		}
 	};
-	a = new ce(e.apiUrl, i, f);
-	let p = r ? await He({
+	a = new le(e.apiUrl, i, f);
+	let p = r ? await Ke({
 		connector: a,
 		bearerToken: r,
 		port: n.OPENCLAW_MCP_RELAY_PORT ? Number(n.OPENCLAW_MCP_RELAY_PORT) : 8788,
 		allowCollaborationWrites: s,
 		authorizeWrite: async (e, t) => {
 			if (u) return !1;
-			let n = Ee(e, t);
+			let n = Ae(e, t);
 			return !n || !await i.isHumanInstruction(n);
 		},
 		...s ? { onSuccessfulWrite: async (e, t) => {
-			let n = Ee(e, t);
+			let n = Ae(e, t);
 			n && await i.markMcpReplySent(n);
 		} } : {}
 	}) : null;
@@ -1762,11 +1785,11 @@ async function Ge(e, t = {}) {
 }
 //#endregion
 //#region integrations/openclaw/quick-connect.ts
-function Ke(e, t, n = {}) {
-	let r = n.env ?? process.env, i = n.home ?? d(), a = n.platform ?? process.platform, o = h("sha256").update(`${N(e)}\n${t.toLowerCase()}`).digest("hex").slice(0, 24), s = a === "win32" ? r.LOCALAPPDATA || f.join(i, "AppData", "Local") : a === "darwin" ? f.join(i, "Library", "Application Support") : r.XDG_STATE_HOME && f.isAbsolute(r.XDG_STATE_HOME) ? r.XDG_STATE_HOME : f.join(i, ".local", "state");
+function Xe(e, t, n = {}) {
+	let r = n.env ?? process.env, i = n.home ?? d(), a = n.platform ?? process.platform, o = h("sha256").update(`${M(e)}\n${t.toLowerCase()}`).digest("hex").slice(0, 24), s = a === "win32" ? r.LOCALAPPDATA || f.join(i, "AppData", "Local") : a === "darwin" ? f.join(i, "Library", "Application Support") : r.XDG_STATE_HOME && f.isAbsolute(r.XDG_STATE_HOME) ? r.XDG_STATE_HOME : f.join(i, ".local", "state");
 	return f.join(s, "sinaloa", "openclaw", o);
 }
-function qe(e, t = process.platform, n = process.execPath) {
+function Ze(e, t = process.platform, n = process.execPath) {
 	let r = [
 		n,
 		f.join(e, "connector.mjs"),
@@ -1776,7 +1799,7 @@ function qe(e, t = process.platform, n = process.execPath) {
 	];
 	return t === "win32" ? `& ${r.map((e) => `'${e.replaceAll("'", "''")}'`).join(" ")}` : r.map((e) => `'${e.replaceAll("'", "'\"'\"'")}'`).join(" ");
 }
-function Je(e = fetch) {
+function Qe(e = fetch) {
 	return (t, n) => e(t, {
 		...n,
 		redirect: "error"
@@ -1807,9 +1830,9 @@ async function $(e) {
 	if ((await n(t)).isSymbolicLink()) throw new S("The saved connection must not be a symbolic link");
 	let r = JSON.parse(await a(t, "utf8"));
 	if (r.version !== 1 || r.runtime !== "openclaw" || typeof r.address != "string" || !r.openclaw) throw new S("The saved connection is invalid. Inspect the private state directory");
-	return r.apiUrl = N(r.apiUrl), r;
+	return r.apiUrl = M(r.apiUrl), r;
 }
-function Ye(e, t = {}) {
+function $e(e, t = {}) {
 	let n = t.env ?? process.env, r = {
 		...t,
 		env: n,
@@ -1829,23 +1852,23 @@ function Ye(e, t = {}) {
 	}
 	return r;
 }
-async function Xe(e, n = {}) {
-	let r = Je(n.fetch), i = ee(e, { allowExpired: !0 });
+async function et(e, n = {}) {
+	let r = Qe(n.fetch), i = te(e, { allowExpired: !0 });
 	if (i.runtime !== "openclaw" || i.operation === "reconnect") throw new S("Use the unified Envoi connector for this runtime or reconnect handoff");
-	let a = n.stateDir || Ke(i.apiUrl, i.address, {
+	let a = n.stateDir || Xe(i.apiUrl, i.address, {
 		home: n.homeDir,
 		env: n.env,
 		platform: n.platform
-	}), o = await (n.secureDirectory ?? ve)(a), s = await be(o);
+	}), o = await (n.secureDirectory ?? Se)(a), s = await we(o);
 	try {
 		let a = new B(o);
 		await a.init();
 		let s = await a.load(), c;
 		if (s) {
 			if (c = await $(o), c.apiUrl !== i.apiUrl || c.address !== i.address || s.address !== i.address) throw new S("This state directory belongs to another connection. Choose a separate private directory");
-		} else ee(e);
+		} else te(e);
 		n.onProgress?.("Detecting OpenClaw");
-		let l = await ge(c ? Ye(c.openclaw, n) : n);
+		let l = await ge(c ? $e(c.openclaw, n) : n);
 		n.onProgress?.("Testing OpenClaw before enrollment"), await _e(l, { fetch: r });
 		let u = {
 			version: 1,
@@ -1855,12 +1878,12 @@ async function Xe(e, n = {}) {
 			agentName: i.agentName,
 			openclaw: l
 		};
-		if (await ye(f.join(o, "connection.json"), u), n.executableFile) {
+		if (await Ce(f.join(o, "connection.json"), u), n.executableFile) {
 			let e = f.join(o, "connector.mjs");
 			f.resolve(n.executableFile) !== f.resolve(e) && await t(n.executableFile, e);
 		}
 		if (n.onProgress?.(s ? "Resuming saved connection" : "Enrolling Envoi agent"), !s) try {
-			s = await se(i.apiUrl, i.enrollmentToken, a, {
+			s = await ce(i.apiUrl, i.enrollmentToken, a, {
 				name: i.agentName,
 				fetch: r
 			});
@@ -1868,7 +1891,7 @@ async function Xe(e, n = {}) {
 			throw (typeof e == "object" && e && "status" in e ? Number(e.status) : 0) === 401 ? new S("The enrollment token is expired or already used. Check Agent connections in Envoi and create a new setup prompt if no saved connection exists") : new S("Envoi enrollment did not finish. Check Agent connections before retrying; the token may have been consumed. Keep this state directory");
 		}
 		if (s.address !== i.address) throw new S("The enrolled address differs from the setup address. Inspect Agent connections before starting");
-		let d = new ce(i.apiUrl, a, { fetch: r });
+		let d = new le(i.apiUrl, a, { fetch: r });
 		n.onProgress?.("Checking Envoi access");
 		try {
 			await d.pollOnce(), await Q(i.apiUrl, d, "ready", r);
@@ -1885,14 +1908,14 @@ async function Xe(e, n = {}) {
 		await s();
 	}
 }
-async function Ze(e, t, n = {}) {
-	let r = await (n.secureDirectory ?? ve)(e), i = await be(r), a = Je(n.fetch), o;
+async function tt(e, t, n = {}) {
+	let r = await (n.secureDirectory ?? Se)(e), i = await we(r), a = Qe(n.fetch), o;
 	try {
-		let e = await $(r), i = await ge(Ye(e.openclaw, { env: n.env }));
+		let e = await $(r), i = await ge($e(e.openclaw, { env: n.env }));
 		await _e(i, {
 			fetch: a,
 			signal: t
-		}), o = await Ge({
+		}), o = await Ye({
 			...i,
 			apiUrl: e.apiUrl,
 			stateDir: r
@@ -1914,7 +1937,7 @@ async function Ze(e, t, n = {}) {
 		}
 	}
 }
-async function Qe(e) {
+async function nt(e) {
 	let t = await $(f.resolve(e)), n = await new B(f.resolve(e)).load();
 	if (!n) throw new S("No saved enrollment. Run setup with a fresh Envoi handoff");
 	return {
@@ -1929,10 +1952,10 @@ async function Qe(e) {
 		note: "Saved configuration does not establish live presence. Use start and a real agent exchange to verify receiving"
 	};
 }
-var $e = "Envoi OpenClaw Quick Connect (Node.js 22+)\n\nsetup --handoff <private JSON file> [--install-service]\nsetup --handoff-stdin [--install-service]\nstart --state-dir <directory>\nstatus --state-dir <directory>\ninstall-service --state-dir <directory>\n\nOptional setup overrides: --config <openclaw.json> --agent <id> --gateway-url <origin> --state-dir <private directory>\nGateway credentials are resolved locally; never pass secrets as arguments.\n";
-async function et(e = process.argv.slice(2)) {
+var rt = "Envoi OpenClaw Quick Connect (Node.js 22+)\n\nsetup --handoff <private JSON file> [--install-service]\nsetup --handoff-stdin [--install-service]\nstart --state-dir <directory>\nstatus --state-dir <directory>\ninstall-service --state-dir <directory>\n\nOptional setup overrides: --config <openclaw.json> --agent <id> --gateway-url <origin> --state-dir <private directory>\nGateway credentials are resolved locally; never pass secrets as arguments.\n";
+async function it(e = process.argv.slice(2)) {
 	if (!e.length || e.includes("--help")) {
-		process.stdout.write($e);
+		process.stdout.write(rt);
 		return;
 	}
 	if (Number(process.versions.node.split(".")[0]) < 22) throw new S("Install Node.js 22 or newer before connecting OpenClaw");
@@ -1955,7 +1978,7 @@ async function et(e = process.argv.slice(2)) {
 	}
 	if (t === "setup") {
 		if (i.has("--handoff") === o.has("--handoff-stdin")) throw new S("Supply either --handoff <file> or --handoff-stdin");
-		o.has("--install-service") && await we();
+		o.has("--install-service") && await Oe();
 		let e;
 		if (o.has("--handoff-stdin")) {
 			let t = [], n = 0;
@@ -1976,7 +1999,7 @@ async function et(e = process.argv.slice(2)) {
 		} catch {
 			throw new S("The setup file is not valid JSON. Download a fresh setup file from Envoi");
 		}
-		let r = await Xe(t, {
+		let r = await et(t, {
 			stateDir: i.get("--state-dir"),
 			configPath: i.get("--config"),
 			agentId: i.get("--agent"),
@@ -1984,8 +2007,8 @@ async function et(e = process.argv.slice(2)) {
 			executableFile: v(import.meta.url),
 			onProgress: (e) => process.stderr.write(`${e}…\n`)
 		});
-		process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks passed. Remove the temporary handoff file.\nStart: ${qe(r.stateDir)}\n`), o.has("--install-service") ? process.stdout.write(`${JSON.stringify({
-			startupService: await Te(r.stateDir),
+		process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks passed. Remove the temporary handoff file.\nStart: ${Ze(r.stateDir)}\n`), o.has("--install-service") ? process.stdout.write(`${JSON.stringify({
+			startupService: await ke(r.stateDir),
 			startsAt: "user login"
 		})}\n`) : process.stderr.write("Configure automatic startup with install-service --state-dir <reported directory>, or run start under your host process supervisor. A real exchange with another agent verifies unattended receiving.\n");
 		return;
@@ -1997,12 +2020,12 @@ async function et(e = process.argv.slice(2)) {
 	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new S("Supply a supported command and --state-dir. Run --help");
 	let s = f.resolve(i.get("--state-dir"));
 	if (t === "status") {
-		process.stdout.write(`${JSON.stringify(await Qe(s))}\n`);
+		process.stdout.write(`${JSON.stringify(await nt(s))}\n`);
 		return;
 	}
 	if (t === "install-service") {
-		await Qe(s), process.stdout.write(`${JSON.stringify({
-			startupService: await Te(s),
+		await nt(s), process.stdout.write(`${JSON.stringify({
+			startupService: await ke(s),
 			startsAt: "user login"
 		})}\n`);
 		return;
@@ -2010,15 +2033,15 @@ async function et(e = process.argv.slice(2)) {
 	let c = new AbortController(), l = () => c.abort();
 	process.once("SIGINT", l), process.once("SIGTERM", l);
 	try {
-		await Ze(s, c.signal, { onReady: () => process.stdout.write("Envoi connector started. Waiting for agent messages.\n") });
+		await tt(s, c.signal, { onReady: () => process.stdout.write("Envoi connector started. Waiting for agent messages.\n") });
 	} finally {
 		process.removeListener("SIGINT", l), process.removeListener("SIGTERM", l);
 	}
 }
 //#endregion
 //#region integrations/openclaw/quick-connect-cli.ts
-et().catch((e) => {
-	let t = e instanceof S || e instanceof V || e instanceof M ? e.message : "Setup could not finish. Check local OpenClaw configuration, connectivity and the saved Envoi connection; run --help for recovery options";
+it().catch((e) => {
+	let t = e instanceof S || e instanceof V || e instanceof j ? e.message : "Setup could not finish. Check local OpenClaw configuration, connectivity and the saved Envoi connection; run --help for recovery options";
 	process.stderr.write(`${t}\n`), process.exitCode = 1;
 });
 //#endregion

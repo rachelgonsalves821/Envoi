@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -50,6 +50,22 @@ async function fixture(runtime: ConnectorRuntime = 'hermes') {
 }
 
 describe('shared connector lifecycle', () => {
+  it('replaces the saved executable atomically and preserves it when copying fails', async () => {
+    const f = await fixture();
+    const source = path.join(f.directory, 'downloaded.mjs');
+    await writeFile(source, '// original connector');
+    await setupConnection(f.handoff, f.resolver, { ...f.options, executableFile: source });
+    const target = path.join(f.options.stateDir, 'connector.mjs');
+    await writeFile(source, '// upgraded connector');
+    await setupConnection(f.handoff, f.resolver, { ...f.options, executableFile: source });
+    expect(await readFile(target, 'utf8')).toBe('// upgraded connector');
+    await expect(setupConnection(f.handoff, f.resolver, { ...f.options, executableFile: path.join(f.directory, 'missing.mjs') })).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(target, 'utf8')).toBe('// upgraded connector');
+    expect((await readdir(f.options.stateDir)).filter(name => name.startsWith('.connector-'))).toEqual([]);
+    await setupConnection(f.handoff, f.resolver, { ...f.options, executableFile: target });
+    expect(await readFile(target, 'utf8')).toBe('// upgraded connector');
+    expect(f.counts().enrollmentCount).toBe(1);
+  });
   for (const runtime of ['hermes', 'openclaw', 'grok'] as const) {
     it(`enrolls ${runtime} once, stores local secrets privately, and resumes after handoff expiry`, async () => {
       const f = await fixture(runtime);

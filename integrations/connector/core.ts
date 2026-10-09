@@ -1,7 +1,7 @@
-import { copyFile, lstat, readFile, rm } from 'node:fs/promises';
+import { copyFile, lstat, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { enrollConnector, SinaloaConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
 import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
@@ -46,6 +46,16 @@ export function startCommand(stateDir: string, platform = process.platform) {
     : args.map(value => `'${value.replaceAll("'", "'\"'\"'")}'`).join(' ');
 }
 export const noRedirectFetch = (fetcher: typeof fetch = fetch): typeof fetch => (input, init) => fetcher(input, { ...init, redirect: 'error' });
+
+async function saveExecutable(directory: string, source?: string) {
+  if (!source || path.resolve(source) === path.join(directory, 'connector.mjs')) return;
+  const temporary = path.join(directory, `.connector-${randomUUID()}.tmp`);
+  try {
+    await copyFile(source, temporary);
+    if (process.platform !== 'win32') await chmod(temporary, 0o600);
+    await rename(temporary, path.join(directory, 'connector.mjs'));
+  } finally { await rm(temporary, { force: true }); }
+}
 
 async function savedSession(directory: string): Promise<ConnectorSession | null> {
   const filename = path.join(directory, 'session.json');
@@ -139,10 +149,7 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     saved = { version: 1, runtime: handoff.runtime, apiUrl: handoff.apiUrl, address: handoff.address,
       agentName: handoff.agentName, configuration: config, ...(prior?.lastReconnectId ? { lastReconnectId: prior.lastReconnectId } : {}) };
     await privateJson(path.join(directory, 'connection.json'), saved);
-    if (options.executableFile) {
-      const target = path.join(directory, 'connector.mjs');
-      if (path.resolve(options.executableFile) !== target) await copyFile(options.executableFile, target);
-    }
+    await saveExecutable(directory, options.executableFile);
     if (needsEnrollment) {
       options.onProgress?.(handoff.operation === 'reconnect' ? 'Reconnecting the existing agent' : 'Enrolling the agent');
       // Save the retry marker in the SAME atomic write as the new credentials. A crash
