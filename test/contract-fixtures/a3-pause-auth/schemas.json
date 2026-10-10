@@ -1,7 +1,7 @@
 {
   "$id": "a3-pause-auth/schemas.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "a3-pause-auth v1 schemas. Fixtures name a definition in response.schema or event.schema. x-codes is the code table from handoffs.md §2.",
+  "description": "a3-pause-auth v2 schemas (v1 with Envoi credential prefixes, envoi-names v1). Fixtures name a definition in response.schema or event.schema. x-codes is the code table from handoffs.md §2.",
   "x-codes": {
     "AGENT_PAUSED": {
       "status": 409,
@@ -159,7 +159,7 @@
           "minLength": 1,
           "maxLength": 500,
           "not": {
-            "pattern": "(?:sinaloa_agent_(?:access|refresh)_|sinaloa_mcp_read_|sinaloa_enroll_)"
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_)"
           }
         },
         "requestId": {
@@ -246,11 +246,11 @@
       "properties": {
         "agentApiToken": {
           "type": "string",
-          "pattern": "^sinaloa_agent_access_"
+          "pattern": "^envoi_agent_access_"
         },
         "agentRefreshToken": {
           "type": "string",
-          "pattern": "^sinaloa_agent_refresh_"
+          "pattern": "^envoi_agent_refresh_"
         },
         "agentTokenExpiresAt": {
           "type": "string",
@@ -1002,7 +1002,7 @@
           "const": "a3-pause-auth"
         },
         "version": {
-          "const": 1
+          "const": 2
         },
         "id": {
           "type": "string",

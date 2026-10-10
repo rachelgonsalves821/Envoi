@@ -1,6 +1,6 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
-  [Alias('EnvoiUrl')][string]$SinaloaUrl = 'https://sinaloa-staging.rachelgonsalves821.workers.dev',
+  [string]$EnvoiUrl = 'https://envoi-staging.rachelgonsalves821.workers.dev',
   [string]$StateDir = '',
   [switch]$PrepareOnly
 )
@@ -16,11 +16,11 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $bundle = Join-Path $PSScriptRoot 'dist\run.mjs'
 
 if (-not (Test-Path -LiteralPath $hermesExe)) { throw 'Hermes Agent is not installed in the standard Windows location.' }
-$origin = [Uri]$SinaloaUrl
+$origin = [Uri]$EnvoiUrl
 if ($origin.Scheme -ne 'https' -or $origin.UserInfo -or $origin.Query -or $origin.Fragment -or $origin.AbsolutePath -ne '/') {
   throw 'EnvoiUrl must be an HTTPS site origin without credentials or a path.'
 }
-$stateRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Sinaloa\HermesBridge'))
+$stateRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Envoi\HermesBridge'))
 if (-not $StateDir) { $StateDir = Join-Path $stateRoot $origin.Host }
 if (-not [IO.Path]::IsPathFullyQualified($StateDir)) {
   throw 'StateDir must be an absolute path inside the private HermesBridge folder. Paste enrollment tokens only at the hidden-input prompt.'
@@ -105,12 +105,12 @@ finally { Pop-Location }
 # Hermes reads this private key from its own .env. Its config contains only a
 # variable reference, never the Envoi access or refresh credential.
 $mcpBlock = [string[]]@(
-  '  sinaloa:',
+  '  envoi:',
   '    url: "http://127.0.0.1:8789/mcp"',
   '    headers:',
   '      Authorization: "Bearer ${HERMES_MCP_RELAY_TOKEN}"',
   '    tools:',
-  '      include: [sinaloa_agent_info, sinaloa_start_case, sinaloa_send_message, sinaloa_send_proposal, sinaloa_send_decision, sinaloa_list_cases, sinaloa_read_case, sinaloa_list_messages, sinaloa_list_assets, sinaloa_asset_download]',
+  '      include: [envoi_agent_info, envoi_start_case, envoi_send_message, envoi_send_proposal, envoi_send_decision, envoi_list_cases, envoi_read_case, envoi_list_messages, envoi_list_assets, envoi_asset_download]',
   '      resources: false',
   '      prompts: false'
 )
@@ -136,7 +136,7 @@ if ($mcpSections.Count -eq 0) {
     if ($config[$i] -match '^[^\s#]') { $end = $i; break }
   }
   for ($i = $start; $i -lt $end; $i++) {
-    if ($config[$i] -match '^  sinaloa:') {
+    if ($config[$i] -match '^  envoi:') {
       $existing = if ($i + $mcpBlock.Length -le $end) { [string[]]$config.GetRange($i, $mcpBlock.Length) } else { [string[]]@() }
       if (($existing -join "`n") -eq ($mcpBlock -join "`n")) { $start = -1; break }
       throw 'Hermes already has a different Envoi MCP entry. Inspect it before replacing it.'
@@ -153,8 +153,8 @@ if ($PrepareOnly) {
   return
 }
 
-$env:SINALOA_API_URL = $origin.GetLeftPart([UriPartial]::Authority)
-$env:SINALOA_STATE_DIR = $StateDir
+$env:ENVOI_API_URL = $origin.GetLeftPart([UriPartial]::Authority)
+$env:ENVOI_STATE_DIR = $StateDir
 $env:HERMES_API_URL = 'http://127.0.0.1:8642'
 $env:HERMES_API_KEY = $apiKey
 $env:HERMES_MCP_RELAY_TOKEN = $relayKey
@@ -176,7 +176,7 @@ try {
       }
     }
     if (-not $enteredToken) { throw 'No token was entered after three prompts. Run this script again when you have a fresh token.' }
-    $env:SINALOA_ENROLLMENT_TOKEN = $enteredToken
+    $env:ENVOI_ENROLLMENT_TOKEN = $enteredToken
     $enteredToken = ''
   } else { Write-Host "Resuming the saved Envoi agent for $($origin.Host)." }
   Write-Host 'Connecting Hermes to Envoi. Keep this terminal open while testing.'
@@ -185,5 +185,5 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'The Hermes bridge stopped. Verify the Gateway and use a fresh token if enrollment did not finish.' }
 }
 finally {
-  Remove-Item Env:\SINALOA_ENROLLMENT_TOKEN, Env:\SINALOA_API_URL, Env:\SINALOA_STATE_DIR, Env:\HERMES_API_URL, Env:\HERMES_API_KEY, Env:\HERMES_MCP_RELAY_TOKEN, Env:\HERMES_MCP_WRITE_ENABLED -ErrorAction SilentlyContinue
+  Remove-Item Env:\ENVOI_ENROLLMENT_TOKEN, Env:\ENVOI_API_URL, Env:\ENVOI_STATE_DIR, Env:\HERMES_API_URL, Env:\HERMES_API_KEY, Env:\HERMES_MCP_RELAY_TOKEN, Env:\HERMES_MCP_WRITE_ENABLED -ErrorAction SilentlyContinue
 }

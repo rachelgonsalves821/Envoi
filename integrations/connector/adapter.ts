@@ -1,4 +1,4 @@
-import type { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import type { EnvoiConnector } from '../../sdk/typescript/src/connector';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 
 export class ConnectorSetupError extends Error {
@@ -23,7 +23,7 @@ export interface AdapterContext extends AdapterOptions {
   pollIntervalMs?: number;
 }
 export interface RuntimeBridge {
-  connector: SinaloaConnector;
+  connector: EnvoiConnector;
   close(): Promise<void>;
   /** Actual tool invocation, not discovery; runs before setup is reported ready. */
   verify?(): Promise<void>;

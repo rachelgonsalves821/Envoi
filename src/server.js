@@ -362,6 +362,10 @@ const publicCalendarConnector = connector => {
   return value;
 };
 const bearerToken = req => (req.headers.authorization || '').startsWith('Bearer ') ? req.headers.authorization.slice(7) : null;
+// envoi-names v1 §2: the only accepted formats. Credentials are stored hashed, so a pre-cutover
+// sinaloa_* token would still resolve by hash; the prefix check refuses it explicitly.
+const agentCredentialPrefixes = { access: 'envoi_agent_access_', refresh: 'envoi_agent_refresh_', mcp_read: 'envoi_mcp_read_' };
+const hasAgentCredentialFormat = (raw, tokenType) => Boolean(agentCredentialPrefixes[tokenType]) && String(raw || '').startsWith(agentCredentialPrefixes[tokenType]);
 const agentCredentialPath = tokenHash => path.join('auth', 'agent-credentials', `${tokenHash}.json`);
 const agentRefreshCredentialPath = tokenHash => path.join('auth', 'agent-refresh-credentials', `${tokenHash}.json`);
 const agentRotationRecoveryPath = tokenHash => path.join('auth', 'agent-rotation-recovery', `${tokenHash}.json`);
@@ -395,8 +399,8 @@ async function issueAgentCredentials(agentId, inboxId, familyId = store.id('cred
   };
   if (new Date(family.refreshExpiresAt) <= new Date()) throw Object.assign(new Error('Agent credential family is expired'), { statusCode: 401 });
   if (rollRefreshExpiry) family.refreshExpiresAt = expiresAfter(agentRefreshTokenTtlDays * 86_400_000);
-  const agentApiToken = `sinaloa_agent_access_${crypto.randomBytes(32).toString('base64url')}`;
-  const agentRefreshToken = `sinaloa_agent_refresh_${crypto.randomBytes(48).toString('base64url')}`;
+  const agentApiToken = `${agentCredentialPrefixes.access}${crypto.randomBytes(32).toString('base64url')}`;
+  const agentRefreshToken = `${agentCredentialPrefixes.refresh}${crypto.randomBytes(48).toString('base64url')}`;
   const agentTokenExpiresAt = expiresAfter(agentAccessTokenTtlSeconds * 1000);
   const agentRefreshTokenExpiresAt = family.refreshExpiresAt;
   family.rotationCounter = Number(family.rotationCounter || 0) + 1;
@@ -431,7 +435,7 @@ function decryptAgentRotation(rawRefreshToken, context, encrypted) {
 async function rotateAgentCredentials(rawRefreshToken, rotationId) {
   // Checked before any lookup: reveals nothing about the token and never consumes it.
   if (typeof rotationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(rotationId)) throw credentialError('ROTATION_ID_REQUIRED');
-  if (!String(rawRefreshToken || '').startsWith('sinaloa_agent_refresh_')) throw credentialError('REFRESH_TOKEN_INVALID');
+  if (!hasAgentCredentialFormat(rawRefreshToken, 'refresh')) throw credentialError('REFRESH_TOKEN_INVALID');
   const tokenHash = hashSecret(rawRefreshToken);
   const rotationIdHash = hashSecret(rotationId);
   const refreshPath = agentRefreshCredentialPath(tokenHash);
@@ -487,7 +491,7 @@ async function resolveAgentCredential(req, { inboxId = null, tokenTypes = ['acce
   const raw = bearerToken(req);
   if (!raw) return { error: credentialError('AUTHENTICATION_REQUIRED') };
   const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
-  if (!index?.inboxId || !index.familyId || !tokenTypes.includes(index.tokenType) || (inboxId && index.inboxId !== inboxId)) return { error: credentialError('AUTHENTICATION_REQUIRED') };
+  if (!index?.inboxId || !index.familyId || !tokenTypes.includes(index.tokenType) || !hasAgentCredentialFormat(raw, index.tokenType) || (inboxId && index.inboxId !== inboxId)) return { error: credentialError('AUTHENTICATION_REQUIRED') };
   const [family, agent] = await Promise.all([
     store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId)),
     store.getJson(path.join('inboxes', index.inboxId, 'agents', `${index.agentId}.json`))
@@ -508,7 +512,7 @@ const getAgentPrincipal = async (req, inboxId) => {
   if (!index.tokenType) {
     if (process.env.ENVOI_AUTH_MODE === 'production') return null;
   } else {
-    if (!['access', 'mcp_read'].includes(index.tokenType) || index.revokedAt || new Date(index.expiresAt) <= new Date()) return null;
+    if (!['access', 'mcp_read'].includes(index.tokenType) || !hasAgentCredentialFormat(raw, index.tokenType) || index.revokedAt || new Date(index.expiresAt) <= new Date()) return null;
     if (index.tokenType === 'mcp_read' && !scopedMcpReadRequest(req, inboxId, index.caseId)) return null;
     const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));
     if (!family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return null;
@@ -519,7 +523,7 @@ const getAgentPrincipal = async (req, inboxId) => {
 };
 async function issueMcpReadToken(identity, caseId) {
   if (caseId && !await getCase(identity.inboxId, caseId)) throw Object.assign(new Error('Case not found'), { statusCode: 404 });
-  const raw = `sinaloa_mcp_read_${crypto.randomBytes(32).toString('base64url')}`;
+  const raw = `${agentCredentialPrefixes.mcp_read}${crypto.randomBytes(32).toString('base64url')}`;
   const expiresAt = expiresAfter(mcpReadTokenTtlMs);
   await store.putJson(agentCredentialPath(hashSecret(raw)), {
     tokenType: 'mcp_read', agentId: identity.agent.id, inboxId: identity.inboxId,
@@ -551,7 +555,8 @@ async function checkAgentCredential(req, url) {
   const inboxRoute = url.pathname.startsWith('/api/inboxes/');
   if (inboxRoute) {
     // Human bearer sessions and legacy untyped development tokens keep their per-route handling.
-    if (!/^sinaloa_(?:agent_access|mcp_read)_/.test(raw)) return;
+    // Pre-cutover sinaloa_* credentials fall through to resolveAgentCredential, which refuses them.
+    if (!/^(?:envoi|sinaloa)_(?:agent_access|mcp_read)_/.test(raw)) return;
     const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
     if (index && !index.tokenType) return;
   }
@@ -575,7 +580,7 @@ async function getMcpIdentity(req) {
   const full = await getAgentWorkIdentity(req);
   if (full) return full;
   const raw = bearerToken(req);
-  if (!raw?.startsWith('sinaloa_mcp_read_')) return null;
+  if (!hasAgentCredentialFormat(raw, 'mcp_read')) return null;
   const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
   if (!index || index.tokenType !== 'mcp_read' || index.revokedAt || new Date(index.expiresAt) <= new Date()) return null;
   const family = await store.getJson(agentCredentialFamilyPath(index.inboxId, index.agentId, index.familyId));

@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "refresh-token-invalid",
   "description": "The refresh token is unknown or no longer retained.",
   "kind": "http",
@@ -12,7 +12,7 @@
     },
     "body": {
       "grantType": "refresh_token",
-      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_unknown",
+      "agentRefreshToken": "envoi_agent_refresh_PLACEHOLDER_unknown",
       "rotationId": "rotation_PLACEHOLDER_0001"
     }
   },

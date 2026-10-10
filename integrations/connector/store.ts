@@ -40,7 +40,7 @@ export async function privateJson(filename: string, value: unknown) {
 }
 
 /** One setup or running connector per state directory. Recover locks left by a dead process. */
-export async function acquireConnectorLock(directory: string): Promise<() => Promise<void>> {
+export async function acquireConnectorLock(directory: string, releaseDirectory = () => directory): Promise<() => Promise<void>> {
   const filename = path.join(directory, 'connector.lock');
   const owner = { pid: process.pid, nonce: randomUUID() };
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -49,8 +49,9 @@ export async function acquireConnectorLock(directory: string): Promise<() => Pro
       await handle.writeFile(JSON.stringify(owner));
       await handle.close();
       return async () => {
-        const current = JSON.parse(await readFile(filename, 'utf8'));
-        if (current.nonce === owner.nonce) await rm(filename);
+        const releasePath = path.join(releaseDirectory(), 'connector.lock');
+        const current = JSON.parse(await readFile(releasePath, 'utf8'));
+        if (current.nonce === owner.nonce) await rm(releasePath);
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;

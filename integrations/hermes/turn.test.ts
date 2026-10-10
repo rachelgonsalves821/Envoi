@@ -14,11 +14,11 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 const message = (id: string, caseId: string): WorkMessage => ({
   id, caseId, intent: 'request', text: `Please handle ${id}`,
   senderAgentId: 'sender', recipientAgentId: 'hermes_agent',
-  from: { agentId: 'sender', address: 'sender@sinaloa.mail' }
+  from: { agentId: 'sender', address: 'sender@envoi.mail' }
 });
 
 async function fixture() {
-  const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-hermes-test-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'envoi-hermes-test-'));
   const replies = new FileBridgeStore(directory);
   await replies.init();
   const runs = new HermesRunStore(directory);
@@ -160,7 +160,7 @@ describe('Hermes automatic run bridge', () => {
         : json({ run_id: 'run_one', status: 'completed', output: '{"text":"Duplicate","intent":"message"}' }));
       const turn = hermesTurn({ apiUrl: 'http://127.0.0.1:8642', apiKey: 'key', agentId: 'hermes_agent',
         runs: state.runs, replies: state.replies, fetch: fetcher,
-        mcpReplySent: async () => true, allowSinaloaMcpWrites: true });
+        mcpReplySent: async () => true, allowEnvoiMcpWrites: true });
       const handler = bridgeHandler(state.replies, turn);
       const send = vi.fn(async () => {});
       const work = message('msg_1', 'case_1');

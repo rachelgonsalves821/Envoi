@@ -193,8 +193,8 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const enrolled = concurrentEnrollment.find(result => result.status === 201);
   assert.equal(enrolled.status, 201);
   assert.equal(enrolled.payload.agent.address, 'worker@envoi.mail');
-  assert.ok(enrolled.payload.agentApiToken.startsWith('sinaloa_agent_'));
-  assert.ok(enrolled.payload.agentRefreshToken.startsWith('sinaloa_agent_refresh_'));
+  assert.ok(enrolled.payload.agentApiToken.startsWith('envoi_agent_access_'));
+  assert.ok(enrolled.payload.agentRefreshToken.startsWith('envoi_agent_refresh_'));
   assert.ok(new Date(enrolled.payload.agentTokenExpiresAt) > new Date());
   assert.equal('credentialHash' in enrolled.payload.agent, false);
   const rotated = await request(server.baseUrl, '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: enrolled.payload.agentRefreshToken, rotationId: 'rotation-enrollment-1' } });

@@ -26,7 +26,7 @@ export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 export const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 export const PAST = '2000-01-01T00:00:00.000Z';
 export const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
-const TOKEN_PATTERN = /sinaloa_(?:agent_(?:access|refresh)|mcp_read|enroll)_/;
+const TOKEN_PATTERN = /(?:envoi|sinaloa)_(?:agent_(?:access|refresh)|mcp_read|enroll)_/;
 
 // ---------------------------------------------------------------- schemas
 

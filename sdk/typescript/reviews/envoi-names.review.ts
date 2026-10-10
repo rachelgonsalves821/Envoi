@@ -2,9 +2,9 @@ import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
-import { SinaloaConnector, type ConnectorSession } from '../src/connector';
+import { EnvoiConnector, type ConnectorSession } from '../src/connector';
 import { lifecyclePolicy } from '../src/lifecycle';
-import { SinaloaError, rotateAgentToken } from '../src/index';
+import { EnvoiError, rotateAgentToken } from '../src/index';
 import { contractRegistryPath, loadContractFixture, loadContractRegistry } from '../../../integrations/contract-fixtures/setup';
 const source = process.env.ENVOI_CONTRACT_FIXTURES_ROOT ?? path.dirname(contractRegistryPath);
 const contract = loadContractRegistry(source).contracts.find(item => item.id === 'envoi-names' && item.version === 1);
@@ -26,7 +26,7 @@ describe('envoi-names v1 fixture-only consumer review', () => {
     if (typeof fixture.response.body.code === 'string') {
       const code = fixture.response.body.code;
       expect(fixture.response.status).toBe(schemas['x-codes'][code].status);
-      const policy = lifecyclePolicy(new SinaloaError(fixture.response.body.message, fixture.response.status, code));
+      const policy = lifecyclePolicy(new EnvoiError(fixture.response.body.message, fixture.response.status, code));
       expect(policy).toMatchObject({ lifecycle: fixture.client.lifecycle, retry: fixture.client.retry, guidance: fixture.client.guidance });
     }
   });
@@ -57,7 +57,7 @@ describe('envoi-names v1 fixture-only consumer review', () => {
       const fixture = byId(route === '/api/agent-token' ? 'refresh-old-prefix' : id);
       return Response.json(fixture.response.body, { status: fixture.response.status });
     }) as typeof fetch;
-    const connector = new SinaloaConnector('https://fixture.example', { load: async () => saved, save: async value => { saved = structuredClone(value); } }, { fetch: fetcher, handler: { admit: async () => {}, process: async () => {} } });
+    const connector = new EnvoiConnector('https://fixture.example', { load: async () => saved, save: async value => { saved = structuredClone(value); } }, { fetch: fetcher, handler: { admit: async () => {}, process: async () => {} } });
     if (id === 'access-old-prefix') await expect(connector.processWorkOnce()).rejects.toMatchObject({ code: 'REFRESH_TOKEN_INVALID' });
     else await expect(connector.forwardMcpRequest(JSON.stringify(byId('mcp-call-old-name').request.body))).rejects.toMatchObject({ code: 'REFRESH_TOKEN_INVALID' });
     expect((await connector.lifecycle()).state).toBe('NEEDS_RECONNECT');
@@ -69,7 +69,7 @@ describe('envoi-names v1 fixture-only consumer review', () => {
     for (const id of ['mcp-tools-list', 'mcp-tools-list-case-read', 'mcp-call-old-name']) {
       let saved = { ...savedSession(), agentApiToken: 'envoi_agent_access_PLACEHOLDERxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' };
       const fixture = byId(id);
-      const connector = new SinaloaConnector('https://fixture.example', { load: async () => saved, save: async value => { saved = value; } }, {
+      const connector = new EnvoiConnector('https://fixture.example', { load: async () => saved, save: async value => { saved = value; } }, {
         fetch: (async (_input, init) => { expect(JSON.parse(String(init?.body))).toEqual(fixture.request.body); return Response.json(fixture.response.body); }) as typeof fetch
       });
       const response = await connector.forwardMcpRequest(JSON.stringify(fixture.request.body));

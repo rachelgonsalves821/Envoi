@@ -262,7 +262,7 @@ export async function preflightOpenClaw(config: OpenClawConfiguration, options: 
         response = await (options.fetch ?? fetch)(`${url}/v1/chat/completions`, {
           method: 'POST', redirect: 'error', signal: controller.signal,
           headers: { authorization: `Bearer ${config.gatewayToken}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ model: `openclaw/${config.agentId}`, user: `sinaloa:connection-test:${crypto.randomUUID()}`, stream: false,
+          body: JSON.stringify({ model: `openclaw/${config.agentId}`, user: `envoi:connection-test:${crypto.randomUUID()}`, stream: false,
             messages: [{ role: 'user', content: 'Envoi connection test. Do not use tools, read files, or perform external actions. Reply with a short confirmation that you can receive and answer this message.' }] })
         });
       } catch { throw new OpenClawSetupError('OpenClaw Gateway could not be reached. Check it is running and run the connector in the same network environment. This check did not redeem an enrollment token.', 'GATEWAY_UNREACHABLE'); }

@@ -35,20 +35,20 @@ describe('Grok unified adapter', () => {
   });
 
   it('persists optional settings for a service with no shell environment, and accepts explicit updates or removal', async () => {
-    const config = await discoverGrok({ env: { XAI_API_KEY: 'private-key', SINALOA_MCP_URL: 'https://sinaloa.example/mcp',
-      SINALOA_ASSET_MANIFEST_PATH: './approved-assets.json' } });
+    const config = await discoverGrok({ env: { XAI_API_KEY: 'private-key', ENVOI_MCP_URL: 'https://envoi.example/mcp',
+      ENVOI_ASSET_MANIFEST_PATH: './approved-assets.json' } });
     expect(path.isAbsolute(config.assetManifestPath!)).toBe(true);
     expect(await discoverGrok({ env: {} }, config)).toEqual(config);
-    expect(await discoverGrok({ env: { SINALOA_MCP_URL: 'https://new.example/mcp', SINALOA_ASSET_MANIFEST_PATH: '' } }, config))
+    expect(await discoverGrok({ env: { ENVOI_MCP_URL: 'https://new.example/mcp', ENVOI_ASSET_MANIFEST_PATH: '' } }, config))
       .toEqual({ apiKey: config.apiKey, model: config.model, mcpUrl: 'https://new.example/mcp' });
-    expect(await discoverGrok({ env: { SINALOA_MCP_URL: '', SINALOA_ASSET_MANIFEST_PATH: '' } }, config))
+    expect(await discoverGrok({ env: { ENVOI_MCP_URL: '', ENVOI_ASSET_MANIFEST_PATH: '' } }, config))
       .toEqual({ apiKey: config.apiKey, model: config.model });
     expect(JSON.stringify(grokAdapter.describe(config))).not.toMatch(/private-key|mcp|approved-assets/);
   });
 
   it.each(['http://remote.example/mcp', 'https://user:secret@example.com/mcp', 'https://example.com/other', 'https://example.com/mcp?secret=1'])
     ('rejects invalid MCP destination %s', async mcpUrl => {
-      await expect(discoverGrok({ env: { XAI_API_KEY: 'private-key', SINALOA_MCP_URL: mcpUrl } }))
+      await expect(discoverGrok({ env: { XAI_API_KEY: 'private-key', ENVOI_MCP_URL: mcpUrl } }))
         .rejects.toMatchObject({ code: 'RUNTIME_CONFIGURATION_INVALID' });
     });
 
@@ -91,31 +91,31 @@ describe('Grok unified adapter', () => {
   });
 
   it('reuses a durable reply after connector restart without another provider turn or leaked credentials', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'sinaloa-grok-adapter-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'envoi-grok-adapter-'));
     try {
       const store = new FileBridgeStore(dir); await store.init();
-      await store.save({ agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@sinaloa.mail', cursor: null,
-        agentApiToken: 'sinaloa-access', agentRefreshToken: 'sinaloa-refresh',
+      await store.save({ agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@envoi.mail', cursor: null,
+        agentApiToken: 'envoi-access', agentRefreshToken: 'envoi-refresh',
         agentTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
         agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
       let providerCalls = 0; let replyCalls = 0;
       const manifestPath = path.join(dir, 'approved-assets.json');
       await writeFile(manifestPath, JSON.stringify({ files: [] }));
       const message = { id: 'msg_one', senderAgentId: 'agent_two', recipientAgentId: 'agent_one',
-        from: { agentId: 'agent_two', address: 'two@sinaloa.mail' }, text: 'hello', intent: 'message' };
+        from: { agentId: 'agent_two', address: 'two@envoi.mail' }, text: 'hello', intent: 'message' };
       const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         const requestUrl = String(url);
         if (requestUrl.startsWith('https://api.x.ai/')) {
           providerCalls++;
           expect(new Headers(init?.headers).get('authorization')).toBe('Bearer provider-secret');
-          expect(String(init?.body)).not.toMatch(/sinaloa-access|sinaloa-refresh|provider-secret/);
+          expect(String(init?.body)).not.toMatch(/envoi-access|envoi-refresh|provider-secret/);
           const body = JSON.parse(String(init?.body));
-          expect(body.tools[0]).toMatchObject({ server_url: 'https://sinaloa.example/mcp', authorization: 'Bearer case-scoped-read',
-            allowed_tools: ['sinaloa_agent_info'] });
+          expect(body.tools[0]).toMatchObject({ server_url: 'https://envoi.example/mcp', authorization: 'Bearer case-scoped-read',
+            allowed_tools: ['envoi_agent_info'] });
           const data = completed('{"text":"Hello back","intent":"message"}');
-          return new Response(JSON.stringify({ ...data, output: [...data.output, { type: 'mcp_call', name: 'sinaloa_agent_info', status: 'completed' }] }));
+          return new Response(JSON.stringify({ ...data, output: [...data.output, { type: 'mcp_call', name: 'envoi_agent_info', status: 'completed' }] }));
         }
-        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sinaloa-access');
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer envoi-access');
         expect(String(init?.body)).not.toContain('provider-secret');
         const route = new URL(requestUrl).pathname;
         if (route.endsWith('/mcp-read-token')) return new Response(JSON.stringify({ mcpAccessToken: 'case-scoped-read', tokenType: 'Bearer',
@@ -131,8 +131,8 @@ describe('Grok unified adapter', () => {
         return new Response(JSON.stringify({ id: 'reply_one' }));
       });
       const config = await discoverGrok({ env: { XAI_API_KEY: 'provider-secret', XAI_MODEL: 'custom-model',
-        SINALOA_MCP_URL: 'https://sinaloa.example/mcp', SINALOA_ASSET_MANIFEST_PATH: manifestPath } });
-      const context = { apiUrl: 'https://sinaloa.example', stateDir: dir, env: {}, fetch: fetcher as typeof fetch };
+        ENVOI_MCP_URL: 'https://envoi.example/mcp', ENVOI_ASSET_MANIFEST_PATH: manifestPath } });
+      const context = { apiUrl: 'https://envoi.example', stateDir: dir, env: {}, fetch: fetcher as typeof fetch };
       const first = await grokAdapter.createBridge(config, context);
       await expect(first.connector.processWorkOnce()).rejects.toThrow();
       await first.close();
