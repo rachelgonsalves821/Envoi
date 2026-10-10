@@ -1,0 +1,3 @@
+# GA4 local FileStore runner
+
+Plan: compile a separate controlled worker against an explicitly supplied exact combined Envoi integration SHA; start the real npm FileStore server; cut only SSE at a local HTTP proxy; restart the production connector with its saved state; verify retry-delayed and offline-arrival work each completes once without receiving any further SSE frame or delta page. Keep production timer policies, assert durable server receipts and local processing counts, observe additional safety claims and restart again to detect duplicates. Rehearse against the exact paired N1 validation tree, then run on Lane A's combined integration SHA. Lane A supplies PostgreSQL CI and posts the formal gate.
