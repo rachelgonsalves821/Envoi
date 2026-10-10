@@ -24,7 +24,7 @@ export function connectorService(directory: string, options: { platform?: string
   const node = options.node ?? process.execPath;
   if ([directory, home, node, options.user || ''].some(value => /[\r\n\0]/.test(value))) throw new QuickConnectError('Service paths cannot contain control characters');
   const id = createHash('sha256').update(directory).digest('hex').slice(0, 16);
-  const name = `sinaloa-${options.runtime || 'openclaw'}-${id}`;
+  const name = `envoi-${options.runtime || 'openclaw'}-${id}`;
   const connector = path.join(directory, 'connector.mjs');
   const args = [connector, 'start', '--state-dir', directory];
   if (platform === 'linux') {
@@ -35,7 +35,7 @@ export function connectorService(directory: string, options: { platform?: string
     ] };
   }
   if (platform === 'darwin') {
-    const label = `com.sinaloa.${name}`;
+    const label = `com.envoi.${name}`;
     const filename = path.join(home, 'Library', 'LaunchAgents', `${label}.plist`);
     return { name: label, filename,
       contents: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${[node, ...args].map(value => `<string>${xml(value)}</string>`).join('')}</array><key>WorkingDirectory</key><string>${xml(directory)}</string><key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict><key>ThrottleInterval</key><integer>10</integer><key>StandardOutPath</key><string>${xml(path.join(directory, 'service.log'))}</string><key>StandardErrorPath</key><string>${xml(path.join(directory, 'service.log'))}</string></dict></plist>\n`,

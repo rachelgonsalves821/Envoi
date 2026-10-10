@@ -5,7 +5,7 @@ import path from 'node:path';
 import { generateSync } from 'otplib';
 import { describe, expect, it } from 'vitest';
 import { enrollConnector } from '../../sdk/typescript/src/connector';
-import { newCaseId, SinaloaClient } from '../../sdk/typescript/src/index';
+import { newCaseId, EnvoiClient } from '../../sdk/typescript/src/index';
 import { BrowserSession } from '../../test/browser-session.js';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { createHermesBridge } from './runtime';
@@ -13,12 +13,12 @@ import { createHermesBridge } from './runtime';
 async function server(dataDir: string): Promise<{ baseUrl: string; child: ChildProcess }> {
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development',
-      SINALOA_DATA_DIR: dataDir, SINALOA_AGENT_WORK_RETRY_BASE_MS: '50' },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development',
+      ENVOI_DATA_DIR: dataDir, ENVOI_AGENT_WORK_RETRY_BASE_MS: '50' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const baseUrl = await new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Local Sinaloa server start timed out')), 15_000);
+    const timeout = setTimeout(() => reject(new Error('Local Envoi server start timed out')), 15_000);
     child.once('exit', code => { clearTimeout(timeout); reject(new Error(`Local server exited ${code}`)); });
     child.stdout?.on('data', chunk => {
       const match = String(chunk).match(/http:\/\/127\.0\.0\.1:(\d+)/);
@@ -67,12 +67,12 @@ async function eventually<T>(call: () => Promise<T | null>, timeoutMs = 7_000): 
     if (value) return value;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  throw new Error('Local Sinaloa delivery timed out');
+  throw new Error('Local Envoi delivery timed out');
 }
 
-describe('Hermes bridge against real local Sinaloa', () => {
+describe('Hermes bridge against real local Envoi', () => {
   it('wakes on two offline exact-address cases, resumes a run after restart, records one reply per case, and stops on revoke', async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-hermes-local-'));
+    const directory = await mkdtemp(path.join(tmpdir(), 'envoi-hermes-local-'));
     let app: Awaited<ReturnType<typeof server>> | null = null;
     try {
       app = await server(path.join(directory, 'server'));
@@ -81,7 +81,7 @@ describe('Hermes bridge against real local Sinaloa', () => {
       await Promise.all([senderStore.init(), hermesStore.init()]);
       const sender = await owner(app.baseUrl, '7301', senderStore);
       const recipient = await owner(app.baseUrl, '7302', hermesStore);
-      const senderClient = new SinaloaClient(app.baseUrl, sender.agent.agentApiToken);
+      const senderClient = new EnvoiClient(app.baseUrl, sender.agent.agentApiToken);
       const caseIds = [newCaseId(), newCaseId()];
       const sent = await Promise.all(caseIds.map((caseId, index) => senderClient.startCase(sender.agent.inboxId,
         `hermes-case-${index}`, { senderAgentId: sender.agent.agentId, recipientEmail: recipient.agent.address,
@@ -132,7 +132,7 @@ describe('Hermes bridge against real local Sinaloa', () => {
       });
       for (const caseId of caseIds) {
         const senderCase = await senderClient.listCaseMessages(sender.agent.inboxId, caseId);
-        const recipientCase = await new SinaloaClient(app.baseUrl, (await hermesStore.load())!.agentApiToken)
+        const recipientCase = await new EnvoiClient(app.baseUrl, (await hermesStore.load())!.agentApiToken)
           .listCaseMessages(recipient.agent.inboxId, caseId);
         expect(senderCase).toHaveLength(2);
         expect(recipientCase).toHaveLength(2);

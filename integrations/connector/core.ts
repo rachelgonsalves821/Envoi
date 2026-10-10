@@ -4,8 +4,8 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { lifecyclePolicy } from '../../sdk/typescript/src/lifecycle';
-import { SinaloaError } from '../../sdk/typescript/src/index';
-import { enrollConnector, SinaloaConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
+import { EnvoiError } from '../../sdk/typescript/src/index';
+import { enrollConnector, EnvoiConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
 import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { ConnectorSetupError, type AdapterOptions, type ConnectorAdapter, type RuntimeBridge } from './adapter';
@@ -13,6 +13,7 @@ import { privateDirectory, privateJson, acquireConnectorLock } from './store';
 import { checkServiceManager } from './service';
 import { startControl, queryControl } from './control';
 import { enrollmentSetupError, readEnrollmentDiagnostic } from './enrollment-error';
+import { migrateConnectionDirectory } from './migrate';
 
 export interface InstalledConnection {
   version: 1;
@@ -40,7 +41,7 @@ export function connectionDirectory(apiUrl: string, address: string, runtime: Co
   const base = platform === 'win32' ? (env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'))
     : platform === 'darwin' ? path.join(home, 'Library', 'Application Support')
       : env.XDG_STATE_HOME && path.isAbsolute(env.XDG_STATE_HOME) ? env.XDG_STATE_HOME : path.join(home, '.local', 'state');
-  return path.join(base, 'sinaloa', runtime, id);
+  return path.join(base, 'envoi', runtime, id);
 }
 export function startCommand(stateDir: string, platform = process.platform) {
   const args = [process.execPath, path.join(stateDir, 'connector.mjs'), 'start', '--state-dir', stateDir];
@@ -90,7 +91,7 @@ export async function readConnection(directory: string): Promise<InstalledConnec
   saved.apiUrl = quickConnectOrigin(saved.apiUrl);
   return saved;
 }
-export async function checkSinaloa(apiUrl: string, fetcher: typeof fetch) {
+export async function checkEnvoi(apiUrl: string, fetcher: typeof fetch) {
   let response: Response;
   try { response = await fetcher(`${quickConnectOrigin(apiUrl)}/health`, { signal: AbortSignal.timeout(10_000) }); }
   catch { throw new ConnectorSetupError('ENVOI_UNREACHABLE', 'Envoi is unreachable from this host. A remote agent cannot reach another computer’s localhost URL; use the correct public HTTPS deployment'); }
@@ -98,14 +99,14 @@ export async function checkSinaloa(apiUrl: string, fetcher: typeof fetch) {
     if (!response.ok || (await response.json() as { service?: string }).service !== 'envoi') throw new Error();
   } catch { throw new ConnectorSetupError('ENVOI_UNREACHABLE', 'The selected URL did not return Envoi health. Check the deployment origin before enrolling'); }
 }
-async function report(saved: InstalledConnection, connector: SinaloaConnector, phase: 'ready' | 'error', _fetcher: typeof fetch, errorCode?: string) {
+async function report(saved: InstalledConnection, connector: EnvoiConnector, phase: 'ready' | 'error', _fetcher: typeof fetch, errorCode?: string) {
   await connector.reportConnectionStatus({ version: 1, runtime: saved.runtime, phase,
     runtimeTest: phase === 'ready' ? 'passed' : 'failed', ...(errorCode ? { errorCode } : {}) });
 }
 
 export async function prepareConnection(runtime: ConnectorRuntime, apiUrl: string, resolveAdapter: AdapterResolver, options: AdapterOptions = {}) {
   const fetcher = noRedirectFetch(options.fetch);
-  await checkSinaloa(apiUrl, fetcher);
+  await checkEnvoi(apiUrl, fetcher);
   const adapter = resolveAdapter(runtime);
   const config = await adapter.discover({ ...options, fetch: fetcher });
   await adapter.preflight(config, { ...options, fetch: fetcher });
@@ -114,12 +115,12 @@ export async function prepareConnection(runtime: ConnectorRuntime, apiUrl: strin
 
 export async function setupConnection(input: unknown, resolveAdapter: AdapterResolver, options: SetupOptions = {}) {
   const handoff = validateQuickConnectHandoff(input, { allowExpired: true });
-  const directory = await (options.secureDirectory ?? privateDirectory)(options.stateDir ?? connectionDirectory(handoff.apiUrl, handoff.address, handoff.runtime, options));
+  const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(options.stateDir ?? connectionDirectory(handoff.apiUrl, handoff.address, handoff.runtime, options), options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = noRedirectFetch(options.fetch);
   let bridge: RuntimeBridge | undefined;
   let saved: InstalledConnection | undefined;
-  let enrolledConnector: SinaloaConnector | undefined;
+  let enrolledConnector: EnvoiConnector | undefined;
   try {
     const store = new FileBridgeStore(directory); await store.init();
     let session = await savedSession(directory);
@@ -137,7 +138,7 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     if (needsEnrollment) validateQuickConnectHandoff(input);
     if (options.installService) await checkServiceManager();
     options.onProgress?.('Checking Envoi reachability');
-    await checkSinaloa(handoff.apiUrl, fetcher);
+    await checkEnvoi(handoff.apiUrl, fetcher);
     const adapter = resolveAdapter(handoff.runtime);
     const context = { ...options, apiUrl: handoff.apiUrl, stateDir: directory, fetch: fetcher };
     options.onProgress?.(`Preparing ${handoff.runtime}`);
@@ -158,7 +159,7 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     }
     if (!session || session.address !== handoff.address) throw new ConnectorSetupError('STATE_MISMATCH', 'The enrolled address differs from this handoff. Inspect Agent connections before starting');
     await rm(path.join(directory, 'enrollment-error.json'), { force: true });
-    enrolledConnector = new SinaloaConnector(saved.apiUrl, store, { fetch: fetcher });
+    enrolledConnector = new EnvoiConnector(saved.apiUrl, store, { fetch: fetcher });
     await adapter.configure?.(config, context);
     // Adapters may allocate a local relay port during configure. Save it before service start.
     await privateJson(path.join(directory, 'connection.json'), saved);
@@ -180,7 +181,7 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
 
 export async function startConnection(stateDir: string, signal: AbortSignal, resolveAdapter: AdapterResolver,
   options: AdapterOptions & { secureDirectory?: typeof privateDirectory; pollIntervalMs?: number; onReady?: () => void; onWaiting?: (code: string) => void; retryDelayMs?: number; control?: boolean } = {}) {
-  const directory = await (options.secureDirectory ?? privateDirectory)(stateDir);
+  const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(stateDir, options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = noRedirectFetch(options.fetch);
   const stop = new AbortController();
@@ -193,7 +194,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
   try {
     saved = await readConnection(directory);
     if (!await savedSession(directory)) throw new ConnectorSetupError('STATE_INVALID', 'Saved credentials are missing; reconnect through Envoi before starting');
-    const startup = new SinaloaConnector(saved.apiUrl, new FileBridgeStore(directory), { fetch: fetcher });
+    const startup = new EnvoiConnector(saved.apiUrl, new FileBridgeStore(directory), { fetch: fetcher });
     await startup.start();
     const adapter = resolveAdapter(saved.runtime);
     const context = { ...options, signal: stop.signal, apiUrl: saved.apiUrl, stateDir: directory, fetch: fetcher };
@@ -202,7 +203,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
     if (initialState.retryAt) await delay(Math.max(0, Date.parse(initialState.retryAt) - Date.now()), undefined, { signal: stop.signal }).catch(error => { if (!stop.signal.aborted) throw error; });
     while (!stop.signal.aborted) {
       try {
-        await checkSinaloa(saved.apiUrl, fetcher);
+        await checkEnvoi(saved.apiUrl, fetcher);
         const config = await adapter.discover(context, saved.configuration);
         await adapter.preflight(config, context);
         await adapter.configure?.(config, context);
@@ -220,15 +221,15 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         await bridge?.close(); bridge = undefined;
         if (stop.signal.aborted) return;
         const transient = error instanceof ConnectorSetupError && ['ENVOI_UNREACHABLE', 'GATEWAY_UNREACHABLE', 'PROVIDER_UNREACHABLE'].includes(error.code)
-          || error instanceof SinaloaError && lifecyclePolicy(error).lifecycle === 'DEGRADED'
+          || error instanceof EnvoiError && lifecyclePolicy(error).lifecycle === 'DEGRADED'
           || error instanceof TypeError && /fetch|network/i.test(error.message);
         if (!transient) throw error;
         const code = error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEMPORARILY_UNAVAILABLE';
-        if (!(error instanceof SinaloaError)) await startup.observeError(new SinaloaError('Runtime connection unavailable', undefined, 'NETWORK_ERROR'));
+        if (!(error instanceof EnvoiError)) await startup.observeError(new EnvoiError('Runtime connection unavailable', undefined, 'NETWORK_ERROR'));
         const lifecycle = await startup.lifecycle();
         diagnostics = { status: 'waiting', lifecycle, guidance: lifecycle.guidance, runtimeChecks: 'pending', errorCode: code };
         options.onWaiting?.(code);
-        await delay(Math.max(error instanceof SinaloaError ? (error.retryAfterSeconds ?? 0) * 1000 : 0, options.retryDelayMs ?? Math.max(0, Date.parse(lifecycle.retryAt ?? '') - Date.now())), undefined, { signal: stop.signal }).catch(error => { if (!stop.signal.aborted) throw error; });
+        await delay(Math.max(error instanceof EnvoiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0, options.retryDelayMs ?? Math.max(0, Date.parse(lifecycle.retryAt ?? '') - Date.now())), undefined, { signal: stop.signal }).catch(error => { if (!stop.signal.aborted) throw error; });
       }
     }
     if (stop.signal.aborted || !bridge) return;
@@ -267,12 +268,12 @@ export async function doctorConnection(stateDir: string, resolveAdapter: Adapter
     const saved = await readConnection(directory);
     const adapter = resolveAdapter(saved.runtime);
     const fetcher = noRedirectFetch(options.fetch);
-    await checkSinaloa(saved.apiUrl, fetcher);
+    await checkEnvoi(saved.apiUrl, fetcher);
     const context = { ...options, apiUrl: saved.apiUrl, stateDir: directory, fetch: fetcher };
     const config = await adapter.discover(context, saved.configuration);
     await adapter.preflight(config, context);
     const store = new FileBridgeStore(directory);
-    await new SinaloaConnector(saved.apiUrl, store, { fetch: fetcher }).pollOnce();
+    await new EnvoiConnector(saved.apiUrl, store, { fetch: fetcher }).pollOnce();
     return { ...await connectionStatus(directory), runtimeChecks: 'passed', ...adapter.describe(config) };
   } finally { await unlock(); }
 }

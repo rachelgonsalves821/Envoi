@@ -73,7 +73,7 @@ describe('human API sessions', () => {
 
   it('rejects a late 401 after a caller timeout without clearing a still-valid session', async () => {
     const browserWindow = new EventTarget(); const expired = vi.fn();
-    browserWindow.addEventListener('sinaloa:session-expired', expired); vi.stubGlobal('window', browserWindow);
+    browserWindow.addEventListener('envoi:session-expired', expired); vi.stubGlobal('window', browserWindow);
     let complete!: (value: Response) => void;
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>(resolve => { complete = resolve; })));
     const controller = new AbortController();
@@ -97,7 +97,7 @@ describe('human API sessions', () => {
   it('ignores late 401 responses from a previous session instead of ending a new one', async () => {
     const browserWindow = new EventTarget();
     const expired = vi.fn();
-    browserWindow.addEventListener('sinaloa:session-expired', expired);
+    browserWindow.addEventListener('envoi:session-expired', expired);
     vi.stubGlobal('window', browserWindow);
     let complete!: (value: Response) => void;
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>(resolve => { complete = resolve; })));
@@ -112,7 +112,7 @@ describe('human API sessions', () => {
   it('keeps temporary provider failures recoverable and never replays a mutation', async () => {
     const browserWindow = new EventTarget();
     const expired = vi.fn();
-    browserWindow.addEventListener('sinaloa:session-expired', expired);
+    browserWindow.addEventListener('envoi:session-expired', expired);
     vi.stubGlobal('window', browserWindow);
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'AUTH_UNAVAILABLE', message: 'Try again shortly.' }), { status: 503 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -141,7 +141,7 @@ describe('human API sessions', () => {
   it('notifies the app when an authenticated workspace request returns 401', async () => {
     const browserWindow = new EventTarget();
     const expired = vi.fn();
-    browserWindow.addEventListener('sinaloa:session-expired', expired);
+    browserWindow.addEventListener('envoi:session-expired', expired);
     vi.stubGlobal('window', browserWindow);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'SESSION_EXPIRED' }), { status: 401 })));
 
@@ -251,8 +251,8 @@ describe('agent connection invitations', () => {
   it('loads invitations and sends accept or decline decisions to the exact workspace routes', async () => {
     const invitation = {
       id: 'invite/1',
-      fromAddress: 'sender@sinaloa.example',
-      toAddress: 'recipient@sinaloa.example',
+      fromAddress: 'sender@envoi.example',
+      toAddress: 'recipient@envoi.example',
       senderAgentId: 'agent_sender',
       recipientAgentId: 'agent_recipient',
       direction: 'incoming',

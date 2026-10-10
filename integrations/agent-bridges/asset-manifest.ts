@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { isHumanInstructionMessage, type SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { isHumanInstructionMessage, type EnvoiConnector } from '../../sdk/typescript/src/connector';
 import { shareCaseAsset } from './asset-exchange';
 import type { AssetExchange } from './bridge';
 
@@ -42,7 +42,7 @@ export async function loadAssetManifest(manifestPath: string | undefined): Promi
   return approved;
 }
 
-export function manifestAssetExchange(manifest: Map<string, ApprovedAsset>, connector: SinaloaConnector,
+export function manifestAssetExchange(manifest: Map<string, ApprovedAsset>, connector: EnvoiConnector,
   exchange: typeof shareCaseAsset = shareCaseAsset): AssetExchange {
   return async (message, reply, idempotencyKey, signal) => {
     if (isHumanInstructionMessage(message)) throw new Error('Human instruction replies cannot target a native asset recipient');

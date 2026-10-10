@@ -6,17 +6,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
 import { describe, expect, it } from 'vitest';
-import { enrollConnector, SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { enrollConnector, EnvoiConnector } from '../../sdk/typescript/src/connector';
 import { newCaseId } from '../../sdk/typescript/src/index';
 import { BrowserSession } from '../../test/browser-session.js';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { setupQuickConnect, startQuickConnect } from './quick-connect';
 
-async function startSinaloa(dataDir: string): Promise<{ baseUrl: string; child: ChildProcess }> {
+async function startEnvoi(dataDir: string): Promise<{ baseUrl: string; child: ChildProcess }> {
   const child = spawn(process.execPath, ['src/server.js'], {
-    cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0',
-      SINALOA_AUTH_MODE: 'development', SINALOA_HUMAN_AUTH_PROVIDER: 'local',
-      SINALOA_PUBLIC_URL: '', SINALOA_AGENT_DOMAIN: 'sinaloa.mail', SINALOA_DATA_DIR: dataDir },
+    cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0',
+      ENVOI_AUTH_MODE: 'development', ENVOI_HUMAN_AUTH_PROVIDER: 'local',
+      ENVOI_PUBLIC_URL: '', ENVOI_AGENT_DOMAIN: 'envoi.mail', ENVOI_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   try {
@@ -69,9 +69,9 @@ async function waitFor<T>(label: string, check: () => Promise<T | null | false>,
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-describe('Quick Connect against real Sinaloa and an HTTP Gateway fixture', () => {
+describe('Quick Connect against real Envoi and an HTTP Gateway fixture', () => {
   it('receives unsolicited work, replies in its case, and resumes saved enrollment without duplicate replies', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sinaloa-quick-connect-real-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'envoi-quick-connect-real-'));
     const stateDir = path.join(root, 'receiver');
     const secureDirectory = async (directory: string) => { await mkdir(directory, { recursive: true }); return directory; };
     const gatewayToken = 'local-gateway-token-kept-on-host';
@@ -86,12 +86,12 @@ describe('Quick Connect against real Sinaloa and an HTTP Gateway fixture', () =>
       const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       const prompt: string = input.messages[0].content;
       gatewayTurns.push({ model: input.model, user: input.user, authorization: req.headers.authorization, content: prompt });
-      const isPreflight = input.user.startsWith('sinaloa:connection-test:');
+      const isPreflight = input.user.startsWith('envoi:connection-test:');
       const incoming = isPreflight ? null : JSON.parse(prompt.split('\n\n').at(-1)!);
       const content = isPreflight ? 'Connection test received.' : JSON.stringify({ text: `Processed ${incoming.incoming.text}`, intent: 'message' });
       res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content } }] }));
     });
-    let app: Awaited<ReturnType<typeof startSinaloa>> | null = null;
+    let app: Awaited<ReturnType<typeof startEnvoi>> | null = null;
     let stop: AbortController | null = null;
     let running: Promise<void> | null = null;
     let connectorFailure: unknown = null;
@@ -100,7 +100,7 @@ describe('Quick Connect against real Sinaloa and an HTTP Gateway fixture', () =>
       await once(gateway, 'listening');
       const gatewayAddress = gateway.address();
       if (!gatewayAddress || typeof gatewayAddress === 'string') throw new Error('Gateway fixture address unavailable');
-      app = await startSinaloa(path.join(root, 'server'));
+      app = await startEnvoi(path.join(root, 'server'));
       const { baseUrl } = app;
       const { session, workspaceId } = await owner(baseUrl);
       const enroll = async (name: string, localPart: string) => {
@@ -113,17 +113,17 @@ describe('Quick Connect against real Sinaloa and an HTTP Gateway fixture', () =>
       const senderStore = new FileBridgeStore(path.join(root, 'sender'));
       await senderStore.init();
       const sender = await enrollConnector(baseUrl, senderEnrollment.enrollmentToken, senderStore, { name: 'Sender' });
-      const senderConnector = new SinaloaConnector(baseUrl, senderStore);
+      const senderConnector = new EnvoiConnector(baseUrl, senderStore);
       const enrollment = await enroll('Receiver', 'quick-real-receiver');
       const statusPath = `/api/inboxes/${workspaceId}/agent-enrollment-tokens/${enrollment.enrollmentId}/status`;
       expect((await api(baseUrl, statusPath, session)).payload.phase).toBe('waiting');
       let enrollmentRequests = 0;
-      let gatewaySecretSentToSinaloa = false;
+      let gatewaySecretSentToEnvoi = false;
       const trackedFetch: typeof fetch = async (input, init) => {
         const address = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
         if (address.origin === baseUrl) {
           if (address.pathname === '/api/agent-enroll') enrollmentRequests += 1;
-          gatewaySecretSentToSinaloa ||= JSON.stringify(init?.headers).includes(gatewayToken) || String(init?.body || '').includes(gatewayToken);
+          gatewaySecretSentToEnvoi ||= JSON.stringify(init?.headers).includes(gatewayToken) || String(init?.body || '').includes(gatewayToken);
         }
         return fetch(input, init);
       };
@@ -132,7 +132,7 @@ describe('Quick Connect against real Sinaloa and an HTTP Gateway fixture', () =>
         readFile: async () => JSON.stringify({ gateway: { port: gatewayAddress.port, auth: { mode: 'token', token: gatewayToken },
           http: { endpoints: { chatCompletions: { enabled: true } } } }, agents: { list: [{ id: 'main' }] } })
       });
-      expect(configured.address).toBe('quick-real-receiver@sinaloa.mail');
+      expect(configured.address).toBe('quick-real-receiver@envoi.mail');
       expect(configured.checks).toBe('passed');
       expect(enrollmentRequests).toBe(1);
       expect((await api(baseUrl, statusPath, session)).payload.phase).toBe('ready');
@@ -169,7 +169,7 @@ describe('Quick Connect against real Sinaloa and an HTTP Gateway fixture', () =>
         return incoming?.status === 'processed' && replies.length === 1 && replies[0].caseId === caseId ? messages : null;
       }, () => connectorFailure);
       await received(first.id, 'Processed First unsolicited message');
-      expect(gatewayTurns.filter(turn => turn.user === `sinaloa:${caseId}`)).toHaveLength(1);
+      expect(gatewayTurns.filter(turn => turn.user === `envoi:${caseId}`)).toHaveLength(1);
       await stopConnector();
 
       // The one-time enrollment is already consumed. Restart with persisted credentials,
@@ -184,14 +184,14 @@ describe('Quick Connect against real Sinaloa and an HTTP Gateway fixture', () =>
       expect(messages.filter(message => message.senderAgentId === configured.agentId).every(message => message.recipientAgentId === sender.agentId)).toBe(true);
       expect(messages.find(message => message.id === first.id)?.status).toBe('processed');
       expect(messages.filter(message => message.text === 'Processed First unsolicited message')).toHaveLength(1);
-      expect(gatewayTurns.filter(turn => turn.user === `sinaloa:${caseId}`)).toHaveLength(2);
+      expect(gatewayTurns.filter(turn => turn.user === `envoi:${caseId}`)).toHaveLength(2);
       expect(gatewayTurns.every(turn => turn.model === 'openclaw/main')).toBe(true);
       expect(enrollmentRequests).toBe(1);
       const restartedSession = await receiverStore.load();
       expect(restartedSession?.agentId).toBe(originalSession?.agentId);
       expect(restartedSession?.inboxId).toBe(originalSession?.inboxId);
       expect(restartedSession?.agentRefreshToken).not.toBe(originalSession?.agentRefreshToken);
-      expect(gatewaySecretSentToSinaloa).toBe(false);
+      expect(gatewaySecretSentToEnvoi).toBe(false);
       const status = (await api(baseUrl, statusPath, session)).payload;
       expect(status.phase).toBe('ready');
       expect(JSON.stringify(status)).not.toContain(gatewayToken);

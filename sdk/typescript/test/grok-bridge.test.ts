@@ -12,11 +12,11 @@ afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recurs
 
 const message = (): WorkMessage => ({
   id: 'msg_one', senderAgentId: 'agent_a', recipientAgentId: 'agent_b',
-  from: { agentId: 'agent_a', address: 'a@sinaloa.mail' }, caseId: 'case_one', text: 'Can we agree?', intent: 'request'
+  from: { agentId: 'agent_a', address: 'a@envoi.mail' }, caseId: 'case_one', text: 'Can we agree?', intent: 'request'
 });
 
 describe('Grok-backed durable bridge', () => {
-  it('sends case history to the xAI Responses API without Sinaloa credentials in the prompt', async () => {
+  it('sends case history to the xAI Responses API without Envoi credentials in the prompt', async () => {
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toBe('https://api.x.ai/v1/responses');
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer xai-secret');
@@ -33,7 +33,7 @@ describe('Grok-backed durable bridge', () => {
   });
 
   it('persists the model reply before sending and reuses it after a failed settlement', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'sinaloa-grok-test-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'envoi-grok-test-'));
     dirs.push(dir);
     const store = new FileBridgeStore(dir);
     await store.init();
@@ -60,7 +60,7 @@ describe('Grok-backed durable bridge', () => {
   });
 
   it('does not create reply loops for receipts or a persisted stop decision', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'sinaloa-stop-test-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'envoi-stop-test-'));
     dirs.push(dir);
     const store = new FileBridgeStore(dir);
     await store.init();

@@ -33,7 +33,7 @@ import type {
   HumanView, Inbox as Workspace, InboxPreference, NavSection, Organization, PolicyEvaluation, ProposalOption, WorkCase
 } from './types';
 
-const WORKSPACE_KEY = 'sinaloa.workspace';
+const WORKSPACE_KEY = 'envoi.workspace';
 const caseSections: NavSection[] = ['inbox', 'needsMe', 'active', 'waiting', 'completed'];
 
 type BootState = 'loading' | 'signedOut' | 'setup' | 'ready' | 'error';
@@ -321,7 +321,7 @@ export default function App() {
       if (caught instanceof ApiError && caught.status === 401) {
         expireSession();
       } else {
-        setError(caught instanceof Error ? caught.message.replace(/\bSinaloa\b/gi, 'Envoi') : 'Envoi could not load your workspace.');
+        setError(caught instanceof Error ? caught.message.replace(/\bEnvoi\b/gi, 'Envoi') : 'Envoi could not load your workspace.');
         setBoot('error');
       }
     }
@@ -776,7 +776,7 @@ export function AppShell(props: ShellProps) {
   const selectedCaseView = selectedCaseEntry?.sourceView || view;
   const currentAgent = workspace.kind === 'agent' ? view.agents.find(item => item.id === workspace.ownerAgentId) || null : null;
 
-  useEffect(() => { document.documentElement.dataset.theme = 'light'; localStorage.removeItem('sinaloa.theme'); }, []);
+  useEffect(() => { document.documentElement.dataset.theme = 'light'; localStorage.removeItem('envoi.theme'); }, []);
   useEffect(() => {
     if (rootWorkspace.id === previewWorkspace.id) return;
     let cancelled = false;
@@ -1628,10 +1628,10 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
       onTimeout: () => setStatusError('Automatic progress checks stopped. Check your agent’s setup report, or check status again. Do not create another token if this one was already redeemed.')
     });
   }, [result, workspace.id, pollingAttempt]);
-  const sinaloaOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+  const envoiOrigin = typeof window === 'undefined' ? '' : window.location.origin;
   const selectedRuntime = handoff?.runtime || runtime;
   const label = runtimeLabel(selectedRuntime);
-  const prepareCommand = `node envoi-connector.mjs prepare --runtime ${runtime} --api-url ${sinaloaOrigin || '<Envoi origin>'}${runtime === 'hermes' ? ' --prepare-runtime' : ''}`;
+  const prepareCommand = `node envoi-connector.mjs prepare --runtime ${runtime} --api-url ${envoiOrigin || '<Envoi origin>'}${runtime === 'hermes' ? ' --prepare-runtime' : ''}`;
   const setupCommand = `node envoi-connector.mjs setup --handoff envoi-setup.json${selectedRuntime === 'hermes' ? ' --prepare-runtime' : ''}`;
   useEffect(() => {
     if (result || reconnectAgent || !validAgentLocalPart(localPart)) { setAvailability('idle'); return; }
@@ -1707,7 +1707,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
       <div className="enroll-steps" aria-label="Enrollment steps">{['Runtime', 'Identity', 'Access'].map((name, index) => <span key={name} className={step === index ? 'current' : step > index ? 'complete' : ''}>{index + 1}<b>{name}</b></span>)}</div>
-      {step === 0 && <div className="enroll-step"><RuntimePicker runtime={runtime} onChange={setRuntime} /><details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={sinaloaOrigin} reconnect={Boolean(reconnectAgent)} /></details></div>}
+      {step === 0 && <div className="enroll-step"><RuntimePicker runtime={runtime} onChange={setRuntime} /><details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details></div>}
       {step === 1 && <div className="enroll-step">{reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <><Field label="Name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Milo" required /><label className="field"><span>Address</span><span className="enroll-address"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required /><span>@{agentDomain}</span></span></label>{localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>{!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}</p>}</>}</div>}
       {step === 2 && <div className="enroll-step"><AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} /><p className="enroll-note">Disabled permissions do not grant access. Availability of human approval depends on the specific action.</p></div>}
       <FormError message={error} />
@@ -1832,4 +1832,4 @@ function formatTime(value: string) { return new Intl.DateTimeFormat(undefined, {
 function formatRelative(value: string) { const diff = Date.now() - new Date(value).getTime(); const minutes = Math.max(0, Math.floor(diff / 60_000)); if (minutes < 60) return `${minutes}m`; const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours}h`; return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value)); }
 function formatBytes(value: number) { if (value < 1024) return `${value} B`; if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`; return `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function assetDownloadError(caught: unknown) { if (caught instanceof ApiError && caught.status === 423) return 'Download remains locked until the safety scan completes.'; if (caught instanceof ApiError && caught.status === 503) return 'File storage is not configured or is temporarily unavailable. Ask a workspace administrator to check the provider.'; if (caught instanceof ApiError && caught.status === 401) return 'Your session expired. Sign in again before downloading this file.'; return errorMessage(caught); }
-function errorMessage(caught: unknown) { if (caught instanceof ApiError && caught.status === 503) return `${caught.message.replace(/\bSinaloa\b/gi, 'Envoi')} Check the provider configuration, then retry.`; return caught instanceof Error ? caught.message.replace(/\bSinaloa\b/gi, 'Envoi') : 'The action could not be completed.'; }
+function errorMessage(caught: unknown) { if (caught instanceof ApiError && caught.status === 503) return `${caught.message.replace(/\bEnvoi\b/gi, 'Envoi')} Check the provider configuration, then retry.`; return caught instanceof Error ? caught.message.replace(/\bEnvoi\b/gi, 'Envoi') : 'The action could not be completed.'; }

@@ -17,7 +17,7 @@ function turn(fetcher: typeof fetch) {
   return openClawTurn({
     gatewayUrl: 'https://gateway.example.test',
     gatewayToken: 'secret-gateway-token',
-    agentId: 'sinaloa-agent',
+    agentId: 'envoi-agent',
     history: async () => [{ id: 'older_1', senderAgentId: 'other', text: 'Earlier context', intent: 'message' }],
     fetch: fetcher
   });
@@ -39,8 +39,8 @@ describe('OpenClaw turn', () => {
     expect(init?.redirect).toBe('error');
     expect((init?.headers as Record<string, string>).authorization).toBe('Bearer secret-gateway-token');
     const body = JSON.parse(String(init?.body));
-    expect(body.model).toBe('openclaw/sinaloa-agent');
-    expect(body.user).toBe('sinaloa:case_1');
+    expect(body.model).toBe('openclaw/envoi-agent');
+    expect(body.user).toBe('envoi:case_1');
     expect(body.stream).toBe(false);
     expect(body.messages).toHaveLength(1);
     expect(body.messages[0].content).toContain('Earlier context');
@@ -55,12 +55,12 @@ describe('OpenClaw turn', () => {
   it('gives write-enabled turns a stable MCP reply key while preserving the read-only default', async () => {
     const fetcher = vi.fn<typeof fetch>(async () => completed('{"stop":true}'));
     const options = { gatewayUrl: 'https://gateway.example.test', gatewayToken: 'gateway-token',
-      agentId: 'sinaloa-agent', fetch: fetcher };
+      agentId: 'envoi-agent', fetch: fetcher };
     await openClawTurn(options)(message, new AbortController().signal);
     let prompt = JSON.parse(String(fetcher.mock.calls[0][1]?.body)).messages[0].content as string;
     expect(prompt).toContain('Do not execute external-effect tools');
     expect(prompt).not.toContain('bridge:msg_1:reply:1');
-    await openClawTurn({ ...options, allowSinaloaMcpWrites: true })(message, new AbortController().signal);
+    await openClawTurn({ ...options, allowEnvoiMcpWrites: true })(message, new AbortController().signal);
     prompt = JSON.parse(String(fetcher.mock.calls[1][1]?.body)).messages[0].content as string;
     expect(prompt).toContain('bridge:msg_1:reply:1');
     expect(prompt).toContain('Return exactly {"stop":true} only after the MCP write succeeds');
@@ -87,9 +87,9 @@ describe('OpenClaw turn', () => {
   });
 
   it('only treats a matching native reply key as a completed bridge reply', () => {
-    expect(mcpReplyMessageId('sinaloa_send_message', { idempotencyKey: 'bridge:msg_1:reply:1' })).toBe('msg_1');
-    expect(mcpReplyMessageId('sinaloa_start_case', { idempotencyKey: 'bridge:msg_1:reply:1' })).toBeNull();
-    expect(mcpReplyMessageId('sinaloa_send_message', { idempotencyKey: 'unrelated' })).toBeNull();
+    expect(mcpReplyMessageId('envoi_send_message', { idempotencyKey: 'bridge:msg_1:reply:1' })).toBe('msg_1');
+    expect(mcpReplyMessageId('envoi_start_case', { idempotencyKey: 'bridge:msg_1:reply:1' })).toBeNull();
+    expect(mcpReplyMessageId('envoi_send_message', { idempotencyKey: 'unrelated' })).toBeNull();
   });
 
   it('rejects incomplete, malformed and failed Gateway responses without exposing response bodies', async () => {
@@ -121,7 +121,7 @@ describe('OpenClaw turn', () => {
   });
 });
 
-describe('Sinaloa bridge handoff', () => {
+describe('Envoi bridge handoff', () => {
   it('reuses the persisted decision and stable reply key when a claim is retried', async () => {
     const decisions = new Map<string, BridgeDecision>();
     const ledger: BridgeLedger = {

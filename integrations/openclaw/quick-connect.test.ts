@@ -9,19 +9,19 @@ import { validateQuickConnectHandoff } from '../../sdk/typescript/src/quick-conn
 
 const directories: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
-const handoff = () => ({ version: 1, runtime: 'openclaw', apiUrl: 'https://sinaloa.example', enrollmentToken: 'enrollment-token-private-123456789',
-  expiresAt: new Date(Date.now() + 900_000).toISOString(), agentName: 'Potato', address: 'potato@agents.sinaloa.example' });
+const handoff = () => ({ version: 1, runtime: 'openclaw', apiUrl: 'https://envoi.example', enrollmentToken: 'enrollment-token-private-123456789',
+  expiresAt: new Date(Date.now() + 900_000).toISOString(), agentName: 'Potato', address: 'potato@agents.envoi.example' });
 const secureDirectory = async (directory: string) => { await mkdir(directory, { recursive: true }); return path.resolve(directory); };
 async function fixture(enabled = true) {
-  const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-quick-connect-')); directories.push(directory);
+  const directory = await mkdtemp(path.join(tmpdir(), 'envoi-quick-connect-')); directories.push(directory);
   const source = path.join(directory, 'source.mjs'); await writeFile(source, 'console.log("installed connector");');
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const config = { gateway: { port: 18789, auth: { token: 'local-gateway-private' }, http: { endpoints: { chatCompletions: { enabled } } } }, agents: { list: [{ id: 'main' }] } };
   const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init });
     if (String(url).startsWith('http://127.0.0.1:18789/')) return Response.json({ choices: [{ finish_reason: 'stop', message: { content: 'Connection checked' } }] });
-    if (String(url).endsWith('/api/agent-enroll')) return Response.json({ agent: { id: 'agent_potato', address: 'potato@agents.sinaloa.example' }, inbox: { id: 'inbox_potato' },
-      agentApiToken: 'sinaloa-access-private', agentRefreshToken: 'sinaloa-refresh-private', agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+    if (String(url).endsWith('/api/agent-enroll')) return Response.json({ agent: { id: 'agent_potato', address: 'potato@agents.envoi.example' }, inbox: { id: 'inbox_potato' },
+      agentApiToken: 'envoi-access-private', agentRefreshToken: 'envoi-refresh-private', agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
     if (String(url).includes('/delta')) return Response.json({ events: [], nextCursor: null, hasMore: false });
     if (String(url).endsWith('/api/agent/connection-status')) return Response.json({ checkedAt: new Date().toISOString() });
     throw new Error('unexpected fixture URL');
@@ -36,15 +36,15 @@ describe('Quick Connect setup and restart contract', () => {
     const result = await setupQuickConnect(input, f.options);
     expect(result.checks).toBe('passed');
     expect(f.calls[0].url).toBe('http://127.0.0.1:18789/v1/chat/completions');
-    expect(f.calls[1].url).toBe('https://sinaloa.example/api/agent-enroll');
+    expect(f.calls[1].url).toBe('https://envoi.example/api/agent-enroll');
     for (const call of f.calls) expect(call.init?.redirect).toBe('error');
     const saved = await readFile(path.join(result.stateDir, 'connection.json'), 'utf8');
     const session = await readFile(path.join(result.stateDir, 'session.json'), 'utf8');
     expect(saved + session).not.toContain(input.enrollmentToken);
     expect(saved).toContain('local-gateway-private');
-    expect(session).toContain('sinaloa-refresh-private');
+    expect(session).toContain('envoi-refresh-private');
     expect(await readFile(path.join(result.stateDir, 'connector.mjs'), 'utf8')).toContain('installed connector');
-    expect(JSON.stringify(await savedConnectionStatus(result.stateDir))).not.toMatch(/local-gateway-private|sinaloa-access-private|sinaloa-refresh-private/);
+    expect(JSON.stringify(await savedConnectionStatus(result.stateDir))).not.toMatch(/local-gateway-private|envoi-access-private|envoi-refresh-private/);
     for (const call of f.calls.filter(call => call.url.startsWith(input.apiUrl))) expect(JSON.stringify(call)).not.toContain('local-gateway-private');
   });
   it('leaves enrollment untouched if Gateway endpoint is disabled', async () => {
@@ -116,10 +116,10 @@ describe('handoff and startup configuration', () => {
   });
   it('isolates state by deployment and address and never uses a relative XDG directory', () => {
     const options = { platform: 'linux', home: '/home/person', env: { XDG_STATE_HOME: '../shared' } };
-    const first = defaultConnectionDirectory('https://sinaloa.example', 'one@example.com', options);
+    const first = defaultConnectionDirectory('https://envoi.example', 'one@example.com', options);
     expect(first).toContain(path.join('/home/person', '.local', 'state'));
     expect(first).not.toEqual(defaultConnectionDirectory('https://other.example', 'one@example.com', options));
-    expect(first).not.toEqual(defaultConnectionDirectory('https://sinaloa.example', 'two@example.com', options));
+    expect(first).not.toEqual(defaultConnectionDirectory('https://envoi.example', 'two@example.com', options));
   });
   it('produces credential-free platform services with separate argument escaping and restart behavior', () => {
     const options = { home: '/home/person', node: '/node path/node' };
