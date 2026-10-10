@@ -11,8 +11,8 @@ import {
   recoveryParts, refresh, refreshCredentialParts, revokeAgent
 } from './a3-harness.js';
 
-const unknownRefresh = () => `sinaloa_agent_refresh_${crypto.randomBytes(48).toString('base64url')}`;
-const unknownAccess = () => `sinaloa_agent_access_${crypto.randomBytes(32).toString('base64url')}`;
+const unknownRefresh = () => `envoi_agent_refresh_${crypto.randomBytes(48).toString('base64url')}`;
+const unknownAccess = () => `envoi_agent_access_${crypto.randomBytes(32).toString('base64url')}`;
 
 test('refresh: missing or malformed rotationId is ROTATION_ID_REQUIRED, checked first, and does not consume the token', async t => {
   const server = await launch();
@@ -105,7 +105,7 @@ test('refresh: a different rotationId on a used token is REFRESH_REPLAY and revo
   assert.equal(await stream.waitForEnd(), true);
   const audit = (await ownerEvents(baseUrl, agent)).find(event => event.type === 'agent.refresh_replay_detected');
   assert.ok(audit, 'replay is audited for the owner');
-  assert.doesNotMatch(JSON.stringify(audit), /sinaloa_agent_(?:access|refresh)_/);
+  assert.doesNotMatch(JSON.stringify(audit), /(?:envoi|sinaloa)_agent_(?:access|refresh)_/);
 });
 
 test('refresh: same rotationId after the recovery window or with an undecryptable envelope is REFRESH_RECOVERY_EXPIRED', async t => {

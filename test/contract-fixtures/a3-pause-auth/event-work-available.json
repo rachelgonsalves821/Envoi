@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "event-work-available",
   "description": "Held work became claimable after resume.",
   "kind": "sse",

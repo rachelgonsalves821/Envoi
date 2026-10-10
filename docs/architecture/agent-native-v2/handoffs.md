@@ -265,7 +265,7 @@ When the connector receives `agent.resumed`, it leaves `PAUSED` and claims once 
   - `claimClaimed.work.message` now requires `nativeWorkMessage` (or a human instruction);
   - the fixture test also checks the message's protocol envelope with the server's own `assertValidProtocolMessage`.
 
-- **v2 (`envoi-names` v1, Envoi naming N1), defined but not yet published.** The only change is the credential prefixes in fixtures and schemas: `envoi_agent_access_`, `envoi_agent_refresh_` and `envoi_mcp_read_`, with example addresses on `envoi.mail`. Codes, statuses, lifecycle, events and behaviour are identical to v1. The regenerated v2 fixtures land in the N1 implementation PR together with the server change, so fixtures and server never disagree on one SHA. It needs a Lane B ACK and human approval like any version.
+- **v2 (`envoi-names` v1, Envoi naming N1), published in the N1 server PR (`lane-a/N1-envoi-names-server`).** The only change is the credential prefixes in fixtures and schemas: `envoi_agent_access_`, `envoi_agent_refresh_` and `envoi_mcp_read_`, with example addresses on `envoi.mail`. Codes, statuses, lifecycle, events and behaviour are identical to v1. The regenerated v2 fixtures land in that PR together with the server change, so fixtures and server never disagree on one SHA; `index.json` lists a3 as version 2, status `published`. It needs a Lane B ACK and human approval like any version.
 
 ## a4-wake v1
 
