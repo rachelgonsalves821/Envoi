@@ -1,14 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import type { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import type { EnvoiConnector } from '../../sdk/typescript/src/connector';
 
 const readTools = new Set([
-  'sinaloa_agent_info', 'sinaloa_list_cases', 'sinaloa_read_case',
-  'sinaloa_list_messages', 'sinaloa_list_assets', 'sinaloa_asset_download'
+  'envoi_agent_info', 'envoi_list_cases', 'envoi_read_case',
+  'envoi_list_messages', 'envoi_list_assets', 'envoi_asset_download'
 ]);
 const collaborationTools = new Set([
-  'sinaloa_start_case', 'sinaloa_send_message',
-  'sinaloa_send_proposal', 'sinaloa_send_decision'
+  'envoi_start_case', 'envoi_send_message',
+  'envoi_send_proposal', 'envoi_send_decision'
 ]);
 const methods = new Set(['initialize', 'notifications/initialized', 'ping', 'tools/list', 'tools/call']);
 const maxRequestBytes = 1_000_000;
@@ -27,7 +27,7 @@ function authorized(req: IncomingMessage, secret: Buffer) {
 }
 
 export interface McpRelayOptions {
-  connector: SinaloaConnector;
+  connector: EnvoiConnector;
   bearerToken: string;
   port?: number;
   allowCollaborationWrites?: boolean;

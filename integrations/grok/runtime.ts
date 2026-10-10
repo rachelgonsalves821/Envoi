@@ -1,4 +1,4 @@
-import { SinaloaConnector, type ConnectorOptions } from '../../sdk/typescript/src/connector';
+import { EnvoiConnector, type ConnectorOptions } from '../../sdk/typescript/src/connector';
 import { bridgeHandler } from '../agent-bridges/bridge';
 import { loadAssetManifest, manifestAssetExchange } from '../agent-bridges/asset-manifest';
 import { FileBridgeStore } from '../agent-bridges/file-store';
@@ -20,9 +20,9 @@ export async function createGrokBridge(config: GrokBridgeConfiguration,
   const store = new FileBridgeStore(config.stateDir);
   await store.init();
   if (!await store.load()) throw new Error('No connector credentials were saved. Run setup first');
-  let connector: SinaloaConnector;
-  const approvedAssets = await loadAssetManifest(config.assetManifestPath ?? env.SINALOA_ASSET_MANIFEST_PATH);
-  const mcpUrl = config.mcpUrl ?? env.ENVOI_MCP_URL ?? env.SINALOA_MCP_URL;
+  let connector: EnvoiConnector;
+  const approvedAssets = await loadAssetManifest(config.assetManifestPath ?? env.ENVOI_ASSET_MANIFEST_PATH);
+  const mcpUrl = config.mcpUrl ?? env.ENVOI_MCP_URL;
   const turn = xaiTurn({
     apiKey: config.apiKey, model: config.model,
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -40,6 +40,6 @@ export async function createGrokBridge(config: GrokBridgeConfiguration,
     handler: bridgeHandler(store, turn, approvedAssets.size
       ? (message, reply, key, signal) => manifestAssetExchange(approvedAssets, connector)(message, reply, key, signal) : undefined)
   };
-  connector = new SinaloaConnector(config.apiUrl, store, connectorOptions);
+  connector = new EnvoiConnector(config.apiUrl, store, connectorOptions);
   return { connector, store, close: async () => {} };
 }

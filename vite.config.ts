@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { inlineWebBuild } from './scripts/vite-inline-web.ts';
 
 export default defineConfig(({ mode }) => {
-  const localApiUrl = loadEnv(mode, '.', 'SINALOA_LOCAL_API_URL').SINALOA_LOCAL_API_URL || 'http://127.0.0.1:8787';
+  const localApiUrl = loadEnv(mode, '.', 'ENVOI_LOCAL_API_URL').ENVOI_LOCAL_API_URL || 'http://127.0.0.1:8787';
   return {
     root: 'frontend',
     base: './',

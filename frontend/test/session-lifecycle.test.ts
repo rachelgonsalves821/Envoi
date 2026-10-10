@@ -147,7 +147,7 @@ describe('private page lifecycle', () => {
     announce(SESSION_IDENTITY_KEY, 'human_b|1:random');
     announce(SESSION_IDENTITY_KEY, null);
     announce(SESSION_IDENTITY_KEY, 'malformed');
-    announce('sinaloa.workspace', 'human_c|1:random');
+    announce('envoi.workspace', 'human_c|1:random');
     expect(callbacks.identityAnnounced).toHaveBeenCalledExactlyOnceWith('human_b');
     stop();
   });
@@ -165,7 +165,7 @@ describe('private page lifecycle', () => {
 
   it('only responds to session-end messages and removes every listener on cleanup', () => {
     const { browser, document, callbacks, stop } = browserFixture();
-    browser.dispatchEvent(Object.assign(new Event('storage'), { key: 'sinaloa.workspace', newValue: 'workspace1' }));
+    browser.dispatchEvent(Object.assign(new Event('storage'), { key: 'envoi.workspace', newValue: 'workspace1' }));
     browser.dispatchEvent(Object.assign(new Event('storage'), { key: SESSION_END_KEY, newValue: null }));
     expect(callbacks.endedElsewhere).not.toHaveBeenCalled();
     browser.dispatchEvent(Object.assign(new Event('storage'), { key: SESSION_END_KEY, newValue: '1:random' }));

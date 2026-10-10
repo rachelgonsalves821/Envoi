@@ -4,7 +4,8 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { enrollConnector, SinaloaConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
+import { enrollConnector, EnvoiConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
+import { migrateConnectionDirectory } from '../connector/migrate';
 import { quickConnectOrigin, validateQuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { discoverOpenClaw, preflightOpenClaw, type DiscoverOpenClawOptions, type OpenClawConfiguration } from './quick-connect-config';
@@ -38,7 +39,7 @@ export function defaultConnectionDirectory(apiUrl: string, address: string, opti
   const base = platform === 'win32' ? (env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'))
     : platform === 'darwin' ? path.join(home, 'Library', 'Application Support')
       : (env.XDG_STATE_HOME && path.isAbsolute(env.XDG_STATE_HOME) ? env.XDG_STATE_HOME : path.join(home, '.local', 'state'));
-  return path.join(base, 'sinaloa', 'openclaw', id);
+  return path.join(base, 'envoi', 'openclaw', id);
 }
 
 export function connectorStartCommand(stateDir: string, platform = process.platform, node = process.execPath) {
@@ -52,7 +53,7 @@ function connectionFetch(fetcher: typeof fetch = fetch): typeof fetch {
   return (input, init) => fetcher(input, { ...init, redirect: 'error' });
 }
 
-async function reportChecks(apiUrl: string, connector: SinaloaConnector, phase: 'ready' | 'error', fetcher: typeof fetch, errorCode?: string) {
+async function reportChecks(apiUrl: string, connector: EnvoiConnector, phase: 'ready' | 'error', fetcher: typeof fetch, errorCode?: string) {
   const token = await connector.currentAccessToken();
   const response = await fetcher(`${apiUrl}/api/agent/connection-status`, {
     method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -98,7 +99,7 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
   const handoff = validateQuickConnectHandoff(input, { allowExpired: true });
   if (handoff.runtime !== 'openclaw' || handoff.operation === 'reconnect') throw new QuickConnectError('Use the unified Envoi connector for this runtime or reconnect handoff');
   const requested = options.stateDir || defaultConnectionDirectory(handoff.apiUrl, handoff.address, { home: options.homeDir, env: options.env, platform: options.platform });
-  const stateDir = await (options.secureDirectory ?? privateDirectory)(requested);
+  const stateDir = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(requested, options.secureDirectory));
   const unlock = await acquireConnectorLock(stateDir);
   try {
     const store = new FileBridgeStore(stateDir);
@@ -133,7 +134,7 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
       }
     }
     if (session.address !== handoff.address) throw new QuickConnectError('The enrolled address differs from the setup address. Inspect Agent connections before starting');
-    const connector = new SinaloaConnector(handoff.apiUrl, store, { fetch: fetcher });
+    const connector = new EnvoiConnector(handoff.apiUrl, store, { fetch: fetcher });
     options.onProgress?.('Checking Envoi access');
     try { await connector.pollOnce(); await reportChecks(handoff.apiUrl, connector, 'ready', fetcher); }
     catch (error) {
@@ -146,7 +147,7 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
 
 /** Starts the same bridge as manual onboarding, using saved state and enforcing one process. */
 export async function startQuickConnect(stateDir: string, signal: AbortSignal, options: { fetch?: typeof fetch; secureDirectory?: typeof privateDirectory; env?: NodeJS.ProcessEnv; pollIntervalMs?: number; onReady?: () => void } = {}) {
-  const directory = await (options.secureDirectory ?? privateDirectory)(stateDir);
+  const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(stateDir, options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = connectionFetch(options.fetch);
   let bridge: Awaited<ReturnType<typeof createOpenClawBridge>> | undefined;

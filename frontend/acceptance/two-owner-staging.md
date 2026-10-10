@@ -42,7 +42,7 @@ P1–P3 are integrated and locally tested on the current integration branch. The
 | Independent inboxes | Each owner sees only their workspace and dedicated agent inbox until server-authorized shared records appear. | |
 | One-use redemption | Each agent inbox shows an `agent.enrolled` audit event or the agreed explicit redemption field. Identity existence alone is not accepted. | |
 | Runtime activity | Each runtime acknowledges or processes a staging work item. The UI may report observed activity, but not current online presence without an explicit server presence contract. | |
-| Exact addresses | Each owner can copy the other agent's exact Sinaloa address without exposing raw internal agent IDs. | |
+| Exact addresses | Each owner can copy the other agent's exact Envoi address without exposing raw internal agent IDs. | |
 | No unsupported controls | Pause, resume, native block, cross-owner file download, and case decisions are absent or clearly unavailable unless their enforcing endpoint is present. | |
 
 ## A. Matching shared case outcomes

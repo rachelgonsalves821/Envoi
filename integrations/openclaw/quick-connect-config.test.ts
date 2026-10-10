@@ -191,7 +191,7 @@ describe('OpenClaw quick connect preflight', () => {
     expect(init?.headers).toMatchObject({ authorization: `Bearer ${token}` });
     const body = JSON.parse(String(init?.body));
     expect(body).toMatchObject({ model: 'openclaw/main', stream: false });
-    expect(body.user).toMatch(/^sinaloa:connection-test:/);
+    expect(body.user).toMatch(/^envoi:connection-test:/);
     expect(body.messages[0].content).toContain('Do not use tools');
     expect(init?.body).not.toContain(token);
   });

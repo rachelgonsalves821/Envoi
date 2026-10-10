@@ -43,7 +43,7 @@ function runtimeSettings(config: OpenClawConfiguration, env: NodeJS.ProcessEnv, 
   const write = env.OPENCLAW_MCP_WRITE_ENABLED;
   if (write !== undefined && !['', 'true', 'false'].includes(write)) throw new ConnectorSetupError('RUNTIME_CONFIGURATION_INVALID', 'OPENCLAW_MCP_WRITE_ENABLED must be true or false.');
   const mcpWriteEnabled = write === undefined ? previous?.mcpWriteEnabled : write === 'true';
-  const manifest = env.SINALOA_ASSET_MANIFEST_PATH ?? previous?.assetManifestPath;
+  const manifest = env.ENVOI_ASSET_MANIFEST_PATH ?? previous?.assetManifestPath;
   const resolved = { ...config, ...(relayToken ? { relayToken } : {}), ...(relayPort ? { relayPort } : {}),
     ...(mcpWriteEnabled !== undefined ? { mcpWriteEnabled } : {}), ...(manifest ? { assetManifestPath: path.resolve(manifest) } : {}) };
   validate(resolved); return resolved;
@@ -75,7 +75,7 @@ export const openclawAdapter: ConnectorAdapter<InstalledOpenClawConfiguration> =
     const current = runtimeSettings(base, context.env ?? process.env, config);
     const env = { ...(context.env ?? process.env), OPENCLAW_MCP_RELAY_TOKEN: current.relayToken,
       OPENCLAW_MCP_RELAY_PORT: current.relayPort, OPENCLAW_MCP_WRITE_ENABLED: current.mcpWriteEnabled ? 'true' : undefined,
-      SINALOA_ASSET_MANIFEST_PATH: current.assetManifestPath };
+      ENVOI_ASSET_MANIFEST_PATH: current.assetManifestPath };
     return createOpenClawBridge({ ...current, apiUrl: context.apiUrl, stateDir: context.stateDir }, { ...context, env });
   },
   describe: config => ({ gatewayUrl: config.gatewayUrl, agentId: config.agentId })

@@ -8,7 +8,7 @@ import { configureHermes, hermesAdapter } from './adapter';
 
 const directories: string[] = [];
 async function fixture() {
-  const root = await mkdtemp(path.join(tmpdir(), 'sinaloa-hermes-adapter-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'envoi-hermes-adapter-'));
   directories.push(root);
   const home = path.join(root, '.hermes');
   await mkdir(home);
@@ -59,7 +59,7 @@ describe('Hermes profile discovery and preparation', () => {
     const saved = await readFile(envPath, 'utf8');
     expect(saved).toContain('OPENAI_API_KEY=provider-existing-secret');
     expect(saved).toContain('API_SERVER_ENABLED=true');
-    expect((await readdir(f.home)).some(name => name.startsWith('.env.sinaloa-backup-'))).toBe(true);
+    expect((await readdir(f.home)).some(name => name.startsWith('.env.envoi-backup-'))).toBe(true);
     expect((await discoverHermes(f.options)).apiKey).toBe(found.apiKey);
   });
   it('rejects duplicate keys, selected missing profile and unsafe origins without executing env content', async () => {
@@ -93,10 +93,10 @@ describe('Hermes profile discovery and preparation', () => {
   });
   it('restores approved asset settings under a service environment and permits explicit removal', async () => {
     const f = await fixture();
-    const original = await discoverHermes({ ...f.options, env: { SINALOA_ASSET_MANIFEST_PATH: 'approved-assets.json' } });
+    const original = await discoverHermes({ ...f.options, env: { ENVOI_ASSET_MANIFEST_PATH: 'approved-assets.json' } });
     expect(original.assetManifestPath).toBe(path.resolve('approved-assets.json'));
     expect((await discoverHermes({ ...f.options, env: {} }, original)).assetManifestPath).toBe(original.assetManifestPath);
-    expect((await discoverHermes({ ...f.options, env: { SINALOA_ASSET_MANIFEST_PATH: '' } }, original)).assetManifestPath).toBeUndefined();
+    expect((await discoverHermes({ ...f.options, env: { ENVOI_ASSET_MANIFEST_PATH: '' } }, original)).assetManifestPath).toBeUndefined();
   });
   it('rejects malformed saved profile and relay records with stable diagnostics', async () => {
     const f = await fixture();
@@ -106,19 +106,19 @@ describe('Hermes profile discovery and preparation', () => {
     const stateDir = path.join(f.root, 'malformed-relay'); await mkdir(stateDir);
     await writeFile(path.join(stateDir, 'hermes-relay.json'), 'null');
     await expect(discoverHermes({ ...f.options, stateDir } as never, f.config)).rejects.toMatchObject({ code: 'STATE_INVALID' });
-    await expect(configureHermes(f.config, { stateDir, apiUrl: 'https://sinaloa.test' })).rejects.toMatchObject({ code: 'STATE_INVALID' });
+    await expect(configureHermes(f.config, { stateDir, apiUrl: 'https://envoi.test' })).rejects.toMatchObject({ code: 'STATE_INVALID' });
   });
   it('rejects deterministic MCP conflicts before runtime preparation and resumes only its own entry', async () => {
     const f = await fixture();
     const originalEnv = await readFile(path.join(f.home, '.env'), 'utf8');
-    for (const yaml of ['mcp_servers: {other: {}}\n', 'mcp_servers:\n  sinaloa:\n    url: "http://localhost:8789/mcp"\n']) {
+    for (const yaml of ['mcp_servers: {other: {}}\n', 'mcp_servers:\n  envoi:\n    url: "http://localhost:8789/mcp"\n']) {
       await writeFile(f.config.configPath, yaml);
       await expect(discoverHermes({ ...f.options, prepareRuntime: true })).rejects.toBeTruthy();
       expect(await readFile(path.join(f.home, '.env'), 'utf8')).toBe(originalEnv);
     }
     await writeFile(f.config.configPath, 'model:\n  default: existing\n');
     const stateDir = path.join(f.root, 'own-state'); await mkdir(stateDir);
-    const context = { ...f.options, stateDir, apiUrl: 'https://sinaloa.test' };
+    const context = { ...f.options, stateDir, apiUrl: 'https://envoi.test' };
     await configureHermes(f.config, context);
     const saved = await discoverHermes(context, f.config);
     expect(saved.home).toBe(f.home);
@@ -178,13 +178,13 @@ describe('Hermes authenticated preflight', () => {
 describe('Hermes profile MCP configuration', () => {
   it('preserves other servers and refuses unsupported edits or a second identity on the same profile', () => {
     const text = 'model:\n  default: existing\nmcp_servers:\n  other:\n    url: "http://localhost:1"\nterminal:\n  backend: local\n';
-    const result = mergeMcpConfiguration(text, 'sinaloa_a', ['  sinaloa_a:', '    url: "http://localhost:2"']);
+    const result = mergeMcpConfiguration(text, 'envoi_a', ['  envoi_a:', '    url: "http://localhost:2"']);
     expect(result).toContain('  other:\n    url: "http://localhost:1"');
     expect(result).toContain('terminal:\n  backend: local');
-    expect(() => mergeMcpConfiguration('mcp_servers: {old: {}}\n', 'sinaloa_a', [])).toThrow('unsupported');
+    expect(() => mergeMcpConfiguration('mcp_servers: {old: {}}\n', 'envoi_a', [])).toThrow('unsupported');
     expect(() => yamlScalar('platforms: {api_server: {port: 1234}}\n', 'platforms.api_server.port')).toThrow('nonstandard');
-    expect(() => mergeMcpConfiguration(result, 'sinaloa_b', [])).toThrow('separate Hermes profile');
-    expect(() => mergeMcpConfiguration('mcp_servers:\n  sinaloa:\n    url: old\n', 'sinaloa_a', [])).toThrow('migrate');
+    expect(() => mergeMcpConfiguration(result, 'envoi_b', [])).toThrow('separate Hermes profile');
+    expect(() => mergeMcpConfiguration('mcp_servers:\n  envoi:\n    url: old\n', 'envoi_a', [])).toThrow('migrate');
   });
   it('allocates separate persistent credentials and ports for different profiles and keeps keys out of YAML', async () => {
     const f = await fixture();
@@ -194,7 +194,7 @@ describe('Hermes profile MCP configuration', () => {
     const bot = await discoverHermes({ ...f.options, profile: 'bot' });
     const stateA = path.join(f.root, 'state-a'); const stateB = path.join(f.root, 'state-b');
     await mkdir(stateA); await mkdir(stateB);
-    const contextA = { stateDir: stateA, apiUrl: 'https://sinaloa.test', env: {} };
+    const contextA = { stateDir: stateA, apiUrl: 'https://envoi.test', env: {} };
     await configureHermes(f.config, contextA);
     await configureHermes(bot, { ...contextA, stateDir: stateB });
     const a = JSON.parse(await readFile(path.join(stateA, 'hermes-relay.json'), 'utf8'));
@@ -210,16 +210,16 @@ describe('Hermes profile MCP configuration', () => {
   });
   it('requires an observed successful Hermes-originated tool call rather than a model claim', async () => {
     const f = await fixture(); const stateDir = path.join(f.root, 'state'); await mkdir(stateDir);
-    await writeFile(path.join(stateDir, 'session.json'), JSON.stringify({ agentId: 'hermes_agent', inboxId: 'inbox_hermes', address: 'hermes@sinaloa.mail', cursor: null,
+    await writeFile(path.join(stateDir, 'session.json'), JSON.stringify({ agentId: 'hermes_agent', inboxId: 'inbox_hermes', address: 'hermes@envoi.mail', cursor: null,
       agentApiToken: 'access', agentRefreshToken: 'refresh', agentTokenExpiresAt: new Date(Date.now() + 900000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86400000).toISOString() }));
-    const context = { apiUrl: 'https://sinaloa.test', stateDir, env: {} };
+    const context = { apiUrl: 'https://envoi.test', stateDir, env: {} };
     await configureHermes(f.config, context);
     const relay = JSON.parse(await readFile(path.join(stateDir, 'hermes-relay.json'), 'utf8'));
     let invoke = false;
     const fetcher = vi.fn<typeof fetch>(async (url, init) => {
       if (String(url).startsWith(context.apiUrl)) return payload({ result: { content: [{ type: 'text', text: '{"agentId":"hermes_agent"}' }] } });
       if (init?.method === 'POST') {
-        if (invoke) await fetch(`http://127.0.0.1:${relay.port}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${relay.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 'test', method: 'tools/call', params: { name: 'sinaloa_agent_info', arguments: {} } }) });
+        if (invoke) await fetch(`http://127.0.0.1:${relay.port}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${relay.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 'test', method: 'tools/call', params: { name: 'envoi_agent_info', arguments: {} } }) });
         return payload({ run_id: 'verify_1' }, 202);
       }
       return payload({ run_id: 'verify_1', status: 'completed', output: 'I called the tool' });

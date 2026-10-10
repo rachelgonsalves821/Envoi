@@ -25,12 +25,12 @@ function ledger(): BridgeLedger {
 
 describe('human instructions in shared bridges', () => {
   it('identifies human guidance without inventing a sender or granting approval, native writes or asset sharing', () => {
-    const prompt = workPrompt(message, [], { allowSinaloaMcpWrites: true, assetHandles: [{ handle: 'report', filename: 'report.pdf' }] });
+    const prompt = workPrompt(message, [], { allowEnvoiMcpWrites: true, assetHandles: [{ handle: 'report', filename: 'report.pdf' }] });
     expect(prompt).toContain('authenticated human instruction');
     expect(prompt).toContain('not human approval, a policy decision, or authority');
     expect(prompt).toContain('transport processing only');
     expect(prompt).toContain('"sender":{"humanId":"human_one"}');
-    expect(prompt).not.toContain('sinaloa_send_message');
+    expect(prompt).not.toContain('envoi_send_message');
     expect(prompt).not.toContain('report.pdf');
     expect(prompt).not.toContain('sender address as the reply target');
   });
@@ -70,10 +70,10 @@ describe('human instructions in shared bridges', () => {
 
   it('denies Hermes native writes for human work, even with a forged native reply target', () => {
     const active = { message, signal: new AbortController().signal };
-    expect(authorizedHermesWrite(active, 'sinaloa_send_message', {
+    expect(authorizedHermesWrite(active, 'envoi_send_message', {
       caseId: 'case_one', recipientAddress: 'peer@agents.example', idempotencyKey: 'bridge:instruction_one:reply:1'
     })).toBe(false);
-    expect(authorizedHermesWrite(active, 'sinaloa_start_case', { idempotencyKey: 'interactive_send' })).toBe(false);
+    expect(authorizedHermesWrite(active, 'envoi_start_case', { idempotencyKey: 'interactive_send' })).toBe(false);
   });
 
   it.each(['OpenClaw', 'Hermes', 'Grok'])('processes human work and sends only a local text reply through the %s runtime with mocked hosts', async runtime => {

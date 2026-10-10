@@ -59,7 +59,7 @@ export async function replaceConfiguration(filename: string, original: string | 
   if (existing?.isSymbolicLink() || (existing && !existing.isFile())) throw new ConnectorSetupError('CONFIG_INVALID', 'Hermes configuration must be a regular file, without symbolic links.');
   if (await optionalText(filename) !== original) throw new ConnectorSetupError('CONFIG_CHANGED', 'Hermes configuration changed during setup. Retry without concurrent configuration edits.');
   if (original !== null) {
-    const backup = `${filename}.sinaloa-backup-${randomUUID()}`;
+    const backup = `${filename}.envoi-backup-${randomUUID()}`;
     await writeFile(backup, original, { flag: 'wx', mode: 0o600 });
     await protectFile(backup);
   }
@@ -172,14 +172,14 @@ export async function discoverHermes(options: AdapterOptions, previous?: HermesC
   // no future connection identity, so existing Envoi entries require doctor
   // or deliberate migration rather than being silently attached to a new agent.
   const stateDir = (options as AdapterOptions & { stateDir?: string }).stateDir;
-  let serverName = stateDir ? hermesServerName(stateDir) : 'sinaloa_preflight';
+  let serverName = stateDir ? hermesServerName(stateDir) : 'envoi_preflight';
   if (stateDir) {
     const savedRelay = await optionalText(path.join(stateDir, 'hermes-relay.json'));
     if (savedRelay !== null) {
       let relay: { serverName?: unknown };
       try { relay = JSON.parse(savedRelay) as { serverName?: unknown }; }
       catch { throw new ConnectorSetupError('STATE_INVALID', 'Hermes relay state is unreadable. Restore its private saved configuration.'); }
-      if (!relay || typeof relay !== 'object' || Array.isArray(relay) || typeof relay.serverName !== 'string' || !/^sinaloa_[a-f0-9]{16}$/.test(relay.serverName)) throw new ConnectorSetupError('STATE_INVALID', 'Hermes relay identity is invalid.');
+      if (!relay || typeof relay !== 'object' || Array.isArray(relay) || typeof relay.serverName !== 'string' || !/^envoi_[a-f0-9]{16}$/.test(relay.serverName)) throw new ConnectorSetupError('STATE_INVALID', 'Hermes relay identity is invalid.');
       serverName = relay.serverName;
     }
   }
@@ -210,13 +210,13 @@ export async function discoverHermes(options: AdapterOptions, previous?: HermesC
   }
   if (!apiKey) throw new ConnectorSetupError('GATEWAY_KEY_MISSING', 'Hermes local API_SERVER_KEY is missing. Retry with --prepare-runtime to generate it. This key is separate from model-provider credentials.');
   if (/[\r\n\x00]/.test(apiKey)) throw new ConnectorSetupError('CONFIG_INVALID', 'Hermes local API Server key must be a single-line literal.');
-  const manifest = env.SINALOA_ASSET_MANIFEST_PATH ?? previous?.assetManifestPath;
+  const manifest = env.ENVOI_ASSET_MANIFEST_PATH ?? previous?.assetManifestPath;
   if (manifest && /[\r\n\x00]/.test(manifest)) throw new ConnectorSetupError('CONFIG_INVALID', 'The approved asset manifest must be a local file path.');
   return { home, profile, configPath, apiUrl, apiKey, ...(manifest ? { assetManifestPath: path.resolve(manifest) } : {}) };
 }
 
 export function hermesServerName(stateDir: string) {
-  return `sinaloa_${createHash('sha256').update(path.resolve(stateDir)).digest('hex').slice(0, 16)}`;
+  return `envoi_${createHash('sha256').update(path.resolve(stateDir)).digest('hex').slice(0, 16)}`;
 }
 
 /** Conservative block-YAML edit: untouched sections remain byte-for-byte equivalent. */
@@ -241,7 +241,7 @@ export function mergeMcpConfiguration(text: string, name: string, block: string[
         throw new ConnectorSetupError('CONFIG_UNSUPPORTED', 'Hermes MCP section must use ordinary block YAML with two-space server entries.');
       }
     }
-    if (entries.some(entry => (entry.name === 'sinaloa' || entry.name.startsWith('sinaloa_')) && entry.name !== name)) {
+    if (entries.some(entry => (entry.name === 'envoi' || entry.name.startsWith('envoi_')) && entry.name !== name)) {
       throw new ConnectorSetupError('PROFILE_ALREADY_CONNECTED', 'This Hermes profile already has an Envoi MCP entry. Preserve its connection or deliberately migrate that entry; use a separate Hermes profile for another enrolled agent.');
     }
     const matching = entries.filter(entry => entry.name === name);

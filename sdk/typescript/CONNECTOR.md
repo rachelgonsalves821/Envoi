@@ -3,7 +3,7 @@
 `src/connector.ts` is an outbound polling and fenced-work connector. It is exported through the package's `./connector` subpath so the core client remains independent of the connector runtime.
 
 ```ts
-import { enrollConnector, SinaloaConnector } from '@sinaloa/protocol/connector';
+import { enrollConnector, EnvoiConnector } from '@envoi/protocol/connector';
 
 // Implement load/save with an OS keychain or managed secret store. Each save
 // must atomically replace the full session, especially the rotating refresh token.
@@ -11,7 +11,7 @@ const store = myDurableSecretStore;
 await enrollConnector('https://api.example', oneUseCode, store, { name: 'My agent' });
 
 const stop = new AbortController();
-await new SinaloaConnector('https://api.example', store, {
+await new EnvoiConnector('https://api.example', store, {
   handler: {
     // This must commit the message by ID to durable local storage before resolving.
     admit: message => myAgentQueue.putIfAbsent(message.id, message),

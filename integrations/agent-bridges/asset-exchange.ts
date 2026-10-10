@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { putSignedAsset, type ClientOptions } from '../../sdk/typescript/src/index';
-import type { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import type { EnvoiConnector } from '../../sdk/typescript/src/connector';
 
 export interface ShareCaseAssetOptions {
-  connector: SinaloaConnector;
+  connector: EnvoiConnector;
   caseId: string;
   recipientAgentId: string;
   recipientAddress: string;

@@ -1,13 +1,13 @@
-export const SINALOA_PROTOCOL_VERSION = '1.0' as const;
+export const ENVOI_PROTOCOL_VERSION = '1.0' as const;
 
-export type SinaloaIntent = 'request' | 'offer' | 'counteroffer' | 'accept' | 'reject' | 'clarify' | 'commit' | 'cancel' | 'status' | 'receipt' | 'message';
+export type EnvoiIntent = 'request' | 'offer' | 'counteroffer' | 'accept' | 'reject' | 'clarify' | 'commit' | 'cancel' | 'status' | 'receipt' | 'message';
 export type DeliveryState = 'pendingContactApproval' | 'queued' | 'retrying' | 'accepted' | 'delivered' | 'acknowledged' | 'processed' | 'declined' | 'deadLettered' | 'held' | 'cancelled';
 
 export interface AgentRef { agentId: string; address: string }
 export interface ContentPart { type: 'text' | 'json' | 'artifactRef'; text?: string; data?: unknown; artifactRef?: string }
 export interface Authority { scope: string; humanApproval: 'notRequired' | 'pending' | 'approved' | 'denied'; policyEvaluationId?: string | null }
 export interface AgentMessage {
-  schemaVersion: typeof SINALOA_PROTOCOL_VERSION;
+  schemaVersion: typeof ENVOI_PROTOCOL_VERSION;
   messageId: string;
   conversationId: string;
   taskId?: string | null;
@@ -15,7 +15,7 @@ export interface AgentMessage {
   causationId: string | null;
   from: AgentRef;
   to: AgentRef[];
-  intent: SinaloaIntent;
+  intent: EnvoiIntent;
   content: ContentPart[];
   proposal?: Record<string, unknown> | null;
   authority: Authority;
@@ -37,7 +37,7 @@ export interface NativeMessageInput {
   senderAgentId: string;
   recipientEmail: string;
   text: string;
-  intent?: SinaloaIntent;
+  intent?: EnvoiIntent;
   caseId?: string;
   content?: ContentPart[];
   payload?: Record<string, unknown> | null;
@@ -87,13 +87,13 @@ export interface ClientOptions {
 }
 
 export interface ErrorDetails { reason?: string; retryAfterSeconds?: number; requestId?: string }
-export class SinaloaError extends Error {
+export class EnvoiError extends Error {
   readonly reason?: string;
   readonly retryAfterSeconds?: number;
   readonly requestId?: string;
   constructor(message: string, public readonly status?: number, public readonly code?: string, details: ErrorDetails = {}) {
     super(message);
-    this.name = 'SinaloaError';
+    this.name = 'EnvoiError';
     this.reason = details.reason; this.retryAfterSeconds = details.retryAfterSeconds; this.requestId = details.requestId;
   }
 }
@@ -124,14 +124,14 @@ export async function responsePayload<T>(response: Response, fallback: string): 
     const headerSeconds = header ? (/^\d+$/.test(header) ? Number(header) : Math.max(0, (Date.parse(header) - Date.now()) / 1000)) : 0;
     const bodySeconds = typeof errorBody?.retryAfterSeconds === 'number' ? errorBody.retryAfterSeconds : 0;
     const retryAfterSeconds = Math.max(Number.isFinite(headerSeconds) ? headerSeconds : 0, Number.isFinite(bodySeconds) ? bodySeconds : 0);
-    throw new SinaloaError(message, response.status, typeof errorBody?.code === 'string' ? errorBody.code : undefined, {
+    throw new EnvoiError(message, response.status, typeof errorBody?.code === 'string' ? errorBody.code : undefined, {
       ...(retryAfterSeconds > 0 ? { retryAfterSeconds } : {}),
       ...(typeof errorBody?.reason === 'string' && ['revoked', 'replaced', 'refresh_replay'].includes(errorBody.reason) ? { reason: errorBody.reason } : {}),
       ...(typeof errorBody?.requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(errorBody.requestId) ? { requestId: errorBody.requestId } : {})
     });
   }
-  if (!text) throw new SinaloaError('Envoi returned an empty response', response.status);
-  if (payload === null) throw new SinaloaError('Envoi returned an invalid JSON response', response.status);
+  if (!text) throw new EnvoiError('Envoi returned an empty response', response.status);
+  if (payload === null) throw new EnvoiError('Envoi returned an invalid JSON response', response.status);
   return payload as T;
 }
 
@@ -143,8 +143,8 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
   try {
     return await fetcher(url, { ...init, signal: controller.signal });
   } catch (error) {
-    if (controller.signal.aborted && !init.signal?.aborted) throw new SinaloaError('Envoi request timed out', undefined, 'TIMEOUT');
-    throw new SinaloaError('Envoi could not be reached', undefined, 'NETWORK_ERROR');
+    if (controller.signal.aborted && !init.signal?.aborted) throw new EnvoiError('Envoi request timed out', undefined, 'TIMEOUT');
+    throw new EnvoiError('Envoi could not be reached', undefined, 'NETWORK_ERROR');
   } finally {
     clearTimeout(timer);
     init.signal?.removeEventListener('abort', onAbort);
@@ -166,7 +166,7 @@ export type SendMessageResult = AgentMessage & { status: DeliveryState; transpor
 /** Generate once and persist before the first send; retries must reuse this ID. */
 export function newCaseId(): string { return `case_${globalThis.crypto.randomUUID().replaceAll('-', '')}`; }
 
-export class SinaloaClient {
+export class EnvoiClient {
   private readonly requestTimeoutMs: number;
   private readonly fetcher: typeof fetch;
 
@@ -254,7 +254,7 @@ export class SinaloaClient {
   }
 
   /** Legacy route. Native processing must use the connector's fenced work claim. */
-  /** @deprecated Native messages return 410; use SinaloaConnector with a work handler. */
+  /** @deprecated Native messages return 410; use EnvoiConnector with a work handler. */
   acknowledge(inboxId: string, messageId: string, state: 'acknowledged' | 'processed', idempotencyKey: string) {
     return this.request(`/api/inboxes/${encodeURIComponent(inboxId)}/messages/${encodeURIComponent(messageId)}/acknowledgements`, {
       method: 'POST',
@@ -279,7 +279,7 @@ export async function putSignedAsset(upload: SignedAssetRequest, body: Uint8Arra
   const response = await fetchWithTimeout(options.fetch || fetch, target.toString(), {
     method: 'PUT', headers: upload.headers || {}, body: body as BodyInit, redirect: 'error'
   }, timeoutMs(options.timeoutMs));
-  if (!response.ok) throw new SinaloaError(`Signed upload failed with HTTP ${response.status}`, response.status);
+  if (!response.ok) throw new EnvoiError(`Signed upload failed with HTTP ${response.status}`, response.status);
 }
 
 export async function rotateAgentToken(baseUrl: string, agentRefreshToken: string, rotationId: string, options: ClientOptions = {}): Promise<AgentTokens> {

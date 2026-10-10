@@ -4,8 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
-import { newCaseId, SinaloaClient } from '@sinaloa/protocol';
-import { enrollConnector, SinaloaConnector, type ConnectorSession, type ConnectorStore } from '@sinaloa/protocol/connector';
+import { newCaseId, EnvoiClient } from '@envoi/protocol';
+import { enrollConnector, EnvoiConnector, type ConnectorSession, type ConnectorStore } from '@envoi/protocol/connector';
 import { BrowserSession } from '../../../test/browser-session.js';
 
 function memoryStore() {
@@ -21,10 +21,10 @@ function memoryStore() {
 }
 
 async function startServer() {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-connector-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-connector-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_AGENT_WORK_RETRY_BASE_MS: '50' },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_AGENT_WORK_RETRY_BASE_MS: '50' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const baseUrl = await new Promise<string>((resolve, reject) => {
@@ -111,7 +111,7 @@ describe('customer-hosted connector against the real local API', () => {
     const sender = await enroll(server.baseUrl, senderHuman, 'Sender agent');
     const recipient = await enroll(server.baseUrl, recipientHuman, 'Recipient agent');
 
-    const sent = await new SinaloaClient(server.baseUrl, sender.get().agentApiToken).sendMessage(sender.get().inboxId, 'offline-message-1', {
+    const sent = await new EnvoiClient(server.baseUrl, sender.get().agentApiToken).sendMessage(sender.get().inboxId, 'offline-message-1', {
       senderAgentId: sender.get().agentId, recipientEmail: recipient.get().address, text: 'Can we meet?'
     });
     expect(sent.id).toBeTruthy();
@@ -123,7 +123,7 @@ describe('customer-hosted connector against the real local API', () => {
     const processed: string[] = [];
     let processingAttempts = 0;
     const observedEvents: string[] = [];
-    const recipientConnector = new SinaloaConnector(server.baseUrl, recipient.store, { handler: {
+    const recipientConnector = new EnvoiConnector(server.baseUrl, recipient.store, { handler: {
       admit: async message => { processed.push(`admitted:${message.id}`); },
       process: async (message, context) => {
         processingAttempts += 1;
@@ -156,7 +156,7 @@ describe('customer-hosted connector against the real local API', () => {
     const senderMessages = await request(server.baseUrl, `/api/inboxes/${sender.get().inboxId}/messages`, senderHuman.browser, { token: sender.get().agentApiToken });
     expect((senderMessages.payload as any[]).filter(message => message.text === 'Yes, I can meet.')).toHaveLength(1);
     const senderReceived: string[] = [];
-    const senderConnector = new SinaloaConnector(server.baseUrl, sender.store, { handler: {
+    const senderConnector = new EnvoiConnector(server.baseUrl, sender.store, { handler: {
       admit: async message => { senderReceived.push(`admitted:${message.id}`); },
       process: async message => { senderReceived.push(`processed:${message.id}`); }
     } });
@@ -172,7 +172,7 @@ describe('customer-hosted connector against the real local API', () => {
     const recipientHuman = await owner(server.baseUrl, 'Two-case recipient', '+14165550152');
     const sender = await enroll(server.baseUrl, senderHuman, 'Sender agent');
     const recipient = await enroll(server.baseUrl, recipientHuman, 'Recipient agent');
-    const senderClient = new SinaloaClient(server.baseUrl, sender.get().agentApiToken);
+    const senderClient = new EnvoiClient(server.baseUrl, sender.get().agentApiToken);
     const caseIds = [newCaseId(), newCaseId()];
     const requests = await Promise.all(caseIds.map((caseId, index) => senderClient.startCase(sender.get().inboxId, `new-case-${index}`, {
       senderAgentId: sender.get().agentId, recipientEmail: recipient.get().address, caseId, text: `Question ${index + 1}`
@@ -196,9 +196,9 @@ describe('customer-hosted connector against the real local API', () => {
         processed.push(`process:${message.id}`);
       }
     };
-    expect(await new SinaloaConnector(server.baseUrl, recipient.store, { handler }).processWorkOnce()).toBe(true);
+    expect(await new EnvoiConnector(server.baseUrl, recipient.store, { handler }).processWorkOnce()).toBe(true);
     // A replacement connector instance reuses the stored session and this fixture's reply ledger.
-    expect(await new SinaloaConnector(server.baseUrl, recipient.store, { handler }).processWorkOnce()).toBe(true);
+    expect(await new EnvoiConnector(server.baseUrl, recipient.store, { handler }).processWorkOnce()).toBe(true);
     expect(durableReplies.size).toBe(2);
     expect(processed.filter(item => item.startsWith('process:'))).toHaveLength(2);
 
@@ -209,7 +209,7 @@ describe('customer-hosted connector against the real local API', () => {
     });
     for (const caseId of caseIds) {
       const senderMessages = await senderClient.listCaseMessages(sender.get().inboxId, caseId);
-      const recipientMessages = await new SinaloaClient(server.baseUrl, recipient.get().agentApiToken).listCaseMessages(recipient.get().inboxId, caseId);
+      const recipientMessages = await new EnvoiClient(server.baseUrl, recipient.get().agentApiToken).listCaseMessages(recipient.get().inboxId, caseId);
       expect(senderMessages.map(item => item.caseId)).toEqual([caseId, caseId]);
       expect(recipientMessages.map(item => item.caseId)).toEqual([caseId, caseId]);
     }
