@@ -1,0 +1,35 @@
+{
+  "contract": "envoi-names",
+  "version": 1,
+  "id": "refresh-old-prefix",
+  "description": "A refresh token issued before the cutover is refused; the identity is kept and the owner reconnects.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-token",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "grantType": "refresh_token",
+      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDERxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "rotationId": "rotation_PLACEHOLDER_0001"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REFRESH_TOKEN_INVALID",
+      "error": "REFRESH_TOKEN_INVALID",
+      "message": "This refresh token is not valid. Ask the owner to reconnect this agent.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "NEEDS_RECONNECT",
+    "retry": "none",
+    "guidance": "owner_reconnect",
+    "next": "Wait for the owner to reconnect the same identity; the new credentials use the envoi_ prefix."
+  }
+}

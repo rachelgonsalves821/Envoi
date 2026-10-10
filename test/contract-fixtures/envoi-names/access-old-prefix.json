@@ -1,0 +1,32 @@
+{
+  "contract": "envoi-names",
+  "version": 1,
+  "id": "access-old-prefix",
+  "description": "An access token issued before the cutover (sinaloa_ prefix) is refused.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDERxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "A valid agent credential is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "refresh_then_retry_once",
+    "guidance": "none",
+    "next": "Refresh once; the retired refresh token is also refused, so the owner reconnects the same identity."
+  }
+}

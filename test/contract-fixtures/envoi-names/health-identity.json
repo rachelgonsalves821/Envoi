@@ -1,0 +1,29 @@
+{
+  "contract": "envoi-names",
+  "version": 1,
+  "id": "health-identity",
+  "description": "Health reports the Envoi service identity that connectors require.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/health"
+  },
+  "response": {
+    "status": 200,
+    "schema": "health",
+    "body": {
+      "ok": true,
+      "service": "envoi",
+      "time": "2026-10-09T12:00:00.000Z",
+      "mode": "production",
+      "configurationValidated": true,
+      "releaseSha": "0000000000000000000000000000000000000000"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Start only when service is envoi."
+  }
+}

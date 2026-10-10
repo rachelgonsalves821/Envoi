@@ -140,7 +140,7 @@ test('every fixture matches its declared schema', async () => {
       }
       if (fixture.frames) checkStreamFrames(fixture, label, check, validator);
       if (fixture.response?.schema === 'deltaPage') checkDeltaPage(fixture, label);
-      assert.doesNotMatch(JSON.stringify(fixture), /(?:sinaloa_agent_(?:access|refresh)_|sinaloa_mcp_read_|sinaloa_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
+      assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }
 });
