@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "event-agent-resumed",
   "description": "The owner resumes the agent.",
   "kind": "sse",

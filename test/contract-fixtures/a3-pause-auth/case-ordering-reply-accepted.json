@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "case-ordering-reply-accepted",
   "description": "D1: the active counterparty replies in a case where the paused agent has a held outbound message. The response is the same as any send and reveals neither the pause nor the barrier; the reply waits behind the held message and is delivered in order.",
   "kind": "http",
@@ -8,13 +8,13 @@
     "method": "POST",
     "path": "/api/inboxes/inbox_counterparty/messages",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_counterparty",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_counterparty",
       "content-type": "application/json",
       "idempotency-key": "idem_PLACEHOLDER_0001"
     },
     "body": {
       "senderAgentId": "agent_counterparty",
-      "recipientEmail": "example@sinaloa.mail",
+      "recipientEmail": "example@envoi.mail",
       "caseId": "case_example",
       "text": "Reply"
     }

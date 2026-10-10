@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "refresh-recovered",
   "description": "The same refresh token and rotationId within the recovery window return the identical successor.",
   "kind": "http",
@@ -12,7 +12,7 @@
     },
     "body": {
       "grantType": "refresh_token",
-      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_used",
+      "agentRefreshToken": "envoi_agent_refresh_PLACEHOLDER_used",
       "rotationId": "rotation_PLACEHOLDER_0001"
     }
   },
@@ -20,8 +20,8 @@
     "status": 200,
     "schema": "tokenPair",
     "body": {
-      "agentApiToken": "sinaloa_agent_access_PLACEHOLDER_successor",
-      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_successor",
+      "agentApiToken": "envoi_agent_access_PLACEHOLDER_successor",
+      "agentRefreshToken": "envoi_agent_refresh_PLACEHOLDER_successor",
       "agentTokenExpiresAt": "2026-10-08T12:15:00.000Z",
       "agentRefreshTokenExpiresAt": "2026-11-07T12:00:00.000Z",
       "tokenType": "Bearer"

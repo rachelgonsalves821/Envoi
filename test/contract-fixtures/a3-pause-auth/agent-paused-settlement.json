@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "agent-paused-settlement",
   "description": "A lease claimed before the pause is settled after it. The lease is invalid and no attempt is counted.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "POST",
     "path": "/api/agent/work/msg_example/complete",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_paused",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_paused",
       "content-type": "application/json",
       "idempotency-key": "idem_PLACEHOLDER_0002"
     },

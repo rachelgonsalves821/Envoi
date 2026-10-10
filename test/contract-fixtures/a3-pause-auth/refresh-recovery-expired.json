@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "refresh-recovery-expired",
   "description": "An already-used refresh token with the same rotationId after the 5-minute recovery window.",
   "kind": "http",
@@ -12,7 +12,7 @@
     },
     "body": {
       "grantType": "refresh_token",
-      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_used",
+      "agentRefreshToken": "envoi_agent_refresh_PLACEHOLDER_used",
       "rotationId": "rotation_PLACEHOLDER_0001"
     }
   },
