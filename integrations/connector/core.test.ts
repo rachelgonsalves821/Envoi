@@ -30,6 +30,11 @@ async function fixture(runtime: ConnectorRuntime = 'hermes') {
         agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
     }
     if (String(url).includes('/events/delta')) return Response.json({ events: [], nextCursor: null, hasMore: false });
+    if (String(url).endsWith('/api/agent/status')) {
+      const session = await new FileBridgeStore(path.join(directory, 'state')).load();
+      return Response.json({ state: session?.lifecycle?.paused ? 'paused' : 'active', agent: { id: session?.agentId }, inboxId: session?.inboxId });
+    }
+    if (String(url).includes('/events')) return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
     if (String(url).endsWith('/api/agent/connection-status')) return Response.json({ checkedAt: new Date().toISOString() });
     throw new Error('Unexpected fixture request');
   }) as typeof fetch;

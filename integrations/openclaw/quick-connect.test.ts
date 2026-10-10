@@ -23,6 +23,7 @@ async function fixture(enabled = true) {
     if (String(url).endsWith('/api/agent-enroll')) return Response.json({ agent: { id: 'agent_potato', address: 'potato@agents.sinaloa.example' }, inbox: { id: 'inbox_potato' },
       agentApiToken: 'sinaloa-access-private', agentRefreshToken: 'sinaloa-refresh-private', agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
     if (String(url).includes('/delta')) return Response.json({ events: [], nextCursor: null, hasMore: false });
+    if (String(url).endsWith('/api/agent/status')) return Response.json({ state: 'active', agent: { id: 'agent_potato' }, inboxId: 'inbox_potato' });
     if (String(url).endsWith('/api/agent/connection-status')) return Response.json({ checkedAt: new Date().toISOString() });
     throw new Error('unexpected fixture URL');
   }) as unknown as typeof fetch;
