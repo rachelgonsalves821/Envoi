@@ -1,0 +1,40 @@
+{
+  "testedSha": "2b6dec971ee6dff3c01cec98d1955506e3569b05",
+  "artifactSha256": "cb1aab5757d89bacaac425395b630eaeb956ff724c6fd257946d6ecd44f7873a",
+  "storage": "FileStore",
+  "serverCommand": "npm start",
+  "node": "v22.15.0",
+  "recordedAt": "2026-10-10T22:59:44.584Z",
+  "result": "PASS",
+  "connector": "production startConnection + EnvoiConnector + FileBridgeStore, separate child process",
+  "handler": "controlled local durable handler; no provider or real host",
+  "timerOverrides": "none on client; server retry base 20 s to ensure work remains delayed through process restart",
+  "networkFault": "HTTP proxy closes active SSE sockets and rejects SSE reconnects; REST remains real and available",
+  "scenarios": [
+    {
+      "id": "offline-arrival",
+      "result": "PASS",
+      "successfulProcessing": 1,
+      "successfulCompletionReceipts": 1
+    },
+    {
+      "id": "retry-delayed",
+      "result": "PASS",
+      "successfulProcessing": 1,
+      "successfulCompletionReceipts": 1
+    }
+  ],
+  "verification": {
+    "sseStreamsDropped": 1,
+    "blockedSseReconnects": 11,
+    "sseBytesAfterCut": 0,
+    "storedEventsDeliveredDuringRecovery": 0,
+    "deltaRequests": 0,
+    "newWakeEventsAfterOfflineDelivery": 0,
+    "relativeRetryHintObserved": true,
+    "identityAndCredentialsPreserved": true,
+    "cursorPreserved": true,
+    "laterSafetyClaimsAndSecondRestartProduceDuplicates": false,
+    "controlledFailureBeforeEffect": 1
+  }
+}

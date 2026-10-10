@@ -45,8 +45,10 @@ The sequence is:
    observe another safety claim. Recheck effects and completion requests for
    duplicates, and identity, credentials and inbox cursors for preservation.
 
-Acceptance additionally requires zero SSE frames/bytes after the cut, zero delta
-requests and no new durable wake event after the offline message was delivered.
+Acceptance additionally requires zero SSE bytes forwarded after the cut, zero
+stored events observed by the restarted connector, zero delta requests and no
+new durable wake event after the offline message was delivered. Pre-cut IPC
+observations are drained through the stopped worker's completion handshake.
 Creating that offline message naturally creates its initial durable events; none
 are delivered to the connector during recovery. No manual claim or event trigger
 is injected. Exclusive effect creation detects duplicate processing rather than
@@ -62,3 +64,6 @@ The initial rehearsal targets paired validation PR #58 at
 `8588a90`, integrated B-2 `87bdf46`). That is rehearsal evidence. Formal GA4 must
 be rerun on the combined integration SHA. Lane A adds PostgreSQL CI and posts
 the authoritative `GATE GA4` under build-plan §6.
+
+Local rehearsal: **PASS**, both scenarios and all recovery checks. Public result:
+[`evidence/ga4-2b6dec9/summary.json`](evidence/ga4-2b6dec9/summary.json).
