@@ -2,13 +2,13 @@ import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SinaloaConnector, type ConnectorSession } from '../src/connector';
+import { EnvoiConnector, type ConnectorSession } from '../src/connector';
 import { contractRegistryPath, loadContractFixture, loadContractRegistry } from '../../../integrations/contract-fixtures/setup';
 
 const source = process.env.ENVOI_CONTRACT_FIXTURES_ROOT ?? path.dirname(contractRegistryPath);
 const registry = loadContractRegistry(source);
-const contract = registry.contracts.find(item => item.id === 'a3-pause-auth' && item.version === 1);
-if (!contract?.schemas) throw new Error('a3-pause-auth v1 publication is required; set ENVOI_CONTRACT_FIXTURES_ROOT to its canonical fixture directory');
+const contract = registry.contracts.find(item => item.id === 'a3-pause-auth' && [1, 2].includes(item.version));
+if (!contract?.schemas) throw new Error('a3-pause-auth publication is required; set ENVOI_CONTRACT_FIXTURES_ROOT to its canonical fixture directory');
 
 interface Fixture {
   contract: string; version: number; id: string; kind: 'http' | 'sse' | 'network';
@@ -53,7 +53,7 @@ const codes: Record<string, [number, string, string, string]> = {
 };
 afterEach(() => vi.restoreAllMocks());
 
-describe('a3-pause-auth v1 published client acceptance', () => {
+describe(`a3-pause-auth v${contract.version} published client acceptance`, () => {
   it('loads every registered fixture and the required code/pause/reconnect/event cases', () => {
     expect(fixtures).toHaveLength(contract.fixtures.length);
     expect(fixtures.length).toBeGreaterThanOrEqual(39);
@@ -63,7 +63,7 @@ describe('a3-pause-auth v1 published client acceptance', () => {
 
   it.each(fixtures)('consumes $id with its declared schema and stable lifecycle policy', fixture => {
     expect(fixture.contract).toBe('a3-pause-auth');
-    expect(fixture.version).toBe(1);
+    expect(fixture.version).toBe(contract.version);
     validate('fixture', fixture);
     if (fixture.response) {
       const response = fixture.response;
@@ -128,7 +128,7 @@ describe('a3-pause-auth v1 published client acceptance', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-08T12:00:00.000Z'));
     const fixture = byId('claimed-work');
     const initial: ConnectorSession = {
-      agentId: 'agent_example', inboxId: 'inbox_example', address: 'example@sinaloa.mail', cursor: null,
+      agentId: 'agent_example', inboxId: 'inbox_example', address: 'example@envoi.mail', cursor: null,
       agentApiToken: 'access-placeholder', agentRefreshToken: 'refresh-placeholder',
       agentTokenExpiresAt: '2026-10-08T13:00:00.000Z', agentRefreshTokenExpiresAt: '2026-11-07T12:00:00.000Z'
     };
@@ -140,7 +140,7 @@ describe('a3-pause-auth v1 published client acceptance', () => {
       const state = acknowledged ? 'acknowledged' : 'processed';
       return Response.json({ workId: 'msg_example', status: state, receipt: { messageId: 'msg_example', state } });
     });
-    const connector = new SinaloaConnector('https://fixture.example', { load: async () => initial, save: async () => {} }, {
+    const connector = new EnvoiConnector('https://fixture.example', { load: async () => initial, save: async () => {} }, {
       fetch: fetcher as typeof fetch, handler: { admit, process }
     });
     await expect(connector.processWorkOnce()).resolves.toBe(true);

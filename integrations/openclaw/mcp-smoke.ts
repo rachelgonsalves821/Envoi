@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { EnvoiConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { startOpenClawMcpRelay } from './mcp-relay';
 
 export interface OpenClawMcpProbeOptions {
-  connector: SinaloaConnector;
+  connector: EnvoiConnector;
   expectedAddress: string;
   gatewayUrl: string;
   gatewayToken: string;
@@ -27,7 +27,7 @@ export async function probeOpenClawMcp(options: OpenClawMcpProbeOptions): Promis
   let observed = 0;
   const relay = await startOpenClawMcpRelay({
     connector: options.connector, bearerToken: options.relayToken, port: options.relayPort,
-    onSuccessfulToolCall: name => { if (name === 'sinaloa_agent_info') observed += 1; }
+    onSuccessfulToolCall: name => { if (name === 'envoi_agent_info') observed += 1; }
   });
   try {
     let response: Response;
@@ -36,9 +36,9 @@ export async function probeOpenClawMcp(options: OpenClawMcpProbeOptions): Promis
         `${gateway.origin}/v1/chat/completions`, {
           method: 'POST', redirect: 'error', signal: AbortSignal.timeout(120_000),
           headers: { authorization: `Bearer ${options.gatewayToken}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ model: `openclaw/${options.agentId}`, user: `sinaloa-mcp-probe:${randomUUID()}`,
+          body: JSON.stringify({ model: `openclaw/${options.agentId}`, user: `envoi-mcp-probe:${randomUUID()}`,
             stream: false, messages: [{ role: 'user', content:
-              'Call the sinaloa_agent_info MCP tool now, then report the exact agent address returned by that tool. Do not guess an address.' }] })
+              'Call the envoi_agent_info MCP tool now, then report the exact agent address returned by that tool. Do not guess an address.' }] })
         }, relay.url
       );
     } catch { throw new Error('OpenClaw MCP probe could not reach the Gateway'); }
@@ -60,20 +60,20 @@ export async function probeOpenClawMcp(options: OpenClawMcpProbeOptions): Promis
 }
 
 async function main() {
-  const apiUrl = process.env.SINALOA_API_URL;
-  const stateDir = process.env.SINALOA_STATE_DIR;
+  const apiUrl = process.env.ENVOI_API_URL;
+  const stateDir = process.env.ENVOI_STATE_DIR;
   const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
   const agentId = process.env.OPENCLAW_AGENT_ID;
   const relayToken = process.env.OPENCLAW_MCP_RELAY_TOKEN;
   if (!apiUrl || !stateDir || !gatewayUrl || !gatewayToken || !agentId || !relayToken) {
-    throw new Error('SINALOA_API_URL, SINALOA_STATE_DIR, OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN, OPENCLAW_AGENT_ID and OPENCLAW_MCP_RELAY_TOKEN are required');
+    throw new Error('ENVOI_API_URL, ENVOI_STATE_DIR, OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN, OPENCLAW_AGENT_ID and OPENCLAW_MCP_RELAY_TOKEN are required');
   }
   const store = new FileBridgeStore(stateDir);
   await store.init();
   const session = await store.load();
   if (!session?.address) throw new Error('Enrolled Envoi session is required');
-  await probeOpenClawMcp({ connector: new SinaloaConnector(apiUrl, store), expectedAddress: session.address,
+  await probeOpenClawMcp({ connector: new EnvoiConnector(apiUrl, store), expectedAddress: session.address,
     gatewayUrl, gatewayToken, agentId, relayToken,
     relayPort: process.env.OPENCLAW_MCP_RELAY_PORT ? Number(process.env.OPENCLAW_MCP_RELAY_PORT) : 8788 });
   process.stdout.write('OpenClaw Gateway invoked Envoi agent_info through the local MCP relay and returned the enrolled agent address.\n');

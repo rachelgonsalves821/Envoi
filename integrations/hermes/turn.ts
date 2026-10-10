@@ -15,7 +15,7 @@ export interface HermesTurnOptions {
   fetch?: typeof fetch;
   pollIntervalMs?: number;
   maxRunMs?: number;
-  allowSinaloaMcpWrites?: boolean;
+  allowEnvoiMcpWrites?: boolean;
   mcpReplySent?: (messageId: string) => Promise<boolean>;
   assetHandles?: Array<{ handle: string; filename: string }>;
   onActive?: (message: WorkMessage, signal: AbortSignal | null) => void;
@@ -34,7 +34,7 @@ function origin(value: string): string {
 }
 
 function sessionId(agentId: string, caseId: string) {
-  return `sinaloa-${createHash('sha256').update(agentId).update('\0').update(caseId).digest('hex').slice(0, 40)}`;
+  return `envoi-${createHash('sha256').update(agentId).update('\0').update(caseId).digest('hex').slice(0, 40)}`;
 }
 
 function delay(ms: number, signal: AbortSignal) {
@@ -72,7 +72,7 @@ export function hermesTurn(options: HermesTurnOptions): AgentTurn {
       const history = message.caseId && options.history ? await options.history(message.caseId) : [];
       const request = {
         input: workPrompt(message, history, {
-          allowSinaloaMcpWrites: options.allowSinaloaMcpWrites,
+          allowEnvoiMcpWrites: options.allowEnvoiMcpWrites,
           assetHandles: options.assetHandles
         }),
         session_id: sessionId(options.agentId, message.caseId || message.id)

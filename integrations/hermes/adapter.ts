@@ -26,7 +26,7 @@ async function relayState(context: AdapterContext): Promise<RelayState> {
     try { stored = JSON.parse(text) as RelayState; }
     catch { throw new ConnectorSetupError('STATE_INVALID', 'Hermes relay state is unreadable. Restore its private saved configuration.'); }
     if (!stored || typeof stored !== 'object' || Array.isArray(stored) || stored.version !== 1 || !Number.isSafeInteger(stored.port) || stored.port < 1 || stored.port > 65535
-      || !/^[a-f0-9]{64}$/.test(stored.token) || !/^sinaloa_[a-f0-9]{16}$/.test(stored.serverName)) {
+      || !/^[a-f0-9]{64}$/.test(stored.token) || !/^envoi_[a-f0-9]{16}$/.test(stored.serverName)) {
       throw new ConnectorSetupError('STATE_INVALID', 'Hermes relay state is invalid. Restore its private saved configuration.');
     }
     return stored;
@@ -39,12 +39,12 @@ async function relayState(context: AdapterContext): Promise<RelayState> {
 
 export async function configureHermes(config: HermesConfiguration, context: AdapterContext) {
   const relay = await relayState(context);
-  const variable = `SINALOA_MCP_${relay.serverName.slice(8).toUpperCase()}`;
+  const variable = `ENVOI_MCP_${relay.serverName.slice(8).toUpperCase()}`;
   const original = await optionalText(config.configPath);
   const block = [
     `  ${relay.serverName}:`, `    url: "http://127.0.0.1:${relay.port}/mcp"`, '    headers:',
     `      Authorization: "Bearer \${${variable}}"`, '    tools:',
-    '      include: [sinaloa_agent_info, sinaloa_start_case, sinaloa_send_message, sinaloa_send_proposal, sinaloa_send_decision, sinaloa_list_cases, sinaloa_read_case, sinaloa_list_messages, sinaloa_list_assets, sinaloa_asset_download]',
+    '      include: [envoi_agent_info, envoi_start_case, envoi_send_message, envoi_send_proposal, envoi_send_decision, envoi_list_cases, envoi_read_case, envoi_list_messages, envoi_list_assets, envoi_asset_download]',
     '      resources: false', '      prompts: false'
   ];
   const updated = mergeMcpConfiguration(original ?? '', relay.serverName, block);
@@ -64,8 +64,8 @@ export const hermesAdapter: ConnectorAdapter<HermesConfiguration> = {
       bridge = await createHermesBridge({
         apiUrl: context.apiUrl, stateDir: context.stateDir, hermesUrl: config.apiUrl, hermesKey: config.apiKey,
         relayToken: relay.token, relayPort: relay.port, writeEnabled: true
-      }, { env: { ...(context.env ?? process.env), SINALOA_ASSET_MANIFEST_PATH: config.assetManifestPath }, fetch: context.fetch, pollIntervalMs: context.pollIntervalMs,
-        onSuccessfulToolCall(name) { if (name === 'sinaloa_agent_info') observedInfo++; }
+      }, { env: { ...(context.env ?? process.env), ENVOI_ASSET_MANIFEST_PATH: config.assetManifestPath }, fetch: context.fetch, pollIntervalMs: context.pollIntervalMs,
+        onSuccessfulToolCall(name) { if (name === 'envoi_agent_info') observedInfo++; }
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') throw new ConnectorSetupError('RELAY_UNAVAILABLE', 'This Hermes connection relay port is occupied. Stop its prior connector or the conflicting process, then retry with the same state directory.');
@@ -74,7 +74,7 @@ export const hermesAdapter: ConnectorAdapter<HermesConfiguration> = {
     return { connector: bridge.connector, close: bridge.close, async verify() {
       const before = observedInfo;
       await boundedHermesRun(config,
-        `Envoi setup verification. Call the sinaloa_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, context);
+        `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, context);
       if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Hermes did not invoke the configured Envoi identity tool. Start a fresh API session, or restart the selected profile Gateway from a separate terminal to load its MCP configuration, then rerun setup using the same state directory. Enrollment is saved; do not create another token.');
     } };
   },

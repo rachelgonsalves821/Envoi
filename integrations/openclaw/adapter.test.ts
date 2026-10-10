@@ -44,7 +44,7 @@ describe('OpenClaw unified adapter', () => {
   });
 
   it('resumes the saved private connection when configuration is absent without forwarding its key to a new origin', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'sinaloa-openclaw-adapter-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-adapter-'));
     try {
       const previous = { configPath: path.join(dir, 'absent.json'), gatewayUrl: 'http://127.0.0.1:18789',
         gatewayToken: 'saved-private-key', agentId: 'main', chatCompletionsEnabled: undefined };
@@ -56,7 +56,7 @@ describe('OpenClaw unified adapter', () => {
   });
 
   it('uses newly resolved local credentials when they rotate', async () => {
-    const home = await mkdtemp(path.join(tmpdir(), 'sinaloa-openclaw-adapter-'));
+    const home = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-adapter-'));
     try {
       await mkdir(path.join(home, '.openclaw'));
       const configPath = path.join(home, '.openclaw', 'openclaw.json');
@@ -70,24 +70,24 @@ describe('OpenClaw unified adapter', () => {
   });
 
   it('restores optional private settings for supervised startup and preserves explicit local overrides', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'sinaloa-openclaw-adapter-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-adapter-'));
     try {
       const base = { configPath: path.join(dir, 'absent.json'), gatewayUrl: 'http://127.0.0.1:18789',
         gatewayToken: 'gateway-private-key', agentId: 'main', chatCompletionsEnabled: undefined };
       const settings = await openclawAdapter.discover({ env: { OPENCLAW_MCP_RELAY_TOKEN: 'relay-private-key',
-        OPENCLAW_MCP_RELAY_PORT: '9001', OPENCLAW_MCP_WRITE_ENABLED: 'true', SINALOA_ASSET_MANIFEST_PATH: './assets.json' } }, base);
+        OPENCLAW_MCP_RELAY_PORT: '9001', OPENCLAW_MCP_WRITE_ENABLED: 'true', ENVOI_ASSET_MANIFEST_PATH: './assets.json' } }, base);
       const resumed = await openclawAdapter.discover({ env: {} }, settings);
       expect(resumed).toEqual(settings);
-      await openclawAdapter.createBridge(resumed, { apiUrl: 'https://sinaloa.example', stateDir: dir, env: {} });
+      await openclawAdapter.createBridge(resumed, { apiUrl: 'https://envoi.example', stateDir: dir, env: {} });
       expect(createOpenClawBridge).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ env: expect.objectContaining({
         OPENCLAW_MCP_RELAY_TOKEN: 'relay-private-key', OPENCLAW_MCP_RELAY_PORT: '9001', OPENCLAW_MCP_WRITE_ENABLED: 'true',
-        SINALOA_ASSET_MANIFEST_PATH: path.resolve('./assets.json')
+        ENVOI_ASSET_MANIFEST_PATH: path.resolve('./assets.json')
       }) }));
-      await openclawAdapter.createBridge(resumed, { apiUrl: 'https://sinaloa.example', stateDir: dir,
-        env: { OPENCLAW_MCP_RELAY_TOKEN: 'rotated-relay-key', OPENCLAW_MCP_WRITE_ENABLED: 'false', SINALOA_ASSET_MANIFEST_PATH: '' } });
+      await openclawAdapter.createBridge(resumed, { apiUrl: 'https://envoi.example', stateDir: dir,
+        env: { OPENCLAW_MCP_RELAY_TOKEN: 'rotated-relay-key', OPENCLAW_MCP_WRITE_ENABLED: 'false', ENVOI_ASSET_MANIFEST_PATH: '' } });
       expect(createOpenClawBridge).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ env: expect.objectContaining({
         OPENCLAW_MCP_RELAY_TOKEN: 'rotated-relay-key', OPENCLAW_MCP_RELAY_PORT: '9001', OPENCLAW_MCP_WRITE_ENABLED: undefined,
-        SINALOA_ASSET_MANIFEST_PATH: undefined
+        ENVOI_ASSET_MANIFEST_PATH: undefined
       }) }));
       expect(JSON.stringify(openclawAdapter.describe(resumed))).not.toMatch(/private-key|assets.json/);
       await expect(openclawAdapter.discover({ env: { OPENCLAW_MCP_RELAY_PORT: '99999' } }, settings))

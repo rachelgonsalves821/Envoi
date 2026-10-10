@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SinaloaClient, SinaloaError, newCaseId, putSignedAsset, rotateAgentToken } from '../src/index';
+import { EnvoiClient, EnvoiError, newCaseId, putSignedAsset, rotateAgentToken } from '../src/index';
 
-describe('Sinaloa TypeScript client', () => {
+describe('Envoi TypeScript client', () => {
   it('starts two separate cases with caller-persisted IDs and sends typed follow-up events', async () => {
     const calls: Array<{ url: string; body: Record<string, unknown>; key: string | null }> = [];
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url: String(url), body: JSON.parse(String(init?.body)), key: new Headers(init?.headers).get('idempotency-key') });
       return new Response(JSON.stringify({ caseId: calls.at(-1)?.body.caseId, status: 'queued' }), { status: 202 });
     });
-    const client = new SinaloaClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
+    const client = new EnvoiClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
     const first = newCaseId();
     const second = newCaseId();
     expect(first).not.toBe(second);
-    const input = { senderAgentId: 'agent_one', recipientEmail: 'peer@sinaloa.mail', text: 'Need input' };
+    const input = { senderAgentId: 'agent_one', recipientEmail: 'peer@envoi.mail', text: 'Need input' };
     await client.startCase('inbox_one', 'first-case-key', { ...input, caseId: first });
     await client.startCase('inbox_one', 'second-case-key', { ...input, caseId: second });
     await client.sendCaseEvent('inbox_one', 'first-offer-key', { ...input, caseId: first, intent: 'offer', payload: { proposal: { price: 3 } } });
@@ -43,7 +43,7 @@ describe('Sinaloa TypeScript client', () => {
       return new Response(JSON.stringify({ id: 'grant_asset_one', assetId: 'asset_one',
         recipientAgentId: 'agent_peer' }), { status: 200 });
     });
-    const client = new SinaloaClient('https://api.example', 'owner-token', { fetch: fetcher as typeof fetch });
+    const client = new EnvoiClient('https://api.example', 'owner-token', { fetch: fetcher as typeof fetch });
     const first = await client.grantCaseAsset('owner_inbox', 'asset_one', 'case_one', 'agent_peer', 'case-file-one:grant');
     const replay = await client.grantCaseAsset('owner_inbox', 'asset_one', 'case_one', 'agent_peer', 'case-file-one:grant');
     expect(replay.id).toBe(first.id);
@@ -52,30 +52,30 @@ describe('Sinaloa TypeScript client', () => {
 
   it('encodes path segments and parses JSON', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ events: [], nextCursor: null, hasMore: false }), { status: 200 }));
-    const client = new SinaloaClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
+    const client = new EnvoiClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
     await client.delta('inbox/../../other');
     expect(fetcher.mock.calls[0][0]).toContain('/api/inboxes/inbox%2F..%2F..%2Fother/events/delta');
   });
 
   it('reads array-shaped case and message lists from the canonical REST API', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify([{ id: 'case_one' }]), { status: 200 }));
-    const client = new SinaloaClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
+    const client = new EnvoiClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch });
     expect(await client.listCases('inbox_one')).toEqual([{ id: 'case_one' }]);
     expect(await client.listCaseMessages('inbox_one', 'case_one')).toEqual([{ id: 'case_one' }]);
   });
 
   it('sanitizes HTML and empty error bodies', async () => {
     const fetcher = vi.fn(async () => new Response('<html>provider secret</html>', { status: 502 }));
-    const client = new SinaloaClient('https://api.example', 'do-not-leak', { fetch: fetcher as typeof fetch });
+    const client = new EnvoiClient('https://api.example', 'do-not-leak', { fetch: fetcher as typeof fetch });
     await expect(client.delta('inbox')).rejects.toMatchObject({ message: 'Envoi request failed with HTTP 502', status: 502 });
     await expect(client.delta('inbox')).rejects.not.toThrow(/provider secret|do-not-leak/);
   });
 
   it('returns structured remote errors and bounds timeouts', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ error: 'Conflict', code: 'REUSED' }), { status: 409 }));
-    const client = new SinaloaClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch, timeoutMs: 50 });
+    const client = new EnvoiClient('https://api.example', 'secret', { fetch: fetcher as typeof fetch, timeoutMs: 50 });
     await expect(client.delta('inbox')).rejects.toMatchObject({ message: 'Conflict', status: 409, code: 'REUSED' });
-    expect(() => new SinaloaClient('https://api.example', 'secret', { timeoutMs: 0 })).toThrow(RangeError);
+    expect(() => new EnvoiClient('https://api.example', 'secret', { timeoutMs: 0 })).toThrow(RangeError);
   });
 
   it('aborts timed-out token rotation without exposing the refresh token', async () => {
@@ -83,7 +83,7 @@ describe('Sinaloa TypeScript client', () => {
       init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
     }));
     const failure = rotateAgentToken('https://api.example', 'refresh-do-not-leak', 'rotation-client-1', { fetch: fetcher as typeof fetch, timeoutMs: 5 });
-    await expect(failure).rejects.toBeInstanceOf(SinaloaError);
+    await expect(failure).rejects.toBeInstanceOf(EnvoiError);
     await expect(failure).rejects.not.toThrow(/refresh-do-not-leak/);
   });
 });

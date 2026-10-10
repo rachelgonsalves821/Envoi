@@ -25,10 +25,10 @@ async function request(baseUrl: string, route: string, options: { session?: Brow
 }
 
 async function startServer() {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-r1-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'envoi-r1-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_AUTH_MODE: 'development', SINALOA_PORT: '0', SINALOA_DATA_DIR: dataDir },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_AUTH_MODE: 'development', ENVOI_PORT: '0', ENVOI_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let stderr = '';
