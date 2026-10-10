@@ -641,7 +641,7 @@ const normalizeStreamEvent = event => ({ ...event, cursor: eventCursor(event) })
 const sendStreamEvent = (subscription, event) => {
   // Serialize authorization and delivery so replay/live events retain cursor order.
   subscription.pendingWrites = (subscription.pendingWrites || 0) + 1;
-  if (subscription.pendingWrites > 500) subscription.close?.('replay_required');
+  if (subscription.pendingWrites > 500) subscription.close?.('replay_required', { cursor: subscription.cursor || null, hasMore: true });
   subscription.writeQueue = (subscription.writeQueue || Promise.resolve()).then(async () => {
     if (subscription.res.writableEnded || subscription.res.destroyed) return;
     if (subscription.authorize && !await subscription.authorize()) {
@@ -1628,6 +1628,45 @@ async function processEmailWebhook(outbox, prepared) {
   return event.type === 'email.received' ? processInboundEmail(event, prepared) : processOutboundEmailEvent(event, prepared);
 }
 
+// a4-wake §1: a cursor is the event sequence as exactly 20 digits; anything else, or one beyond
+// the inbox's newest event (another inbox, a restored database), is refused rather than
+// silently skipping events.
+const eventCursorPattern = /^[0-9]{20}$/;
+const eventHistoryUnavailable = () => codedError(503, 'EVENT_HISTORY_UNAVAILABLE', 'Event history is temporarily unavailable. Retry shortly.');
+async function newestEventCursor(inboxId) {
+  const [newest] = await store.queryJson(path.join('inboxes', inboxId, 'events'), { sortField: 'cursor', order: 'desc', limit: 1 });
+  if (newest && !eventCursorPattern.test(String(newest.cursor || ''))) throw eventHistoryUnavailable();
+  return newest?.cursor || null;
+}
+async function resumeEventCursor(inboxId, raw) {
+  const newest = await newestEventCursor(inboxId);
+  if (!raw) return { cursor: '', newest };
+  if (!eventCursorPattern.test(raw) || !newest || raw > newest) throw codedError(400, 'EVENT_CURSOR_INVALID', 'The event cursor is invalid. Reconnect with from=latest.');
+  return { cursor: raw, newest };
+}
+async function eventPage(inboxId, options) {
+  try { return await fetchEventPage(store, inboxId, options); }
+  catch (error) { if (error.statusCode === 503) throw eventHistoryUnavailable(); throw error; }
+}
+// A credential that is a real agent token but not valid for this route gets a stable code.
+async function rejectAgentToken(req) {
+  const raw = bearerToken(req);
+  const index = raw ? await store.getJson(agentCredentialPath(hashSecret(raw))) : null;
+  if (index?.tokenType) throw credentialError('AUTHENTICATION_REQUIRED');
+}
+
+// Inbound work this agent could claim now or once it may act: delivered, unsettled messages.
+async function hasClaimableInbound(inboxId, agentId, { caseId = null, senderAgentId = null } = {}) {
+  const [messages, claims] = await Promise.all([
+    store.listJson(path.join('inboxes', inboxId, 'messages')),
+    store.listJson(path.join('inboxes', inboxId, 'work-claims'))
+  ]);
+  const settled = new Set(claims.filter(claim => ['completed', 'failed'].includes(claim.status)).map(claim => claim.workId));
+  return messages.some(message => message.recipientInboxId === inboxId && message.recipientAgentId === agentId
+    && ['delivered', 'acknowledged'].includes(message.status) && !settled.has(message.id)
+    && (!caseId || message.caseId === caseId) && (!senderAgentId || message.senderAgentId === senderAgentId));
+}
+
 async function holdIfSenderPaused(outbox) {
   if (!['nativeAgentMessage', 'externalEmail'].includes(outbox.kind) || !outbox.messageId) return;
   const queued = await store.getJson(messagePath(outbox.senderInboxId, outbox.messageId));
@@ -2043,6 +2082,10 @@ async function route(req, res) {
         const messages = claimCandidates
           .filter(message => (isHumanInstruction(message) || message.senderInboxId && message.senderAgentId) && message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status))
           .sort((left, right) => String(left.deliveredAt || left.createdAt).localeCompare(String(right.deliveredAt || right.createdAt)) || String(left.id).localeCompare(String(right.id)));
+        let nextAvailable = null;
+        const noteAvailable = (claim, at) => {
+          if ((claim.reofferWithoutAttempt === true || agentWorkAttempts(claim) < agentWorkMaxAttempts) && (!nextAvailable || at < nextAvailable)) nextAvailable = at;
+        };
         for (const candidate of messages) {
           const message = await store.getJson(messagePath(identity.inboxId, candidate.id));
           if (!message || !['delivered', 'acknowledged'].includes(message.status) || message.senderInboxId !== candidate.senderInboxId
@@ -2063,9 +2106,15 @@ async function route(req, res) {
           const claimPath = workClaimPath(identity.inboxId, message.id);
           const currentClaim = await store.getJson(claimPath);
           if (currentClaim && ['completed', 'failed'].includes(currentClaim.status)) continue;
-          if (currentClaim && ['claimed', 'acknowledged'].includes(currentClaim.status) && new Date(currentClaim.leaseExpiresAt) > new Date()) continue;
+          if (currentClaim && ['claimed', 'acknowledged'].includes(currentClaim.status) && new Date(currentClaim.leaseExpiresAt) > new Date()) {
+            noteAvailable(currentClaim, currentClaim.leaseExpiresAt);
+            continue;
+          }
           const now = store.now();
-          if (currentClaim?.status === 'retryable' && new Date(currentClaim.retryAt) > new Date(now)) continue;
+          if (currentClaim?.status === 'retryable' && new Date(currentClaim.retryAt) > new Date(now)) {
+            noteAvailable(currentClaim, currentClaim.retryAt);
+            continue;
+          }
           const reoffer = currentClaim?.reofferWithoutAttempt === true;
           if (currentClaim && !reoffer && agentWorkAttempts(currentClaim) >= agentWorkMaxAttempts) {
             await failAgentWorkPermanently(message, currentClaim, 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
@@ -2092,7 +2141,13 @@ async function route(req, res) {
           await writeAudit('agent.work_claimed', { workId: message.id, agentId: identity.agent.id, fence: claim.fence }, now);
           return { status: 200, payload: { work: { workId: message.id, message, leaseToken, leaseExpiresAt }, state: 'claimed' } };
         }
-        return { status: 200, payload: { work: null, state: 'idle' } };
+        const idle = { work: null, state: 'idle' };
+        if (nextAvailable) {
+          // Relative delay too, so a client with a skewed clock schedules correctly.
+          const inMs = Math.max(0, Date.parse(nextAvailable) - Date.now());
+          Object.assign(idle, { nextAvailableAt: new Date(Date.now() + inMs).toISOString(), nextAvailableInMs: inMs });
+        }
+        return { status: 200, payload: idle };
       }
 
       const currentMessage = await store.getJson(messagePath(identity.inboxId, workId));
@@ -2516,6 +2571,11 @@ async function route(req, res) {
         const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId, store.now(), reenroll ? 'revoked' : 'replaced');
         const connectedAt = store.now();
         const approvedAgent = reenroll ? { ...agent, status: 'active', onboardingStatus: 'approved', permissions: claimed.permissions, revokedAt: null, approvedAt: connectedAt, approvedByHumanId: claimed.humanId, updatedAt: connectedAt } : agent;
+        // Leases held by the replaced installation would block the new one until they expire.
+        const releasedAt = store.now();
+        const heldLeases = (await store.listJson(path.join('inboxes', inbox.id, 'work-claims')))
+          .filter(claim => claim.agentId === agent.id && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(releasedAt));
+        await store.putJsonBatch(heldLeases.map(claim => document(workClaimPath(inbox.id, claim.workId), { ...claim, status: 'retryable', retryAt: releasedAt, leaseExpiresAt: null, reofferWithoutAttempt: true, releasedAt, updatedAt: releasedAt })));
         const credentials = await issueAgentCredentials(agent.id, inbox.id);
         const credentialIndex = await store.getJson(agentCredentialPath(hashSecret(credentials.agentApiToken)));
         const familyPath = agentCredentialFamilyPath(inbox.id, agent.id, credentialIndex.familyId);
@@ -2536,6 +2596,7 @@ async function route(req, res) {
         }
         await store.putJsonBatch(documents);
         await writeAudit(reenroll ? 'agent.reenrolled' : 'agent.credentials_reconnected', { agentId: agent.id, humanId: claimed.humanId, credentialFamilyCount, ...(reenroll ? { permissions: connectedAgent.permissions } : {}) });
+        if (heldLeases.length) await writeAudit('work.available', { agentId: agent.id, reason: 'lease_released' }, releasedAt);
         return { agent: connectedAgent, inbox, credentials };
       }, [], [enrollmentMutationKey(tokenHash), ...(pendingRecord.kind === 'reenroll' ? [humanAgentLimitKey(pendingRecord.humanId)] : [])]);
       closeAgentStreams(reconnected.inbox.id, reconnected.agent.id, { code: 'CREDENTIAL_REVOKED', reason: 'replaced' });
@@ -2674,7 +2735,10 @@ async function route(req, res) {
   if (req.method === 'GET' && suffix !== 'events') {
     const human = await auth.getHuman(req);
     const agent = await getAgentPrincipal(req, inboxId);
-    if (!await canAccessInbox(human, inbox) && !agent) return fail(res, 401, 'Authenticated inbox participant required');
+    if (!await canAccessInbox(human, inbox) && !agent) {
+      await rejectAgentToken(req);
+      return fail(res, 401, 'Authenticated inbox participant required');
+    }
   }
 
   if (req.method === 'GET' && suffix === 'agent-address-availability') {
@@ -2844,23 +2908,33 @@ async function route(req, res) {
   if (req.method === 'GET' && suffix === 'events/delta') {
     const human = await auth.getHuman(req);
     const agent = await getAgentPrincipal(req, inboxId);
-    if (!await canAccessInbox(human, inbox) && !agent) return fail(res, 401, 'Authenticated inbox participant required');
-    const cursor = url.searchParams.get('cursor') || '';
-    if (cursor.length > 512) return fail(res, 400, 'Event cursor is invalid');
-    return json(res, 200, await fetchEventPage(store, inboxId, { cursor, limit: url.searchParams.get('limit') ?? 100 }));
+    if (!await canAccessInbox(human, inbox) && !agent) {
+      await rejectAgentToken(req);
+      return fail(res, 401, 'Authenticated inbox participant required');
+    }
+    const rawLimit = url.searchParams.get('limit');
+    const limit = rawLimit === null ? 100 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw codedError(400, 'EVENT_LIMIT_INVALID', 'The event page limit must be an integer from 1 to 200.');
+    const { cursor } = await resumeEventCursor(inboxId, url.searchParams.get('cursor') || '');
+    return json(res, 200, await eventPage(inboxId, { cursor, limit }));
   }
 
   if (req.method === 'GET' && suffix === 'events') {
     const human = await auth.getHuman(req);
     const agent = await getAgentPrincipal(req, inboxId);
-    if (!await canAccessInbox(human, inbox) && !agent) return fail(res, 401, 'Authenticated inbox participant required');
+    if (!await canAccessInbox(human, inbox) && !agent) {
+      await rejectAgentToken(req);
+      return fail(res, 401, 'Authenticated inbox participant required');
+    }
     const humanSession = human ? await auth.getSession(req) : null;
     if (human && !humanSession) return fail(res, 401, 'Authenticated human session required');
     const sessionLease = human && auth.captureSessionLease ? await auth.captureSessionLease(req) : humanSession;
     const sessionCookieValue = parseCookies(req.headers.cookie)[sessionCookieName()];
     const sessionKey = human ? auth.provider === 'workos' ? sessionLease?.sessionId : hashSecret(sessionCookieValue) : null;
-    const cursor = String(req.headers['last-event-id'] || url.searchParams.get('cursor') || '');
-    if (cursor.length > 512 || /[\r\n\0]/.test(cursor)) return fail(res, 400, 'Event cursor is invalid');
+    // Last-Event-ID wins over ?cursor=; an empty value means no cursor. from=latest starts live.
+    const resume = await resumeEventCursor(inboxId, String(req.headers['last-event-id'] || url.searchParams.get('cursor') || ''));
+    const cursor = resume.cursor;
+    const startCursor = !cursor && url.searchParams.get('from') === 'latest' ? resume.newest || '' : cursor;
     const connectionKey = rateIdentity(req);
     if (Number(sseCounts.get(connectionKey) || 0) >= maxSsePerPrincipal) {
       res.setHeader('retry-after', '30');
@@ -2869,7 +2943,7 @@ async function route(req, res) {
     sseCounts.set(connectionKey, Number(sseCounts.get(connectionKey) || 0) + 1);
     req.setTimeout(0);
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'private, no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
-    const subscription = { res, cursor, sentIds: new Set(), heartbeat: null, expiryTimer: null, sessionKey, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
+    const subscription = { res, cursor: startCursor, sentIds: new Set(), heartbeat: null, expiryTimer: null, sessionKey, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
     if (agent && !human) {
       // Re-check the credential on every heartbeat: pause keeps the stream, revocation or expiry ends it.
       const credentialRequest = { headers: { authorization: req.headers.authorization }, method: 'GET' };
@@ -2924,7 +2998,7 @@ async function route(req, res) {
     try {
       let hasMore = false;
       for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
-        const page = await fetchEventPage(store, inboxId, { cursor: subscription.cursor, limit: 100 });
+        const page = await eventPage(inboxId, { cursor: subscription.cursor, limit: 100 });
         if (cleaned) return;
         for (const event of page.events) await sendStreamEvent(subscription, event);
         if (cleaned) return;
@@ -2934,12 +3008,12 @@ async function route(req, res) {
       if (hasMore || subscription.overflow) { resumeReplay(); return; }
       const buffered = [...subscription.buffer.values()].map(normalizeStreamEvent).sort((a, b) => a.cursor.localeCompare(b.cursor));
       for (const event of buffered) {
-        if (!cursor || event.cursor > cursor) await sendStreamEvent(subscription, event);
+        if (!startCursor || event.cursor > startCursor) await sendStreamEvent(subscription, event);
       }
       if (cleaned) return;
       subscription.buffer.clear();
       subscription.replaying = false;
-      res.write(`event: ready\ndata: ${JSON.stringify({ inboxId, at: store.now(), cursor: subscription.cursor || cursor || null })}\n\n`);
+      res.write(`event: ready\ndata: ${JSON.stringify({ inboxId, at: store.now(), cursor: subscription.cursor || startCursor || null })}\n\n`);
       subscription.heartbeat = setInterval(async () => {
         try {
           if (subscription.authorize && !await subscription.authorize()) return subscription.close(subscription.authFailureEvent);
@@ -3055,15 +3129,23 @@ async function route(req, res) {
             .map(claim => document(workClaimPath(inboxId, claim.workId), { ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, pausedAt: at, updatedAt: at })));
         } else {
           await releaseHeldSends(inboxId, at);
-          const inbound = await store.listJson(path.join('inboxes', inboxId, 'messages'));
-          if (inbound.some(message => message.recipientAgentId === agentId && ['delivered', 'acknowledged'].includes(message.status))) {
-            await writeAudit('work.available', { agentId, reason: 'agent_resumed' });
-          }
+          if (await hasClaimableInbound(inboxId, agentId)) await writeAudit('work.available', { agentId, reason: 'agent_resumed' });
         }
       }
       return agentControlState(inboxId, agent);
     });
-    if (action === 'resume') deliveryWorker.kick();
+    if (action === 'resume') {
+      deliveryWorker.kick();
+      // Counterparties could not claim work this agent had sent while it could not act.
+      const sent = await store.listJson(path.join('inboxes', inboxId, 'messages'));
+      const recipients = new Map(sent.filter(message => message.senderAgentId === agentId && message.recipientInboxId && message.recipientInboxId !== inboxId && message.recipientAgentId)
+        .map(message => [message.recipientInboxId, message.recipientAgentId]));
+      for (const [recipientInboxId, recipientAgentId] of recipients) {
+        if (await hasClaimableInbound(recipientInboxId, recipientAgentId, { senderAgentId: agentId })) {
+          await audit(recipientInboxId, 'work.available', { agentId: recipientAgentId, reason: 'counterparty_resumed' }).catch(() => {});
+        }
+      }
+    }
     return json(res, 200, result);
   }
 
@@ -3415,6 +3497,17 @@ async function route(req, res) {
       }
       await saveCase(inboxId, result.case);
       if (!result.replay) await writeAudit('case.action_recorded', { caseId: value.id, actionId: result.action.id, actionKey: result.action.actionKey, actor: result.action.actor, outcome: result.action.outcome });
+      if (!result.replay && humanCanManage && input.actionKey === 'resume' && (value.state === 'paused' || value.state === 'revoked')) {
+        // Every participant whose agent has work waiting in this case is woken; no human identity is shared.
+        const binding = await store.getJson(caseBindingPath(value.id));
+        for (const participantInboxId of binding?.inboxIds?.length ? binding.inboxIds : [inboxId]) {
+          const participantInbox = await store.getJson(path.join('inboxes', participantInboxId, 'inbox.json'));
+          const participantAgentId = participantInbox?.ownerAgentId;
+          if (participantAgentId && await hasClaimableInbound(participantInboxId, participantAgentId, { caseId: value.id })) {
+            await writeAudit('work.available', { agentId: participantAgentId, reason: 'case_resumed', caseId: value.id }, now, participantInboxId);
+          }
+        }
+      }
       return { status: result.replay ? 200 : 201, result };
     }, { allowPaused: true });
     return json(res, response.status, response.result);
