@@ -39,7 +39,7 @@ async function relayState(context: AdapterContext): Promise<RelayState> {
 
 export async function configureHermes(config: HermesConfiguration, context: AdapterContext) {
   const relay = await relayState(context);
-  const variable = `ENVOI_MCP_${relay.serverName.slice(8).toUpperCase()}`;
+  const variable = `ENVOI_MCP_${relay.serverName.slice('envoi_'.length).toUpperCase()}`;
   const original = await optionalText(config.configPath);
   const block = [
     `  ${relay.serverName}:`, `    url: "http://127.0.0.1:${relay.port}/mcp"`, '    headers:',

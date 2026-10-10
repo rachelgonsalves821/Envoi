@@ -20,6 +20,10 @@ Migration locks the source and refuses an active connector or a destination
 conflict. It retains the complete session and work directory, including pending
 rotation recovery. Explicit custom directories stay as selected. Start/setup
 accepting the prior canonical path move to the new canonical path once.
+The owned Hermes relay entry and its environment binding also convert once to
+Envoi, retaining the port and secret. Unrelated profile entries are preserved;
+conflicting old/new entries stop migration. The relay marker commits last so an
+interrupted profile conversion resumes safely on the next start.
 After a move, reinstall the Envoi service and retire its previous service entry;
 service registration remains an explicit operator action.
 
