@@ -424,7 +424,7 @@ describe('Sinaloa outbound connector', () => {
         if (route.endsWith('/work/claim')) {
           if (Date.now() < retryAt) {
             emptyClaims += 1;
-            return new Response(JSON.stringify({ work: null }));
+            return Response.json({ work: null, state: 'idle', nextAvailableInMs: retryAt - Date.now() });
           }
           attempts += 1;
           return new Response(JSON.stringify({ work: { workId: 'work_one', message,
@@ -439,7 +439,7 @@ describe('Sinaloa outbound connector', () => {
           retryAt = Date.now() + 3_000;
           return new Response(JSON.stringify({ workId: 'work_one', status: 'retryable' }));
         }
-        if (route.includes('/events/delta')) return new Response(JSON.stringify({ events: [], nextCursor: null, hasMore: false }));
+        if (route.includes('/events')) return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
         if (route.endsWith('/messages')) {
           expect(new Headers(init?.headers).get('Idempotency-Key')).toBe('reply-msg-one-1');
           replies += 1;

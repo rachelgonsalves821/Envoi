@@ -82,7 +82,7 @@ test(`distributed ${artifact} runs without repository dependencies and protects 
         agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() }, 201);
     }
     if (request.headers.authorization !== `Bearer ${accessToken}`) return json(response, { error: 'not authorized' }, 401);
-    if (request.url.startsWith('/api/inboxes/inbox_download/events/delta')) return json(response, { events: [], nextCursor: null, hasMore: false });
+    if (request.url === '/api/agent/status') return json(response, { state: 'active', agent: { id: 'agent_download' }, inboxId: 'inbox_download' });
     if (request.url === '/api/agent/connection-status') {
       const report = JSON.parse(source);
       if (report.phase === 'ready' && (report.gatewayTest === 'passed' || report.runtimeTest === 'passed')) readyReports++;
@@ -179,7 +179,7 @@ test('distributed connector pairs a password-mode Gateway and stops before enrol
         agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() }, 201);
     }
     if (request.headers.authorization !== `Bearer ${accessToken}`) return json(response, { error: 'not authorized' }, 401);
-    if (request.url.startsWith('/api/inboxes/inbox_download/events/delta')) return json(response, { events: [], nextCursor: null, hasMore: false });
+    if (request.url === '/api/agent/status') return json(response, { state: 'active', agent: { id: 'agent_download' }, inboxId: 'inbox_download' });
     if (request.url === '/api/agent/connection-status') return json(response, { checkedAt: new Date().toISOString() });
     json(response, { error: 'unexpected route' }, 404);
   });

@@ -2,6 +2,7 @@ import { responsePayload, rotateAgentToken, SinaloaClient, SinaloaError, type Ag
 import { lifecyclePolicy, retryDelay, guidanceText, type ConnectorLifecycle, type ConnectorState } from './lifecycle';
 export type { ConnectorLifecycle, ConnectorState } from './lifecycle';
 import { CONNECTOR_RUNTIMES, type ConnectorRuntime } from './quick-connect';
+import { eventFrames } from './sse';
 
 /** Persist the whole record atomically, including each replacement refresh token. */
 export interface ConnectorSession extends AgentTokens {
@@ -9,6 +10,8 @@ export interface ConnectorSession extends AgentTokens {
   inboxId: string;
   address: string;
   cursor: string | null;
+  /** Observation cursors belong to an inbox, never to the installation globally. */
+  cursors?: Record<string, string | null>;
   lifecycle?: ConnectorLifecycle;
   pendingRotation?: {
     rotationId: string;
@@ -124,6 +127,7 @@ export interface WorkHandler {
 
 export interface ConnectorOptions extends ClientOptions {
   pageSize?: number;
+  /** @deprecated Wake safety intervals are fixed by a4-wake; this value is ignored. */
   pollIntervalMs?: number;
   refreshSkewMs?: number;
   /** Observation only. Processing uses the separate fenced work-claim API. */
@@ -255,7 +259,6 @@ export async function enrollConnector(baseUrl: string, enrollmentToken: string, 
 export class SinaloaConnector {
   private readonly origin: string;
   private readonly pageSize: number;
-  private readonly pollIntervalMs: number;
   private readonly refreshSkewMs: number;
   private writes: Promise<unknown> = Promise.resolve();
   private actionEpoch = 0;
@@ -267,14 +270,18 @@ export class SinaloaConnector {
   private readonly activeWork = new Set<AbortController>();
   private stateObserver?: (lifecycle: ConnectorLifecycle) => void;
   private refreshInFlight: Promise<ConnectorSession> | null = null;
+  private workInFlight: Promise<boolean> | null = null;
+  private workFollowup = false;
+  private nextClaimAt = Infinity;
+  private wakeTrigger?: () => void;
+  private readonly activeStreams = new Set<AbortController>();
 
   constructor(baseUrl: string, private readonly store: ConnectorStore, private readonly options: ConnectorOptions = {}) {
     this.origin = apiOrigin(baseUrl);
     this.pageSize = options.pageSize ?? 100;
-    this.pollIntervalMs = options.pollIntervalMs ?? 5_000;
     this.refreshSkewMs = options.refreshSkewMs ?? 60_000;
     if (!Number.isSafeInteger(this.pageSize) || this.pageSize < 1 || this.pageSize > 200) throw new RangeError('pageSize must be from 1 to 200');
-    if (!Number.isSafeInteger(this.pollIntervalMs) || this.pollIntervalMs < 1) throw new RangeError('pollIntervalMs must be positive');
+    if (options.pollIntervalMs !== undefined && (!Number.isSafeInteger(options.pollIntervalMs) || options.pollIntervalMs < 1)) throw new RangeError('pollIntervalMs must be positive');
     if (!Number.isSafeInteger(this.refreshSkewMs) || this.refreshSkewMs < 0) throw new RangeError('refreshSkewMs must be nonnegative');
     if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 300_000)) throw new RangeError('timeoutMs must be an integer from 1 to 300000');
   }
@@ -332,6 +339,8 @@ export class SinaloaConnector {
       return { ...current, lifecycle };
     });
     if (applied && next.lifecycle) {
+      if (['REVOKED', 'NEEDS_RECONNECT', 'STOPPED'].includes(next.lifecycle.state)) for (const stream of this.activeStreams) stream.abort();
+      this.wake.abort();
       // Observation hooks cannot bypass persistence or change request outcomes.
       try { this.options.onState?.(next.lifecycle); this.stateObserver?.(next.lifecycle); } catch { /* diagnostic only */ }
     }
@@ -363,6 +372,7 @@ export class SinaloaConnector {
     if (type === 'agent.resumed') {
       await this.transition('RUNNING', { paused: false, failures: 0, retryAt: undefined, code: undefined, reason: undefined, guidance: undefined });
       this.wake.abort();
+      this.wakeTrigger?.();
     }
   }
 
@@ -615,20 +625,38 @@ export class SinaloaConnector {
   }
 
   /** Claims and processes one canonical message. Requires the server's fenced work routes. */
-  async processWorkOnce(signal?: AbortSignal): Promise<boolean> {
+  processWorkOnce(signal?: AbortSignal): Promise<boolean> {
+    if (this.workInFlight) { this.workFollowup = true; return this.workInFlight; }
+    this.workInFlight = (async () => {
+      let worked = false;
+      do {
+        this.workFollowup = false;
+        worked = await this.processWorkAttempt(signal) || worked;
+      } while (this.workFollowup && !signal?.aborted);
+      return worked;
+    })().finally(() => { this.workInFlight = null; this.workFollowup = false; });
+    return this.workInFlight;
+  }
+
+  private async processWorkAttempt(signal?: AbortSignal): Promise<boolean> {
     const handler = this.options.handler;
     if (!handler) throw new TypeError('A durable work handler is required');
     if (signal?.aborted) return false;
     await this.guard();
     if ((await this.lifecycle()).paused) return false;
-    let claimed: { work: WorkLease | null; state?: string };
+    let claimed: { work: WorkLease | null; state?: string; nextAvailableInMs?: number };
     try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions: true }); }
     catch (error) {
       if (error instanceof SinaloaError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError();
       throw error;
     }
     if (claimed.state === 'paused') { await this.observeError(new SinaloaError('Paused', undefined, 'AGENT_PAUSED')); return false; }
-    if (claimed.work === null) return false;
+    this.nextClaimAt = Infinity;
+    if (claimed.work === null) {
+      if (claimed.state === 'idle' && Number.isSafeInteger(claimed.nextAvailableInMs) && claimed.nextAvailableInMs! >= 0)
+        this.nextClaimAt = Date.now() + Math.max(1000, claimed.nextAvailableInMs!);
+      return false;
+    }
     const work = claimed.work;
     if (!work || typeof work.workId !== 'string' || typeof work.leaseToken !== 'string' || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || typeof work.message?.id !== 'string' || !work.message.id) {
       throw new SinaloaError('Envoi returned an invalid work claim');
@@ -731,55 +759,205 @@ export class SinaloaConnector {
     let session = validSession(await this.store.load());
     const page = await this.withFreshSession(async current => {
       session = current;
-      return new SinaloaClient(this.origin, current.agentApiToken, this.options).delta(current.inboxId, current.cursor || undefined, this.pageSize);
+      return new SinaloaClient(this.origin, current.agentApiToken, this.options).delta(current.inboxId, this.cursorFor(current) || undefined, this.pageSize);
     });
     if (!Array.isArray(page.events) || typeof page.hasMore !== 'boolean') throw new SinaloaError('Envoi returned an invalid event page');
     if (page.hasMore && page.events.length === 0) throw new SinaloaError('Envoi returned an invalid event page');
     let count = 0;
     for (const raw of page.events) {
       const event = eventFrom(raw);
-      if (session.cursor && event.cursor <= session.cursor) throw new SinaloaError('Envoi event cursor did not advance');
+      if (this.cursorFor(session) && event.cursor <= this.cursorFor(session)!) continue;
       await this.observeEvent(event);
       await this.options.onEvent?.(event);
       // An event callback may send a reply and rotate credentials. Preserve its
       // new refresh token when committing the observation cursor.
       const current = validSession(await this.store.load());
       if (current.agentId !== session.agentId || current.inboxId !== session.inboxId) throw new SinaloaError('Connector session changed while reading events');
-      session = await this.mutate(latest => ({ ...latest, cursor: event.cursor }));
+      session = await this.saveCursor(session, event.cursor);
       count += 1;
     }
     return { count, hasMore: page.hasMore };
   }
 
-  /** Polls until stopped; failures retry with bounded exponential backoff and jitter. */
+  private cursorFor(session: ConnectorSession): string | null {
+    // The legacy scalar is migrated only when there is no inbox map yet.
+    return session.cursors ? session.cursors[session.inboxId] ?? null : session.cursor;
+  }
+
+  private saveCursor(session: ConnectorSession, cursor: string | null): Promise<ConnectorSession> {
+    return this.mutate(current => {
+      if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new SinaloaError('Connector session changed while reading events');
+      return { ...current, cursor, cursors: { ...current.cursors, [session.inboxId]: cursor } };
+    });
+  }
+
+  /** Status is available while paused and is the recovery path for a missed resume. */
+  async checkStatus(): Promise<void> {
+    const result = await this.withFreshSession(async session => {
+      let response: Response;
+      try { response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
+        headers: { authorization: `Bearer ${session.agentApiToken}` }, credentials: 'omit', redirect: 'error',
+        signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000)
+      }); } catch { throw new SinaloaError('Envoi status could not be reached', undefined, 'NETWORK_ERROR'); }
+      const status = await responsePayload<{ state: string; inboxId: string; agent: { id: string } }>(response, 'Envoi status failed');
+      if (!['active', 'paused'].includes(status.state) || status.inboxId !== session.inboxId || status.agent?.id !== session.agentId)
+        throw new SinaloaError('Envoi returned an invalid agent status');
+      return status;
+    });
+    if (result.state === 'paused') await this.observeError(new SinaloaError('Paused', undefined, 'AGENT_PAUSED'));
+    else if ((await this.lifecycle()).paused) {
+      await this.transition('RUNNING', { paused: false, code: undefined, reason: undefined, guidance: undefined, failures: 0, retryAt: undefined });
+      this.wakeTrigger?.();
+    }
+  }
+
+  /** SSE wakes the authoritative work queue; delta is used only after replay_required. */
   async run(signal: AbortSignal): Promise<void> {
     await this.start();
-    const onAbort = () => { this.actionEpoch++; for (const controller of [...this.activeActions, ...this.activeWork, ...this.activeRefresh]) controller.abort(); };
-    signal.addEventListener('abort', onAbort, { once: true });
-    try {
-      while (!signal.aborted) {
-        const state = await this.lifecycle();
-        if (state.retryAt) await delay(Math.max(0, Date.parse(state.retryAt) - Date.now()), signal);
-        if (signal.aborted) break;
-        try {
-          if (this.options.handler && await this.processWorkOnce(signal)) continue;
-          const page = await this.pollOnce();
-          if (page.hasMore || this.wake.signal.aborted) { this.wake = new AbortController(); continue; }
-          await delay(this.pollIntervalMs, AbortSignal.any([signal, this.wake.signal]));
-          this.wake = new AbortController();
-        } catch (error) {
-          if (signal.aborted) break;
-          if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError) throw error;
-          const current = await this.lifecycle();
-          if (['REVOKED', 'NEEDS_RECONNECT'].includes(current.state)) throw error;
-          if (error instanceof SinaloaError && (error.code === 'REQUEST_CANCELLED' || current.paused && error.code === 'AGENT_PAUSED')) continue;
-          if (current.retryAt && current.state === 'DEGRADED' && (!(error instanceof SinaloaError) || lifecyclePolicy(error).lifecycle === 'DEGRADED')) continue;
-          if (error instanceof SinaloaError && error.code === 'CASE_CONTROLLED') { await delay(this.pollIntervalMs, signal); continue; }
-          throw error;
-        }
+    const stop = new AbortController();
+    const stopped = AbortSignal.any([signal, stop.signal]);
+    let pending = !!this.options.handler, flight: Promise<void> | null = null, fatal: unknown;
+    let connected = false, safetyAt = Date.now() + 12_000 + Math.random() * 6000;
+    let statusAt = Date.now() + 30_000 + Math.random() * 30_000;
+    const notify = () => this.wake.abort();
+    const trigger = () => { if (this.options.handler) pending = true; notify(); };
+    const safetyDelay = (state?: ConnectorLifecycle) => connected && state?.state !== 'DEGRADED' ? 30_000 + Math.random() * 30_000 : 12_000 + Math.random() * 6000;
+    const failure = async (error: unknown) => {
+      if (stopped.aborted) return;
+      await this.observeError(error);
+      const state = await this.lifecycle();
+      if (state.state === 'DEGRADED') safetyAt = Math.min(safetyAt, Date.now() + 12_000 + Math.random() * 6000);
+      if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError || ['REVOKED', 'NEEDS_RECONNECT'].includes(state.state)
+        || !(error instanceof SinaloaError) && state.state !== 'DEGRADED'
+        || error instanceof SinaloaError && !(lifecyclePolicy(error).lifecycle === 'DEGRADED' || ['REQUEST_CANCELLED', 'AGENT_PAUSED', 'CASE_CONTROLLED'].includes(error.code ?? ''))) {
+        fatal = error; stop.abort();
       }
+      notify();
+    };
+    const onAbort = () => { this.actionEpoch++; for (const controller of [...this.activeActions, ...this.activeWork, ...this.activeRefresh, ...this.activeStreams]) controller.abort(); notify(); };
+    signal.addEventListener('abort', onAbort, { once: true });
+    stop.signal.addEventListener('abort', onAbort, { once: true });
+    this.wakeTrigger = trigger;
+    const initial = await this.lifecycle();
+    if (initial.retryAt) await delay(Math.max(0, Date.parse(initial.retryAt) - Date.now()), stopped);
+    const streams = (async () => {
+      let failures = 0;
+      while (!stopped.aborted) {
+        const stream = new AbortController();
+        this.activeStreams.add(stream);
+        const streamSignal = AbortSignal.any([stopped, stream.signal]);
+        let openedAt = 0, uptime = 0, idle: ReturnType<typeof setTimeout> | undefined;
+        let recovery = false, retryAfter = 0;
+        let session = validSession(await this.store.load());
+        const resume = this.cursorFor(session), baseline = !resume;
+        const activity = () => { clearTimeout(idle); idle = setTimeout(() => stream.abort(), 60_000); };
+        try {
+          // A failed connection still counts as a reconnect for paused recovery.
+          if ((await this.lifecycle()).paused) { await this.checkStatus(); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
+          if (streamSignal.aborted) break;
+          const response = await this.withFreshSession(async current => {
+            if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new SinaloaError('Connector session changed while connecting');
+            session = current;
+            const headers: Record<string, string> = { authorization: `Bearer ${current.agentApiToken}`, accept: 'text/event-stream' };
+            if (resume) headers['Last-Event-ID'] = resume;
+            const headerTimeout = new AbortController();
+            const timer = setTimeout(() => headerTimeout.abort(), this.options.timeoutMs ?? 30_000);
+            try {
+              let response: Response;
+              try { response = await (this.options.fetch || fetch)(`${this.origin}/api/inboxes/${encodeURIComponent(current.inboxId)}/events${baseline ? '?from=latest' : ''}`, {
+                headers, credentials: 'omit', redirect: 'error', signal: AbortSignal.any([streamSignal, headerTimeout.signal])
+              }); } catch { throw new SinaloaError('Envoi event stream could not be reached', undefined, 'NETWORK_ERROR'); }
+              if (!response.ok) await responsePayload(response, 'Envoi event stream failed');
+              return response;
+            } finally { clearTimeout(timer); }
+          });
+          openedAt = Date.now(); activity();
+          try {
+            for await (const frame of eventFrames(response, streamSignal, activity)) {
+              if (stopped.aborted) break;
+              if (frame.id !== undefined) {
+                if (!/^\d{20}$/.test(frame.id) || frame.data.cursor !== frame.id || frame.data.type !== frame.type)
+                  throw new SinaloaError('Envoi returned an invalid stored event');
+                const current = validSession(await this.store.load());
+                if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new SinaloaError('Connector session changed while reading events');
+                if (this.cursorFor(current) && frame.id <= this.cursorFor(current)!) continue;
+                const event = eventFrom(frame.data);
+                await this.observeEvent(event, frame.type);
+                await this.options.onEvent?.(event);
+                await this.saveCursor(session, frame.id);
+                if (frame.type === 'work.available' && event.agentId === session.agentId
+                  || (frame.type === 'message.delivered' || frame.type === 'human.instruction_created') && event.recipientAgentId === session.agentId) trigger();
+              } else if (frame.type === 'ready') {
+                if (frame.data.inboxId !== session.inboxId || frame.data.cursor !== null && (typeof frame.data.cursor !== 'string' || !/^\d{20}$/.test(frame.data.cursor)))
+                  throw new SinaloaError('Envoi returned an invalid ready frame');
+                if (baseline && !this.cursorFor(validSession(await this.store.load()))) await this.saveCursor(session, frame.data.cursor as string | null);
+                connected = true; safetyAt = Date.now() + safetyDelay();
+                if ((await this.lifecycle()).paused) { await this.checkStatus(); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
+                trigger();
+              } else if (frame.type === 'replay_required') { recovery = true; break; }
+              else if (frame.type === 'replay_error') throw new SinaloaError('Envoi event replay failed', undefined, 'NETWORK_ERROR');
+              else if (frame.type === 'credential.ended') { await this.observeEvent(frame.data, frame.type); await this.guard(); throw new SinaloaError('Credential ended', undefined, String(frame.data.code)); }
+            }
+          } catch (error) {
+            if (error instanceof SinaloaError || error instanceof ConnectorPersistenceError) throw error;
+            throw new SinaloaError('Envoi event stream was interrupted', undefined, 'NETWORK_ERROR');
+          }
+        } catch (error) {
+          if (error instanceof SinaloaError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
+          else { retryAfter = error instanceof SinaloaError ? (error.retryAfterSeconds ?? 0) * 1000 : 0; await failure(error); }
+        } finally {
+          clearTimeout(idle); stream.abort(); this.activeStreams.delete(stream);
+          uptime = openedAt ? Date.now() - openedAt : 0;
+          connected = false; safetyAt = Math.min(safetyAt, Date.now() + safetyDelay()); notify();
+        }
+        if (stopped.aborted) break;
+        if (recovery) {
+          try {
+            while (!stopped.aborted) { const page = await this.pollOnce(); if (!page.hasMore) break; }
+            trigger();
+          } catch (error) {
+            if (error instanceof SinaloaError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
+            else { await failure(error); recovery = false; }
+          }
+          if (recovery) continue;
+        }
+        if (uptime >= 60_000) failures = 0;
+        const ceiling = Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5));
+        await delay(Math.max(retryAfter, Math.random() * ceiling), stopped);
+      }
+    })().catch(async error => { await failure(error); }).finally(notify);
+    try {
+      while (!stopped.aborted) {
+        this.wake = new AbortController();
+        if (fatal) throw fatal;
+        const state = await this.lifecycle();
+        if (['REVOKED', 'NEEDS_RECONNECT'].includes(state.state)) { await streams; if (fatal) throw fatal; await this.guard(); }
+        const now = Date.now();
+        const retryAt = state.retryAt ? Date.parse(state.retryAt) : 0;
+        if (state.paused) {
+          pending = false; this.nextClaimAt = Infinity;
+          if (now >= statusAt) { statusAt = now + 30_000 + Math.random() * 30_000; try { await this.checkStatus(); } catch (error) { await failure(error); } }
+        } else if (this.options.handler) {
+          if (now >= Math.min(safetyAt, this.nextClaimAt)) { pending = true; safetyAt = now + safetyDelay(state); this.nextClaimAt = Infinity; }
+          if (pending && !flight && now >= retryAt) {
+            pending = false;
+            flight = this.processWorkOnce(stopped).then(worked => { if (worked) pending = true; }, async error => {
+              await failure(error);
+              if ((await this.lifecycle()).state === 'DEGRADED') pending = true;
+            })
+              .finally(() => { flight = null; notify(); });
+          }
+        }
+        const deadline = state.paused ? statusAt : pending && !flight ? retryAt : this.options.handler ? Math.max(retryAt, Math.min(safetyAt, this.nextClaimAt)) : Infinity;
+        if (pending && !flight && !state.paused && Date.now() >= retryAt) continue;
+        await delay(Math.min(60_000, Math.max(1, deadline - Date.now())), AbortSignal.any([stopped, this.wake.signal]));
+      }
+      if (fatal) throw fatal;
     } finally {
+      stop.abort(); await streams; await flight;
+      this.wakeTrigger = undefined;
       signal.removeEventListener('abort', onAbort);
+      stop.signal.removeEventListener('abort', onAbort);
       onAbort();
       const current = await this.lifecycle();
       if (!['REVOKED', 'NEEDS_RECONNECT'].includes(current.state)) await this.transition('STOPPED');
