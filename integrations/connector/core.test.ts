@@ -2,12 +2,12 @@ import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SinaloaError } from '../../sdk/typescript/src/index';
-import { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { EnvoiError } from '../../sdk/typescript/src/index';
+import { EnvoiConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { ConnectorSetupError, type ConnectorAdapter } from './adapter';
-import { checkSinaloa, connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, setupConnection, startConnection } from './core';
+import { checkEnvoi, connectionDirectory, connectionStatus, doctorConnection, prepareConnection, readConnection, setupConnection, startConnection } from './core';
 import { startControl, queryControl } from './control';
 import { connectorService } from './service';
 
@@ -15,8 +15,8 @@ const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 const secureDirectory = async (value: string) => { await mkdir(value, { recursive: true }); return path.resolve(value); };
 async function fixture(runtime: ConnectorRuntime = 'hermes') {
-  const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-unified-')); directories.push(directory);
-  const handoff = { version: 1, runtime, apiUrl: 'https://sinaloa.example', address: `${runtime}@agents.sinaloa.example`, agentName: runtime,
+  const directory = await mkdtemp(path.join(tmpdir(), 'envoi-unified-')); directories.push(directory);
+  const handoff = { version: 1, runtime, apiUrl: 'https://envoi.example', address: `${runtime}@agents.envoi.example`, agentName: runtime,
     enrollmentToken: 'private-enrollment-token-12345678', expiresAt: new Date(Date.now() + 900_000).toISOString() };
   let enrollmentCount = 0, checks = 0, failHealth = false, failPreflight = false, failVerify = false, closes = 0;
   const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -37,7 +37,7 @@ async function fixture(runtime: ConnectorRuntime = 'hermes') {
     runtime, async discover(_options, previous) { return previous ?? { providerKey: 'local-model-provider-secret' }; },
     async preflight() { checks++; if (failPreflight) throw new ConnectorSetupError('MODEL_NOT_READY', 'Configure your local model'); },
     async createBridge(_config, context) { return {
-      connector: new SinaloaConnector(context.apiUrl, new FileBridgeStore(context.stateDir), { fetch: context.fetch }),
+      connector: new EnvoiConnector(context.apiUrl, new FileBridgeStore(context.stateDir), { fetch: context.fetch }),
       async verify() { if (failVerify) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Start a fresh runtime session'); },
       async close() { closes++; }
     }; },
@@ -55,13 +55,13 @@ describe('shared connector lifecycle', () => {
     const fetcher = vi.fn(async () => Response.json({ ok: true, service: 'envoi',
       time: '2026-10-09T18:16:14.005Z', mode: 'development', configurationValidated: false,
       releaseSha: '478c2d758f0360704fb96d5940a287b85453f44a' }));
-    await expect(checkSinaloa('https://envoi.example', fetcher as typeof fetch)).resolves.toBeUndefined();
+    await expect(checkEnvoi('https://envoi.example', fetcher as typeof fetch)).resolves.toBeUndefined();
     expect(fetcher).toHaveBeenCalledWith('https://envoi.example/health', { signal: expect.any(AbortSignal) });
   });
 
   it('rejects the legacy service identity even when HTTP health is successful', async () => {
     const fetcher = vi.fn(async () => Response.json({ ok: true, service: 'sinaloa' }));
-    await expect(checkSinaloa('https://envoi.example', fetcher as typeof fetch))
+    await expect(checkEnvoi('https://envoi.example', fetcher as typeof fetch))
       .rejects.toMatchObject({ code: 'ENVOI_UNREACHABLE' });
   });
 
@@ -86,7 +86,7 @@ describe('shared connector lifecycle', () => {
       const f = await fixture(runtime);
       const result = await setupConnection(f.handoff, f.resolver, f.options);
       expect(result.runtime).toBe(runtime); expect(result.checks).toBe('passed');
-      expect(f.requests[0].url).toBe('https://sinaloa.example/health');
+      expect(f.requests[0].url).toBe('https://envoi.example/health');
       expect(JSON.parse(String(f.requests.find(request => request.url.endsWith('/api/agent-enroll'))?.init?.body)).runtime).toBe(runtime);
       await setupConnection({ ...f.handoff, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options);
       expect(f.counts().enrollmentCount).toBe(1); expect(f.counts().closes).toBe(2);
@@ -189,7 +189,7 @@ describe('shared connector lifecycle', () => {
     await expect(setupConnection({ ...f.handoff, expiresAt: '2000-01-01T00:00:00Z' }, f.resolver, f.options)).rejects.toThrow('expired');
     await setupConnection(f.handoff, f.resolver, f.options);
     await expect(setupConnection({ ...f.handoff, runtime: 'grok' }, f.resolver, f.options)).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
-    await expect(setupConnection({ ...f.handoff, address: 'different@agents.sinaloa.example' }, f.resolver, f.options)).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
+    await expect(setupConnection({ ...f.handoff, address: 'different@agents.envoi.example' }, f.resolver, f.options)).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
     expect(f.counts().enrollmentCount).toBe(1);
   });
   it('recovers reconnect credentials even if connection.json was not updated before a crash', async () => {
@@ -236,10 +236,10 @@ describe('shared connector lifecycle', () => {
     expect(f.counts().enrollmentCount).toBe(1);
   });
   it('isolates agent state and service names across runtimes and identities', () => {
-    const first = connectionDirectory('https://sinaloa.example', 'first@agents.sinaloa.example', 'hermes', { homeDir: '/home/test', env: {}, platform: 'linux' });
-    const second = connectionDirectory('https://sinaloa.example', 'second@agents.sinaloa.example', 'hermes', { homeDir: '/home/test', env: {}, platform: 'linux' });
+    const first = connectionDirectory('https://envoi.example', 'first@agents.envoi.example', 'hermes', { homeDir: '/home/test', env: {}, platform: 'linux' });
+    const second = connectionDirectory('https://envoi.example', 'second@agents.envoi.example', 'hermes', { homeDir: '/home/test', env: {}, platform: 'linux' });
     expect(first).not.toBe(second);
-    expect(first).not.toBe(connectionDirectory('https://sinaloa.example', 'first@agents.sinaloa.example', 'grok', { homeDir: '/home/test', env: {}, platform: 'linux' }));
+    expect(first).not.toBe(connectionDirectory('https://envoi.example', 'first@agents.envoi.example', 'grok', { homeDir: '/home/test', env: {}, platform: 'linux' }));
     const a = connectorService(first, { platform: 'linux', runtime: 'hermes' });
     const b = connectorService(second, { platform: 'linux', runtime: 'hermes' });
     expect(a.name).not.toBe(b.name); expect(a.contents).not.toMatch(/Token|API_KEY/);
@@ -322,8 +322,8 @@ describe('durable lifecycle in the installed runtimes', () => {
   for (const runtime of ['hermes', 'openclaw', 'grok'] as const) {
     it(runtime + ' refuses a revoked installation before any service or provider request', async () => {
       const f = await fixture(runtime); await setupConnection(f.handoff, f.resolver, f.options);
-      const c = new SinaloaConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
-      await c.observeError(new SinaloaError('Revoked', 418, 'CREDENTIAL_REVOKED', { reason: 'replaced' }));
+      const c = new EnvoiConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
+      await c.observeError(new EnvoiError('Revoked', 418, 'CREDENTIAL_REVOKED', { reason: 'replaced' }));
       const calls = f.requests.length;
       await expect(startConnection(f.options.stateDir, new AbortController().signal, f.resolver, f.options)).rejects.toMatchObject({ code: 'CREDENTIAL_REVOKED' });
       expect(f.requests).toHaveLength(calls); expect(f.counts().enrollmentCount).toBe(1);
@@ -332,14 +332,14 @@ describe('durable lifecycle in the installed runtimes', () => {
   }
   it('starts paused with deferred MCP verification, exposes pause, and preserves it after stop', async () => {
     const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
-    const c = new SinaloaConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
-    await c.observeError(new SinaloaError('Paused', 409, 'AGENT_PAUSED')); f.toolFails(true);
+    const c = new EnvoiConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
+    await c.observeError(new EnvoiError('Paused', 409, 'AGENT_PAUSED')); f.toolFails(true);
     const stop = new AbortController(); let ready!: () => void; const readyPromise = new Promise<void>(resolve => { ready = resolve; });
     const running = startConnection(f.options.stateDir, stop.signal, f.resolver, { ...f.options, onReady: ready });
     try { await readyPromise; expect(await doctorConnection(f.options.stateDir, f.resolver, f.options)).toMatchObject({ status: 'paused', lifecycle: { state: 'PAUSED' }, runtimeChecks: 'deferred_while_paused' }); }
     finally { stop.abort(); await running; }
     expect(await connectionStatus(f.options.stateDir)).toMatchObject({ lifecycle: { state: 'STOPPED', paused: true } });
-    const restarted = new SinaloaConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
+    const restarted = new EnvoiConnector(f.handoff.apiUrl, new FileBridgeStore(f.options.stateDir));
     await restarted.start(); expect(await restarted.lifecycle()).toMatchObject({ state: 'PAUSED', paused: true });
   });
 });

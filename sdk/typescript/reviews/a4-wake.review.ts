@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
-import { SinaloaConnector, type ConnectorSession } from '../src/connector';
+import { EnvoiConnector, type ConnectorSession } from '../src/connector';
 import { contractRegistryPath, loadContractFixture, loadContractRegistry } from '../../../integrations/contract-fixtures/setup';
 
 const source = process.env.ENVOI_CONTRACT_FIXTURES_ROOT ?? path.dirname(contractRegistryPath);
@@ -165,7 +165,7 @@ describe('published a4-wake v1 client review', () => {
       return Response.json(fixture.response.body);
     }) as typeof fetch;
     const seen: string[] = [];
-    const connector = new SinaloaConnector('https://fixture.example', { load: async () => session, save: async next => { session = next; } }, {
+    const connector = new EnvoiConnector('https://fixture.example', { load: async () => session, save: async next => { session = next; } }, {
       fetch: fetcher, onEvent: event => { seen.push(event.cursor); }
     });
     await expect(connector.pollOnce()).resolves.toEqual({ count: fixture.response.body.events.length, hasMore: fixture.response.body.hasMore });

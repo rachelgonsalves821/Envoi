@@ -100,7 +100,7 @@ describe('human action visibility', () => {
   });
 
   it('lets a linked human review their pending agent without exposing other agents', () => {
-    const agent = { id: 'agent_1', name: 'Milo', address: 'milo@sinaloa.mail', principalHumanId: 'human_1', status: 'pending_approval', onboardingStatus: 'pending_approval', permissions: [] } as Agent;
+    const agent = { id: 'agent_1', name: 'Milo', address: 'milo@envoi.mail', principalHumanId: 'human_1', status: 'pending_approval', onboardingStatus: 'pending_approval', permissions: [] } as Agent;
     const workspace = { id: 'inbox_1', ownerHumanId: 'human_1' } as Inbox;
     const props = { agent, workspace, emailTransport: null, canManageInbox: false, onRefresh: vi.fn(), notify: vi.fn() };
     const linked = renderToStaticMarkup(createElement(AgentCard, { ...props, humanId: 'human_1' }));
@@ -110,7 +110,7 @@ describe('human action visibility', () => {
   });
 
   it('offers credential revocation only to workspace managers, without claiming the agent is online', () => {
-    const agent = { id: 'agent_1', name: 'Milo', address: 'milo@sinaloa.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: ['send_agent_messages'] } as Agent;
+    const agent = { id: 'agent_1', name: 'Milo', address: 'milo@envoi.mail', principalHumanId: 'human_1', status: 'active', onboardingStatus: 'approved', permissions: ['send_agent_messages'] } as Agent;
     const workspace = { id: 'inbox_1', ownerHumanId: 'human_1' } as Inbox;
     const props = { agent, workspace, emailTransport: null, humanId: 'human_1', onRefresh: vi.fn(), notify: vi.fn() };
     const manager = renderToStaticMarkup(createElement(AgentCard, { ...props, canManageInbox: true }));

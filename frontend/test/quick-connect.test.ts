@@ -7,8 +7,8 @@ import { RUNTIME_OPTIONS, connectorDownloads, setupPrompt, suggestedAgentAddress
 import type { Inbox } from '../src/types';
 import type { QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
-const handoff: QuickConnectHandoff = { version: 1, runtime: 'openclaw', apiUrl: 'https://sinaloa.example',
-  enrollmentToken: 'one_time_token_1234567890', expiresAt: '2099-01-01T00:15:00Z', agentName: 'Potato', address: 'potato@agents.sinaloa.example' };
+const handoff: QuickConnectHandoff = { version: 1, runtime: 'openclaw', apiUrl: 'https://envoi.example',
+  enrollmentToken: 'one_time_token_1234567890', expiresAt: '2099-01-01T00:15:00Z', agentName: 'Potato', address: 'potato@agents.envoi.example' };
 const status = (phase: EnrollmentStatus['phase']): EnrollmentStatus => ({ enrollmentId: 'enrollment_1', phase, expiresAt: '2099-01-01T00:15:00Z' });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -32,9 +32,9 @@ describe('Quick Connect handoff', () => {
   });
 
   it('uses the deployment origin for verified artifact downloads', () => {
-    expect(connectorDownloads(handoff)).toEqual({ connector: 'https://sinaloa.example/web/downloads/envoi-connector.mjs', release: 'https://sinaloa.example/web/downloads/release.json' });
+    expect(connectorDownloads(handoff)).toEqual({ connector: 'https://envoi.example/web/downloads/envoi-connector.mjs', release: 'https://envoi.example/web/downloads/release.json' });
     expect(() => connectorDownloads({ ...handoff, apiUrl: 'javascript:alert(1)' })).toThrow();
-    expect(() => connectorDownloads({ ...handoff, apiUrl: 'https://user:secret@sinaloa.example' })).toThrow();
+    expect(() => connectorDownloads({ ...handoff, apiUrl: 'https://user:secret@envoi.example' })).toThrow();
   });
 
   it.each(RUNTIME_OPTIONS)('provides the same setup flow for $label with isolated runtime-specific preparation', option => {
@@ -48,7 +48,7 @@ describe('Quick Connect handoff', () => {
     expect(picker).toContain(`checked="" value="${option.id}"`);
     expect(picker.match(/type="radio"/g)).toHaveLength(6);
     expect(picker.match(/disabled=""/g)).toHaveLength(3);
-    const preparation = renderToStaticMarkup(createElement(RuntimePreparation, { runtime: option.id, command: 'prepare', apiUrl: 'https://sinaloa.example' }));
+    const preparation = renderToStaticMarkup(createElement(RuntimePreparation, { runtime: option.id, command: 'prepare', apiUrl: 'https://envoi.example' }));
     expect(preparation.includes('generates or reuses the local API Server key')).toBe(option.id === 'hermes');
     expect(preparation).not.toContain('repository checkout');
   });

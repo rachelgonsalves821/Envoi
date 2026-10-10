@@ -2,12 +2,12 @@
 import { appendFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { startConnection } from '../connector/core';
-import { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { EnvoiConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 
 const directory = process.argv[2];
 const controller = new AbortController();
-let connector: SinaloaConnector;
+let connector: EnvoiConnector;
 let release: (() => void) | undefined;
 let hold = false;
 const emit = (value: unknown) => process.send?.(value);
@@ -38,7 +38,7 @@ const run = startConnection(directory, controller.signal, () => ({
   describe: () => ({ handler: 'controlled local GA3 handler' }),
   createBridge: async (_config, context) => {
     const store = new FileBridgeStore(directory); await store.init();
-    connector = new SinaloaConnector(context.apiUrl, store, { fetch: observedFetch, pollIntervalMs: 100,
+    connector = new EnvoiConnector(context.apiUrl, store, { fetch: observedFetch, pollIntervalMs: 100,
       onState: lifecycle => emit({ type: 'lifecycle', lifecycle }),
       handler: {
         admit: message => store.admit(message),
