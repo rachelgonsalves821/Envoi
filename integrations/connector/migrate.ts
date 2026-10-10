@@ -6,6 +6,11 @@ import { acquireConnectorLock, privateDirectory, privateJson } from './store';
 import { optionalText, replaceConfiguration, setEnvValue } from '../hermes/config';
 
 const exists = (filename: string) => lstat(filename).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+async function assertDirectory(directory: string) {
+  const canonical = path.resolve(await realpath(directory));
+  if ((process.platform === 'win32' ? canonical.toLowerCase() !== directory.toLowerCase() : canonical !== directory) || !(await lstat(directory)).isDirectory())
+    throw new ConnectorSetupError('STATE_INVALID', 'State migration requires an owned directory without symbolic links');
+}
 async function savedRecord(filename: string): Promise<Record<string, any>> {
   try {
     const value = JSON.parse(await readFile(filename, 'utf8'));
@@ -66,14 +71,13 @@ export async function migrateConnectionDirectory(requested: string, secure = pri
   const target = path.join(base, 'envoi', runtime, id), previous = path.join(base, 'sinaloa', runtime, id);
   if (!await exists(previous)) {
     if (runtime === 'hermes' && await exists(target)) {
+      await assertDirectory(target);
       const unlock = await acquireConnectorLock(target);
       try { await migrateHermesProfile(target); } finally { await unlock(); }
     }
     return target;
   }
-  const canonical = path.resolve(await realpath(previous));
-  if ((process.platform === 'win32' ? canonical.toLowerCase() !== previous.toLowerCase() : canonical !== previous) || !(await lstat(previous)).isDirectory())
-    throw new ConnectorSetupError('STATE_INVALID', 'The prior state directory must be an owned directory without symbolic links');
+  await assertDirectory(previous);
   // Serialize migrations separately from normal setup/start and lock the source too.
   await secure(path.dirname(target));
   const unlockMigration = await acquireConnectorLock(path.dirname(target));

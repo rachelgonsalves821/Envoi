@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile, lstat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile, lstat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -55,5 +55,13 @@ describe('Envoi state cutover', () => {
     expect(env).toContain(`ENVOI_MCP_${suffix.toUpperCase()}=${token}`); expect(env).toContain('OTHER=keep'); expect(env).not.toContain('SINALOA');
     expect(JSON.parse(await readFile(path.join(f.target, 'hermes-relay.json'), 'utf8'))).toEqual({ version: 1, serverName: `envoi_${suffix}`, port: 8788, token });
     await migrateConnectionDirectory(f.target, secure); expect(await readFile(configPath, 'utf8')).toBe(config);
+  });
+  it('refuses a linked destination before inspecting or modifying profile state', async () => {
+    const f = await fixture(); await rm(f.previous, { recursive: true });
+    const other = path.join(path.dirname(path.dirname(path.dirname(f.target))), 'other'); await mkdir(other);
+    await writeFile(path.join(other, 'hermes-relay.json'), 'preserve');
+    await mkdir(path.dirname(f.target), { recursive: true }); await symlink(other, f.target, 'junction');
+    await expect(migrateConnectionDirectory(f.target, secure)).rejects.toMatchObject({ code: 'STATE_INVALID' });
+    expect(await readFile(path.join(other, 'hermes-relay.json'), 'utf8')).toBe('preserve');
   });
 });
