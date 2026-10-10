@@ -267,7 +267,7 @@ When the connector receives `agent.resumed`, it leaves `PAUSED` and claims once 
 
 ## a4-wake v1
 
-**Contract:** `a4-wake`, version 1. **Status:** published for review, not approved.
+**Contract:** `a4-wake`, version 1. **Status:** approved by the human on 2026-10-10 (`CONTRACT-APPROVED a4-wake v1 @e9c00ac`, build board #34) after Lane B `CONTRACT-ACK`. Frozen: changes need a new version.
 
 **Fixtures:** [`test/contract-fixtures/a4-wake/`](../../../test/contract-fixtures/a4-wake/), which holds:
 - `schemas.json`: the schemas plus the `x-codes` table;

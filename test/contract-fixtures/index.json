@@ -53,7 +53,7 @@
     {
       "id": "a4-wake",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#a4-wake-v1",
       "dir": "a4-wake",
       "schemas": "schemas.json",
