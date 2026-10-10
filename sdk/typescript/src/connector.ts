@@ -1,4 +1,4 @@
-import { responsePayload, rotateAgentToken, SinaloaClient, SinaloaError, type AgentTokens, type AssetUploadInput, type CaseMessageInput, type ClientOptions, type NativeMessageInput } from './index';
+import { responsePayload, rotateAgentToken, EnvoiClient, EnvoiError, type AgentTokens, type AssetUploadInput, type CaseMessageInput, type ClientOptions, type NativeMessageInput } from './index';
 import { lifecyclePolicy, retryDelay, guidanceText, type ConnectorLifecycle, type ConnectorState } from './lifecycle';
 export type { ConnectorLifecycle, ConnectorState } from './lifecycle';
 import { CONNECTOR_RUNTIMES, type ConnectorRuntime } from './quick-connect';
@@ -94,7 +94,7 @@ function assertHumanInstructionMessage(message: HumanInstructionWorkMessage) {
     || !safeId(message.recipientInboxId) || !safeId(message.caseId) || typeof message.text !== 'string' || !message.text.trim()
     || !message.from || typeof message.from !== 'object' || Array.isArray(message.from) || message.from.humanId !== message.senderHumanId
     || Object.keys(message.from).some(key => key !== 'humanId') || 'senderAgentId' in message || 'senderInboxId' in message || 'senderEmail' in message) {
-    throw new SinaloaError('Envoi returned an invalid human instruction');
+    throw new EnvoiError('Envoi returned an invalid human instruction');
   }
 }
 
@@ -145,7 +145,7 @@ export class ConnectorPersistenceError extends Error {
 }
 
 /** Safe enrollment diagnostics; never includes a response body or credentials. */
-export class ConnectorEnrollmentError extends SinaloaError {
+export class ConnectorEnrollmentError extends EnvoiError {
   constructor(code: string, public readonly requestId: string, status?: number) {
     super(`Envoi enrollment failed (${code}${status ? `; HTTP ${status}` : ''})`, status, code);
     this.name = 'ConnectorEnrollmentError';
@@ -172,7 +172,7 @@ export class ConnectorContractError extends Error {
   }
 }
 
-export class ConnectorCredentialsError extends SinaloaError {
+export class ConnectorCredentialsError extends EnvoiError {
   constructor() {
     super('Connector credentials are missing or expired; ask the owner to reconnect this existing agent', undefined, 'CREDENTIAL_EXPIRED');
     this.name = 'ConnectorCredentialsError';
@@ -204,7 +204,7 @@ async function refreshFingerprint(token: string): Promise<string> {
 
 function eventFrom(value: Record<string, unknown>): InboxEvent {
   if (typeof value.id !== 'string' || typeof value.type !== 'string' || typeof value.cursor !== 'string' || !value.cursor) {
-    throw new SinaloaError('Envoi returned an invalid event');
+    throw new EnvoiError('Envoi returned an invalid event');
   }
   return value as InboxEvent;
 }
@@ -256,14 +256,14 @@ export async function enrollConnector(baseUrl: string, enrollmentToken: string, 
   } finally { clearTimeout(timer); }
 }
 
-export class SinaloaConnector {
+export class EnvoiConnector {
   private readonly origin: string;
   private readonly pageSize: number;
   private readonly refreshSkewMs: number;
   private writes: Promise<unknown> = Promise.resolve();
   private actionEpoch = 0;
   private persistenceFailed = false;
-  private readonly observedErrors = new WeakSet<SinaloaError>();
+  private readonly observedErrors = new WeakSet<EnvoiError>();
   private wake = new AbortController();
   private readonly activeActions = new Set<AbortController>();
   private readonly activeRefresh = new Set<AbortController>();
@@ -348,7 +348,7 @@ export class SinaloaConnector {
 
   /** Apply a stable response code. Unknown auth statuses never imply revoke or refresh. */
   async observeError(error: unknown): Promise<void> {
-    if (!(error instanceof SinaloaError) || this.observedErrors.has(error)) return;
+    if (!(error instanceof EnvoiError) || this.observedErrors.has(error)) return;
     this.observedErrors.add(error);
     const policy = lifecyclePolicy(error);
     if (policy.lifecycle === 'UNCHANGED' || policy.lifecycle === 'NOT_APPLICABLE') return;
@@ -362,13 +362,13 @@ export class SinaloaConnector {
   /** Accept delta/SSE lifecycle events; credential.ended has no observation cursor. */
   async observeEvent(event: Record<string, unknown>, type = String(event.type ?? '')): Promise<void> {
     if (type === 'credential.ended') {
-      if (typeof event.code === 'string') await this.observeError(new SinaloaError('Credential ended', undefined, event.code,
+      if (typeof event.code === 'string') await this.observeError(new EnvoiError('Credential ended', undefined, event.code,
         { reason: typeof event.reason === 'string' ? event.reason : undefined }));
       return;
     }
     const session = validSession(await this.store.load());
     if (event.agentId !== session.agentId) return;
-    if (type === 'agent.paused') await this.observeError(new SinaloaError('Paused', undefined, 'AGENT_PAUSED'));
+    if (type === 'agent.paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'));
     if (type === 'agent.resumed') {
       await this.transition('RUNNING', { paused: false, failures: 0, retryAt: undefined, code: undefined, reason: undefined, guidance: undefined });
       this.wake.abort();
@@ -380,9 +380,9 @@ export class SinaloaConnector {
     if (this.persistenceFailed) throw new ConnectorPersistenceError();
     const lifecycle = await this.lifecycle();
     if (['REVOKED', 'NEEDS_RECONNECT'].includes(lifecycle.state))
-      throw new SinaloaError(lifecycle.guidance ?? 'Ask the owner to reconnect this installation', undefined, lifecycle.code ?? 'CREDENTIAL_EXPIRED');
+      throw new EnvoiError(lifecycle.guidance ?? 'Ask the owner to reconnect this installation', undefined, lifecycle.code ?? 'CREDENTIAL_EXPIRED');
     if (action && (lifecycle.paused || lifecycle.state === 'STOPPED'))
-      throw new SinaloaError(lifecycle.guidance ?? 'Connector actions are stopped', undefined, lifecycle.paused ? 'AGENT_PAUSED' : 'CONNECTOR_STOPPED');
+      throw new EnvoiError(lifecycle.guidance ?? 'Connector actions are stopped', undefined, lifecycle.paused ? 'AGENT_PAUSED' : 'CONNECTOR_STOPPED');
   }
 
   private async healthy(): Promise<void> {
@@ -416,7 +416,7 @@ export class SinaloaConnector {
       // Read the latest record under the write queue: late rotations cannot erase a pause or cursor.
       return this.mutate(latest => {
         if (['REVOKED', 'NEEDS_RECONNECT'].includes(latest.lifecycle?.state ?? ''))
-          throw new SinaloaError(latest.lifecycle?.guidance ?? 'Credential ended', undefined, latest.lifecycle?.code);
+          throw new EnvoiError(latest.lifecycle?.guidance ?? 'Credential ended', undefined, latest.lifecycle?.code);
         const { pendingRotation: _completed, ...saved } = latest;
         return validSession({ ...saved, ...rotated });
       });
@@ -435,17 +435,17 @@ export class SinaloaConnector {
     if (action) this.activeActions.add(controller);
     const invoke = async (current: ConnectorSession) => {
       await this.guard(action);
-      if (action && epoch !== this.actionEpoch) throw new SinaloaError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
+      if (action && epoch !== this.actionEpoch) throw new EnvoiError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
       const result = await run(current, controller.signal);
       await this.guard(action);
-      if (action && epoch !== this.actionEpoch) throw new SinaloaError('Connector action was interrupted');
+      if (action && epoch !== this.actionEpoch) throw new EnvoiError('Connector action was interrupted');
       await this.healthy();
       return result;
     };
     try {
       try { return await invoke(session); }
       catch (error) {
-        if (!(error instanceof SinaloaError) || lifecyclePolicy(error).retry !== 'refresh_then_retry_once') throw error;
+        if (!(error instanceof EnvoiError) || lifecyclePolicy(error).retry !== 'refresh_then_retry_once') throw error;
         await this.guard(action);
         const current = validSession(await this.store.load());
         return await invoke(current.agentApiToken === session.agentApiToken ? await this.freshSession(true) : current);
@@ -453,14 +453,14 @@ export class SinaloaConnector {
     } catch (error) {
       if (action && controller.signal.aborted) {
         await this.guard(action);
-        throw new SinaloaError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
+        throw new EnvoiError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
       }
       await this.observeError(error); throw error;
     } finally { this.activeActions.delete(controller); }
   }
 
-  private withFreshClient<T>(operation: (client: SinaloaClient, session: ConnectorSession) => Promise<T>, action = true): Promise<T> {
-    return this.withFreshSession((session, signal) => operation(new SinaloaClient(this.origin, session.agentApiToken,
+  private withFreshClient<T>(operation: (client: EnvoiClient, session: ConnectorSession) => Promise<T>, action = true): Promise<T> {
+    return this.withFreshSession((session, signal) => operation(new EnvoiClient(this.origin, session.agentApiToken,
       { ...this.options, fetch: (input, init) => (this.options.fetch || fetch)(input, { ...init,
         signal: init?.signal && signal ? AbortSignal.any([init.signal, signal]) : signal }) }), session), action);
   }
@@ -492,15 +492,15 @@ export class SinaloaConnector {
           headers: { authorization: `Bearer ${session.agentApiToken}`, 'content-type': 'application/json' },
           body: JSON.stringify(caseId === null ? {} : { caseId })
         });
-      } catch { throw new SinaloaError(timeout.aborted ? 'Envoi MCP token request timed out' : 'Envoi MCP token service could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR'); }
+      } catch { throw new EnvoiError(timeout.aborted ? 'Envoi MCP token request timed out' : 'Envoi MCP token service could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR'); }
       if (!response.ok) await responsePayload(response, 'Envoi MCP read credential was denied');
       let payload: Record<string, unknown>;
       try { payload = await response.json() as Record<string, unknown>; }
-      catch { throw new SinaloaError('Envoi returned an invalid MCP read credential'); }
+      catch { throw new EnvoiError('Envoi returned an invalid MCP read credential'); }
       if (!payload || typeof payload.mcpAccessToken !== 'string' || !payload.mcpAccessToken ||
           payload.tokenType !== 'Bearer' || payload.scope !== 'case_read' || payload.caseId !== caseId ||
           typeof payload.expiresAt !== 'string' || Date.parse(payload.expiresAt) <= Date.now() + 120_000) {
-        throw new SinaloaError('Envoi returned an invalid or short-lived MCP read credential');
+        throw new EnvoiError('Envoi returned an invalid or short-lived MCP read credential');
       }
       return payload as unknown as McpReadToken;
     }, true);
@@ -524,7 +524,7 @@ export class SinaloaConnector {
           }
         });
       } catch {
-        throw new SinaloaError(requestSignal.aborted ? 'Envoi MCP request timed out or canceled' : 'Envoi MCP could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR');
+        throw new EnvoiError(requestSignal.aborted ? 'Envoi MCP request timed out or canceled' : 'Envoi MCP could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR');
       }
       if (!response.ok) await responsePayload(response.clone(), 'Envoi MCP request failed');
       return response;
@@ -538,7 +538,7 @@ export class SinaloaConnector {
       try { response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/connection-status`, {
         method: 'POST', headers: { authorization: `Bearer ${session.agentApiToken}`, 'content-type': 'application/json' },
         body: JSON.stringify(body), signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000) }); }
-      catch { throw new SinaloaError('Envoi status service could not be reached', undefined, 'NETWORK_ERROR'); }
+      catch { throw new EnvoiError('Envoi status service could not be reached', undefined, 'NETWORK_ERROR'); }
       if (!response.ok) await responsePayload(response, 'Envoi could not record setup checks');
       else await response.body?.cancel();
     });
@@ -595,7 +595,7 @@ export class SinaloaConnector {
             ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
           body: JSON.stringify(body), signal: AbortSignal.any([timeout, actionSignal!])
         });
-      } catch { throw new SinaloaError(timeout.aborted ? 'Envoi request timed out' : 'Envoi could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : timeout.aborted ? 'TIMEOUT' : 'NETWORK_ERROR'); }
+      } catch { throw new EnvoiError(timeout.aborted ? 'Envoi request timed out' : 'Envoi could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : timeout.aborted ? 'TIMEOUT' : 'NETWORK_ERROR'); }
       return responsePayload<T>(response, 'Envoi work request failed');
     }, true);
   }
@@ -613,7 +613,7 @@ export class SinaloaConnector {
         || reply.senderType !== 'agent' || reply.senderAgentId !== message.recipientAgentId || reply.recipientHumanId !== message.senderHumanId
         || reply.from?.agentId !== message.recipientAgentId || typeof reply.from?.address !== 'string' || !reply.from.address
         || reply.type !== 'message' || reply.status !== 'delivered' || reply.text !== text.trim()) {
-        throw new SinaloaError('Envoi returned an invalid human instruction reply');
+        throw new EnvoiError('Envoi returned an invalid human instruction reply');
       }
       return reply;
     }
@@ -647,10 +647,10 @@ export class SinaloaConnector {
     let claimed: { work: WorkLease | null; state?: string; nextAvailableInMs?: number };
     try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions: true }); }
     catch (error) {
-      if (error instanceof SinaloaError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError();
+      if (error instanceof EnvoiError && [404, 405, 501].includes(error.status || 0)) throw new ConnectorContractError();
       throw error;
     }
-    if (claimed.state === 'paused') { await this.observeError(new SinaloaError('Paused', undefined, 'AGENT_PAUSED')); return false; }
+    if (claimed.state === 'paused') { await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED')); return false; }
     this.nextClaimAt = Infinity;
     if (claimed.work === null) {
       if (claimed.state === 'idle' && Number.isSafeInteger(claimed.nextAvailableInMs) && claimed.nextAvailableInMs! >= 0)
@@ -659,17 +659,17 @@ export class SinaloaConnector {
     }
     const work = claimed.work;
     if (!work || typeof work.workId !== 'string' || typeof work.leaseToken !== 'string' || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || typeof work.message?.id !== 'string' || !work.message.id) {
-      throw new SinaloaError('Envoi returned an invalid work claim');
+      throw new EnvoiError('Envoi returned an invalid work claim');
     }
     const session = validSession(await this.store.load());
     if (isHumanInstructionMessage(work.message)) {
       assertHumanInstructionMessage(work.message);
-      if (work.message.recipientInboxId !== session.inboxId) throw new SinaloaError('Envoi returned work for the wrong inbox');
+      if (work.message.recipientInboxId !== session.inboxId) throw new EnvoiError('Envoi returned work for the wrong inbox');
     } else if (work.message.senderType === 'human' || 'senderHumanId' in work.message || (work.message.from && 'humanId' in work.message.from) || !work.message.from?.address) {
-      throw new SinaloaError('Envoi returned an invalid native work sender');
+      throw new EnvoiError('Envoi returned an invalid native work sender');
     }
     if (work.message.recipientAgentId !== session.agentId || work.message.status === 'processed') {
-      throw new SinaloaError('Envoi returned work for the wrong recipient');
+      throw new EnvoiError('Envoi returned work for the wrong recipient');
     }
     const workPath = `/api/agent/work/${encodeURIComponent(work.workId)}`;
     // The server scopes idempotency by agent, so a reclaimed lease needs new
@@ -691,7 +691,7 @@ export class SinaloaConnector {
         if (workAbort.signal.aborted) break;
         try {
           const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken });
-          if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new SinaloaError('Envoi returned an invalid lease renewal');
+          if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new EnvoiError('Envoi returned an invalid lease renewal');
           leaseExpiresAt = renewed.leaseExpiresAt;
         } catch (error) { renewalError = error; workAbort.abort(); break; }
       }
@@ -700,20 +700,20 @@ export class SinaloaConnector {
     let settled = false;
     let humanReplyError: unknown = null;
     try {
-      if (workAbort.signal.aborted) throw new SinaloaError('Work claim was interrupted before admission');
+      if (workAbort.signal.aborted) throw new EnvoiError('Work claim was interrupted before admission');
       await this.guard(true);
       await handler.admit(work.message);
-      if (workAbort.signal.aborted) throw new SinaloaError('Work lease was interrupted before acknowledgement');
+      if (workAbort.signal.aborted) throw new EnvoiError('Work lease was interrupted before acknowledgement');
       const acknowledged = await this.postWork<WorkSettlement>(`${workPath}/acknowledge`, { leaseToken: work.leaseToken }, acknowledgeKey);
       if (acknowledged.workId !== work.workId || acknowledged.status !== 'acknowledged' || acknowledged.receipt?.state !== 'acknowledged' || acknowledged.receipt.messageId !== work.message.id) {
-        throw new SinaloaError('Envoi returned an invalid acknowledgement');
+        throw new EnvoiError('Envoi returned an invalid acknowledgement');
       }
-      if (workAbort.signal.aborted) throw new SinaloaError('Work lease was interrupted before processing');
+      if (workAbort.signal.aborted) throw new EnvoiError('Work lease was interrupted before processing');
       await handler.process(work.message, {
         signal: workAbort.signal,
         reply: async (text, key, extra) => {
           if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) {
-            throw new SinaloaError('Work lease is no longer valid for a reply');
+            throw new EnvoiError('Work lease is no longer valid for a reply');
           }
           try {
             const reply = await this.reply(work.message, text, key, extra, work.leaseToken);
@@ -727,10 +727,10 @@ export class SinaloaConnector {
       });
       if (humanReplyError) throw humanReplyError;
       if (renewalError) throw renewalError;
-      if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new SinaloaError('Work lease expired before completion');
+      if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new EnvoiError('Work lease expired before completion');
       const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey);
       if (completed.workId !== work.workId || completed.status !== 'processed' || completed.receipt?.state !== 'processed' || completed.receipt.messageId !== work.message.id) {
-        throw new SinaloaError('Envoi returned an invalid completion');
+        throw new EnvoiError('Envoi returned an invalid completion');
       }
       settled = true;
       await stopRenewal();
@@ -740,12 +740,12 @@ export class SinaloaConnector {
       await stopRenewal();
       if (!interrupted && !renewalError && !settled && !signal?.aborted && !(await this.lifecycle()).paused
         && !['REVOKED', 'NEEDS_RECONNECT', 'STOPPED'].includes((await this.lifecycle()).state)
-        && !(error instanceof SinaloaError && error.code === 'CASE_CONTROLLED') && Date.parse(leaseExpiresAt) > Date.now()) {
+        && !(error instanceof EnvoiError && error.code === 'CASE_CONTROLLED') && Date.parse(leaseExpiresAt) > Date.now()) {
         await this.postWork(`${workPath}/fail`, { leaseToken: work.leaseToken, retryable: true, reasonCode: 'HANDLER_FAILED' }).catch(() => {});
       }
-      if (interrupted && !renewalError && error instanceof SinaloaError && !error.code)
-        throw new SinaloaError(error.message, error.status, 'REQUEST_CANCELLED');
-      if (!(error instanceof SinaloaError)) await this.observeError(new SinaloaError('Work handler failed', undefined, 'HANDLER_FAILED'));
+      if (interrupted && !renewalError && error instanceof EnvoiError && !error.code)
+        throw new EnvoiError(error.message, error.status, 'REQUEST_CANCELLED');
+      if (!(error instanceof EnvoiError)) await this.observeError(new EnvoiError('Work handler failed', undefined, 'HANDLER_FAILED'));
       throw error;
     } finally {
       this.activeWork.delete(workAbort);
@@ -759,10 +759,10 @@ export class SinaloaConnector {
     let session = validSession(await this.store.load());
     const page = await this.withFreshSession(async current => {
       session = current;
-      return new SinaloaClient(this.origin, current.agentApiToken, this.options).delta(current.inboxId, this.cursorFor(current) || undefined, this.pageSize);
+      return new EnvoiClient(this.origin, current.agentApiToken, this.options).delta(current.inboxId, this.cursorFor(current) || undefined, this.pageSize);
     });
-    if (!Array.isArray(page.events) || typeof page.hasMore !== 'boolean') throw new SinaloaError('Envoi returned an invalid event page');
-    if (page.hasMore && page.events.length === 0) throw new SinaloaError('Envoi returned an invalid event page');
+    if (!Array.isArray(page.events) || typeof page.hasMore !== 'boolean') throw new EnvoiError('Envoi returned an invalid event page');
+    if (page.hasMore && page.events.length === 0) throw new EnvoiError('Envoi returned an invalid event page');
     let count = 0;
     for (const raw of page.events) {
       const event = eventFrom(raw);
@@ -772,7 +772,7 @@ export class SinaloaConnector {
       // An event callback may send a reply and rotate credentials. Preserve its
       // new refresh token when committing the observation cursor.
       const current = validSession(await this.store.load());
-      if (current.agentId !== session.agentId || current.inboxId !== session.inboxId) throw new SinaloaError('Connector session changed while reading events');
+      if (current.agentId !== session.agentId || current.inboxId !== session.inboxId) throw new EnvoiError('Connector session changed while reading events');
       session = await this.saveCursor(session, event.cursor);
       count += 1;
     }
@@ -786,7 +786,7 @@ export class SinaloaConnector {
 
   private saveCursor(session: ConnectorSession, cursor: string | null): Promise<ConnectorSession> {
     return this.mutate(current => {
-      if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new SinaloaError('Connector session changed while reading events');
+      if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new EnvoiError('Connector session changed while reading events');
       return { ...current, cursor, cursors: { ...current.cursors, [session.inboxId]: cursor } };
     });
   }
@@ -798,13 +798,13 @@ export class SinaloaConnector {
       try { response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
         headers: { authorization: `Bearer ${session.agentApiToken}` }, credentials: 'omit', redirect: 'error',
         signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000)
-      }); } catch { throw new SinaloaError('Envoi status could not be reached', undefined, 'NETWORK_ERROR'); }
+      }); } catch { throw new EnvoiError('Envoi status could not be reached', undefined, 'NETWORK_ERROR'); }
       const status = await responsePayload<{ state: string; inboxId: string; agent: { id: string } }>(response, 'Envoi status failed');
       if (!['active', 'paused'].includes(status.state) || status.inboxId !== session.inboxId || status.agent?.id !== session.agentId)
-        throw new SinaloaError('Envoi returned an invalid agent status');
+        throw new EnvoiError('Envoi returned an invalid agent status');
       return status;
     });
-    if (result.state === 'paused') await this.observeError(new SinaloaError('Paused', undefined, 'AGENT_PAUSED'));
+    if (result.state === 'paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'));
     else if ((await this.lifecycle()).paused) {
       await this.transition('RUNNING', { paused: false, code: undefined, reason: undefined, guidance: undefined, failures: 0, retryAt: undefined });
       this.wakeTrigger?.();
@@ -828,8 +828,8 @@ export class SinaloaConnector {
       const state = await this.lifecycle();
       if (state.state === 'DEGRADED') safetyAt = Math.min(safetyAt, Date.now() + 12_000 + Math.random() * 6000);
       if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError || ['REVOKED', 'NEEDS_RECONNECT'].includes(state.state)
-        || !(error instanceof SinaloaError) && state.state !== 'DEGRADED'
-        || error instanceof SinaloaError && !(lifecyclePolicy(error).lifecycle === 'DEGRADED' || ['REQUEST_CANCELLED', 'AGENT_PAUSED', 'CASE_CONTROLLED'].includes(error.code ?? ''))) {
+        || !(error instanceof EnvoiError) && state.state !== 'DEGRADED'
+        || error instanceof EnvoiError && !(lifecyclePolicy(error).lifecycle === 'DEGRADED' || ['REQUEST_CANCELLED', 'AGENT_PAUSED', 'CASE_CONTROLLED'].includes(error.code ?? ''))) {
         fatal = error; stop.abort();
       }
       notify();
@@ -856,7 +856,7 @@ export class SinaloaConnector {
           if ((await this.lifecycle()).paused) { await this.checkStatus(); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
           if (streamSignal.aborted) break;
           const response = await this.withFreshSession(async current => {
-            if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new SinaloaError('Connector session changed while connecting');
+            if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new EnvoiError('Connector session changed while connecting');
             session = current;
             const headers: Record<string, string> = { authorization: `Bearer ${current.agentApiToken}`, accept: 'text/event-stream' };
             if (resume) headers['Last-Event-ID'] = resume;
@@ -866,7 +866,7 @@ export class SinaloaConnector {
               let response: Response;
               try { response = await (this.options.fetch || fetch)(`${this.origin}/api/inboxes/${encodeURIComponent(current.inboxId)}/events${baseline ? '?from=latest' : ''}`, {
                 headers, credentials: 'omit', redirect: 'error', signal: AbortSignal.any([streamSignal, headerTimeout.signal])
-              }); } catch { throw new SinaloaError('Envoi event stream could not be reached', undefined, 'NETWORK_ERROR'); }
+              }); } catch { throw new EnvoiError('Envoi event stream could not be reached', undefined, 'NETWORK_ERROR'); }
               if (!response.ok) await responsePayload(response, 'Envoi event stream failed');
               return response;
             } finally { clearTimeout(timer); }
@@ -877,9 +877,9 @@ export class SinaloaConnector {
               if (stopped.aborted) break;
               if (frame.id !== undefined) {
                 if (!/^\d{20}$/.test(frame.id) || frame.data.cursor !== frame.id || frame.data.type !== frame.type)
-                  throw new SinaloaError('Envoi returned an invalid stored event');
+                  throw new EnvoiError('Envoi returned an invalid stored event');
                 const current = validSession(await this.store.load());
-                if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new SinaloaError('Connector session changed while reading events');
+                if (current.inboxId !== session.inboxId || current.agentId !== session.agentId) throw new EnvoiError('Connector session changed while reading events');
                 if (this.cursorFor(current) && frame.id <= this.cursorFor(current)!) continue;
                 const event = eventFrom(frame.data);
                 await this.observeEvent(event, frame.type);
@@ -889,22 +889,22 @@ export class SinaloaConnector {
                   || (frame.type === 'message.delivered' || frame.type === 'human.instruction_created') && event.recipientAgentId === session.agentId) trigger();
               } else if (frame.type === 'ready') {
                 if (frame.data.inboxId !== session.inboxId || frame.data.cursor !== null && (typeof frame.data.cursor !== 'string' || !/^\d{20}$/.test(frame.data.cursor)))
-                  throw new SinaloaError('Envoi returned an invalid ready frame');
+                  throw new EnvoiError('Envoi returned an invalid ready frame');
                 if (baseline && !this.cursorFor(validSession(await this.store.load()))) await this.saveCursor(session, frame.data.cursor as string | null);
                 connected = true; safetyAt = Date.now() + safetyDelay();
                 if ((await this.lifecycle()).paused) { await this.checkStatus(); statusAt = Date.now() + 30_000 + Math.random() * 30_000; }
                 trigger();
               } else if (frame.type === 'replay_required') { recovery = true; break; }
-              else if (frame.type === 'replay_error') throw new SinaloaError('Envoi event replay failed', undefined, 'NETWORK_ERROR');
-              else if (frame.type === 'credential.ended') { await this.observeEvent(frame.data, frame.type); await this.guard(); throw new SinaloaError('Credential ended', undefined, String(frame.data.code)); }
+              else if (frame.type === 'replay_error') throw new EnvoiError('Envoi event replay failed', undefined, 'NETWORK_ERROR');
+              else if (frame.type === 'credential.ended') { await this.observeEvent(frame.data, frame.type); await this.guard(); throw new EnvoiError('Credential ended', undefined, String(frame.data.code)); }
             }
           } catch (error) {
-            if (error instanceof SinaloaError || error instanceof ConnectorPersistenceError) throw error;
-            throw new SinaloaError('Envoi event stream was interrupted', undefined, 'NETWORK_ERROR');
+            if (error instanceof EnvoiError || error instanceof ConnectorPersistenceError) throw error;
+            throw new EnvoiError('Envoi event stream was interrupted', undefined, 'NETWORK_ERROR');
           }
         } catch (error) {
-          if (error instanceof SinaloaError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
-          else { retryAfter = error instanceof SinaloaError ? (error.retryAfterSeconds ?? 0) * 1000 : 0; await failure(error); }
+          if (error instanceof EnvoiError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
+          else { retryAfter = error instanceof EnvoiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0; await failure(error); }
         } finally {
           clearTimeout(idle); stream.abort(); this.activeStreams.delete(stream);
           uptime = openedAt ? Date.now() - openedAt : 0;
@@ -916,7 +916,7 @@ export class SinaloaConnector {
             while (!stopped.aborted) { const page = await this.pollOnce(); if (!page.hasMore) break; }
             trigger();
           } catch (error) {
-            if (error instanceof SinaloaError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
+            if (error instanceof EnvoiError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
             else { await failure(error); recovery = false; }
           }
           if (recovery) continue;

@@ -102,7 +102,7 @@ describe('authorized return snapshot', () => {
 
   it('does not broadcast expiry for the initial snapshot, but does for a terminal /me denial', async () => {
     const window = new EventTarget(); const expired = vi.fn();
-    window.addEventListener('sinaloa:session-expired', expired);
+    window.addEventListener('envoi:session-expired', expired);
     vi.stubGlobal('window', window);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Denied' }), { status: 401 })));
     const controller = new AbortController();

@@ -1,10 +1,12 @@
 import { enrollConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { createOpenClawBridge } from './runtime';
+import { migrateConnectionDirectory } from '../connector/migrate';
 
 async function main() {
-  const apiUrl = process.env.ENVOI_API_URL || process.env.SINALOA_API_URL;
-  const stateDir = process.env.ENVOI_STATE_DIR || process.env.SINALOA_STATE_DIR;
+  const apiUrl = process.env.ENVOI_API_URL;
+  const requested = process.env.ENVOI_STATE_DIR;
+  const stateDir = requested ? await migrateConnectionDirectory(requested) : undefined;
   const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
   const agentId = process.env.OPENCLAW_AGENT_ID;
@@ -14,9 +16,9 @@ async function main() {
   const store = new FileBridgeStore(stateDir);
   await store.init();
   if (!await store.load()) {
-    const code = process.env.ENVOI_ENROLLMENT_TOKEN || process.env.SINALOA_ENROLLMENT_TOKEN;
+    const code = process.env.ENVOI_ENROLLMENT_TOKEN;
     if (!code) throw new Error('ENVOI_ENROLLMENT_TOKEN is required for first enrollment');
-    await enrollConnector(apiUrl, code, store, { name: process.env.ENVOI_AGENT_NAME || process.env.SINALOA_AGENT_NAME || 'OpenClaw bridge' });
+    await enrollConnector(apiUrl, code, store, { name: process.env.ENVOI_AGENT_NAME || 'OpenClaw bridge' });
   }
   const bridge = await createOpenClawBridge({ apiUrl, stateDir, gatewayUrl, gatewayToken, agentId });
   const stop = new AbortController();

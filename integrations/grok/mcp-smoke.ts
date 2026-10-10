@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { SinaloaConnector } from '../../sdk/typescript/src/connector';
+import { EnvoiConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 
 export interface XaiMcpProbeOptions {
@@ -19,8 +19,8 @@ export interface XaiCaseAssetProbeOptions extends Omit<XaiMcpProbeOptions, 'expe
 
 /** Checks provider execution evidence, not merely the outgoing MCP request shape. */
 export async function probeXaiMcp(options: XaiMcpProbeOptions): Promise<void> {
-  await runProbe(options, 'sinaloa_agent_info',
-    'Call the sinaloa_agent_info MCP tool now. Then report the exact agent address returned by that tool. Do not guess an address.',
+  await runProbe(options, 'envoi_agent_info',
+    'Call the envoi_agent_info MCP tool now. Then report the exact agent address returned by that tool. Do not guess an address.',
     options.expectedAddress, 'agent address');
 }
 
@@ -29,8 +29,8 @@ export async function probeXaiCaseAssetMcp(options: XaiCaseAssetProbeOptions): P
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(options.caseId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(options.expectedAssetId)) {
     throw new TypeError('A valid case ID and expected asset ID are required');
   }
-  await runProbe(options, 'sinaloa_list_messages',
-    `Call sinaloa_list_messages for case ${options.caseId}. Find the native message announcing a shared file, then report its exact asset ID. Do not guess an ID.`,
+  await runProbe(options, 'envoi_list_messages',
+    `Call envoi_list_messages for case ${options.caseId}. Find the native message announcing a shared file, then report its exact asset ID. Do not guess an ID.`,
     options.expectedAssetId, 'asset ID');
 }
 
@@ -58,7 +58,7 @@ async function runProbe(options: Omit<XaiMcpProbeOptions, 'expectedAddress'>, to
       body: JSON.stringify({
         model: options.model, store: false,
         input: prompt,
-        tools: [{ type: 'mcp', server_url: options.mcpUrl, server_label: 'sinaloa',
+        tools: [{ type: 'mcp', server_url: options.mcpUrl, server_label: 'envoi',
           authorization: `Bearer ${options.accessToken}`, allowed_tools: [tool] }]
       })
     });
@@ -71,8 +71,8 @@ async function runProbe(options: Omit<XaiMcpProbeOptions, 'expectedAddress'>, to
   const output = data.output as Array<Record<string, unknown>>;
   const calls = output.filter(item => item.type === 'mcp_call');
   const invoked = calls.some(item =>
-    typeof item.name === 'string' && (item.name === tool || item.name === `sinaloa.${tool}`) &&
-    (item.server_label === undefined || item.server_label === 'sinaloa') &&
+    typeof item.name === 'string' && (item.name === tool || item.name === `envoi.${tool}`) &&
+    (item.server_label === undefined || item.server_label === 'envoi') &&
     item.error == null && item.status === 'completed'
   );
   if (!invoked) throw new Error(`xAI returned no successful ${tool} MCP call`);
@@ -84,20 +84,20 @@ async function runProbe(options: Omit<XaiMcpProbeOptions, 'expectedAddress'>, to
 }
 
 async function main() {
-  const apiUrl = process.env.SINALOA_API_URL;
-  const stateDir = process.env.SINALOA_STATE_DIR;
+  const apiUrl = process.env.ENVOI_API_URL;
+  const stateDir = process.env.ENVOI_STATE_DIR;
   const apiKey = process.env.XAI_API_KEY;
-  const mcpUrl = process.env.SINALOA_MCP_URL;
+  const mcpUrl = process.env.ENVOI_MCP_URL;
   if (!apiUrl || !stateDir || !apiKey || !mcpUrl) {
-    throw new Error('SINALOA_API_URL, SINALOA_STATE_DIR, XAI_API_KEY and SINALOA_MCP_URL are required');
+    throw new Error('ENVOI_API_URL, ENVOI_STATE_DIR, XAI_API_KEY and ENVOI_MCP_URL are required');
   }
   const store = new FileBridgeStore(stateDir);
   await store.init();
-  const connector = new SinaloaConnector(apiUrl, store);
-  const caseId = process.env.SINALOA_CASE_ID;
-  const expectedAssetId = process.env.SINALOA_EXPECTED_ASSET_ID;
+  const connector = new EnvoiConnector(apiUrl, store);
+  const caseId = process.env.ENVOI_CASE_ID;
+  const expectedAssetId = process.env.ENVOI_EXPECTED_ASSET_ID;
   if (Boolean(caseId) !== Boolean(expectedAssetId)) {
-    throw new Error('SINALOA_CASE_ID and SINALOA_EXPECTED_ASSET_ID must be set together');
+    throw new Error('ENVOI_CASE_ID and ENVOI_EXPECTED_ASSET_ID must be set together');
   }
   const accessToken = (await connector.mintMcpReadToken(caseId || null)).mcpAccessToken;
   const session = await store.load();

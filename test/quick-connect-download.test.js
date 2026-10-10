@@ -11,6 +11,18 @@ import path from 'node:path';
 const bundle = new URL('../web/downloads/envoi-openclaw.mjs', import.meta.url);
 const releaseFile = new URL('../web/downloads/release.json', import.meta.url);
 
+test('clean-cutover downloads expose only the Envoi artifacts and published tool names', async () => {
+  const names = (await readdir(new URL('../web/downloads/', import.meta.url))).filter(name => name.endsWith('.mjs')).sort();
+  assert.deepEqual(names, ['envoi-connector.mjs', 'envoi-openclaw.mjs']);
+  const release = JSON.parse(await readFile(releaseFile, 'utf8'));
+  assert.deepEqual(Object.keys(release.artifacts).sort(), names);
+  for (const name of names) {
+    const source = await readFile(new URL(`../web/downloads/${name}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /sinaloa_(?:agent_info|list_|read_case|send_|start_case|claim_|renew_|acknowledge_|complete_|fail_|begin_|asset_|grant_)/);
+    assert.doesNotMatch(source, /(?:SinaloaClient|SinaloaConnector|SinaloaError|SINALOA_API_URL|SINALOA_STATE_DIR)/);
+  }
+});
+
 async function listen(handler) {
   const server = createServer(handler);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -24,7 +36,7 @@ async function body(request) { let value = ''; for await (const chunk of request
 
 function run(executable, args, cwd, input = '') {
   const env = { ...process.env };
-  for (const key of Object.keys(env)) if (/^(OPENCLAW_|SINALOA_)/.test(key)) delete env[key];
+  for (const key of Object.keys(env)) if (/^(OPENCLAW_|ENVOI_)/.test(key)) delete env[key];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [executable, ...args], { cwd, env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
@@ -40,7 +52,7 @@ for (const artifact of ['envoi-openclaw.mjs', 'envoi-connector.mjs']) {
 test(`distributed ${artifact} runs without repository dependencies and protects saved credentials`, { timeout: 60_000 }, async t => {
   const bundle = new URL(`../web/downloads/${artifact}`, import.meta.url);
   const unified = artifact === 'envoi-connector.mjs';
-  const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-download-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'envoi-download-'));
   // Only remove the fixture directory created by this test, never an arbitrary configured path.
   assert.ok(path.resolve(directory).startsWith(path.resolve(tmpdir()) + path.sep));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -77,7 +89,7 @@ test(`distributed ${artifact} runs without repository dependencies and protects 
     if (request.url === '/api/agent-enroll') {
       enrollments++; order.push('enroll');
       if (JSON.parse(source).enrollmentToken !== enrollmentToken) return json(response, { error: 'wrong token' }, 401);
-      return json(response, { agent: { id: 'agent_download', address: 'download@agents.sinaloa.example' }, inbox: { id: 'inbox_download' },
+      return json(response, { agent: { id: 'agent_download', address: 'download@agents.envoi.example' }, inbox: { id: 'inbox_download' },
         agentApiToken: accessToken, agentRefreshToken: refreshToken,
         agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() }, 201);
     }
@@ -92,7 +104,7 @@ test(`distributed ${artifact} runs without repository dependencies and protects 
   });
   t.after(() => close(api.server));
   const handoff = { version: 1, runtime: 'openclaw', apiUrl: api.url, enrollmentToken,
-    expiresAt: new Date(Date.now() + 900_000).toISOString(), agentName: 'Download', address: 'download@agents.sinaloa.example' };
+    expiresAt: new Date(Date.now() + 900_000).toISOString(), agentName: 'Download', address: 'download@agents.envoi.example' };
   await writeFile(configPath, JSON.stringify({ gateway: { port: gateway.server.address().port, auth: { token: gatewayToken },
     http: { endpoints: { chatCompletions: { enabled: true } } } }, agents: { list: [{ id: 'main' }] } }), { mode: 0o600 });
 
@@ -148,7 +160,7 @@ test(`distributed ${artifact} runs without repository dependencies and protects 
 }
 
 test('distributed connector pairs a password-mode Gateway and stops before enrollment when Gateway auth is disabled', { timeout: 60_000 }, async t => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-download-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'envoi-download-'));
   assert.ok(path.resolve(directory).startsWith(path.resolve(tmpdir()) + path.sep));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const download = path.join(directory, 'download.mjs');
@@ -174,7 +186,7 @@ test('distributed connector pairs a password-mode Gateway and stops before enrol
       enrollments++;
       enrollmentRequestId = request.headers['x-request-id'];
       if (rejectEnrollment) return json(response, { error: `private server failure ${enrollmentToken}`, agentApiToken: accessToken }, 503);
-      return json(response, { agent: { id: 'agent_download', address: 'download@agents.sinaloa.example' }, inbox: { id: 'inbox_download' },
+      return json(response, { agent: { id: 'agent_download', address: 'download@agents.envoi.example' }, inbox: { id: 'inbox_download' },
         agentApiToken: accessToken, agentRefreshToken: 'download-fixture-refresh-secret',
         agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() }, 201);
     }
@@ -185,7 +197,7 @@ test('distributed connector pairs a password-mode Gateway and stops before enrol
   });
   t.after(() => close(api.server));
   const handoff = { version: 1, runtime: 'openclaw', apiUrl: api.url, enrollmentToken,
-    expiresAt: new Date(Date.now() + 900_000).toISOString(), agentName: 'Download', address: 'download@agents.sinaloa.example' };
+    expiresAt: new Date(Date.now() + 900_000).toISOString(), agentName: 'Download', address: 'download@agents.envoi.example' };
   const setup = async (name, auth) => {
     const configPath = path.join(directory, `${name}.json`);
     await writeFile(configPath, JSON.stringify({ gateway: { port: gateway.server.address().port, auth,

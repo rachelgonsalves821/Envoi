@@ -3,8 +3,8 @@ import { trackSessionRequest } from './session-lifecycle';
 import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 
-export const SESSION_EXPIRED_EVENT = 'sinaloa:session-expired';
-export const ACCOUNT_CHANGED_EVENT = 'sinaloa:account-changed';
+export const SESSION_EXPIRED_EVENT = 'envoi:session-expired';
+export const ACCOUNT_CHANGED_EVENT = 'envoi:account-changed';
 let expectedHumanId: string | null = null;
 
 // The account this tab is displaying. Tabs share one session cookie, so a write

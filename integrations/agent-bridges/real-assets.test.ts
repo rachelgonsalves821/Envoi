@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
 import { describe, expect, it, vi } from 'vitest';
-import { enrollConnector, SinaloaConnector, type WorkMessage } from '../../sdk/typescript/src/connector';
+import { enrollConnector, EnvoiConnector, type WorkMessage } from '../../sdk/typescript/src/connector';
 import { newCaseId } from '../../sdk/typescript/src/index';
 import { BrowserSession } from '../../test/browser-session.js';
 import { FileBridgeStore } from './file-store';
@@ -20,9 +20,9 @@ const test = serverEntry ? it : it.skip;
 
 async function startServer(dataDir: string, scannerUrl: string): Promise<{ baseUrl: string; child: ChildProcess }> {
   const child = spawn(process.execPath, [serverEntry!], {
-    cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0',
-      SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir,
-      SINALOA_MALWARE_SCANNER_URL: scannerUrl }, stdio: ['ignore', 'pipe', 'pipe']
+    cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0',
+      ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir,
+      ENVOI_MALWARE_SCANNER_URL: scannerUrl }, stdio: ['ignore', 'pipe', 'pipe']
   });
   try {
     const baseUrl = await new Promise<string>((resolve, reject) => {
@@ -80,12 +80,12 @@ async function owner(baseUrl: string, suffix: string, root: string, permissions:
   await store.init();
   const enrolled = await enrollConnector(baseUrl, enrollment.payload.enrollmentToken, store,
     { name: `P2 agent ${suffix}` });
-  return { ...enrolled, session, connector: new SinaloaConnector(baseUrl, store) };
+  return { ...enrolled, session, connector: new EnvoiConnector(baseUrl, store) };
 }
 
 describe('P2 clean case asset exchange against a real local server', () => {
   test('grants only the bound recipient a clean file and replays its grant safely', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sinaloa-p2-client-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'envoi-p2-client-'));
     let app: Awaited<ReturnType<typeof startServer>> | null = null;
     const scanner = http.createServer(async (req, res) => {
       for await (const _chunk of req) { /* consume the uploaded bytes */ }

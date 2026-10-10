@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SinaloaConnector, type ConnectorSession, type HumanInstructionWorkMessage, type WorkHandler } from '../src/connector';
+import { EnvoiConnector, type ConnectorSession, type HumanInstructionWorkMessage, type WorkHandler } from '../src/connector';
 
 const instruction = (): HumanInstructionWorkMessage => ({
   id: 'instruction_one', kind: 'humanInstruction', senderType: 'human', senderHumanId: 'human_one',
@@ -48,7 +48,7 @@ function fixture(message: Record<string, unknown> = instruction(), process?: Wor
   const handler: WorkHandler = { admit: vi.fn(async () => {}), process: process ?? vi.fn(async (_message, context) => {
     await context.reply('Here are the options.', 'bridge:instruction_one:reply:1');
   }) };
-  const connector = new SinaloaConnector('https://api.example', {
+  const connector = new EnvoiConnector('https://api.example', {
     load: async () => saved, save: async next => { saved = next; }
   }, { fetch: fetcher, handler });
   return { connector, requests, handler, saved: () => saved };

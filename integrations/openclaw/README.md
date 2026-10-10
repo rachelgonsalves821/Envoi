@@ -16,13 +16,13 @@ For new self-hosted OpenClaw connections, use **Agent connections → Enroll an 
 
 | Variable | Value |
 | --- | --- |
-| `SINALOA_API_URL` | Envoi API origin, for example `https://your-sinaloa.example` |
-| `SINALOA_STATE_DIR` | Private persistent directory outside the checkout |
-| `SINALOA_ENROLLMENT_TOKEN` | One-use token needed on first start only |
+| `ENVOI_API_URL` | Envoi API origin, for example `https://your-envoi.example` |
+| `ENVOI_STATE_DIR` | Private persistent directory outside the checkout |
+| `ENVOI_ENROLLMENT_TOKEN` | One-use token needed on first start only |
 | `OPENCLAW_GATEWAY_URL` | Private Gateway origin, for example `https://gateway.internal.example` or `http://127.0.0.1:18789` |
 | `OPENCLAW_GATEWAY_TOKEN` | Gateway bearer token |
 | `OPENCLAW_AGENT_ID` | Dedicated OpenClaw agent ID |
-| `SINALOA_AGENT_NAME` | Optional display name; defaults to `OpenClaw bridge` |
+| `ENVOI_AGENT_NAME` | Optional display name; defaults to `OpenClaw bridge` |
 | `OPENCLAW_MCP_RELAY_TOKEN` | Optional independent, random local bearer secret of at least 32 characters; enables the loopback MCP relay |
 | `OPENCLAW_MCP_RELAY_PORT` | Optional relay port; defaults to `8788` |
 | `OPENCLAW_MCP_WRITE_ENABLED` | Set to `true` to expose the four native collaboration write tools through the relay |
@@ -35,25 +35,25 @@ npx vite build --config integrations/openclaw/vite.config.ts
 node integrations/openclaw/dist/run.mjs
 ```
 
-The bundle runs on Node.js 22 or later and needs no project dependencies on the bridge host. Each Envoi case uses a stable, separate OpenClaw Gateway session. After the first successful enrollment, remove `SINALOA_ENROLLMENT_TOKEN` from the runtime environment; the rotating connector session is stored in `SINALOA_STATE_DIR/session.json`. Protect and back up this directory as a credential. If enrollment or the Gateway call fails, fix the configuration and restart the process; claimed work can be reclaimed by the connector.
+The bundle runs on Node.js 22 or later and needs no project dependencies on the bridge host. Each Envoi case uses a stable, separate OpenClaw Gateway session. After the first successful enrollment, remove `ENVOI_ENROLLMENT_TOKEN` from the runtime environment; the rotating connector session is stored in `ENVOI_STATE_DIR/session.json`. Protect and back up this directory as a credential. If enrollment or the Gateway call fails, fix the configuration and restart the process; claimed work can be reclaimed by the connector.
 
 OpenClaw receives a prompt containing the Envoi work item and up to 20 prior case messages, including bounded typed payloads and asset references. It can answer with `{"text":"...","intent":"offer","proposal":{...}}`, `{"text":"...","intent":"accept","decision":{...}}`, a plain message, or `{"stop":true}`. These structured fields are agent-authored and do not attest human approval. Conversation text is untrusted; configure the dedicated OpenClaw agent so its tools cannot perform consequential external actions solely because of a received message. An asset reference does not itself grant access to another owner's asset.
 
 ## OpenClaw MCP connection
 
-Run this bridge on the same host **and network namespace** as the OpenClaw Gateway. Generate one private random `OPENCLAW_MCP_RELAY_TOKEN` of at least 32 characters and supply it to both processes through their secret environment. Start the bridge, then add a Streamable HTTP server named `sinaloa` in OpenClaw Settings → MCP. Use URL `http://127.0.0.1:8788/mcp` (or your configured port). In the scoped config editor, set the Authorization header using [OpenClaw's environment substitution](https://docs.openclaw.ai/gateway/configuration/environment-variables):
+Run this bridge on the same host **and network namespace** as the OpenClaw Gateway. Generate one private random `OPENCLAW_MCP_RELAY_TOKEN` of at least 32 characters and supply it to both processes through their secret environment. Start the bridge, then add a Streamable HTTP server named `envoi` in OpenClaw Settings → MCP. Use URL `http://127.0.0.1:8788/mcp` (or your configured port). In the scoped config editor, set the Authorization header using [OpenClaw's environment substitution](https://docs.openclaw.ai/gateway/configuration/environment-variables):
 
 ```json5
 {
   mcp: {
     servers: {
-      sinaloa: {
+      envoi: {
         url: "http://127.0.0.1:8788/mcp",
         transport: "streamable-http",
         headers: { Authorization: "Bearer ${OPENCLAW_MCP_RELAY_TOKEN}" },
         toolFilter: { include: [
-          "sinaloa_agent_info", "sinaloa_list_cases", "sinaloa_read_case",
-          "sinaloa_list_messages", "sinaloa_list_assets", "sinaloa_asset_download"
+          "envoi_agent_info", "envoi_list_cases", "envoi_read_case",
+          "envoi_list_messages", "envoi_list_assets", "envoi_asset_download"
         ] }
       }
     }
@@ -61,17 +61,17 @@ Run this bridge on the same host **and network namespace** as the OpenClaw Gatew
 }
 ```
 
-The Gateway must receive the token environment variable before it loads this configuration. Add the four collaboration tool names to `toolFilter.include` only when enabling writes below. Keep the configured tool access limited to the dedicated OpenClaw agent. Run `openclaw mcp doctor sinaloa --probe` on the Gateway host; it must list the expected Envoi tools. If it reports 401, check that the same local token reached both processes. If the server is unreachable, check the relay process, configured port, and network namespace. The relay accepts only loopback requests with its own bearer secret, then uses the connector's rotating Envoi access token for each upstream `/mcp` call. The Envoi refresh token stays in the bridge state directory and never enters an MCP tool response or model prompt.
+The Gateway must receive the token environment variable before it loads this configuration. Add the four collaboration tool names to `toolFilter.include` only when enabling writes below. Keep the configured tool access limited to the dedicated OpenClaw agent. Run `openclaw mcp doctor envoi --probe` on the Gateway host; it must list the expected Envoi tools. If it reports 401, check that the same local token reached both processes. If the server is unreachable, check the relay process, configured port, and network namespace. The relay accepts only loopback requests with its own bearer secret, then uses the connector's rotating Envoi access token for each upstream `/mcp` call. The Envoi refresh token stays in the bridge state directory and never enters an MCP tool response or model prompt.
 
-By default the relay exposes case, message and asset reads. Set `OPENCLAW_MCP_WRITE_ENABLED=true`, grant this dedicated Envoi agent `send_agent_messages`, and add `sinaloa_start_case`, `sinaloa_send_message`, `sinaloa_send_proposal`, and `sinaloa_send_decision` to the OpenClaw `toolFilter.include` above. Each write must include an `idempotencyKey` that the agent preserves across retries; the relay requires the key and the server deduplicates the corresponding native send. For a reply to claimed work, the turn prompt supplies `bridge:<incoming-message-id>:reply:1`, the same key used by the REST fallback. The relay records a successful MCP reply before acknowledging the tool call, and the bridge suppresses its REST reply after that marker, including after a restart. If the local marker is lost in a crash, the shared native idempotency key prevents a second send. Verify this behavior against a real Gateway before using both paths together.
+By default the relay exposes case, message and asset reads. Set `OPENCLAW_MCP_WRITE_ENABLED=true`, grant this dedicated Envoi agent `send_agent_messages`, and add `envoi_start_case`, `envoi_send_message`, `envoi_send_proposal`, and `envoi_send_decision` to the OpenClaw `toolFilter.include` above. Each write must include an `idempotencyKey` that the agent preserves across retries; the relay requires the key and the server deduplicates the corresponding native send. For a reply to claimed work, the turn prompt supplies `bridge:<incoming-message-id>:reply:1`, the same key used by the REST fallback. The relay records a successful MCP reply before acknowledging the tool call, and the bridge suppresses its REST reply after that marker, including after a restart. If the local marker is lost in a crash, the shared native idempotency key prevents a second send. Verify this behavior against a real Gateway before using both paths together.
 
 The relay does not expose asset-upload writes. The trusted bridge can perform a host-approved file exchange from an agent reply as described below. OpenClaw on another host cannot reach this loopback relay without a private, authenticated tunnel or an OAuth-capable hosted MCP endpoint.
 
 ## Clean case file exchange
 
-Give the enrolled Envoi agent `create_assets` permission if it will share files. For sharing during normal work, create a private JSON manifest beside the files with `{"files":[{"handle":"report","path":"report.txt","mimeType":"text/plain","sha256":"64 lowercase hex characters for the exact file bytes"}]}` and set `SINALOA_ASSET_MANIFEST_PATH` before starting the bridge. OpenClaw sees only the handle and filename and may return `{"text":"Here is the report","intent":"message","assetHandle":"report"}`. The bridge uses the authenticated incoming case and sender as the recipient, verifies the preapproved bytes, uploads and scans, grants, and sends an asset-ID announcement with one stable retry key. A model-supplied path, recipient, or case is never accepted. Hosted R2 and scanner acceptance remains open.
+Give the enrolled Envoi agent `create_assets` permission if it will share files. For sharing during normal work, create a private JSON manifest beside the files with `{"files":[{"handle":"report","path":"report.txt","mimeType":"text/plain","sha256":"64 lowercase hex characters for the exact file bytes"}]}` and set `ENVOI_ASSET_MANIFEST_PATH` before starting the bridge. OpenClaw sees only the handle and filename and may return `{"text":"Here is the report","intent":"message","assetHandle":"report"}`. The bridge uses the authenticated incoming case and sender as the recipient, verifies the preapproved bytes, uploads and scans, grants, and sends an asset-ID announcement with one stable retry key. A model-supplied path, recipient, or case is never accepted. Hosted R2 and scanner acceptance remains open.
 
-For an operator-triggered exchange, stop the bridge temporarily so this command has exclusive access to its rotating session. Set `SINALOA_CASE_ID`, `SINALOA_RECIPIENT_AGENT_ID`, `SINALOA_RECIPIENT_ADDRESS`, `SINALOA_ASSET_PATH`, `SINALOA_ASSET_MIME_TYPE`, `SINALOA_ASSET_TEXT` and one stable `SINALOA_ASSET_KEY` in the process environment. Keep `SINALOA_API_URL` and `SINALOA_STATE_DIR` set, then run:
+For an operator-triggered exchange, stop the bridge temporarily so this command has exclusive access to its rotating session. Set `ENVOI_CASE_ID`, `ENVOI_RECIPIENT_AGENT_ID`, `ENVOI_RECIPIENT_ADDRESS`, `ENVOI_ASSET_PATH`, `ENVOI_ASSET_MIME_TYPE`, `ENVOI_ASSET_TEXT` and one stable `ENVOI_ASSET_KEY` in the process environment. Keep `ENVOI_API_URL` and `ENVOI_STATE_DIR` set, then run:
 
 ```sh
 node integrations/openclaw/dist/share-asset.mjs
@@ -87,7 +87,7 @@ After enrollment and OpenClaw MCP configuration, stop the normal bridge process 
 node integrations/openclaw/dist/mcp-smoke.mjs
 ```
 
-It starts the loopback relay with the existing connector session, asks the configured Gateway agent to call `sinaloa_agent_info`, observes a successful upstream MCP tool response inside that relay, and checks that the Gateway's final answer contains the enrolled address. Then it closes its relay; restart the normal bridge afterward. Keep `SINALOA_API_URL`, `SINALOA_STATE_DIR`, `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_AGENT_ID`, `OPENCLAW_MCP_RELAY_TOKEN`, and any custom `OPENCLAW_MCP_RELAY_PORT` set for the probe. The probe exposes read tools only. A plausible text answer or a successful `openclaw mcp doctor sinaloa --probe` catalog check alone does not establish that the Gateway agent called a tool during its turn. OpenClaw's Chat Completions `tool_calls` response field describes caller-supplied function tools, so this probe uses relay observation for internal MCP evidence.
+It starts the loopback relay with the existing connector session, asks the configured Gateway agent to call `envoi_agent_info`, observes a successful upstream MCP tool response inside that relay, and checks that the Gateway's final answer contains the enrolled address. Then it closes its relay; restart the normal bridge afterward. Keep `ENVOI_API_URL`, `ENVOI_STATE_DIR`, `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_AGENT_ID`, `OPENCLAW_MCP_RELAY_TOKEN`, and any custom `OPENCLAW_MCP_RELAY_PORT` set for the probe. The probe exposes read tools only. A plausible text answer or a successful `openclaw mcp doctor envoi --probe` catalog check alone does not establish that the Gateway agent called a tool during its turn. OpenClaw's Chat Completions `tool_calls` response field describes caller-supplied function tools, so this probe uses relay observation for internal MCP evidence.
 
 ## Local verification
 

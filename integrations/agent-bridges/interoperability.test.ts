@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { SinaloaConnector, type ConnectorSession, type WorkMessage } from '../../sdk/typescript/src/connector';
+import { EnvoiConnector, type ConnectorSession, type WorkMessage } from '../../sdk/typescript/src/connector';
 import { putSignedAsset } from '../../sdk/typescript/src/index';
 import { openClawTurn } from '../openclaw/turn';
 import { bridgeHandler } from './bridge';
@@ -14,7 +14,7 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 const workMessage = (id: string, caseId: string, intent = 'request'): WorkMessage => ({
   id, caseId, intent, text: `Unsolicited work ${id}`,
   status: 'delivered', senderAgentId: 'agent_sender', recipientAgentId: 'agent_bridge',
-  from: { agentId: 'agent_sender', address: 'sender@sinaloa.mail' }
+  from: { agentId: 'agent_sender', address: 'sender@envoi.mail' }
 });
 
 class MockHost {
@@ -63,7 +63,7 @@ class MockHost {
         ? { text: 'Grok proposal for A', intent: 'offer', proposal: { value: 'A' } }
         : { text: 'Grok decision for B', intent: 'accept', decision: { proposalMessageId: 'msg_prior_b' } };
       return json({ status: 'completed', output: [
-        { type: 'mcp_call', name: 'sinaloa.sinaloa_read_case', server_label: 'sinaloa', status: 'completed' },
+        { type: 'mcp_call', name: 'envoi.envoi_read_case', server_label: 'envoi', status: 'completed' },
         { type: 'message', content: [{ type: 'output_text', text: JSON.stringify(answer) }] }
       ] });
     }
@@ -76,7 +76,7 @@ class MockHost {
       const bytes = this.signedBytes.get(assetId);
       return bytes ? new Response(bytes as BodyInit, { status: 200 }) : json({ error: 'Missing asset' }, 404);
     }
-    if (url.hostname !== 'sinaloa.example.test') throw new Error('Unexpected network target');
+    if (url.hostname !== 'envoi.example.test') throw new Error('Unexpected network target');
     if (url.pathname === '/api/agent-token') {
       const body = JSON.parse(String(init.body));
       expect(body.rotationId).toMatch(/^[0-9a-f-]{36}$/);
@@ -170,12 +170,12 @@ class MockHost {
 }
 
 async function fixture() {
-  const directory = await mkdtemp(path.join(tmpdir(), 'sinaloa-bridge-interoperability-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'envoi-bridge-interoperability-'));
   const store = new FileBridgeStore(directory);
   await store.init();
   const host = new MockHost();
   const session: ConnectorSession = {
-    agentId: 'agent_bridge', inboxId: 'inbox_bridge', address: 'bridge@sinaloa.mail',
+    agentId: 'agent_bridge', inboxId: 'inbox_bridge', address: 'bridge@envoi.mail',
     agentApiToken: host.accessToken, agentRefreshToken: host.refreshToken,
     agentTokenExpiresAt: new Date(Date.now() - 1_000).toISOString(),
     agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString(), cursor: null
@@ -190,14 +190,14 @@ async function exerciseBridge(provider: 'openclaw' | 'xai') {
     state.host.queue(workMessage('msg_a', 'case_a'));
     state.host.queue(workMessage('msg_b', 'case_b', 'offer'));
     state.host.failCompletionOnceFor = 'msg_a';
-    let connector: SinaloaConnector;
+    let connector: EnvoiConnector;
     const options = { fetch: state.host.fetch };
     const turn = provider === 'openclaw'
       ? openClawTurn({ gatewayUrl: 'https://gateway.example.test', gatewayToken: 'gateway-secret', agentId: 'bridge-agent', fetch: state.host.fetch, history: caseId => connector.listCaseMessages(caseId) })
       : xaiTurn({ apiKey: 'xai-secret', model: 'grok-test', fetch: state.host.fetch, history: caseId => connector.listCaseMessages(caseId),
-        mcp: { serverUrl: 'https://sinaloa.example.test/mcp', accessToken: async caseId =>
+        mcp: { serverUrl: 'https://envoi.example.test/mcp', accessToken: async caseId =>
           (await connector.mintMcpReadToken(caseId)).mcpAccessToken } });
-    connector = new SinaloaConnector('https://sinaloa.example.test', state.store, { ...options, handler: bridgeHandler(state.store, turn) });
+    connector = new EnvoiConnector('https://envoi.example.test', state.store, { ...options, handler: bridgeHandler(state.store, turn) });
     await expect(connector.processWorkOnce()).rejects.toThrow('Temporary settlement failure');
     expect(state.host.rotationCount).toBe(1);
     expect(state.host.replies.size).toBe(1);
@@ -205,7 +205,7 @@ async function exerciseBridge(provider: 'openclaw' | 'xai') {
     const saved = await state.store.replyFor('msg_a');
     expect(saved).toEqual({ text: provider === 'openclaw' ? 'Proposal for A' : 'Grok proposal for A', intent: 'offer', proposal: { value: 'A' } });
     // A new connector/handler uses the same persisted session and decision.
-    connector = new SinaloaConnector('https://sinaloa.example.test', state.store, { ...options, handler: bridgeHandler(state.store, turn) });
+    connector = new EnvoiConnector('https://envoi.example.test', state.store, { ...options, handler: bridgeHandler(state.store, turn) });
     await expect(connector.processWorkOnce()).resolves.toBe(true);
     expect(state.host.replies.size).toBe(1);
     expect(state.host.providerCalls).toEqual([`${provider}:msg_a`]);
@@ -215,15 +215,15 @@ async function exerciseBridge(provider: 'openclaw' | 'xai') {
     if (provider === 'xai') {
       expect(state.host.xaiMcpTools).toHaveLength(2);
       expect(state.host.mcpReadTokens.map(item => item.caseId)).toEqual(['case_a', 'case_b']);
-      expect(state.host.xaiMcpTools[0]).toMatchObject({ type: 'mcp', server_url: 'https://sinaloa.example.test/mcp', authorization: 'Bearer mcp-read-1' });
+      expect(state.host.xaiMcpTools[0]).toMatchObject({ type: 'mcp', server_url: 'https://envoi.example.test/mcp', authorization: 'Bearer mcp-read-1' });
       expect(state.host.xaiMcpTools[1]).toMatchObject({ authorization: 'Bearer mcp-read-2' });
-      expect(state.host.xaiMcpTools[0].allowed_tools).toEqual(['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']);
+      expect(state.host.xaiMcpTools[0].allowed_tools).toEqual(['envoi_agent_info', 'envoi_read_case', 'envoi_list_messages']);
     }
     const replies = [...state.host.replies.values()];
     expect(replies.map(reply => reply.caseId).sort()).toEqual(['case_a', 'case_b']);
     expect(replies.find(reply => reply.caseId === 'case_a')?.payload).toEqual({ proposal: { value: 'A' } });
     expect(replies.find(reply => reply.caseId === 'case_b')?.payload).toEqual({ decision: { proposalMessageId: 'msg_prior_b' } });
-    expect(replies.every(reply => reply.senderAgentId === 'agent_bridge' && reply.recipientEmail === 'sender@sinaloa.mail')).toBe(true);
+    expect(replies.every(reply => reply.senderAgentId === 'agent_bridge' && reply.recipientEmail === 'sender@envoi.mail')).toBe(true);
     expect((await state.store.load())?.agentRefreshToken).toBe(state.host.refreshToken);
     state.host.queue(workMessage('msg_c', 'case_a'));
     state.host.revoked = true;
@@ -237,20 +237,20 @@ describe('A4 bridge interoperability with deterministic hosts', () => {
   it('OpenClaw handles two unsolicited cases, reuses a persisted typed reply on restart, rotates credentials and stops on revoke', async () => exerciseBridge('openclaw'));
   it('Grok through xAI Responses handles the same two-case and credential fixture', async () => exerciseBridge('xai'));
 
-  it('does not send a Grok reply when xAI only claims to have read Sinaloa MCP', async () => {
+  it('does not send a Grok reply when xAI only claims to have read Envoi MCP', async () => {
     const turn = xaiTurn({ apiKey: 'xai-secret', model: 'grok-test',
-      mcp: { serverUrl: 'https://sinaloa.example.test/mcp', accessToken: async () => 'scoped-read-token' },
+      mcp: { serverUrl: 'https://envoi.example.test/mcp', accessToken: async () => 'scoped-read-token' },
       fetch: async () => json({ status: 'completed', output: [
         { type: 'message', content: [{ type: 'output_text', text: '{"text":"I checked","intent":"message"}' }] }
       ] }) });
     await expect(turn(workMessage('msg_a', 'case_a'), new AbortController().signal))
-      .rejects.toThrow('did not complete the required Envoi MCP sinaloa_read_case call');
+      .rejects.toThrow('did not complete the required Envoi MCP envoi_read_case call');
   });
 
   it('uses SDK asset helpers for owner-side signed upload and scanner-gated download without proxying bytes through the model', async () => {
     const state = await fixture();
     try {
-      const connector = new SinaloaConnector('https://sinaloa.example.test', state.store, { fetch: state.host.fetch });
+      const connector = new EnvoiConnector('https://envoi.example.test', state.store, { fetch: state.host.fetch });
       const bytes = new TextEncoder().encode('safe owner-side asset');
       const checksumSha256 = crypto.createHash('sha256').update(bytes).digest('base64');
       const begun = await connector.beginAssetUpload('asset-case-a-answer-1', { filename: 'answer.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256, caseId: 'case_a' });
