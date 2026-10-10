@@ -1,0 +1,47 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-resume-query-cursor",
+  "description": "Resume with ?cursor= when the client cannot set headers (Last-Event-ID wins when both are sent).",
+  "kind": "sse-session",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events?cursor=00000000000000000043",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream"
+    }
+  },
+  "frames": [
+    {
+      "id": "00000000000000000044",
+      "event": "work.available",
+      "data": {
+        "id": "evt_work_44",
+        "type": "work.available",
+        "createdAt": "2026-10-09T12:00:00.000Z",
+        "sequence": 44,
+        "cursor": "00000000000000000044",
+        "agentId": "agent_example",
+        "reason": "agent_resumed"
+      },
+      "schema": "workAvailableEvent"
+    },
+    {
+      "event": "ready",
+      "data": {
+        "inboxId": "inbox_example",
+        "at": "2026-10-09T12:00:00.000Z",
+        "cursor": "00000000000000000044"
+      },
+      "schema": "readyFrame"
+    }
+  ],
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Claim once (work.available and ready collapse into one in-flight claim plus at most one follow-up)."
+  }
+}

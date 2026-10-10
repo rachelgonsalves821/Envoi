@@ -1,0 +1,31 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "delta-limit-invalid",
+  "description": "A limit outside 1-200 with a valid cursor: the cursor stays good.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events/delta?cursor=00000000000000000104&limit=500",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "EVENT_LIMIT_INVALID",
+      "error": "EVENT_LIMIT_INVALID",
+      "message": "The event page limit must be an integer from 1 to 200.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "claim": false,
+    "next": "Keep the stored cursor; fix the limit (client bug) instead of retrying the same request."
+  }
+}

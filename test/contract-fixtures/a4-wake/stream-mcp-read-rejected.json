@@ -1,0 +1,32 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-mcp-read-rejected",
+  "description": "A model-held mcp_read token cannot open the event stream.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events",
+    "headers": {
+      "authorization": "Bearer sinaloa_mcp_read_PLACEHOLDER_active",
+      "accept": "text/event-stream"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "A valid agent credential is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "refresh_then_retry_once",
+    "guidance": "none",
+    "claim": false,
+    "next": "Use the connector access token; the model never opens streams."
+  }
+}

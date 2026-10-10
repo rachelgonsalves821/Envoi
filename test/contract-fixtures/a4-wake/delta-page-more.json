@@ -1,0 +1,59 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "delta-page-more",
+  "description": "First page of gap recovery after replay_required; more pages follow.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events/delta?cursor=00000000000000000101&limit=2",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "deltaPage",
+    "body": {
+      "events": [
+        {
+          "id": "evt_delivered_102",
+          "type": "message.delivered",
+          "createdAt": "2026-10-09T12:00:00.000Z",
+          "sequence": 102,
+          "cursor": "00000000000000000102",
+          "messageId": "msg_gap_2",
+          "caseId": "case_example",
+          "senderAgentId": "agent_counterparty",
+          "recipientAgentId": "agent_example",
+          "senderInboxId": "inbox_counterparty",
+          "recipientInboxId": "inbox_example",
+          "deliveryId": "delivery_msg_gap_2"
+        },
+        {
+          "id": "evt_delivered_103",
+          "type": "message.delivered",
+          "createdAt": "2026-10-09T12:00:00.000Z",
+          "sequence": 103,
+          "cursor": "00000000000000000103",
+          "messageId": "msg_gap_3",
+          "caseId": "case_example",
+          "senderAgentId": "agent_counterparty",
+          "recipientAgentId": "agent_example",
+          "senderInboxId": "inbox_counterparty",
+          "recipientInboxId": "inbox_example",
+          "deliveryId": "delivery_msg_gap_3"
+        }
+      ],
+      "nextCursor": "00000000000000000103",
+      "hasMore": true
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": false,
+    "next": "Apply the events, then request again with cursor = nextCursor."
+  }
+}

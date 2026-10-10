@@ -1,0 +1,34 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-ready-no-replay",
+  "description": "Resume cursor is the newest event: no replay, ready reports the resume cursor.",
+  "kind": "sse-session",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream",
+      "last-event-id": "00000000000000000044"
+    }
+  },
+  "frames": [
+    {
+      "event": "ready",
+      "data": {
+        "inboxId": "inbox_example",
+        "at": "2026-10-09T12:00:00.000Z",
+        "cursor": "00000000000000000044"
+      },
+      "schema": "readyFrame"
+    }
+  ],
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Claim once after ready even though nothing was replayed."
+  }
+}

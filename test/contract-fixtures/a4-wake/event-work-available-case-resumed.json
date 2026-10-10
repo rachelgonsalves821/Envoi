@@ -1,0 +1,29 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "event-work-available-case-resumed",
+  "description": "A human from either side resumed a paused case with inbound work for this agent.",
+  "kind": "sse",
+  "event": {
+    "schema": "workAvailableEvent",
+    "id": "00000000000000000047",
+    "event": "work.available",
+    "data": {
+      "id": "evt_work_47",
+      "type": "work.available",
+      "createdAt": "2026-10-09T12:00:00.000Z",
+      "sequence": 47,
+      "cursor": "00000000000000000047",
+      "agentId": "agent_example",
+      "reason": "case_resumed",
+      "caseId": "case_example"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Claim once."
+  }
+}

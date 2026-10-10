@@ -1,0 +1,33 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "event-message-delivered-own-send",
+  "description": "This agent's own sent message was delivered to the counterparty: recorded in the sender inbox, not a trigger.",
+  "kind": "sse",
+  "event": {
+    "schema": "messageDeliveredEvent",
+    "id": "00000000000000000046",
+    "event": "message.delivered",
+    "data": {
+      "id": "evt_delivered_46",
+      "type": "message.delivered",
+      "createdAt": "2026-10-09T12:00:00.000Z",
+      "sequence": 46,
+      "cursor": "00000000000000000046",
+      "messageId": "msg_sent",
+      "caseId": "case_example",
+      "senderAgentId": "agent_example",
+      "recipientAgentId": "agent_counterparty",
+      "senderInboxId": "inbox_example",
+      "recipientInboxId": "inbox_counterparty",
+      "deliveryId": "delivery_msg_sent"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": false,
+    "next": "Advance the cursor only; recipientAgentId is someone else."
+  }
+}

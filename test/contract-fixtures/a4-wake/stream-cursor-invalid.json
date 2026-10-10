@@ -1,0 +1,33 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-cursor-invalid",
+  "description": "A malformed resume cursor (not 20 digits) is rejected before the stream opens.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream",
+      "last-event-id": "not-a-cursor"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "EVENT_CURSOR_INVALID",
+      "error": "EVENT_CURSOR_INVALID",
+      "message": "The event cursor is invalid. Reconnect with from=latest.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Discard this inbox cursor, reconnect with from=latest, and claim once."
+  }
+}

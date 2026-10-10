@@ -1,0 +1,37 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "stream-keepalive",
+  "description": "A quiet live stream sends a keepalive comment every 20 s; 60 s without any frame means the stream is dead.",
+  "kind": "sse-session",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "accept": "text/event-stream",
+      "last-event-id": "00000000000000000044"
+    }
+  },
+  "frames": [
+    {
+      "event": "ready",
+      "data": {
+        "inboxId": "inbox_example",
+        "at": "2026-10-09T12:00:00.000Z",
+        "cursor": "00000000000000000044"
+      },
+      "schema": "readyFrame"
+    },
+    {
+      "comment": "keepalive 2026-10-09T12:00:00.000Z"
+    }
+  ],
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": true,
+    "next": "Claim once after ready; keep the 30-60 s jittered safety claim; reconnect after 60 s of silence."
+  }
+}

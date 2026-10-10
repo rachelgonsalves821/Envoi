@@ -1,0 +1,31 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "claim-idle-no-hint",
+  "description": "Nothing claimable and nothing scheduled: no hint fields.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimIdleNoHint",
+    "body": {
+      "work": null,
+      "state": "idle"
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": false,
+    "next": "Wait for a trigger or the 30-60 s jittered safety claim."
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "claim-paused-no-hint",
+  "description": "A paused claim never carries the hint.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_paused",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimPausedNoHint",
+    "body": {
+      "work": null,
+      "state": "paused"
+    }
+  },
+  "client": {
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "none",
+    "claim": false,
+    "next": "Stop claiming; read GET /api/agent/status after every ready or reconnect and every 30-60 s; resume on agent.resumed or state active."
+  }
+}

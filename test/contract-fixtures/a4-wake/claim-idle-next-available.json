@@ -1,0 +1,33 @@
+{
+  "contract": "a4-wake",
+  "version": 1,
+  "id": "claim-idle-next-available",
+  "description": "Nothing claimable now; this agent's retryable work becomes claimable in 30 s.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "headers": {
+      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimIdleWithHint",
+    "body": {
+      "work": null,
+      "state": "idle",
+      "nextAvailableAt": "2026-10-09T12:00:30.000Z",
+      "nextAvailableInMs": 30000
+    }
+  },
+  "client": {
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "claim": false,
+    "next": "Schedule one claim after nextAvailableInMs (at least 1 s), unless an event or the safety timer triggers one first."
+  }
+}
