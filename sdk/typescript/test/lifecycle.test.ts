@@ -160,12 +160,14 @@ describe('lifecycle request and work races', () => {
     vi.useFakeTimers(); const store = memory(); const stop = new AbortController();
     const fetcher = vi.fn(async (url: any) => {
       if (String(url).endsWith('/claim')) { stop.abort(); return response(fixture('idle-claim')); }
+      if (String(url).endsWith('/api/agent/status')) return response(fixture('paused-status'));
+      if (String(url).includes('/events')) return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
       return Response.json({ events: [], hasMore: false, nextCursor: null });
     });
     const c = new SinaloaConnector('https://api.example', store, { fetch: fetcher, handler, pollIntervalMs: 60000 });
     await c.observeEvent(fixture('event-agent-paused').event.data);
     const running = c.run(stop.signal);
-    await vi.advanceTimersByTimeAsync(1); expect(fetcher).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1); expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/claim'))).toBe(false);
     await c.observeEvent(fixture('event-agent-resumed').event.data);
     await vi.advanceTimersByTimeAsync(1); await running;
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/claim'))).toBe(true);

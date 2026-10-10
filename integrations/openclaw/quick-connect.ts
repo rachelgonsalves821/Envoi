@@ -135,7 +135,7 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
     if (session.address !== handoff.address) throw new QuickConnectError('The enrolled address differs from the setup address. Inspect Agent connections before starting');
     const connector = new SinaloaConnector(handoff.apiUrl, store, { fetch: fetcher });
     options.onProgress?.('Checking Envoi access');
-    try { await connector.pollOnce(); await reportChecks(handoff.apiUrl, connector, 'ready', fetcher); }
+    try { await connector.checkStatus(); await reportChecks(handoff.apiUrl, connector, 'ready', fetcher); }
     catch (error) {
       await reportChecks(handoff.apiUrl, connector, 'error', fetcher, 'CONNECTION_TEST_FAILED').catch(() => {});
       throw error;
@@ -155,7 +155,7 @@ export async function startQuickConnect(stateDir: string, signal: AbortSignal, o
     const openclaw = await discoverOpenClaw(resumeDiscovery(saved.openclaw, { env: options.env }));
     await preflightOpenClaw(openclaw, { fetch: fetcher, signal });
     bridge = await createOpenClawBridge({ ...openclaw, apiUrl: saved.apiUrl, stateDir: directory }, { ...options, fetch: fetcher });
-    await bridge.connector.pollOnce();
+    await bridge.connector.checkStatus();
     await reportChecks(saved.apiUrl, bridge.connector, 'ready', fetcher);
     options.onReady?.();
     await bridge.connector.run(signal);

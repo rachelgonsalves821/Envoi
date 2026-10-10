@@ -317,9 +317,9 @@ export async function installOutboxGate(server, caseId) {
 
 // Minimal SSE reader over fetch. Collects frames as { id, event, data }.
 // `id` is undefined for frames without an id line (e.g. credential.ended).
-export async function openEventStream(server, inboxId, token, { headers = {} } = {}) {
+export async function openEventStream(server, inboxId, token, { headers = {}, query = '' } = {}) {
   const controller = new AbortController();
-  const response = await fetch(`${server.baseUrl}/api/inboxes/${inboxId}/events`, {
+  const response = await fetch(`${server.baseUrl}/api/inboxes/${inboxId}/events${query}`, {
     headers: { accept: 'text/event-stream', authorization: `Bearer ${token}`, ...headers },
     signal: controller.signal
   });

@@ -165,7 +165,7 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     options.onProgress?.('Verifying runtime tools and Envoi access');
     bridge = await adapter.createBridge(config, context);
     await bridge.connector.start();
-    await bridge.connector.pollOnce();
+    await bridge.connector.checkStatus();
     const paused = (await bridge.connector.lifecycle()).paused;
     if (!paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
     const checks = paused ? 'deferred_while_paused' as const : 'passed' as const;
@@ -211,7 +211,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         bridge = await adapter.createBridge(config, context);
         bridge.connector.onState(lifecycle => { diagnostics = { ...diagnostics, status: lifecycle.state === 'DEGRADED' ? 'waiting' : lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance }; });
         await bridge.connector.start();
-        await bridge.connector.pollOnce();
+        await bridge.connector.checkStatus();
         if (!(await bridge.connector.lifecycle()).paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
         const lifecycle = await bridge.connector.lifecycle();
         diagnostics = { status: lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance, runtimeChecks: lifecycle.paused ? 'deferred_while_paused' : 'passed', checkedAt: new Date().toISOString(), ...adapter.describe(config) };
@@ -272,7 +272,7 @@ export async function doctorConnection(stateDir: string, resolveAdapter: Adapter
     const config = await adapter.discover(context, saved.configuration);
     await adapter.preflight(config, context);
     const store = new FileBridgeStore(directory);
-    await new SinaloaConnector(saved.apiUrl, store, { fetch: fetcher }).pollOnce();
+    await new SinaloaConnector(saved.apiUrl, store, { fetch: fetcher }).checkStatus();
     return { ...await connectionStatus(directory), runtimeChecks: 'passed', ...adapter.describe(config) };
   } finally { await unlock(); }
 }
