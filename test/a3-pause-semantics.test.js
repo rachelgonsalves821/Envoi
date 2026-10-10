@@ -56,7 +56,8 @@ test('active sender → paused recipient: 202 queued, delivered, work held until
   const idle = await claim(baseUrl, bob.agentApiToken);
   assert.equal(idle.status, 200, idle.text);
   assertSchema('claimIdle', idle.payload);
-  assert.deepEqual(idle.payload, { work: null, state: 'idle' });
+  // a4-wake §5 adds an optional hint; here it is the expiry of the lease bob still holds.
+  assert.deepEqual([idle.payload.work, idle.payload.state], [null, 'idle']);
 });
 
 test('delivered work then recipient paused: work is held (claim state paused) and offered after resume', async t => {
