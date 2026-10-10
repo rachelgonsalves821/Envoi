@@ -41,4 +41,19 @@ describe('Envoi state cutover', () => {
     expect(dir).toMatch(/envoi[\\/]hermes[\\/][a-f0-9]{24}$/);
     const custom = path.join(root, 'custom'); expect(await migrateConnectionDirectory(custom, secure)).toBe(custom);
   });
+  it('migrates the owned Hermes server entry and secret binding once, keeping unrelated profile entries', async () => {
+    const f = await fixture(); const home = path.join(path.dirname(path.dirname(path.dirname(f.target))), 'profile');
+    await mkdir(home); const configPath = path.join(home, 'config.yaml'), suffix = '1234567890abcdef', token = 'a'.repeat(64);
+    await writeFile(configPath, `mcp_servers:\n  sinaloa_${suffix}:\n    url: "http://127.0.0.1:8788/mcp"\n    headers:\n      Authorization: "Bearer \${SINALOA_MCP_${suffix.toUpperCase()}}"\n    tools:\n      include: [sinaloa_agent_info, sinaloa_send_message]\n  other:\n    url: "https://other.example/mcp"\n`);
+    await writeFile(path.join(home, '.env'), `OTHER=keep\nSINALOA_MCP_${suffix.toUpperCase()}=${token}\n`);
+    await writeFile(path.join(f.previous, 'connection.json'), JSON.stringify({ runtime: 'hermes', configuration: { home, configPath } }));
+    await writeFile(path.join(f.previous, 'hermes-relay.json'), JSON.stringify({ version: 1, serverName: `sinaloa_${suffix}`, port: 8788, token }));
+    await migrateConnectionDirectory(f.target, secure);
+    const config = await readFile(configPath, 'utf8'), env = await readFile(path.join(home, '.env'), 'utf8');
+    expect(config).toContain(`envoi_${suffix}:`); expect(config).toContain('envoi_agent_info, envoi_send_message');
+    expect(config).toContain('https://other.example/mcp'); expect(config).not.toContain('sinaloa');
+    expect(env).toContain(`ENVOI_MCP_${suffix.toUpperCase()}=${token}`); expect(env).toContain('OTHER=keep'); expect(env).not.toContain('SINALOA');
+    expect(JSON.parse(await readFile(path.join(f.target, 'hermes-relay.json'), 'utf8'))).toEqual({ version: 1, serverName: `envoi_${suffix}`, port: 8788, token });
+    await migrateConnectionDirectory(f.target, secure); expect(await readFile(configPath, 'utf8')).toBe(config);
+  });
 });
