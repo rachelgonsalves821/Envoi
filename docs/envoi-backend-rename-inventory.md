@@ -1,5 +1,46 @@
 # Envoi backend rename inventory
 
+## N2 configuration cutover checklist (2026-10-11)
+
+This is Envoi naming plan N2, tasks N2-config-1 → N2-config-dashboards → N2-config-2. **Names only: never paste a value into chat, GitHub or docs.**
+
+**What N2-config-1 changed in the repo:**
+- every `SINALOA_*` variable whose value lives in `wrangler.jsonc`, both Dockerfiles or the local stress script is now `ENVOI_*`;
+- the Durable Object binding `SINALOA_CONTAINER` and the resource names are N3 and stay;
+- deploy scripts still pass both `ENVOI_RELEASE_SHA` and `SINALOA_RELEASE_SHA` until N2-config-2.
+
+**Why the order matters**
+- **Conflicts fail closed.** The server, Worker and scanner fail closed when an `ENVOI_X` and a `SINALOA_X` value disagree.
+- **Old vars outlive deploys.** `wrangler.jsonc` sets `keep_vars: true`, so a deploy never deletes a dashboard variable. After N2-config-1 deploys, each Worker still holds the old `SINALOA_*` plain variables that earlier deploys created.
+- **So delete them in step 3.** They agree with the new `ENVOI_*` ones now, but would conflict as soon as a value changes.
+
+### Steps
+
+Settings live under **Cloudflare → Workers & Pages → *worker* → Settings → Variables and Secrets**. After each Worker, check that `/ready` reports all dependencies ready and that sign-in still works.
+
+**1. Staging app Worker `sinaloa-staging`.** This happens after N2-config-1 is integrated and staging has rebuilt.
+- For **every** name that starts with `SINALOA_` and is *not* `SINALOA_RELEASE_SHA`, add the same name with `ENVOI_` in place of `SINALOA_`, with the **same value**.
+  - Secrets known from `docs/runtime-configuration-status.md`: `DATA_ENCRYPTION_KEY`, `POLICY_SIGNING_KEY`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `BETA_INVITED_EMAILS` and `MALWARE_SCANNER_TOKEN`, each with the `SINALOA_` prefix.
+  - Encrypted values cannot be read back. Copy them from the authorized secret source, or rotate them on both names at once.
+  - The roughly 15 plain variables are visible in the dashboard. Copy each one exactly.
+- Confirm that none of `WORKOS_COOKIE_NAME`, `ENVOI_CSRF_COOKIE_NAME` or `SINALOA_CSRF_COOKIE_NAME` is set to an old `sinaloa_*` cookie name (contract `envoi-browser-names` §1.1).
+
+**2. Scanner Worker `sinaloa-scanner-staging`.** Add `ENVOI_SCANNER_TOKEN` with the same value as `SINALOA_SCANNER_TOKEN`. Check that the scanner reports healthy from staging `/ready`.
+
+**3. Staging again: delete the old plain variables.** Delete each `SINALOA_*` **plain** variable that now has an `ENVOI_*` twin with the same value, for example `SINALOA_MALWARE_SCANNER_URL`.
+- Keep `SINALOA_RELEASE_SHA` and every `SINALOA_*` **secret** until N2-config-2 is integrated.
+- Check `/ready` again.
+
+**4. Beta: `sinaloa-beta` and `sinaloa-scanner-beta`.** Repeat steps 1–3 for beta, but only as part of the beta release (H-5): beta deploys from `main`. Never reuse a staging value for beta.
+
+**5. Tell Lane A** on the build board: "N2-config-dashboards done on staging", and later "on beta". Lane A then lands N2-config-2:
+- remove the `SINALOA_*` alias layer (`src/envoi-environment.js`, Worker `selectEnvironment`, the scanner fallback and the second release-SHA flag);
+- make production validation refuse any leftover `SINALOA_*` key.
+
+**6. After N2-config-2 deploys on a Worker,** delete its remaining `SINALOA_*` secrets and `SINALOA_RELEASE_SHA`.
+
+**Rollback.** Before step 3 nothing breaks either way, because both names exist and agree. If N2-config-1 is reverted after step 3, the server falls back to the `ENVOI_*` twins, which it still reads, so nothing needs restoring.
+
 Audited against `origin/main` at `376c760bc100b38c8f1c9f689875019f58327724` on 2026-10-08. This is a source inventory, not a fresh Cloudflare dashboard audit. The mapping for every `SINALOA_*` environment key below is the same suffix under `ENVOI_*` (for example, `SINALOA_PUBLIC_URL` → `ENVOI_PUBLIC_URL`). This branch updates backend reads, Worker forwarding, scanner lookup, examples, package identity, and user-visible service labels. Existing Cloudflare settings remain untouched. During the transition, old and new key names are accepted only when their values agree.
 
 ## Changed in code without a live cutover

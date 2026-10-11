@@ -20,8 +20,8 @@ for (const [description, mutate] of [
   ['changing the old production Worker identity', candidate => { candidate.name = 'sinaloa-beta'; }],
   ['binding beta to the old production hostname', candidate => { candidate.env.beta.routes = [{ pattern: 'sinaloa-inbox.com', custom_domain: true }]; }],
   ['adding a beta workers.dev route', candidate => { candidate.env.beta.routes.push({ pattern: 'sinaloa-beta.rachelgonsalves821.workers.dev' }); }],
-  ['broadening beta edge hostname admission', candidate => { candidate.env.beta.vars.SINALOA_EDGE_ALLOWED_HOSTS += ',sinaloa-beta.rachelgonsalves821.workers.dev'; }],
-  ['moving beta browser auth to workers.dev', candidate => { candidate.env.beta.vars.SINALOA_PUBLIC_URL = 'https://sinaloa-beta.rachelgonsalves821.workers.dev'; }],
+  ['broadening beta edge hostname admission', candidate => { candidate.env.beta.vars.ENVOI_EDGE_ALLOWED_HOSTS += ',sinaloa-beta.rachelgonsalves821.workers.dev'; }],
+  ['moving beta browser auth to workers.dev', candidate => { candidate.env.beta.vars.ENVOI_PUBLIC_URL = 'https://sinaloa-beta.rachelgonsalves821.workers.dev'; }],
   ['using the staging callback for beta', candidate => { candidate.env.beta.vars.WORKOS_REDIRECT_URI = 'https://sinaloa-staging.rachelgonsalves821.workers.dev/api/auth/workos/callback'; }],
 ]) {
   test(`release target validation rejects ${description}`, () => {

@@ -16,10 +16,10 @@ const boundedCount = (name, fallback, maximum) => {
   return value;
 };
 
-const WRITE_COUNT_PER_CASE = boundedCount('SINALOA_STRESS_WRITES_PER_CASE', 12, 100);
+const WRITE_COUNT_PER_CASE = boundedCount('ENVOI_STRESS_WRITES_PER_CASE', 12, 100);
 const RETRY_COUNT = 8;
 const HOSTILE_COUNT = 8;
-const READ_COUNT = boundedCount('SINALOA_STRESS_READS', 100, 500);
+const READ_COUNT = boundedCount('ENVOI_STRESS_READS', 100, 500);
 const MCP_COUNT = 20;
 
 const percentile = (values, fraction) => {
@@ -33,14 +33,14 @@ async function startServer(dataDir) {
     env: {
       ...process.env,
       DATABASE_URL: '',
-      SINALOA_PORT: '0',
-      SINALOA_AUTH_MODE: 'development',
-      SINALOA_HUMAN_AUTH_PROVIDER: 'local',
-      SINALOA_OBJECT_STORAGE_PROVIDER: 'local',
-      SINALOA_ENABLE_EXTERNAL_EMAIL: 'false',
-      SINALOA_ENABLE_CALENDAR_WRITES: 'false',
-      SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS: 'false',
-      SINALOA_DATA_DIR: dataDir
+      ENVOI_PORT: '0',
+      ENVOI_AUTH_MODE: 'development',
+      ENVOI_HUMAN_AUTH_PROVIDER: 'local',
+      ENVOI_OBJECT_STORAGE_PROVIDER: 'local',
+      ENVOI_ENABLE_EXTERNAL_EMAIL: 'false',
+      ENVOI_ENABLE_CALENDAR_WRITES: 'false',
+      ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS: 'false',
+      ENVOI_DATA_DIR: dataDir
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });

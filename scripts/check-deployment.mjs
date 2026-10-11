@@ -17,10 +17,10 @@ export function validateReleaseTargets(config) {
   assert.equal(beta.workers_dev, false, 'Beta smoke requires its custom domain; disable beta workers.dev');
   assert.equal(beta.preview_urls ?? config.preview_urls ?? false, false, 'Beta must not expose workers.dev preview URLs');
   assert.deepEqual(beta.routes, [{ pattern: 'www.envoi-agents.com', custom_domain: true }, { pattern: 'beta.sinaloa-inbox.com', custom_domain: true }], 'Beta must retain the old beta host until redirects are verified');
-  assert.equal(beta.vars?.SINALOA_PUBLIC_URL, 'https://www.envoi-agents.com');
-  assert.ok(beta.vars?.SINALOA_CORS_ORIGIN?.split(',').includes(beta.vars.SINALOA_PUBLIC_URL));
-  assert.equal(beta.vars?.SINALOA_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com', 'Beta edge admission must remain limited to the two custom domains');
-  assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.SINALOA_PUBLIC_URL}/api/auth/workos/callback`);
+  assert.equal(beta.vars?.ENVOI_PUBLIC_URL, 'https://www.envoi-agents.com');
+  assert.ok(beta.vars?.ENVOI_CORS_ORIGIN?.split(',').includes(beta.vars.ENVOI_PUBLIC_URL));
+  assert.equal(beta.vars?.ENVOI_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com', 'Beta edge admission must remain limited to the two custom domains');
+  assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.ENVOI_PUBLIC_URL}/api/auth/workos/callback`);
 }
 
 export async function checkDeploymentConfiguration() {
@@ -58,15 +58,15 @@ export async function checkDeploymentConfiguration() {
   assert.equal(new Set([config.containers[0].name, staging.containers[0].name, beta.containers[0].name]).size, 3, 'Container application names must be distinct');
   assert.ok(beta.durable_objects?.bindings?.some(item => item.name === 'SINALOA_CONTAINER' && item.class_name === 'SinaloaContainer'), 'Beta requires its own container binding');
   assert.ok(beta.migrations?.some(item => item.new_sqlite_classes?.includes('SinaloaContainer')), 'Beta requires its own container migration');
-  assert.equal(beta.vars?.SINALOA_PUBLIC_URL, 'https://www.envoi-agents.com');
-  assert.ok(beta.vars?.SINALOA_CORS_ORIGIN?.split(',').includes(beta.vars.SINALOA_PUBLIC_URL));
-  assert.equal(beta.vars?.SINALOA_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com');
+  assert.equal(beta.vars?.ENVOI_PUBLIC_URL, 'https://www.envoi-agents.com');
+  assert.ok(beta.vars?.ENVOI_CORS_ORIGIN?.split(',').includes(beta.vars.ENVOI_PUBLIC_URL));
+  assert.equal(beta.vars?.ENVOI_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com');
   assert.equal(beta.vars?.WORKOS_CLIENT_ID, 'client_01M3QMT1BN3HEBGE4VPEAQA0GT');
-  assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.SINALOA_PUBLIC_URL}/api/auth/workos/callback`);
-  assert.equal(beta.vars?.SINALOA_DB_SSL_MODE, 'verify-full');
-  assert.equal(beta.vars?.SINALOA_S3_ENDPOINT, 'https://54a5d6c680bd813fa60f8e088b098b8d.r2.cloudflarestorage.com');
-  assert.equal(beta.vars?.SINALOA_S3_BUCKET, 'sinaloa-beta');
-  assert.equal(beta.vars?.SINALOA_MALWARE_SCANNER_URL, 'https://sinaloa-scanner-beta.rachelgonsalves821.workers.dev/scan', 'Beta must use the dedicated scanner');
+  assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.ENVOI_PUBLIC_URL}/api/auth/workos/callback`);
+  assert.equal(beta.vars?.ENVOI_DB_SSL_MODE, 'verify-full');
+  assert.equal(beta.vars?.ENVOI_S3_ENDPOINT, 'https://54a5d6c680bd813fa60f8e088b098b8d.r2.cloudflarestorage.com');
+  assert.equal(beta.vars?.ENVOI_S3_BUCKET, 'sinaloa-beta');
+  assert.equal(beta.vars?.ENVOI_MALWARE_SCANNER_URL, 'https://sinaloa-scanner-beta.rachelgonsalves821.workers.dev/scan', 'Beta must use the dedicated scanner');
   const betaScanner = JSON.parse(await readFile(new URL('scanner/wrangler.beta.jsonc', root), 'utf8'));
   assert.equal(betaScanner.name, 'sinaloa-scanner-beta');
   assert.equal(betaScanner.containers?.[0]?.name, 'sinaloa-clamav-beta');
