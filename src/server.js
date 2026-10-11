@@ -4127,7 +4127,7 @@ waitlistSheetInterval?.unref?.();
 if (waitlistSheetSync) void runWaitlistSheetSync();
 const logOperationalBacklog = () => operationalBacklogSnapshot({ store, scanJobStore })
   .then(snapshot => console.log(JSON.stringify(snapshot)))
-  .catch(() => console.error(JSON.stringify({ event: 'sinaloa.operational_backlog_error' })));
+  .catch(() => console.error(JSON.stringify({ event: 'envoi.operational_backlog_error' })));
 const operationalBacklogLogger = setInterval(() => { void logOperationalBacklog(); }, operationalBacklogLogIntervalMs);
 operationalBacklogLogger.unref?.();
 void logOperationalBacklog();

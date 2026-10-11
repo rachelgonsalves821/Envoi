@@ -15,7 +15,7 @@ test('file-backed outbox logs only aggregate backlog and age', async () => {
   await store.putJson('outbox/delivery_3.json', { id: 'delivery_3', status: 'held', createdAt: '2026-09-28T00:00:00.000Z' });
   const snapshot = await operationalBacklogSnapshot({ store, at: new Date('2026-09-29T00:02:00.000Z') });
   assert.deepEqual(snapshot, {
-    event: 'sinaloa.operational_backlog',
+    event: 'envoi.operational_backlog',
     at: '2026-09-29T00:02:00.000Z',
     outbox: { queued: 1, retrying: 0, processing: 0, held: 1, deadLettered: 1, oldestPendingAgeSeconds: 120 },
     scans: null

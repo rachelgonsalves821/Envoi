@@ -28,7 +28,7 @@ export async function operationalBacklogSnapshot({ store, scanJobStore = null, a
     ? (await scanJobStore.query("SELECT value->>'status' AS status, count(*)::integer AS count, min(value->>'createdAt') AS \"oldestCreatedAt\" FROM sinaloa_documents WHERE path LIKE 'object-storage/scan-jobs/%' AND value->>'status' IN ('queued', 'retrying', 'processing', 'deadLettered') GROUP BY value->>'status'")).rows
     : null;
   return {
-    event: 'sinaloa.operational_backlog',
+    event: 'envoi.operational_backlog',
     at: at.toISOString(),
     outbox: summarize(outboxRows, at, outboxStatuses),
     scans: scanRows ? summarize(scanRows, at) : null
