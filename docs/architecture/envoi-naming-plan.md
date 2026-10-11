@@ -14,6 +14,14 @@
    - the one exception is data already stored in staging or beta. Stored credentials, cookies, R2 object metadata, database tables and Cloudflare resources are migrated or reissued, not aliased.
 4. **The environment should be ready before beta testers arrive.**
 
+**Further decisions (human, 2026-10-10)**
+
+5. **Object-storage metadata moves to N3.** That covers `x-amz-meta-sinaloa-*` and the tombstone content type on stored R2/S3 objects, plus the `x-sinaloa-*` headers the server sends the scanner Worker. N3 already renames the scanner Workers and buckets, so all of it moves in one coordinated deploy, with nothing aliased in between.
+6. **Monitoring events wait on a human check.** Nobody knows yet whether an alert rule, log filter or dashboard matches `sinaloa.operational_backlog`. The human checks and updates any such rule first, then Lane A renames the events.
+7. **Config aliases are removed in N2.** Lane A renames the `wrangler.jsonc` vars and Worker forwarding, and posts an exact dashboard checklist. The human adds the `ENVOI_*` secrets on staging, beta and the scanners. The `SINALOA_*` aliases come out only after the human confirms.
+
+**Status (2026-10-10).** N1 is done: `envoi-names` v1 is integrated at `1766767`. The N2 browser names are contract `envoi-names` v2 (published). The rest of N2 is the task list in §4.
+
 The product is **Envoi**. "Sinaloa" was the working name. The goal is that Envoi is the only name people, agents, SDK users and operators see.
 
 ## 1. What is already done
@@ -63,7 +71,9 @@ Each agent-facing step lands the way the build already works:
 
 ## 4. Phases
 
-### N1. Agent-facing names, shipped with the H-5 connector release (recommended next)
+### N1. Agent-facing names (done)
+
+**Done** as a clean cutover with no aliases: contract `envoi-names` v1, integrated at `1766767` (2026-10-10). The alias and removal-window text below is the pre-decision draft, kept for the record; `handoffs.md` `envoi-names v1` is authoritative.
 
 **Owners:** Lane A for the server and contract, Lane B for clients.
 
@@ -96,18 +106,25 @@ One contract, `envoi-names v1`, with fixtures, covering:
 
 **Owner:** Lane A, plus the human for dashboards and alerts.
 
-- **Cookies.** Set `envoi_session` and `envoi_csrf` while still reading the `sinaloa_*` names for one session lifetime, so nobody is signed out. Then stop reading the old names.
-- **CSRF header.** Accept `x-envoi-csrf` and `x-sinaloa-csrf`; the frontend sends the new one (Lane B). Remove the old one a release later.
-- **Object metadata headers.** New objects get `x-envoi-*`, and reads accept both. Existing R2 objects keep their metadata until they age out or a copy job rewrites them.
-- **Monitoring events.** Emit `envoi.operational_backlog`, after the human updates any alert rules. Optionally emit both names for one release.
-- **Config names.** The human follows `docs/envoi-backend-rename-inventory.md`, steps 1–3: add `ENVOI_*` dashboard keys with the same values on staging, then beta, then the scanners. Lane A then removes the `SINALOA_*` aliases.
-- **Docs.** Current operator docs say Envoi; dated evidence stays as written.
+*Superseded by the clean-cutover decision (§0, items 3 and 5–7).* Each item is a clean cutover. The tasks, in order:
 
-### N3. Infrastructure identities (optional; invisible to users)
+| Task | Owner | What | Gate |
+| --- | --- | --- | --- |
+| **N2-contract** | Lane A | Contract `envoi-names` v2: cookies `envoi_session`, `envoi_csrf` and `envoi_workos_flow`; CSRF header `x-envoi-csrf`; old cookies cleared, never read. It also defines name-only bumps `a3-pause-auth` v3 and `a4-wake` v2. | Lane B ACK, then human approval |
+| **N2-server** | Lane A | Server, CORS and the regenerated a3 v3 / a4 v2 fixtures. | Integrated **together with N2-client on one SHA**. Everyone signed in re-signs once. |
+| **N2-client** | Lane B | `frontend/src/api.ts` sends `x-envoi-csrf` and falls back to `envoi_csrf`; rebuild `web/**`. | Same SHA as N2-server |
+| **N2-events-check** | Human | Check for alert rules, log filters or dashboards matching `sinaloa.operational_backlog` or `sinaloa.operational_backlog_error`, update them to `envoi.*`, and confirm on the build board. | Before N2-events |
+| **N2-events** | Lane A | Emit `envoi.operational_backlog` and `envoi.operational_backlog_error` only. | After N2-events-check |
+| **N2-config-1** | Lane A | Rename every `SINALOA_*` var in `wrangler.jsonc` to `ENVOI_*`, plus the Worker forwarding and the deployment checks. Post the exact dashboard checklist (secret names only, never values). Safe on its own: the server already prefers `ENVOI_*` and still accepts agreeing `SINALOA_*` values. | — |
+| **N2-config-dashboards** | Human | Add the `ENVOI_*` secrets on staging, then beta, then both scanner Workers, per the checklist. Confirm `/ready`, sign-in, the database, R2 and the scanner after each. | Before N2-config-2 |
+| **N2-config-2** | Lane A | Remove the `SINALOA_*` alias layer (`src/envoi-environment.js`, Worker and scanner fallbacks). Production validation then refuses a `SINALOA_*` key. | After the human confirms staging and beta |
+| **N2-docs** | Lane A | Current operator docs and the README say Envoi. Dated evidence stays as written. | — |
+
+### N3. Infrastructure identities (decided: yes; invisible to users)
 
 **Owner:** the human, with a Lane A runbook and rollback.
 
-These names are never seen by customers or agents. Renaming them costs downtime risk and dashboard work for internal tidiness only. My recommendation is to do them only if you want a fully clean operations view:
+These names are never seen by customers or agents. The human chose to rename them too (§0, item 1). Each needs a migration with a tested rollback:
 
 - **Database.** One migration renames `sinaloa_*` tables and indexes to `envoi_*` in a single transaction, with a restore drill first. Code switches table names in the same release.
 - **Cloudflare.**
@@ -117,6 +134,9 @@ These names are never seen by customers or agents. Renaming them costs downtime 
   - Move the custom domain.
   - Retire the old Workers after a rollback window.
   - Builds settings move to the new Worker. That is a repeat of H-2.
+- **Object storage and scanner (moved here 2026-10-10).** The stored metadata `x-amz-meta-sinaloa-sha256` and `x-amz-meta-sinaloa-tombstone`, the `application/x-sinaloa-tombstone` content type, and the server-to-scanner headers `x-sinaloa-object-id` and `x-sinaloa-sha256`. They move with the bucket copy and the new scanner Workers, so no stored object carries a name the code no longer reads.
+- **Internal identifiers.** The development-only key fallbacks `sinaloa-development-only` and `sinaloa-development-policy-signing-key`. Renaming them makes local data encrypted under the old fallback unreadable, and the production validator must refuse both old and new values. Also the default policy id `sinaloa-default-authority` (policy decisions in flight at the deploy fail their digest check once), the Container host `sinaloa-container.internal`, the readiness probe key and the test and stress prefixes.
+- **The old beta host `beta.sinaloa-inbox.com`.** Retire the route and the edge allowlist entry with the domain release.
 - **Neon:** rename projects and databases (cosmetic, dashboard only).
 - **Local folder:** rename `D:\vsc\NEU\Sinaloa` between work sessions, and recreate the agent worktrees afterwards.
 
