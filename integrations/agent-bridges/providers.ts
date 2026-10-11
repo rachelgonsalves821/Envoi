@@ -13,6 +13,8 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
     throw new TypeError('xAI endpoint must be api.x.ai (or local test server)');
   }
   if (options.mcp) {
+    if (options.mcp.allowedTools?.some(name => !['envoi_agent_info', 'envoi_read_case', 'envoi_list_messages'].includes(name)))
+      throw new TypeError('MCP read tools must use the published Envoi names');
     const server = new URL(options.mcp.serverUrl);
     if (server.pathname !== '/mcp' || !((server.protocol === 'https:') || (server.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(server.hostname)))) {
       throw new TypeError('MCP server must be an HTTPS /mcp endpoint (or local test server)');
@@ -20,7 +22,7 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
   }
   return async (message: WorkMessage, signal: AbortSignal) => {
     const history = message.caseId && options.history ? await options.history(message.caseId) : [];
-    const requiredRead = message.caseId ? 'sinaloa_read_case' : 'sinaloa_agent_info';
+    const requiredRead = message.caseId ? 'envoi_read_case' : 'envoi_agent_info';
     const prompt = workPrompt(message, history, { assetHandles: options.assetHandles });
     const body: Record<string, unknown> = { model: options.model,
       input: options.mcp ? `${prompt}\n\nBefore responding, call ${requiredRead} through the Envoi MCP server${message.caseId ? ` for caseId ${JSON.stringify(message.caseId)}` : ''}. If the read fails, do not guess a reply.` : prompt,
@@ -29,11 +31,11 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
       const token = await options.mcp.accessToken(message.caseId || null);
       if (!token || /[\r\n]/.test(token)) throw new Error('Current Envoi MCP read token is unavailable');
       body.tools = [{
-        type: 'mcp', server_url: options.mcp.serverUrl, server_label: 'sinaloa',
+        type: 'mcp', server_url: options.mcp.serverUrl, server_label: 'envoi',
         authorization: `Bearer ${token}`,
         allowed_tools: options.mcp.allowedTools || (message.caseId
-          ? ['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']
-          : ['sinaloa_agent_info'])
+          ? ['envoi_agent_info', 'envoi_read_case', 'envoi_list_messages']
+          : ['envoi_agent_info'])
       }];
     }
     let response: Response;
@@ -50,8 +52,8 @@ export function xaiTurn(options: { apiKey: string; model: string; history?: Hist
     catch { throw new Error('xAI returned an invalid response'); }
     if (data.status !== 'completed' || !Array.isArray(data.output)) throw new Error('xAI response was not completed');
     if (options.mcp && !(data.output as Array<Record<string, unknown>>).some(item =>
-      item.type === 'mcp_call' && (item.name === requiredRead || item.name === `sinaloa.${requiredRead}`) &&
-      (item.server_label === undefined || item.server_label === 'sinaloa') &&
+      item.type === 'mcp_call' && (item.name === requiredRead || item.name === `envoi.${requiredRead}`) &&
+      (item.server_label === undefined || item.server_label === 'envoi') &&
       item.status === 'completed' && item.error == null)) {
       throw new Error(`xAI did not complete the required Envoi MCP ${requiredRead} call`);
     }

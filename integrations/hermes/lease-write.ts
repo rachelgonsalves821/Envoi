@@ -14,7 +14,7 @@ export function authorizedHermesReply(active: ActiveHermesWork | null, name: str
 /** Interactive Hermes turns may initiate work; a bridge-owned turn remains fenced to its sender and case. */
 export function authorizedHermesWrite(active: ActiveHermesWork | null, name: string, args: Record<string, unknown>) {
   if (active) return authorizedHermesReply(active, name, args);
-  if (!['sinaloa_start_case', 'sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision'].includes(name)) return false;
+  if (!['envoi_start_case', 'envoi_send_message', 'envoi_send_proposal', 'envoi_send_decision'].includes(name)) return false;
   // A delayed reply from an expired work lease must never become an interactive send.
   return typeof args.idempotencyKey === 'string' && !args.idempotencyKey.startsWith('bridge:');
 }

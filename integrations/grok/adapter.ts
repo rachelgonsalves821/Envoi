@@ -45,8 +45,8 @@ function validate(config: GrokConfiguration): void {
 export async function discoverGrok(options: AdapterOptions = {}, previous?: GrokConfiguration): Promise<GrokConfiguration> {
   const env = options.env ?? process.env;
   if (previous !== undefined) validate(previous);
-  const mcpUrl = env.ENVOI_MCP_URL ?? env.SINALOA_MCP_URL ?? previous?.mcpUrl;
-  const manifest = env.SINALOA_ASSET_MANIFEST_PATH ?? previous?.assetManifestPath;
+  const mcpUrl = env.ENVOI_MCP_URL ?? previous?.mcpUrl;
+  const manifest = env.ENVOI_ASSET_MANIFEST_PATH ?? previous?.assetManifestPath;
   const config = {
     apiKey: env.XAI_API_KEY ?? previous?.apiKey ?? '',
     model: env.XAI_MODEL ?? previous?.model ?? 'grok-4.7',

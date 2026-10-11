@@ -1,6 +1,6 @@
-export const SESSION_END_KEY = 'sinaloa.session-ended';
-export const SESSION_IDENTITY_KEY = 'sinaloa.session-identity';
-export const SESSION_NOTICE_KEY = 'sinaloa.session-status';
+export const SESSION_END_KEY = 'envoi.session-ended';
+export const SESSION_IDENTITY_KEY = 'envoi.session-identity';
+export const SESSION_NOTICE_KEY = 'envoi.session-status';
 export const SESSION_ENDED_NOTICE = 'Your session ended. Please sign in again.';
 
 type SessionStorage = Pick<Storage, 'getItem' | 'setItem'>;

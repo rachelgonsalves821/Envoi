@@ -40,8 +40,8 @@ export async function boundedHermesRun(config: HermesConfiguration, input: strin
   let finished = false;
   try {
     const created = await hermesRequest(config, '/v1/runs', boundedOptions, {
-      method: 'POST', headers: { 'Idempotency-Key': `sinaloa-setup-${randomUUID()}` },
-      body: JSON.stringify({ input, session_id: `sinaloa-setup-${randomUUID()}` })
+      method: 'POST', headers: { 'Idempotency-Key': `envoi-setup-${randomUUID()}` },
+      body: JSON.stringify({ input, session_id: `envoi-setup-${randomUUID()}` })
     });
     if (created.status !== 202) throw new ConnectorSetupError('MODEL_NOT_READY', 'Hermes could not start a test run using its configured provider. Run hermes doctor and configure the selected profile model/provider locally; no enrollment token was needed for this test.');
     const payload = await json(created);

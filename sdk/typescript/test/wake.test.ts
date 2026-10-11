@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SinaloaConnector, type ConnectorSession } from '../src/connector';
+import { EnvoiConnector, type ConnectorSession } from '../src/connector';
 import { contractRegistry, loadContractFixture } from '../../../integrations/contract-fixtures/setup';
 
 const contract = contractRegistry.contracts.find(item => item.id === 'a4-wake')!;
@@ -27,7 +27,7 @@ async function harness(extra: { session?: Partial<ConnectorSession>; claim?: () 
     return new Response(new ReadableStream({ start(controller) { writer = controller; } }), { headers: { 'content-type': 'text/event-stream' } });
   });
   const events = vi.fn(); const controller = new AbortController();
-  const connector = new SinaloaConnector('https://api.example', { load: async () => saved, save: async value => { saved = structuredClone(value); } },
+  const connector = new EnvoiConnector('https://api.example', { load: async () => saved, save: async value => { saved = structuredClone(value); } },
     { fetch: fetcher, handler: { admit: async () => {}, process: async () => {} }, onEvent: events });
   const running = connector.run(controller.signal);
   // Attach a rejection handler immediately; assertions can still inspect the original run.

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { SinaloaConnector, WorkMessage } from '../../sdk/typescript/src/connector';
+import type { EnvoiConnector, WorkMessage } from '../../sdk/typescript/src/connector';
 import { loadAssetManifest, manifestAssetExchange } from './asset-manifest';
 import { bridgeHandler, parseAgentReply, type BridgeDecision } from './bridge';
 import { shareCaseAsset } from './asset-exchange';
@@ -18,9 +18,9 @@ describe('trusted case asset exchange', () => {
       listAssets: async () => [],
       completeAssetUpload: async () => ({ id: 'asset_one', caseId: 'case_one', state: 'infected' }),
       grantCaseAsset, sendCaseEvent
-    } as unknown as SinaloaConnector;
+    } as unknown as EnvoiConnector;
     await expect(shareCaseAsset({ connector, caseId: 'case_one', recipientAgentId: 'agent_peer',
-      recipientAddress: 'peer@sinaloa.mail', filename: 'result.txt', mimeType: 'text/plain',
+      recipientAddress: 'peer@envoi.mail', filename: 'result.txt', mimeType: 'text/plain',
       bytes: new TextEncoder().encode('content'), idempotencyKey: 'case-file-one', text: 'Review this',
       fetch: vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch }))
       .rejects.toThrow('not cleared');
@@ -29,7 +29,7 @@ describe('trusted case asset exchange', () => {
   });
 
   it('lets a model select only a host-approved exact file and reuses one key after a claim retry', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sinaloa-approved-files-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'envoi-approved-files-'));
     try {
       const bytes = Buffer.from('approved report');
       await writeFile(path.join(root, 'report.txt'), bytes);
@@ -38,7 +38,7 @@ describe('trusted case asset exchange', () => {
       await writeFile(manifestPath, JSON.stringify({ files: [{ handle: 'report', path: 'report.txt', mimeType: 'text/plain', sha256 }] }));
       const manifest = await loadAssetManifest(manifestPath);
       const exchange = vi.fn(async () => ({ asset: { id: 'asset_one' }, grant: {}, message: {} })) as unknown as typeof shareCaseAsset;
-      const callback = manifestAssetExchange(manifest, {} as SinaloaConnector, exchange);
+      const callback = manifestAssetExchange(manifest, {} as EnvoiConnector, exchange);
       const message = { id: 'msg_one', caseId: 'case_one', senderAgentId: 'agent_peer', recipientAgentId: 'agent_host',
         from: { agentId: 'agent_peer', address: 'peer@agents.envoi-agents.com' }, text: 'Please share report' } as WorkMessage;
       const reply = parseAgentReply('{"text":"Here is the report","intent":"message","assetHandle":"report"}');

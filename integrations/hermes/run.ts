@@ -1,22 +1,23 @@
 import { enrollConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { createHermesBridge } from './runtime';
+import { migrateConnectionDirectory } from '../connector/migrate';
 
 async function main() {
-  const apiUrl = process.env.ENVOI_API_URL || process.env.SINALOA_API_URL;
-  const stateDir = process.env.ENVOI_STATE_DIR || process.env.SINALOA_STATE_DIR;
+  const apiUrl = process.env.ENVOI_API_URL;
+  const requested = process.env.ENVOI_STATE_DIR;
+  const stateDir = requested ? await migrateConnectionDirectory(requested) : undefined;
   const hermesUrl = process.env.HERMES_API_URL;
   const hermesKey = process.env.HERMES_API_KEY;
   if (!apiUrl || !stateDir || !hermesUrl || !hermesKey) throw new Error('ENVOI_API_URL, ENVOI_STATE_DIR, HERMES_API_URL and HERMES_API_KEY are required');
   const store = new FileBridgeStore(stateDir);
   await store.init();
   if (!await store.load()) {
-    const token = process.env.ENVOI_ENROLLMENT_TOKEN || process.env.SINALOA_ENROLLMENT_TOKEN;
+    const token = process.env.ENVOI_ENROLLMENT_TOKEN;
     if (!token) throw new Error('ENVOI_ENROLLMENT_TOKEN is required for first enrollment');
-    await enrollConnector(apiUrl, token, store, { name: process.env.ENVOI_AGENT_NAME || process.env.SINALOA_AGENT_NAME || 'Hermes bridge' });
+    await enrollConnector(apiUrl, token, store, { name: process.env.ENVOI_AGENT_NAME || 'Hermes bridge' });
   }
   delete process.env.ENVOI_ENROLLMENT_TOKEN;
-  delete process.env.SINALOA_ENROLLMENT_TOKEN;
   const relayToken = process.env.HERMES_MCP_RELAY_TOKEN;
   const writeFlag = process.env.HERMES_MCP_WRITE_ENABLED;
   if (writeFlag && writeFlag !== 'true') throw new Error('HERMES_MCP_WRITE_ENABLED must be true when set');
@@ -34,7 +35,7 @@ async function main() {
       if (!catalog.ok) throw new Error(`Envoi MCP tool check failed with HTTP ${catalog.status}`);
       const payload = await catalog.json() as { result?: { tools?: Array<{ name?: string }> } };
       const names = new Set(payload.result?.tools?.map(tool => tool.name));
-      if (!names.has('sinaloa_start_case') || !names.has('sinaloa_send_message')) throw new Error('This enrolled agent lacks Envoi send permission. Enable Send agent messages for it before reconnecting.');
+      if (!names.has('envoi_start_case') || !names.has('envoi_send_message')) throw new Error('This enrolled agent lacks Envoi send permission. Enable Send agent messages for it before reconnecting.');
     }
     process.stdout.write(`Hermes connected to Envoi as ${session?.address}. Listening for work.${bridge.relayUrl ? ' MCP send tools available on loopback.' : ''}\n`);
     await bridge.connector.run(stop.signal);
