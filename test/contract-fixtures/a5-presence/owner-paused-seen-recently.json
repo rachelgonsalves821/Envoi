@@ -1,0 +1,53 @@
+{
+  "contract": "a5-presence",
+  "version": 1,
+  "id": "owner-paused-seen-recently",
+  "description": "A paused agent whose connector keeps reading status. Its work loop last claimed before the pause.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session"
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentList",
+    "body": [
+      {
+        "id": "agent_example",
+        "name": "Example agent",
+        "slug": "example",
+        "address": "example@envoi.mail",
+        "platformAddress": "example@envoi.mail",
+        "status": "paused",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "send_agent_messages",
+          "receive_agent_messages"
+        ],
+        "createdAt": "2026-10-01T09:00:00.000Z",
+        "paused": true,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "seen_recently",
+          "asOf": "2026-10-12T12:00:42.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-10-12T12:00:10.000Z",
+          "credentialExpiresAt": "2026-11-11T11:55:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-10-12T12:00:10.000Z",
+            "lastSuccessfulRefreshAt": "2026-10-12T11:55:00.000Z",
+            "lastWorkClaimAt": "2026-10-12T10:30:00.000Z",
+            "lastProcessedAt": "2026-10-12T10:29:41.000Z"
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "connectionLabel": "Seen recently",
+    "agentLabel": "Paused",
+    "next": "Show \"Paused · Seen recently\". Resume is a separate owner action."
+  }
+}

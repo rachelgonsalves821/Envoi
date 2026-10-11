@@ -1,0 +1,40 @@
+{
+  "contract": "a5-presence",
+  "version": 1,
+  "id": "agent-status-paused-presence",
+  "description": "A paused agent reads its status; its last work claim was before the pause.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/status",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_paused"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "agentStatusWithPresence",
+    "body": {
+      "state": "paused",
+      "agent": {
+        "id": "agent_example",
+        "address": "example@envoi.mail",
+        "status": "paused"
+      },
+      "inboxId": "inbox_example",
+      "asOf": "2026-10-12T12:00:42.000Z",
+      "presence": {
+        "lastSeenAt": "2026-10-12T12:00:10.000Z",
+        "lastSuccessfulRefreshAt": "2026-10-12T11:55:00.000Z",
+        "lastWorkClaimAt": "2026-10-12T10:30:00.000Z",
+        "lastProcessedAt": "2026-10-12T10:29:41.000Z"
+      }
+    }
+  },
+  "client": {
+    "surface": "connector",
+    "lifecycle": "PAUSED",
+    "next": "Stay paused until agent.resumed or status reports active (a4 §4)."
+  }
+}

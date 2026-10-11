@@ -1,0 +1,53 @@
+{
+  "contract": "a5-presence",
+  "version": 1,
+  "id": "owner-paused-needs-reconnect",
+  "description": "The a3 long-pause path: paused for more than 30 days, so the credential family expired.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session"
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentList",
+    "body": [
+      {
+        "id": "agent_example",
+        "name": "Example agent",
+        "slug": "example",
+        "address": "example@envoi.mail",
+        "platformAddress": "example@envoi.mail",
+        "status": "paused",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "send_agent_messages",
+          "receive_agent_messages"
+        ],
+        "createdAt": "2026-10-01T09:00:00.000Z",
+        "paused": true,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "needs_reconnect",
+          "asOf": "2026-10-12T12:00:42.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-09-01T07:00:00.000Z",
+          "credentialExpiresAt": "2026-10-01T07:00:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-09-01T07:00:00.000Z",
+            "lastSuccessfulRefreshAt": "2026-09-01T07:00:00.000Z",
+            "lastWorkClaimAt": "2026-08-31T22:00:00.000Z",
+            "lastProcessedAt": "2026-08-31T21:59:00.000Z"
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "connectionLabel": "Needs reconnect",
+    "agentLabel": "Paused",
+    "next": "Show \"Paused · Needs reconnect\". Reconnect keeps the agent paused; resume separately."
+  }
+}

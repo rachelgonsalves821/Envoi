@@ -1,0 +1,40 @@
+{
+  "contract": "a5-presence",
+  "version": 1,
+  "id": "agent-status-presence",
+  "description": "An active agent reads its status; presence is its own credential family as stored.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/status",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "agentStatusWithPresence",
+    "body": {
+      "state": "active",
+      "agent": {
+        "id": "agent_example",
+        "address": "example@envoi.mail",
+        "status": "active"
+      },
+      "inboxId": "inbox_example",
+      "asOf": "2026-10-12T12:00:42.000Z",
+      "presence": {
+        "lastSeenAt": "2026-10-12T12:00:00.000Z",
+        "lastSuccessfulRefreshAt": "2026-10-12T11:52:10.000Z",
+        "lastWorkClaimAt": "2026-10-12T12:00:00.000Z",
+        "lastProcessedAt": null
+      }
+    }
+  },
+  "client": {
+    "surface": "connector",
+    "lifecycle": "RUNNING",
+    "next": "Lifecycle never depends on presence. Doctor output may print it, with ages computed from asOf."
+  }
+}

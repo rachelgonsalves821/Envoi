@@ -1,0 +1,53 @@
+{
+  "contract": "a5-presence",
+  "version": 1,
+  "id": "owner-not-connected",
+  "description": "An approved agent with no credential family.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session"
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentList",
+    "body": [
+      {
+        "id": "agent_example",
+        "name": "Example agent",
+        "slug": "example",
+        "address": "example@envoi.mail",
+        "platformAddress": "example@envoi.mail",
+        "status": "active",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "send_agent_messages",
+          "receive_agent_messages"
+        ],
+        "createdAt": "2026-10-01T09:00:00.000Z",
+        "paused": false,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "not_connected",
+          "asOf": "2026-10-12T12:00:42.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": null,
+          "credentialExpiresAt": null,
+          "presence": {
+            "lastSeenAt": null,
+            "lastSuccessfulRefreshAt": null,
+            "lastWorkClaimAt": null,
+            "lastProcessedAt": null
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "connectionLabel": "Not connected",
+    "agentLabel": "Active",
+    "next": "Show \"Active · Not connected\" and offer the connect or reconnect flow."
+  }
+}

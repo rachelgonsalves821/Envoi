@@ -57,6 +57,7 @@ import { projectCaseForHuman, projectWorkspaceForHuman } from './human-projectio
 import { attachInboxPreferencesToView, createInboxPreferencesHttp } from './inbox-preferences-http.js';
 import { getPrefsForCases } from './inbox-preferences.js';
 import { createProviderMembershipCache, streamRecheckMs } from './provider-membership.js';
+import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenceRecorder, ownerConnection, reportedFamily } from './agent-presence.js';
 
 const productionConfig = validateProductionConfiguration();
 const releaseSha = process.env.ENVOI_RELEASE_SHA || null;
@@ -113,6 +114,13 @@ const actionPermission = actionKey => actionKey.startsWith('message.') ? 'send_a
 const acknowledgementStateRank = Object.freeze({ delivered: 0, acknowledged: 1, processed: 2 });
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
 const auth = createHumanAuth(store);
+const presenceRecorder = createPresenceRecorder({
+  store,
+  now: () => store.now(),
+  familyPath: (inboxId, agentId, familyId) => agentCredentialFamilyPath(inboxId, agentId, familyId),
+  // Name and code only: messages can carry storage paths.
+  onError: error => console.error(JSON.stringify({ event: 'envoi.agent_presence_write_failed', name: error?.name, code: error?.code }))
+});
 const rememberedProviderMembership = createProviderMembershipCache({ lookup: (userId, organizationId) => auth.getOrganizationMembership(userId, organizationId) });
 // How long an open event stream trusts one answer from WorkOS before asking again.
 const streamMembershipRecheckMs = streamRecheckMs(process.env.ENVOI_STREAM_MEMBERSHIP_RECHECK_MS);
@@ -432,7 +440,7 @@ function decryptAgentRotation(rawRefreshToken, context, encrypted) {
   } catch { throw invalidAgentRefresh(); }
 }
 
-async function rotateAgentCredentials(rawRefreshToken, rotationId) {
+async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated = () => {} } = {}) {
   // Checked before any lookup: reveals nothing about the token and never consumes it.
   if (typeof rotationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(rotationId)) throw credentialError('ROTATION_ID_REQUIRED');
   if (!hasAgentCredentialFormat(rawRefreshToken, 'refresh')) throw credentialError('REFRESH_TOKEN_INVALID');
@@ -478,7 +486,11 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId) {
     return successor;
   };
   const result = typeof store.withTransaction === 'function' ? await store.withTransaction([inboxMutationKey(pending.inboxId)], rotate) : await rotate();
-  if (!result.replayed) return result;
+  if (!result.replayed) {
+    // A new successor or an A1 recovery of the same one: both are a successful refresh.
+    onRotated({ inboxId: pending.inboxId, agentId: pending.agentId, familyId: pending.familyId });
+    return result;
+  }
   const { inboxId, agentId, familyId } = result.replayed;
   await audit(inboxId, 'agent.refresh_replay_detected', { agentId, credentialFamilyId: familyId });
   closeAgentStreams(inboxId, agentId, { code: 'CREDENTIAL_REVOKED', reason: 'refresh_replay' });
@@ -537,15 +549,36 @@ const workClaimPath = (inboxId, workId) => path.join('inboxes', inboxId, 'work-c
 // Active or paused access credential; callers decide what a paused agent may do.
 const pausedAgentRoutes = new Set(['POST /api/agent/work/claim', 'POST /api/agent/connection-status', 'GET /api/agent/status']);
 // a3-pause-auth v1 §2.1 and §3, applied before any route handler so precedence is uniform.
+// a5-presence §3: a request authenticated by a family's access token records presence once its
+// outcome is known, outside the request's transaction. Handlers add the work-loop fields.
+const presenceTrack = Symbol('agent-presence');
+function trackAgentPresence(req, res, identity) {
+  if (req[presenceTrack] || identity.tokenType !== 'access') return;
+  req[presenceTrack] = { ref: { inboxId: identity.inboxId, agentId: identity.agent.id, familyId: identity.familyId }, workLoop: false, processed: false, errorCode: null, recorded: false };
+  res.once('finish', () => flushAgentPresence(req, res));
+  // A client that disconnects after the response started still made the request.
+  res.once('close', () => { if (res.headersSent) flushAgentPresence(req, res); });
+}
+function notePresence(req, flags) { if (req[presenceTrack]) Object.assign(req[presenceTrack], flags); }
+function flushAgentPresence(req, res) {
+  const track = req[presenceTrack];
+  if (!track || track.recorded || res.statusCode === 401) return;
+  track.recorded = true;
+  const fields = ['lastSeenAt'];
+  if (track.workLoop && track.errorCode !== 'AGENT_PAUSED') fields.push('lastWorkClaimAt');
+  if (track.processed) fields.push('lastProcessedAt');
+  void presenceRecorder.record(track.ref, fields);
+}
+
 async function enforceAgentCredential(req, url, res) {
-  try { await checkAgentCredential(req, url); }
+  try { await checkAgentCredential(req, url, res); }
   catch (error) {
     if (url.pathname === '/mcp' && error.statusCode === 401) res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
     throw error;
   }
 }
 
-async function checkAgentCredential(req, url) {
+async function checkAgentCredential(req, url, res) {
   const agentRoute = url.pathname === '/mcp' || url.pathname.startsWith('/api/agent/') || url.pathname.startsWith('/api/inboxes/');
   const raw = agentRoute ? bearerToken(req) : null;
   if (!raw) {
@@ -567,6 +600,7 @@ async function checkAgentCredential(req, url) {
   const resolved = await resolveAgentCredential(req, { inboxId: routeInboxId, tokenTypes: url.pathname.startsWith('/api/agent/') ? ['access'] : ['access', 'mcp_read'] });
   if (resolved.error) throw resolved.error;
   const identity = resolved.identity;
+  if (identity) trackAgentPresence(req, res, identity);
   if (!identity?.paused) return;
   const readOnly = ['GET', 'HEAD'].includes(req.method) && inboxRoute;
   if (identity.tokenType === 'mcp_read' || url.pathname === '/mcp' || !(readOnly || pausedAgentRoutes.has(`${req.method} ${url.pathname}`))) throw agentPausedError();
@@ -1039,10 +1073,29 @@ async function sharedCaseForAsset(caseId) {
   return binding?.agentIds?.length === 2 && binding?.inboxIds?.length === 2 && value?.id === caseId
     && JSON.stringify(pairIds(value.participants || [])) === JSON.stringify(binding.agentIds) ? { binding, value } : null;
 }
-async function agentControlState(inboxId, agent) {
-  const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agent.id));
+const agentFamilies = (inboxId, agentId) => store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
+async function agentControlState(inboxId, agent, families = null) {
+  families ??= await agentFamilies(inboxId, agent.id);
   const credentialRevoked = agent.status === 'revoked' || families.length > 0 && families.every(family => family.revokedAt);
   return { ...publicAgent(agent), ...(credentialRevoked ? { status: 'revoked', permissions: [] } : {}), paused: agent.status === 'paused', credentialRevoked };
+}
+// a5-presence §4.2: owner views only, kept out of agentControlState because authorization uses
+// that. A failed presence read omits connection, and the client shows "Status unknown".
+// Never call it inside a mutation: a failed read there would abort the PostgreSQL transaction.
+// Pass the families the state was built from, so both read one consistent listing.
+async function withOwnerConnection(inboxId, state, families = null) {
+  try {
+    const family = reportedFamily(families ?? await agentFamilies(inboxId, state.id));
+    const record = family ? await store.getJson(agentPresencePath(inboxId, state.id, family.id)) : null;
+    return { ...state, connection: ownerConnection(state, family, record, store.now()) };
+  } catch {
+    console.error(JSON.stringify({ event: 'envoi.agent_presence_read_failed' }));
+    return state;
+  }
+}
+async function ownerAgentState(inboxId, agent) {
+  const families = await agentFamilies(inboxId, agent.id);
+  return withOwnerConnection(inboxId, await agentControlState(inboxId, agent, families), families);
 }
 async function assetPair(asset, recipientAgentId, recipientInboxId) {
   if (!asset?.key || !asset.caseId || !asset.workspaceId || !asset.createdByAgentId || asset.createdByAgentId === recipientAgentId) return null;
@@ -1870,7 +1923,7 @@ async function humanView(inboxId, inbox, cursors = {}) {
     navigation: { ...projection.counts, needsMe: projection.counts.needsMe + pendingInvitations },
     caseQueue: projection.cases,
     participantDirectory,
-    agents: await Promise.all(agents.map(agent => agentControlState(inboxId, agent))),
+    agents: await Promise.all(agents.map(agent => ownerAgentState(inboxId, agent))),
     cases,
     messages,
     assets: visibleAssets,
@@ -2034,6 +2087,8 @@ async function route(req, res) {
   const instructionReplyRoute = url.pathname.match(/^\/api\/agent\/instructions\/([^/]+)\/reply$/);
   const workSettlementRoute = url.pathname.match(/^\/api\/agent\/work\/([^/]+)\/(renew|acknowledge|complete|fail)$/) || instructionReplyRoute;
   if ((req.method === 'POST' && url.pathname === '/api/agent/work/claim') || (req.method === 'POST' && workSettlementRoute)) {
+    // a5-presence §2: a lease request is work-loop activity whatever its outcome, except AGENT_PAUSED.
+    if (workSettlementRoute) notePresence(req, { workLoop: true });
     const identity = await getAgentWorkIdentity(req);
     if (!identity) return fail(res, 401, 'Active v1 agent credential required');
     if (identity.paused) {
@@ -2294,6 +2349,9 @@ async function route(req, res) {
       if (idempotencyPath) await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
       return { status: 201, payload: response };
     }, relatedWorkInboxes, workLockKeys);
+    // a5-presence §3: claimed or idle claims show the work loop; only a first completion (201) is processing.
+    if (action === 'claim' && ['claimed', 'idle'].includes(result.payload?.state)) notePresence(req, { workLoop: true });
+    if (action === 'complete' && result.status === 201) notePresence(req, { processed: true });
     return json(res, result.status, result.payload);
   }
 
@@ -2352,7 +2410,12 @@ async function route(req, res) {
     const identity = await getAgentWorkIdentity(req);
     if (!identity) return fail(res, 401, 'Active agent access credential required');
     const { agent } = identity;
-    return json(res, 200, { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId });
+    // a5-presence §4.1: the calling family's presence as stored; a failed read reports nulls.
+    const record = await store.getJson(agentPresencePath(identity.inboxId, agent.id, identity.familyId)).catch(() => {
+      console.error(JSON.stringify({ event: 'envoi.agent_presence_read_failed' }));
+      return null;
+    });
+    return json(res, 200, { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId, ...agentStatusPresence(record, store.now()) });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/agent/connection-status') {
@@ -2378,7 +2441,10 @@ async function route(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/agent-token') {
     const input = await body(req);
     if ((input.grantType || 'refresh_token') !== 'refresh_token') return fail(res, 400, 'Only refresh_token grant is supported');
-    return json(res, 200, await rotateAgentCredentials(input.agentRefreshToken, input.rotationId));
+    const successor = await rotateAgentCredentials(input.agentRefreshToken, input.rotationId, {
+      onRotated: ref => res.once('finish', () => void presenceRecorder.record(ref, ['lastSeenAt', 'lastSuccessfulRefreshAt']))
+    });
+    return json(res, 200, successor);
   }
 
   if (req.method === 'GET' && ['/api/auth/workos/sign-in', '/api/auth/workos/sign-up'].includes(url.pathname)) {
@@ -2948,6 +3014,8 @@ async function route(req, res) {
     sseCounts.set(connectionKey, Number(sseCounts.get(connectionKey) || 0) + 1);
     req.setTimeout(0);
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'private, no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+    // a5-presence §3: only the connect counts; holding the stream open never refreshes presence.
+    flushAgentPresence(req, res);
     const subscription = { res, cursor: startCursor, sentIds: new Set(), heartbeat: null, expiryTimer: null, sessionKey, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
     if (agent && !human) {
       // Re-check the credential on every heartbeat: pause keeps the stream, revocation or expiry ends it.
@@ -3094,7 +3162,12 @@ async function route(req, res) {
     return json(res, 201, { agent: publicAgent(agent), inbox: agentInbox, next: { nativeMessaging: 'pending_human_approval', humanApproval: { required: true, humanId: input.humanId }, externalEmail: 'requires_email_transport_configuration' } });
   }
 
-  if (req.method === 'GET' && suffix === 'agents') return json(res, 200, await Promise.all((await store.listJson(path.join('inboxes', inboxId, 'agents'))).map(agent => agentControlState(inboxId, agent))));
+  if (req.method === 'GET' && suffix === 'agents') {
+    // a5-presence §4.2: connection is for the owning workspace's humans; the agent's own token gets none.
+    const ownerView = await canAccessInbox(await auth.getHuman(req), inbox);
+    const agents = await store.listJson(path.join('inboxes', inboxId, 'agents'));
+    return json(res, 200, await Promise.all(agents.map(agent => (ownerView ? ownerAgentState : agentControlState)(inboxId, agent))));
+  }
 
   const agentControlMatch = suffix.match(/^agents\/([^/]+)\/(pause|resume)$/);
   if (req.method === 'POST' && agentControlMatch) {
@@ -3116,6 +3189,8 @@ async function route(req, res) {
       if (agent.status !== status) {
         agent.status = status;
         agent.updatedAt = store.now();
+        // a5-presence §4.2: the resume grace keeps the paused-time basis until the connector claims.
+        if (action === 'resume') agent.resumedAt = agent.updatedAt;
         await store.putJsonBatch([
           document(agentPath, agent),
           document(path.join('directory', 'agents', `${agentId}.json`), { agentId, inboxId, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status, verified: true }),
@@ -3151,7 +3226,7 @@ async function route(req, res) {
         }
       }
     }
-    return json(res, 200, result);
+    return json(res, 200, await withOwnerConnection(inboxId, result));
   }
 
   const cancelMatch = suffix.match(/^messages\/([^/]+)\/cancel$/);
@@ -3293,6 +3368,9 @@ async function route(req, res) {
       const removedAt = store.now();
       await cancelHeldSends(inboxId, human.id, removedAt, writeAudit);
       await revokeAgentCredentialFamilies(inboxId, agentId, human.id, removedAt);
+      // a5-presence §1: removal deletes every presence record of the agent.
+      await store.deleteJsonTree(agentPresenceDir(inboxId, agentId));
+      presenceRecorder.forget(inboxId, agentId);
       if (agent) {
         await freezeAgentRecord(inboxId, agent, human.id, removedAt);
         await store.deleteJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
@@ -4127,7 +4205,7 @@ waitlistSheetInterval?.unref?.();
 if (waitlistSheetSync) void runWaitlistSheetSync();
 const logOperationalBacklog = () => operationalBacklogSnapshot({ store, scanJobStore })
   .then(snapshot => console.log(JSON.stringify(snapshot)))
-  .catch(() => console.error(JSON.stringify({ event: 'sinaloa.operational_backlog_error' })));
+  .catch(() => console.error(JSON.stringify({ event: 'envoi.operational_backlog_error' })));
 const operationalBacklogLogger = setInterval(() => { void logOperationalBacklog(); }, operationalBacklogLogIntervalMs);
 operationalBacklogLogger.unref?.();
 void logOperationalBacklog();
@@ -4146,6 +4224,7 @@ if (scanJobStore) {
 const server = http.createServer((req, res) => route(req, res).catch((error) => {
   const requestId = requestIdFrom(req.headers['x-request-id']);
   const response = publicHttpError(error, requestId);
+  notePresence(req, { errorCode: response.body?.code || null });
   if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
   return json(res, response.status, response.body);
 }));
