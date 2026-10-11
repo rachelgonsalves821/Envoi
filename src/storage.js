@@ -408,6 +408,17 @@ export class FileStore {
     return true;
   }
 
+  // Atomic read-modify-write in its own transaction, never a caller's: `update` returns the next
+  // value, or null to leave the document alone. Resolves to the stored value afterwards.
+  async updateJson(relative, update) {
+    return this.transactionContext.exit(() => this.withTransaction([], async () => {
+      const current = await this.getJson(relative);
+      const next = update(current);
+      if (next) await this.putJson(relative, next);
+      return next || current;
+    }));
+  }
+
   async claimJson(relative, field, value) {
     if (this.claims.has(relative)) return null;
     this.claims.add(relative);

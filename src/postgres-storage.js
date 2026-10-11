@@ -310,6 +310,26 @@ export class PostgresStore {
     return row ? { workspaceId, used: Number(row.used_bytes), reserved: Number(row.reserved_bytes), quota: Number(row.quota_bytes) } : { workspaceId, used: 0, reserved: 0, quota: quotaBytes };
   }
   async putJsonIfAbsent(relative, value) { const result = await this.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO NOTHING RETURNING path', [normalizeDocumentPath(relative), value]); return result.rowCount === 1; }
+  // Atomic read-modify-write in its own transaction, never a caller's: `update` returns the next
+  // value, or null to leave the document alone. Resolves to the stored value afterwards.
+  async updateJson(relative, update) {
+    const key = normalizeDocumentPath(relative);
+    return this.transactionContext.exit(() => this.transactional(async client => {
+      // A concurrent first insert makes ON CONFLICT wait, then the second pass locks the new row.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const current = (await client.query('SELECT value FROM sinaloa_documents WHERE path = $1 FOR UPDATE', [key])).rows[0]?.value ?? null;
+        const next = update(current);
+        if (!next) return current;
+        if (current) {
+          await client.query('UPDATE sinaloa_documents SET value = $2, updated_at = NOW() WHERE path = $1', [key, next]);
+          return next;
+        }
+        const inserted = await client.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO NOTHING RETURNING path', [key, next]);
+        if (inserted.rowCount === 1) return next;
+      }
+      throw new Error('Document update conflicted');
+    }));
+  }
   async claimJson(relative, field, value) {
     if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(field)) throw new Error('Invalid claim field');
     const result = await this.query(`UPDATE sinaloa_documents SET value = jsonb_set(value, $2, to_jsonb($3::text)), updated_at = NOW() WHERE path = $1 AND (value->>$4) IS NULL RETURNING value`, [normalizeDocumentPath(relative), `{${field}}`, value, field]);
