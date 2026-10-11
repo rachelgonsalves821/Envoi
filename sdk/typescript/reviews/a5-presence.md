@@ -1,0 +1,3 @@
+# a5-presence v1 consumer review
+
+Lane B fixture-only review of publication a232f4664f795d523ed480bb2953263e66e52692. Plan: load all registered fixtures directly from test/contract-fixtures/a5-presence, validate producer schemas and ordered state/label semantics, exercise actual frontend response transport and connector status/doctor consumption, and cover optional/unknown connection, pause/resume grace and server-clock age boundaries. No B-3 production UI, types, connector or generated changes before human approval. Review branch uses the exact publication SHA as explicitly requested; it carries #61 as a dependency and only adds Lane B review files. Draft target remains integration/agent-native.
