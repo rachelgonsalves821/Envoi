@@ -7,8 +7,8 @@ import { EnvoiConnector, type ConnectorSession } from '../src/connector';
 import { contractRegistryPath, loadContractFixture, loadContractRegistry } from '../../../integrations/contract-fixtures/setup';
 
 const source = process.env.ENVOI_CONTRACT_FIXTURES_ROOT ?? path.dirname(contractRegistryPath);
-const contract = loadContractRegistry(source).contracts.find(item => item.id === 'a4-wake' && item.version === 1);
-if (!contract?.schemas) throw new Error('a4-wake v1 publication required; point ENVOI_CONTRACT_FIXTURES_ROOT at the publishing worktree canonical test/contract-fixtures directory');
+const contract = loadContractRegistry(source).contracts.find(item => item.id === 'a4-wake' && item.version === 2);
+if (!contract?.schemas) throw new Error('a4-wake v2 publication required; point ENVOI_CONTRACT_FIXTURES_ROOT at the publishing worktree canonical test/contract-fixtures directory');
 const fixtures = contract.fixtures.map(file => loadContractFixture(contract, file, source) as any);
 const schemas = loadContractFixture(contract, contract.schemas, source) as any;
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -28,11 +28,22 @@ const requestCursor = (fixture: any): string | null => fixture.request?.headers?
   || new URL(fixture.request?.path || '/', 'https://fixture.example').searchParams.get('cursor');
 
 // Fixture consumption and protocol acceptance only. No B-2 transport/timers are implemented.
-describe('published a4-wake v1 client review', () => {
+describe('published a4-wake v2 client review', () => {
   it('loads all 26 fixtures from their registered canonical source', () => {
     expect(fixtures).toHaveLength(26);
     expect(new Set(fixtures.map(item => item.id)).size).toBe(26);
     expect(schemas['x-work-available-reasons']).toEqual(['agent_resumed', 'case_resumed', 'counterparty_resumed', 'lease_released']);
+  });
+
+  it('uses only Envoi bearer placeholders and denies leaking either credential generation', () => {
+    const requests = fixtures.filter(item => item.request?.headers?.authorization);
+    expect(requests).toHaveLength(21);
+    for (const fixture of requests) expect(fixture.request.headers.authorization).toMatch(/^Bearer envoi_(?:agent_access|mcp_read)_/);
+    const error = fixtures.find(item => item.response?.schema === 'errorEnvelope')!.response.body;
+    const validator = ajv.getSchema(schemas.$id + '#/definitions/errorEnvelope')!;
+    for (const prefix of ['envoi', 'sinaloa']) for (const suffix of ['agent_access_', 'agent_refresh_', 'mcp_read_', 'enroll_']) {
+      expect(validator({ ...error, message: 'Leaked ' + prefix + '_' + suffix + 'PRIVATE' })).toBe(false);
+    }
   });
 
   it.each(fixtures)('consumes $id schemas, cursor ordering and stable codes', fixture => {
