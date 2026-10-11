@@ -604,7 +604,7 @@ Lane B owns these names. They are listed so the cutover is complete on one SHA:
 
 ## a5-presence v1
 
-**Contract:** `a5-presence`, version 1. **Status:** published for Lane B review. It is not approved yet, and it changes no server behavior until A-3.
+**Contract:** `a5-presence`, version 1. **Status:** approved by the human on 2026-10-11 (`CONTRACT-APPROVED a5-presence v1 @a232f46`, build board #34) after Lane B `CONTRACT-ACK` (consuming tests in PR #62). Frozen: changes need a new version. Implemented by A-3.
 
 **Fixtures:** [`test/contract-fixtures/a5-presence/`](../../../test/contract-fixtures/a5-presence/). That holds:
 - `schemas.json`: the schemas plus the machine-readable tables `x-presence-throttle`, `x-presence-updates`, `x-presence-never`, `x-connection-states` and `x-agent-labels`;

@@ -107,7 +107,7 @@
     {
       "id": "a5-presence",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#a5-presence-v1",
       "dir": "a5-presence",
       "schemas": "schemas.json",
