@@ -35,6 +35,23 @@ export interface Human {
 export interface Organization { id: string; name: string; slug: string; status: string }
 export interface Inbox { id: string; organizationId: string; name: string; ownerAgentId: string | null; ownerHumanId: string; parentInboxId?: string | null; kind?: 'workspace' | 'agent'; status: string; createdAt: string; historyDeleted?: boolean; removedAgent?: { id: string; name?: string } }
 
+export interface AgentPresence {
+  lastSeenAt: string | null;
+  lastSuccessfulRefreshAt: string | null;
+  lastWorkClaimAt: string | null;
+  lastProcessedAt: string | null;
+}
+
+export interface AgentConnection {
+  // An open string accepts future server states; consumers show Status unknown.
+  state: string;
+  asOf: string;
+  recentWindowSeconds: number;
+  seenAt: string | null;
+  credentialExpiresAt: string | null;
+  presence: AgentPresence;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -48,8 +65,10 @@ export interface Agent {
   permissions: string[];
   capabilities?: string[];
   approvedAt?: string;
-  pausedAt?: string | null;
+  paused?: boolean;
+  resumedAt?: string;
   credentialRevoked?: boolean;
+  connection?: AgentConnection;
 }
 
 export interface ParticipantIdentity {

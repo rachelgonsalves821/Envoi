@@ -209,7 +209,7 @@ describe('enforced human controls', () => {
     vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-controls' });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ case: {}, action: {} }), { status: 201, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'agent/1', pausedAt: '2026-09-29T12:00:00Z' }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'agent/1', status: 'paused', paused: true }), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ agentId: 'agent/peer', blocked: true }), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ object: { id: 'asset/1' }, download: { url: '/download/once', method: 'GET' } }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
