@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { contractRegistryPath, loadContractFixture, loadContractRegistry } from '../../integrations/contract-fixtures/setup';
 import { ApiError, SESSION_EXPIRED_EVENT, api, csrfToken, expectedHumanHeaders, request, setCsrfCookieName, setExpectedHuman } from '../src/api';
 
-// Pre-approval fixture consumption only. Production N2 behavior is intentionally untouched.
+// N2 consumption checks run with the paired server/client tree.
 const source = process.env.ENVOI_CONTRACT_FIXTURES_ROOT ?? path.dirname(contractRegistryPath);
 const contract = loadContractRegistry(source).contracts.find(item => item.id === 'envoi-browser-names' && item.version === 1);
 if (!contract?.schemas) throw new Error('envoi-browser-names v1 publication required; set ENVOI_CONTRACT_FIXTURES_ROOT to the canonical publication directory');
@@ -75,10 +75,10 @@ describe('envoi-browser-names v1 shared fixture review', () => {
       old, new: next, path: cookiePath, httpOnly, sameSite, domain
     })));
     expect(schemas['x-browser-headers']).toEqual({ 'x-sinaloa-csrf': 'x-envoi-csrf' });
-    // The cutover versions must not be published or pinned early.
+    // Pin the paired cutover versions.
     const registry = loadContractRegistry(source);
-    expect(registry.contracts.find(item => item.id === 'a3-pause-auth')?.version).toBe(2);
-    expect(registry.contracts.find(item => item.id === 'a4-wake')?.version).toBe(1);
+    expect(registry.contracts.find(item => item.id === 'a3-pause-auth')?.version).toBe(3);
+    expect(registry.contracts.find(item => item.id === 'a4-wake')?.version).toBe(2);
   });
 
   it.each(fixtures)('validates $id response and consumes its browser guidance', fixture => {
@@ -226,20 +226,19 @@ describe('existing frontend consumes published response shapes', () => {
     expect(expired).toHaveBeenCalledTimes(1);
   });
 
-  it('persistent plain CSRF failure remains an ApiError usable by the future Reload UI', async () => {
+  it('persistent plain CSRF failure remains an ApiError usable by the Reload UI', async () => {
     const fixture = byId('csrf-old-header-rejected');
     setCsrfCookieName('envoi_csrf'); setExpectedHuman('human_example');
     vi.stubGlobal('document', { cookie: fixture.request.headers!.cookie });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(fixture))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'human_example' }), { status: 200 }))
-      .mockResolvedValueOnce(response(fixture));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'human_example' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(request(fixture.request.path, { method: 'POST', body: '{}' })).rejects.toMatchObject({
       name: 'ApiError', status: 403, message: 'CSRF validation failed', code: 'CSRF validation failed'
     } satisfies Partial<ApiError>);
-    // Existing recovery performs one retry. N2-client must resolve old-tab handling after approval.
-    expect(fetchMock.mock.calls.map(call => call[0])).toEqual([fixture.request.path, '/api/auth/me', fixture.request.path]);
+    // Unchanged CSRF tokens cannot recover an old-header or wrong-Origin rejection.
+    expect(fetchMock.mock.calls.map(call => call[0])).toEqual([fixture.request.path, '/api/auth/me']);
   });
 });
 
