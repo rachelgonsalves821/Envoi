@@ -311,10 +311,17 @@ export class PostgresStore {
   }
   async putJsonIfAbsent(relative, value) { const result = await this.query('INSERT INTO sinaloa_documents(path, value) VALUES($1, $2) ON CONFLICT(path) DO NOTHING RETURNING path', [normalizeDocumentPath(relative), value]); return result.rowCount === 1; }
   // Atomic read-modify-write in its own transaction, never a caller's: `update` returns the next
-  // value, or null to leave the document alone. Resolves to the stored value afterwards.
-  async updateJson(relative, update) {
+  // value, or null to leave the document alone. Resolves to the stored value afterwards, or null
+  // when `guard.valid` rejects the guard document, which is read FOR SHARE so a concurrent change
+  // to it is serialized with this write. Never await it inside a transaction: it would hold a
+  // second pool connection.
+  async updateJson(relative, update, { guard = null } = {}) {
     const key = normalizeDocumentPath(relative);
     return this.transactionContext.exit(() => this.transactional(async client => {
+      if (guard) {
+        const guarded = (await client.query('SELECT value FROM sinaloa_documents WHERE path = $1 FOR SHARE', [normalizeDocumentPath(guard.path)])).rows[0]?.value ?? null;
+        if (!guard.valid(guarded)) return null;
+      }
       // A concurrent first insert makes ON CONFLICT wait, then the second pass locks the new row.
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const current = (await client.query('SELECT value FROM sinaloa_documents WHERE path = $1 FOR UPDATE', [key])).rows[0]?.value ?? null;

@@ -97,19 +97,53 @@ test('a failed presence write is reported and never thrown', async () => {
   assert.deepEqual(failures, ['storage down']);
 });
 
-test('updateJson runs in its own transaction even when called from inside another one', async t => {
+test('a write happens only while its credential family exists and is not revoked', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'envoi-presence-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const store = new FileStore(dir);
   await store.init();
-  let escaped;
-  await store.withTransaction(['k'], async () => {
-    // Started, not awaited: awaiting inside would wait on this very transaction.
-    escaped = store.updateJson('auth/agent-presence/i/a/f.json', () => ({ lastSeenAt: at(0) }));
-    await store.putJson('other.json', { ok: true });
-    throw new Error('caller rolls back');
-  }).catch(() => {});
-  assert.deepEqual(await escaped, { lastSeenAt: at(0) });
-  assert.deepEqual(await store.getJson('auth/agent-presence/i/a/f.json'), { lastSeenAt: at(0) }, 'not rolled back with the caller');
-  assert.equal(await store.getJson('other.json'), null, 'the caller still rolled back');
+  const familyPath = (inboxId, agentId, familyId) => path.join('families', inboxId, agentId, `${familyId}.json`);
+  const ref = { inboxId: 'inbox_a', agentId: 'agent_a', familyId: 'family_a' };
+  const key = agentPresencePath(ref.inboxId, ref.agentId, ref.familyId);
+  let tick = 0;
+  // Each write is a minute apart, so the throttle never hides the guard.
+  const recorder = createPresenceRecorder({ store, familyPath, now: () => at(120 * tick++), onError: error => { throw error; } });
+  await recorder.record(ref, ['lastSeenAt']);
+  assert.equal(await store.getJson(key), null, 'no family: a late write after removal recreates nothing');
+  await store.putJson(familyPath(ref.inboxId, ref.agentId, ref.familyId), { id: ref.familyId, revokedAt: null });
+  await recorder.record(ref, ['lastSeenAt']);
+  assert.ok((await store.getJson(key)).lastSeenAt);
+  await store.putJson(familyPath(ref.inboxId, ref.agentId, ref.familyId), { id: ref.familyId, revokedAt: at(0) });
+  const before = await store.getJson(key);
+  await recorder.record(ref, ['lastSeenAt', 'lastWorkClaimAt']);
+  assert.deepEqual(await store.getJson(key), before, 'a revoked family is never written');
+});
+
+test('writes run at most maxConcurrent at once, in order, and an overfull queue drops and reports', async () => {
+  let active = 0;
+  let peak = 0;
+  const order = [];
+  const slow = {
+    async updateJson(key, update) {
+      order.push(key);
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      active -= 1;
+      return update(null);
+    }
+  };
+  const errors = [];
+  const recorder = createPresenceRecorder({ store: slow, maxConcurrent: 2, maxQueued: 3, onError: error => errors.push(error.code) });
+  const refs = Array.from({ length: 6 }, (_, index) => ({ inboxId: 'i', agentId: 'a', familyId: `f${index}` }));
+  await Promise.all(refs.map(ref => recorder.record(ref, ['lastSeenAt'])));
+  assert.equal(peak, 2, 'never more than two storage writes at once');
+  assert.deepEqual(order, refs.slice(0, 5).map(ref => agentPresencePath(ref.inboxId, ref.agentId, ref.familyId)), 'first in, first out');
+  assert.deepEqual(errors, ['PRESENCE_QUEUE_FULL'], 'the sixth write did not fit: two running, three queued');
+});
+
+test('a malformed stored timestamp counts as absent and a family without createdAt sorts oldest', () => {
+  const repaired = advancePresence({ lastSeenAt: 'not-a-time' }, at(0), ['lastSeenAt']);
+  assert.equal(repaired.lastSeenAt, at(0));
+  assert.equal(reportedFamily([{ id: 'undated' }, { id: 'dated', createdAt: at(0) }]).id, 'dated');
 });

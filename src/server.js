@@ -114,7 +114,13 @@ const actionPermission = actionKey => actionKey.startsWith('message.') ? 'send_a
 const acknowledgementStateRank = Object.freeze({ delivered: 0, acknowledged: 1, processed: 2 });
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
 const auth = createHumanAuth(store);
-const presenceRecorder = createPresenceRecorder({ store, now: () => store.now(), onError: () => console.error(JSON.stringify({ event: 'envoi.agent_presence_write_failed' })) });
+const presenceRecorder = createPresenceRecorder({
+  store,
+  now: () => store.now(),
+  familyPath: (inboxId, agentId, familyId) => agentCredentialFamilyPath(inboxId, agentId, familyId),
+  // Name and code only: messages can carry storage paths.
+  onError: error => console.error(JSON.stringify({ event: 'envoi.agent_presence_write_failed', name: error?.name, code: error?.code }))
+});
 const rememberedProviderMembership = createProviderMembershipCache({ lookup: (userId, organizationId) => auth.getOrganizationMembership(userId, organizationId) });
 // How long an open event stream trusts one answer from WorkOS before asking again.
 const streamMembershipRecheckMs = streamRecheckMs(process.env.ENVOI_STREAM_MEMBERSHIP_RECHECK_MS);
@@ -550,6 +556,8 @@ function trackAgentPresence(req, res, identity) {
   if (req[presenceTrack] || identity.tokenType !== 'access') return;
   req[presenceTrack] = { ref: { inboxId: identity.inboxId, agentId: identity.agent.id, familyId: identity.familyId }, workLoop: false, processed: false, errorCode: null, recorded: false };
   res.once('finish', () => flushAgentPresence(req, res));
+  // A client that disconnects after the response started still made the request.
+  res.once('close', () => { if (res.headersSent) flushAgentPresence(req, res); });
 }
 function notePresence(req, flags) { if (req[presenceTrack]) Object.assign(req[presenceTrack], flags); }
 function flushAgentPresence(req, res) {
@@ -1065,17 +1073,19 @@ async function sharedCaseForAsset(caseId) {
   return binding?.agentIds?.length === 2 && binding?.inboxIds?.length === 2 && value?.id === caseId
     && JSON.stringify(pairIds(value.participants || [])) === JSON.stringify(binding.agentIds) ? { binding, value } : null;
 }
-async function agentControlState(inboxId, agent) {
-  const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agent.id));
+const agentFamilies = (inboxId, agentId) => store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
+async function agentControlState(inboxId, agent, families = null) {
+  families ??= await agentFamilies(inboxId, agent.id);
   const credentialRevoked = agent.status === 'revoked' || families.length > 0 && families.every(family => family.revokedAt);
   return { ...publicAgent(agent), ...(credentialRevoked ? { status: 'revoked', permissions: [] } : {}), paused: agent.status === 'paused', credentialRevoked };
 }
 // a5-presence §4.2: owner views only, kept out of agentControlState because authorization uses
 // that. A failed presence read omits connection, and the client shows "Status unknown".
 // Never call it inside a mutation: a failed read there would abort the PostgreSQL transaction.
-async function withOwnerConnection(inboxId, state) {
+// Pass the families the state was built from, so both read one consistent listing.
+async function withOwnerConnection(inboxId, state, families = null) {
   try {
-    const family = reportedFamily(await store.listJson(path.join('auth', 'agent-credential-families', inboxId, state.id)));
+    const family = reportedFamily(families ?? await agentFamilies(inboxId, state.id));
     const record = family ? await store.getJson(agentPresencePath(inboxId, state.id, family.id)) : null;
     return { ...state, connection: ownerConnection(state, family, record, store.now()) };
   } catch {
@@ -1083,7 +1093,10 @@ async function withOwnerConnection(inboxId, state) {
     return state;
   }
 }
-const ownerAgentState = async (inboxId, agent) => withOwnerConnection(inboxId, await agentControlState(inboxId, agent));
+async function ownerAgentState(inboxId, agent) {
+  const families = await agentFamilies(inboxId, agent.id);
+  return withOwnerConnection(inboxId, await agentControlState(inboxId, agent, families), families);
+}
 async function assetPair(asset, recipientAgentId, recipientInboxId) {
   if (!asset?.key || !asset.caseId || !asset.workspaceId || !asset.createdByAgentId || asset.createdByAgentId === recipientAgentId) return null;
   const shared = await sharedCaseForAsset(asset.caseId);
@@ -2398,7 +2411,10 @@ async function route(req, res) {
     if (!identity) return fail(res, 401, 'Active agent access credential required');
     const { agent } = identity;
     // a5-presence §4.1: the calling family's presence as stored; a failed read reports nulls.
-    const record = await store.getJson(agentPresencePath(identity.inboxId, agent.id, identity.familyId)).catch(() => null);
+    const record = await store.getJson(agentPresencePath(identity.inboxId, agent.id, identity.familyId)).catch(() => {
+      console.error(JSON.stringify({ event: 'envoi.agent_presence_read_failed' }));
+      return null;
+    });
     return json(res, 200, { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId, ...agentStatusPresence(record, store.now()) });
   }
 
