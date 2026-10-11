@@ -5,14 +5,14 @@ import { invalidateSessionRequests } from '../src/session-lifecycle';
 afterEach(() => {
   vi.unstubAllGlobals();
   setExpectedHuman(null);
-  setCsrfCookieName('sinaloa_csrf');
+  setCsrfCookieName('envoi_csrf');
 });
 
 describe('human API sessions', () => {
   it('uses the last same-named CSRF cookie, matching the server parser', () => {
-    expect(csrfToken('sinaloa_csrf=older; sinaloa_csrf=newer')).toBe('newer');
-    expect(csrfToken('sinaloa_csrf=valid; sinaloa_csrf=%ZZ')).toBe('valid');
-    expect(csrfToken('sinaloa_csrf=%ZZ')).toBeNull();
+    expect(csrfToken('envoi_csrf=older; envoi_csrf=newer')).toBe('newer');
+    expect(csrfToken('envoi_csrf=valid; envoi_csrf=%ZZ')).toBe('valid');
+    expect(csrfToken('envoi_csrf=%ZZ')).toBeNull();
   });
 
   it('restores a missing CSRF cookie and retries a rejected write once', async () => {
@@ -22,7 +22,7 @@ describe('human API sessions', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }))
       .mockImplementationOnce(async () => {
-        cookieDocument.cookie = 'sinaloa_csrf=restored';
+        cookieDocument.cookie = 'envoi_csrf=restored';
         return new Response(JSON.stringify({ id: 'human_one' }), { status: 200 });
       })
       .mockResolvedValueOnce(new Response(JSON.stringify({ saved: true }), { status: 200 }));
@@ -30,13 +30,13 @@ describe('human API sessions', () => {
     await expect(request('/api/inboxes/one/cases/two/inbox-preferences', { method: 'POST', body: JSON.stringify({ archive: true }) })).resolves.toEqual({ saved: true });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[1][0]).toBe('/api/auth/me');
-    expect(new Headers(fetchMock.mock.calls[2][1].headers).get('x-sinaloa-csrf')).toBe('restored');
+    expect(new Headers(fetchMock.mock.calls[2][1].headers).get('x-envoi-csrf')).toBe('restored');
     expect(new Headers(fetchMock.mock.calls[2][1].headers).get('x-envoi-expected-human')).toBe('human_one');
   });
 
   it.each([['human_one', 401], ['human_other', 200]])('never replays a write after failed or changed identity recovery (%s, %s)', async (id, status) => {
     setExpectedHuman('human_one');
-    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=existing' });
+    vi.stubGlobal('document', { cookie: 'envoi_csrf=existing' });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ id }), { status }));
@@ -46,14 +46,14 @@ describe('human API sessions', () => {
   });
 
   it('does not repeatedly retry CSRF failures or recover ordinary authorization denials', async () => {
-    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=existing' });
+    vi.stubGlobal('document', { cookie: 'envoi_csrf=existing' });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'human_one' }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'CSRF validation failed' }), { status: 403 }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(api.logout()).rejects.toMatchObject({ status: 403 });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     fetchMock.mockReset().mockResolvedValue(new Response(JSON.stringify({ error: 'Not authorized' }), { status: 403 }));
     await expect(request('/api/write', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: 403 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -150,16 +150,16 @@ describe('human API sessions', () => {
   });
 
   it('adds CSRF protection to mutations without replacing explicit headers', () => {
-    expect(csrfToken('theme=light; sinaloa_csrf=csrf%20value')).toBe('csrf value');
-    expect(csrfHeaders('POST', 'sinaloa_csrf=csrf-token')).toEqual({ 'x-sinaloa-csrf': 'csrf-token' });
-    expect(csrfHeaders('GET', 'sinaloa_csrf=csrf-token')).toEqual({});
+    expect(csrfToken('theme=light; envoi_csrf=csrf%20value')).toBe('csrf value');
+    expect(csrfHeaders('POST', 'envoi_csrf=csrf-token')).toEqual({ 'x-envoi-csrf': 'csrf-token' });
+    expect(csrfHeaders('GET', 'envoi_csrf=csrf-token')).toEqual({});
   });
 
   it('uses the CSRF cookie name returned by auth configuration', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ provider: 'workos', hosted: true, csrfCookieName: 'custom_csrf' }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
     await api.authConfig();
-    expect(csrfToken('sinaloa_csrf=wrong; custom_csrf=right')).toBe('right');
+    expect(csrfToken('envoi_csrf=wrong; custom_csrf=right')).toBe('right');
   });
 
   it('shows the server message rather than its generic error code', async () => {
@@ -179,7 +179,7 @@ describe('human API sessions', () => {
 
 describe('agent credential controls', () => {
   it('revokes the selected agent with the human session and CSRF token', async () => {
-    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-revoke' });
+    vi.stubGlobal('document', { cookie: 'envoi_csrf=csrf-revoke' });
     const response = { revoked: true, agentId: 'agent/1', credentialFamilyCount: 1, revokedAt: '2026-09-28T18:00:00.000Z' };
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
@@ -187,12 +187,12 @@ describe('agent credential controls', () => {
     await expect(api.revokeAgentCredentials('inbox one', 'agent/1')).resolves.toEqual(response);
     expect(fetchMock).toHaveBeenCalledWith('/api/inboxes/inbox%20one/agents/agent%2F1/credentials/revoke', expect.objectContaining({ method: 'POST', credentials: 'same-origin' }));
     const options = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(new Headers(options.headers).get('x-sinaloa-csrf')).toBe('csrf-revoke');
+    expect(new Headers(options.headers).get('x-envoi-csrf')).toBe('csrf-revoke');
     expect(new Headers(options.headers).has('authorization')).toBe(false);
   });
 
   it('sends newly approved permissions with a re-onboarding handoff', async () => {
-    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-reenroll' });
+    vi.stubGlobal('document', { cookie: 'envoi_csrf=csrf-reenroll' });
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ agentId: 'agent_1', address: 'milo@agents.envoi-agents.com' }), { status: 201, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -200,13 +200,13 @@ describe('agent credential controls', () => {
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/inboxes/inbox_1/agents/agent_1/credentials/reconnect-token');
     expect(JSON.parse(String(options.body))).toEqual({ runtime: 'hermes', permissions: ['receive_agent_messages'] });
-    expect(new Headers(options.headers).get('x-sinaloa-csrf')).toBe('csrf-reenroll');
+    expect(new Headers(options.headers).get('x-envoi-csrf')).toBe('csrf-reenroll');
   });
 });
 
 describe('enforced human controls', () => {
   it('uses exact protected routes for case actions, pause, native block, and file access', async () => {
-    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-controls' });
+    vi.stubGlobal('document', { cookie: 'envoi_csrf=csrf-controls' });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ case: {}, action: {} }), { status: 201, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'agent/1', status: 'paused', paused: true }), { status: 200, headers: { 'content-type': 'application/json' } }))
@@ -227,7 +227,7 @@ describe('enforced human controls', () => {
     ]);
     for (const [, options] of fetchMock.mock.calls.slice(0, 3)) {
       expect((options as RequestInit).method).toBe('POST');
-      expect(new Headers((options as RequestInit).headers).get('x-sinaloa-csrf')).toBe('csrf-controls');
+      expect(new Headers((options as RequestInit).headers).get('x-envoi-csrf')).toBe('csrf-controls');
     }
     expect(new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers).get('idempotency-key')).toMatch(/^approveOnce-case\/1-/);
     expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBeUndefined();
@@ -285,7 +285,7 @@ describe('agent connection invitations', () => {
 
 describe('approved external contacts', () => {
   it('approves and blocks an exact email address with cookie and CSRF protection', async () => {
-    vi.stubGlobal('document', { cookie: 'sinaloa_csrf=csrf-contact' });
+    vi.stubGlobal('document', { cookie: 'envoi_csrf=csrf-contact' });
     const contact = { id: 'external_contact_123', email: 'friend@example.com', displayName: 'Friend', direction: 'both', approved: true, blocked: false, updatedAt: '2026-09-27T19:00:00.000Z' };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(contact), { status: 201, headers: { 'content-type': 'application/json' } }))
@@ -301,7 +301,7 @@ describe('approved external contacts', () => {
     ]);
     for (const [, options] of fetchMock.mock.calls) {
       expect((options as RequestInit).method).toBe('POST');
-      expect(new Headers((options as RequestInit).headers).get('x-sinaloa-csrf')).toBe('csrf-contact');
+      expect(new Headers((options as RequestInit).headers).get('x-envoi-csrf')).toBe('csrf-contact');
     }
   });
 });
