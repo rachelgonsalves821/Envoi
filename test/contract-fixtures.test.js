@@ -55,6 +55,50 @@ function checkDeltaPage(fixture, label) {
   if (hasMore) assert.ok(events.length > 0, `${label}: hasMore implies a non-empty page`);
 }
 
+const presenceFields = ['lastSeenAt', 'lastSuccessfulRefreshAt', 'lastWorkClaimAt', 'lastProcessedAt'];
+
+// a5-presence §2: no timestamp is later than asOf, and lastSeenAt leads the other three.
+function checkPresence(presence, asOf, label) {
+  for (const field of presenceFields) {
+    if (presence[field] && asOf) assert.ok(presence[field] <= asOf, `${label}: ${field} is not later than asOf`);
+    if (presence[field] && field !== 'lastSeenAt') assert.ok(presence.lastSeenAt && presence.lastSeenAt >= presence[field], `${label}: lastSeenAt is not earlier than ${field}`);
+  }
+}
+
+// a5-presence §4.2 and §5: re-derive seenAt, the connection state and both labels from the fixture's own fields.
+function checkOwnerConnection(fixture, schemas, label) {
+  assert.deepEqual(schemas['x-connection-states'].map((entry) => entry.state), schemas.definitions.connectionState.enum, `${label}: state table order`);
+  assert.deepEqual(schemas['x-agent-labels'].map((entry) => entry.label), ['Revoked', 'Rejected', 'Pending', 'Paused', 'Active'], `${label}: agent label table order`);
+  const agents = Array.isArray(fixture.response.body) ? fixture.response.body : [fixture.response.body];
+  for (const [index, agent] of agents.entries()) {
+    const agentLabel = `${label} agent ${index}`;
+    const { connection } = agent;
+    const revoked = agent.status === 'revoked' || agent.credentialRevoked;
+    const { lastSeenAt, lastWorkClaimAt } = connection.presence;
+    const resumeGrace = Boolean(agent.resumedAt) && Date.parse(connection.asOf) - Date.parse(agent.resumedAt) <= connection.recentWindowSeconds * 1000
+      && (!lastWorkClaimAt || lastWorkClaimAt < agent.resumedAt);
+    const seenAt = agent.paused || resumeGrace ? lastSeenAt : lastWorkClaimAt;
+    assert.equal(connection.seenAt, seenAt, `${agentLabel}: seenAt is lastSeenAt while paused or in the resume grace, otherwise lastWorkClaimAt`);
+    const state = revoked ? 'revoked'
+      : agent.onboardingStatus === 'rejected' ? 'rejected'
+        : agent.onboardingStatus !== 'approved' ? 'pending_approval'
+          : connection.credentialExpiresAt === null ? 'not_connected'
+            : connection.credentialExpiresAt <= connection.asOf ? 'needs_reconnect'
+              : seenAt === null ? 'never_seen'
+                : Date.parse(connection.asOf) - Date.parse(seenAt) <= connection.recentWindowSeconds * 1000 ? 'seen_recently'
+                  : 'not_seen_recently';
+    assert.equal(connection.state, state, `${agentLabel}: connection.state follows the first matching row`);
+    assert.equal(fixture.client.connectionLabel, schemas['x-connection-states'].find((entry) => entry.state === state).connectionLabel, `${agentLabel}: connection label`);
+    const expectedAgentLabel = revoked ? 'Revoked' : agent.onboardingStatus === 'rejected' ? 'Rejected' : agent.onboardingStatus !== 'approved' ? 'Pending' : agent.paused ? 'Paused' : 'Active';
+    assert.equal(fixture.client.agentLabel, expectedAgentLabel, `${agentLabel}: agent label`);
+    if (['not_connected', 'pending_approval', 'rejected'].includes(state)) assert.deepEqual(Object.values(connection.presence), [null, null, null, null], `${agentLabel}: no family, no presence`);
+    if (revoked) assert.equal(connection.credentialExpiresAt, null, `${agentLabel}: a revoked family reports no expiry`);
+    // A revoked agent reports status revoked even when it was paused (credentialRevoked overrides).
+    if (!revoked) assert.equal(agent.paused, agent.status === 'paused', `${agentLabel}: paused mirrors the agent status`);
+    checkPresence(connection.presence, connection.asOf, agentLabel);
+  }
+}
+
 test('contract fixture registry has a versioned shape', async () => {
   const index = await readJson(path.join(root, 'index.json'));
   assert.equal(Number.isInteger(index.version) && index.version >= 1, true);
@@ -140,6 +184,8 @@ test('every fixture matches its declared schema', async () => {
       }
       if (fixture.frames) checkStreamFrames(fixture, label, check, validator);
       if (fixture.response?.schema === 'deltaPage') checkDeltaPage(fixture, label);
+      if (['ownerAgentList', 'ownerAgent'].includes(fixture.response?.schema)) checkOwnerConnection(fixture, schemas, label);
+      if (fixture.response?.schema === 'agentStatusWithPresence') checkPresence(fixture.response.body.presence, fixture.response.body.asOf, label);
       assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }

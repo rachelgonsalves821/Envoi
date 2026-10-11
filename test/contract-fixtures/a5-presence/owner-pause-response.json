@@ -1,0 +1,51 @@
+{
+  "contract": "a5-presence",
+  "version": 1,
+  "id": "owner-pause-response",
+  "description": "The owner pauses an active agent whose connector claimed 12 s ago.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/pause",
+    "auth": "human_session"
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgent",
+    "body": {
+      "id": "agent_example",
+      "name": "Example agent",
+      "slug": "example",
+      "address": "example@envoi.mail",
+      "platformAddress": "example@envoi.mail",
+      "status": "paused",
+      "onboardingStatus": "approved",
+      "permissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "createdAt": "2026-10-01T09:00:00.000Z",
+      "paused": true,
+      "credentialRevoked": false,
+      "connection": {
+        "state": "seen_recently",
+        "asOf": "2026-10-12T12:00:42.000Z",
+        "recentWindowSeconds": 300,
+        "seenAt": "2026-10-12T12:00:30.000Z",
+        "credentialExpiresAt": "2026-11-11T11:52:10.000Z",
+        "presence": {
+          "lastSeenAt": "2026-10-12T12:00:30.000Z",
+          "lastSuccessfulRefreshAt": "2026-10-12T11:52:10.000Z",
+          "lastWorkClaimAt": "2026-10-12T12:00:30.000Z",
+          "lastProcessedAt": "2026-10-12T11:58:03.000Z"
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "connectionLabel": "Seen recently",
+    "agentLabel": "Paused",
+    "next": "Show \"Paused · Seen recently\"."
+  }
+}

@@ -601,3 +601,244 @@ Lane B owns these names. They are listed so the cutover is complete on one SHA:
 - `health-identity`
 
 `schemas.json` carries the tool-name mapping as `x-tool-names`. Clients can assert their adapters reference only the new names.
+
+## a5-presence v1
+
+**Contract:** `a5-presence`, version 1. **Status:** published for Lane B review. It is not approved yet, and it changes no server behavior until A-3.
+
+**Fixtures:** [`test/contract-fixtures/a5-presence/`](../../../test/contract-fixtures/a5-presence/). That holds:
+- `schemas.json`: the schemas plus the machine-readable tables `x-presence-throttle`, `x-presence-updates`, `x-presence-never`, `x-connection-states` and `x-agent-labels`;
+- one JSON file per case.
+
+**Owner:** Lane A. **Consumer:** Lane B (B-3 presence UI and connector diagnostics). **Implemented by:** task A-3.
+
+This contract adds minimal Phase A presence (v3 §27–§28; two-owner plan A5). It records when the server last heard from an installation, and it shows that to the agent's owner in conservative terms. It builds on:
+- `a3-pause-auth` v2: credential families, pause, and `GET /api/agent/status`;
+- `a4-wake` v1: the claim loop and safety timer that keep a healthy connector talking to the server.
+
+**What presence means.** Presence is evidence that **some process holding this installation's credentials** recently called the server. It is never proof of any of these:
+- that a runtime is running;
+- that a model is reachable;
+- that work will be processed.
+
+The UI must not say "online", "running" or "connected" (§5).
+
+### 1. Presence is an installation projection
+
+- **Keyed by credential family.** There is one presence record per credential family. In Phase A a credential family *is* the installation. Families are created by enrollment redemption, by onboarding approval and by a reconnect or re-enroll redemption. Each reconnect replaces the earlier families (a3 §4).
+- **Phase B migration.** When `AgentInstallation` arrives (v3 §43–§44), each family's record becomes that installation's presence:
+  - `lastSeenAt` → `lastSeenAt`;
+  - `lastWorkClaimAt` → `lastClaimAt`;
+  - `lastProcessedAt` → `lastProcessedAt`;
+  - `lastSuccessfulRefreshAt` stays with the installation's credential.
+
+  The agent identity is never reinterpreted as a runtime.
+- **Stored apart from authorization.** This is a deliberate deviation from the wording "fields on the existing credential family" in v3 §27 and the build plan.
+  - The record lives at `auth/agent-presence/{inboxId}/{agentId}/{familyId}.json`, not inside the family document.
+  - The family document is written read-modify-write by refresh, revocation and setup reports. A presence write inside it could overwrite a concurrent revocation or expiry roll.
+  - It is a new document path on both FileStore and PostgreSQL, not a SQL migration. No existing listing reads that prefix.
+- **What it never holds.** No IP address, user agent, host name, runtime version, request path or token material. It holds only the four timestamps below.
+- **Removal.** Removing an agent deletes all of its presence records, with or without `deleteHistory`.
+
+### 2. Fields
+
+| Field | Meaning |
+| --- | --- |
+| `lastSeenAt` | The last request authenticated by this family's credential (§3), including setup checks. **Diagnostic only:** it decides the connection state only while the agent is paused (§4.2). |
+| `lastSuccessfulRefreshAt` | The last `POST /api/agent-token` that returned `200` for this family. That covers both a new successor and an A1 recovery of the same successor. |
+| `lastWorkClaimAt` | The last **work-loop** request: a `POST /api/agent/work/claim` answered with `state: "claimed"` or `state: "idle"`, or a lease request (`renew`, `acknowledge`, `complete`, `fail`, instruction `reply`) with any outcome except `409 AGENT_PAUSED`. It shows that the connector's work loop is talking to the queue, not that work was found. Renewals keep it fresh during a long handler. A paused claim (`state: "paused"`) does not count. |
+| `lastProcessedAt` | The last work `complete` that returned `201`, meaning the message became `processed`. An idempotent replay (`200`) of an earlier completion does not count. |
+
+Each value is either an ISO 8601 UTC timestamp with milliseconds, taken from the server's clock, or `null` if it never happened.
+
+**Write rules**
+- **After the outcome, outside the request's transaction.** The server records presence once the response outcome is known, for the family that authenticated the request. It never writes inside a request's mutation or transaction. So a presence write cannot be rolled back by a failing request, and it cannot abort a successful one.
+- **Throttled.** A field is written only when its stored value is absent or at least **60 s** older than the new value. Each field therefore changes at most once per family per 60 s, however many requests arrive and across all server instances. The one exception is the next rule.
+- **`lastSeenAt` leads.** A write that advances any other field also advances `lastSeenAt` to the same time in the same document write, outside `lastSeenAt`'s own throttle. So `lastSeenAt` is never earlier than the other three.
+- **Monotonic.** A field never moves backwards, even under concurrent requests. Each write is a single conditional storage operation that compares in storage, not in memory. A-3 adds this primitive to both FileStore and PostgreSQL; `claimJson` only checks for absence.
+- **Lag.** When writes succeed, a stored value is at most 60 s earlier than the latest activity it records, and never later than it.
+- **Best effort.** A presence write never changes a response's status or body. If the write fails, the request still succeeds and the failure is logged.
+- **Quiet.** Presence writes are not audited and publish no events.
+
+### 3. What updates presence
+
+The same table is machine-readable in `schemas.json` → `x-presence-updates`. A-3 tests each row on FileStore and PostgreSQL.
+
+**"Authenticated" means** that the server resolved the bearer token to an identity:
+- a typed `envoi_` access or refresh credential of a family that is not revoked or expired;
+- belonging to an approved agent that is `active` or `paused`.
+
+That is the identity a3 §2.1 checks 1–4 accept. Credentials of pending or legacy agents, and untyped development tokens, never write presence.
+
+| Request (authenticated by this family) | Outcome | `lastSeenAt` | `lastSuccessfulRefreshAt` | `lastWorkClaimAt` | `lastProcessedAt` |
+| --- | --- | --- | --- | --- | --- |
+| `POST /api/agent-token` (refresh token) | `200` | ✓ | ✓ | | |
+| `POST /api/agent/work/claim` | `200`, `state` is `claimed` or `idle` | ✓ | | ✓ | |
+| `POST /api/agent/work/claim` | `200`, `state: "paused"` | ✓ | | | |
+| `POST /api/agent/work/{workId}/complete` | `201` | ✓ | | ✓ | ✓ |
+| `POST /api/agent/work/{workId}/{renew,acknowledge,complete,fail}`, `POST /api/agent/instructions/{id}/reply` | any other response except `409 AGENT_PAUSED` | ✓ | | ✓ | |
+| Any other request with an authenticated **access** token. Examples: status, connection-status, event stream connect, delta, `/mcp`, sends, case actions, read-only `GET`s | Any response, including validation `400`, permission `403`, `409 AGENT_PAUSED`, `CASE_CONTROLLED` and a `429` returned after authentication | ✓ | | | |
+
+**What never updates presence**
+- **Rejected credentials.** Any `401` (`AUTHENTICATION_REQUIRED`, `ACCESS_TOKEN_EXPIRED`, `CREDENTIAL_EXPIRED`, `CREDENTIAL_REVOKED`, `REFRESH_*`, and the uncoded `401` that pending agents get), `ROTATION_ID_REQUIRED`, and a `429 RATE_LIMITED` returned before authentication.
+- **Model-held `mcp_read` tokens.** They are bearer tokens a model may pass around, so they are not evidence of the installation.
+- **Enrollment and reconnect redemption** (`POST /api/agent-enroll`). Setting up credentials does not show that a runtime keeps running.
+- **Holding a stream open.** Only the stream **connect** counts. Keepalives and the heartbeat credential re-check (a3 §5) do not, because a half-open connection can keep accepting writes.
+- **Anything a human does.** Browser sessions, approval, pause, resume, issuing a reconnect token and an open dashboard never touch presence.
+
+**Setup traffic.** Setup and doctor commands call `GET /api/agent/status` and `POST /api/agent/connection-status` from a short-lived process (for example `integrations/openclaw/quick-connect.ts`). Those update `lastSeenAt` only. For an active agent they never make it `seen_recently`, because that needs work-loop activity (§4.2). The setup report's `ready`/`error` result stays a setup check (`connectionSetup`) and never changes the connection state.
+
+### 4. Where presence is exposed
+
+**Bounded.** Each response carries exactly the fields below, for one family per agent. There is no history, list or per-request detail.
+
+#### 4.1 The agent: `GET /api/agent/status`
+
+The a3 status response gains two fields:
+- `presence`: the calling family's four fields (§2), as stored;
+- `asOf`: the server's time when it built the response.
+
+The request's own update may not be included yet, so values can be up to 60 s behind. `asOf` follows the §4.2 rule: it is never earlier than any `presence` timestamp. Connector doctor or setup output may show these values, computing ages from `asOf`. The connector's lifecycle never depends on them.
+
+```json
+{
+  "state": "active",
+  "agent": { "id": "agent_example", "address": "example@envoi.mail", "status": "active" },
+  "inboxId": "inbox_example",
+  "asOf": "2026-10-12T12:00:42.000Z",
+  "presence": {
+    "lastSeenAt": "2026-10-12T12:00:00.000Z",
+    "lastSuccessfulRefreshAt": "2026-10-12T11:52:10.000Z",
+    "lastWorkClaimAt": "2026-10-12T12:00:00.000Z",
+    "lastProcessedAt": null
+  }
+}
+```
+
+#### 4.2 The owner: `connection` on owner agent views
+
+Owner views of an agent gain `connection`:
+- `GET /api/inboxes/{inboxId}/agents`;
+- the inbox view's `agents[]`;
+- the pause and resume responses.
+
+**Who sees it.** Only human sessions of the owning workspace.
+- `GET /api/inboxes/{inboxId}/agents` also accepts the agent's own access token. For that caller the field is omitted; the agent reads its own presence from §4.1.
+- `connection` is never sent to counterparties, never included in the participant directory and never put in events.
+
+**Where it is computed.** In the owner response projection only, not in the agent control state the server uses for authorization decisions. So a presence read never slows or fails an authorization path.
+- If the presence read fails, the server omits `connection` and the response still succeeds. `connection` is therefore optional for consumers. The `ownerAgent` schema describes the success path only.
+- A client that gets no `connection` (a rolled-back server, or a failed read) shows "Status unknown". It never falls back to deriving "online" from enrollment or approval.
+
+```json
+"connection": {
+  "state": "seen_recently",
+  "asOf": "2026-10-12T12:00:42.000Z",
+  "recentWindowSeconds": 300,
+  "seenAt": "2026-10-12T12:00:00.000Z",
+  "credentialExpiresAt": "2026-11-11T11:52:10.000Z",
+  "presence": {
+    "lastSeenAt": "2026-10-12T12:00:00.000Z",
+    "lastSuccessfulRefreshAt": "2026-10-12T11:52:10.000Z",
+    "lastWorkClaimAt": "2026-10-12T12:00:00.000Z",
+    "lastProcessedAt": "2026-10-12T11:58:03.000Z"
+  }
+}
+```
+
+- **`asOf`** is the server's time when it built the response, raised if needed so it is never earlier than any `presence` timestamp (instances' clocks can differ slightly). `credentialExpiresAt` is not part of this rule. Clients compute ages as `asOf − timestamp`, never from their own clock, and clamp negative ages to 0.
+- **`recentWindowSeconds`** is 300 in v1.
+  - A healthy active connector claims every 30–60 s (a4 §6) and renews during long handlers, so with the 60 s write lag `seenAt` is at most ~120 s old.
+  - A healthy paused connector reads status every 30–60 s (a4 §4), with the same bound.
+  - 300 s absorbs a missed poll or a brief outage without flapping.
+  - A connector run with no work handler never claims, so it shows `not_seen_recently`. Every shipped runtime has a handler.
+- **`seenAt`** is the timestamp of the installation's last **check-in**, the one the state is based on:
+  - `presence.lastSeenAt` while the agent is paused, because a paused connector reads status instead of claiming;
+  - `presence.lastSeenAt` in the **resume grace**: the agent's `resumedAt` is at most `recentWindowSeconds` before `asOf`, and `lastWorkClaimAt` is `null` or earlier than `resumedAt`. A connector that was checking in while paused gets one window to claim after resume;
+  - otherwise `presence.lastWorkClaimAt`.
+
+  It is `null` when that field is `null`. A-3 records `resumedAt` on the agent record at each resume. Like other agent record fields, it appears in owner views.
+- **Reported family.** The newest non-revoked family by `createdAt`. If every family is revoked, the newest family. If the agent has no family, there is none.
+- **`credentialExpiresAt`** is the reported family's rolling `refreshExpiresAt` (a3 `CREDENTIAL_EXPIRED`). It is `null` when there is no family or the reported family is revoked.
+- **`presence`** holds the reported family's four fields. They are all `null` when there is no family. A revoked agent keeps its last-known values.
+
+**`connection.state`.** The first matching row wins. The same table, with UI labels, is in `x-connection-states`.
+
+| # | Condition | `state` |
+| --- | --- | --- |
+| 1 | `status` is `revoked`, or `credentialRevoked` is `true` (every family revoked, for example after `REFRESH_REPLAY`) | `revoked` |
+| 2 | `onboardingStatus` is `rejected` | `rejected` |
+| 3 | `onboardingStatus` is any other value except `approved` | `pending_approval` |
+| 4 | No credential family | `not_connected` |
+| 5 | `credentialExpiresAt` ≤ `asOf` | `needs_reconnect` |
+| 6 | `seenAt` is `null` | `never_seen` |
+| 7 | `asOf − seenAt` ≤ `recentWindowSeconds` | `seen_recently` |
+| 8 | Otherwise | `not_seen_recently` |
+
+Removed agents are not listed, so they need no state.
+
+- **Pause is separate.** `connection.state` describes the installation; the existing `paused` field describes the agent.
+  - A paused agent whose connector keeps reading status is `seen_recently` with `paused: true`.
+  - In the a3 long-pause path it becomes `needs_reconnect` with `paused: true`.
+- **Right after resume.** The resume grace keeps the paused-time basis, so the resume response of a connector that was checking in says `seen_recently` with no flap. A running connector claims as soon as it sees `agent.resumed` (a4 §4), and the basis moves to `lastWorkClaimAt`. If it has not claimed when the grace ends, the state honestly becomes `not_seen_recently`.
+- **Rejected after approval.** Rejecting an already-approved agent revokes its families, so it shows `revoked` (row 1), not `rejected`.
+- **Only what the server can see.** Here, `needs_reconnect` means the family's expiry passed. A connector can also reach `NEEDS_RECONNECT` from codes the server cannot see afterwards, for example `REFRESH_TOKEN_INVALID` after a lost state file. The server shows those as `not_seen_recently` once the connector stops calling.
+- **Unknown values.** Clients must accept unknown `state` values and show them as "Status unknown".
+
+### 5. Owner UI wording (B-3)
+
+| `state` | Connection label | Must never claim |
+| --- | --- | --- |
+| `seen_recently` | "Seen recently" | That the runtime is online, running or will process work |
+| `not_seen_recently` | "Last checked in {relative time of `seenAt` from `asOf`}" | That the runtime is stopped or broken |
+| `never_seen` | "Not checked in yet" | That enrollment or a passed setup check means the runtime runs |
+| `not_connected` | "Not connected" | |
+| `needs_reconnect` | "Needs reconnect" | |
+| `pending_approval` | "Waiting for approval" | |
+| `rejected` | "Not approved" | |
+| `revoked` | "Access revoked" | |
+| missing `connection`, or an unknown `state` | "Status unknown" | Anything derived from enrollment or approval |
+
+- **Agent label** (`x-agent-labels`; first match wins):
+  1. "Revoked" when `status` is `revoked` or `credentialRevoked` is `true`;
+  2. "Rejected" when `onboardingStatus` is `rejected`;
+  3. "Pending" when `onboardingStatus` is any other value except `approved`;
+  4. "Paused" when `paused` is `true`;
+  5. otherwise "Active".
+- **Show both.** Show the agent label next to the connection label, for example "Paused · Seen recently".
+- **Nothing in the browser changes the label.** Enrollment, approval, issuing a reconnect token or having the dashboard open never change it. Only `connection` does.
+- **What "checked in" means.** A check-in is `seenAt`: the work loop talking to the queue, or a status read while paused. Setup checks are not check-ins.
+- **Optional detail.** The UI may show the four timestamps, for example "Last processed work 2 min ago". Label `lastSeenAt` as "Last request", not "Last seen", so it never contradicts the connection label. `lastWorkClaimAt` means "the work loop checked in", not "received work".
+
+### 6. Fixtures
+
+**Fields.** Fixtures use the a3 §6 file fields: `contract`, `version`, `id`, `description`, `kind: "http"`, `request` and `response`. `request.auth` is `human_session` (a signed-in member of the owning workspace) or `agent_access`. Only the `client` block differs from a3:
+- **Owner fixtures** have `client.surface: "owner_ui"`, plus `client.connectionLabel` and `client.agentLabel` (the §5 wording).
+- **Agent status fixtures** have `client.surface: "connector"` and `client.lifecycle`, which is unchanged from a3.
+
+**What `test/contract-fixtures.test.js` checks**
+- Every response against its schema.
+- Each owner fixture's `seenAt` and `connection.state`, re-derived from §4.2 using the fixture's own `agent`, `asOf`, `credentialExpiresAt` and `presence`.
+- The connection label against `x-connection-states`, and the agent label against the §5 rule (plus the `x-agent-labels` order).
+- That no `presence` timestamp is later than `asOf`.
+- That `lastSeenAt` is never earlier than the other three (§2, "`lastSeenAt` leads").
+- That tokens are placeholders.
+
+| Group | Fixtures |
+| --- | --- |
+| Owner list | `owner-seen-recently`, `owner-resume-grace-expired`, `owner-not-seen-recently`, `owner-never-seen` (setup checks only), `owner-not-connected`, `owner-pending-approval`, `owner-rejected`, `owner-needs-reconnect`, `owner-paused-seen-recently`, `owner-paused-needs-reconnect`, `owner-revoked`, `owner-revoked-refresh-replay` |
+| Owner control | `owner-pause-response`, `owner-resume-response` |
+| Agent | `agent-status-presence`, `agent-status-paused-presence` |
+
+### 7. Compatibility and migration
+
+- **Additive.** `asOf` and `presence` on the agent status, and `connection` on owner views, are new fields. a3 and a4 behavior does not change, and old clients ignore the new fields.
+- **No events, no endpoints, no SQL migration.** Presence uses new document paths. Families that existed before A-3 start with all-`null` presence. They show `never_seen` until their connector's next claim, which is at most ~60 s away for a healthy connector.
+- **Cost.** All four fields share one document per family, and each field changes at most once per 60 s, so at most four document writes per family per 60 s. The usual case is one write a minute per connected installation, which updates `lastSeenAt` and `lastWorkClaimAt` together.
+- **Rollback.** Reverting A-3 removes the fields, and clients show "Status unknown". The `auth/agent-presence/` documents become inert and can be deleted with no other effect.
+
+**Consumer changes for B-3** (Lane B; informative)
+- `frontend/src/App.tsx` currently derives "online" / "Enrolled" from enrollment and approval, and reads a `pausedAt` field the server never sends. Replace that with `connection.state`, the agent's `paused` field and the §5 wording.
+- Add `connection?` (optional) and `resumedAt?` to the agent type in `frontend/src/types.ts`.
+- The onboarding step "Observe runtime activity" (`frontend/src/model.ts`) may use `connection.presence.lastProcessedAt`.
+- Connector doctor may print `presence` from `GET /api/agent/status`.
