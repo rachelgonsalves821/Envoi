@@ -1,0 +1,41 @@
+{
+  "contract": "envoi-browser-names",
+  "version": 1,
+  "id": "me-old-cookies-only",
+  "description": "A browser still holding only pre-cutover cookies is not signed in; the old names it carried are cleared.",
+  "kind": "http",
+  "oldNamesInRequest": true,
+  "request": {
+    "method": "GET",
+    "path": "/api/auth/me",
+    "headers": {
+      "cookie": "sinaloa_session=PLACEHOLDER; sinaloa_csrf=PLACEHOLDER"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "plainError",
+    "body": {
+      "error": "Authenticated human session required"
+    },
+    "headers": {
+      "set-cookie": [
+        "sinaloa_session=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0",
+        "sinaloa_csrf=; Path=/; SameSite=Strict; Secure; Max-Age=0"
+      ]
+    }
+  },
+  "cookies": {
+    "set": [],
+    "cleared": [
+      "sinaloa_session",
+      "sinaloa_csrf"
+    ]
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "sign_in_again",
+    "next": "Show sign-in. Signing in sets envoi_* cookies."
+  }
+}

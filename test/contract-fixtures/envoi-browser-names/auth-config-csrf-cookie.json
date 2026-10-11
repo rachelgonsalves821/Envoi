@@ -1,0 +1,34 @@
+{
+  "contract": "envoi-browser-names",
+  "version": 1,
+  "id": "auth-config-csrf-cookie",
+  "description": "The browser learns the CSRF cookie name from the auth config (WorkOS provider).",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/auth/config"
+  },
+  "response": {
+    "status": 200,
+    "schema": "authConfig",
+    "body": {
+      "provider": "workos",
+      "hosted": true,
+      "inviteOnly": true,
+      "signInPath": "/api/auth/workos/sign-in",
+      "signUpPath": "/api/auth/workos/sign-up",
+      "csrfCookieName": "envoi_csrf",
+      "assurance": "provider"
+    }
+  },
+  "cookies": {
+    "set": [],
+    "cleared": []
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Read the CSRF token from the cookie named csrfCookieName (fallback envoi_csrf)."
+  }
+}

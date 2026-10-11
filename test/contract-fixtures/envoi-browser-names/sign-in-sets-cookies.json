@@ -1,0 +1,49 @@
+{
+  "contract": "envoi-browser-names",
+  "version": 1,
+  "id": "sign-in-sets-cookies",
+  "description": "The WorkOS callback sets the Envoi session and CSRF cookies and clears the flow cookie and the three old names.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/auth/workos/callback?code=PLACEHOLDER&state=PLACEHOLDER",
+    "headers": {
+      "cookie": "envoi_workos_flow=PLACEHOLDER"
+    }
+  },
+  "response": {
+    "status": 302,
+    "schema": "redirect",
+    "body": null,
+    "headers": {
+      "location": "/",
+      "cache-control": "no-store",
+      "set-cookie": [
+        "envoi_session=PLACEHOLDER; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=86400",
+        "envoi_csrf=PLACEHOLDER; Path=/; SameSite=Strict; Secure; Max-Age=86400",
+        "envoi_workos_flow=; Path=/api/auth/workos; HttpOnly; SameSite=Lax; Secure; Max-Age=0",
+        "sinaloa_session=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0",
+        "sinaloa_csrf=; Path=/; SameSite=Strict; Secure; Max-Age=0",
+        "sinaloa_workos_flow=; Path=/api/auth/workos; HttpOnly; SameSite=Lax; Secure; Max-Age=0"
+      ]
+    }
+  },
+  "cookies": {
+    "set": [
+      "envoi_session",
+      "envoi_csrf"
+    ],
+    "cleared": [
+      "envoi_workos_flow",
+      "sinaloa_session",
+      "sinaloa_csrf",
+      "sinaloa_workos_flow"
+    ]
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Follow the redirect; the browser now holds only envoi_* cookies."
+  }
+}

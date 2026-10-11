@@ -1,0 +1,56 @@
+{
+  "contract": "envoi-browser-names",
+  "version": 1,
+  "id": "phone-verify-sets-cookies",
+  "description": "Local phone verification (development, so no Secure) sets the Envoi cookies and clears the old names.",
+  "kind": "http",
+  "request": {
+    "method": "POST",
+    "path": "/api/auth/phone/verify",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "challengeId": "challenge_example",
+      "code": "000000"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "phoneVerified",
+    "body": {
+      "human": {
+        "id": "human_example"
+      },
+      "expiresAt": "2026-10-12T12:00:00.000Z",
+      "secondFactorRequired": true,
+      "mfaSetupRequired": true
+    },
+    "headers": {
+      "set-cookie": [
+        "envoi_session=PLACEHOLDER; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400",
+        "envoi_csrf=PLACEHOLDER; Path=/; SameSite=Strict; Max-Age=86400",
+        "sinaloa_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+        "sinaloa_csrf=; Path=/; SameSite=Strict; Max-Age=0",
+        "sinaloa_workos_flow=; Path=/api/auth/workos; HttpOnly; SameSite=Lax; Max-Age=0"
+      ]
+    }
+  },
+  "cookies": {
+    "set": [
+      "envoi_session",
+      "envoi_csrf"
+    ],
+    "cleared": [
+      "sinaloa_session",
+      "sinaloa_csrf",
+      "sinaloa_workos_flow"
+    ]
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Continue to the second factor."
+  }
+}

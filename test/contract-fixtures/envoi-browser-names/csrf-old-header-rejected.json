@@ -1,0 +1,35 @@
+{
+  "contract": "envoi-browser-names",
+  "version": 1,
+  "id": "csrf-old-header-rejected",
+  "description": "A mutation with the Envoi cookies and a matching Origin, but only the old CSRF header, fails the CSRF check.",
+  "kind": "http",
+  "oldNamesInRequest": true,
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/pause",
+    "headers": {
+      "origin": "https://www.envoi-agents.com",
+      "cookie": "envoi_session=PLACEHOLDER; envoi_csrf=PLACEHOLDER",
+      "x-sinaloa-csrf": "PLACEHOLDER",
+      "x-envoi-expected-human": "human_example"
+    }
+  },
+  "response": {
+    "status": 403,
+    "schema": "plainError",
+    "body": {
+      "error": "CSRF validation failed"
+    }
+  },
+  "cookies": {
+    "set": [],
+    "cleared": []
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "reload_browser",
+    "next": "This is an old frontend: offer Reload. Do not retry the same request."
+  }
+}

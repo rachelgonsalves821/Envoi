@@ -103,6 +103,25 @@
         "mcp-tools-list.json",
         "refresh-old-prefix.json"
       ]
+    },
+    {
+      "id": "envoi-browser-names",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#envoi-browser-names-v1",
+      "dir": "envoi-browser-names",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "auth-config-csrf-cookie.json",
+        "callback-old-flow-cookie.json",
+        "csrf-old-header-rejected.json",
+        "logout-clears-cookies.json",
+        "logout-old-cookies-only.json",
+        "me-old-cookies-only.json",
+        "phone-verify-sets-cookies.json",
+        "sign-in-sets-cookies.json",
+        "sign-in-start-sets-flow-cookie.json"
+      ]
     }
   ]
 }
