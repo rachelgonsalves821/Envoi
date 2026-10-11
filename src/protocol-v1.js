@@ -5,7 +5,7 @@ import addFormats from 'ajv-formats';
 export const PROTOCOL_VERSION = '1.0';
 export const PROTOCOL_INTENTS = Object.freeze(['request', 'offer', 'counteroffer', 'accept', 'reject', 'clarify', 'commit', 'cancel', 'status', 'receipt', 'message']);
 
-const schema = JSON.parse(readFileSync(new URL('../protocol/sinaloa-protocol-v1.schema.json', import.meta.url), 'utf8'));
+const schema = JSON.parse(readFileSync(new URL('../protocol/envoi-protocol-v1.schema.json', import.meta.url), 'utf8'));
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictRequired: false });
 addFormats(ajv);
 const validateMessage = ajv.compile(schema);

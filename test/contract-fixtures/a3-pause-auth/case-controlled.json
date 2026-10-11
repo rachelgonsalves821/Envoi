@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "case-controlled",
   "description": "An active agent writes to a case a human paused.",
   "kind": "http",
@@ -8,13 +8,13 @@
     "method": "POST",
     "path": "/api/inboxes/inbox_example/messages",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active",
       "content-type": "application/json",
       "idempotency-key": "idem_PLACEHOLDER_0001"
     },
     "body": {
       "senderAgentId": "agent_example",
-      "recipientEmail": "counterparty@sinaloa.mail",
+      "recipientEmail": "counterparty@envoi.mail",
       "caseId": "case_example",
       "text": "Example message"
     }

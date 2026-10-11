@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "account-changed",
   "description": "Browser only: a mutating request names a different signed-in account.",
   "kind": "http",

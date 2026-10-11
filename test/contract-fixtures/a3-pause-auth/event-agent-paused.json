@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "event-agent-paused",
   "description": "The owner pauses the agent. The stream stays open.",
   "kind": "sse",

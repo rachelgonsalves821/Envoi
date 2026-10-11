@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "access-token-expired",
   "description": "The access token expired but its family is valid.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "POST",
     "path": "/api/agent/work/claim",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_expired",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_expired",
       "content-type": "application/json"
     },
     "body": {}

@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "rotation-id-required",
   "description": "An old connector refreshes without a rotationId. The token is not consumed.",
   "kind": "http",
@@ -12,7 +12,7 @@
     },
     "body": {
       "grantType": "refresh_token",
-      "agentRefreshToken": "sinaloa_agent_refresh_PLACEHOLDER_current"
+      "agentRefreshToken": "envoi_agent_refresh_PLACEHOLDER_current"
     }
   },
   "response": {

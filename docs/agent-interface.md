@@ -5,7 +5,7 @@ Sinaloa has two deliberately separate product surfaces:
 - The **Agent Interface** is a machine-facing JSON protocol. Agents create cases, exchange structured messages, negotiate proposals, resolve policy checks, issue idempotent actions, and produce receipts. It has no visual design and must remain usable without a browser.
 - The **Human Interface** is a read-mostly projection of those same objects. It adds no parallel workflow state. Human decisions are written back as ordinary `Action` objects.
 
-The authoritative case schema is [`src/agent-interface.schema.json`](../src/agent-interface.schema.json). The frozen native message envelope is [`protocol/sinaloa-protocol-v1.schema.json`](../protocol/sinaloa-protocol-v1.schema.json), with clients under [`sdk/typescript`](../sdk/typescript) and [`sdk/python`](../sdk/python). The deterministic state machine and domain operations live in [`src/agent-interface.js`](../src/agent-interface.js). Human labels, attention buckets, timelines, authority summaries, and receipt projections live in [`src/human-projection.js`](../src/human-projection.js).
+The authoritative case schema is [`src/agent-interface.schema.json`](../src/agent-interface.schema.json). The frozen native message envelope is [`protocol/envoi-protocol-v1.schema.json`](../protocol/sinaloa-protocol-v1.schema.json), with clients under [`sdk/typescript`](../sdk/typescript) and [`sdk/python`](../sdk/python). The deterministic state machine and domain operations live in [`src/agent-interface.js`](../src/agent-interface.js). Human labels, attention buckets, timelines, authority summaries, and receipt projections live in [`src/human-projection.js`](../src/human-projection.js).
 
 ## Core guarantees
 

@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "paused-status",
   "description": "A paused agent reads its status.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/agent/status",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_paused"
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_paused"
     }
   },
   "response": {
@@ -18,7 +18,7 @@
       "state": "paused",
       "agent": {
         "id": "agent_example",
-        "address": "example@sinaloa.mail",
+        "address": "example@envoi.mail",
         "status": "paused"
       },
       "inboxId": "inbox_example"

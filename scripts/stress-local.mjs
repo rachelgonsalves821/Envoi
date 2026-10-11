@@ -194,7 +194,7 @@ try {
         'content-type': 'application/json',
         'mcp-protocol-version': '2025-11-25'
       },
-      body: JSON.stringify({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: { name: 'sinaloa_agent_info', arguments: {} } }),
+      body: JSON.stringify({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: { name: 'envoi_agent_info', arguments: {} } }),
       signal: AbortSignal.timeout(30_000)
     });
     return { status: response.status, payload: await response.json() };

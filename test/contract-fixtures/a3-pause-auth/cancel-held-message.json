@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "cancel-held-message",
   "description": "A workspace manager cancels a held message. If it was the last sender_paused message in the case, the barrier is released; the agent stays paused.",
   "kind": "http",

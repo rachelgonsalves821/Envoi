@@ -87,7 +87,7 @@ test('claims are exclusive and fenced completion creates one replayable processe
   assert.equal((await state.fixtureStore.getJson(path.join('inboxes', state.recipient.inbox.id, 'messages', `${work.workId}.json`))).status, 'delivered');
 
   const alternateFamilyId = 'credential_family_alternate';
-  const alternateToken = 'sinaloa_agent_access_alternate_family';
+  const alternateToken = 'envoi_agent_access_alternate_family';
   const alternateTokenHash = crypto.createHash('sha256').update(alternateToken).digest('hex');
   await state.fixtureStore.putJson(path.join('auth', 'agent-credentials', `${alternateTokenHash}.json`), {
     tokenType: 'access', agentId: state.recipient.agent.id, inboxId: state.recipient.inbox.id, familyId: alternateFamilyId,

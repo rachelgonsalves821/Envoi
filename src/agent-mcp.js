@@ -20,25 +20,25 @@ const sendFields = {
 const structuredValue = { type: 'object', minProperties: 1, maxProperties: 32 };
 
 export const agentMcpTools = Object.freeze([
-  { name: 'sinaloa_agent_info', description: 'Return the authenticated agent address and permissions. The agent and inbox are selected from the bearer credential.', inputSchema: empty, permission: null },
-  { name: 'sinaloa_list_cases', description: 'List cases in this agent’s own inbox.', inputSchema: schema({ limit: { type: 'integer', minimum: 1, maximum: 100 }, before: { type: 'string', minLength: 1, maxLength: 256 } }), permission: 'read' },
-  { name: 'sinaloa_read_case', description: 'Read one case in this agent’s own inbox.', inputSchema: schema({ caseId: identifier }, ['caseId']), permission: 'read' },
-  { name: 'sinaloa_list_messages', description: 'List messages in this agent’s own inbox, optionally for a case.', inputSchema: schema({ caseId: identifier, limit: { type: 'integer', minimum: 1, maximum: 100 }, before: { type: 'string', minLength: 1, maxLength: 256 } }), permission: 'read' },
-  { name: 'sinaloa_start_case', description: 'Start a new case and send its first native agent message to an exact known Envoi address. Retries with the same idempotency key reuse the same case.', inputSchema: schema(sendFields, ['recipientAddress', 'text', 'idempotencyKey']), permission: 'send_agent_messages' },
-  { name: 'sinaloa_send_message', description: 'Send a native agent message in an existing case to an exact known Envoi address.', inputSchema: schema({ ...sendFields, caseId: identifier }, ['recipientAddress', 'text', 'caseId', 'idempotencyKey']), permission: 'send_agent_messages' },
-  { name: 'sinaloa_send_proposal', description: 'Send a structured, agent-authored proposal in an existing shared case. This is a native collaboration message, not a server-attested approval.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, proposal: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'proposal', 'idempotencyKey']), permission: 'send_agent_messages' },
-  { name: 'sinaloa_send_decision', description: 'Send a structured, agent-authored accept, reject, counteroffer, or clarification message in an existing shared case. This does not execute an external action.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, decision: { type: 'string', enum: ['accept', 'reject', 'counteroffer', 'clarify'] }, proposalMessageId: identifier, details: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'decision', 'idempotencyKey']), permission: 'send_agent_messages' },
-  { name: 'sinaloa_send_completion', description: 'Send a typed completion in an existing shared case. The canonical server validates any claimed human decision and creates the shared receipt.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, result: text, authorityBasis: identifier, evidenceRefs: { type: 'array', items: identifier, maxItems: 32 }, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'result', 'idempotencyKey']), permission: 'send_agent_messages' },
-  { name: 'sinaloa_list_assets', description: 'List grant-filtered asset metadata in this agent’s own inbox, optionally for one case. No binary content is returned.', inputSchema: schema({ caseId: identifier }), permission: 'read' },
-  { name: 'sinaloa_begin_asset_upload', description: 'Reserve a quarantined asset and return a short-lived signed binary PUT URL. Upload bytes directly to that URL, then complete the asset. Reuse the idempotency key for a retry.', inputSchema: schema({ filename: { type: 'string', minLength: 1, maxLength: 255 }, mimeType: { type: 'string', minLength: 1, maxLength: 128 }, size: { type: 'integer', minimum: 1, maximum: 26214400 }, checksumSha256: { type: 'string', pattern: '^[A-Za-z0-9+/]{43}=$' }, caseId: identifier, idempotencyKey }, ['filename', 'mimeType', 'size', 'checksumSha256', 'idempotencyKey']), permission: 'create_assets' },
-  { name: 'sinaloa_complete_asset_upload', description: 'Verify an uploaded asset and run the configured malware scan. Only a clean result can be downloaded.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'create_assets' },
-  { name: 'sinaloa_grant_asset', description: 'Grant an uploaded case asset to the exact counterparty agent. The REST server validates creator, case, tenant, block and recipient scope; a signed URL is not a grant.', inputSchema: schema({ assetId: identifier, caseId: identifier, recipientAgentId: identifier, idempotencyKey }, ['assetId', 'caseId', 'recipientAgentId', 'idempotencyKey']), permission: 'create_assets' },
-  { name: 'sinaloa_asset_download', description: 'Return a short-lived signed download URL for a clean asset in this agent’s own inbox.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'read' },
-  { name: 'sinaloa_claim_work', description: 'Claim one incoming message under a fenced lease. An empty work field means no work is available.', inputSchema: empty, permission: 'receive_agent_messages' },
-  { name: 'sinaloa_renew_work', description: 'Extend the current work lease; requires its opaque fence token.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 } }, ['workId', 'leaseToken']), permission: 'receive_agent_messages' },
-  { name: 'sinaloa_acknowledge_work', description: 'Record admission of claimed work using a fenced lease and idempotency key.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, idempotencyKey }, ['workId', 'leaseToken', 'idempotencyKey']), permission: 'receive_agent_messages' },
-  { name: 'sinaloa_complete_work', description: 'Record successful processing of claimed work using a fenced lease and idempotency key.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, idempotencyKey }, ['workId', 'leaseToken', 'idempotencyKey']), permission: 'receive_agent_messages' },
-  { name: 'sinaloa_fail_work', description: 'Record failed processing of claimed work; retryable failures use bounded server backoff.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, retryable: { type: 'boolean' }, reasonCode: { type: 'string', maxLength: 120 } }, ['workId', 'leaseToken', 'retryable']), permission: 'receive_agent_messages' }
+  { name: 'envoi_agent_info', description: 'Return the authenticated agent address and permissions. The agent and inbox are selected from the bearer credential.', inputSchema: empty, permission: null },
+  { name: 'envoi_list_cases', description: 'List cases in this agent’s own inbox.', inputSchema: schema({ limit: { type: 'integer', minimum: 1, maximum: 100 }, before: { type: 'string', minLength: 1, maxLength: 256 } }), permission: 'read' },
+  { name: 'envoi_read_case', description: 'Read one case in this agent’s own inbox.', inputSchema: schema({ caseId: identifier }, ['caseId']), permission: 'read' },
+  { name: 'envoi_list_messages', description: 'List messages in this agent’s own inbox, optionally for a case.', inputSchema: schema({ caseId: identifier, limit: { type: 'integer', minimum: 1, maximum: 100 }, before: { type: 'string', minLength: 1, maxLength: 256 } }), permission: 'read' },
+  { name: 'envoi_start_case', description: 'Start a new case and send its first native agent message to an exact known Envoi address. Retries with the same idempotency key reuse the same case.', inputSchema: schema(sendFields, ['recipientAddress', 'text', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_send_message', description: 'Send a native agent message in an existing case to an exact known Envoi address.', inputSchema: schema({ ...sendFields, caseId: identifier }, ['recipientAddress', 'text', 'caseId', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_send_proposal', description: 'Send a structured, agent-authored proposal in an existing shared case. This is a native collaboration message, not a server-attested approval.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, proposal: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'proposal', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_send_decision', description: 'Send a structured, agent-authored accept, reject, counteroffer, or clarification message in an existing shared case. This does not execute an external action.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, decision: { type: 'string', enum: ['accept', 'reject', 'counteroffer', 'clarify'] }, proposalMessageId: identifier, details: structuredValue, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'decision', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_send_completion', description: 'Send a typed completion in an existing shared case. The canonical server validates any claimed human decision and creates the shared receipt.', inputSchema: schema({ recipientAddress: address, caseId: identifier, text, result: text, authorityBasis: identifier, evidenceRefs: { type: 'array', items: identifier, maxItems: 32 }, idempotencyKey }, ['recipientAddress', 'caseId', 'text', 'result', 'idempotencyKey']), permission: 'send_agent_messages' },
+  { name: 'envoi_claim_work', description: 'Claim one incoming message under a fenced lease. An empty work field means no work is available.', inputSchema: empty, permission: 'receive_agent_messages' },
+  { name: 'envoi_renew_work', description: 'Extend the current work lease; requires its opaque fence token.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 } }, ['workId', 'leaseToken']), permission: 'receive_agent_messages' },
+  { name: 'envoi_acknowledge_work', description: 'Record admission of claimed work using a fenced lease and idempotency key.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, idempotencyKey }, ['workId', 'leaseToken', 'idempotencyKey']), permission: 'receive_agent_messages' },
+  { name: 'envoi_complete_work', description: 'Record successful processing of claimed work using a fenced lease and idempotency key.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, idempotencyKey }, ['workId', 'leaseToken', 'idempotencyKey']), permission: 'receive_agent_messages' },
+  { name: 'envoi_fail_work', description: 'Record failed processing of claimed work; retryable failures use bounded server backoff.', inputSchema: schema({ workId: identifier, leaseToken: { type: 'string', minLength: 1, maxLength: 256 }, retryable: { type: 'boolean' }, reasonCode: { type: 'string', maxLength: 120 } }, ['workId', 'leaseToken', 'retryable']), permission: 'receive_agent_messages' },
+  { name: 'envoi_list_assets', description: 'List grant-filtered asset metadata in this agent’s own inbox, optionally for one case. No binary content is returned.', inputSchema: schema({ caseId: identifier }), permission: 'read' },
+  { name: 'envoi_begin_asset_upload', description: 'Reserve a quarantined asset and return a short-lived signed binary PUT URL. Upload bytes directly to that URL, then complete the asset. Reuse the idempotency key for a retry.', inputSchema: schema({ filename: { type: 'string', minLength: 1, maxLength: 255 }, mimeType: { type: 'string', minLength: 1, maxLength: 128 }, size: { type: 'integer', minimum: 1, maximum: 26214400 }, checksumSha256: { type: 'string', pattern: '^[A-Za-z0-9+/]{43}=$' }, caseId: identifier, idempotencyKey }, ['filename', 'mimeType', 'size', 'checksumSha256', 'idempotencyKey']), permission: 'create_assets' },
+  { name: 'envoi_complete_asset_upload', description: 'Verify an uploaded asset and run the configured malware scan. Only a clean result can be downloaded.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'create_assets' },
+  { name: 'envoi_asset_download', description: 'Return a short-lived signed download URL for a clean asset in this agent’s own inbox.', inputSchema: schema({ assetId: identifier }, ['assetId']), permission: 'read' },
+  { name: 'envoi_grant_asset', description: 'Grant an uploaded case asset to the exact counterparty agent. The REST server validates creator, case, tenant, block and recipient scope; a signed URL is not a grant.', inputSchema: schema({ assetId: identifier, caseId: identifier, recipientAgentId: identifier, idempotencyKey }, ['assetId', 'caseId', 'recipientAgentId', 'idempotencyKey']), permission: 'create_assets' }
 ]);
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -47,10 +47,10 @@ const publicTool = ({ name, description, inputSchema }) => ({ name, description,
 const hasPermission = (identity, permission) => permission === null || (permission === 'read'
   ? identity.agent.permissions?.some(value => value === 'send_agent_messages' || value === 'receive_agent_messages')
   : identity.agent.permissions?.includes(permission));
-const scopedReadTools = new Set(['sinaloa_agent_info', 'sinaloa_read_case', 'sinaloa_list_messages']);
+const scopedReadTools = new Set(['envoi_agent_info', 'envoi_read_case', 'envoi_list_messages']);
 const toolAvailable = (identity, tool) => hasPermission(identity, tool.permission)
   && (!identity.mcpScope || (scopedReadTools.has(tool.name)
-    && (tool.name === 'sinaloa_agent_info' || Boolean(identity.mcpScope.caseId))));
+    && (tool.name === 'envoi_agent_info' || Boolean(identity.mcpScope.caseId))));
 const rpcError = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
 const rpcResult = (id, result) => ({ jsonrpc: '2.0', id, result });
 const sendJson = (res, status, payload) => {
@@ -68,37 +68,37 @@ const query = args => {
 
 async function invokeTool(name, args, identity, callRest) {
   const base = `/api/inboxes/${identity.inboxId}`;
-  if (name === 'sinaloa_agent_info') return {
+  if (name === 'envoi_agent_info') return {
     agentId: identity.agent.id, inboxId: identity.inboxId, address: identity.agent.address,
     permissions: identity.mcpScope ? ['mcp_read'] : identity.agent.permissions,
     ...(identity.mcpScope ? { caseId: identity.mcpScope.caseId } : {})
   };
-  if (name === 'sinaloa_list_cases') return callRest('GET', `${base}/cases${query(args)}`);
-  if (name === 'sinaloa_read_case') return callRest('GET', `${base}/cases/${args.caseId}`);
-  if (name === 'sinaloa_list_messages') return callRest('GET', `${base}/messages${query(args)}`);
-  if (name === 'sinaloa_list_assets') return callRest('GET', `${base}/assets${query(args)}`);
-  if (name === 'sinaloa_begin_asset_upload') {
+  if (name === 'envoi_list_cases') return callRest('GET', `${base}/cases${query(args)}`);
+  if (name === 'envoi_read_case') return callRest('GET', `${base}/cases/${args.caseId}`);
+  if (name === 'envoi_list_messages') return callRest('GET', `${base}/messages${query(args)}`);
+  if (name === 'envoi_list_assets') return callRest('GET', `${base}/assets${query(args)}`);
+  if (name === 'envoi_begin_asset_upload') {
     const { idempotencyKey: key, ...metadata } = args;
     return callRest('POST', `${base}/asset-uploads`, metadata, key);
   }
-  if (name === 'sinaloa_complete_asset_upload') return callRest('POST', `${base}/assets/${args.assetId}/complete`, {});
-  if (name === 'sinaloa_grant_asset') return callRest('POST', `${base}/assets/${args.assetId}/grants`, { caseId: args.caseId, recipientAgentId: args.recipientAgentId }, args.idempotencyKey);
-  if (name === 'sinaloa_asset_download') return callRest('GET', `${base}/assets/${args.assetId}/download`);
-  if (['sinaloa_start_case', 'sinaloa_send_message', 'sinaloa_send_proposal', 'sinaloa_send_decision', 'sinaloa_send_completion'].includes(name)) {
-    const caseId = name === 'sinaloa_start_case'
+  if (name === 'envoi_complete_asset_upload') return callRest('POST', `${base}/assets/${args.assetId}/complete`, {});
+  if (name === 'envoi_grant_asset') return callRest('POST', `${base}/assets/${args.assetId}/grants`, { caseId: args.caseId, recipientAgentId: args.recipientAgentId }, args.idempotencyKey);
+  if (name === 'envoi_asset_download') return callRest('GET', `${base}/assets/${args.assetId}/download`);
+  if (['envoi_start_case', 'envoi_send_message', 'envoi_send_proposal', 'envoi_send_decision', 'envoi_send_completion'].includes(name)) {
+    const caseId = name === 'envoi_start_case'
       ? `case_${crypto.createHash('sha256').update(`${identity.agent.id}:${args.idempotencyKey}`).digest('hex').slice(0, 32)}`
       : args.caseId;
-    const isProposal = name === 'sinaloa_send_proposal';
-    const isDecision = name === 'sinaloa_send_decision';
-    const isCompletion = name === 'sinaloa_send_completion';
+    const isProposal = name === 'envoi_send_proposal';
+    const isDecision = name === 'envoi_send_decision';
+    const isCompletion = name === 'envoi_send_completion';
     const isCounterproposal = isDecision && args.decision === 'counteroffer';
     const { status, payload } = await callRest('POST', `${base}/messages`, {
       senderAgentId: identity.agent.id,
       recipientEmail: args.recipientAddress,
       text: args.text,
-      intent: name === 'sinaloa_start_case' ? args.intent || 'request' : isProposal ? 'offer' : isDecision ? args.decision : isCompletion ? 'receipt' : args.intent || 'message',
+      intent: name === 'envoi_start_case' ? args.intent || 'request' : isProposal ? 'offer' : isDecision ? args.decision : isCompletion ? 'receipt' : args.intent || 'message',
       caseId,
-      ...(name === 'sinaloa_start_case' ? { type: 'request' } : {}),
+      ...(name === 'envoi_start_case' ? { type: 'request' } : {}),
       ...(isProposal ? { type: 'proposal', payload: { proposal: args.proposal } } : {}),
       ...(isCounterproposal ? { type: 'counterproposal', payload: { counterproposal: { ...(args.details || {}), proposalMessageId: args.proposalMessageId || null } } } : {}),
       ...(isDecision && !isCounterproposal ? { type: 'decision', payload: { decision: { kind: args.decision, proposalMessageId: args.proposalMessageId || null, details: args.details || null } } } : {}),
@@ -106,12 +106,12 @@ async function invokeTool(name, args, identity, callRest) {
     }, args.idempotencyKey);
     return { status, payload: { ...payload, caseId: payload?.caseId || caseId } };
   }
-  if (name === 'sinaloa_claim_work') return callRest('POST', '/api/agent/work/claim', {});
+  if (name === 'envoi_claim_work') return callRest('POST', '/api/agent/work/claim', {});
   const action = {
-    sinaloa_renew_work: 'renew',
-    sinaloa_acknowledge_work: 'acknowledge',
-    sinaloa_complete_work: 'complete',
-    sinaloa_fail_work: 'fail'
+    envoi_renew_work: 'renew',
+    envoi_acknowledge_work: 'acknowledge',
+    envoi_complete_work: 'complete',
+    envoi_fail_work: 'fail'
   }[name];
   return callRest('POST', `/api/agent/work/${args.workId}/${action}`, {
     leaseToken: args.leaseToken,
@@ -171,7 +171,7 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   if (!tool || !toolAvailable(identity, tool)) return sendJson(res, 200, rpcError(id, -32602, 'Tool not available to this agent'));
   const args = request.params?.arguments ?? {};
   if (!validators.get(name)(args)) return sendJson(res, 200, rpcError(id, -32602, 'Invalid tool arguments'));
-  if (identity.mcpScope && name !== 'sinaloa_agent_info' && args.caseId !== identity.mcpScope.caseId) {
+  if (identity.mcpScope && name !== 'envoi_agent_info' && args.caseId !== identity.mcpScope.caseId) {
     return sendJson(res, 200, rpcError(id, -32602, 'Case is outside this MCP token scope'));
   }
   try {

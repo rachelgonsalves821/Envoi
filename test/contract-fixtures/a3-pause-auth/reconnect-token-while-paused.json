@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "reconnect-token-while-paused",
   "description": "The owner issues a reconnect token for a paused, approved agent.",
   "kind": "http",
@@ -26,16 +26,16 @@
         "runtime": "hermes",
         "operation": "reconnect",
         "apiUrl": "https://envoi.example",
-        "enrollmentToken": "sinaloa_enroll_PLACEHOLDER",
+        "enrollmentToken": "envoi_enroll_PLACEHOLDER",
         "expiresAt": "2026-10-08T12:15:00.000Z",
         "agentName": "Example",
-        "address": "example@sinaloa.mail"
+        "address": "example@envoi.mail"
       },
-      "enrollmentToken": "sinaloa_enroll_PLACEHOLDER",
-      "enrollmentUrl": "https://envoi.example/?enroll=sinaloa_enroll_PLACEHOLDER",
+      "enrollmentToken": "envoi_enroll_PLACEHOLDER",
+      "enrollmentUrl": "https://envoi.example/?enroll=envoi_enroll_PLACEHOLDER",
       "expiresAt": "2026-10-08T12:15:00.000Z",
       "agentId": "agent_example",
-      "address": "example@sinaloa.mail"
+      "address": "example@envoi.mail"
     }
   },
   "client": {

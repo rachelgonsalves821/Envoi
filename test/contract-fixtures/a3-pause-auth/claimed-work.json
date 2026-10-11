@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "claimed-work",
   "description": "An active agent claims work.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "POST",
     "path": "/api/agent/work/claim",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active",
       "content-type": "application/json"
     },
     "body": {}
@@ -29,12 +29,12 @@
           "causationId": null,
           "from": {
             "agentId": "agent_counterparty",
-            "address": "counterparty@sinaloa.mail"
+            "address": "counterparty@envoi.mail"
           },
           "to": [
             {
               "agentId": "agent_example",
-              "address": "example@sinaloa.mail"
+              "address": "example@envoi.mail"
             }
           ],
           "intent": "message",
@@ -62,7 +62,7 @@
           "senderType": "agent",
           "senderAgentId": "agent_counterparty",
           "recipientAgentId": "agent_example",
-          "recipientEmail": "example@sinaloa.mail",
+          "recipientEmail": "example@envoi.mail",
           "transport": "native",
           "type": "message",
           "text": "Example message",

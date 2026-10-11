@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sinaloa.mail/schemas/protocol/v1/message.json",
-  "title": "Sinaloa Protocol v1 Agent Message",
+  "$id": "https://envoi-agents.com/schemas/protocol/v1/message.json",
+  "title": "Envoi Protocol v1 Agent Message",
   "type": "object",
   "required": [
     "schemaVersion",

@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "agent-paused-mcp-read-token",
   "description": "A model-held mcp_read token is used while its agent is paused, even for a GET.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/cases/case_example",
     "headers": {
-      "authorization": "Bearer sinaloa_mcp_read_PLACEHOLDER_paused"
+      "authorization": "Bearer envoi_mcp_read_PLACEHOLDER_paused"
     }
   },
   "response": {

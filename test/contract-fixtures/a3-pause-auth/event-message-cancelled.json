@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "event-message-cancelled",
   "description": "A human cancelled a held message.",
   "kind": "sse",

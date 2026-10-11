@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 1,
+  "version": 2,
   "id": "sender-paused-held-message",
   "description": "The paused agent (or its owner) lists the case; its queued outbound message is held, without using attempts.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/messages?caseId=case_example",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_paused"
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_paused"
     }
   },
   "response": {
