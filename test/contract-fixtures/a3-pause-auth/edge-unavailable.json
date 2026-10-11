@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "edge-unavailable",
   "description": "A non-JSON 503 from the edge while the container starts.",
   "kind": "http",

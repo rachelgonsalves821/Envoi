@@ -1,6 +1,6 @@
 {
   "contract": "a4-wake",
-  "version": 1,
+  "version": 2,
   "id": "stream-cursor-invalid",
   "description": "A malformed resume cursor (not 20 digits) is rejected before the stream opens.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/events",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active",
       "accept": "text/event-stream",
       "last-event-id": "not-a-cursor"
     }

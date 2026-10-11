@@ -1002,7 +1002,7 @@
           "const": "a3-pause-auth"
         },
         "version": {
-          "const": 2
+          "const": 3
         },
         "id": {
           "type": "string",

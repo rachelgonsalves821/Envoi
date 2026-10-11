@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "claimed-work",
   "description": "An active agent claims work.",
   "kind": "http",

@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "reconnect-while-paused",
   "description": "The connector redeems the reconnect token. Same identity; every earlier family is revoked; the agent stays paused.",
   "kind": "http",

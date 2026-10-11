@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "reconnect-token-while-paused",
   "description": "The owner issues a reconnect token for a paused, approved agent.",
   "kind": "http",
@@ -8,8 +8,9 @@
     "method": "POST",
     "path": "/api/inboxes/inbox_example/agents/agent_example/credentials/reconnect-token",
     "headers": {
-      "cookie": "sinaloa_session=PLACEHOLDER",
-      "x-sinaloa-csrf": "csrf_PLACEHOLDER",
+      "cookie": "envoi_session=PLACEHOLDER; envoi_csrf=csrf_PLACEHOLDER",
+      "origin": "https://www.envoi-agents.com",
+      "x-envoi-csrf": "csrf_PLACEHOLDER",
       "content-type": "application/json"
     },
     "body": {

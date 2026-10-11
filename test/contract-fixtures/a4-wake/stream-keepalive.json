@@ -1,6 +1,6 @@
 {
   "contract": "a4-wake",
-  "version": 1,
+  "version": 2,
   "id": "stream-keepalive",
   "description": "A quiet live stream sends a keepalive comment every 20 s; 60 s without any frame means the stream is dead.",
   "kind": "sse-session",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/events",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active",
       "accept": "text/event-stream",
       "last-event-id": "00000000000000000044"
     }

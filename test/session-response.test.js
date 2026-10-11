@@ -26,17 +26,17 @@ async function responseWith(t, handler, renewed = 'renewed-sealed-session', dele
 
 test('session refresh reaches browser while preserving a previously set CSRF cookie', async t => {
   const response = await responseWith(t, res => {
-    res.setHeader('set-cookie', ['sinaloa_csrf=csrf; Path=/']);
+    res.setHeader('set-cookie', ['envoi_csrf=csrf; Path=/']);
     res.writeHead(200, { 'content-type': 'text/plain' }); res.end('ok');
   });
   const cookies = response.headers.getSetCookie();
   assert.equal(cookies.length, 2);
-  assert.ok(cookies.some(value => value.startsWith('sinaloa_session=renewed-sealed-session;') && value.includes('HttpOnly')));
-  assert.ok(cookies.some(value => value.startsWith('sinaloa_csrf=csrf;')));
+  assert.ok(cookies.some(value => value.startsWith('envoi_session=renewed-sealed-session;') && value.includes('HttpOnly')));
+  assert.ok(cookies.some(value => value.startsWith('envoi_csrf=csrf;')));
 });
 for (const raw of [false, true]) test(`refresh preserves explicitly supplied ${raw ? 'raw' : 'object'} headers`, async t => {
   const response = await responseWith(t, res => {
-    res.writeHead(200, 'OK', raw ? ['Set-Cookie', 'sinaloa_csrf=explicit; Path=/', 'Content-Type', 'text/plain'] : { 'Set-Cookie': ['sinaloa_csrf=explicit; Path=/'], 'Content-Type': 'text/plain' });
+    res.writeHead(200, 'OK', raw ? ['Set-Cookie', 'envoi_csrf=explicit; Path=/', 'Content-Type', 'text/plain'] : { 'Set-Cookie': ['envoi_csrf=explicit; Path=/'], 'Content-Type': 'text/plain' });
     res.end('ok');
   });
   assert.equal(response.headers.getSetCookie().length, 2);
@@ -44,9 +44,9 @@ for (const raw of [false, true]) test(`refresh preserves explicitly supplied ${r
 });
 test('pending refresh never overrides an explicit session logout', async t => {
   const response = await responseWith(t, res => {
-    res.writeHead(200, { 'set-cookie': ['sinaloa_session=; Path=/; Max-Age=0'] }); res.end('ok');
+    res.writeHead(200, { 'set-cookie': ['envoi_session=; Path=/; Max-Age=0'] }); res.end('ok');
   });
-  assert.deepEqual(response.headers.getSetCookie(), ['sinaloa_session=; Path=/; Max-Age=0']);
+  assert.deepEqual(response.headers.getSetCookie(), ['envoi_session=; Path=/; Max-Age=0']);
 });
 test('ordinary responses emit no authentication cookie without a successful refresh', async t => {
   const response = await responseWith(t, res => { res.writeHead(200); res.end('ok'); }, null);
@@ -54,16 +54,16 @@ test('ordinary responses emit no authentication cookie without a successful refr
 });
 for (const raw of [false, true]) test(`delegated WorkOS cookie writer preserves ${raw ? 'raw' : 'object'} headers`, async t => {
   const response = await responseWith(t, res => {
-    res.writeHead(200, 'OK', raw ? ['Set-Cookie', 'sinaloa_csrf=explicit; Path=/', 'Content-Type', 'text/plain'] : { 'Set-Cookie': ['sinaloa_csrf=explicit; Path=/'], 'Content-Type': 'text/plain' });
+    res.writeHead(200, 'OK', raw ? ['Set-Cookie', 'envoi_csrf=explicit; Path=/', 'Content-Type', 'text/plain'] : { 'Set-Cookie': ['envoi_csrf=explicit; Path=/'], 'Content-Type': 'text/plain' });
     res.end('ok');
   }, 'renewed-sealed-session', true);
   const cookies = response.headers.getSetCookie();
   assert.equal(cookies.length, 2);
-  assert.ok(cookies.some(value => value.startsWith('sinaloa_session=renewed-sealed-session;')));
-  assert.ok(cookies.some(value => value.startsWith('sinaloa_csrf=explicit;')));
+  assert.ok(cookies.some(value => value.startsWith('envoi_session=renewed-sealed-session;')));
+  assert.ok(cookies.some(value => value.startsWith('envoi_csrf=explicit;')));
   assert.equal(response.headers.get('content-type'), 'text/plain');
 });
-for (const cookie of ['sinaloa_session=; Path=/; Max-Age=0', 'sinaloa_session=callback; Path=/; HttpOnly']) test(`delegated renewal preserves explicit session cookie: ${cookie}`, async t => {
+for (const cookie of ['envoi_session=; Path=/; Max-Age=0', 'envoi_session=callback; Path=/; HttpOnly']) test(`delegated renewal preserves explicit session cookie: ${cookie}`, async t => {
   const response = await responseWith(t, res => {
     res.writeHead(200, { 'set-cookie': [cookie] }); res.end('ok');
   }, 'renewed-sealed-session', true);

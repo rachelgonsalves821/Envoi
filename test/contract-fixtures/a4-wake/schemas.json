@@ -76,7 +76,7 @@
           "minLength": 1,
           "maxLength": 500,
           "not": {
-            "pattern": "(?:sinaloa_agent_(?:access|refresh)_|sinaloa_mcp_read_|sinaloa_enroll_)"
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_)"
           }
         },
         "requestId": {
@@ -498,7 +498,7 @@
           "const": "a4-wake"
         },
         "version": {
-          "const": 1
+          "const": 2
         },
         "id": {
           "type": "string",
