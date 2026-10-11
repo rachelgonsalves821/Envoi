@@ -20,7 +20,7 @@
 6. **Monitoring events wait on a human check.** Nobody knows yet whether an alert rule, log filter or dashboard matches `sinaloa.operational_backlog`. The human checks and updates any such rule first, then Lane A renames the events.
 7. **Config aliases are removed in N2.** Lane A renames the `wrangler.jsonc` vars and Worker forwarding, and posts an exact dashboard checklist. The human adds the `ENVOI_*` secrets on staging, beta and the scanners. The `SINALOA_*` aliases come out only after the human confirms.
 
-**Status (2026-10-10).** N1 is done: `envoi-names` v1 is integrated at `1766767`. The N2 browser names are contract `envoi-names` v2 (published). The rest of N2 is the task list in §4.
+**Status (2026-10-10).** N1 is done: `envoi-names` v1 is integrated at `1766767`. The N2 browser names are contract `envoi-browser-names` v1 (published in PR #64). The rest of N2 is the task list in §4.
 
 The product is **Envoi**. "Sinaloa" was the working name. The goal is that Envoi is the only name people, agents, SDK users and operators see.
 
@@ -110,7 +110,7 @@ One contract, `envoi-names v1`, with fixtures, covering:
 
 | Task | Owner | What | Gate |
 | --- | --- | --- | --- |
-| **N2-contract** | Lane A | Contract `envoi-names` v2: cookies `envoi_session`, `envoi_csrf` and `envoi_workos_flow`; CSRF header `x-envoi-csrf`; old cookies cleared, never read. It also defines name-only bumps `a3-pause-auth` v3 and `a4-wake` v2. | Lane B ACK, then human approval |
+| **N2-contract** | Lane A | Contract `envoi-browser-names` v1 (a new id, so `envoi-names` v1 stays approved): cookies `envoi_session`, `envoi_csrf` and `envoi_workos_flow`; CSRF header `x-envoi-csrf`; old cookies cleared, never read. It also defines name-only bumps `a3-pause-auth` v3 and `a4-wake` v2. | Lane B ACK, then human approval |
 | **N2-server** | Lane A | Server, CORS and the regenerated a3 v3 / a4 v2 fixtures. | Integrated **together with N2-client on one SHA**. Everyone signed in re-signs once. |
 | **N2-client** | Lane B | `frontend/src/api.ts` sends `x-envoi-csrf` and falls back to `envoi_csrf`; rebuild `web/**`. | Same SHA as N2-server |
 | **N2-events-check** | Human | Check for alert rules, log filters or dashboards matching `sinaloa.operational_backlog` or `sinaloa.operational_backlog_error`, update them to `envoi.*`, and confirm on the build board. | Before N2-events |
