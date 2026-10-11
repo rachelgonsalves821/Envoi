@@ -4,6 +4,7 @@ import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 
 export const SESSION_EXPIRED_EVENT = 'envoi:session-expired';
+export const CSRF_RELOAD_REQUIRED_EVENT = 'envoi:csrf-reload-required';
 export const ACCOUNT_CHANGED_EVENT = 'envoi:account-changed';
 let expectedHumanId: string | null = null;
 
@@ -16,10 +17,10 @@ export function expectedHumanHeaders(method = 'GET', pathname = '', humanId = ex
   return { 'x-envoi-expected-human': humanId };
 }
 
-let configuredCsrfCookieName = 'sinaloa_csrf';
+let configuredCsrfCookieName = 'envoi_csrf';
 
 export function setCsrfCookieName(name?: string) {
-  configuredCsrfCookieName = name && /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(name) ? name : 'sinaloa_csrf';
+  configuredCsrfCookieName = name && /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(name) ? name : 'envoi_csrf';
 }
 
 export class ApiError extends Error {
@@ -61,7 +62,7 @@ export function csrfToken(cookieHeader = typeof document === 'undefined' ? '' : 
 export function csrfHeaders(method = 'GET', cookieHeader?: string): Record<string, string> {
   if (['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return {};
   const token = csrfToken(cookieHeader);
-  return token ? { 'x-sinaloa-csrf': token } : {};
+  return token ? { 'x-envoi-csrf': token } : {};
 }
 
 export async function request<T>(pathname: string, options: RequestInit = {}, notifySessionExpired = true): Promise<T> {
@@ -79,6 +80,7 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
         ...(options.headers || {})
       }
     });
+    const sentCsrfToken = csrfToken();
     let response = await send();
     let payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
     session.check();
@@ -94,7 +96,8 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
         if (typeof window !== 'undefined') window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
         throw new ApiError('The signed-in account changed. Reload before continuing.', 409, 'ACCOUNT_CHANGED');
       }
-      if ((recovery.ok && identity.id && csrfToken()) || (recovery.status === 401 && pathname === '/api/auth/logout')) {
+      const recoveredToken = csrfToken();
+      if ((recovery.ok && identity.id && recoveredToken && recoveredToken !== sentCsrfToken) || (recovery.status === 401 && pathname === '/api/auth/logout')) {
         response = await send();
         payload = await response.json().catch(() => ({}));
       } else if (recovery.status === 401) {
@@ -105,6 +108,9 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
     session.check();
     options.signal?.throwIfAborted();
     if (!response.ok) {
+      if (response.status === 403 && payload.error === 'CSRF validation failed' && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(CSRF_RELOAD_REQUIRED_EVENT));
+      }
       if (notifySessionExpired && response.status === 401 && shouldNotifySessionExpired(pathname) && typeof window !== 'undefined') {
         window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
       }
@@ -133,7 +139,7 @@ export const api = {
     setCsrfCookieName(config.csrfCookieName);
     return config;
   },
-  me: (signal?: AbortSignal) => request<Human>('/api/auth/me', { signal }),
+  me: (signal?: AbortSignal, notifySessionExpired = true) => request<Human>('/api/auth/me', { signal }, notifySessionExpired),
   phoneStart: (phoneNumber: string, displayName: string) => request<{ challengeId: string; expiresAt: string; developmentCode?: string }>('/api/auth/phone/start', { method: 'POST', body: JSON.stringify({ phoneNumber, displayName }) }),
   phoneVerify: (challengeId: string, code: string) => request<{ human: Human; secondFactorRequired: boolean; mfaSetupRequired: boolean; expiresAt?: string }>('/api/auth/phone/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
   totpSetup: () => request<{ secret: string; otpauthUri: string; developmentCode?: string }>('/api/auth/totp/setup', { method: 'POST', body: '{}' }),
