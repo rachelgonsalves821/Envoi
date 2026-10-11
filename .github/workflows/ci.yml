@@ -59,3 +59,4 @@ jobs:
         env:
           DATABASE_URL: postgresql://sinaloa:sinaloa_test@127.0.0.1:5432/sinaloa_test
       - run: npm audit --omit=dev
+      - run: npm audit --audit-level=high
