@@ -1,0 +1,50 @@
+{
+  "contract": "a5-presence",
+  "version": 1,
+  "id": "owner-revoked",
+  "description": "The owner revoked the agent. The last-known presence stays visible.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session"
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentList",
+    "body": [
+      {
+        "id": "agent_example",
+        "name": "Example agent",
+        "slug": "example",
+        "address": "example@envoi.mail",
+        "platformAddress": "example@envoi.mail",
+        "status": "revoked",
+        "onboardingStatus": "revoked",
+        "permissions": [],
+        "createdAt": "2026-10-01T09:00:00.000Z",
+        "paused": false,
+        "credentialRevoked": true,
+        "connection": {
+          "state": "revoked",
+          "asOf": "2026-10-12T12:00:42.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-10-11T16:00:00.000Z",
+          "credentialExpiresAt": null,
+          "presence": {
+            "lastSeenAt": "2026-10-11T16:00:00.000Z",
+            "lastSuccessfulRefreshAt": "2026-10-11T15:50:00.000Z",
+            "lastWorkClaimAt": "2026-10-11T16:00:00.000Z",
+            "lastProcessedAt": "2026-10-11T15:12:00.000Z"
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "connectionLabel": "Access revoked",
+    "agentLabel": "Revoked",
+    "next": "Show \"Revoked · Access revoked\". Re-enrollment is the only way back."
+  }
+}

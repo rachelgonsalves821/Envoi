@@ -103,6 +103,32 @@
         "mcp-tools-list.json",
         "refresh-old-prefix.json"
       ]
+    },
+    {
+      "id": "a5-presence",
+      "version": 1,
+      "status": "approved",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#a5-presence-v1",
+      "dir": "a5-presence",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "agent-status-paused-presence.json",
+        "agent-status-presence.json",
+        "owner-needs-reconnect.json",
+        "owner-never-seen.json",
+        "owner-not-connected.json",
+        "owner-not-seen-recently.json",
+        "owner-pause-response.json",
+        "owner-paused-needs-reconnect.json",
+        "owner-paused-seen-recently.json",
+        "owner-pending-approval.json",
+        "owner-rejected.json",
+        "owner-resume-grace-expired.json",
+        "owner-resume-response.json",
+        "owner-revoked-refresh-replay.json",
+        "owner-revoked.json",
+        "owner-seen-recently.json"
+      ]
     }
   ]
 }
