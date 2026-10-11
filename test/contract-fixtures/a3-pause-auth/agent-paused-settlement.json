@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "agent-paused-settlement",
   "description": "A lease claimed before the pause is settled after it. The lease is invalid and no attempt is counted.",
   "kind": "http",

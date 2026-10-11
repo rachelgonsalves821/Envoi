@@ -20,10 +20,10 @@ export class BrowserSession {
     if (!this.cookies.size) return {};
     const headers = { cookie: [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; ') };
     if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
-      const csrf = this.cookies.get('sinaloa_csrf');
+      const csrf = this.cookies.get('envoi_csrf');
       if (csrf) {
         headers.origin = new URL(baseUrl).origin;
-        headers['x-sinaloa-csrf'] = decodeURIComponent(csrf);
+        headers['x-envoi-csrf'] = decodeURIComponent(csrf);
       }
     }
     return headers;

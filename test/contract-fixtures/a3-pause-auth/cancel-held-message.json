@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "cancel-held-message",
   "description": "A workspace manager cancels a held message. If it was the last sender_paused message in the case, the barrier is released; the agent stays paused.",
   "kind": "http",
@@ -8,8 +8,9 @@
     "method": "POST",
     "path": "/api/inboxes/inbox_example/messages/msg_held_example/cancel",
     "headers": {
-      "cookie": "sinaloa_session=PLACEHOLDER",
-      "x-sinaloa-csrf": "csrf_PLACEHOLDER",
+      "cookie": "envoi_session=PLACEHOLDER; envoi_csrf=csrf_PLACEHOLDER",
+      "origin": "https://www.envoi-agents.com",
+      "x-envoi-csrf": "csrf_PLACEHOLDER",
       "content-type": "application/json"
     },
     "body": {}

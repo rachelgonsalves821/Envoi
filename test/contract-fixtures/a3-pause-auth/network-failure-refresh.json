@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "network-failure-refresh",
   "description": "A refresh request whose response is lost. The connector keeps the pending rotationId.",
   "kind": "network",

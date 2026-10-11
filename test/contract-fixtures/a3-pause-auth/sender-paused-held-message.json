@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "sender-paused-held-message",
   "description": "The paused agent (or its owner) lists the case; its queued outbound message is held, without using attempts.",
   "kind": "http",

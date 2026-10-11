@@ -1,6 +1,6 @@
 {
   "contract": "a4-wake",
-  "version": 1,
+  "version": 2,
   "id": "stream-resume-query-cursor",
   "description": "Resume with ?cursor= when the client cannot set headers (Last-Event-ID wins when both are sent).",
   "kind": "sse-session",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/events?cursor=00000000000000000043",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active",
       "accept": "text/event-stream"
     }
   },

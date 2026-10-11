@@ -267,6 +267,8 @@ When the connector receives `agent.resumed`, it leaves `PAUSED` and claims once 
 
 - **v2 (`envoi-names` v1, Envoi naming N1), approved 2026-10-10 (`CONTRACT-APPROVED a3-pause-auth v2`, build board #34, after Lane B `CONTRACT-ACK`).** The only change is the credential prefixes in fixtures and schemas: `envoi_agent_access_`, `envoi_agent_refresh_` and `envoi_mcp_read_`, with example addresses on `envoi.mail`. Codes, statuses, lifecycle, events and behaviour are identical to v1. The regenerated v2 fixtures land in that PR together with the server change, so fixtures and server never disagree on one SHA; `index.json` lists a3 as version 2, status `published`. It needs a Lane B ACK and human approval like any version.
 
+- **v3 (`envoi-browser-names` v1 §3, Envoi naming N2), published 2026-10-11.** Name-only: the three human-session fixtures (`account-changed`, `cancel-held-message`, `reconnect-token-while-paused`) send `cookie: envoi_session=…; envoi_csrf=…`, `x-envoi-csrf` and an `origin`, so the real server's CSRF gate passes them before the case each one describes; v2 had neither a CSRF cookie nor an origin. Every fixture's `version` is 3. Codes, statuses, lifecycle, events and behaviour are identical to v2. The fixtures land with the N2-server implementation and integrate on one SHA with N2-client, which moves Lane B's review pin to v3; it needs a Lane B ACK and human approval like any version.
+
 ## a4-wake v1
 
 **Contract:** `a4-wake`, version 1. **Status:** approved by the human on 2026-10-10 (`CONTRACT-APPROVED a4-wake v1 @e9c00ac`, build board #34) after Lane B `CONTRACT-ACK`. Frozen: changes need a new version.
@@ -503,6 +505,7 @@ No new endpoints and no data migration.
 ### 10. Revisions within v1
 
 - **MISMATCH round 1 (Lane B, `stream-from-latest`, against `67df29d`).** The no-id invariant contradicted the `from=latest` fixture, which told the client to store `ready.cursor`. §2 now separates the processed cursor, which only stored events advance, from the explicit `from=latest` baseline exception (no stored cursor for the inbox, or reset after `EVENT_CURSOR_INVALID`). The `ready` row and the wording of two fixtures now match. This is a clarification, so the version stays 1.
+- **v2 (`envoi-browser-names` v1 §3, Envoi naming N2), published 2026-10-11.** Name-only: every placeholder token uses `envoi_agent_access_` (and `stream-mcp-read-rejected` uses `envoi_mcp_read_`), which `envoi-names` v1 had promised for v1 but the approved v1 fixtures never carried. The token-leak guard in `schemas.json` now matches both the `envoi_` and `sinaloa_` prefixes. Every fixture's `version` is 2; behaviour is identical to v1. It lands with N2-server, integrates on one SHA with N2-client (Lane B's review pin moves to v2), and needs a Lane B ACK and human approval.
 
 ## envoi-names v1
 

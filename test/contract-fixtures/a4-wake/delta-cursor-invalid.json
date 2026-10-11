@@ -1,6 +1,6 @@
 {
   "contract": "a4-wake",
-  "version": 1,
+  "version": 2,
   "id": "delta-cursor-invalid",
   "description": "A malformed delta cursor.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/events/delta?cursor=not-a-cursor",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active"
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active"
     }
   },
   "response": {

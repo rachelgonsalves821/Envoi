@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "paused-status",
   "description": "A paused agent reads its status.",
   "kind": "http",

@@ -225,6 +225,13 @@ test('every fixture matches its declared schema', async () => {
       if (fixture.frames) checkStreamFrames(fixture, label, check, validator);
       if (fixture.response?.schema === 'deltaPage') checkDeltaPage(fixture, label);
       if (schemas['x-browser-cookies']) checkBrowserNames(fixture, schemas, label);
+      // envoi-browser-names v1 §6, every contract: no request sends a retired cookie or header name
+      // unless the fixture is about exactly that. Old token prefixes (envoi-names v1) are values, not names.
+      if (!fixture.oldNamesInRequest) {
+        const headers = fixture.request?.headers || {};
+        assert.ok(!Object.keys(headers).some(name => /^x-sinaloa-/i.test(name)), `${label}: no retired header names in the request`);
+        assert.doesNotMatch(String(headers.cookie || ''), /(?:^|;\s*)sinaloa_/, `${label}: no retired cookie names in the request`);
+      }
       if (['ownerAgentList', 'ownerAgent'].includes(fixture.response?.schema)) checkOwnerConnection(fixture, schemas, label);
       if (fixture.response?.schema === 'agentStatusWithPresence') checkPresence(fixture.response.body.presence, fixture.response.body.asOf, label);
       assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);

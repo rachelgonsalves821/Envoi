@@ -199,7 +199,7 @@ test('HTTP authority, input, case ownership and browser session protections reje
   }
   assert.equal((await api(state.baseUrl, `/api/inboxes/${state.own.inbox.id}/cases/case_missing/instructions`, { session: state.own.session, key: 'missing', body: { text: 'Missing case' } })).status, 404);
   assert.equal((await api(state.baseUrl, state.instructionRoute, { session: state.own.session, key: 'account-mismatch', headers: { 'x-envoi-expected-human': state.peer.human.id }, body: { text: 'Wrong displayed account' } })).status, 409);
-  assert.equal((await api(state.baseUrl, state.instructionRoute, { session: state.own.session, key: 'csrf', headers: { 'x-sinaloa-csrf': 'wrong' }, body: { text: 'No CSRF' } })).status, 403);
+  assert.equal((await api(state.baseUrl, state.instructionRoute, { session: state.own.session, key: 'csrf', headers: { 'x-envoi-csrf': 'wrong' }, body: { text: 'No CSRF' } })).status, 403);
   assert.equal((await state.send()).status, 201);
   assert.equal((await state.send('Changed text')).status, 409);
   const work = (await state.claim()).payload.work;

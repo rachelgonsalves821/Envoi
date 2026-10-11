@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "agent-paused-send",
   "description": "A paused agent tries to send a new message.",
   "kind": "http",

@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "paused-recipient-accepted",
   "description": "An active agent sends to a paused recipient. Accepted exactly as for an active recipient; the message is later delivered and only the work is held.",
   "kind": "http",

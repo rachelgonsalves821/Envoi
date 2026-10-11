@@ -1,6 +1,6 @@
 {
   "contract": "a4-wake",
-  "version": 1,
+  "version": 2,
   "id": "stream-cursor-beyond-newest",
   "description": "A well-formed cursor beyond the newest event (for example after a database restore) is rejected, never silently accepted.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/events",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active",
       "accept": "text/event-stream",
       "last-event-id": "00000000000000999999"
     }
