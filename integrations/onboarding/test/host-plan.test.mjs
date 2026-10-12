@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { consumeHostPlan, planHost, requiredChecks } from '../host-plan.mjs';
+import { consumeHostPlan, planHost, planApprovalConfirmation, requiredChecks } from '../host-plan.mjs';
 
 const manifest = JSON.parse(await readFile(new URL('../skill/skill.json', import.meta.url), 'utf8'));
 const seed = JSON.parse(await readFile(new URL('../profiles/unverified-host.json', import.meta.url), 'utf8'));
@@ -301,4 +301,36 @@ test('CLI consumes bundled JSON, emits bounded safe output and never runs a help
   assert.equal(invalid.status, 1);
   assert.doesNotMatch(invalid.stderr, /missing-profile-test-secret/);
   assert.equal(invalid.stdout, '');
+});
+
+test('local confirmation prefers a host-native prompt and never treats chat as attributable human input', () => {
+  const profile = supportedProfile();
+  profile.capabilities.persistentProcess = true;
+  profile.capabilities.sse = true;
+  profile.capabilities.hostNativePrompt = true;
+  const native = planHost(manifest, profile, v1Availability());
+  assert.equal(native.liveEnrollmentAllowed, false);
+  assert.equal(native.plannedApprovalConfirmation.method, 'host_native');
+  assert.equal(native.plannedApprovalConfirmation.attributableToHuman, true);
+  assert.equal(native.plannedApprovalConfirmation.lifecycle, 'CONFIRMING');
+  assert.equal(native.plannedApprovalConfirmation.state, 'confirm_approval');
+  assert.equal(native.plannedApprovalConfirmation.onDeclineOrTimeout, 'delete_bootstrap_without_activation');
+  delete profile.capabilities.hostNativePrompt;
+  const advisory = planApprovalConfirmation(profile);
+  assert.equal(advisory.method, 'chat_advisory');
+  assert.equal(advisory.attributableToHuman, false);
+  assert.equal(advisory.requiresExplicitHumanAnswer, true);
+  assert.match(advisory.nextAction, /advisory.*never answer for the human/);
+  profile.capabilities.hostNativePrompt = false;
+  assert.deepEqual(planApprovalConfirmation(profile), advisory);
+  profile.capabilities.hostNativePrompt = 'true';
+  assert.throws(() => planApprovalConfirmation(profile), /explicit booleans/);
+});
+
+test('local confirmation never attaches to unavailable routes and does not unlock the draft', () => {
+  const profile = supportedProfile();
+  profile.capabilities.hostNativePrompt = true;
+  assert.equal(planHost(manifest, profile).plannedApprovalConfirmation, null);
+  assert.equal(planHost(manifest, profile, v1Availability({ enabled: false })).plannedApprovalConfirmation, null);
+  assert.equal(planHost(manifest, profile, v1Availability()).liveEnrollmentAllowed, false);
 });

@@ -38,7 +38,7 @@ test('the draft package includes readable skill, heartbeat, and JSON metadata', 
   assert.equal(metadata.hostPlanSchema, 'host-plan-draft-2');
   assert.deepEqual(metadata.coreContract, {
     id: 'agent-registration', version: 1,
-    publishedSha: '36f7943646f245ec1ac96bec706690fa370f3780',
+    publishedSha: '4da219e7156138c94e26b8105efe7ffe43ec6f98',
   });
   assert.equal(metadata.availabilitySource, 'GET /api/onboarding/routes');
   assert.deepEqual(metadata.offeredConnectionRoutes, []);
@@ -119,7 +119,7 @@ test('proposed helper examples expose only allowlisted model-visible fields', as
     'schemaVersion', 'state', 'claimUrl', 'verificationCode', 'expiresInSeconds',
     'nextAction', 'agentAddress', 'agentName', 'agentStatus', 'deliveryMode',
     'connectionRoute', 'reachability', 'permissionSummary', 'workspaceName',
-    'registrationStatus', 'guidance',
+    'registrationStatus', 'guidance', 'approverEmailHint',
   ]);
   for (const example of examples) {
     if (example.schemaVersion) assert.equal(example.schemaVersion, '1');
@@ -128,7 +128,7 @@ test('proposed helper examples expose only allowlisted model-visible fields', as
   }
   assert.equal(examples.filter((example) => 'verificationCode' in example).length, 1);
   assert.deepEqual(examples.map((example) => example.state), [
-    'pending_approval', undefined, 'connected', 'paused', 'needs_reconnect', 'revoked',
+    'pending_approval', 'confirm_approval', 'connected', 'paused', 'needs_reconnect', 'revoked',
   ]);
   assert.ok(examples.every((example) => example.deliveryMode !== 'on_demand'));
 });

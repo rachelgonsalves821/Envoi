@@ -1,34 +1,20 @@
-# B-3.1 runtime-neutral onboarding review
+# B-3.1a onboarding draft review evidence
 
-Initial review completed on 2026-10-11 (America/Toronto). The 2026-10-12 follow-up revises this design-only kit after Lane A review of the multi-route plan in PR #75. Its static planner now distinguishes the connection route from delivery/wake mode; this is not a server contract or live feature.
+Base: integration/agent-native at `9e178da96e840b169b17d6a2c6c99722cf0e8cab`. Contract publication: agent-registration v1 revision 3 at `4da219e7156138c94e26b8105efe7ffe43ec6f98` (PR #76). The earlier narrow ACK and seven-item MISMATCH at 36f7943 are historical; the corrected consuming review passes. A fresh human approval follows the new Lane B ACK.
 
-The GitHub connector rejected PR metadata changes with HTTP 403, so this file carries the updated review description for existing draft PR #72. The PR conversation text may still describe the earlier six-check static package.
+This Lane B draft uses one host-capability planner for local helper, remote MCP/OAuth, reviewed provider connector and authenticated REST. Connection route and delivery mode are separate. Only supplied canonical server availability can select a route/mode; all actual host wake evidence remains unproven. The unpublished manifest offers no routes. Every supported draft remains contract_blocked with liveEnrollmentAllowed:false. No helper is executed, no prompt is opened and no network or credential exchange occurs.
 
-A host that reads Envoi's skill still needs a reviewed connection route, private operational credential storage and separate wake proof. This B-3.1 draft includes an executable local manifest/capability consumer and conformance kit: Muse, Instinct, ChatGPT Dots and arbitrary agents use identical capability selection, with runtime name treated as metadata. It reuses the existing skill package.
+Local approved polling now plans CONFIRMING / confirm_approval. Show the server-derived approverEmailHint, workspace, agent and permission summary. Prefer an actual host-native prompt; absent or false hostNativePrompt means advisory chat through the model, requiring an explicit human answer. The model never answers for the human. Decline or timeout deletes bootstrap state without activation. Profiles without the new optional capability remain valid. The profile field is planning metadata, not a server registration field.
 
-- Task/lane: B-3.1a design only, Lane B. This PR has not been rebased onto the latest integration head; live feature work must start from a fresh exact base after the core contract is approved.
-- Changed paths: integrations/onboarding/** plus the pre-existing integrations/gates/PHASE-A-HOSTED-PREP.md worksheet. This update touches only onboarding; #73's hosted fixture is separate.
-- Contract consumed: v3 §§30–47 and §54 design constraints; approved a3-pause-auth v2, a4-wake v1, a5-presence v1 lifecycle constraints. No new server wire fields or Lane A edits.
-- Compatibility: same manifest and claim/installation boundary for every runtime. The draft planner selects local-helper, remote MCP/OAuth, reviewed provider connector or authenticated REST only from observed capabilities. Candidate provider/webhook/SSE/poll flags alone classify as on demand. A background mode requires all eight conformance checks and matching connection-route/host/version/release/integration references; wake proof cannot transfer between routes. Missing private storage/HTTPS or any reviewed connection route is unsupported.
-- Live gate: every supported plan returns contract_blocked and liveEnrollmentAllowed:false. A-3.1a was published at `36f7943`, but #78's independent MISMATCH supersedes the narrower ACK note in this package. A correction/version decision and re-review remain necessary; A-3.1b remains unpublished. skill.json remains published:false. No registration, activation, helper execution, network call, deployment or publication occurs.
+Changed paths: integrations/onboarding/** plus the pre-existing integrations/gates/PHASE-A-HOSTED-PREP.md worksheet in this PR. This revision touches only onboarding. No Lane A paths or shared fixtures are edited. Hosted tooling in #73 remains a separate task.
 
-Local entry point (schema `host-plan-draft-2`):
-node integrations/onboarding/host-plan.mjs integrations/onboarding/profiles/unverified-host.json
+Focused PowerShell validation:
+- #78 exact-publication schema/client consuming review: 103/103, all 78 canonical fixtures, original legacyList(2) regression preserved and now passing.
+- #72 exact-publication planner/output consuming review: 5/5, every HTTP/migration/rollback/restart operation consumed from the same fixture checkout with no copies.
+- Onboarding Node suite: 27/27, including host-native/advisory selection, false/non-boolean capability handling, draft gate and model-visible examples.
 
-The seed correctly reports unsupported_host. A trusted host may supply observed capabilities and private evidence using skill/HOST-INTEGRATION.md. Output includes only fixed safe planning fields and a planned executable/argument array; it never echoes evidence URLs or raw input. Evidence checks validate references only, not their authenticity or a real host run.
+Full Lane B suite and exact-head CI are recorded in the PR/build-board READY evidence. Standard CI does not itself run the separate #76 fixture publication review.
 
-Validation at this tree:
-- node --test integrations/onboarding/test/*.test.mjs: 20/20 on the 2026-10-12 follow-up.
-- npm run typecheck: PASS.
-- npm run test:integrations: 200 PASS / 1 existing skip, including the onboarding Node suite through Vitest/CI. Windows sandbox temp-file loading failed before tests; the unchanged suite passed outside the sandbox.
-- npm run test:frontend: 246 PASS.
-- npm run test:sdk:typescript: 188 PASS.
-- npm run test:sdk:python: 6 PASS.
-- git diff --check: PASS.
-- CI for the updated head: pending; the earlier head's CI is not evidence for this update.
+Hosted evidence still missing: Phase A real-Hermes acceptance and human countersign, A-4.x server, A-3.1b remote/provider authorization and route-specific onboarding/wake evidence. Muse, Instinct and ChatGPT Dots capabilities remain unverified. Contract ACK and synthetic profiles do not enable enrollment or prove unattended execution.
 
-Hosted evidence: all actual runtime capabilities and Phase B wake/reply acceptance remain UNPROVEN. Synthetic tests do not establish Muse/Instinct/Dots vendor features. Real Hermes/OpenClaw Phase B acceptance and each additional host's closed-app wake/reply, restart, duplicate, pause, revocation and secret-isolation observations remain required.
-
-REQUEST lane-a: correct A-3.1a's ownerInstallationList schema/handoff contradiction and publish a canonical multi-active legacy fixture, preserving at most five ended rows and at most one non-legacy active row. Record the correction/version decision for the previously approved contract. Then publish A-3.1b remote MCP/OAuth and reviewed provider authorization separately. The OAuth consent page must perform the owner claim; a secure-field fallback carries only a single-use bootstrap code. Human contract approval is required before live route implementation. The exact re-review procedure is in integrations/onboarding/skill/REGISTRATION-REREVIEW.md.
-
-Rollback: remove this isolated draft package, baseline ef6c4f46454599e91e9edb79379a2ce414b1962f. No live behavior changes. Build-board comment could not be posted: GitHub connector returned 403 Resource not accessible by integration.
+Rollback target: integration base 9e178da; remove the isolated draft package. No merge, deployment, live enrollment or real-host run.

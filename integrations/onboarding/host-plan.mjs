@@ -44,8 +44,9 @@ function validateProfile(profile) {
     || !(profile.target.integrationVersion === null || identifier(profile.target.integrationVersion))) {
     throw new Error('Invalid target release or integration version');
   }
-  objectWithKeys(profile.capabilities, capabilityKeys);
-  if (!capabilityKeys.every((key) => typeof profile.capabilities[key] === 'boolean')) {
+  objectWithKeys(profile.capabilities, [...capabilityKeys, 'hostNativePrompt']);
+  if (!capabilityKeys.every((key) => typeof profile.capabilities[key] === 'boolean')
+    || (profile.capabilities.hostNativePrompt !== undefined && typeof profile.capabilities.hostNativePrompt !== 'boolean')) {
     throw new Error('Capabilities must be explicit booleans');
   }
   if (!Array.isArray(profile.evidence) || profile.evidence.length > modes.length * connectionRoutes.length) {
@@ -90,7 +91,7 @@ function validateManifest(manifest) {
     || manifest.heartbeat !== 'HEARTBEAT.md'
     || manifest.coreContract?.id !== 'agent-registration'
     || manifest.coreContract?.version !== 1
-    || manifest.coreContract?.publishedSha !== '36f7943646f245ec1ac96bec706690fa370f3780'
+    || manifest.coreContract?.publishedSha !== '4da219e7156138c94e26b8105efe7ffe43ec6f98'
     || manifest.availabilitySource !== 'GET /api/onboarding/routes'
     || JSON.stringify(manifest.offeredConnectionRoutes) !== '[]'
     || JSON.stringify(manifest.offeredDeliveryModes) !== '[]'
@@ -146,6 +147,25 @@ function availableFromServer(snapshot) {
   };
 }
 
+// Draft policy only: no prompt, activation, credential exchange or confirmation is executed.
+export function planApprovalConfirmation(profile) {
+  validateProfile(profile);
+  const hostNative = profile.capabilities.hostNativePrompt === true;
+  return {
+    lifecycle: 'CONFIRMING',
+    state: 'confirm_approval',
+    method: hostNative ? 'host_native' : 'chat_advisory',
+    attributableToHuman: hostNative,
+    displayFields: ['approverEmailHint', 'workspaceName', 'agentName', 'agentAddress', 'permissionSummary'],
+    requiresExplicitHumanAnswer: true,
+    activationAfterConfirmation: true,
+    onDeclineOrTimeout: 'delete_bootstrap_without_activation',
+    nextAction: hostNative
+      ? 'Use the host-native prompt to show the approver email hint, workspace, agent and permissions. Wait for the human to confirm before activation.'
+      : 'Show the approver email hint, workspace, agent and permissions in chat and wait for the human to explicitly confirm. Confirmation through the model is advisory; never answer for the human.',
+  };
+}
+
 export function planHost(manifest, profile, routeAvailability = null) {
   validateManifest(manifest);
   validateProfile(profile);
@@ -197,6 +217,7 @@ export function planHost(manifest, profile, routeAvailability = null) {
       : offered === null ? 'await_server_route_availability'
         : selectedConnectionRoute === null || selectedMode === null ? 'route_or_delivery_not_available'
           : 'await_phase_b_server_and_hosted_gate',
+    plannedApprovalConfirmation: selectedConnectionRoute === 'local_helper' ? planApprovalConfirmation(profile) : null,
     plannedHelperInvocation: selectedConnectionRoute !== 'local_helper' ? null : {
       executable: 'envoi-link',
       args: ['connect', 'https://www.envoi-agents.com'],

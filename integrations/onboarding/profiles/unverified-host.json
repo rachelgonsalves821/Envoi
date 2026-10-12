@@ -5,6 +5,7 @@
   "capabilities": {
     "readSkill": true,
     "invokeTrustedHelper": false,
+    "hostNativePrompt": false,
     "privateStorage": false,
     "outboundHttps": false,
     "remoteMcpOAuth": false,

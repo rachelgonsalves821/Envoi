@@ -10,7 +10,7 @@ const origin = 'https://www.envoi-agents.com';
 test('draft connect has a fixed safe result and grants no access', () => {
   assert.deepEqual(draftConnect(['connect', origin]), {
     schemaVersion: 'draft-1', state: 'contract_blocked', liveEnrollmentAllowed: false,
-    nextAction: 'Wait for the Phase B server, the hosted Phase A gate, and an offered connection route. No Envoi access was granted.',
+    nextAction: 'Wait for the Phase B server, the hosted Phase A gate, and an offered connection route. The planned local flow requires explicit human confirmation of the approver, workspace, agent and permissions before activation. No Envoi access was granted.',
   });
   const result = spawnSync(process.execPath, [command, 'connect', origin], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);

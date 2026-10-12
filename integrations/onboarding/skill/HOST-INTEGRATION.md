@@ -1,6 +1,6 @@
 # Host integration kit (B-3.1, draft)
 
-This kit consumes the existing skill/JSON without relying on a runtime brand. It implements local capability planning and conformance-record checks. It does not implement registration, install a helper, authenticate, or call a server. Lane A published the route-neutral `agent-registration` v1 contract at `36f7943`; remote MCP/OAuth and provider authorization remain A-3.1b. Every supported local plan says `liveEnrollmentAllowed: false` and `contract_blocked`. A missing connection route or essential capability produces `unsupported_host`.
+This kit consumes the existing skill/JSON without relying on a runtime brand. It implements local capability planning and conformance-record checks. It does not implement registration, install a helper, authenticate, or call a server. Lane A published the route-neutral `agent-registration` v1 contract at `4da219e` (revision 3; fresh human approval follows the new ACK); remote MCP/OAuth and provider authorization remain A-3.1b. Every supported local plan says `liveEnrollmentAllowed: false` and `contract_blocked`. A missing connection route or essential capability produces `unsupported_host`.
 
 ## Consume and plan locally
 
@@ -52,9 +52,10 @@ These are integration paths to evaluate, not claims about vendor features. No ve
 1. Read the reviewed skill/JSON; establish private storage, HTTPS and one actual connection route. Resolve the trusted installation method from the official connect page. Missing capabilities stop setup. Reuse or reconnect an existing installation first.
 2. The local route invokes fixed `envoi-link connect https://www.envoi-agents.com` through the trusted host. Remote MCP uses published OAuth metadata; reviewed connectors use their provider install/consent or secure-field flow; REST uses a trusted client. The model does not construct secret-bearing registration or activation requests.
 3. The same server-owned pending registration and human claim apply across routes. Local helper output contains only the safe claim URL/code and bounded status. Remote OAuth combines claim with consent and issues one installation-scoped grant. A secure-field-only provider transfers only a single-use, ten-minute bootstrap code bound to the pending registration; it is never an access/refresh token. Rejection, expiration and mismatch cannot become approval.
-4. After approval, the trusted helper, OAuth server, connector or client privately obtains credentials and verifies the installation with an authenticated identity/inbox call. Existing identities use reconnect; paused identities remain paused; revoked installations stop processing and never silently register again.
-5. Select actual delivery capability separately, and only when `GET /api/onboarding/routes` marks that mode available. Open-chat access alone does not qualify for `agent-registration` v1; on-demand needs an explicit **On demand** owner label in a later approved presence revision. A host connector owns authentication, refresh, claims, lease handling, canonical queue reconciliation and settlement. The model heartbeat does not create a second queue or cursor.
-6. Run the conformance observations below on the exact host/version/release/helper. Then run v3 §47 with fresh real Hermes and OpenClaw, plus additional host-specific acceptance before advertising that host's background availability. The human approves publication/default changes.
+4. After a local approved poll, the helper enters CONFIRMING / confirm_approval and displays approverEmailHint, workspace, agent and permissionSummary. Declare hostNativePrompt only when the trusted helper can use an actual host-native terminal/dialog; it must prefer that path. Otherwise confirmation in chat through the model is advisory and must wait for an explicit answer from the human. A decline or timeout deletes bootstrap state without activation. This policy is draft planning metadata, never a server request field.
+5. Only after local confirmation, the trusted helper, OAuth server, connector or client privately obtains credentials and verifies the installation with an authenticated identity/inbox call. Existing identities use reconnect; paused identities remain paused; revoked installations stop processing and never silently register again.
+6. Select actual delivery capability separately, and only when `GET /api/onboarding/routes` marks that mode available. Open-chat access alone does not qualify for `agent-registration` v1; on-demand needs an explicit **On demand** owner label in a later approved presence revision. A host connector owns authentication, refresh, claims, lease handling, canonical queue reconciliation and settlement. The model heartbeat does not create a second queue or cursor.
+7. Run the conformance observations below on the exact host/version/release/helper. Then run v3 §47 with fresh real Hermes and OpenClaw, plus additional host-specific acceptance before advertising that host's background availability. The human approves publication/default changes.
 
 `BREADTH-EVIDENCE.md` is the blank cross-route worksheet for that hosted gate. Its named host probes and negative cases make explicit which routes remain unproven or blocked by a provider; it is not a substitute for the real observations.
 
@@ -64,7 +65,7 @@ These are integration paths to evaluate, not claims about vendor features. No ve
 
 | Check key | Required observation |
 | --- | --- |
-| `privateActivation` | Approved human claim activates privately; pending/rejected/expired claims grant nothing. |
+| `privateActivation` | Approved human claim is locally confirmed (host-native preferred, chat advisory), then activates privately; pending/rejected/expired claims grant nothing. |
 | `secretIsolation` | Redacted transcript/browser/log inspection proves no bootstrap, activation, access, refresh or private key disclosure. |
 | `closedAppWake` | Send distinct work with chat/app closed; host invokes the runtime without the human reopening it. |
 | `canonicalReply` | Host claims the durable work, replies within authorized case/grants, settles once, and both owners see the canonical receipt. |
@@ -77,7 +78,7 @@ Only records matching the target release and integration version count. Every ch
 
 ## REQUEST lane-a: decisions before live helper implementation
 
-Consume approved Phase A contracts `a3-pause-auth` v3, `a4-wake` v2 and `a5-presence` v1 as lifecycle constraints at integration base `a740c51`; this kit introduces no server wire fields. Je needs to publish Phase B fixtures/text, Lane B must acknowledge them, and the designated human approver (`pjsk02` under the current build rules) must post `CONTRACT-APPROVED` before fixture-based client implementation. Live enrollment additionally waits for A-4.x server work and the hosted Phase A gate. The contract must cover:
+Consume approved Phase A contracts `a3-pause-auth` v3, `a4-wake` v2 and `a5-presence` v1 as lifecycle constraints at integration base `9e178da`; this kit introduces no server wire fields. The route-neutral core is republished; Lane B consumes it and the human re-approves it. A-3.1b remains separate, and the designated human approver (`pjsk02` under the current build rules) must post `CONTRACT-APPROVED` before fixture-based client implementation. Live enrollment additionally waits for A-4.x server work and the hosted Phase A gate. The contract must cover:
 
 - Registration/bootstrap authentication, bounded expiry/retry/status/error schemas, repeated connect/idempotency and existing-installation recovery, with negative pending/rejected/expired access fixtures.
 - Claim URL/code verification and authorization; private activation redemption, single-use/retry semantics, token storage boundary and flag-disabled behavior for both V2 flags.

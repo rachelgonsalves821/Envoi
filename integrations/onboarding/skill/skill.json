@@ -11,7 +11,7 @@
   "coreContract": {
     "id": "agent-registration",
     "version": 1,
-    "publishedSha": "36f7943646f245ec1ac96bec706690fa370f3780"
+    "publishedSha": "4da219e7156138c94e26b8105efe7ffe43ec6f98"
   },
   "availabilitySource": "GET /api/onboarding/routes",
   "offeredConnectionRoutes": [],
