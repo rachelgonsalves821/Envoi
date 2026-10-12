@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "account-changed",
   "description": "Browser only: a mutating request names a different signed-in account.",
   "kind": "http",
@@ -8,8 +8,9 @@
     "method": "POST",
     "path": "/api/inboxes/inbox_example/human-messages",
     "headers": {
-      "cookie": "sinaloa_session=PLACEHOLDER",
-      "x-sinaloa-csrf": "csrf_PLACEHOLDER",
+      "cookie": "envoi_session=PLACEHOLDER; envoi_csrf=csrf_PLACEHOLDER",
+      "origin": "https://www.envoi-agents.com",
+      "x-envoi-csrf": "csrf_PLACEHOLDER",
       "content-type": "application/json",
       "x-envoi-expected-human": "human_previous"
     },

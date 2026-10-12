@@ -54,7 +54,7 @@ async function fixture({ sessionHours = 24 } = {}) {
   const options = { clientId: 'client_one', apiKey: 'sk_test', cookiePassword: '12345678901234567890123456789012', redirectUri: 'https://app.example/callback', invitedEmails: user.email, workos, sessionHours, now: () => now };
   const auth = new WorkOSAuthService(store, options);
   const request = (cookie = 'old') => {
-    const req = { headers: { cookie: `sinaloa_session=${cookie}` } };
+    const req = { headers: { cookie: `envoi_session=${cookie}` } };
     const res = response();
     auth.bindResponse(req, res);
     return { req, res };
@@ -71,12 +71,12 @@ test('expired access token renews once per request and appends the cookie withou
   assert.equal(human.providerUserId, 'user_one');
   assert.equal(f.calls.refresh, 1);
   assert.equal(f.calls.authenticate, 2, 'original and replacement are each verified once');
-  res.setHeader('Set-Cookie', ['sinaloa_csrf=csrf; Path=/']);
+  res.setHeader('Set-Cookie', ['envoi_csrf=csrf; Path=/']);
   res.writeHead(200);
   const cookies = res.getHeader('Set-Cookie');
   assert.equal(cookies.length, 2);
-  assert.equal(cookies[0], 'sinaloa_csrf=csrf; Path=/');
-  assert.match(cookies[1], /^sinaloa_session=new;/);
+  assert.equal(cookies[0], 'envoi_csrf=csrf; Path=/');
+  assert.match(cookies[1], /^envoi_session=new;/);
   assert.match(cookies[1], /HttpOnly/);
   assert.equal(await f.auth.validateSessionLease(await f.auth.captureSessionLease(req)), true);
 });
@@ -118,8 +118,8 @@ test('terminal refresh failure clears the cookie and rejects other cookies for t
   f.setRefresh(async () => ({ authenticated: false, reason: 'invalid_grant', retryable: false }));
   const { req, res } = f.request();
   assert.equal(await f.auth.getSession(req), null);
-  res.writeHead(401, { 'set-cookie': 'sinaloa_csrf=stale; Path=/' });
-  assert.deepEqual(res.getHeader('Set-Cookie').map(value => value.split(';')[0]), ['sinaloa_session=', 'sinaloa_csrf=']);
+  res.writeHead(401, { 'set-cookie': 'envoi_csrf=stale; Path=/' });
+  assert.deepEqual(res.getHeader('Set-Cookie').map(value => value.split(';')[0]), ['envoi_session=', 'envoi_csrf=']);
   assert.ok(res.getHeader('Set-Cookie').every(value => value.includes('Max-Age=0')));
   assert.equal(await f.auth.getSession(f.request('new').req), null);
 });
@@ -130,7 +130,7 @@ test('removing an invitation clears authenticated and CSRF cookies without admit
   const { req, res } = f.request('new');
   assert.equal(await f.auth.getSession(req), null);
   res.writeHead(401);
-  assert.deepEqual(res.getHeader('Set-Cookie').map(value => value.split(';')[0]), ['sinaloa_session=', 'sinaloa_csrf=']);
+  assert.deepEqual(res.getHeader('Set-Cookie').map(value => value.split(';')[0]), ['envoi_session=', 'envoi_csrf=']);
   assert.ok(res.getHeader('Set-Cookie').every(value => value.includes('Max-Age=0')));
   assert.equal(f.calls.refresh, 0);
 });
@@ -216,10 +216,10 @@ test('the installed SDK unseals expired cookies for logout identity and rejects 
   let revokedId;
   workos.userManagement.revokeSession = async ({ sessionId }) => { revokedId = sessionId; };
   const auth = new WorkOSAuthService(f.store, { ...f.options, workos });
-  const result = await auth.logout({ headers: { cookie: `sinaloa_session=${encodeURIComponent(sealedSession)}` } });
+  const result = await auth.logout({ headers: { cookie: `envoi_session=${encodeURIComponent(sealedSession)}` } });
   assert.equal(result.sessionId, 'sid_one');
   assert.equal(revokedId, 'sid_one');
-  const altered = await auth.logout({ headers: { cookie: `sinaloa_session=${encodeURIComponent(sealedSession.replace('Fe26.2', 'Fe26.3'))}` } });
+  const altered = await auth.logout({ headers: { cookie: `envoi_session=${encodeURIComponent(sealedSession.replace('Fe26.2', 'Fe26.3'))}` } });
   assert.equal(altered.revoked, false);
 });
 
@@ -247,14 +247,14 @@ test('real SDK verification and refresh issue a replacement cookie for an expire
     return { ...next, sealedSession: await workos.userManagement.sealSessionDataFromAuthenticationResponse({ authenticationResponse: next, cookiePassword: options.session.cookiePassword }) };
   };
   const auth = new WorkOSAuthService(f.store, { ...f.options, workos });
-  const req = { headers: { cookie: `sinaloa_session=${encodeURIComponent(sealedSession)}` } };
+  const req = { headers: { cookie: `envoi_session=${encodeURIComponent(sealedSession)}` } };
   const res = response();
   auth.bindResponse(req, res);
   const session = await auth.getSession(req);
   assert.equal(session.sessionId, 'sid_one');
   assert.equal(refreshCalls, 1);
   assert.notEqual(session.sealedSession, sealedSession);
-  res.writeHead(200, { 'set-cookie': 'sinaloa_csrf=token; Path=/' });
-  assert.equal(res.getHeader('Set-Cookie')[0], 'sinaloa_csrf=token; Path=/');
-  assert.equal(res.getHeader('Set-Cookie')[1].split(';')[0], `sinaloa_session=${encodeURIComponent(session.sealedSession)}`);
+  res.writeHead(200, { 'set-cookie': 'envoi_csrf=token; Path=/' });
+  assert.equal(res.getHeader('Set-Cookie')[0], 'envoi_csrf=token; Path=/');
+  assert.equal(res.getHeader('Set-Cookie')[1].split(';')[0], `envoi_session=${encodeURIComponent(session.sealedSession)}`);
 });

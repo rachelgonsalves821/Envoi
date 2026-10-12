@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "refresh-recovered",
   "description": "The same refresh token and rotationId within the recovery window return the identical successor.",
   "kind": "http",

@@ -10,7 +10,7 @@ import { createWaitlistSheetSync } from './waitlist-sheet-sync.js';
 import { workspaceHistory, parseHistoryCursors } from './workspace-history.js';
 import { fetchEventPage } from './event-history.js';
 import { createHumanAuth } from './human-auth.js';
-import { authFlowCookieHeader, authFlowCookieName, createCsrfToken, csrfCookieHeader, csrfCookieName, membershipCanManage, parseCookies, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
+import { authFlowCookieHeader, authFlowCookieName, createCsrfToken, csrfCookieHeader, csrfCookieName, membershipCanManage, parseCookies, retiredCookieClears, retiredCookiesIn, sessionCookieHeader, sessionCookieName, verifyCsrfRequest } from './workos-auth.js';
 import { installSessionCookieResponse } from './session-response.js';
 import { operationalBacklogSnapshot } from './operational-backlog.js';
 import { DeliveryWorker } from './delivery-worker.js';
@@ -256,7 +256,7 @@ const applyHeaders = (res, origin, nonce) => {
     res.setHeader('vary', 'Origin');
     if (allowedOrigin !== '*') res.setHeader('access-control-allow-credentials', 'true');
   }
-  res.setHeader('access-control-allow-headers', 'content-type, authorization, idempotency-key, mcp-protocol-version, if-none-match, x-request-id, x-sinaloa-csrf, x-envoi-expected-human, traceparent, x-amz-checksum-sha256, x-amz-meta-sinaloa-sha256');
+  res.setHeader('access-control-allow-headers', 'content-type, authorization, idempotency-key, mcp-protocol-version, if-none-match, x-request-id, x-envoi-csrf, x-envoi-expected-human, traceparent, x-amz-checksum-sha256, x-amz-meta-sinaloa-sha256');
   res.setHeader('access-control-allow-methods', 'GET, HEAD, POST, PUT, OPTIONS');
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('x-frame-options', 'DENY');
@@ -2454,26 +2454,35 @@ async function route(req, res) {
       returnTo: url.searchParams.get('returnTo') || '/',
       forceFresh: url.searchParams.get('fresh') === '1'
     });
-    return redirect(res, authorization.url, { 'set-cookie': authFlowCookieHeader(authorization.browserBinding) });
+    // envoi-browser-names v1 §1.3: sign-in start also clears the retired flow cookie.
+    return redirect(res, authorization.url, { 'set-cookie': [authFlowCookieHeader(authorization.browserBinding), ...retiredCookieClears(['sinaloa_workos_flow'])] });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/auth/workos/callback') {
     if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
     if (url.searchParams.get('error')) return redirect(res, `/?auth_error=${encodeURIComponent(url.searchParams.get('error_description') || url.searchParams.get('error'))}`, { 'set-cookie': authFlowCookieHeader('', { clear: true }) });
-    const result = await auth.completeAuthorization({
-      code: url.searchParams.get('code'),
-      browserBinding: parseCookies(req.headers.cookie)[authFlowCookieName()],
-      state: url.searchParams.get('state'),
-      ipAddress: clientIp(req),
-      userAgent: req.headers['user-agent'] || ''
-    });
+    let result;
+    try {
+      result = await auth.completeAuthorization({
+        code: url.searchParams.get('code'),
+        browserBinding: parseCookies(req.headers.cookie)[authFlowCookieName()],
+        state: url.searchParams.get('state'),
+        ipAddress: clientIp(req),
+        userAgent: req.headers['user-agent'] || ''
+      });
+    } catch (error) {
+      // envoi-browser-names v1 §4: a sign-in started before the cutover, or any missing, mismatched,
+      // expired or used flow, restarts sign-in instead of showing a raw 401.
+      if (error.code !== 'AUTH_FLOW_INVALID') throw error;
+      return redirect(res, '/?auth_error=sign_in_failed', { 'set-cookie': [authFlowCookieHeader('', { clear: true }), ...retiredCookieClears()] });
+    }
     if (result.reauthenticate) {
       if (result.forceFresh) return redirect(res, '/?auth_error=sign_in_failed', { 'set-cookie': authFlowCookieHeader('', { clear: true }) });
       const authorization = await auth.startAuthorization({ returnTo: result.returnTo, forceFresh: true });
       return redirect(res, authorization.url, { 'set-cookie': authFlowCookieHeader(authorization.browserBinding) });
     }
     const csrfToken = createCsrfToken();
-    return redirect(res, result.returnTo, { 'set-cookie': [sessionCookieHeader(result.sealedSession), csrfCookieHeader(csrfToken), authFlowCookieHeader('', { clear: true })] });
+    return redirect(res, result.returnTo, { 'set-cookie': [sessionCookieHeader(result.sealedSession), csrfCookieHeader(csrfToken), authFlowCookieHeader('', { clear: true }), ...retiredCookieClears()] });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/phone/start') {
@@ -2488,14 +2497,19 @@ async function route(req, res) {
     if (!input.challengeId || !input.code) return fail(res, 400, 'challengeId and code are required');
     const result = await auth.verifyPhone(input.challengeId, input.code);
     const csrfToken = createCsrfToken();
-    res.setHeader('set-cookie', [sessionCookieHeader(result.sessionCookieValue), csrfCookieHeader(csrfToken)]);
+    res.setHeader('set-cookie', [sessionCookieHeader(result.sessionCookieValue), csrfCookieHeader(csrfToken), ...retiredCookieClears()]);
     const { sessionCookieValue: _sessionCookieValue, ...publicResult } = result;
     return json(res, 200, publicResult);
   }
 
   if (req.method === 'GET' && url.pathname === '/api/auth/me') {
     const human = await auth.getHuman(req, { requireMfa: false });
-    if (!human) return fail(res, 401, 'Authenticated human session required');
+    if (!human) {
+      // envoi-browser-names v1 §1.3: clear the retired names this browser still sends, by name only.
+      const retired = retiredCookiesIn(req.headers.cookie);
+      if (retired.length) res.appendHeader('set-cookie', retiredCookieClears(retired));
+      return fail(res, 401, 'Authenticated human session required');
+    }
     const session = await auth.getSession(req);
     const assurance = session?.assurance || 'provider';
     if (session && !parseCookies(req.headers.cookie)[csrfCookieName()]) res.appendHeader('set-cookie', csrfCookieHeader(createCsrfToken()));
@@ -2524,7 +2538,7 @@ async function route(req, res) {
     const rawSession = parseCookies(req.headers.cookie)[sessionCookieName()];
     const sessionKey = auth.provider === 'workos' ? result.sessionId : rawSession ? hashSecret(rawSession) : null;
     disconnectHumanStreams(sessionKey);
-    res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true })]);
+    res.setHeader('set-cookie', [sessionCookieHeader('', { clear: true }), csrfCookieHeader('', { clear: true }), ...retiredCookieClears()]);
     // Logout is idempotent, including missing, expired and already-cleared sessions.
     return json(res, 200, typeof result === 'boolean' ? { revoked } : { revoked, logoutUrl: result.logoutUrl });
   }

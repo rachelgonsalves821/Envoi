@@ -13,8 +13,11 @@ export const membershipCanManage = (membership, provider = 'local') => membershi
   && (provider !== 'workos' || providerMembershipCanManage(membership.providerMembership));
 
 const flowMinutes = Number(process.env.ENVOI_AUTH_FLOW_MINUTES || 10);
-const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'sinaloa_session';
-const csrfCookie = process.env.ENVOI_CSRF_COOKIE_NAME || 'sinaloa_csrf';
+const sessionCookie = process.env.WORKOS_COOKIE_NAME || 'envoi_session';
+const csrfCookie = process.env.ENVOI_CSRF_COOKIE_NAME || 'envoi_csrf';
+// envoi-browser-names v1 §1.3: the pre-cutover names. The server only ever clears these; it never
+// reads their values. Removed in N3, once no browser can still hold one.
+export const retiredCookieNames = Object.freeze(['sinaloa_session', 'sinaloa_csrf', 'sinaloa_workos_flow']);
 const requestHuman = Symbol('workos-request-human');
 const requestSession = Symbol('workos-request-session');
 const requestResponse = Symbol('workos-request-response');
@@ -62,41 +65,70 @@ export function parseCookies(header = '') {
   }));
 }
 
-export function authFlowCookieName() { return 'sinaloa_workos_flow'; }
-export function authFlowCookieHeader(browserBinding, { clear = false } = {}) {
-  const attributes = [`${authFlowCookieName()}=${clear ? '' : encodeURIComponent(browserBinding)}`, 'Path=/api/auth/workos', 'HttpOnly', 'SameSite=Lax'];
-  if (process.env.ENVOI_AUTH_MODE === 'production' || process.env.ENVOI_COOKIE_SECURE === 'true') attributes.push('Secure');
-  attributes.push(`Max-Age=${clear ? 0 : flowMinutes * 60}`);
+const secureCookies = () => process.env.ENVOI_AUTH_MODE === 'production' || process.env.ENVOI_COOKIE_SECURE === 'true';
+const sessionSameSite = () => {
+  const configured = process.env.ENVOI_COOKIE_SAMESITE || 'Lax';
+  return ['Lax', 'Strict', 'None'].includes(configured) ? configured : 'Lax';
+};
+const cookieDomain = () => (process.env.WORKOS_COOKIE_DOMAIN && /^[a-z0-9.-]+$/i.test(process.env.WORKOS_COOKIE_DOMAIN) ? process.env.WORKOS_COOKIE_DOMAIN : null);
+const sessionMaxAge = () => Number(process.env.ENVOI_SESSION_HOURS || 24) * 3600;
+// One place for each cookie's attributes, so a retired name is cleared exactly as it was set.
+function cookieHeader(name, value, { path, httpOnly, sameSite, domain = null, maxAge }) {
+  const attributes = [`${name}=${value}`, `Path=${path}`, ...(httpOnly ? ['HttpOnly'] : []), `SameSite=${sameSite}`];
+  if (secureCookies()) attributes.push('Secure');
+  if (domain) attributes.push(`Domain=${domain}`);
+  attributes.push(`Max-Age=${maxAge}`);
   return attributes.join('; ');
+}
+const sessionAttributes = { path: '/', httpOnly: true };
+const csrfAttributes = { path: '/', httpOnly: false, sameSite: 'Strict' };
+const flowAttributes = { path: '/api/auth/workos', httpOnly: true, sameSite: 'Lax' };
+
+// envoi-browser-names v1 §1.1: an override must not name a retired cookie (the clears would delete
+// the live session) and the session and CSRF cookies must differ. Checked at startup in every mode.
+export function assertBrowserCookieNames(names = { session: sessionCookie, csrf: csrfCookie }) {
+  for (const [kind, name] of Object.entries(names)) {
+    if (retiredCookieNames.includes(name)) throw new Error(`The ${kind} cookie name ${name} is retired; remove the override to use the Envoi name`);
+  }
+  if (names.session === names.csrf) throw new Error('The session and CSRF cookie names must differ');
+}
+
+export function authFlowCookieName() { return 'envoi_workos_flow'; }
+export function authFlowCookieHeader(browserBinding, { clear = false } = {}) {
+  return cookieHeader(authFlowCookieName(), clear ? '' : encodeURIComponent(browserBinding), { ...flowAttributes, maxAge: clear ? 0 : flowMinutes * 60 });
 }
 export function sessionCookieName() { return sessionCookie; }
 export function csrfCookieName() { return csrfCookie; }
 export function sessionCookieHeader(value, { clear = false } = {}) {
-  const secure = process.env.ENVOI_AUTH_MODE === 'production' || process.env.ENVOI_COOKIE_SECURE === 'true';
-  const configuredSameSite = process.env.ENVOI_COOKIE_SAMESITE || 'Lax';
-  const sameSite = ['Lax', 'Strict', 'None'].includes(configuredSameSite) ? configuredSameSite : 'Lax';
-  const attributes = [`${sessionCookie}=${clear ? '' : encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', `SameSite=${sameSite}`];
-  if (secure) attributes.push('Secure');
-  if (process.env.WORKOS_COOKIE_DOMAIN && /^[a-z0-9.-]+$/i.test(process.env.WORKOS_COOKIE_DOMAIN)) attributes.push(`Domain=${process.env.WORKOS_COOKIE_DOMAIN}`);
-  if (clear) attributes.push('Max-Age=0');
-  else attributes.push(`Max-Age=${Number(process.env.ENVOI_SESSION_HOURS || 24) * 3600}`);
-  return attributes.join('; ');
+  return cookieHeader(sessionCookie, clear ? '' : encodeURIComponent(value), { ...sessionAttributes, sameSite: sessionSameSite(), domain: cookieDomain(), maxAge: clear ? 0 : sessionMaxAge() });
 }
+
+// envoi-browser-names v1 §1.3: Max-Age=0 for retired names, with each cookie's own Path. A Domain
+// cookie and a host-only cookie are separate, so the session name is cleared in both forms.
+export function retiredCookieClears(names = retiredCookieNames) {
+  const clears = [];
+  for (const name of names) {
+    if (name === 'sinaloa_session') {
+      clears.push(cookieHeader(name, '', { ...sessionAttributes, sameSite: sessionSameSite(), maxAge: 0 }));
+      if (cookieDomain()) clears.push(cookieHeader(name, '', { ...sessionAttributes, sameSite: sessionSameSite(), domain: cookieDomain(), maxAge: 0 }));
+    } else if (name === 'sinaloa_csrf') clears.push(cookieHeader(name, '', { ...csrfAttributes, maxAge: 0 }));
+    else if (name === 'sinaloa_workos_flow') clears.push(cookieHeader(name, '', { ...flowAttributes, maxAge: 0 }));
+  }
+  return clears;
+}
+// The retired names a request carried; names only, never values.
+export const retiredCookiesIn = cookieHeaderValue => retiredCookieNames.filter(name => Object.hasOwn(parseCookies(cookieHeaderValue), name));
 
 export function createCsrfToken() { return crypto.randomBytes(32).toString('base64url'); }
 
 export function csrfCookieHeader(value, { clear = false } = {}) {
-  const secure = process.env.ENVOI_AUTH_MODE === 'production' || process.env.ENVOI_COOKIE_SECURE === 'true';
-  const attributes = [`${csrfCookie}=${clear ? '' : encodeURIComponent(value)}`, 'Path=/', 'SameSite=Strict'];
-  if (secure) attributes.push('Secure');
-  if (clear) attributes.push('Max-Age=0');
-  else attributes.push(`Max-Age=${Number(process.env.ENVOI_SESSION_HOURS || 24) * 3600}`);
-  return attributes.join('; ');
+  return cookieHeader(csrfCookie, clear ? '' : encodeURIComponent(value), { ...csrfAttributes, maxAge: clear ? 0 : sessionMaxAge() });
 }
 
 export function verifyCsrfRequest(req) {
   const cookieToken = parseCookies(req.headers.cookie)[csrfCookie];
-  const headerToken = String(req.headers['x-sinaloa-csrf'] || '');
+  // envoi-browser-names v1 §2: only the Envoi header counts.
+  const headerToken = String(req.headers['x-envoi-csrf'] || '');
   if (!cookieToken || !headerToken) return false;
   const cookieBytes = Buffer.from(cookieToken);
   const headerBytes = Buffer.from(headerToken);
@@ -172,11 +204,11 @@ export class WorkOSAuthService {
     const bindingMatches = typeof browserBinding === 'string' && /^[A-Za-z0-9_-]{43}$/.test(browserBinding)
       && typeof pending?.browserBindingHash === 'string' && /^[a-f0-9]{64}$/.test(pending.browserBindingHash)
       && crypto.timingSafeEqual(Buffer.from(hash(browserBinding), 'hex'), Buffer.from(pending.browserBindingHash, 'hex'));
-    if (!bindingMatches) throw Object.assign(new Error('Authentication flow does not match this browser'), { statusCode: 401 });
+    if (!bindingMatches) throw Object.assign(new Error('Authentication flow does not match this browser'), { statusCode: 401, code: 'AUTH_FLOW_INVALID' });
     const flow = pending && !pending.usedAt && new Date(pending.expiresAt) > new Date()
       ? await this.store.claimJson(relative, 'usedAt', this.store.now())
       : null;
-    if (!flow) throw Object.assign(new Error('Authentication flow is invalid, expired, or already used'), { statusCode: 401 });
+    if (!flow) throw Object.assign(new Error('Authentication flow is invalid, expired, or already used'), { statusCode: 401, code: 'AUTH_FLOW_INVALID' });
     const authentication = await this.workos.userManagement.authenticateWithCode({
       clientId: this.clientId,
       code,

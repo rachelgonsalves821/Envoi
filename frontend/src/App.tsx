@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl, setExpectedHuman } from './api';
 import LandingPage from './LandingPage';
+import { CsrfReloadBoundary, createHumanStreamRecovery } from './browser-session-recovery';
 import { AgentRemovalDialogContent } from './AgentRemovalDialog';
 import { CreateInboxFolderContent, MoveInboxCaseContent } from './InboxFolderDialogs';
 import { applyInboxPreference, filterInboxCases, readAcknowledgementForCase } from './inbox-preferences';
@@ -107,6 +108,10 @@ previewView.caseQueue = previewView.cases.map(workCase => {
 return { ...workCase, inboxPreference, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
 });
 export default function App() {
+  return <CsrfReloadBoundary><WorkspaceApp /></CsrfReloadBoundary>;
+}
+
+function WorkspaceApp() {
   const isPreview = typeof window !== 'undefined' && previewRequested(window.location.search, import.meta.env.DEV);
   const isLandingPreview = import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('landing-preview');
   const [boot, setBoot] = useState<BootState>('loading');
@@ -481,11 +486,13 @@ export default function App() {
     stream.addEventListener('session.expired', terminate);
     stream.addEventListener('session.revoked', terminate);
     stream.addEventListener('session.recheck', () => { if (current()) void api.me().catch(() => undefined); });
-    stream.onerror = () => {
-      if (!current()) return;
-      setSyncNotice('Live updates are reconnecting. You can refresh now or keep working.');
-      void api.me().catch(() => undefined);
-    };
+    const recoverStream = createHumanStreamRecovery({
+      isCurrent: current,
+      checkSession: () => api.me(undefined, false),
+      onExpired: () => window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT)),
+      onUnavailable: () => setSyncNotice('Live updates are reconnecting. You can refresh now or keep working.')
+    });
+    stream.onerror = () => { void recoverStream(); };
     const interval = window.setInterval(refresh, 30_000);
     const stop = () => { stopped = true; window.clearInterval(interval); stopReplayRecovery(); WORKSPACE_EVENT_TYPES.forEach(type => stream.removeEventListener(type, dataEvent)); stream.removeEventListener('agent.inbox_created', refreshDirectory); stream.close(); };
     stopLiveUpdates.current = stop;

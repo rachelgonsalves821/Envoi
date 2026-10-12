@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "case-controlled",
   "description": "An active agent writes to a case a human paused.",
   "kind": "http",

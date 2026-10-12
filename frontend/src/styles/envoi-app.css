@@ -431,3 +431,19 @@
 @media (prefers-reduced-motion: reduce) {
   .app-shell *, .app-shell *::before, .app-shell *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+.csrf-reload-notice {
+  position: fixed;
+  inset: 16px 24px auto auto;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: min(480px, calc(100vw - 48px));
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-overlay);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px #0002;
+}

@@ -1,6 +1,6 @@
 {
   "contract": "a4-wake",
-  "version": 1,
+  "version": 2,
   "id": "delta-page-more",
   "description": "First page of gap recovery after replay_required; more pages follow.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/events/delta?cursor=00000000000000000101&limit=2",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active"
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active"
     }
   },
   "response": {

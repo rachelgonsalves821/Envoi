@@ -12,7 +12,7 @@ async function startServer(t, environment = {}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-session-test-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, WORKOS_COOKIE_NAME: 'sinaloa_session', SINALOA_CSRF_COOKIE_NAME: 'sinaloa_csrf', ...environment },
+    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, WORKOS_COOKIE_NAME: 'envoi_session', ENVOI_CSRF_COOKIE_NAME: 'envoi_csrf', ...environment },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const controllers = new Set();
@@ -117,22 +117,22 @@ async function withDeadline(operation, timeoutMs, message, controller) {
 
 function assertCookiesCleared(response) {
   const values = response.headers.getSetCookie();
-  assert.ok(values.some(value => /^sinaloa_session=;/.test(value) && /Max-Age=0/i.test(value)), 'Logout clears the session cookie');
-  assert.ok(values.some(value => /^sinaloa_csrf=;/.test(value) && /Max-Age=0/i.test(value)), 'Logout clears the CSRF cookie');
+  assert.ok(values.some(value => /^envoi_session=;/.test(value) && /Max-Age=0/i.test(value)), 'Logout clears the session cookie');
+  assert.ok(values.some(value => /^envoi_csrf=;/.test(value) && /Max-Age=0/i.test(value)), 'Logout clears the CSRF cookie');
 }
 
 test('authenticated identity restores a missing CSRF cookie without bypassing mutation checks', async t => {
   const server = await startServer(t);
   const { session } = await signIn(server);
-  session.cookies.delete('sinaloa_csrf');
+  session.cookies.delete('envoi_csrf');
   const denied = await request(server, session, '/api/auth/logout', { body: {} });
   assert.equal(denied.response.status, 403);
   const restored = await request(server, session, '/api/auth/me');
   assert.equal(restored.response.status, 200);
-  assert.ok(session.cookies.get('sinaloa_csrf'));
+  assert.ok(session.cookies.get('envoi_csrf'));
   const crossOrigin = await request(server, session, '/api/auth/logout', { body: {}, headers: { origin: 'https://untrusted.example' } });
   assert.equal(crossOrigin.response.status, 403);
-  const mismatch = await request(server, session, '/api/auth/logout', { body: {}, headers: { 'x-sinaloa-csrf': 'wrong' } });
+  const mismatch = await request(server, session, '/api/auth/logout', { body: {}, headers: { 'x-envoi-csrf': 'wrong' } });
   assert.equal(mismatch.response.status, 403);
   const unchanged = await request(server, session, '/api/auth/me');
   assert.equal(unchanged.response.headers.getSetCookie().length, 0);
@@ -141,7 +141,7 @@ test('authenticated identity restores a missing CSRF cookie without bypassing mu
   assertCookiesCleared(logout.response);
   const anonymous = await request(server, session, '/api/auth/me');
   assert.equal(anonymous.response.status, 401);
-  assert.equal(anonymous.response.headers.getSetCookie().some(value => /^sinaloa_csrf=[^;]/.test(value)), false);
+  assert.equal(anonymous.response.headers.getSetCookie().some(value => /^envoi_csrf=[^;]/.test(value)), false);
 });
 
 test('return snapshot binds a minimal human identity and preserves MFA and membership requirements', async t => {
@@ -227,7 +227,7 @@ test('live events are withheld immediately after persisted session expiry', asyn
   const second = await signIn(server, { secret: first.secret, returning: true });
   const stream = await openStream(server, first.session, inbox.id);
   const directory = path.join(server.dataDir, 'auth', 'sessions');
-  const tokenHash = crypto.createHash('sha256').update(decodeURIComponent(first.session.cookies.get('sinaloa_session'))).digest('hex');
+  const tokenHash = crypto.createHash('sha256').update(decodeURIComponent(first.session.cookies.get('envoi_session'))).digest('hex');
   const filename = path.join(directory, `${tokenHash}.json`);
   const original = JSON.parse(await readFile(filename, 'utf8'));
   await writeFile(filename, JSON.stringify({ ...original, expiresAt: new Date(Date.now() - 1000).toISOString() }));

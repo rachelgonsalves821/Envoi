@@ -1,6 +1,6 @@
 {
   "contract": "a4-wake",
-  "version": 1,
+  "version": 2,
   "id": "claim-idle-no-hint",
   "description": "Nothing claimable and nothing scheduled: no hint fields.",
   "kind": "http",
@@ -8,7 +8,7 @@
     "method": "POST",
     "path": "/api/agent/work/claim",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active",
       "content-type": "application/json"
     },
     "body": {}

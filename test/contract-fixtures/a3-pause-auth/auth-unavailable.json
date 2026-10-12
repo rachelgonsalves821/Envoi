@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "auth-unavailable",
   "description": "Reconnect redemption cannot check the owner membership because the identity provider is unavailable.",
   "kind": "http",
