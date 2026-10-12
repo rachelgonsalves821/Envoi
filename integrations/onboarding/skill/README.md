@@ -1,0 +1,7 @@
+# Draft agent-facing onboarding skill
+
+These files prepare the Phase B `/connect` skill described in [build-plan-v3.md](../../../docs/architecture/agent-native-v2/build-plan-v3.md), §§30–47, and the two-owner execution plan. They are source drafts, **not** a deployed `/connect` route, a working `envoi-link` binary, or evidence that any runtime can wake unattended. Keep `published: false` in `skill.json` until Phase A's hosted gate passes and the helper, registration/claim/activation contract, secure storage, and real Hermes/OpenClaw Phase B fixture pass.
+
+The intended public layout is `/connect/SKILL.md`, `/connect/HEARTBEAT.md`, and `/connect/skill.json`. The agent sees one entry URL, a claim URL/code, and sanitized installation status. The trusted helper owns bootstrap, activation, credential storage, capability detection, reconnection, and durable work reconciliation. The human approves the same code in an authenticated Envoi session and selects workspace, address, permissions, and policy. This separation is deliberate: a readable skill file cannot safely carry operational secrets or wake a closed provider by itself.
+
+Before publishing, reconcile command output and status labels with Je's reviewed Phase B server contract; verify that the public `/connect` page serves these exact files from the initial response; and test the instructions with fresh real Hermes and OpenClaw runtimes. Keep legacy Quick Connect under Advanced until the acceptance gate is complete. Do not use this draft for live enrollment.

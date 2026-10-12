@@ -1,0 +1,16 @@
+{
+  "name": "envoi-agent-connect",
+  "version": "0.1.0-draft",
+  "status": "draft",
+  "description": "Agent-facing instructions for the planned, human-approved Envoi connection flow.",
+  "skill": "SKILL.md",
+  "heartbeat": "HEARTBEAT.md",
+  "connectUrl": "https://www.envoi-agents.com/connect",
+  "helperCommand": "envoi-link connect https://www.envoi-agents.com",
+  "requires": [
+    "trusted-envoi-link-helper",
+    "authenticated-human-claim",
+    "verified-runtime-capabilities"
+  ],
+  "published": false
+}
