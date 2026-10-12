@@ -86,8 +86,9 @@ export async function preflight({ origin, sha, hermesHome }) {
     checks.hermesCli = version ? 'PASS' : 'FAIL';
   } catch { checks.hermesCli = 'FAIL'; }
   return { candidateSha: sha, origin, bundleSha256: sha256(hostedBundle), checks,
-    verdict: Object.values(checks).every(value => value === 'PASS') ? 'READY_FOR_HOSTED_STEPS' : 'BLOCKED',
-    note: 'No Phase A behavioral step is proved by this preflight.' };
+    verdict: Object.values(checks).every(value => value === 'PASS') ? 'READY_FOR_MODEL_TURN' : 'BLOCKED',
+    modelTurn: 'UNPROVEN',
+    note: 'Run a real model turn in the disposable profile before hosted steps. No Phase A behavioral step is proved by this preflight.' };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -101,7 +102,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     try {
       const report = await preflight({ origin: values.get('--origin'), sha: values.get('--sha'), hermesHome: values.get('--hermes-home') });
       console.log(JSON.stringify(report, null, 2));
-      if (report.verdict !== 'READY_FOR_HOSTED_STEPS') process.exitCode = 1;
+      if (report.verdict !== 'READY_FOR_MODEL_TURN') process.exitCode = 1;
     } catch (error) { console.error(`Phase A preflight failed: ${error.message}`); process.exitCode = 1; }
   }
 }
