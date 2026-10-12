@@ -41,6 +41,8 @@ The helper uses the model/provider saved by setup. An explicit `-Provider` overr
 
 For this text-only check the helper explicitly selects `context_engine`, an installed Hermes toolset that resolves to zero model tools in the verified runtime. This avoids loading the profile's optional image/browser/audio tools and does not alter its persistent tool settings. If an earlier invocation asks to install `fal`, cancel that invocation rather than installing an unrelated feature, then rerun the corrected helper. A later Envoi tool-access check is a separate gate step; this zero-tool model turn does not prove Envoi tool availability.
 
+The earlier operator run hit `Iteration budget reached (1/1)` and exited unsuccessfully; it is not readiness evidence. In this Hermes version `max-turns` counts API iterations, including completion/recovery work, not distinct user prompts. The corrected single-prompt probe permits at most three API iterations with a 120-second run budget. A partial response or nonzero exit remains a failure; only a completed ordinary model reply establishes readiness. The run budget is Hermes-managed, not a guarantee that an in-flight provider request is forcibly terminated at exactly 120 seconds. Do not resume the earlier session to substitute for a fresh completed probe.
+
 ## Responsibilities and session agenda
 
 | Owner | Before and during the session |

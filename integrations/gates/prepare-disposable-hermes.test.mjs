@@ -15,8 +15,8 @@ test('provider defaults to the disposable profile rather than a specific vendor'
 
 test('text-only model check excludes optional toolsets and stays bounded', () => {
   assert.equal(argumentsList[argumentsList.indexOf('--toolsets') + 1], 'context_engine');
-  assert.equal(argumentsList[argumentsList.indexOf('--max-turns') + 1], '1');
-  assert.equal(argumentsList[argumentsList.indexOf('--run-budget') + 1], '60');
+  assert.equal(argumentsList[argumentsList.indexOf('--max-turns') + 1], '3');
+  assert.equal(argumentsList[argumentsList.indexOf('--run-budget') + 1], '120');
   assert.ok(argumentsList.includes('--ignore-rules'));
   assert.ok(!argumentsList.includes('--safe-mode'));
   assert.match(source, /&\s*\$hermesCli\s*@chatArguments/);
