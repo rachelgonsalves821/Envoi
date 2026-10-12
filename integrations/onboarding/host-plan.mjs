@@ -103,21 +103,23 @@ export function planHost(manifest, profile) {
   const candidateRoutes = missing.length ? [] : connectionRoutes
     .filter(([, capability]) => capabilities[capability]).map(([route]) => route);
   if (!missing.length && !candidateRoutes.length) missing.push('supported_connection_route');
-  const selectedConnectionRoute = candidateRoutes[0] ?? null;
-  const candidates = [];
-  if (selectedConnectionRoute) {
+  const modesForRoute = (route) => {
+    const candidates = [];
     if (capabilities.providerInvocation) candidates.push('provider');
     if (capabilities.verifiedWebhook) candidates.push('webhook');
-    if (selectedConnectionRoute === 'local_helper' && capabilities.persistentProcess && capabilities.sse) candidates.push('envoi_link');
+    if (route === 'local_helper' && capabilities.persistentProcess && capabilities.sse) candidates.push('envoi_link');
     if (capabilities.scheduledPolling) candidates.push('poll');
     candidates.push('on_demand');
-  }
-  const completeModes = candidates.filter((mode) => mode !== 'on_demand'
-    && profile.evidence.some((entry) => entry.mode === mode
-      && entry.connectionRoute === selectedConnectionRoute
+    return candidates;
+  };
+  const completeModesForRoute = (route) => modesForRoute(route).filter((mode) => mode !== 'on_demand'
+    && profile.evidence.some((entry) => entry.mode === mode && entry.connectionRoute === route
       && entry.releaseSha === profile.target.releaseSha
       && entry.integrationVersion === profile.target.integrationVersion
       && requiredChecks.every((key) => entry.checks[key]?.result === 'pass')));
+  const selectedConnectionRoute = candidateRoutes.find((route) => completeModesForRoute(route).length) ?? candidateRoutes[0] ?? null;
+  const candidates = selectedConnectionRoute ? modesForRoute(selectedConnectionRoute) : [];
+  const completeModes = selectedConnectionRoute ? completeModesForRoute(selectedConnectionRoute) : [];
   const selectedMode = missing.length ? null : completeModes[0] ?? 'on_demand';
   return {
     schemaVersion: 'host-plan-draft-2',

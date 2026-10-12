@@ -67,7 +67,7 @@ These are integration paths to evaluate, not claims about vendor features. No ve
 | `pause` | Pause stops claims/actions while allowed refresh/status connectivity survives; reconnect never resumes implicitly. |
 | `revocation` | Revocation stops processing, refresh/claims and late settlement; no silent re-enrollment. |
 
-Only records matching the target release and integration version count. Every check must pass for `unattended_evidence_recorded`; otherwise selection falls through to the next completely evidenced capable mode, then on demand. This assessment validates **references only**. It does not fetch evidence, authenticate its author, run a host or independently certify a reported pass. A forged profile cannot authorize enrollment because the draft gate always remains closed. All shipped real-host evidence is empty. Never feed synthetic unit-test references into a deployment claim.
+Only records matching the target release and integration version count. Every check must pass for `unattended_evidence_recorded`. If a host supports several connection routes, the planner prefers a route with a completely evidenced capable background mode over an unevidenced route, using the listed route order as a tie-breaker. Within that route it falls through to the next completely evidenced mode, then on demand. This assessment validates **references only**. It does not fetch evidence, authenticate its author, run a host or independently certify a reported pass. A forged profile cannot authorize enrollment because the draft gate always remains closed. All shipped real-host evidence is empty. Never feed synthetic unit-test references into a deployment claim.
 
 ## REQUEST lane-a: decisions before live helper implementation
 

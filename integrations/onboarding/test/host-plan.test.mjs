@@ -92,8 +92,13 @@ test('wake evidence for one connection route cannot certify another route', () =
   profile.capabilities.remoteMcpOAuth = true;
   profile.capabilities.providerInvocation = true;
   profile.evidence = [evidenceFor(profile, 'provider', 'remote_mcp_oauth')];
+  assert.equal(planHost(manifest, profile).selectedConnectionRoute, 'remote_mcp_oauth');
+  assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'provider');
+  assert.equal(planHost(manifest, profile).plannedHelperInvocation, null);
+  profile.evidence[0].checks.closedAppWake = { result: 'unproven' };
   assert.equal(planHost(manifest, profile).selectedConnectionRoute, 'local_helper');
   assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'on_demand');
+  profile.evidence[0].checks.closedAppWake = { result: 'pass', reference: 'https://example.invalid/test-fixture/closedAppWake' };
   profile.capabilities.invokeTrustedHelper = false;
   assert.equal(planHost(manifest, profile).selectedConnectionRoute, 'remote_mcp_oauth');
   assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'provider');
