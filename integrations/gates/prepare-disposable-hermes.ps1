@@ -30,7 +30,7 @@ try {
         & $hermesCli setup model
     } else {
         Write-Host 'This operator-run model request uses the disposable profile configuration unless a provider override was supplied, and may consume account usage.'
-        $chatArguments = @('chat', '--oneshot', '--ignore-rules', '--max-turns', '1', '--run-budget', '60', '-q', 'Reply exactly READY. Do not call tools.')
+        $chatArguments = @('chat', '--oneshot', '--ignore-rules', '--toolsets', 'context_engine', '--max-turns', '1', '--run-budget', '60', '-q', 'Reply exactly READY. Do not call tools.')
         if ($Provider) {
             $chatArguments += @('--provider', $Provider)
         }

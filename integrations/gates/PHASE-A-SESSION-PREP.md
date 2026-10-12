@@ -39,6 +39,8 @@ Then run one ordinary real model turn, substituting the provider selected above:
 
 The helper uses the model/provider saved by setup. An explicit `-Provider` override is optional, not required. The turn should produce `READY` without tool calls. Record only provider name, successful turn yes/no, runtime version and timestamp. Do not use `--safe-mode`, which ignores profile configuration. This script does not enroll an agent, start a Gateway, change the regular profile, or submit a gate result.
 
+For this text-only check the helper explicitly selects `context_engine`, an installed Hermes toolset that resolves to zero model tools in the verified runtime. This avoids loading the profile's optional image/browser/audio tools and does not alter its persistent tool settings. If an earlier invocation asks to install `fal`, cancel that invocation rather than installing an unrelated feature, then rerun the corrected helper. A later Envoi tool-access check is a separate gate step; this zero-tool model turn does not prove Envoi tool availability.
+
 ## Responsibilities and session agenda
 
 | Owner | Before and during the session |
