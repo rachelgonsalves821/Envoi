@@ -16,7 +16,17 @@ All five checks must pass: source, hosted `/health` and `/ready` with that SHA a
 
 Official Hermes Windows installation supports separate `-HermesHome` and `-InstallDir` paths. Use those options if a separate installation is needed; do not run a repair or update against Rachel's existing `%LOCALAPPDATA%\hermes` installation merely to make this gate pass. The disposable profile needs its own model-provider configuration through Hermes' private setup, plus a successful ordinary model request, before Envoi enrollment. Keep credentials out of Git, chat, command-line arguments, and evidence.
 
-On a machine that already runs Hermes, give the disposable Gateway a different `API_SERVER_PORT` in its private `.env` before starting it. Use the disposable CLI by absolute path with `HERMES_HOME` set for every command; do not rely on the machine-wide `hermes` command or its existing Gateway. Run `hermes setup model` in that profile, then restart only the disposable Gateway and verify a real model turn. A successful CLI `--version`, a running API Server, or `tools/list` does not establish model readiness. The bundled connector's `prepare --runtime hermes --prepare-runtime` must reach both Envoi staging and this profile's API Server; `MODEL_NOT_READY` is a provider setup failure, not an Envoi enrollment failure.
+On a machine that already runs Hermes, give the disposable Gateway a different `API_SERVER_PORT` in its private `.env` before starting it. Use the disposable CLI by absolute path with `HERMES_HOME` set for every command; do not rely on the machine-wide `hermes` command or its existing Gateway. Run `hermes setup model` in that profile, then restart only the disposable Gateway and verify a real model turn. Use a dedicated provider account or restricted test key; the human completes provider sign-in, any billing/terms step, and private credential entry. The operator records only the provider name and whether a turn succeeded, never the key or full account details.
+
+```powershell
+$env:HERMES_HOME = 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-disposable-hermes\home'
+$hermesCli = Join-Path $env:HERMES_HOME 'bin\hermes.exe'
+& $hermesCli setup model
+$testProvider = 'openrouter' # Replace with the provider configured in this disposable profile.
+& $hermesCli chat --provider $testProvider --oneshot --ignore-rules --max-turns 1 --run-budget 60 -q 'Reply exactly READY. Do not call tools.'
+```
+
+The model turn must return a real model response from the explicitly selected test provider. Do **not** use `--safe-mode` for this check: the installed Hermes CLI states that it implies `--ignore-user-config`, so it can report no provider even when this profile has model settings. A successful CLI `--version`, a running API Server, or `tools/list` does not establish model readiness. The bundled connector's `prepare --runtime hermes --prepare-runtime` must reach both Envoi staging and this profile's API Server; `MODEL_NOT_READY` is a provider setup failure, not an Envoi enrollment failure.
 
 Set `HERMES_HOME` to the disposable profile for **every** Hermes and connector process in this fixture. Start one Hermes gateway/API Server and one Envoi connector under separate supervisors or terminals. Create a staging agent and approve its scoped permissions using the second staging human as sender. Enroll using the private Envoi handoff and the official bundled connector. Keep the connector's persistent state directory private and separate from all existing connections. Confirm a real authenticated Hermes model turn and Envoi tool call; `tools/list` alone is insufficient.
 
