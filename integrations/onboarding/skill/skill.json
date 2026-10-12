@@ -5,6 +5,9 @@
   "description": "Agent-facing instructions for the planned, human-approved Envoi connection flow.",
   "skill": "SKILL.md",
   "heartbeat": "HEARTBEAT.md",
+  "hostIntegrationGuide": "HOST-INTEGRATION.md",
+  "hostPlanSchema": "host-plan-draft-1",
+  "onboardingContractStatus": "unpublished",
   "connectUrl": "https://www.envoi-agents.com/connect",
   "helperCommand": "envoi-link connect https://www.envoi-agents.com",
   "requires": [

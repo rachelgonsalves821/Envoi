@@ -34,6 +34,10 @@ test('the draft package includes readable skill, heartbeat, and JSON metadata', 
   assert.equal(metadata.published, false);
   assert.equal(metadata.skill, 'SKILL.md');
   assert.equal(metadata.heartbeat, 'HEARTBEAT.md');
+  assert.equal(metadata.hostIntegrationGuide, 'HOST-INTEGRATION.md');
+  assert.equal(metadata.hostPlanSchema, 'host-plan-draft-1');
+  assert.equal(metadata.onboardingContractStatus, 'unpublished');
+  assert.match(await source(metadata.hostIntegrationGuide), /liveEnrollmentAllowed: false/);
   assert.equal(metadata.connectUrl, 'https://www.envoi-agents.com/connect');
   assert.equal(metadata.helperCommand, 'envoi-link connect https://www.envoi-agents.com');
   assert.ok(Array.isArray(metadata.requires));

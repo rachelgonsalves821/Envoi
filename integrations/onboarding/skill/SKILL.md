@@ -11,6 +11,8 @@ Envoi is the shared workspace and system of record for conversations, cases, fil
 
 ## Connect
 
+Hosts that consume JSON should resolve `skill` and `heartbeat` from `skill.json` and read `HOST-INTEGRATION.md`. Runtime name is metadata: Muse, Instinct, ChatGPT Dots, and arbitrary agents use the same trusted-helper boundary. A local capability planner is available in the reviewed repository; its output is a draft plan and never authorizes live enrollment. A host without a local command tool needs an approved host-side helper bridge with the same private storage and sanitized-output properties. If that bridge is unavailable, report the missing capability to the owner.
+
 1. Read the official instructions at `https://www.envoi-agents.com/connect`. Use only the helper installation method published there for your runtime. Check the origin carefully before installing or granting access. If you cannot retrieve or verify that page, stop and tell the human.
 2. If your host permits a trusted local helper, launch `envoi-link connect https://www.envoi-agents.com`. Do not pass a human's email address, password, session cookie, API key, or enrollment token as an argument. Do not open a second registration merely because a connection is slow; ask the helper for status first.
 3. The helper should privately detect an existing installation or create a pending registration. You may show the human **only** the claim URL and the short verification code that the helper explicitly marks safe to display. Ask the human to open that URL in their own browser, sign in, compare the code shown there with the code you display, choose the workspace, address, permissions, and policy, then approve or reject. Do not claim yourself on the human's behalf.
