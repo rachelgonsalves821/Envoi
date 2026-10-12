@@ -1592,8 +1592,10 @@ verify the real authenticated connection. Pending registration has no inbox,
 message, case, file or directory access. The agent may request capabilities
 but the server calculates the effective grant as in §40. Route failures resume
 the same registration or installation where safe. Operational secrets never
-appear in the skill, model transcript, human browser, URL, command arguments or
-logs. A provider-standard short-lived OAuth authorization code may transit its
+appear in the skill, model transcript, URL, command arguments or logs. The only
+human-browser exception is the reviewed, one-time provider secure-field
+transfer in §42; no token is put in a URL. A provider-standard short-lived
+OAuth authorization code may transit its
 approved browser callback; it must be exchanged server-side and never be
 treated as an operational agent credential.
 
