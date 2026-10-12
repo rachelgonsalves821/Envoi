@@ -1,0 +1,49 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-invalid",
+  "kind": "http",
+  "description": "An activation body with an unknown field. Nothing is consumed and the approval stays live.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link",
+      "capabilities": {
+        "sse": true
+      }
+    },
+    "invalidAgainst": "activationRequest",
+    "invalidBecause": {
+      "keyword": "additionalProperties",
+      "instancePath": ""
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACTIVATION_INVALID",
+      "error": "ACTIVATION_INVALID",
+      "message": "This activation request is not valid.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "update_helper",
+    "modelVisible": {
+      "state": "needs_help",
+      "guidance": "update_helper"
+    },
+    "next": "Do not retry the same body. Tell the human the helper needs an update; the approval stays usable until activationExpiresAt."
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "owner-installations-frozen-agent",
+  "kind": "migration",
+  "description": "An agent frozen by the agent-wide revoke (onboardingStatus revoked). Its legacy installation is still projected, as ended/revoked, so the owner sees what was disconnected.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "stored": {
+    "agents": [
+      {
+        "id": "agent_frozen",
+        "onboardingStatus": "revoked"
+      }
+    ],
+    "credentialFamilies": [
+      {
+        "id": "credential_family_11111111-2222-4333-8444-555555555555",
+        "agentId": "agent_frozen",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-20T08:00:00.000Z",
+        "refreshExpiresAt": "2026-11-11T08:00:00.000Z",
+        "revokedAt": "2026-10-10T08:00:00.000Z",
+        "revokedReason": "revoked",
+        "runtime": "hermes"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/inboxes/inbox_example/agents/agent_frozen/installations",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerInstallationList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "agentId": "agent_frozen",
+          "installations": [
+            {
+              "id": "installation_legacy_11111111-2222-4333-8444-555555555555",
+              "agentId": "agent_frozen",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "hermes",
+                "version": null
+              },
+              "status": "ended",
+              "endedReason": "revoked",
+              "legacy": true,
+              "createdAt": "2026-09-20T08:00:00.000Z",
+              "activatedAt": "2026-09-20T08:00:00.000Z",
+              "endedAt": "2026-10-10T08:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner_ui",
+        "next": "Show the ended installation. The agent itself is frozen; Quick Connect re-enrolls it."
+      }
+    }
+  ],
+  "client": {
+    "surface": "owner_ui",
+    "next": "Projection covers approved and frozen agents, never pending or rejected ones."
+  }
+}

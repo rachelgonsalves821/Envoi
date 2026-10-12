@@ -141,6 +141,10 @@ function codeEntry(schemas, code, surface) {
   return row && { status: entry.status, ...row };
 }
 
+// agent-registration §2, §8: guidance may depend on the helper's own state, then on the reason.
+const expectedGuidance = (entry, value, client) => client.helperState ? entry.guidanceByHelperState?.[client.helperState]
+  : value.reason ? entry.guidanceByReason?.[value.reason] : entry.guidance;
+
 // agent-registration §8: an error body follows its x-codes row for status, lifecycle, retry and guidance.
 function checkCodedError(response, client, schemas, label) {
   const value = response.body;
@@ -154,7 +158,7 @@ function checkCodedError(response, client, schemas, label) {
   assert.equal(response.status, entry.status, `${label}: HTTP status for ${value.code}`);
   assert.equal(client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
   assert.equal(client.retry, entry.retry, `${label}: retry for ${value.code}`);
-  assert.equal(client.guidance, value.reason ? entry.guidanceByReason?.[value.reason] : entry.guidance, `${label}: guidance for ${value.code}`);
+  assert.equal(client.guidance, expectedGuidance(entry, value, client), `${label}: guidance for ${value.code}`);
   if (response.status === 429) assert.equal(response.headers?.['retry-after'], String(value.retryAfterSeconds), `${label}: retry-after`);
 }
 
@@ -189,7 +193,7 @@ const registrationPath = /^\/api\/(?:agent-registrations|agent-claims|agent-inst
 const installationsPath = /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/installations/;
 const successLifecycle = {
   registrationCreated: () => 'PENDING_CLAIM',
-  registrationStatus: (body) => ({ pending_claim: 'PENDING_CLAIM', approved: 'ACTIVATING', activated: 'ACTIVATING' })[body.status] || 'REGISTRATION_ENDED',
+  registrationStatus: (body) => ({ pending_claim: 'PENDING_CLAIM', approved: 'CONFIRMING', activated: 'ACTIVATING' })[body.status] || 'REGISTRATION_ENDED',
   activated: () => 'ACTIVATING',
   agentStatusWithInstallation: () => 'CONNECTED',
 };
@@ -201,12 +205,46 @@ function expectedStates(response, client) {
   if (body?.code) return [errorStates[client.lifecycle] || 'needs_help'];
   switch (response.schema) {
     case 'registrationCreated': return ['pending_approval'];
-    case 'registrationStatus': return { pending_claim: ['pending_approval'], approved: [], activated: ['needs_help'] }[body.status] || ['registration_ended'];
+    case 'registrationStatus': return { pending_claim: ['pending_approval'], approved: ['confirm_approval'], activated: ['needs_help'] }[body.status] || ['registration_ended'];
     case 'agentStatusWithInstallation': return [body.agent.status === 'paused' ? 'paused' : 'connected'];
     case 'routeAvailability': return body.routes.some((entry) => entry.available) ? [] : ['needs_help'];
     default: return [];
   }
 }
+
+// agent-registration §7: every id-like value an exchange carries. None may reach a model.
+const idPattern = /^(?:registration|installation|agent|inbox|credential_family|activation)_[A-Za-z0-9_-]+$/;
+const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+function privateValues(...values) {
+  const found = new Set();
+  const walk = (value, key) => {
+    if (typeof value === 'string') {
+      // Ids and their UUIDs only: an existing agent's address may itself be a UUID, and it is model-visible.
+      for (const candidate of [value, ...value.split('/')]) {
+        if (!idPattern.test(candidate) && !(candidate === value && key === 'activationId')) continue;
+        found.add(candidate);
+        for (const uuid of candidate.match(uuidPattern) || []) found.add(uuid);
+      }
+    } else if (Array.isArray(value)) value.forEach((item) => walk(item, key));
+    else if (value && typeof value === 'object') for (const [name, item] of Object.entries(value)) walk(item, name);
+  };
+  values.forEach((value) => walk(value));
+  return [...found];
+}
+
+// agent-registration §1–§6: cache headers on successful responses. Error envelopes and the a3 status route keep theirs.
+const cacheControl = (schema) => schema === 'routeAvailability' ? 'public, max-age=60' : schema === 'agentStatusWithInstallation' ? undefined : 'no-store';
+
+// agent-registration §2: which RATE_LIMITED reasons a route can return (none is the ordinary a3 limit).
+function rateLimitReasons(method, pathname) {
+  if (method === 'POST' && pathname === '/api/agent-registrations') return ['registration_limit', undefined];
+  if (method === 'GET' && /^\/api\/agent-registrations\/[^/]+$/.test(pathname)) return ['poll_interval', undefined];
+  if (/^\/api\/agent-claims(?:\/lookup)?$/.test(pathname) || /^\/api\/agent-registrations\/[^/]+\/(?:approve|reject)$/.test(pathname)) return ['claim_attempts', undefined];
+  return [undefined];
+}
+
+// agent-registration §2: a bootstrap token authenticates only registration status and activation.
+const bootstrapRoute = (method, pathname) => (method === 'GET' && /^\/api\/agent-registrations\/[^/]+$/.test(pathname)) || (method === 'POST' && pathname === '/api/agent-installations/activate');
 
 // agent-registration v1 rules a schema cannot express. Applied to each exchange of a fixture.
 function checkAgentRegistration(fixture, schemas, check, validator, label) {
@@ -236,6 +274,11 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
     const pathname = request.path.split('?')[0];
     const gate = registrationPath.test(pathname) ? flags.ENVOI_AGENT_REGISTRATION_V2 : installationsPath.test(pathname) ? flags.ENVOI_INSTALLATIONS_V2 : true;
     assert.equal(code === 'FEATURE_DISABLED', !gate, `${stepLabel}: FEATURE_DISABLED exactly when the route's flag is off`);
+    if (request.auth === 'bootstrap' && gate && !bootstrapRoute(request.method, pathname)) {
+      assert.equal(code, 'AUTHENTICATION_REQUIRED', `${stepLabel}: a bootstrap token elsewhere is an unrecognized bearer (§2)`);
+    }
+    if (code === 'RATE_LIMITED') assert.ok(rateLimitReasons(request.method, pathname).includes(body.reason), `${stepLabel}: RATE_LIMITED reason ${body.reason} fits ${request.method} ${pathname}`);
+    if (!code && response.status < 300) assert.equal(response.headers?.['cache-control'], cacheControl(response.schema), `${stepLabel}: cache-control for ${response.schema}`);
     if (gate && request.method === 'POST' && pathname === '/api/agent-registrations' && request.schema) {
       assert.equal(code === 'ROUTE_NOT_AVAILABLE', !routeAvailable[request.body.connectionRoute], `${stepLabel}: ROUTE_NOT_AVAILABLE exactly when the route is unavailable`);
     }
@@ -265,7 +308,8 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
       const shown = JSON.stringify(client.modelVisible);
       if (!pending) assert.doesNotMatch(shown, /[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}/, `${stepLabel}: the code is shown only while pending`);
       assert.doesNotMatch(shown, /envoi_(?:agent_|mcp_read_|enroll_|reg_)|PLACEHOLDER/, `${stepLabel}: model-visible values carry no token`);
-      assert.doesNotMatch(shown, /\b(?:registration|installation|inbox|agent|credential_family)_(?!ended\b)[A-Za-z0-9-]+/, `${stepLabel}: model-visible values carry no internal id`);
+      assert.doesNotMatch(shown, /\b(?:registration|installation|inbox|agent|credential_family|activation)_(?!ended\b)[A-Za-z0-9-]+/, `${stepLabel}: model-visible values carry no internal id`);
+      for (const value of privateValues(request.path, request.body, body, fixture.stored)) assert.ok(!shown.includes(value), `${stepLabel}: model-visible values never include ${value}`);
       if ('state' in client.modelVisible) assert.ok(expectedStates(response, client).includes(client.modelVisible.state), `${stepLabel}: state ${client.modelVisible.state} fits the response`);
     }
     if (response.schema === 'routeAvailability') {
@@ -292,15 +336,35 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
       assert.ok(sameMembers(body.effectivePermissions, expected), `${stepLabel}: requested ∩ granted ∩ organization maximum, plus receive`);
       assert.equal('id' in body.agent, body.target === 'existing_agent', `${stepLabel}: only an existing agent has an id before activation`);
       if (body.target === 'existing_agent') assert.equal(body.agent.id, request.body.target.agentId, `${stepLabel}: the approved agent is the requested one`);
+      if (body.target === 'new_agent') {
+        assert.equal(body.agent.name, request.body.target.name, `${stepLabel}: the new agent has the chosen name`);
+        if (request.body.target.localPart) assert.equal(body.agent.address.split('@')[0], request.body.target.localPart, `${stepLabel}: the new agent has the chosen address`);
+      }
     }
+    // §6.5: every active installation (legacy data may hold several), newest first, then at most five ended, newest first.
     if (response.schema === 'ownerInstallationList') {
       const list = body.installations;
       const active = list.filter((installation) => installation.status === 'active');
       assert.ok(active.filter((installation) => !installation.legacy).length <= 1, `${stepLabel}: v1 creates at most one active installation`);
       assert.ok(list.every((installation, index) => installation.status === 'active' || list.slice(index).every((later) => later.status === 'ended')), `${stepLabel}: active installations come first`);
+      assert.ok(active.every((installation, index) => index === 0 || active[index - 1].activatedAt >= installation.activatedAt), `${stepLabel}: active installations newest first`);
       const endedList = list.filter((installation) => installation.status === 'ended');
-      assert.ok(endedList.length <= 5, `${stepLabel}: at most five ended installations`);
+      assert.ok(endedList.length <= schemas['x-limits'].ownerInstallationEndedMax, `${stepLabel}: at most five ended installations`);
       assert.ok(endedList.every((installation, index) => index === 0 || endedList[index - 1].endedAt >= installation.endedAt), `${stepLabel}: ended installations newest first`);
+      assert.ok(list.every((installation) => installation.agentId === body.agentId), `${stepLabel}: every installation belongs to the listed agent`);
+    }
+    if (response.schema === 'installationRevoked') {
+      assert.deepEqual([body.installation.status, body.installation.endedReason], ['ended', 'revoked'], `${stepLabel}: a revoked installation is ended/revoked`);
+    }
+    // §6.1: activation creates an installation on the request's delivery mode and an available route.
+    if (response.schema === 'activated') {
+      assert.equal(body.installation.deliveryMode, request.body.deliveryMode, `${stepLabel}: the installation has the declared delivery mode`);
+      assert.ok(routeAvailable[body.installation.connectionRoute], `${stepLabel}: the installation's route is available`);
+      assert.equal(body.installation.agentId, body.agent.id, `${stepLabel}: the installation belongs to the activated agent`);
+    }
+    // §5.4: newest first.
+    if (response.schema === 'ownerClaimList') {
+      assert.ok(body.claims.every((claim, index) => index === 0 || body.claims[index - 1].approvedAt >= claim.approvedAt), `${stepLabel}: claims newest first`);
     }
     if (response.schema === 'agentStatusWithInstallation') {
       checkPresence(body.presence, body.asOf, stepLabel);
@@ -308,6 +372,8 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
     }
   }
   if (fixture.stored) checkInstallationDerivation(fixture, schemas, label);
+  // §6.5, §12: after a restart, every step of a restart fixture still succeeds (nothing was frozen).
+  if (fixture.kind === 'restart') for (const step of exchanges) assert.ok(step.response.status < 300, `${step.label}: succeeds after the restart`);
 }
 
 // agent-registration §6.4 and §9: every listed installation is derived from the stored families.
@@ -317,8 +383,8 @@ function checkInstallationDerivation(fixture, schemas, label) {
   for (const family of credentialFamilies) {
     const agent = agents.find((entry) => entry.id === family.agentId);
     assert.ok(agent, `${label}: family ${family.id} has a stored agent`);
-    // Only the legacy projection is limited to approved agents; stored installations are always listed.
-    if (!family.installationId && agent.onboardingStatus !== 'approved') continue;
+    // Only the legacy projection is limited to approved and frozen agents; stored installations are always listed.
+    if (!family.installationId && !['approved', 'revoked'].includes(agent.onboardingStatus)) continue;
     derived.push({ family, agent });
   }
   const steps = fixture.steps.filter((entry) => ['ownerInstallationList', 'agentStatusWithInstallation'].includes(entry.response.schema));
@@ -334,7 +400,10 @@ function checkInstallationDerivation(fixture, schemas, label) {
     }
     const byId = (list) => [...list].sort((a, b) => a.id.localeCompare(b.id));
     if (step.response.schema === 'ownerInstallationList') {
-      assert.deepEqual(byId(step.response.body.installations), byId(expected), `${label}: installations are derived from the stored families (x-legacy-projection, x-installation-derivation)`);
+      const listed = expected.filter((entry) => entry.agentId === step.response.body.agentId);
+      const shown = [...listed.filter((entry) => entry.status === 'active'),
+        ...listed.filter((entry) => entry.status === 'ended').sort((a, b) => b.endedAt.localeCompare(a.endedAt)).slice(0, schemas['x-limits'].ownerInstallationEndedMax)];
+      assert.deepEqual(byId(step.response.body.installations), byId(shown), `${label}: installations are derived from the stored families (x-legacy-projection, x-installation-derivation)`);
     } else if (step.response.body.installation) {
       const { installation } = step.response.body;
       const match = expected.find((entry) => entry.id === installation.id);
@@ -405,8 +474,7 @@ test('every fixture matches its declared schema', async () => {
           assert.equal(fixture.response.status, entry.status, `${label}: HTTP status for ${value.code}`);
           assert.equal(fixture.client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
           assert.equal(fixture.client.retry, entry.retry, `${label}: retry for ${value.code}`);
-          const guidance = value.reason ? entry.guidanceByReason?.[value.reason] : entry.guidance;
-          assert.equal(fixture.client.guidance, guidance, `${label}: guidance for ${value.code}`);
+          assert.equal(fixture.client.guidance, expectedGuidance(entry, value, fixture.client), `${label}: guidance for ${value.code}`);
         } else if (fixture.response.status >= 400 && schemas['x-codes']) {
           assert.equal(fixture.response.schema, 'edgeText', `${label}: error responses must use the error envelope`);
         }
@@ -456,6 +524,7 @@ test('every fixture matches its declared schema', async () => {
 test('agent-registration fixtures agree across cases', async () => {
   const dir = path.join(root, 'agent-registration');
   const load = (name) => readJson(path.join(dir, `${name}.json`));
+  const schemas = await load('schemas');
   const [created, recovered] = await Promise.all([load('activation-created'), load('activation-recovered')]);
   assert.deepEqual(recovered.response.body, created.response.body, 'activation recovery returns the identical body');
   const [approved, replayed] = await Promise.all([load('claim-approve-new-agent'), load('claim-approve-replayed')]);
@@ -473,4 +542,13 @@ test('agent-registration fixtures agree across cases', async () => {
   assert.deepEqual(pausedActivation.response.body.effectivePermissions, existing.response.body.effectivePermissions, 'activation applies the approved permissions to the existing agent');
   assert.equal(pausedActivation.response.body.agent.id, existing.response.body.agent.id, 'activation attaches the approved existing agent');
   assert.deepEqual(rejectReplayed.response.body, rejected.response.body, 'a replayed reject repeats the original');
+  const [lateReplay, withdrawn, withdrawReplayed] = await Promise.all([load('claim-approve-replayed-after-activation'), load('claim-withdraw'), load('claim-withdraw-replayed')]);
+  assert.deepEqual([lateReplay.request.body, lateReplay.response], [approved.request.body, approved.response], 'an identical approval replays the original after activation too');
+  assert.deepEqual([withdrawReplayed.request, withdrawReplayed.response], [withdrawn.request, withdrawn.response], 'a replayed withdrawal repeats the original');
+  const seconds = (from, to) => (Date.parse(to) - Date.parse(from)) / 1000;
+  assert.equal(seconds(lookup.response.body.createdAt, lookup.response.body.expiresAt), schemas['x-limits'].registrationTtlSeconds, 'the claim window is registrationTtlSeconds');
+  assert.equal(polled.response.body.activationExpiresAt, approved.response.body.activationExpiresAt, 'polling reports the approved activation deadline');
+  const unresolved = await load('activation-token-invalid-unresolved');
+  const createdActivation = await load('activation-created');
+  assert.deepEqual(unresolved.request, createdActivation.request, 'the unresolved retry is the identical activation request');
 });

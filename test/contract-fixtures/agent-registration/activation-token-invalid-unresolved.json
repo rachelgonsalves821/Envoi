@@ -1,0 +1,43 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-token-invalid-unresolved",
+  "kind": "http",
+  "description": "The helper retries an activation whose outcome it never learned, after the cleanup deleted the token. It cannot tell whether an agent was created, so it sends the human to check Envoi rather than registering again.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REGISTRATION_TOKEN_INVALID",
+      "error": "REGISTRATION_TOKEN_INVALID",
+      "message": "This setup is no longer valid.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "helperState": "activation_unresolved",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "check_owner_agents",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "check_owner_agents"
+    },
+    "next": "Delete the bootstrap token and activationId. Ask the human to check whether the agent appears in Envoi: if it does, reconnect it; if not, register again."
+  }
+}

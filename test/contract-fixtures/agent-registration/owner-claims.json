@@ -3,7 +3,7 @@
   "version": 1,
   "id": "owner-claims",
   "kind": "http",
-  "description": "The owner lists their recent approvals: one waiting for activation, one activated.",
+  "description": "The owner lists recent approvals whose target they can manage: their own (one waiting, one activated) and a co-manager's, which they may withdraw too.",
   "request": {
     "method": "GET",
     "path": "/api/agent-claims",
@@ -34,7 +34,25 @@
           ],
           "approvedAt": "2026-10-12T12:03:00.000Z",
           "activationExpiresAt": "2026-10-12T12:13:00.000Z",
-          "installationId": null
+          "installationId": null,
+          "approvedByMe": true
+        },
+        {
+          "registrationId": "registration_colleague",
+          "status": "approved",
+          "target": "new_agent",
+          "agent": {
+            "name": "Colleague agent",
+            "address": "colleague@envoi.mail"
+          },
+          "effectivePermissions": [
+            "send_agent_messages",
+            "receive_agent_messages"
+          ],
+          "approvedAt": "2026-10-12T11:58:00.000Z",
+          "activationExpiresAt": "2026-10-12T12:08:00.000Z",
+          "installationId": null,
+          "approvedByMe": false
         },
         {
           "registrationId": "registration_earlier",
@@ -51,13 +69,14 @@
           ],
           "approvedAt": "2026-10-12T11:40:00.000Z",
           "activationExpiresAt": "2026-10-12T11:50:00.000Z",
-          "installationId": "installation_other"
+          "installationId": "installation_other",
+          "approvedByMe": true
         }
       ]
     }
   },
   "client": {
     "surface": "owner_ui",
-    "next": "Offer Withdraw on approved entries. Activated entries link to the agent."
+    "next": "Offer Withdraw on every approved entry, including a co-manager's. Activated entries link to the agent."
   }
 }

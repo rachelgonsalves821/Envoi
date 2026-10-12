@@ -3,7 +3,7 @@
   "version": 1,
   "id": "registration-approved",
   "kind": "http",
-  "description": "The owner approved; the helper may activate. workspaceName lets the human beside the host check who approved.",
+  "description": "The owner approved. Before activating, the helper shows workspaceName, the agent and its permissions to the human beside the host and waits for that human to confirm.",
   "request": {
     "method": "GET",
     "path": "/api/agent-registrations/registration_example",
@@ -36,10 +36,11 @@
   },
   "client": {
     "surface": "helper",
-    "lifecycle": "ACTIVATING",
+    "lifecycle": "CONFIRMING",
     "retry": "none",
     "guidance": "none",
     "modelVisible": {
+      "state": "confirm_approval",
       "registrationStatus": "approved",
       "workspaceName": "Example workspace",
       "agentName": "Example agent",
@@ -49,6 +50,6 @@
         "receive agent messages"
       ]
     },
-    "next": "Persist a new activationId privately, then POST /api/agent-installations/activate before activationExpiresAt."
+    "next": "Ask the human beside the host to confirm the workspace, agent and permissions. On confirmation, persist a new activationId privately, then POST /api/agent-installations/activate before activationExpiresAt. If the human declines, delete the bootstrap token and do not activate; the approval expires."
   }
 }

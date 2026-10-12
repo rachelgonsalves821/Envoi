@@ -1,0 +1,43 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-feature-disabled",
+  "kind": "http",
+  "description": "Agent-led setup is off: the claim page's lookup returns FEATURE_DISABLED.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-claims/lookup",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimLookupRequest",
+    "body": {
+      "verificationCode": "f7kq pm4d"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "This feature is not available.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "next": "Explain agent-led setup is not available; offer Quick Connect under Advanced."
+  },
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": false,
+    "ENVOI_INSTALLATIONS_V2": false,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  }
+}

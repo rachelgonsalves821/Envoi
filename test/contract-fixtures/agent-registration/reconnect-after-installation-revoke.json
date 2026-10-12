@@ -1,0 +1,139 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "reconnect-after-installation-revoke",
+  "kind": "restart",
+  "description": "The owner revoked the agent's only installation (§6.5), then the server restarted. Startup reconciliation must not freeze the agent: the list shows the ended installation and a new registration can still attach to the agent.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "context": {
+    "requestedPermissions": [
+      "send_agent_messages",
+      "receive_agent_messages"
+    ]
+  },
+  "stored": {
+    "agents": [
+      {
+        "id": "agent_example",
+        "onboardingStatus": "approved"
+      }
+    ],
+    "credentialFamilies": [
+      {
+        "id": "credential_family_0b6f8f9e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-20T08:00:00.000Z",
+        "refreshExpiresAt": "2026-11-11T08:00:00.000Z",
+        "revokedAt": "2026-10-12T11:00:00.000Z",
+        "revokedReason": "revoked",
+        "runtime": "openclaw"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerInstallationList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "agentId": "agent_example",
+          "installations": [
+            {
+              "id": "installation_legacy_0b6f8f9e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "openclaw",
+                "version": null
+              },
+              "status": "ended",
+              "endedReason": "revoked",
+              "legacy": true,
+              "createdAt": "2026-09-20T08:00:00.000Z",
+              "activatedAt": "2026-09-20T08:00:00.000Z",
+              "endedAt": "2026-10-12T11:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner_ui",
+        "next": "Show the ended installation; offer to connect a new one."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent-registrations/registration_example/approve",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+          "x-envoi-csrf": "PLACEHOLDER_csrf",
+          "origin": "https://www.envoi-agents.com"
+        },
+        "schema": "claimApproveRequest",
+        "body": {
+          "verificationCode": "F7KQ-PM4D",
+          "target": {
+            "kind": "existing_agent",
+            "agentId": "agent_example",
+            "replacesInstallationId": null
+          },
+          "grantedPermissions": [
+            "send_agent_messages"
+          ],
+          "policyProfile": "default"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "claimApproved",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "registrationId": "registration_example",
+          "status": "approved",
+          "target": "existing_agent",
+          "workspaceName": "Example workspace",
+          "agent": {
+            "id": "agent_example",
+            "name": "Example agent",
+            "address": "example@envoi.mail"
+          },
+          "effectivePermissions": [
+            "send_agent_messages",
+            "receive_agent_messages"
+          ],
+          "policyProfile": "default",
+          "activationExpiresAt": "2026-10-12T12:13:00.000Z"
+        }
+      },
+      "client": {
+        "surface": "owner_ui",
+        "next": "The agent was not frozen by the restart, so it can be re-attached with permissions decided again."
+      }
+    }
+  ],
+  "client": {
+    "surface": "owner_ui",
+    "next": "A-4.x proves this with a restart test on FileStore and PostgreSQL."
+  }
+}
