@@ -40,9 +40,9 @@ test('WorkOS cookie mutations require a matching CSRF token and exact origin', (
   try {
     const token = createCsrfToken();
     const cookie = csrfCookieHeader(token).split(';')[0];
-    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://app.sinaloa.example', 'x-sinaloa-csrf': token } }), true);
-    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://evil.example', 'x-sinaloa-csrf': token } }), false);
-    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://app.sinaloa.example', 'x-sinaloa-csrf': 'wrong' } }), false);
+    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://app.sinaloa.example', 'x-envoi-csrf': token } }), true);
+    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://evil.example', 'x-envoi-csrf': token } }), false);
+    assert.equal(verifyCsrfRequest({ headers: { cookie, origin: 'https://app.sinaloa.example', 'x-envoi-csrf': 'wrong' } }), false);
   } finally {
     if (previousPublicUrl === undefined) delete process.env.ENVOI_PUBLIC_URL;
     else process.env.ENVOI_PUBLIC_URL = previousPublicUrl;
@@ -50,8 +50,8 @@ test('WorkOS cookie mutations require a matching CSRF token and exact origin', (
 });
 
 test('malformed cookies do not bypass admission or crash CSRF validation', () => {
-  assert.deepEqual(parseCookies('sinaloa_session=%E0%A4%A; sinaloa_csrf=valid'), { sinaloa_csrf: 'valid' });
-  assert.equal(verifyCsrfRequest({ headers: { cookie: 'sinaloa_session=%E0%A4%A; sinaloa_csrf=%E0%A4%A', origin: 'http://localhost:3000', host: 'localhost:3000', 'x-sinaloa-csrf': 'valid' } }), false);
+  assert.deepEqual(parseCookies('envoi_session=%E0%A4%A; envoi_csrf=valid'), { envoi_csrf: 'valid' });
+  assert.equal(verifyCsrfRequest({ headers: { cookie: 'envoi_session=%E0%A4%A; envoi_csrf=%E0%A4%A', origin: 'http://localhost:3000', host: 'localhost:3000', 'x-envoi-csrf': 'valid' } }), false);
 });
 
 test('WorkOS auth uses one-time PKCE state and maps provider users to stable humans', async () => {
@@ -123,9 +123,9 @@ test('WorkOS email verification alone does not admit an uninvited human', async 
   const started = await auth.startAuthorization();
   await assert.rejects(() => auth.completeAuthorization({ code: 'code_uninvited', state: 'state_uninvited', browserBinding: started.browserBinding }), { statusCode: 403 });
   assert.deepEqual(await store.listJson('humans'), []);
-  const req = { headers: { cookie: 'sinaloa_session=sealed' } };
+  const req = { headers: { cookie: 'envoi_session=sealed' } };
   assert.equal(await auth.getHuman(req), null);
-  assert.equal(await auth.getHuman({ headers: { cookie: 'sinaloa_session=%E0%A4%A' } }), null);
+  assert.equal(await auth.getHuman({ headers: { cookie: 'envoi_session=%E0%A4%A' } }), null);
 });
 
 const admittedUser = { id: 'user_fixture', email: 'fixture@example.com', emailVerified: true, name: 'Fixture' };
@@ -145,7 +145,7 @@ async function fixtureAuth(workos) {
   });
   return { store, auth };
 }
-const cookieRequest = (value = 'expired_cookie') => ({ headers: { cookie: `sinaloa_session=${value}` } });
+const cookieRequest = (value = 'expired_cookie') => ({ headers: { cookie: `envoi_session=${value}` } });
 const cookieResponses = new WeakMap();
 function emittedSessionCookie(auth, req) {
   if (cookieResponses.has(req)) return null;
@@ -158,8 +158,8 @@ function emittedSessionCookie(auth, req) {
   cookieResponses.set(req, res);
   auth.bindResponse(req, res);
   res.writeHead(200);
-  const header = (res.getHeader('Set-Cookie') || []).find(cookie => cookie.startsWith('sinaloa_session='));
-  return header && !header.includes('Max-Age=0') ? parseCookies(header.split(';')[0]).sinaloa_session : null;
+  const header = (res.getHeader('Set-Cookie') || []).find(cookie => cookie.startsWith('envoi_session='));
+  return header && !header.includes('Max-Age=0') ? parseCookies(header.split(';')[0]).envoi_session : null;
 }
 
 test('authorization binding cookie is private, short-lived and secure in production', () => {

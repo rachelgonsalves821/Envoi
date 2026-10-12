@@ -7,7 +7,7 @@ import { contractRegistryPath, loadContractFixture, loadContractRegistry } from 
 
 const source = process.env.ENVOI_CONTRACT_FIXTURES_ROOT ?? path.dirname(contractRegistryPath);
 const registry = loadContractRegistry(source);
-const contract = registry.contracts.find(item => item.id === 'a3-pause-auth' && [1, 2].includes(item.version));
+const contract = registry.contracts.find(item => item.id === 'a3-pause-auth' && item.version === 3);
 if (!contract?.schemas) throw new Error('a3-pause-auth publication is required; set ENVOI_CONTRACT_FIXTURES_ROOT to its canonical fixture directory');
 
 interface Fixture {
@@ -59,6 +59,24 @@ describe(`a3-pause-auth v${contract.version} published client acceptance`, () =>
     expect(fixtures.length).toBeGreaterThanOrEqual(39);
     expect(new Set(fixtures.map(item => item.id)).size).toBe(fixtures.length);
     for (const id of ['claimed-work', 'paused-claim', 'paused-refresh', 'reconnect-while-paused', 'rate-limited', 'refresh-replay', 'case-ordering-reply-accepted', 'cancel-held-message', 'event-agent-paused', 'event-agent-resumed', 'event-work-available', 'event-credential-ended']) expect(byId(id)).toBeDefined();
+  });
+
+  it.each(['account-changed', 'cancel-held-message', 'reconnect-token-while-paused'])('%s carries the new browser cookie/header and matching Origin', id => {
+    const fixture = byId(id);
+    const headers = (fixture.request as any).headers;
+    expect(headers.cookie).toBe('envoi_session=PLACEHOLDER; envoi_csrf=csrf_PLACEHOLDER');
+    expect(headers['x-envoi-csrf']).toBe('csrf_PLACEHOLDER');
+    expect(headers.origin).toBe('https://www.envoi-agents.com');
+    expect(headers['x-sinaloa-csrf']).toBeUndefined();
+    expect(fixture.client.lifecycle).toBe('NOT_APPLICABLE');
+  });
+
+  it('denies leaking both current and retired credential prefixes', () => {
+    const error = fixtures.find(item => item.response?.schema === 'errorEnvelope')!.response!.body;
+    const validator = ajv.getSchema(schemas.$id + '#/definitions/errorEnvelope')!;
+    for (const prefix of ['envoi', 'sinaloa']) for (const suffix of ['agent_access_', 'agent_refresh_', 'mcp_read_', 'enroll_']) {
+      expect(validator({ ...error, message: 'Leaked ' + prefix + '_' + suffix + 'PRIVATE' })).toBe(false);
+    }
   });
 
   it.each(fixtures)('consumes $id with its declared schema and stable lifecycle policy', fixture => {

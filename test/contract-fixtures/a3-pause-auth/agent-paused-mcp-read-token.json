@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "agent-paused-mcp-read-token",
   "description": "A model-held mcp_read token is used while its agent is paused, even for a GET.",
   "kind": "http",

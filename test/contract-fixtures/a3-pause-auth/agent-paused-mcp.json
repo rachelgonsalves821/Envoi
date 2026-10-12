@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "agent-paused-mcp",
   "description": "Any /mcp request from a paused agent, including initialize and tools/list, is an HTTP 409 with the error envelope, not a JSON-RPC result.",
   "kind": "http",

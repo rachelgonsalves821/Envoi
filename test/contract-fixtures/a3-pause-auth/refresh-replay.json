@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "refresh-replay",
   "description": "An already-used refresh token presented with a different rotationId. The server revokes the family.",
   "kind": "http",

@@ -1,6 +1,6 @@
 {
   "contract": "a3-pause-auth",
-  "version": 2,
+  "version": 3,
   "id": "paused-refresh",
   "description": "A paused agent refreshes. The response is identical to an active refresh and grants no action rights; the connector learns pause state from claim, status or events.",
   "kind": "http",

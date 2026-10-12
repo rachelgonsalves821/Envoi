@@ -3,7 +3,7 @@
   "contracts": [
     {
       "id": "a3-pause-auth",
-      "version": 2,
+      "version": 3,
       "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#a3-pause-auth-v1",
       "dir": "a3-pause-auth",
@@ -52,7 +52,7 @@
     },
     {
       "id": "a4-wake",
-      "version": 1,
+      "version": 2,
       "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#a4-wake-v1",
       "dir": "a4-wake",

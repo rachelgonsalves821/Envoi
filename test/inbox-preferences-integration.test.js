@@ -246,7 +246,7 @@ test('real routes reject unauthenticated, agent, nonmember and insufficient-assu
   const outsiderView = await state.request(`${state.inboxRoute}/human-view`, { session: outsider.session });
   assert.equal(outsiderView.status, 401, JSON.stringify(outsiderView.payload));
   expectStatus(await state.request(`${state.caseRoute}/inbox-preferences`, {
-    session: state.account.session, headers: { 'x-sinaloa-csrf': 'invalid' }, body: { read: true }
+    session: state.account.session, headers: { 'x-envoi-csrf': 'invalid' }, body: { read: true }
   }), 403);
   expectStatus(await state.request(`${state.caseRoute}/inbox-preferences`, {
     session: state.account.session, body: { state: 'completed' }

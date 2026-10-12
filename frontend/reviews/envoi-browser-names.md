@@ -1,30 +1,34 @@
-# envoi-browser-names v1 consumption review
+# N2 browser client and contract consumption
 
-Publication: `1b88e1d57edd17e1fe1ca0e0f69f54b73be4fac3` (Lane A draft PR #64).
-Scope: fixture-only Lane B review; production N2-client is held for human approval.
+Approved N2-server head: `1abacd853f4691842182484966e760dab9f72f20` (Lane A PR #69).
+Integration refresh base: `ef6c4f46454599e91e9edb79379a2ce414b1962f` (includes #64, #66, #67 and #68).
+Browser contract: human-approved `envoi-browser-names v1`.
+Human-approved name-only consuming pins: `a3-pause-auth v3`, `a4-wake v2`.
 
-The dedicated runner reads `test/contract-fixtures/index.json` and its registered files through the existing shared loader. No fixture copies are checked in. To review the publication from an integration-based checkout in PowerShell:
+The canonical registry and fixtures load through the existing shared loader with no copies. Run these commands from the paired server/client checkout in PowerShell:
 
 ```powershell
-$env:ENVOI_CONTRACT_FIXTURES_ROOT = 'C:\Users\KAILASH\.codex\worktrees\n2-browser-contract-review\Sinaloa\test\contract-fixtures'
+npx vitest run --config vitest.contract-review.config.ts
+npx vitest run --config vitest.a4-review.config.ts
 npx vitest run --config vitest.browser-names-review.config.ts
-Remove-Item Env:ENVOI_CONTRACT_FIXTURES_ROOT
 ```
 
-The publication path can be replaced by another checkout at the exact published SHA. Before integration, standard frontend CI does not run this dedicated pre-approval review; its success is separate evidence.
+For a separate publishing checkout, set `ENVOI_CONTRACT_FIXTURES_ROOT` to its exact `test/contract-fixtures` directory. The initial browser review passed 29 tests against `1b88e1d`; the current 29-test review pins the paired a3 v3/a4 v2 registry and consumes the #69 fixtures.
 
-29 tests cover all nine fixtures: declared schemas, independent cookie/header table, host-only scope, Path/HttpOnly/SameSite/Secure/Max-Age, header order independence, cookie replacement/clearing, nullable logoutUrl, local second-factor response, callback redirect, Origin and new-header positive logout versus isolated old-header rejection. Existing frontend API tests consume config, logout, phone verification, plain CSRF errors and me 401 directly from the fixtures.
+## Implemented behavior
 
-## Findings for approved N2-client
+- Browser mutations send only the default `x-envoi-csrf`, reading the configured cookie name from authConfig, with `envoi_csrf` as the fallback. The retired cookie is ignored by default.
+- On a CSRF rejection, the existing identity recovery can restore a missing/changed token and retry once. An unchanged token cannot fix a wrong header/Origin, so that rejection is not replayed. A persistent `403 CSRF validation failed` emits a Reload-required event and shows an accessible Reload button across all app screens. Ordinary denials, successful recovery and late responses from invalidated sessions do not show it.
+- Native EventSource hides HTTP status. An error triggers one current-session identity probe at a time. A 401 emits the existing session-expiry event, which clears private state, closes the stream and shows sign-in. Provider/network failures keep live updates recoverable; a late 401 from a previous workspace/session is ignored.
+- The a3 review now requires v3, checks the three browser requests' new cookies/header/Origin and denies credential leaks from both generations. The a4 review requires v2, checks all 21 renamed bearer placeholders and the strengthened leak guard. Its normative prose remains under the original v1 heading with a v2 revision note.
+- web is generated only through npm run build. Server, client, shared fixtures and pins integrate together on ONE SHA, and roll back together.
 
-- Change the header to x-envoi-csrf and the fallback to envoi_csrf; config-driven cookie reading already accepts envoi_csrf. Overrides still come from authConfig.
-- The existing request helper attempts CSRF recovery through me and retries once. A persistent rejection remains an ApiError with status 403 and message/code CSRF validation failed. N2-client must offer Reload and ensure old-tab failures do not keep replaying the same mutation. This review does not implement the recovery UI.
-- Native EventSource exposes no HTTP status. App.onerror already probes api.me(); the canonical me-old-cookies-only response emits SESSION_EXPIRED_EVENT through the existing API. N2-client must verify that the mounted app closes the stream, clears private state and shows sign-in. A real stream or mounted UI is not tested by this fixture review.
-- A sign-in started before cutover redirects to /?auth_error=sign_in_failed and clears both flow generations. The browser can start sign-in again. API fetch helpers do not consume WorkOS redirects; browser navigation does.
-- All retired cookies are cleared after sign-in/local verify/logout; me 401 clears only carried retired names. Fixtures show host-only clearing. Lane A must separately test Domain plus host-only session clears and startup rejection of retired overrides/equal session-CSRF names.
-- Origin is required in addition to matching cookie/header. Browsers generate it on mutations; it is not a header the frontend should fabricate. Lane A must test missing/wrong Origin, safe methods and exemptions on the real server.
-- The a3 v2 and a4 v1 registry entries and review pins remain unchanged at publication. At the single N2-server/N2-client integration SHA, Lane A publishes a3 v3/a4 v2 and Lane B updates both pins. No version bump is performed here.
-- Build web through npm run build on the approved client change. Reload can retrieve new index.html because it is served no-store. An already loaded pre-cutover bundle cannot gain a new Reload control retroactively; integration/release handling must account for that limitation.
-- Dashboard cookie-name override checks, pre-cutover WorkOS sign-out and hosted acceptance are human/Lane A release work. This review has no hosted evidence. Rollback reverts server, client, shared fixtures and review pins as one SHA; cleared old cookies require another sign-in.
+## Validation scope
 
-All expected-versus-observed fixture checks match. The API/header/UI implementation gaps above are expected pre-approval client work, not fixture MISMATCH findings.
+The dedicated consuming tests validate all nine browser fixtures, cookie scope/clearing/lifetime, header order independence, Origin/header cases, callback redirects, nullable logoutUrl, second-factor decisions and real API response consumption. The 18 new focused recovery cases use the same canonical fixtures and check API retries, notice rendering/click behavior, expiry events, stream-probe coalescing and stale-session protection.
+
+The full Lane B suite and contract reviews run on the exact paired tree; standard CI covers the normal lane suites, including the new recovery tests. Dedicated reviews are explicitly run locally and their counts are reported separately.
+
+The paired validation PR must have exactly the N2-client Lane B tree and the approved #69 server patches replayed unchanged onto the integration refresh base. Integrated B-3 presence/paused controls and the N2-config-1 changes are retained. `git range-diff` verifies both #69 commits are unchanged after rebase. It is validation evidence, not a standalone integration target. Client-only commits are supplied separately for coordinated integration.
+
+Already loaded pre-cutover bundles cannot retroactively gain a new Reload control; a reload fetches the new no-store index.html. Hosted sign-in/WorkOS/dashboard acceptance and real-runtime gates remain human release work. No hosted evidence is claimed here.

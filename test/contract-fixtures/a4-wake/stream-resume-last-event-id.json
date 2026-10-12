@@ -1,6 +1,6 @@
 {
   "contract": "a4-wake",
-  "version": 1,
+  "version": 2,
   "id": "stream-resume-last-event-id",
   "description": "Resume with Last-Event-ID: later events replay with their cursor as SSE id, then ready (no id) carries the last cursor.",
   "kind": "sse-session",
@@ -8,7 +8,7 @@
     "method": "GET",
     "path": "/api/inboxes/inbox_example/events",
     "headers": {
-      "authorization": "Bearer sinaloa_agent_access_PLACEHOLDER_active",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_active",
       "accept": "text/event-stream",
       "last-event-id": "00000000000000000041"
     }
