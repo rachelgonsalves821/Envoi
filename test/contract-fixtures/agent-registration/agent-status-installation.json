@@ -1,0 +1,54 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "agent-status-installation",
+  "kind": "http",
+  "description": "With ENVOI_INSTALLATIONS_V2 on, the agent status names its installation.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/status",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "agentStatusWithInstallation",
+    "body": {
+      "state": "active",
+      "agent": {
+        "id": "agent_example",
+        "address": "example@envoi.mail",
+        "status": "active"
+      },
+      "inboxId": "inbox_example",
+      "asOf": "2026-10-12T12:05:00.000Z",
+      "presence": {
+        "lastSeenAt": "2026-10-12T12:05:00.000Z",
+        "lastSuccessfulRefreshAt": null,
+        "lastWorkClaimAt": "2026-10-12T12:05:00.000Z",
+        "lastProcessedAt": null
+      },
+      "installation": {
+        "id": "installation_example",
+        "connectionRoute": "local_helper",
+        "deliveryMode": "envoi_link",
+        "legacy": false
+      }
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "CONNECTED",
+    "retry": "none",
+    "guidance": "none",
+    "modelVisible": {
+      "agentAddress": "example@envoi.mail",
+      "agentStatus": "active",
+      "connectionRoute": "local_helper",
+      "deliveryMode": "envoi_link"
+    },
+    "next": "This authenticated call is what \"connected\" means. It is not evidence of closed-app delivery."
+  }
+}

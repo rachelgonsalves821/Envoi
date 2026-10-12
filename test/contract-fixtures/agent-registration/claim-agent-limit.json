@@ -1,0 +1,50 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-agent-limit",
+  "kind": "http",
+  "description": "The human already has the maximum number of active or paused agents.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "workspaceInboxId": "inbox_workspace_example",
+      "target": {
+        "kind": "new_agent",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "execute_cases"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACTIVE_AGENT_LIMIT",
+      "error": "ACTIVE_AGENT_LIMIT",
+      "message": "You already have the maximum number of agents.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "agent_limit",
+    "next": "Offer attaching to an existing agent instead, or removing one."
+  }
+}

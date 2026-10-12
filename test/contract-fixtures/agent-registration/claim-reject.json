@@ -1,0 +1,36 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-reject",
+  "kind": "http",
+  "description": "The owner rejects the registration.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/reject",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimRejectRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimRejected",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "rejected"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show \"Rejected. This agent was not connected.\""
+  }
+}

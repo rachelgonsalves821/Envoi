@@ -1,0 +1,38 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-delivery-not-available",
+  "kind": "http",
+  "description": "Activation declaring a delivery mode that is not available in v1.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "webhook"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ROUTE_NOT_AVAILABLE",
+      "error": "ROUTE_NOT_AVAILABLE",
+      "message": "That delivery mode is not available.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "next": "Activate with an available delivery mode (envoi_link, poll or on_demand). Nothing was consumed."
+  }
+}

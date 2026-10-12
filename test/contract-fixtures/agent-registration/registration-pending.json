@@ -1,0 +1,38 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-pending",
+  "kind": "http",
+  "description": "Polling before the human has claimed.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "registrationStatus",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "pending_claim",
+      "expiresAt": "2026-10-12T12:10:00.000Z",
+      "pollAfterSeconds": 5
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "PENDING_CLAIM",
+    "retry": "poll_after",
+    "guidance": "wait_for_claim",
+    "modelVisible": {
+      "registrationStatus": "pending_claim"
+    },
+    "next": "Poll again after pollAfterSeconds. Do not print the code again unless the human asks."
+  }
+}

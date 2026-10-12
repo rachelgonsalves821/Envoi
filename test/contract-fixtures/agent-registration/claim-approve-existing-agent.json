@@ -1,0 +1,56 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-approve-existing-agent",
+  "kind": "http",
+  "description": "The owner attaches this registration to an existing paused agent. Address, cases, history and permissions are kept; it stays paused.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "workspaceInboxId": "inbox_workspace_example",
+      "target": {
+        "kind": "existing_agent",
+        "agentId": "agent_example"
+      },
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimApproved",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "approved",
+      "target": "existing_agent",
+      "agent": {
+        "id": "agent_example",
+        "name": "Example agent",
+        "address": "example@envoi.mail",
+        "status": "paused"
+      },
+      "inboxId": "inbox_example",
+      "effectivePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "policyProfile": "default",
+      "activationExpiresAt": "2026-10-12T12:13:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Explain that the current installation keeps working until the new one activates, then is replaced. Resume stays a separate decision."
+  }
+}

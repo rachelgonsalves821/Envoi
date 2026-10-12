@@ -1,0 +1,44 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-agent-not-reconnectable",
+  "kind": "http",
+  "description": "existing_agent target that is revoked as an agent.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "workspaceInboxId": "inbox_workspace_example",
+      "target": {
+        "kind": "existing_agent",
+        "agentId": "agent_revoked"
+      },
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AGENT_NOT_RECONNECTABLE",
+      "error": "AGENT_NOT_RECONNECTABLE",
+      "message": "That agent cannot be reconnected.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "choose_another_agent",
+    "next": "Let the owner choose another agent or create a new one."
+  }
+}

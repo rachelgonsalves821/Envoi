@@ -1,0 +1,34 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "owner-installation-not-found",
+  "kind": "http",
+  "description": "Revoking an installation that is not this agent's.",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/installations/installation_other/revoke",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "INSTALLATION_NOT_FOUND",
+      "error": "INSTALLATION_NOT_FOUND",
+      "message": "That installation was not found.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Reload the installation list."
+  }
+}

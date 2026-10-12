@@ -1,0 +1,38 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-code-invalid",
+  "kind": "http",
+  "description": "A wrong, expired, unknown or already-used code. Identical in every case, and counts as one claim failure.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-claims/lookup",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimLookupRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4E"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "CLAIM_CODE_INVALID",
+      "error": "CLAIM_CODE_INVALID",
+      "message": "That code is not valid. Check the code your agent shows.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "check_code",
+    "next": "Let the owner re-enter the code. Never reveal whether a similar code exists."
+  }
+}

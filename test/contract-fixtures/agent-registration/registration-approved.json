@@ -1,0 +1,52 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-approved",
+  "kind": "http",
+  "description": "The owner approved; the helper may activate.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "registrationStatus",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "approved",
+      "target": "new_agent",
+      "agent": {
+        "name": "Example agent",
+        "address": "example@envoi.mail"
+      },
+      "effectivePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "activationExpiresAt": "2026-10-12T12:13:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "ACTIVATING",
+    "retry": "none",
+    "guidance": "none",
+    "modelVisible": {
+      "registrationStatus": "approved",
+      "agentName": "Example agent",
+      "agentAddress": "example@envoi.mail",
+      "permissionSummary": [
+        "send agent messages",
+        "receive agent messages"
+      ]
+    },
+    "next": "Persist a new activationId privately, then POST /api/agent-installations/activate before activationExpiresAt."
+  }
+}

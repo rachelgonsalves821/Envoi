@@ -1,0 +1,63 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-feature-disabled",
+  "kind": "http",
+  "description": "Registration while ENVOI_AGENT_REGISTRATION_V2 is off.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": false,
+    "ENVOI_INSTALLATIONS_V2": false,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations",
+    "auth": "none",
+    "schema": "registrationCreateRequest",
+    "body": {
+      "requestedName": "Example agent",
+      "requestedLocalPart": "example",
+      "requestedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "connectionRoute": "local_helper",
+      "runtime": {
+        "type": "hermes",
+        "version": "0.9.0"
+      },
+      "deliveryCapabilities": {
+        "persistentProcess": true,
+        "outboundHttps": true,
+        "sse": true,
+        "webhook": false,
+        "scheduledPolling": false,
+        "a2a": false
+      },
+      "helper": {
+        "name": "envoi-link",
+        "version": "1.0.0"
+      }
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "Agent-led setup is not available yet.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "modelVisible": {
+      "guidance": "route_unavailable"
+    },
+    "next": "Stop. Tell the human agent-led setup is not available; Quick Connect remains under Advanced."
+  }
+}

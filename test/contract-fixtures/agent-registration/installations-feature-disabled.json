@@ -1,0 +1,37 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "installations-feature-disabled",
+  "kind": "http",
+  "description": "Owner installation routes while ENVOI_INSTALLATIONS_V2 is off.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": false,
+    "ENVOI_INSTALLATIONS_V2": false,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "Installations are not available yet.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "next": "Hide installation details; keep the a5-presence connection view."
+  }
+}

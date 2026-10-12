@@ -1,0 +1,32 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "bootstrap-token-no-access",
+  "kind": "http",
+  "description": "A bootstrap token grants nothing outside the registration routes (v3 §36).",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/status",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "A pending registration has no inbox, messaging, claim, case, file, MCP or directory access."
+  }
+}

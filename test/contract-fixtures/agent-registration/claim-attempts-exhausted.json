@@ -1,0 +1,43 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-attempts-exhausted",
+  "kind": "http",
+  "description": "Five claim failures by this human inside 15 minutes.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-claims/lookup",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimLookupRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D"
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "errorEnvelope",
+    "headers": {
+      "retry-after": "840"
+    },
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Too many incorrect codes. Try again later.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 840,
+      "reason": "claim_attempts"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "UNCHANGED",
+    "retry": "after_retry_after",
+    "guidance": "too_many_attempts",
+    "next": "Disable code entry until retry-after passes. The correct code is refused too while locked."
+  }
+}

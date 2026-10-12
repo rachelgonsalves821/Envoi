@@ -1,0 +1,38 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-pending",
+  "kind": "http",
+  "description": "Activation before approval.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REGISTRATION_PENDING",
+      "error": "REGISTRATION_PENDING",
+      "message": "Waiting for the owner to approve.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "PENDING_CLAIM",
+    "retry": "poll_after",
+    "guidance": "wait_for_claim",
+    "next": "Poll the registration and activate only after status approved."
+  }
+}

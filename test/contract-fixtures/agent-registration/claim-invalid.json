@@ -1,0 +1,44 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-invalid",
+  "kind": "http",
+  "description": "An approve body for a new agent without grantedPermissions.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "workspaceInboxId": "inbox_workspace_example",
+      "target": {
+        "kind": "new_agent",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "CLAIM_INVALID",
+      "error": "CLAIM_INVALID",
+      "message": "Choose at least one permission.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "fix_claim",
+    "next": "Fix the form. The registration stays pending."
+  }
+}

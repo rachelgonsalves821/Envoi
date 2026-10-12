@@ -1,0 +1,1881 @@
+{
+  "$id": "agent-registration/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "agent-registration v1 schemas (A-3.1a). Fixtures name a definition in request.schema and response.schema. x-codes is handoffs.md agent-registration §8; x-limits §2; x-model-visible §7; x-route-availability and x-delivery-availability §1; x-operations §6.2.",
+  "x-codes": {
+    "FEATURE_DISABLED": {
+      "status": 404,
+      "lifecycle": "REGISTRATION_ENDED",
+      "retry": "none",
+      "guidance": "route_unavailable",
+      "surface": "helper or owner_ui",
+      "when": "ENVOI_AGENT_REGISTRATION_V2 (registration, claim, activation) or ENVOI_INSTALLATIONS_V2 (installation routes) is off."
+    },
+    "ROUTE_NOT_AVAILABLE": {
+      "status": 400,
+      "lifecycle": "REGISTRATION_ENDED",
+      "retry": "none",
+      "guidance": "route_unavailable",
+      "surface": "helper",
+      "when": "connectionRoute is not available for registration (GET /api/onboarding/routes says available:false), or deliveryMode at activation is not available."
+    },
+    "REGISTRATION_INVALID": {
+      "status": 400,
+      "lifecycle": "REGISTRATION_ENDED",
+      "retry": "none",
+      "guidance": "update_helper",
+      "surface": "helper",
+      "when": "The registration or activation body fails validation (§3.1, §5.1). Never consumes anything."
+    },
+    "REGISTRATION_TOKEN_INVALID": {
+      "status": 401,
+      "lifecycle": "REGISTRATION_ENDED",
+      "retry": "none",
+      "guidance": "register_again",
+      "surface": "helper",
+      "when": "The bootstrap token is missing, malformed, unknown, deleted, or belongs to a different registration than the path or body names. Identical in every case."
+    },
+    "REGISTRATION_PENDING": {
+      "status": 409,
+      "lifecycle": "PENDING_CLAIM",
+      "retry": "poll_after",
+      "guidance": "wait_for_claim",
+      "surface": "helper",
+      "when": "Activation before the owner approved."
+    },
+    "REGISTRATION_ENDED": {
+      "status": 409,
+      "lifecycle": "REGISTRATION_ENDED",
+      "retry": "none",
+      "guidanceByReason": {
+        "rejected": "owner_rejected",
+        "expired": "register_again"
+      },
+      "surface": "helper",
+      "when": "Activation of a rejected registration (reason rejected) or of one whose claim or activation window passed (reason expired)."
+    },
+    "ACTIVATION_ID_REQUIRED": {
+      "status": 400,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "update_helper",
+      "surface": "helper",
+      "when": "Activation without an activationId matching ^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$. Checked before the bootstrap token is looked up; nothing is consumed."
+    },
+    "ACTIVATION_REPLAY": {
+      "status": 401,
+      "lifecycle": "REVOKED",
+      "retry": "none",
+      "guidance": "owner_reconnect",
+      "surface": "helper",
+      "when": "An already-activated registration is activated again with a different activationId: two holders of one bootstrap token. The installation is revoked."
+    },
+    "ACTIVATION_RECOVERY_EXPIRED": {
+      "status": 401,
+      "lifecycle": "NEEDS_RECONNECT",
+      "retry": "none",
+      "guidance": "owner_reconnect",
+      "surface": "helper",
+      "when": "The same activationId after the 5-minute recovery window, or the recovery envelope cannot be decrypted."
+    },
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "none",
+      "surface": "helper or owner_ui",
+      "when": "a3 §2 meaning. Also any non-registration route presented with a bootstrap token, and a claim request with no valid human session."
+    },
+    "CLAIM_CODE_INVALID": {
+      "status": 404,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "check_code",
+      "surface": "owner_ui",
+      "when": "Claim lookup, approve or reject with a code that is malformed, unknown, expired, already decided, or does not belong to the registration in the path. Identical in every case."
+    },
+    "CLAIM_INVALID": {
+      "status": 400,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "fix_claim",
+      "surface": "owner_ui",
+      "when": "The approve body fails validation after the code matched."
+    },
+    "CLAIM_FORBIDDEN": {
+      "status": 403,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "not_permitted",
+      "surface": "owner_ui",
+      "when": "The signed-in human cannot manage the chosen workspace (live owner/admin check), or does not own the chosen existing agent."
+    },
+    "ADDRESS_TAKEN": {
+      "status": 409,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "choose_another_address",
+      "surface": "owner_ui",
+      "when": "new_agent target whose address is already reserved."
+    },
+    "ACTIVE_AGENT_LIMIT": {
+      "status": 409,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "agent_limit",
+      "surface": "owner_ui",
+      "when": "new_agent target when the human already has the maximum active or paused agents (existing rule, now with the a3 envelope on this route)."
+    },
+    "AGENT_NOT_RECONNECTABLE": {
+      "status": 409,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "choose_another_agent",
+      "surface": "owner_ui",
+      "when": "existing_agent target that is pending, rejected or revoked as an agent, or not in the chosen workspace."
+    },
+    "INSTALLATION_NOT_FOUND": {
+      "status": 404,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "none",
+      "surface": "owner_ui",
+      "when": "Owner installation revoke for an id that is not one of this agent's installations."
+    },
+    "ACCOUNT_CHANGED": {
+      "status": 409,
+      "lifecycle": "NOT_APPLICABLE",
+      "retry": "none",
+      "guidance": "reload_browser",
+      "surface": "owner_ui",
+      "when": "a3 §2 meaning, on the claim routes."
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "lifecycle": "UNCHANGED",
+      "retry": "after_retry_after",
+      "guidance": "service_busy",
+      "guidanceByReason": {
+        "registration_limit": "service_busy",
+        "claim_attempts": "too_many_attempts",
+        "poll_interval": "service_busy"
+      },
+      "surface": "helper or owner_ui",
+      "when": "Durable registration limit (reason registration_limit), durable claim-failure limit (reason claim_attempts), polling faster than pollAfterSeconds (reason poll_interval), or the ordinary a3 request limit (no reason)."
+    },
+    "INTERNAL_SERVER_ERROR": {
+      "status": 500,
+      "lifecycle": "DEGRADED",
+      "retry": "backoff",
+      "guidance": "service_unavailable",
+      "surface": "helper or owner_ui",
+      "when": "a3 §2 meaning. An activation that fails this way is retried with the same activationId."
+    },
+    "AUTH_UNAVAILABLE": {
+      "status": 503,
+      "lifecycle": "DEGRADED",
+      "retry": "backoff",
+      "guidance": "service_unavailable",
+      "surface": "helper or owner_ui",
+      "when": "a3 §2 meaning."
+    }
+  },
+  "x-limits": {
+    "verificationCode": {
+      "alphabet": "0123456789ABCDEFGHJKMNPQRSTVWXYZ",
+      "symbols": 8,
+      "display": "XXXX-XXXX",
+      "entropyBits": 40,
+      "normalize": "uppercase; drop spaces and hyphens; I and L read as 1, O reads as 0",
+      "storedAs": "HMAC-SHA256 under a key derived from ENVOI_DATA_ENCRYPTION_KEY; never stored or logged in clear"
+    },
+    "bootstrapToken": {
+      "prefix": "envoi_reg_",
+      "randomBytes": 32,
+      "encoding": "base64url",
+      "storedAs": "SHA-256"
+    },
+    "registrationTtlSeconds": 600,
+    "activationWindowSeconds": 600,
+    "activationRecoverySeconds": 300,
+    "pollAfterSeconds": 5,
+    "deleteRecordsAfterHours": 24,
+    "registrationCreate": {
+      "perSourcePerHour": 10,
+      "pendingGlobalMax": 1000,
+      "maxBodyBytes": 4096,
+      "durable": true
+    },
+    "claimFailures": {
+      "perHuman": 5,
+      "windowSeconds": 900,
+      "durable": true
+    }
+  },
+  "x-model-visible": {
+    "description": "The only server-derived values a helper, connector or tool may put where the model can read them (helper stdout, tool results, chat). Everything else stays private to the trusted host.",
+    "allowed": {
+      "claimUrl": "registrationCreated.claim.url",
+      "verificationCode": "registrationCreated.claim.verificationCode, only while status is pending_claim and before claim.expiresAt",
+      "expiresInSeconds": "derived from claim.expiresAt",
+      "registrationStatus": "registrationStatus.status",
+      "agentName": "agent.name",
+      "agentAddress": "agent.address",
+      "permissionSummary": "effectivePermissions mapped through x-permission-labels",
+      "connectionRoute": "installation.connectionRoute",
+      "deliveryMode": "installation.deliveryMode",
+      "agentStatus": "agent.status (active or paused)",
+      "guidance": "client.guidance of the code received"
+    },
+    "never": [
+      "bootstrapToken",
+      "activationId",
+      "agentApiToken",
+      "agentRefreshToken",
+      "any envoi_ token or token fragment",
+      "registrationId",
+      "installation id",
+      "inboxId",
+      "request or response bodies",
+      "Authorization or cookie headers",
+      "storage paths"
+    ]
+  },
+  "x-permission-labels": {
+    "send_agent_messages": "send agent messages",
+    "receive_agent_messages": "receive agent messages",
+    "create_assets": "create files",
+    "execute_cases": "act on cases",
+    "use_email_transport": "use external email"
+  },
+  "x-route-availability": [
+    {
+      "connectionRoute": "local_helper",
+      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2"
+    },
+    {
+      "connectionRoute": "authenticated_rest",
+      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2 and ENVOI_AUTHENTICATED_REST_ROUTE"
+    },
+    {
+      "connectionRoute": "remote_mcp_oauth",
+      "availableWhen": "never in v1 (A-3.1b; ENVOI_REMOTE_MCP_OAUTH)"
+    },
+    {
+      "connectionRoute": "provider_connector",
+      "availableWhen": "never in v1 (A-3.1b; ENVOI_PROVIDER_CONNECTORS)"
+    }
+  ],
+  "x-delivery-availability": [
+    {
+      "deliveryMode": "envoi_link",
+      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2"
+    },
+    {
+      "deliveryMode": "poll",
+      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2"
+    },
+    {
+      "deliveryMode": "on_demand",
+      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2"
+    },
+    {
+      "deliveryMode": "webhook",
+      "availableWhen": "never in v1 (Phase C generic HTTP adapter)"
+    },
+    {
+      "deliveryMode": "provider",
+      "availableWhen": "never in v1 (A-3.1b)"
+    },
+    {
+      "deliveryMode": "a2a",
+      "availableWhen": "never in v1 (Phase D)"
+    }
+  ],
+  "x-operations": [
+    {
+      "operation": "identity",
+      "request": "GET /api/agent/status",
+      "contract": "a3-pause-auth v3 §3, a5-presence v1 §4.1, this contract §6.1"
+    },
+    {
+      "operation": "work availability",
+      "request": "GET /api/inboxes/{inboxId}/events, GET /api/inboxes/{inboxId}/events/delta, claim nextAvailableAt",
+      "contract": "a4-wake v2"
+    },
+    {
+      "operation": "claim",
+      "request": "POST /api/agent/work/claim",
+      "contract": "a3-pause-auth v3 §3, a4-wake v2 §4–§5"
+    },
+    {
+      "operation": "reply",
+      "request": "POST /api/agent/instructions/{workId}/reply, POST /api/inboxes/{inboxId}/messages",
+      "contract": "existing request shapes; a3-pause-auth v3 codes"
+    },
+    {
+      "operation": "settlement",
+      "request": "POST /api/agent/work/{workId}/{renew,acknowledge,complete,fail}",
+      "contract": "a3-pause-auth v3 §3 (Idempotency-Key on acknowledge and complete)"
+    },
+    {
+      "operation": "refresh",
+      "request": "POST /api/agent-token",
+      "contract": "A1 and a3-pause-auth v3 §2.2"
+    }
+  ],
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "REGISTERING",
+        "PENDING_CLAIM",
+        "ACTIVATING",
+        "CONNECTED",
+        "REGISTRATION_ENDED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "DEGRADED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "retry": {
+      "enum": [
+        "none",
+        "poll_after",
+        "after_retry_after",
+        "backoff",
+        "retry_same_activation_id"
+      ]
+    },
+    "guidance": {
+      "enum": [
+        "none",
+        "agent_limit",
+        "check_code",
+        "choose_another_address",
+        "choose_another_agent",
+        "fix_claim",
+        "not_permitted",
+        "owner_reconnect",
+        "owner_rejected",
+        "register_again",
+        "reload_browser",
+        "route_unavailable",
+        "service_busy",
+        "service_unavailable",
+        "too_many_attempts",
+        "update_helper",
+        "wait_for_claim"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "FEATURE_DISABLED",
+        "ROUTE_NOT_AVAILABLE",
+        "REGISTRATION_INVALID",
+        "REGISTRATION_TOKEN_INVALID",
+        "REGISTRATION_PENDING",
+        "REGISTRATION_ENDED",
+        "ACTIVATION_ID_REQUIRED",
+        "ACTIVATION_REPLAY",
+        "ACTIVATION_RECOVERY_EXPIRED",
+        "AUTHENTICATION_REQUIRED",
+        "CLAIM_CODE_INVALID",
+        "CLAIM_INVALID",
+        "CLAIM_FORBIDDEN",
+        "ADDRESS_TAKEN",
+        "ACTIVE_AGENT_LIMIT",
+        "AGENT_NOT_RECONNECTABLE",
+        "INSTALLATION_NOT_FOUND",
+        "ACCOUNT_CHANGED",
+        "RATE_LIMITED",
+        "INTERNAL_SERVER_ERROR",
+        "AUTH_UNAVAILABLE"
+      ]
+    },
+    "permission": {
+      "enum": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "create_assets",
+        "execute_cases",
+        "use_email_transport"
+      ]
+    },
+    "connectionRoute": {
+      "enum": [
+        "local_helper",
+        "remote_mcp_oauth",
+        "provider_connector",
+        "authenticated_rest"
+      ]
+    },
+    "deliveryMode": {
+      "enum": [
+        "envoi_link",
+        "webhook",
+        "provider",
+        "poll",
+        "on_demand",
+        "a2a"
+      ]
+    },
+    "verificationCode": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$"
+    },
+    "bootstrapToken": {
+      "type": "string",
+      "pattern": "^envoi_reg_PLACEHOLDER[A-Za-z0-9_-]*$"
+    },
+    "activationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$"
+    },
+    "address": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]{2,31}@[a-z0-9.-]+$"
+    },
+    "localPart": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 32
+    },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "type",
+        "version"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "deliveryCapabilities": {
+      "type": "object",
+      "required": [
+        "persistentProcess",
+        "outboundHttps",
+        "sse",
+        "webhook",
+        "scheduledPolling",
+        "a2a"
+      ],
+      "properties": {
+        "persistentProcess": {
+          "type": "boolean"
+        },
+        "outboundHttps": {
+          "type": "boolean"
+        },
+        "sse": {
+          "type": "boolean"
+        },
+        "webhook": {
+          "type": "boolean"
+        },
+        "scheduledPolling": {
+          "type": "boolean"
+        },
+        "a2a": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "not": {
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+          }
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "enum": [
+            "rejected",
+            "expired",
+            "registration_limit",
+            "claim_attempts",
+            "poll_interval"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "retryAfterSeconds"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "REGISTRATION_ENDED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "enum": [
+                  "rejected",
+                  "expired"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "REGISTRATION_ENDED",
+                  "RATE_LIMITED"
+                ]
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
+            },
+            "required": [
+              "reason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "enum": [
+                  "registration_limit",
+                  "claim_attempts",
+                  "poll_interval"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "routeAvailability": {
+      "type": "object",
+      "required": [
+        "asOf",
+        "contract",
+        "registrationEnabled",
+        "installationsEnabled",
+        "routes",
+        "deliveryModes"
+      ],
+      "properties": {
+        "asOf": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "contract": {
+          "type": "object",
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "const": "agent-registration"
+            },
+            "version": {
+              "const": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "registrationEnabled": {
+          "type": "boolean"
+        },
+        "installationsEnabled": {
+          "type": "boolean"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "connectionRoute",
+              "available"
+            ],
+            "properties": {
+              "connectionRoute": {
+                "$ref": "#/definitions/connectionRoute"
+              },
+              "available": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "deliveryModes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "deliveryMode",
+              "available"
+            ],
+            "properties": {
+              "deliveryMode": {
+                "$ref": "#/definitions/deliveryMode"
+              },
+              "available": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 6,
+          "maxItems": 6
+        }
+      },
+      "additionalProperties": false
+    },
+    "registrationCreateRequest": {
+      "type": "object",
+      "required": [
+        "requestedName",
+        "requestedPermissions",
+        "connectionRoute",
+        "runtime",
+        "deliveryCapabilities"
+      ],
+      "properties": {
+        "requestedName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "not": {
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+          }
+        },
+        "requestedLocalPart": {
+          "$ref": "#/definitions/localPart"
+        },
+        "requestedPermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true
+        },
+        "connectionRoute": {
+          "$ref": "#/definitions/connectionRoute"
+        },
+        "runtime": {
+          "$ref": "#/definitions/runtime"
+        },
+        "deliveryCapabilities": {
+          "$ref": "#/definitions/deliveryCapabilities"
+        },
+        "helper": {
+          "type": "object",
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "registrationCreated": {
+      "type": "object",
+      "required": [
+        "registrationId",
+        "status",
+        "bootstrapToken",
+        "claim",
+        "expiresAt",
+        "pollAfterSeconds"
+      ],
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "status": {
+          "const": "pending_claim"
+        },
+        "bootstrapToken": {
+          "$ref": "#/definitions/bootstrapToken"
+        },
+        "claim": {
+          "type": "object",
+          "required": [
+            "url",
+            "verificationCode",
+            "expiresAt"
+          ],
+          "properties": {
+            "url": {
+              "const": "https://www.envoi-agents.com/claim"
+            },
+            "verificationCode": {
+              "$ref": "#/definitions/verificationCode"
+            },
+            "expiresAt": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "pollAfterSeconds": {
+          "const": 5
+        }
+      },
+      "additionalProperties": false
+    },
+    "registrationStatus": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "registrationId",
+            "status",
+            "expiresAt",
+            "pollAfterSeconds"
+          ],
+          "properties": {
+            "registrationId": {
+              "type": "string",
+              "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+            },
+            "status": {
+              "const": "pending_claim"
+            },
+            "expiresAt": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            "pollAfterSeconds": {
+              "const": 5
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "registrationId",
+            "status",
+            "target",
+            "agent",
+            "effectivePermissions",
+            "activationExpiresAt"
+          ],
+          "properties": {
+            "registrationId": {
+              "type": "string",
+              "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+            },
+            "status": {
+              "const": "approved"
+            },
+            "target": {
+              "enum": [
+                "new_agent",
+                "existing_agent"
+              ]
+            },
+            "agent": {
+              "type": "object",
+              "required": [
+                "name",
+                "address"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "not": {
+                    "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+                  }
+                },
+                "address": {
+                  "$ref": "#/definitions/address"
+                }
+              },
+              "additionalProperties": false
+            },
+            "effectivePermissions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/permission"
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "activationExpiresAt": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "registrationId",
+            "status",
+            "installationId"
+          ],
+          "properties": {
+            "registrationId": {
+              "type": "string",
+              "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+            },
+            "status": {
+              "const": "activated"
+            },
+            "installationId": {
+              "type": "string",
+              "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "registrationId",
+            "status"
+          ],
+          "properties": {
+            "registrationId": {
+              "type": "string",
+              "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+            },
+            "status": {
+              "enum": [
+                "rejected",
+                "expired"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "claimLookupRequest": {
+      "type": "object",
+      "required": [
+        "verificationCode"
+      ],
+      "properties": {
+        "verificationCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        }
+      },
+      "additionalProperties": false
+    },
+    "claimLookup": {
+      "type": "object",
+      "required": [
+        "registrationId",
+        "verificationCode",
+        "requestedName",
+        "requestedLocalPart",
+        "requestedPermissions",
+        "grantablePermissions",
+        "connectionRoute",
+        "runtime",
+        "deliveryCapabilities",
+        "createdAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "verificationCode": {
+          "$ref": "#/definitions/verificationCode"
+        },
+        "requestedName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "not": {
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+          }
+        },
+        "requestedLocalPart": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/localPart"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestedPermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "grantablePermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "connectionRoute": {
+          "$ref": "#/definitions/connectionRoute"
+        },
+        "runtime": {
+          "$ref": "#/definitions/runtime"
+        },
+        "deliveryCapabilities": {
+          "$ref": "#/definitions/deliveryCapabilities"
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "claimApproveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verificationCode",
+        "workspaceInboxId",
+        "target",
+        "policyProfile"
+      ],
+      "properties": {
+        "verificationCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "workspaceInboxId": {
+          "type": "string",
+          "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+        },
+        "target": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "name",
+                "localPart"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "new_agent"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "not": {
+                    "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+                  }
+                },
+                "localPart": {
+                  "$ref": "#/definitions/localPart"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "agentId"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "existing_agent"
+                },
+                "agentId": {
+                  "type": "string",
+                  "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "grantedPermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true
+        },
+        "policyProfile": {
+          "const": "default"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "properties": {
+                  "kind": {
+                    "const": "new_agent"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "grantedPermissions"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "grantedPermissions"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "claimRejectRequest": {
+      "type": "object",
+      "required": [
+        "verificationCode"
+      ],
+      "properties": {
+        "verificationCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "address",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "not": {
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+          }
+        },
+        "address": {
+          "$ref": "#/definitions/address"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "paused"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "claimApproved": {
+      "type": "object",
+      "required": [
+        "registrationId",
+        "status",
+        "target",
+        "agent",
+        "inboxId",
+        "effectivePermissions",
+        "policyProfile",
+        "activationExpiresAt"
+      ],
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "status": {
+          "const": "approved"
+        },
+        "target": {
+          "enum": [
+            "new_agent",
+            "existing_agent"
+          ]
+        },
+        "agent": {
+          "$ref": "#/definitions/agentSummary"
+        },
+        "inboxId": {
+          "type": "string",
+          "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+        },
+        "effectivePermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "policyProfile": {
+          "const": "default"
+        },
+        "activationExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "claimRejected": {
+      "type": "object",
+      "required": [
+        "registrationId",
+        "status"
+      ],
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "status": {
+          "const": "rejected"
+        }
+      },
+      "additionalProperties": false
+    },
+    "activationRequest": {
+      "type": "object",
+      "required": [
+        "registrationId",
+        "activationId",
+        "deliveryMode"
+      ],
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "activationId": {
+          "$ref": "#/definitions/activationId"
+        },
+        "deliveryMode": {
+          "$ref": "#/definitions/deliveryMode"
+        }
+      },
+      "additionalProperties": false
+    },
+    "installation": {
+      "type": "object",
+      "required": [
+        "id",
+        "agentId",
+        "connectionRoute",
+        "deliveryMode",
+        "runtime",
+        "status",
+        "endedReason",
+        "legacy",
+        "createdAt",
+        "activatedAt",
+        "endedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "connectionRoute": {
+          "$ref": "#/definitions/connectionRoute"
+        },
+        "deliveryMode": {
+          "$ref": "#/definitions/deliveryMode"
+        },
+        "runtime": {
+          "$ref": "#/definitions/runtime"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "ended"
+          ]
+        },
+        "endedReason": {
+          "anyOf": [
+            {
+              "enum": [
+                "revoked",
+                "replaced",
+                "refresh_replay",
+                "activation_replay"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "legacy": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "activatedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "endedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "activated": {
+      "type": "object",
+      "required": [
+        "installation",
+        "agent",
+        "inboxId",
+        "permissions",
+        "agentApiToken",
+        "agentRefreshToken",
+        "agentTokenExpiresAt",
+        "agentRefreshTokenExpiresAt",
+        "tokenType"
+      ],
+      "properties": {
+        "installation": {
+          "$ref": "#/definitions/installation"
+        },
+        "agent": {
+          "$ref": "#/definitions/agentSummary"
+        },
+        "inboxId": {
+          "type": "string",
+          "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "agentApiToken": {
+          "type": "string",
+          "pattern": "^envoi_agent_access_PLACEHOLDER"
+        },
+        "agentRefreshToken": {
+          "type": "string",
+          "pattern": "^envoi_agent_refresh_PLACEHOLDER"
+        },
+        "agentTokenExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "agentRefreshTokenExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "tokenType": {
+          "const": "Bearer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "installationSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "connectionRoute",
+        "deliveryMode",
+        "legacy"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+        },
+        "connectionRoute": {
+          "$ref": "#/definitions/connectionRoute"
+        },
+        "deliveryMode": {
+          "$ref": "#/definitions/deliveryMode"
+        },
+        "legacy": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "presence": {
+      "type": "object",
+      "required": [
+        "lastSeenAt",
+        "lastSuccessfulRefreshAt",
+        "lastWorkClaimAt",
+        "lastProcessedAt"
+      ],
+      "properties": {
+        "lastSeenAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastSuccessfulRefreshAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastWorkClaimAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastProcessedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentStatusWithInstallation": {
+      "type": "object",
+      "required": [
+        "state",
+        "agent",
+        "inboxId",
+        "asOf",
+        "presence"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "active",
+            "paused"
+          ]
+        },
+        "agent": {
+          "type": "object",
+          "required": [
+            "id",
+            "address",
+            "status"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+            },
+            "address": {
+              "$ref": "#/definitions/address"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "paused"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "inboxId": {
+          "type": "string",
+          "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+        },
+        "asOf": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "presence": {
+          "$ref": "#/definitions/presence"
+        },
+        "installation": {
+          "$ref": "#/definitions/installationSummary"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ownerInstallationList": {
+      "type": "object",
+      "required": [
+        "agentId",
+        "installations"
+      ],
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "installations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/installation"
+          },
+          "maxItems": 6
+        }
+      },
+      "additionalProperties": false
+    },
+    "installationRevoked": {
+      "type": "object",
+      "required": [
+        "installation"
+      ],
+      "properties": {
+        "installation": {
+          "$ref": "#/definitions/installation"
+        }
+      },
+      "additionalProperties": false
+    },
+    "storedCredentialFamily": {
+      "type": "object",
+      "required": [
+        "id",
+        "agentId",
+        "inboxId",
+        "createdAt",
+        "refreshExpiresAt",
+        "revokedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^credential_family_[A-Za-z0-9_-]{1,80}$"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "inboxId": {
+          "type": "string",
+          "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "refreshExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "revokedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "installationId": {
+          "type": "string",
+          "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "agent-registration"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "migration",
+            "rollback"
+          ]
+        },
+        "flags": {
+          "type": "object",
+          "required": [
+            "ENVOI_AGENT_REGISTRATION_V2",
+            "ENVOI_INSTALLATIONS_V2",
+            "ENVOI_AUTHENTICATED_REST_ROUTE"
+          ],
+          "properties": {
+            "ENVOI_AGENT_REGISTRATION_V2": {
+              "type": "boolean"
+            },
+            "ENVOI_INSTALLATIONS_V2": {
+              "type": "boolean"
+            },
+            "ENVOI_AUTHENTICATED_REST_ROUTE": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stored": {
+          "type": "object",
+          "properties": {
+            "credentialFamilies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedCredentialFamily"
+              }
+            }
+          }
+        },
+        "context": {
+          "type": "object",
+          "required": [
+            "requestedPermissions"
+          ],
+          "properties": {
+            "requestedPermissions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/permission"
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "request",
+              "response",
+              "client"
+            ],
+            "properties": {
+              "request": {
+                "$ref": "#/definitions/fixtureRequest"
+              },
+              "response": {
+                "$ref": "#/definitions/fixtureResponse"
+              },
+              "client": {
+                "$ref": "#/definitions/fixtureClient"
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "migration",
+                  "rollback"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "flags",
+              "steps"
+            ]
+          }
+        }
+      ]
+    },
+    "fixtureRequest": {
+      "type": "object",
+      "required": [
+        "method",
+        "path",
+        "auth"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "auth": {
+          "enum": [
+            "none",
+            "bootstrap",
+            "agent_access",
+            "human_session"
+          ],
+          "description": "none: public. bootstrap: the registration bootstrap token in headers.authorization. agent_access: an agent access token. human_session: a signed-in, allowlisted human with the envoi_session and envoi_csrf cookies, x-envoi-csrf and origin (envoi-browser-names v1)."
+        },
+        "headers": {
+          "type": "object"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "body": {}
+      }
+    },
+    "fixtureResponse": {
+      "type": "object",
+      "required": [
+        "status",
+        "schema",
+        "body"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureClient": {
+      "type": "object",
+      "required": [
+        "surface",
+        "next"
+      ],
+      "properties": {
+        "surface": {
+          "enum": [
+            "helper",
+            "owner_ui",
+            "connector",
+            "server"
+          ]
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/lifecycle"
+        },
+        "retry": {
+          "$ref": "#/definitions/retry"
+        },
+        "guidance": {
+          "$ref": "#/definitions/guidance"
+        },
+        "modelVisible": {
+          "type": "object"
+        },
+        "next": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

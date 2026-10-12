@@ -1,0 +1,81 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "routes-available",
+  "kind": "http",
+  "description": "Both V2 flags on, ENVOI_AUTHENTICATED_REST_ROUTE off: only the local helper is offered.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/onboarding/routes",
+    "auth": "none"
+  },
+  "response": {
+    "status": 200,
+    "schema": "routeAvailability",
+    "headers": {
+      "cache-control": "public, max-age=60"
+    },
+    "body": {
+      "asOf": "2026-10-12T12:00:00.000Z",
+      "contract": {
+        "id": "agent-registration",
+        "version": 1
+      },
+      "registrationEnabled": true,
+      "installationsEnabled": true,
+      "routes": [
+        {
+          "connectionRoute": "local_helper",
+          "available": true
+        },
+        {
+          "connectionRoute": "remote_mcp_oauth",
+          "available": false
+        },
+        {
+          "connectionRoute": "provider_connector",
+          "available": false
+        },
+        {
+          "connectionRoute": "authenticated_rest",
+          "available": false
+        }
+      ],
+      "deliveryModes": [
+        {
+          "deliveryMode": "envoi_link",
+          "available": true
+        },
+        {
+          "deliveryMode": "webhook",
+          "available": false
+        },
+        {
+          "deliveryMode": "provider",
+          "available": false
+        },
+        {
+          "deliveryMode": "poll",
+          "available": true
+        },
+        {
+          "deliveryMode": "on_demand",
+          "available": true
+        },
+        {
+          "deliveryMode": "a2a",
+          "available": false
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "next": "/connect, skill.json and the helper offer only routes with available:true. Never infer availability from a frontend build."
+  }
+}

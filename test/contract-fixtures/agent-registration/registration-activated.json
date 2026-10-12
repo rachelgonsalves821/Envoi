@@ -1,0 +1,37 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-activated",
+  "kind": "http",
+  "description": "Polling after activation (the helper lost its own state). Status only; credentials are never repeated here.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "registrationStatus",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "activated",
+      "installationId": "installation_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "CONNECTED",
+    "retry": "none",
+    "guidance": "none",
+    "modelVisible": {
+      "registrationStatus": "activated"
+    },
+    "next": "If the helper holds no credentials, retry activation with its persisted activationId inside the recovery window; otherwise the owner reconnects."
+  }
+}

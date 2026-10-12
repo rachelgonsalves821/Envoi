@@ -133,6 +133,92 @@ function checkOwnerConnection(fixture, schemas, label) {
   }
 }
 
+// agent-registration §8: an error body follows x-codes for status, lifecycle, retry and guidance.
+function checkCodedError(response, client, schemas, label) {
+  const value = response.body;
+  if (!value || typeof value !== 'object' || !('code' in value)) {
+    assert.ok(response.status < 400, `${label}: error responses must use the error envelope`);
+    return;
+  }
+  const entry = schemas['x-codes'][value.code];
+  assert.ok(entry, `${label}: ${value.code} is not in x-codes`);
+  assert.equal(value.error, value.code, `${label}: error must equal code`);
+  assert.equal(response.status, entry.status, `${label}: HTTP status for ${value.code}`);
+  assert.equal(client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
+  assert.equal(client.retry, entry.retry, `${label}: retry for ${value.code}`);
+  const guidance = value.reason && entry.guidanceByReason ? entry.guidanceByReason[value.reason] : entry.guidance;
+  assert.equal(client.guidance, guidance, `${label}: guidance for ${value.code}`);
+  if (response.status === 429) assert.equal(response.headers?.['retry-after'], String(value.retryAfterSeconds), `${label}: retry-after`);
+}
+
+// agent-registration §2: codes are typed case-insensitively, without separators, and I/L/O read as 1/1/0.
+const normalizeVerificationCode = (code) => {
+  const symbols = code.toUpperCase().replace(/[\s-]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0');
+  return `${symbols.slice(0, 4)}-${symbols.slice(4)}`;
+};
+
+// agent-registration v1: route availability (§1), model-visible allowlist (§7), permission
+// intersection (§5.3), legacy projection (§9) and migration/rollback steps.
+function checkAgentRegistration(fixture, schemas, check, validator, label) {
+  const exchanges = fixture.steps ? fixture.steps.map((step, index) => ({ ...step, label: `${label} step ${index}` }))
+    : [{ request: fixture.request, response: fixture.response, client: fixture.client, label }];
+  const flags = { ENVOI_AGENT_REGISTRATION_V2: true, ENVOI_INSTALLATIONS_V2: true, ENVOI_AUTHENTICATED_REST_ROUTE: false, ...fixture.flags };
+  const core = flags.ENVOI_AGENT_REGISTRATION_V2 && flags.ENVOI_INSTALLATIONS_V2;
+  for (const { request, response, client, label: stepLabel } of exchanges) {
+    if (request.schema) check(validator(request.schema), request.body, `${stepLabel} request`);
+    if (fixture.steps) {
+      check(validator(response.schema), response.body, `${stepLabel} response`);
+      checkCodedError(response, client, schemas, stepLabel);
+    }
+    const body = response.body;
+    if (client.modelVisible) {
+      const allowed = Object.keys(schemas['x-model-visible'].allowed);
+      for (const key of Object.keys(client.modelVisible)) assert.ok(allowed.includes(key), `${stepLabel}: ${key} is not model-visible`);
+      assert.doesNotMatch(JSON.stringify(client.modelVisible), /envoi_(?:agent_|mcp_read_|enroll_|reg_)|PLACEHOLDER|"(?:registration|installation|inbox|agent|credential_family)_/, `${stepLabel}: model-visible values carry no token or internal id`);
+      if ('verificationCode' in client.modelVisible) assert.equal(client.modelVisible.registrationStatus, 'pending_claim', `${stepLabel}: the code is shown only while pending`);
+      for (const summary of client.modelVisible.permissionSummary || []) assert.ok(Object.values(schemas['x-permission-labels']).includes(summary), `${stepLabel}: permission label ${summary}`);
+    }
+    if (response.schema === 'routeAvailability') {
+      assert.equal(body.registrationEnabled, flags.ENVOI_AGENT_REGISTRATION_V2, `${stepLabel}: registrationEnabled`);
+      assert.equal(body.installationsEnabled, flags.ENVOI_INSTALLATIONS_V2, `${stepLabel}: installationsEnabled`);
+      const route = { local_helper: core, authenticated_rest: core && flags.ENVOI_AUTHENTICATED_REST_ROUTE, remote_mcp_oauth: false, provider_connector: false };
+      for (const entry of body.routes) assert.equal(entry.available, route[entry.connectionRoute], `${stepLabel}: ${entry.connectionRoute} availability`);
+      for (const entry of body.deliveryModes) assert.equal(entry.available, core && ['envoi_link', 'poll', 'on_demand'].includes(entry.deliveryMode), `${stepLabel}: ${entry.deliveryMode} availability`);
+    }
+    if (response.schema === 'registrationCreated') {
+      assert.equal(body.claim.expiresAt, body.expiresAt, `${stepLabel}: the claim expires with the registration`);
+      assert.equal(client.modelVisible.expiresInSeconds, schemas['x-limits'].registrationTtlSeconds, `${stepLabel}: registration lifetime`);
+    }
+    if (response.schema === 'claimLookup') {
+      assert.equal(body.verificationCode, normalizeVerificationCode(request.body.verificationCode), `${stepLabel}: the code is normalized`);
+      assert.ok(body.grantablePermissions.every((permission) => body.requestedPermissions.includes(permission)), `${stepLabel}: only requested permissions are grantable`);
+    }
+    if (response.schema === 'claimApproved' && request.body.target.kind === 'new_agent') {
+      assert.ok(fixture.context?.requestedPermissions, `${stepLabel}: a new-agent approval names the requested permissions in context`);
+      const maximum = schemas.definitions.permission.enum;
+      const expected = request.body.grantedPermissions.filter((permission) => fixture.context.requestedPermissions.includes(permission) && maximum.includes(permission));
+      if (!expected.includes('receive_agent_messages')) expected.push('receive_agent_messages');
+      assert.deepEqual([...body.effectivePermissions].sort(), expected.sort(), `${stepLabel}: requested ∩ granted ∩ organization maximum, plus receive`);
+    }
+    if (response.schema === 'ownerInstallationList') {
+      const active = body.installations.filter((installation) => installation.status === 'active');
+      assert.ok(active.length <= 1, `${stepLabel}: at most one active installation`);
+      if (active.length) assert.equal(body.installations[0].status, 'active', `${stepLabel}: the active installation comes first`);
+      for (const installation of body.installations) assert.equal(installation.endedReason === null, installation.status === 'active', `${stepLabel}: endedReason is set exactly when ended`);
+    }
+    if (response.schema === 'agentStatusWithInstallation') checkPresence(body.presence, body.asOf, stepLabel);
+    if (response.schema === 'agentStatusWithInstallation') assert.equal('installation' in body, flags.ENVOI_INSTALLATIONS_V2, `${stepLabel}: installation appears only with ENVOI_INSTALLATIONS_V2`);
+  }
+  if (fixture.kind === 'migration') {
+    for (const family of fixture.stored.credentialFamilies.filter((entry) => !entry.revokedAt && !entry.installationId)) {
+      const projected = fixture.steps.flatMap((step) => step.response.body.installations || []).find((installation) => installation.legacy);
+      assert.ok(projected, `${label}: legacy family is projected`);
+      assert.equal(projected.id, `installation_legacy_${family.id.replace(/^credential_family_/, '')}`, `${label}: legacy installation id`);
+      assert.deepEqual([projected.connectionRoute, projected.deliveryMode, projected.runtime.type, projected.createdAt], ['local_helper', 'envoi_link', family.runtime, family.createdAt], `${label}: legacy projection`);
+    }
+  }
+}
+
 test('contract fixture registry has a versioned shape', async () => {
   const index = await readJson(path.join(root, 'index.json'));
   assert.equal(Number.isInteger(index.version) && index.version >= 1, true);
@@ -234,7 +320,8 @@ test('every fixture matches its declared schema', async () => {
       }
       if (['ownerAgentList', 'ownerAgent'].includes(fixture.response?.schema)) checkOwnerConnection(fixture, schemas, label);
       if (fixture.response?.schema === 'agentStatusWithPresence') checkPresence(fixture.response.body.presence, fixture.response.body.asOf, label);
-      assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
+      if (schemas['x-model-visible']) checkAgentRegistration(fixture, schemas, check, validator, label);
+      assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }
 });

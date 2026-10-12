@@ -1,0 +1,60 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-rate-limited",
+  "kind": "http",
+  "description": "The durable per-source registration limit is reached.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations",
+    "auth": "none",
+    "schema": "registrationCreateRequest",
+    "body": {
+      "requestedName": "Example agent",
+      "requestedLocalPart": "example",
+      "requestedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "connectionRoute": "local_helper",
+      "runtime": {
+        "type": "hermes",
+        "version": "0.9.0"
+      },
+      "deliveryCapabilities": {
+        "persistentProcess": true,
+        "outboundHttps": true,
+        "sse": true,
+        "webhook": false,
+        "scheduledPolling": false,
+        "a2a": false
+      },
+      "helper": {
+        "name": "envoi-link",
+        "version": "1.0.0"
+      }
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "errorEnvelope",
+    "headers": {
+      "retry-after": "1800"
+    },
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Too many setup attempts. Try again later.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 1800,
+      "reason": "registration_limit"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "UNCHANGED",
+    "retry": "after_retry_after",
+    "guidance": "service_busy",
+    "next": "Wait at least retry-after. Do not rotate source addresses to get around it."
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-approve-new-agent",
+  "kind": "http",
+  "description": "The owner approves a new agent. execute_cases was granted but not requested, so the intersection drops it. No credential reaches the browser.",
+  "context": {
+    "requestedPermissions": [
+      "send_agent_messages",
+      "receive_agent_messages"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "workspaceInboxId": "inbox_workspace_example",
+      "target": {
+        "kind": "new_agent",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "execute_cases"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimApproved",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "approved",
+      "target": "new_agent",
+      "agent": {
+        "id": "agent_example",
+        "name": "Example agent",
+        "address": "example@envoi.mail",
+        "status": "active"
+      },
+      "inboxId": "inbox_example",
+      "effectivePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "policyProfile": "default",
+      "activationExpiresAt": "2026-10-12T12:13:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show \"Approved. Waiting for your agent to finish setup.\" The agent shows Not connected (a5-presence) until activation."
+  }
+}
