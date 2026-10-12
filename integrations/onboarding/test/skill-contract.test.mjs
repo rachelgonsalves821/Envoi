@@ -35,18 +35,18 @@ test('the draft package includes readable skill, heartbeat, and JSON metadata', 
   assert.equal(metadata.skill, 'SKILL.md');
   assert.equal(metadata.heartbeat, 'HEARTBEAT.md');
   assert.equal(metadata.hostIntegrationGuide, 'HOST-INTEGRATION.md');
-  assert.equal(metadata.hostPlanSchema, 'host-plan-draft-1');
+  assert.equal(metadata.hostPlanSchema, 'host-plan-draft-2');
   assert.equal(metadata.onboardingContractStatus, 'unpublished');
   assert.match(await source(metadata.hostIntegrationGuide), /liveEnrollmentAllowed: false/);
   assert.equal(metadata.connectUrl, 'https://www.envoi-agents.com/connect');
   assert.equal(metadata.helperCommand, 'envoi-link connect https://www.envoi-agents.com');
   assert.ok(Array.isArray(metadata.requires));
-  for (const requirement of ['trusted-envoi-link-helper', 'authenticated-human-claim', 'verified-runtime-capabilities']) {
+  for (const requirement of ['one-reviewed-connection-route', 'private-operational-credential-storage', 'authenticated-human-claim', 'verified-runtime-capabilities']) {
     assert.ok(metadata.requires.includes(requirement), `missing ${requirement}`);
   }
 });
 
-test('the skill routes agent setup through the trusted helper and human claim', async () => {
+test('the skill routes agent setup through a reviewed connection and human claim', async () => {
   const skill = await source('SKILL.md');
   const frontmatter = skill.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   assert.ok(frontmatter, 'SKILL.md needs Agent Skills YAML frontmatter');
@@ -54,6 +54,9 @@ test('the skill routes agent setup through the trusted helper and human claim', 
   assert.match(frontmatter[1], /^description:\s*\S.+$/m);
   assert.match(frontmatter[1], /^name:\s*envoi-agent-connect\s*$/m);
   assert.match(skill, /envoi-link connect https:\/\/www\.envoi-agents\.com/);
+  for (const route of ['remote MCP', 'provider connector', 'authenticated REST']) {
+    assert.ok(skill.includes(route), `missing ${route} route`);
+  }
   assert.match(skill, /claim/i);
   assert.match(skill, /verif(?:y|ication)/i);
   assert.match(skill, /human|owner/i);

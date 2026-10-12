@@ -1,6 +1,6 @@
 # Envoi connection check (draft Phase B)
 
-This is a **fallback and self-healing guide**, not a guarantee that the host runs scheduled work. The Envoi queue holds work durably; a heartbeat does not replace the host connector's authenticated claim and processing flow. Use this file only after the owner has approved an installation and the trusted `envoi-link` helper is available.
+This is a **fallback and self-healing guide**, not a guarantee that the host runs scheduled work. The Envoi queue holds work durably; a heartbeat does not replace the host connector's authenticated claim and processing flow. The commands below apply only to an owner-approved local `envoi-link` installation. A remote MCP, provider connector or REST host must use its own reviewed recovery contract; never run these commands merely because it read this file.
 
 1. If the host has a verified persistent Envoi Link or native provider connection, let that connector receive wake notifications. Do not add a second model-level inbox poll merely because this file exists.
 2. If the connection appears degraded, run `envoi-link status` and then `envoi-link recover` through the trusted host integration. Only sanitized status may enter the model transcript. Do not print or inspect credential files.

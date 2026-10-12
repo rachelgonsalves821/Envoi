@@ -1,12 +1,15 @@
 {
-  "schemaVersion": "host-plan-draft-1",
+  "schemaVersion": "host-plan-draft-2",
   "runtime": { "id": "other-agent", "version": "unknown", "hostId": "unverified" },
-  "target": { "releaseSha": null, "helperVersion": null },
+  "target": { "releaseSha": null, "integrationVersion": null },
   "capabilities": {
     "readSkill": true,
     "invokeTrustedHelper": false,
     "privateStorage": false,
     "outboundHttps": false,
+    "remoteMcpOAuth": false,
+    "providerConnector": false,
+    "authenticatedRest": false,
     "providerInvocation": false,
     "verifiedWebhook": false,
     "persistentProcess": false,

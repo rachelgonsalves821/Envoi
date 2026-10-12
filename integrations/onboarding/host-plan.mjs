@@ -4,7 +4,14 @@ import { pathToFileURL } from 'node:url';
 
 const capabilityKeys = [
   'readSkill', 'invokeTrustedHelper', 'privateStorage', 'outboundHttps',
+  'remoteMcpOAuth', 'providerConnector', 'authenticatedRest',
   'providerInvocation', 'verifiedWebhook', 'persistentProcess', 'sse', 'scheduledPolling',
+];
+const connectionRoutes = [
+  ['local_helper', 'invokeTrustedHelper'],
+  ['remote_mcp_oauth', 'remoteMcpOAuth'],
+  ['provider_connector', 'providerConnector'],
+  ['authenticated_rest', 'authenticatedRest'],
 ];
 export const requiredChecks = [
   'privateActivation', 'secretIsolation', 'closedAppWake', 'canonicalReply',
@@ -25,17 +32,17 @@ function identifier(value) {
 
 function validateProfile(profile) {
   objectWithKeys(profile, ['schemaVersion', 'runtime', 'target', 'capabilities', 'evidence']);
-  if (profile.schemaVersion !== 'host-plan-draft-1') throw new Error('Unsupported host-plan schema');
+  if (profile.schemaVersion !== 'host-plan-draft-2') throw new Error('Unsupported host-plan schema');
   objectWithKeys(profile.runtime, ['id', 'version', 'hostId']);
   if (!Object.values(profile.runtime).every(identifier)
     || !['id', 'version', 'hostId'].every((key) => identifier(profile.runtime[key]))) {
     throw new Error('Invalid runtime identity');
   }
-  objectWithKeys(profile.target, ['releaseSha', 'helperVersion']);
+  objectWithKeys(profile.target, ['releaseSha', 'integrationVersion']);
   if (!(profile.target.releaseSha === null || (typeof profile.target.releaseSha === 'string'
     && /^[a-f0-9]{40}$/.test(profile.target.releaseSha)))
-    || !(profile.target.helperVersion === null || identifier(profile.target.helperVersion))) {
-    throw new Error('Invalid target release or helper');
+    || !(profile.target.integrationVersion === null || identifier(profile.target.integrationVersion))) {
+    throw new Error('Invalid target release or integration version');
   }
   objectWithKeys(profile.capabilities, capabilityKeys);
   if (!capabilityKeys.every((key) => typeof profile.capabilities[key] === 'boolean')) {
@@ -46,7 +53,7 @@ function validateProfile(profile) {
   }
   const seenModes = new Set();
   for (const evidence of profile.evidence) {
-    objectWithKeys(evidence, ['mode', 'runtime', 'releaseSha', 'helperVersion', 'checks']);
+    objectWithKeys(evidence, ['mode', 'runtime', 'releaseSha', 'integrationVersion', 'checks']);
     if (!modes.includes(evidence.mode) || seenModes.has(evidence.mode)) {
       throw new Error('Invalid or duplicate evidence mode');
     }
@@ -54,8 +61,8 @@ function validateProfile(profile) {
     objectWithKeys(evidence.runtime, ['id', 'version', 'hostId']);
     if (!['id', 'version', 'hostId'].every((key) => evidence.runtime[key] === profile.runtime[key])
       || typeof evidence.releaseSha !== 'string'
-      || !/^[a-f0-9]{40}$/.test(evidence.releaseSha) || !identifier(evidence.helperVersion)) {
-      throw new Error('Evidence must pin the runtime, host, release and helper');
+      || !/^[a-f0-9]{40}$/.test(evidence.releaseSha) || !identifier(evidence.integrationVersion)) {
+      throw new Error('Evidence must pin the runtime, host, release and integration');
     }
     objectWithKeys(evidence.checks, requiredChecks);
     for (const observation of Object.values(evidence.checks)) {
@@ -89,35 +96,41 @@ export function planHost(manifest, profile) {
   validateManifest(manifest);
   validateProfile(profile);
   const capabilities = profile.capabilities;
-  const missing = ['readSkill', 'invokeTrustedHelper', 'privateStorage', 'outboundHttps']
+  const missing = ['readSkill', 'privateStorage', 'outboundHttps']
     .filter((key) => !capabilities[key]);
+  const candidateRoutes = missing.length ? [] : connectionRoutes
+    .filter(([, capability]) => capabilities[capability]).map(([route]) => route);
+  if (!missing.length && !candidateRoutes.length) missing.push('supported_connection_route');
+  const selectedConnectionRoute = candidateRoutes[0] ?? null;
   const candidates = [];
-  if (missing.length === 0) {
+  if (selectedConnectionRoute) {
     if (capabilities.providerInvocation) candidates.push('provider');
     if (capabilities.verifiedWebhook) candidates.push('webhook');
-    if (capabilities.persistentProcess && capabilities.sse) candidates.push('envoi_link');
+    if (selectedConnectionRoute === 'local_helper' && capabilities.persistentProcess && capabilities.sse) candidates.push('envoi_link');
     if (capabilities.scheduledPolling) candidates.push('poll');
     candidates.push('on_demand');
   }
   const completeModes = candidates.filter((mode) => mode !== 'on_demand'
     && profile.evidence.some((entry) => entry.mode === mode
       && entry.releaseSha === profile.target.releaseSha
-      && entry.helperVersion === profile.target.helperVersion
+      && entry.integrationVersion === profile.target.integrationVersion
       && requiredChecks.every((key) => entry.checks[key]?.result === 'pass')));
   const selectedMode = missing.length ? null : completeModes[0] ?? 'on_demand';
   return {
-    schemaVersion: 'host-plan-draft-1',
+    schemaVersion: 'host-plan-draft-2',
     state: missing.length ? 'unsupported_host' : 'contract_blocked',
     liveEnrollmentAllowed: false,
-    selectedMode,
-    candidateModes: candidates,
+    selectedConnectionRoute,
+    candidateConnectionRoutes: candidateRoutes,
+    selectedDeliveryMode: selectedMode,
+    candidateDeliveryModes: candidates,
     reachability: selectedMode === null ? 'unavailable'
       : selectedMode === 'on_demand' ? 'on_demand' : 'unattended_evidence_recorded',
     evidenceAssessment: 'references_only_not_independent_host_verification',
     missingCapabilities: missing,
     nextAction: missing.length ? 'ask_owner_for_supported_trusted_host'
       : 'await_phase_b_contract_and_hosted_gate',
-    plannedHelperInvocation: missing.length ? null : {
+    plannedHelperInvocation: selectedConnectionRoute !== 'local_helper' ? null : {
       executable: 'envoi-link',
       args: ['connect', 'https://www.envoi-agents.com'],
     },
@@ -138,7 +151,7 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     if (process.argv.length !== 3) throw new Error('Usage: node integrations/onboarding/host-plan.mjs <host-profile.json>');
     process.stdout.write(`${JSON.stringify(await consumeHostPlan(process.argv[2]), null, 2)}\n`);
   } catch {
-    process.stderr.write('Host planning failed: supply a valid host-plan-draft-1 profile. No helper was executed.\n');
+    process.stderr.write('Host planning failed: supply a valid host-plan-draft-2 profile. No helper was executed.\n');
     process.exitCode = 1;
   }
 }

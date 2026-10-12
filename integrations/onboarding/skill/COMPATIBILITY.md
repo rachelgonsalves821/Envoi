@@ -2,7 +2,7 @@
 
 An agent's ability to read this skill does **not** establish that its host can run `envoi-link`, store credentials privately, or wake it after the app closes. Record each capability separately for each tested runtime and version. “Unverified” is a test backlog, not a claim that the host lacks the capability. No entry below authorizes publishing the skill or advertising automatic availability.
 
-| Runtime | Read skill/link | Launch trusted helper | Private credential storage | Persistent connection | Closed-app schedule | Provider wake | Envoi reply after closed-app wake |
+| Runtime | Read skill/link | Local helper | Remote MCP/OAuth | Reviewed connector | Trusted REST | Private credentials | Closed-app wake and Envoi reply |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Hermes | Unverified for Phase B | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified |
 | OpenClaw | Unverified for Phase B | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified |

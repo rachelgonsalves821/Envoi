@@ -11,24 +11,25 @@ const seed = JSON.parse(await readFile(new URL('../profiles/unverified-host.json
 function supportedProfile(runtime = 'arbitrary-agent') {
   const profile = structuredClone(seed);
   profile.runtime = { id: runtime, version: '1.0', hostId: 'test-host' };
-  profile.target = { releaseSha: 'a'.repeat(40), helperVersion: 'test-only' };
+  profile.target = { releaseSha: 'a'.repeat(40), integrationVersion: 'test-only' };
   for (const key of ['invokeTrustedHelper', 'privateStorage', 'outboundHttps']) profile.capabilities[key] = true;
   return profile;
 }
 
 function evidenceFor(profile, mode) {
   return {
-    mode, runtime: { ...profile.runtime }, releaseSha: 'a'.repeat(40), helperVersion: 'test-only',
+    mode, runtime: { ...profile.runtime }, releaseSha: 'a'.repeat(40), integrationVersion: 'test-only',
     checks: Object.fromEntries(requiredChecks.map((key) => [key, {
       result: 'pass', reference: `https://example.invalid/test-fixture/${key}`,
     }])),
   };
 }
 
-test('Muse, Instinct, Dots and arbitrary hosts use the same skill and helper plan', () => {
+test('Muse, Instinct, Dots and arbitrary hosts use the same route-neutral plan', () => {
   for (const runtime of ['muse', 'instinct', 'chatgpt-dots', 'arbitrary-agent', 'hermes', 'openclaw']) {
     const result = planHost(manifest, supportedProfile(runtime));
-    assert.equal(result.selectedMode, 'on_demand');
+    assert.equal(result.selectedConnectionRoute, 'local_helper');
+    assert.equal(result.selectedDeliveryMode, 'on_demand');
     assert.equal(result.liveEnrollmentAllowed, false);
     assert.deepEqual(result.plannedHelperInvocation, {
       executable: 'envoi-link', args: ['connect', 'https://www.envoi-agents.com'],
@@ -36,22 +37,60 @@ test('Muse, Instinct, Dots and arbitrary hosts use the same skill and helper pla
   }
 });
 
-test('reading a skill without a trusted helper or private storage cannot self-onboard', async () => {
+test('reading a skill without an approved connection route or private storage cannot self-onboard', async () => {
   const result = await consumeHostPlan(new URL('../profiles/unverified-host.json', import.meta.url));
   assert.equal(result.state, 'unsupported_host');
-  assert.equal(result.selectedMode, null);
+  assert.equal(result.selectedConnectionRoute, null);
+  assert.equal(result.selectedDeliveryMode, null);
   assert.equal(result.plannedHelperInvocation, null);
-  for (const key of ['readSkill', 'invokeTrustedHelper', 'privateStorage', 'outboundHttps']) {
+  for (const key of ['readSkill', 'privateStorage', 'outboundHttps']) {
     const profile = supportedProfile();
     profile.capabilities[key] = false;
     assert.deepEqual(planHost(manifest, profile).missingCapabilities, [key]);
   }
+  const profile = supportedProfile();
+  profile.capabilities.invokeTrustedHelper = false;
+  assert.deepEqual(planHost(manifest, profile).missingCapabilities, ['supported_connection_route']);
+});
+
+test('cloud-only MCP, reviewed provider and REST routes do not require a local helper', () => {
+  for (const [capability, route] of [
+    ['remoteMcpOAuth', 'remote_mcp_oauth'],
+    ['providerConnector', 'provider_connector'],
+    ['authenticatedRest', 'authenticated_rest'],
+  ]) {
+    const profile = supportedProfile(route);
+    profile.capabilities.invokeTrustedHelper = false;
+    profile.capabilities[capability] = true;
+    const result = planHost(manifest, profile);
+    assert.equal(result.state, 'contract_blocked');
+    assert.equal(result.liveEnrollmentAllowed, false);
+    assert.equal(result.selectedConnectionRoute, route);
+    assert.equal(result.selectedDeliveryMode, 'on_demand');
+    assert.equal(result.plannedHelperInvocation, null);
+  }
+});
+
+test('connection route and closed-app wake are independently assessed', () => {
+  const profile = supportedProfile('remote-mcp-host');
+  profile.capabilities.invokeTrustedHelper = false;
+  profile.capabilities.remoteMcpOAuth = true;
+  profile.capabilities.providerInvocation = true;
+  const before = planHost(manifest, profile);
+  assert.equal(before.selectedConnectionRoute, 'remote_mcp_oauth');
+  assert.equal(before.selectedDeliveryMode, 'on_demand');
+  profile.evidence = [evidenceFor(profile, 'provider')];
+  const after = planHost(manifest, profile);
+  assert.equal(after.selectedConnectionRoute, 'remote_mcp_oauth');
+  assert.equal(after.selectedDeliveryMode, 'provider');
+  assert.equal(after.liveEnrollmentAllowed, false);
+  assert.equal(after.plannedHelperInvocation, null);
 });
 
 test('capability flags and an open-chat reply do not establish unattended reachability', () => {
   const profile = supportedProfile();
   for (const key of Object.keys(profile.capabilities)) profile.capabilities[key] = true;
-  assert.equal(planHost(manifest, profile).selectedMode, 'on_demand');
+  assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'on_demand');
   const evidence = evidenceFor(profile, 'provider');
   evidence.checks.closedAppWake = { result: 'unproven' };
   profile.evidence = [evidence];
@@ -65,12 +104,12 @@ test('v3 section 45 priority considers only capable modes with complete evidence
   profile.evidence = ordered.map((mode) => evidenceFor(profile, mode));
   for (const mode of ordered) {
     const result = planHost(manifest, profile);
-    assert.equal(result.selectedMode, mode);
+    assert.equal(result.selectedDeliveryMode, mode);
     assert.equal(result.reachability, 'unattended_evidence_recorded');
     assert.equal(result.liveEnrollmentAllowed, false);
     profile.evidence.shift();
   }
-  assert.equal(planHost(manifest, profile).selectedMode, 'on_demand');
+  assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'on_demand');
 });
 
 test('restart, duplicate wake, pause, revocation and secret isolation are mandatory', () => {
@@ -82,12 +121,12 @@ test('restart, duplicate wake, pause, revocation and secret isolation are mandat
       if (result === 'missing') delete evidence.checks[check];
       else evidence.checks[check] = { result };
       profile.evidence = [evidence];
-      assert.equal(planHost(manifest, profile).selectedMode, 'on_demand', `${check}: ${result}`);
+      assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'on_demand', `${check}: ${result}`);
     }
   }
 });
 
-test('evidence is scoped to runtime version and host and requires release/helper pins', () => {
+test('evidence is scoped to runtime version and host and requires release/integration pins', () => {
   for (const key of ['id', 'version', 'hostId']) {
     const profile = supportedProfile();
     const evidence = evidenceFor(profile, 'provider');
@@ -95,7 +134,7 @@ test('evidence is scoped to runtime version and host and requires release/helper
     profile.evidence = [evidence];
     assert.throws(() => planHost(manifest, profile), /Evidence must pin/);
   }
-  for (const key of ['releaseSha', 'helperVersion']) {
+  for (const key of ['releaseSha', 'integrationVersion']) {
     const profile = supportedProfile();
     const evidence = evidenceFor(profile, 'provider');
     delete evidence[key];
@@ -108,18 +147,18 @@ test('SSE needs a persistent process and evidence cannot invent host capabilitie
   const profile = supportedProfile();
   profile.capabilities.sse = true;
   profile.evidence = [evidenceFor(profile, 'envoi_link')];
-  assert.equal(planHost(manifest, profile).selectedMode, 'on_demand');
+  assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'on_demand');
   profile.capabilities.persistentProcess = true;
-  assert.equal(planHost(manifest, profile).selectedMode, 'envoi_link');
+  assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'envoi_link');
 });
 
-test('evidence from a different Envoi release or helper cannot qualify the current host', () => {
-  for (const change of [{ releaseSha: 'b'.repeat(40) }, { helperVersion: 'new-helper' }, { releaseSha: null, helperVersion: null }]) {
+test('evidence from a different Envoi release or integration cannot qualify the current host', () => {
+  for (const change of [{ releaseSha: 'b'.repeat(40) }, { integrationVersion: 'new-integration' }, { releaseSha: null, integrationVersion: null }]) {
     const profile = supportedProfile();
     profile.capabilities.providerInvocation = true;
     profile.evidence = [evidenceFor(profile, 'provider')];
     profile.target = { ...profile.target, ...change };
-    assert.equal(planHost(manifest, profile).selectedMode, 'on_demand');
+    assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'on_demand');
   }
 });
 
