@@ -32,7 +32,7 @@ const operations = (fixture: any) => fixture.steps ?? [fixture];
 const modelKeys = [
   'schemaVersion', 'state', 'reachability', 'nextAction', 'claimUrl', 'verificationCode',
   'expiresInSeconds', 'registrationStatus', 'workspaceName', 'agentName', 'agentAddress',
-  'agentStatus', 'permissionSummary', 'connectionRoute', 'deliveryMode', 'guidance'
+  'agentStatus', 'permissionSummary', 'connectionRoute', 'deliveryMode', 'guidance', 'approverEmailHint'
 ];
 afterEach(() => {
   vi.restoreAllMocks(); vi.unstubAllGlobals();
@@ -40,13 +40,13 @@ afterEach(() => {
 });
 
 describe('agent-registration v1 independent client consumption', () => {
-  it('loads all 68 unique registered fixtures without copies and pins security/recovery limits', () => {
-    expect(fixtures).toHaveLength(68);
-    expect(new Set(fixtures.map(item => item.id)).size).toBe(68);
+  it('loads all 78 unique registered fixtures without copies and pins security/recovery limits', () => {
+    expect(fixtures).toHaveLength(78);
+    expect(new Set(fixtures.map(item => item.id)).size).toBe(78);
     expect(schemas['x-limits']).toMatchObject({
       registrationTtlSeconds: 600, activationWindowSeconds: 600, activationRecoverySeconds: 300,
-      pollAfterSeconds: 5, pollMinIntervalSeconds: 4, deleteRecordsAfterHours: 24,
-      registrationCreate: { perSourcePerHour: 10, pendingGlobalMax: 1000, maxBodyBytes: 4096, durable: true },
+      pollAfterSeconds: 5, pollMinIntervalSeconds: 4, deleteRecordsAfterHours: 24, deleteRecordsByHours: 25, ownerClaimListMax: 20, ownerInstallationEndedMax: 5,
+      registrationCreate: { perSourcePerHour: 10, perNetworkPerHour: 30, perWideNetworkPerHour: 100, pendingGlobalMax: 1000, maxBodyBytes: 4096, durable: true },
       claimFailures: { perHuman: 5, windowSeconds: 900, durable: true }, approvalsAwaitingActivationPerHuman: 3
     });
     expect([...Object.keys(schemas['x-model-visible'].serverDerived), ...Object.keys(schemas['x-model-visible'].helperDerived)].sort()).toEqual([...modelKeys].sort());
@@ -72,7 +72,7 @@ describe('agent-registration v1 independent client consumption', () => {
         expect(policy).toBeDefined();
         expect(client).toMatchObject({
           lifecycle: policy.lifecycle, retry: policy.retry,
-          guidance: policy.guidanceByReason?.[response.body.reason] ?? policy.guidance
+          guidance: policy.guidanceByHelperState?.[client.helperState] ?? policy.guidanceByReason?.[response.body.reason] ?? policy.guidance
         });
         if (code === 'RATE_LIMITED') expect(Number(response.headers['retry-after'])).toBe(response.body.retryAfterSeconds);
       }
@@ -91,6 +91,7 @@ describe('agent-registration v1 independent client consumption', () => {
         if (key === 'claimUrl') expect(value).toBe(body.claim.url);
         if (key === 'verificationCode') { expect(body.status).toBe('pending_claim'); expect(value).toBe(body.claim.verificationCode); }
         if (key === 'registrationStatus') expect(value).toBe(response.schema === 'activated' ? 'activated' : body.status);
+        if (key === 'approverEmailHint') expect(value).toBe(body.approverEmailHint);
         if (key === 'workspaceName') expect(value).toBe(body.workspaceName);
         if (key === 'agentName') expect(value).toBe(body.agent.name);
         if (key === 'agentAddress') expect(value).toBe(body.agent.address);
@@ -125,7 +126,7 @@ describe('agent-registration v1 independent client consumption', () => {
     expect(fixture.response.body).not.toHaveProperty('bootstrapToken');
   });
 
-  it.each([['activation-created', 'activation-recovered'], ['claim-approve-new-agent', 'claim-approve-replayed'], ['claim-reject', 'claim-reject-replayed']])('%s recovery/replay returns exactly the original %s body', (original, replay) => {
+  it.each([['activation-created', 'activation-recovered'], ['claim-approve-new-agent', 'claim-approve-replayed'], ['claim-reject', 'claim-reject-replayed'], ['claim-approve-new-agent', 'claim-approve-replayed-after-activation'], ['claim-withdraw', 'claim-withdraw-replayed']])('%s recovery/replay returns exactly the original %s body', (original, replay) => {
     expect(byId(replay).response.body).toEqual(byId(original).response.body);
     expect(byId(replay).request.body).toEqual(byId(original).request.body);
   });
@@ -139,6 +140,83 @@ describe('agent-registration v1 independent client consumption', () => {
     expect(byId('activation-created').client.lifecycle).toBe('ACTIVATING');
     expect(byId('agent-status-installation').client.lifecycle).toBe('CONNECTED');
     expect(byId('activation-paused-agent').response.body.agent.status).toBe('paused');
+  });
+
+  it('an approved poll requires local confirmation, with a server-derived approver hint', () => {
+    const approved = byId('registration-approved');
+    expect(approved.client).toMatchObject({ lifecycle: 'CONFIRMING', retry: 'none', modelVisible: { state: 'confirm_approval' } });
+    expect(approved.response.body.approverEmailHint).toBe('o***@example.com');
+    expect(approved.client.modelVisible).toMatchObject({
+      approverEmailHint: approved.response.body.approverEmailHint,
+      workspaceName: approved.response.body.workspaceName,
+      agentName: approved.response.body.agent.name,
+      agentAddress: approved.response.body.agent.address
+    });
+    expect(approved.client.modelVisible).not.toHaveProperty('verificationCode');
+    expect(approved.client.next).toMatch(/confirm.*approver.*workspace.*agent.*permissions/i);
+    const missingHint = structuredClone(approved.response.body);
+    delete missingHint.approverEmailHint;
+    expect(validator('registrationStatus')(missingHint)).toBe(false);
+  });
+
+  it('an unresolved activation with a deleted token asks the owner to check agents, never auto-registers', () => {
+    const unresolved = byId('activation-token-invalid-unresolved');
+    expect(unresolved.request.body).toEqual(byId('activation-created').request.body);
+    expect(unresolved.client).toMatchObject({
+      helperState: 'activation_unresolved', lifecycle: 'REGISTRATION_ENDED', retry: 'none',
+      guidance: 'check_owner_agents', modelVisible: { state: 'registration_ended', guidance: 'check_owner_agents' }
+    });
+    const policy = schemas['x-codes'].REGISTRATION_TOKEN_INVALID.bySurface.helper;
+    expect(policy.guidanceByHelperState.activation_unresolved).toBe('check_owner_agents');
+    expect(byId('registration-token-invalid').client.guidance).toBe('register_again');
+  });
+
+  it('invalid activation preserves the approval and asks for a helper update', () => {
+    const invalid = byId('activation-invalid');
+    expect(invalid.response).toMatchObject({ status: 400, body: { code: 'ACTIVATION_INVALID' } });
+    expect(invalid.client).toMatchObject({ lifecycle: 'UNCHANGED', retry: 'none', guidance: 'update_helper' });
+    expect(invalid.request.invalidAgainst).toBe('activationRequest');
+    expect(byId('claim-reject-after-approve').response.body.code).toBe('CLAIM_ALREADY_DECIDED');
+  });
+
+  it('co-managers are represented explicitly and the owner claim list admits 20 but rejects 21', () => {
+    const claims = byId('owner-claims').response.body.claims;
+    expect(claims.map((claim: any) => claim.approvedByMe)).toEqual([true, false, true]);
+    expect(claims.map((claim: any) => claim.approvedAt)).toEqual(claims.map((claim: any) => claim.approvedAt).sort().reverse());
+    const body = { claims: Array.from({ length: 20 }, (_, index) => ({
+      ...claims[0], registrationId: 'registration_boundary_' + index
+    })) };
+    validate('ownerClaimList', body);
+    body.claims.push({ ...claims[0], registrationId: 'registration_boundary_20' });
+    expect(validator('ownerClaimList')(body)).toBe(false);
+    const missingAttribution = structuredClone(claims[0]);
+    delete missingAttribution.approvedByMe;
+    expect(validator('ownerClaimList')({ claims: [missingAttribution] })).toBe(false);
+  });
+
+  it('restart fixtures preserve the approved unfrozen identity after an installation revoke', () => {
+    const restart = byId('reconnect-after-installation-revoke');
+    expect(restart.kind).toBe('restart');
+    expect(restart.stored.agents[0]).toMatchObject({ onboardingStatus: 'approved', status: 'active' });
+    expect(restart.steps[0].response.body.installations[0]).toMatchObject({ status: 'ended', endedReason: 'revoked' });
+    const approval = restart.steps[1];
+    expect(approval.request.body.target).toMatchObject({ kind: 'existing_agent', replacesInstallationId: null });
+    expect(approval.response).toMatchObject({ status: 200, body: { target: 'existing_agent', agent: { id: restart.stored.agents[0].id } } });
+  });
+
+  it('the corrected canonical legacy projection keeps all active families and only five newest ended ones', () => {
+    const fixture = byId('owner-installations-legacy-several');
+    const rows = operations(fixture)[0].response.body.installations;
+    expect(rows.filter((row: any) => row.status === 'active')).toHaveLength(2);
+    expect(rows.filter((row: any) => row.status === 'ended')).toHaveLength(5);
+    expect(rows).toHaveLength(7);
+    expect(schemas.definitions.ownerInstallationList.properties.installations).not.toHaveProperty('maxItems');
+    expect(fixture.stored.credentialFamilies.filter((family: any) => family.revokedAt)).toHaveLength(6);
+    for (const state of ['active', 'ended']) {
+      const times = rows.filter((row: any) => row.status === state).map((row: any) => state === 'active' ? row.activatedAt : row.endedAt);
+      expect(times).toEqual([...times].sort().reverse());
+    }
+    validate('ownerInstallationList', legacyList(25));
   });
 
   it('all four bootstrap no-access probes preserve helper semantics, not connector refresh semantics', () => {
