@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Setup', 'ModelTurn')]
     [string]$Action,
-    [string]$Provider = 'openai-codex',
+    [string]$Provider,
     [string]$HermesHome = 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-disposable-hermes\home'
 )
 
@@ -29,8 +29,12 @@ try {
         Write-Host 'If offered to import Codex CLI credentials, decline; do not copy credentials or paste them into chat.'
         & $hermesCli setup model
     } else {
-        Write-Host 'This operator-run model request uses the explicitly selected provider and may consume account usage.'
-        & $hermesCli chat --provider $Provider --oneshot --ignore-rules --max-turns 1 --run-budget 60 -q 'Reply exactly READY. Do not call tools.'
+        Write-Host 'This operator-run model request uses the disposable profile configuration unless a provider override was supplied, and may consume account usage.'
+        $chatArguments = @('chat', '--oneshot', '--ignore-rules', '--max-turns', '1', '--run-budget', '60', '-q', 'Reply exactly READY. Do not call tools.')
+        if ($Provider) {
+            $chatArguments += @('--provider', $Provider)
+        }
+        & $hermesCli @chatArguments
     }
     if ($LASTEXITCODE -ne 0) {
         throw 'Hermes did not complete successfully. Keep diagnostic output private; report only the failure category.'

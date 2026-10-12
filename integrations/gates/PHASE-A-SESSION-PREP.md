@@ -14,14 +14,14 @@ Prepared on 2026-10-12 for Rachel and Je. **Preparation only: no hosted behavior
 | Staging source/release/bundle/profile/CLI | All five #73 preflight checks PASS against that candidate |
 | Hosted connector SHA-256 | `cb1aab5757d89bacaac425395b630eaeb956ff724c6fd257946d6ecd44f7873a` |
 | Runner tests | 5/5 PASS outside the Windows sandbox; loopback networking was denied inside it |
-| Model-provider access | UNPROVEN: profile provider is `auto`, no profile OAuth auth store exists; a Codex login file exists, but that alone proves neither usable access nor a model turn |
+| Model-provider access | Nous login completed privately; configured provider `nous`, model `stealth/space-bunny-alpha`. A real model turn remains UNPROVEN; auth-file presence alone does not prove usable inference access |
 | Time and attendance | UNCONFIRMED; use America/Toronto and obtain both participants' agreement before scheduling |
 
 The read-only preflight does not prove provider access or any of the 23 observations. Re-run it immediately before the session; if staging has changed, agree on a new exact candidate and do not combine results across SHAs.
 
 ## Private provider preparation by Rachel
 
-Use the existing provider account through a separate login session for this disposable profile. OpenAI Codex is a candidate supported by this Hermes installation, not a verified provider selection. Do not import or copy the Codex CLI's rotating credentials, read them aloud, or post account details. The installed Hermes login implementation itself recommends a separate login rather than importing CLI credentials.
+Use the existing provider account through a separate login session for this disposable profile. Rachel selected Nous and completed its private login. Do not import or copy another application's rotating credentials, read them aloud, or post account details. The installed Hermes Codex login implementation recommends a separate login rather than importing CLI credentials if that provider is selected later.
 
 Run the prepared script from a private PowerShell terminal:
 
@@ -29,15 +29,15 @@ Run the prepared script from a private PowerShell terminal:
 & 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-gate\integrations\gates\prepare-disposable-hermes.ps1' -Action Setup
 ```
 
-Select the intended provider in the wizard, complete its private login/consent, and decline any offer to import Codex CLI credentials. If using another provider, complete its supported private setup without sending a key to an agent. Existing provider login does not guarantee quota or entitlement; do not accept billing changes merely to make this test pass.
+Select the intended provider in the wizard and complete its private login/consent. Do not repeat setup merely because a previous example named a different provider. Existing provider login does not guarantee quota or entitlement; do not accept billing changes merely to make this test pass.
 
 Then run one ordinary real model turn, substituting the provider selected above:
 
 ```powershell
-& 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-gate\integrations\gates\prepare-disposable-hermes.ps1' -Action ModelTurn -Provider openai-codex
+& 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-gate\integrations\gates\prepare-disposable-hermes.ps1' -Action ModelTurn
 ```
 
-The turn should produce `READY` without tool calls. Record only provider name, successful turn yes/no, runtime version and timestamp. Do not use `--safe-mode`, which ignores profile configuration. This script does not enroll an agent, start a Gateway, change the regular profile, or submit a gate result.
+The helper uses the model/provider saved by setup. An explicit `-Provider` override is optional, not required. The turn should produce `READY` without tool calls. Record only provider name, successful turn yes/no, runtime version and timestamp. Do not use `--safe-mode`, which ignores profile configuration. This script does not enroll an agent, start a Gateway, change the regular profile, or submit a gate result.
 
 ## Responsibilities and session agenda
 
