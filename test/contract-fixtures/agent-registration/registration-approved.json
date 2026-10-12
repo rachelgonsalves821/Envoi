@@ -31,7 +31,8 @@
         "send_agent_messages",
         "receive_agent_messages"
       ],
-      "activationExpiresAt": "2026-10-12T12:13:00.000Z"
+      "activationExpiresAt": "2026-10-12T12:13:00.000Z",
+      "approverEmailHint": "o***@example.com"
     }
   },
   "client": {
@@ -48,8 +49,9 @@
       "permissionSummary": [
         "send agent messages",
         "receive agent messages"
-      ]
+      ],
+      "approverEmailHint": "o***@example.com"
     },
-    "next": "Ask the human beside the host to confirm the workspace, agent and permissions. On confirmation, persist a new activationId privately, then POST /api/agent-installations/activate before activationExpiresAt. If the human declines, delete the bootstrap token and do not activate; the approval expires."
+    "next": "Ask the human beside the host to confirm the approver, workspace, agent and permissions, preferably in a host-native prompt. On confirmation, persist a new activationId privately, then POST /api/agent-installations/activate before activationExpiresAt. If the human declines, delete the bootstrap token and do not activate; the approval expires."
   }
 }

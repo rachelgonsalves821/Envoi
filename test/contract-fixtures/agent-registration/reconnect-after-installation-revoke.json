@@ -19,7 +19,8 @@
     "agents": [
       {
         "id": "agent_example",
-        "onboardingStatus": "approved"
+        "onboardingStatus": "approved",
+        "status": "active"
       }
     ],
     "credentialFamilies": [

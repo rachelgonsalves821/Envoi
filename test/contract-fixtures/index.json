@@ -173,6 +173,7 @@
         "activation-token-invalid-unresolved.json",
         "activation-withdrawn.json",
         "agent-status-installation.json",
+        "agent-status-legacy-address.json",
         "bootstrap-expired-no-send.json",
         "bootstrap-pending-no-mcp.json",
         "bootstrap-pending-no-status.json",

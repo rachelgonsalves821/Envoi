@@ -40,10 +40,11 @@
         {
           "registrationId": "registration_colleague",
           "status": "approved",
-          "target": "new_agent",
+          "target": "existing_agent",
           "agent": {
-            "name": "Colleague agent",
-            "address": "colleague@envoi.mail"
+            "id": "agent_colleague",
+            "name": "Quarterly research and procurement assistant for Quarterly research and procure…",
+            "address": "quarterly-research-and-procurement-assistant-v24@envoi.mail"
           },
           "effectivePermissions": [
             "send_agent_messages",

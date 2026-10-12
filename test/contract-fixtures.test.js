@@ -178,7 +178,7 @@ function modelVisibleSources(response, schemas) {
     case 'registrationCreated':
       return { registrationStatus: 'pending_claim', claimUrl: body.claim.url, verificationCode: body.claim.verificationCode, expiresInSeconds: schemas['x-limits'].registrationTtlSeconds };
     case 'registrationStatus':
-      return { registrationStatus: body.status, workspaceName: body.workspaceName, agentName: body.agent?.name, agentAddress: body.agent?.address, permissionSummary: body.effectivePermissions && labels(body.effectivePermissions) };
+      return { registrationStatus: body.status, workspaceName: body.workspaceName, approverEmailHint: body.approverEmailHint, agentName: body.agent?.name, agentAddress: body.agent?.address, permissionSummary: body.effectivePermissions && labels(body.effectivePermissions) };
     case 'activated':
       return { registrationStatus: 'activated', agentName: body.agent.name, agentAddress: body.agent.address, agentStatus: body.agent.status, connectionRoute: body.installation.connectionRoute, deliveryMode: body.installation.deliveryMode, permissionSummary: labels(body.effectivePermissions) };
     case 'agentStatusWithInstallation':
@@ -243,6 +243,16 @@ function rateLimitReasons(method, pathname) {
   return [undefined];
 }
 
+// agent-registration §8: codes that belong to one route only.
+const activatePath = (method, pathname) => method === 'POST' && pathname === '/api/agent-installations/activate';
+const codeRoutes = {
+  REGISTRATION_INVALID: (method, pathname) => method === 'POST' && pathname === '/api/agent-registrations',
+  ROUTE_NOT_AVAILABLE: (method, pathname) => method === 'POST' && pathname === '/api/agent-registrations',
+  ACTIVATION_INVALID: activatePath, ACTIVATION_ID_REQUIRED: activatePath, ACTIVATION_REPLAY: activatePath,
+  DELIVERY_MODE_NOT_AVAILABLE: activatePath, REGISTRATION_PENDING: activatePath, REGISTRATION_ENDED: activatePath,
+  INSTALLATION_NOT_FOUND: (method, pathname) => /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/installations\//.test(pathname)
+};
+
 // agent-registration §2: a bootstrap token authenticates only registration status and activation.
 const bootstrapRoute = (method, pathname) => (method === 'GET' && /^\/api\/agent-registrations\/[^/]+$/.test(pathname)) || (method === 'POST' && pathname === '/api/agent-installations/activate');
 
@@ -277,6 +287,7 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
     if (request.auth === 'bootstrap' && gate && !bootstrapRoute(request.method, pathname)) {
       assert.equal(code, 'AUTHENTICATION_REQUIRED', `${stepLabel}: a bootstrap token elsewhere is an unrecognized bearer (§2)`);
     }
+    if (codeRoutes[code]) assert.ok(codeRoutes[code](request.method, pathname), `${stepLabel}: ${code} belongs to another route than ${request.method} ${pathname}`);
     if (code === 'RATE_LIMITED') assert.ok(rateLimitReasons(request.method, pathname).includes(body.reason), `${stepLabel}: RATE_LIMITED reason ${body.reason} fits ${request.method} ${pathname}`);
     if (!code && response.status < 300) assert.equal(response.headers?.['cache-control'], cacheControl(response.schema), `${stepLabel}: cache-control for ${response.schema}`);
     if (gate && request.method === 'POST' && pathname === '/api/agent-registrations' && request.schema) {
@@ -373,7 +384,23 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
   }
   if (fixture.stored) checkInstallationDerivation(fixture, schemas, label);
   // §6.5, §12: after a restart, every step of a restart fixture still succeeds (nothing was frozen).
-  if (fixture.kind === 'restart') for (const step of exchanges) assert.ok(step.response.status < 300, `${step.label}: succeeds after the restart`);
+  if (fixture.kind === 'restart') checkRestart(fixture, exchanges, label);
+}
+
+// agent-registration §6.5, §12: after a restart nothing was frozen. Every step succeeds, the stored agent is
+// live and approved, and an existing_agent approval attaches to it, replacing its newest active installation.
+function checkRestart(fixture, exchanges, label) {
+  for (const step of exchanges) assert.ok(step.response.status < 300, `${step.label}: succeeds after the restart`);
+  const approvals = exchanges.filter((step) => step.response.schema === 'claimApproved' && step.request.body.target.kind === 'existing_agent');
+  assert.ok(approvals.length, `${label}: a restart fixture re-attaches an existing agent`);
+  for (const step of approvals) {
+    const { agentId, replacesInstallationId } = step.request.body.target;
+    const agent = fixture.stored.agents.find((entry) => entry.id === agentId);
+    assert.ok(agent && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status), `${step.label}: the stored agent is approved and not frozen`);
+    const active = fixture.stored.credentialFamilies.filter((family) => family.agentId === agentId && !family.revokedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const newest = active[0] ? (active[0].installationId || `installation_legacy_${active[0].id.replace(/^credential_family_/, '')}`) : null;
+    assert.equal(replacesInstallationId, newest, `${step.label}: replacesInstallationId is the newest active installation, or null`);
+  }
 }
 
 // agent-registration §6.4 and §9: every listed installation is derived from the stored families.
@@ -551,4 +578,13 @@ test('agent-registration fixtures agree across cases', async () => {
   const unresolved = await load('activation-token-invalid-unresolved');
   const createdActivation = await load('activation-created');
   assert.deepEqual(unresolved.request, createdActivation.request, 'the unresolved retry is the identical activation request');
+  assert.equal(unresolved.client.helperState, 'activation_unresolved', 'the unresolved retry declares its helper state');
+  const several = await load('owner-installations-legacy-several');
+  const limits = schemas['x-limits'];
+  assert.ok(several.stored.credentialFamilies.filter((family) => family.revokedAt).length > limits.ownerInstallationEndedMax, 'the legacy fixture stores more ended families than the list shows');
+  assert.ok(several.stored.credentialFamilies.filter((family) => !family.revokedAt).length >= 2, 'the legacy fixture has several active families');
+  assert.equal(schemas.definitions.ownerClaimList.properties.claims.maxItems, limits.ownerClaimListMax, 'claim list bound matches x-limits');
+  assert.ok(limits.deleteRecordsByHours > limits.deleteRecordsAfterHours, 'records are deleted after they are kept');
+  const create = limits.registrationCreate;
+  assert.ok(create.perSourcePerHour <= create.perNetworkPerHour && create.perNetworkPerHour <= create.perWideNetworkPerHour, 'creation limits widen with the network');
 });
