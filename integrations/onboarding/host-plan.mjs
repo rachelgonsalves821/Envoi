@@ -17,7 +17,7 @@ export const requiredChecks = [
   'privateActivation', 'secretIsolation', 'closedAppWake', 'canonicalReply',
   'restartRecovery', 'duplicateWake', 'pause', 'revocation',
 ];
-const modes = ['provider', 'webhook', 'envoi_link', 'poll', 'on_demand'];
+const modes = ['provider', 'webhook', 'envoi_link', 'poll', 'on_demand', 'a2a'];
 
 function objectWithKeys(value, keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -88,6 +88,12 @@ function validateManifest(manifest) {
   if (manifest?.name !== 'envoi-agent-connect' || manifest.status !== 'draft'
     || manifest.published !== false || manifest.skill !== 'SKILL.md'
     || manifest.heartbeat !== 'HEARTBEAT.md'
+    || manifest.coreContract?.id !== 'agent-registration'
+    || manifest.coreContract?.version !== 1
+    || manifest.coreContract?.publishedSha !== '36f7943646f245ec1ac96bec706690fa370f3780'
+    || manifest.availabilitySource !== 'GET /api/onboarding/routes'
+    || JSON.stringify(manifest.offeredConnectionRoutes) !== '[]'
+    || JSON.stringify(manifest.offeredDeliveryModes) !== '[]'
     || manifest.connectUrl !== 'https://www.envoi-agents.com/connect'
     || manifest.helperCommand !== 'envoi-link connect https://www.envoi-agents.com'
     || JSON.stringify(manifest.connectionRoutes) !== JSON.stringify(connectionRoutes.map(([route]) => route))
@@ -96,9 +102,56 @@ function validateManifest(manifest) {
   }
 }
 
-export function planHost(manifest, profile) {
+function availableFromServer(snapshot) {
+  if (snapshot === null) return null;
+  objectWithKeys(snapshot, [
+    'asOf', 'contract', 'registrationEnabled', 'installationsEnabled', 'routes', 'deliveryModes',
+  ]);
+  if (snapshot.contract?.id !== 'agent-registration' || snapshot.contract?.version !== 1
+    || typeof snapshot.registrationEnabled !== 'boolean'
+    || typeof snapshot.installationsEnabled !== 'boolean'
+    || !Array.isArray(snapshot.routes) || !Array.isArray(snapshot.deliveryModes)) {
+    throw new Error('Invalid route availability');
+  }
+  const expectedRoutes = connectionRoutes.map(([route]) => route);
+  const routes = snapshot.routes.map((item) => {
+    objectWithKeys(item, ['connectionRoute', 'available']);
+    if (typeof item.available !== 'boolean') throw new Error('Invalid route availability');
+    return item.connectionRoute;
+  });
+  const delivered = snapshot.deliveryModes.map((item) => {
+    objectWithKeys(item, ['deliveryMode', 'available']);
+    if (typeof item.available !== 'boolean') throw new Error('Invalid route availability');
+    return item.deliveryMode;
+  });
+  if (routes.length !== expectedRoutes.length || new Set(routes).size !== routes.length
+    || !routes.every((route) => expectedRoutes.includes(route))
+    || delivered.length !== modes.length || new Set(delivered).size !== delivered.length
+    || !delivered.every((mode) => modes.includes(mode))) {
+    throw new Error('Invalid route availability');
+  }
+  const registrationOn = snapshot.registrationEnabled && snapshot.installationsEnabled;
+  const routeMap = new Map(snapshot.routes.map((item) => [item.connectionRoute, item.available]));
+  const modeMap = new Map(snapshot.deliveryModes.map((item) => [item.deliveryMode, item.available]));
+  if (routeMap.get('local_helper') !== registrationOn
+    || (routeMap.get('authenticated_rest') && !registrationOn)
+    || routeMap.get('remote_mcp_oauth') || routeMap.get('provider_connector')
+    || modeMap.get('envoi_link') !== registrationOn
+    || modes.some((mode) => mode !== 'envoi_link' && modeMap.get(mode))) {
+    throw new Error('Invalid route availability');
+  }
+  return {
+    routes: new Set(snapshot.routes.filter((item) => item.available).map((item) => item.connectionRoute)),
+    modes: new Set(snapshot.deliveryModes.filter((item) => item.available).map((item) => item.deliveryMode)),
+  };
+}
+
+export function planHost(manifest, profile, routeAvailability = null) {
   validateManifest(manifest);
   validateProfile(profile);
+  // Only the public server response may offer a route. A host profile is a claim,
+  // and a successful wake probe does not enable a mode that Envoi has disabled.
+  const offered = availableFromServer(routeAvailability);
   const capabilities = profile.capabilities;
   const missing = ['readSkill', 'privateStorage', 'outboundHttps']
     .filter((key) => !capabilities[key]);
@@ -109,7 +162,8 @@ export function planHost(manifest, profile) {
     const candidates = [];
     if (capabilities.providerInvocation) candidates.push('provider');
     if (capabilities.verifiedWebhook) candidates.push('webhook');
-    if (route === 'local_helper' && capabilities.persistentProcess && capabilities.sse) candidates.push('envoi_link');
+    if (['local_helper', 'authenticated_rest'].includes(route)
+      && capabilities.persistentProcess && capabilities.sse) candidates.push('envoi_link');
     if (capabilities.scheduledPolling) candidates.push('poll');
     candidates.push('on_demand');
     return candidates;
@@ -119,10 +173,14 @@ export function planHost(manifest, profile) {
       && entry.releaseSha === profile.target.releaseSha
       && entry.integrationVersion === profile.target.integrationVersion
       && requiredChecks.every((key) => entry.checks[key]?.result === 'pass')));
-  const selectedConnectionRoute = candidateRoutes.find((route) => completeModesForRoute(route).length) ?? candidateRoutes[0] ?? null;
-  const candidates = selectedConnectionRoute ? modesForRoute(selectedConnectionRoute) : [];
-  const completeModes = selectedConnectionRoute ? completeModesForRoute(selectedConnectionRoute) : [];
-  const selectedMode = missing.length ? null : completeModes[0] ?? 'on_demand';
+  const offeredRoutes = offered ? candidateRoutes.filter((route) => offered.routes.has(route)) : [];
+  const selectedConnectionRoute = offeredRoutes.find((route) => completeModesForRoute(route)
+    .some((mode) => offered.modes.has(mode))) ?? offeredRoutes[0] ?? null;
+  const candidates = selectedConnectionRoute ? modesForRoute(selectedConnectionRoute)
+    .filter((mode) => offered.modes.has(mode)) : [];
+  const completeModes = selectedConnectionRoute ? completeModesForRoute(selectedConnectionRoute)
+    .filter((mode) => offered.modes.has(mode)) : [];
+  const selectedMode = completeModes[0] ?? candidates[0] ?? null;
   return {
     schemaVersion: 'host-plan-draft-2',
     state: missing.length ? 'unsupported_host' : 'contract_blocked',
@@ -132,11 +190,13 @@ export function planHost(manifest, profile) {
     selectedDeliveryMode: selectedMode,
     candidateDeliveryModes: candidates,
     reachability: selectedMode === null ? 'unavailable'
-      : selectedMode === 'on_demand' ? 'on_demand' : 'unattended_evidence_recorded',
+      : completeModes.includes(selectedMode) ? 'unattended_evidence_recorded' : 'not_verified_closed_app',
     evidenceAssessment: 'references_only_not_independent_host_verification',
     missingCapabilities: missing,
     nextAction: missing.length ? 'ask_owner_for_supported_trusted_host'
-      : 'await_phase_b_contract_and_hosted_gate',
+      : offered === null ? 'await_server_route_availability'
+        : selectedConnectionRoute === null || selectedMode === null ? 'route_or_delivery_not_available'
+          : 'await_phase_b_server_and_hosted_gate',
     plannedHelperInvocation: selectedConnectionRoute !== 'local_helper' ? null : {
       executable: 'envoi-link',
       args: ['connect', 'https://www.envoi-agents.com'],

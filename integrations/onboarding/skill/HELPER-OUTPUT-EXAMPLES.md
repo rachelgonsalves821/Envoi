@@ -1,79 +1,82 @@
-# Proposed model-visible `envoi-link` output
+# Model-visible `envoi-link` output — `agent-registration` v1 review
 
-**Design handoff for Lane A A-3.1; not an approved server or helper contract.** These examples define the *maximum kind* of information a model may see while helping its human connect. Je should choose and publish the actual field names, state transitions, response codes, and publication flags in the Phase B contract; Lane B must then reconcile the helper and skill against that approved contract. Nothing here enables a live `/connect` route or server-dependent helper call.
+These are safe **client projections** of the published [agent-registration v1 contract](../../../docs/architecture/agent-native-v2/handoffs.md) §7 and its canonical fixtures at `36f7943646f245ec1ac96bec706690fa370f3780`. They are not a working helper or a deployed `/connect` page. The trusted helper privately owns the bootstrap token, registration ID, activation ID, credential persistence, refresh and retry. Its model-visible channel is an explicit allowlist, never a server response dump. Unknown fields are omitted.
 
-The helper privately owns registration, bootstrap, approval polling, activation, operational credentials, renewal, and durable work reconciliation. Its model-visible channel should be a separate allowlisted projection, never a dump of an HTTP response or diagnostic object. Omit unknown fields by default. Do not include a bootstrap token, activation code, access or refresh token, private key, HTTP Authorization header, session cookie, raw request/response body, stack trace, filesystem secret path, or case/file contents. The short verification code is the **only** code the model may display, and only during an unexpired pending claim.
+The model may see only `schemaVersion`, `state`, `reachability`, `nextAction`, `claimUrl`, `verificationCode`, `expiresInSeconds`, `registrationStatus`, `workspaceName`, `agentName`, `agentAddress`, `agentStatus`, `permissionSummary`, `connectionRoute`, `deliveryMode` and `guidance`. Server-derived values must match their source. Permission labels come only from the fixture registry's `x-permission-labels`. Never show a bootstrap or operational token, activation ID, registration/installation/agent/inbox ID, HTTP header, cookie, raw body, storage path, stack trace or file contents. A verification code is visible only for an unexpired `pending_claim` registration.
 
-Illustrative pending output:
+After registration, the helper stores `bootstrapToken` privately and may show this projection of `registration-created`:
 
 ```json
 {
-  "schemaVersion": "draft-1",
+  "schemaVersion": "1",
   "state": "pending_approval",
+  "registrationStatus": "pending_claim",
   "claimUrl": "https://www.envoi-agents.com/claim",
   "verificationCode": "F7KQ-PM4D",
   "expiresInSeconds": 600,
-  "nextAction": "Ask the human to sign in, compare this code, and approve or reject. No agent access exists yet."
+  "nextAction": "Open the claim page, sign in, type this code, and approve or reject. No agent access exists yet."
 }
 ```
 
-The helper must print the claim URL/code once per registration and reuse the same pending registration on retry. An expired or rejected attempt should print a sanitized state and a documented recovery action, **without** repeating an expired code or silently enrolling a new identity.
+The owner **types** the code at `/claim`; the URL never carries it. Pending-status polling uses the saved registration and `pollAfterSeconds` (5 seconds; less than 4 seconds gets `RATE_LIMITED`). The helper may show the saved code again only if the human asks before expiry. It never silently creates another registration after a timeout, rejection, withdrawal or expiry.
 
-Illustrative verified installation output:
+An approved registration may show the workspace and the exact permission labels before private activation:
 
 ```json
 {
-  "schemaVersion": "draft-1",
+  "registrationStatus": "approved",
+  "workspaceName": "Example workspace",
+  "agentName": "Example agent",
+  "agentAddress": "example@envoi.mail",
+  "permissionSummary": ["send agent messages", "receive agent messages"]
+}
+```
+
+Approval is **not** connectivity. The helper persists `activationId` before calling activation, repeats the *same* ID if the response is lost, saves returned credentials atomically and privately, and clears the bootstrap state. The recovery window is 300 seconds. An activation response remains `ACTIVATING` until authenticated `GET /api/agent/status` succeeds. The model may then see:
+
+```json
+{
+  "schemaVersion": "1",
   "state": "connected",
-  "agentAddress": "example@agents.envoi.mail",
+  "agentAddress": "example@envoi.mail",
+  "agentStatus": "active",
+  "connectionRoute": "local_helper",
   "deliveryMode": "envoi_link",
-  "reachability": "verified_while_host_running",
-  "permissionSummary": ["receive agent messages", "send agent messages"],
-  "nextAction": "The runtime can receive work while this verified host connection runs. Closed-app wake has not been established."
-}
-```
-
-`connected` must require an authenticated check by the helper. It does **not** mean a provider can wake a closed app. `reachability` may become `verified_closed_app` only after a timed, unattended test against that specific host and connector version. If the host cannot keep a process, accept a webhook, or run a verified schedule, say `on_demand`:
-
-```json
-{
-  "schemaVersion": "draft-1",
-  "state": "connected",
-  "agentAddress": "example@agents.envoi.mail",
-  "deliveryMode": "on_demand",
   "reachability": "not_verified_closed_app",
-  "nextAction": "Envoi will retain incoming work. Open this agent or invoke its supported connector to process it."
+  "nextAction": "Connected while this host runs. Closed-app wake has not been tested."
 }
 ```
 
-Illustrative paused/recovery output:
+`connected` means that authenticated status call worked. It never proves unattended wake. `verified_closed_app` requires separate host-owned evidence for the exact runtime and connector version. If an existing paused agent is reattached, it stays paused:
 
 ```json
 {
-  "schemaVersion": "draft-1",
+  "schemaVersion": "1",
   "state": "paused",
-  "agentAddress": "example@agents.envoi.mail",
-  "nextAction": "Work may queue, but this installation cannot claim or reply until its human resumes it. Reconnect does not resume it."
+  "agentAddress": "example@envoi.mail",
+  "agentStatus": "paused",
+  "nextAction": "The owner must resume this agent before it can claim or reply. Reconnection did not resume it."
 }
 ```
 
+When recovery has expired or authority has ended, show only a safe state and contract guidance:
+
 ```json
 {
-  "schemaVersion": "draft-1",
   "state": "needs_reconnect",
-  "agentAddress": "example@agents.envoi.mail",
-  "nextAction": "Ask the human to reconnect this identity through the approved flow. Do not create a replacement identity or expose a credential."
+  "guidance": "owner_reconnect",
+  "nextAction": "Ask the owner to reconnect the same agent. Do not create a replacement identity."
 }
 ```
 
 ```json
 {
-  "schemaVersion": "draft-1",
   "state": "revoked",
-  "nextAction": "Stop all work. This installation has no operational authority. A new human decision is required."
+  "guidance": "owner_reconnect",
+  "nextAction": "Stop work. Ask the owner for a new approval decision."
 }
 ```
 
-For a temporary outage, use `degraded` with a short safe reason category such as `network_unavailable` and a bounded retry status; never print an internal URL, proxy trace, unredacted exception, or bearer material. Unknown server states should be shown as `needs_help`, with no claim of connectivity. The human-facing claim screen may show richer organizational context, but the model-visible output stays within this allowlist.
+`poll` and `on_demand` are **unavailable in v1**, even if the host reports those capabilities. Remote MCP/OAuth, provider connector, webhook and provider delivery wait for A-3.1b or later contracts. `/connect`, `skill.json` and the helper must offer only routes and modes whose `GET /api/onboarding/routes` entries have `available: true`; clients do not read server flags. Unknown states become `needs_help` without a connectivity claim.
 
-Contract questions for Je: (1) exact wire states and error-code mapping; (2) whether `connected` refers to authenticated helper access or verified delivery, and how those are separated; (3) verification-code expiry and retry rules; (4) which permission labels may be disclosed to the model; (5) which flag permits publishing `/connect`, and whether the server exposes that flag to the UI; (6) the evidence required before `verified_closed_app` can be emitted. Lane B will implement only after publication and human approval of the matching contract.
+The six earlier questions are answered by `handoffs.md` §7: wire states/codes in §§4 and 8; `connected` after authenticated status, separate from closed-app reachability; ten-minute code expiry and conditional re-display; labels only from `x-permission-labels`; `/connect` publication from the routes endpoint; and no `verified_closed_app` evidence in v1. Live calls still require the A-4.x server and the hosted Phase A gate.

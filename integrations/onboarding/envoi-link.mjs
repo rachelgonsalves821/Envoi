@@ -16,7 +16,7 @@ export function draftConnect(args) {
     schemaVersion: 'draft-1',
     state: 'contract_blocked',
     liveEnrollmentAllowed: false,
-    nextAction: 'Wait for an approved Phase B registration and installation contract. No Envoi access was granted.',
+    nextAction: 'Wait for the Phase B server, the hosted Phase A gate, and an offered connection route. No Envoi access was granted.',
   };
 }
 

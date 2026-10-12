@@ -36,7 +36,14 @@ test('the draft package includes readable skill, heartbeat, and JSON metadata', 
   assert.equal(metadata.heartbeat, 'HEARTBEAT.md');
   assert.equal(metadata.hostIntegrationGuide, 'HOST-INTEGRATION.md');
   assert.equal(metadata.hostPlanSchema, 'host-plan-draft-2');
-  assert.equal(metadata.onboardingContractStatus, 'unpublished');
+  assert.deepEqual(metadata.coreContract, {
+    id: 'agent-registration', version: 1,
+    publishedSha: '36f7943646f245ec1ac96bec706690fa370f3780',
+  });
+  assert.equal(metadata.availabilitySource, 'GET /api/onboarding/routes');
+  assert.deepEqual(metadata.offeredConnectionRoutes, []);
+  assert.deepEqual(metadata.offeredDeliveryModes, []);
+  assert.ok(metadata.deliveryModes.includes('a2a'));
   assert.match(await source(metadata.hostIntegrationGuide), /liveEnrollmentAllowed: false/);
   assert.equal(metadata.connectUrl, 'https://www.envoi-agents.com/connect');
   assert.equal(metadata.helperCommand, 'envoi-link connect https://www.envoi-agents.com');
@@ -104,21 +111,24 @@ test('package does not claim Phase B or live wake has already passed', async () 
 
 test('proposed helper examples expose only allowlisted model-visible fields', async () => {
   const document = await source('HELPER-OUTPUT-EXAMPLES.md');
-  assert.match(document, /not an approved server or helper contract/i);
+  assert.match(document, /agent-registration.*v1 review/i);
   const examples = [...document.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g)]
     .map((match) => JSON.parse(match[1]));
   assert.equal(examples.length, 6);
   const allowed = new Set([
     'schemaVersion', 'state', 'claimUrl', 'verificationCode', 'expiresInSeconds',
-    'nextAction', 'agentAddress', 'deliveryMode', 'reachability', 'permissionSummary',
+    'nextAction', 'agentAddress', 'agentName', 'agentStatus', 'deliveryMode',
+    'connectionRoute', 'reachability', 'permissionSummary', 'workspaceName',
+    'registrationStatus', 'guidance',
   ]);
   for (const example of examples) {
-    assert.equal(example.schemaVersion, 'draft-1');
+    if (example.schemaVersion) assert.equal(example.schemaVersion, '1');
     for (const key of Object.keys(example)) assert.ok(allowed.has(key), `model output field ${key} is not allowlisted`);
     assert.doesNotMatch(JSON.stringify(example), /(?:access|refresh|bootstrap|activation|private)(?:Token|Key|Code)|Authorization|Bearer/i);
   }
   assert.equal(examples.filter((example) => 'verificationCode' in example).length, 1);
   assert.deepEqual(examples.map((example) => example.state), [
-    'pending_approval', 'connected', 'connected', 'paused', 'needs_reconnect', 'revoked',
+    'pending_approval', undefined, 'connected', 'paused', 'needs_reconnect', 'revoked',
   ]);
+  assert.ok(examples.every((example) => example.deliveryMode !== 'on_demand'));
 });
