@@ -14,8 +14,8 @@ Prepared on 2026-10-12 for Rachel and Je. **Preparation only: no hosted behavior
 | Staging source/release/bundle/profile/CLI | All five #73 preflight checks PASS against that candidate |
 | Hosted connector SHA-256 | `cb1aab5757d89bacaac425395b630eaeb956ff724c6fd257946d6ecd44f7873a` |
 | Runner tests | 5/5 PASS outside the Windows sandbox; loopback networking was denied inside it |
-| Model-provider access | Nous login completed privately; configured provider `nous`, model `stealth/space-bunny-alpha`. A real model turn remains UNPROVEN; auth-file presence alone does not prove usable inference access |
-| Time and attendance | UNCONFIRMED; use America/Toronto and obtain both participants' agreement before scheduling |
+| Model-provider access | Nous login completed privately, but the selected `stealth/space-bunny-alpha` returned HTTP 404. The authenticated live catalog omitted it and listed `upstage/solar-mini4:free` at zero prompt/completion prices. Select a currently listed model privately and rerun; a completed real model turn remains UNPROVEN |
+| Time and attendance | DEFERRED by Rachel: not ready to schedule yet. No appointment or invitation created; obtain both participants' agreement when ready, using America/Toronto |
 
 The read-only preflight does not prove provider access or any of the 23 observations. Re-run it immediately before the session; if staging has changed, agree on a new exact candidate and do not combine results across SHAs.
 
@@ -42,6 +42,8 @@ The helper uses the model/provider saved by setup. An explicit `-Provider` overr
 For this text-only check the helper explicitly selects `context_engine`, an installed Hermes toolset that resolves to zero model tools in the verified runtime. This avoids loading the profile's optional image/browser/audio tools and does not alter its persistent tool settings. If an earlier invocation asks to install `fal`, cancel that invocation rather than installing an unrelated feature, then rerun the corrected helper. A later Envoi tool-access check is a separate gate step; this zero-tool model turn does not prove Envoi tool availability.
 
 The earlier operator run hit `Iteration budget reached (1/1)` and exited unsuccessfully; it is not readiness evidence. In this Hermes version `max-turns` counts API iterations, including completion/recovery work, not distinct user prompts. The corrected single-prompt probe permits at most three API iterations with a 120-second run budget. A partial response or nonzero exit remains a failure; only a completed ordinary model reply establishes readiness. The run budget is Hermes-managed, not a guarantee that an in-flight provider request is forcibly terminated at exactly 120 seconds. Do not resume the earlier session to substitute for a fresh completed probe.
+
+The subsequent Nous request returned a nonretryable model-not-found error. Do not keep retrying the missing curated model. The live authenticated `/v1/models` catalog was read without changing credentials or running inference: HTTP 200, 423 models, no `stealth/space-bunny-alpha`; `upstage/solar-mini4:free` was listed with zero prompt/completion prices. Catalog presence and pricing do not prove inference entitlement or a completed turn. Run the Setup action to choose a currently listed model, preserve the existing Nous login, then run ModelTurn without a vendor override. Do not accept a subscription or billing change to pass this check.
 
 ## Responsibilities and session agenda
 
