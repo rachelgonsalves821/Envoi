@@ -2,10 +2,12 @@ import { Container, getContainer } from '@cloudflare/containers';
 import { env as runtimeEnv } from 'cloudflare:workers';
 import {
   createForwardedRequest,
+  environmentFingerprint,
   isAllowedHostname,
   releaseIsStale,
   selectEnvironment,
   serviceUnavailableResponse,
+  settingsChanged,
   withNoStoreHeaders
 } from './router.js';
 
@@ -34,7 +36,20 @@ export class SinaloaContainer extends Container {
     return true;
   }
 
-  onStart() {
+  // Dashboard edits make a new Worker version with the same release SHA, and a running
+  // container keeps the settings it started with. Restart once when they differ.
+  async restartForSettings() {
+    const current = await environmentFingerprint(this.envVars);
+    const started = await this.ctx.storage.get('startedSettingsFingerprint');
+    if (!settingsChanged(started, current, await this.ctx.storage.get('restartedForSettings'))) return false;
+    await this.ctx.storage.put('restartedForSettings', current);
+    console.log('Restarting Envoi container for changed settings');
+    await this.stop();
+    return true;
+  }
+
+  async onStart() {
+    await this.ctx.storage.put('startedSettingsFingerprint', await environmentFingerprint(this.envVars));
     console.log('Envoi container started');
   }
 
@@ -63,7 +78,8 @@ async function probeContainer(env) {
   }
   const reported = await response.json().catch(() => null);
   const expected = selectEnvironment(env, ['ENVOI_RELEASE_SHA']).ENVOI_RELEASE_SHA;
-  if (releaseIsStale(expected, reported?.releaseSha)) await container.restartForRelease(expected);
+  if (releaseIsStale(expected, reported?.releaseSha) && await container.restartForRelease(expected)) return;
+  await container.restartForSettings();
 }
 
 export default {
