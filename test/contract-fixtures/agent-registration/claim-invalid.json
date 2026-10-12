@@ -14,6 +14,10 @@
       "origin": "https://www.envoi-agents.com"
     },
     "invalidAgainst": "claimApproveRequest",
+    "invalidBecause": {
+      "keyword": "required",
+      "instancePath": ""
+    },
     "body": {
       "verificationCode": "F7KQ-PM4D",
       "target": {

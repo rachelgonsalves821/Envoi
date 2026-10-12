@@ -9,6 +9,10 @@
     "path": "/api/agent-registrations",
     "auth": "none",
     "invalidAgainst": "registrationCreateRequest",
+    "invalidBecause": {
+      "keyword": "additionalProperties",
+      "instancePath": ""
+    },
     "body": {
       "requestedName": "Example agent",
       "requestedLocalPart": "example",

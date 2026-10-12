@@ -9,8 +9,12 @@
     "path": "/api/agent-registrations",
     "auth": "none",
     "invalidAgainst": "registrationCreateRequest",
+    "invalidBecause": {
+      "keyword": "not",
+      "instancePath": "/requestedName"
+    },
     "body": {
-      "requestedName": "Example‮tnega",
+      "requestedName": "Example\u202Etnega",
       "requestedLocalPart": "example",
       "requestedPermissions": [
         "send_agent_messages",

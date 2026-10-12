@@ -12,6 +12,10 @@
       "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
     },
     "invalidAgainst": "activationRequest",
+    "invalidBecause": {
+      "keyword": "required",
+      "instancePath": ""
+    },
     "body": {
       "registrationId": "registration_example",
       "deliveryMode": "envoi_link"

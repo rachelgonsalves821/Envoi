@@ -33,11 +33,11 @@
     "surface": "helper",
     "lifecycle": "REGISTRATION_ENDED",
     "retry": "none",
-    "guidance": "owner_withdrew",
+    "guidance": "approval_ended",
     "next": "Stop. Ask the human before registering again.",
     "modelVisible": {
       "state": "registration_ended",
-      "guidance": "owner_withdrew"
+      "guidance": "approval_ended"
     }
   }
 }

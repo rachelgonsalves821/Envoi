@@ -1,0 +1,48 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-already-decided",
+  "kind": "http",
+  "description": "The same human approves again with a different body after approving.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "CLAIM_ALREADY_DECIDED",
+      "error": "CLAIM_ALREADY_DECIDED",
+      "message": "You already approved this agent. Withdraw it and have the agent register again to change the decision.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "withdraw_first",
+    "next": "Offer Withdraw; the agent then registers again with a new code."
+  }
+}

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-withdraw-not-found",
   "kind": "http",
-  "description": "Withdrawing an approval that already activated (or was never this human's).",
+  "description": "Withdrawing an approval that already activated, or whose target this human cannot manage.",
   "request": {
     "method": "POST",
     "path": "/api/agent-claims/registration_earlier/withdraw",

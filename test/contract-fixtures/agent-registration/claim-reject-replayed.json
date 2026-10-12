@@ -1,0 +1,36 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-reject-replayed",
+  "kind": "http",
+  "description": "The browser lost the reject response; the same human retries with the same code. It replays the 200 and does not count as a failure.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/reject",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimRejectRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimRejected",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "rejected"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Same as claim-reject."
+  }
+}
