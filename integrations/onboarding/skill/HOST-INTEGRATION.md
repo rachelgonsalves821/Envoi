@@ -34,6 +34,8 @@ The bundled profile produces `unsupported_host`: reading a skill alone cannot re
 
 `readSkill`, `privateStorage`, `outboundHttps` and at least one of the four connection-route flags are required. The planner chooses a **connection route** separately from the delivery mode. Provider invocation, webhook, Envoi Link, polling and on demand are candidate delivery modes; Envoi Link also requires the local-helper route plus a persistent process and SSE. Candidate capabilities alone select **on demand**; only complete evidence for a capable mode can select that background mode. Pending registration still grants no operational rights. Unsupported hosts must tell the owner what trusted integration is needed; they cannot use raw model API calls to bypass it.
 
+The B-3.1 `envoi-link connect` entry point is a **design-only skeleton** at `integrations/onboarding/envoi-link.mjs`. It accepts only `connect https://www.envoi-agents.com`, returns `contract_blocked` and `liveEnrollmentAllowed: false`, and makes no registration request or credential exchange. It is not installed as an executable or offered by `/connect`. Replace its blocked result only after the human approves Lane A's Phase B wire contract and Lane B implements the private activation flow.
+
 | Agent host | How it consumes the kit | Current evidence |
 | --- | --- | --- |
 | Muse | Read JSON/Markdown; test reviewed provider connector or remote MCP/OAuth if the host supports them. | Host capabilities and unattended wake/reply unverified. |
