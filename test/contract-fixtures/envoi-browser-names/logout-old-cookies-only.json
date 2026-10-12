@@ -1,0 +1,50 @@
+{
+  "contract": "envoi-browser-names",
+  "version": 1,
+  "id": "logout-old-cookies-only",
+  "description": "Logout from a browser holding only pre-cutover cookies: no envoi_session, so the CSRF gate is skipped and there is no session to revoke.",
+  "kind": "http",
+  "oldNamesInRequest": true,
+  "request": {
+    "method": "POST",
+    "path": "/api/auth/logout",
+    "headers": {
+      "origin": "https://www.envoi-agents.com",
+      "cookie": "sinaloa_session=PLACEHOLDER; sinaloa_csrf=PLACEHOLDER",
+      "x-sinaloa-csrf": "PLACEHOLDER"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "logoutResult",
+    "body": {
+      "revoked": false,
+      "logoutUrl": null
+    },
+    "headers": {
+      "set-cookie": [
+        "envoi_session=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0",
+        "envoi_csrf=; Path=/; SameSite=Strict; Secure; Max-Age=0",
+        "sinaloa_session=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0",
+        "sinaloa_csrf=; Path=/; SameSite=Strict; Secure; Max-Age=0",
+        "sinaloa_workos_flow=; Path=/api/auth/workos; HttpOnly; SameSite=Lax; Secure; Max-Age=0"
+      ]
+    }
+  },
+  "cookies": {
+    "set": [],
+    "cleared": [
+      "envoi_session",
+      "envoi_csrf",
+      "sinaloa_session",
+      "sinaloa_csrf",
+      "sinaloa_workos_flow"
+    ]
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "sign_in_again",
+    "next": "Show signed out."
+  }
+}

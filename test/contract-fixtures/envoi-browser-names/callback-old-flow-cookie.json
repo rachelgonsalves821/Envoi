@@ -1,0 +1,45 @@
+{
+  "contract": "envoi-browser-names",
+  "version": 1,
+  "id": "callback-old-flow-cookie",
+  "description": "A sign-in started before the cutover returns holding only the old flow cookie. Current behavior is a raw 401; after N2-server it redirects to the sign-in error.",
+  "kind": "http",
+  "oldNamesInRequest": true,
+  "request": {
+    "method": "GET",
+    "path": "/api/auth/workos/callback?code=PLACEHOLDER&state=PLACEHOLDER",
+    "headers": {
+      "cookie": "sinaloa_workos_flow=PLACEHOLDER"
+    }
+  },
+  "response": {
+    "status": 302,
+    "schema": "redirect",
+    "body": null,
+    "headers": {
+      "location": "/?auth_error=sign_in_failed",
+      "cache-control": "no-store",
+      "set-cookie": [
+        "envoi_workos_flow=; Path=/api/auth/workos; HttpOnly; SameSite=Lax; Secure; Max-Age=0",
+        "sinaloa_session=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0",
+        "sinaloa_csrf=; Path=/; SameSite=Strict; Secure; Max-Age=0",
+        "sinaloa_workos_flow=; Path=/api/auth/workos; HttpOnly; SameSite=Lax; Secure; Max-Age=0"
+      ]
+    }
+  },
+  "cookies": {
+    "set": [],
+    "cleared": [
+      "envoi_workos_flow",
+      "sinaloa_session",
+      "sinaloa_csrf",
+      "sinaloa_workos_flow"
+    ]
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "sign_in_again",
+    "next": "Show the sign-in error and let the user start sign-in again."
+  }
+}

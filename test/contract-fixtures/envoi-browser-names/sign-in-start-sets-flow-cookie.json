@@ -1,0 +1,38 @@
+{
+  "contract": "envoi-browser-names",
+  "version": 1,
+  "id": "sign-in-start-sets-flow-cookie",
+  "description": "WorkOS sign-in start sets the Envoi flow cookie and clears the old one.",
+  "kind": "http",
+  "request": {
+    "method": "GET",
+    "path": "/api/auth/workos/sign-in"
+  },
+  "response": {
+    "status": 302,
+    "schema": "redirect",
+    "body": null,
+    "headers": {
+      "location": "https://api.workos.com/user_management/authorize?PLACEHOLDER",
+      "cache-control": "no-store",
+      "set-cookie": [
+        "envoi_workos_flow=PLACEHOLDER; Path=/api/auth/workos; HttpOnly; SameSite=Lax; Secure; Max-Age=600",
+        "sinaloa_workos_flow=; Path=/api/auth/workos; HttpOnly; SameSite=Lax; Secure; Max-Age=0"
+      ]
+    }
+  },
+  "cookies": {
+    "set": [
+      "envoi_workos_flow"
+    ],
+    "cleared": [
+      "sinaloa_workos_flow"
+    ]
+  },
+  "client": {
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Follow the redirect to WorkOS."
+  }
+}

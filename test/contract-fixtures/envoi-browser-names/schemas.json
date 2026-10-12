@@ -1,0 +1,274 @@
+{
+  "$id": "envoi-browser-names/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "envoi-browser-names v1 schemas. x-browser-cookies is handoffs.md envoi-browser-names §1 (SameSite shown at its default); x-browser-headers is §2.",
+  "x-browser-cookies": [
+    {
+      "old": "sinaloa_session",
+      "new": "envoi_session",
+      "path": "/",
+      "httpOnly": true,
+      "sameSite": "Lax",
+      "domain": "WORKOS_COOKIE_DOMAIN when set"
+    },
+    {
+      "old": "sinaloa_csrf",
+      "new": "envoi_csrf",
+      "path": "/",
+      "httpOnly": false,
+      "sameSite": "Strict",
+      "domain": "never"
+    },
+    {
+      "old": "sinaloa_workos_flow",
+      "new": "envoi_workos_flow",
+      "path": "/api/auth/workos",
+      "httpOnly": true,
+      "sameSite": "Lax",
+      "domain": "never"
+    }
+  ],
+  "x-browser-headers": {
+    "x-sinaloa-csrf": "x-envoi-csrf"
+  },
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "NOT_APPLICABLE"
+      ]
+    },
+    "authConfig": {
+      "type": "object",
+      "required": [
+        "provider",
+        "hosted",
+        "csrfCookieName"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "enum": [
+            "local",
+            "workos"
+          ]
+        },
+        "hosted": {
+          "type": "boolean"
+        },
+        "csrfCookieName": {
+          "const": "envoi_csrf"
+        },
+        "inviteOnly": {
+          "type": "boolean"
+        },
+        "signInPath": {
+          "type": "string"
+        },
+        "signUpPath": {
+          "type": "string"
+        },
+        "assurance": {
+          "type": "string"
+        },
+        "phoneVerification": {
+          "type": "boolean"
+        },
+        "totp": {
+          "type": "boolean"
+        }
+      }
+    },
+    "plainError": {
+      "description": "The existing { error } shape for browser routes outside the a3 envelope (a3 §1).",
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "redirect": {
+      "description": "A redirect has no body.",
+      "type": "null"
+    },
+    "logoutResult": {
+      "type": "object",
+      "required": [
+        "revoked"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "revoked": {
+          "type": "boolean"
+        },
+        "logoutUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "phoneVerified": {
+      "type": "object",
+      "required": [
+        "human",
+        "expiresAt",
+        "secondFactorRequired"
+      ],
+      "not": {
+        "required": [
+          "sessionCookieValue"
+        ]
+      },
+      "properties": {
+        "human": {
+          "type": "object"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "secondFactorRequired": {
+          "type": "boolean"
+        },
+        "mfaSetupRequired": {}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "request",
+        "response",
+        "cookies",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "envoi-browser-names"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "http"
+        },
+        "oldNamesInRequest": {
+          "type": "boolean"
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "method",
+            "path"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "GET",
+                "POST"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "headers": {
+              "type": "object"
+            },
+            "body": {}
+          }
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "status",
+            "schema",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "type": "integer"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "headers": {
+              "type": "object"
+            }
+          }
+        },
+        "cookies": {
+          "type": "object",
+          "required": [
+            "set",
+            "cleared"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "set": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cleared": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "client": {
+          "type": "object",
+          "required": [
+            "lifecycle",
+            "retry",
+            "guidance",
+            "next"
+          ],
+          "properties": {
+            "lifecycle": {
+              "$ref": "#/definitions/lifecycle"
+            },
+            "retry": {
+              "enum": [
+                "none"
+              ]
+            },
+            "guidance": {
+              "enum": [
+                "none",
+                "sign_in_again",
+                "reload_browser"
+              ]
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

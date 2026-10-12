@@ -842,3 +842,197 @@ Removed agents are not listed, so they need no state.
 - Add `connection?` (optional) and `resumedAt?` to the agent type in `frontend/src/types.ts`.
 - The onboarding step "Observe runtime activity" (`frontend/src/model.ts`) may use `connection.presence.lastProcessedAt`.
 - Connector doctor may print `presence` from `GET /api/agent/status`.
+
+## envoi-browser-names v1
+
+**Contract:** `envoi-browser-names`, version 1. **Status:** approved by the human on 2026-10-11 (`CONTRACT-APPROVED envoi-browser-names v1 @1b88e1d`, build board #34) after Lane B `CONTRACT-ACK` (consuming tests in PR #66). Frozen: changes need a new version.
+
+**Fixtures:** [`test/contract-fixtures/envoi-browser-names/`](../../../test/contract-fixtures/envoi-browser-names/).
+
+**Owner:** Lane A. **Consumer:** Lane B (frontend).
+
+**Implemented by** two tasks, integrated together on **one SHA**, like N1:
+- N2-server (Lane A);
+- N2-client (Lane B).
+
+This contract covers the browser names of Envoi naming phase N2 ([`docs/architecture/envoi-naming-plan.md`](../envoi-naming-plan.md)). It is a separate contract id, so `envoi-names` v1 stays approved and unchanged.
+
+**Decision (human, 2026-10-09; unchanged): a clean cutover.**
+- There are no `sinaloa_*` aliases.
+- The server never accepts an old cookie or header *value*, so it cannot half-accept one.
+- It only detects old cookie *names*, so it can clear them (§1.3).
+
+**Scope.** Only the names a browser sends or receives.
+- The other N2 work needs no client change and is tracked in the naming plan: monitoring events (PR #63), configuration keys and docs.
+- Object-storage metadata, scanner request headers and other internal identifiers move with N3 (human decision, 2026-10-10).
+
+### 1. Cookies
+
+| Old | New | `Path` | `HttpOnly` | `SameSite` | `Domain` | Set by |
+| --- | --- | --- | --- | --- | --- | --- |
+| `sinaloa_session` | `envoi_session` | `/` | yes | `ENVOI_COOKIE_SAMESITE`, default `Lax` | `WORKOS_COOKIE_DOMAIN` when set | Successful WorkOS callback; local phone verify |
+| `sinaloa_csrf` | `envoi_csrf` | `/` | no (the browser reads it) | `Strict` | never | Same as the session; `GET /api/auth/me` when missing |
+| `sinaloa_workos_flow` | `envoi_workos_flow` | `/api/auth/workos` | yes | `Lax` | never | WorkOS sign-in start (`Max-Age` = flow minutes × 60, default 600) |
+
+`Secure` is added in production or with `ENVOI_COOKIE_SECURE=true`. Session and CSRF `Max-Age` is `ENVOI_SESSION_HOURS` × 3600 (default 86400). All of these attributes are unchanged from today.
+
+#### 1.1 Configuration
+
+**Overrides keep working.** `WORKOS_COOKIE_NAME` and `ENVOI_CSRF_COOKIE_NAME` (or its alias `SINALOA_CSRF_COOKIE_NAME`, until N2-config-2 removes it) still override the names.
+
+**Old names are refused.** Startup, in every mode (`src/production-config.js` and the development startup check), refuses two things:
+- an override that names a retired cookie (`sinaloa_session`, `sinaloa_csrf` or `sinaloa_workos_flow`);
+- a session cookie name equal to the CSRF cookie name.
+- Otherwise the new default would never apply.
+- Worse, the clearing rule below would delete the live session at sign-in.
+
+**N2-server also updates `.env.example`,** which sets both overrides to the old names today, and the tests that do the same.
+
+**Human check.** Confirm that no staging or beta dashboard variable sets `WORKOS_COOKIE_NAME`, `ENVOI_CSRF_COOKIE_NAME` or `SINALOA_CSRF_COOKIE_NAME`. This is on the N2-config dashboard checklist.
+
+#### 1.2 The CSRF cookie name in `GET /api/auth/config`
+
+`GET /api/auth/config` reports `csrfCookieName: "envoi_csrf"`. That holds for the WorkOS and local providers alike. The frontend keeps reading the name from there, and its fallback becomes `envoi_csrf`.
+
+#### 1.3 Old cookies are ignored and cleared
+
+**Ignored.** A request that carries only old cookies is unauthenticated. For example, `GET /api/auth/me` returns `401 { "error": "Authenticated human session required" }`. A mutation that carries only old cookies, such as logout from an old tab, skips the CSRF gate because it has no `envoi_session`.
+
+**Cleared.** These responses also clear old cookies, with `Max-Age=0` and the old cookie's own `Path` and `Domain` from the table:
+
+| Response | Clears |
+| --- | --- |
+| WorkOS sign-in start | `sinaloa_workos_flow` |
+| Successful WorkOS callback; local phone verify; `POST /api/auth/logout` | all three old names |
+| A callback whose flow fails (§4) | `envoi_workos_flow` and all three old names |
+| `GET /api/auth/me` returning `401` | the old names the request carried; the server reads the name only, never the value |
+
+**The session cookie's `Domain`.** A `Domain` cookie and a host-only cookie with the same name are separate, so one clear cannot remove both. `sinaloa_session` is therefore cleared in its host-only form, plus its `Domain` form when `WORKOS_COOKIE_DOMAIN` is set. The fixtures show the host-only case.
+
+**What stays the same.** Callback error, re-authenticate and `fresh` branches other than §4's are unchanged. Header order is not part of the contract: compare `set-cookie` values as a set.
+
+**When the clearing code goes.** It keeps the three old names in the source until the cookies can no longer exist:
+- at least 24 h (the cookie `Max-Age`) after the cutover reaches beta;
+- plus the rollback window.
+
+N3 removes it. Until then it is the only allowed `sinaloa` text in the session code.
+
+#### 1.4 Hosted sessions
+
+The cutover does not revoke a WorkOS session behind an old cookie. It stays live at WorkOS until WorkOS's own lifetime ends (beta policy: 7-day maximum, 1-day inactivity).
+
+Signing in again may be silent and create a second WorkOS session. To end the old sessions at once, the people signed in to staging (Rachel has an active staging session) sign out before the cutover deploy.
+
+### 2. CSRF header
+
+- **The header.** Mutating browser requests send **`x-envoi-csrf`**, equal to the `envoi_csrf` cookie. The server checks only that header; `x-sinaloa-csrf` is ignored.
+- **When the check runs.** It runs on every non-`GET`/`HEAD`/`OPTIONS` request that carries `envoi_session`, except the existing exemptions: the email webhook, local object upload, and phone start and verify. `POST /api/auth/logout` is **not** exempt.
+- **Origin.** As today, the `Origin` header must also equal the `ENVOI_PUBLIC_URL` origin. Outside production with no public URL, it must equal `http://{host}`.
+- **Failure.** Any failure, including sending only the old header, gets today's response: `403 { "error": "CSRF validation failed" }`. That shape stays outside the a3 envelope (a3 §1).
+- **CORS.** `access-control-allow-headers` lists `x-envoi-csrf` instead of `x-sinaloa-csrf`. Every other entry is unchanged; `x-amz-meta-sinaloa-sha256` moves in N3.
+- **Already Envoi.** Header names that already say Envoi do not change, for example `x-envoi-expected-human`.
+
+### 3. Name-only versions of a3 and a4
+
+These ride on the cutover SHA, like `a3-pause-auth` v2 in N1. Their regenerated fixtures land in the N2-server PR, together with the Lane B review updates in N2-client, because Lane B's review tests pin exact versions.
+- `sdk/typescript/test/a3-pause-auth.review.ts` accepts only versions 1–2.
+- `sdk/typescript/reviews/a4-wake.review.ts` requires version 1.
+
+Codes, statuses, lifecycle, events and behaviour are identical to the previous versions.
+
+**`a3-pause-auth` v3.** The three human-session fixtures (`account-changed`, `cancel-held-message`, `reconnect-token-while-paused`) change:
+- They send `cookie: envoi_session=…; envoi_csrf=…`, `x-envoi-csrf` and an `origin`.
+- The v2 fixtures had no CSRF cookie and no origin, so the real server would have answered `403` before the case each one describes. v3 adds both, so the requests now pass the CSRF gate.
+
+**`a4-wake` v2.** 21 fixtures change their placeholders:
+- `sinaloa_agent_access_` → `envoi_agent_access_` in the `claim-*`, `delta-*` and `stream-*` fixtures;
+- `sinaloa_mcp_read_` → `envoi_mcp_read_` in `stream-mcp-read-rejected`.
+
+The five `event-*` fixtures are already clean.
+
+**Token-leak guards.** The guards in both `schemas.json` files (`errorEnvelope.message` `not.pattern`) match **both** the `envoi_` and `sinaloa_` prefixes.
+- a4's guard matches only `sinaloa_` today, so it would miss a real `envoi_` token.
+- A deny pattern is not an alias: it keeps refusing to leak a retired credential format.
+
+**`a5-presence`.** Unaffected: its fixtures name no cookie (`request.auth: "human_session"`).
+
+### 4. Cutover hazards
+
+**A sign-in in progress at deploy time.** The browser returns to the callback holding only `sinaloa_workos_flow`.
+- **Current behavior:** the callback returns a raw `401` JSON page.
+- **After N2-server:** when the flow binding is missing or does not match, or the flow is expired, missing or already used, the callback redirects to `/?auth_error=sign_in_failed`. It clears `envoi_workos_flow` and the old names, like the existing error branch. The user starts sign-in again.
+
+**Tabs still running the old frontend.** Such a tab keeps sending `x-sinaloa-csrf`, so every change it makes gets `403 CSRF validation failed` until it reloads. `index.html` is served `no-store`, so a reload loads the new frontend. Lane B offers "Reload" on that error.
+
+**Event streams.** A human `EventSource` that reconnects after the deploy gets `401`, because its old cookie is ignored. Lane B sends the user to sign-in, as on any `401`.
+
+**Rollback** to the pre-cutover SHA:
+- **People who already signed in again.** Their old cookies were cleared and the old code ignores `envoi_*`, so they sign in once more.
+- **People who opened the app after the cutover.** Their old cookies were cleared by the `GET /api/auth/me` `401`, so they sign in once more too.
+- **Browsers that never visited after the cutover.** Their `sinaloa_session` (up to 24 h `Max-Age`) works again.
+- **Shared fixtures.** The registry entry, the a3 v3 and a4 v2 fixtures and Lane B's version pins all revert with the SHA.
+
+### 5. Client changes (Lane B; informative)
+
+**Browser code**
+- `frontend/src/api.ts`: send `x-envoi-csrf`, and make the fallback cookie name `envoi_csrf`.
+- `frontend/test/api.test.ts`: update the expectations.
+- Offer "Reload" on `403 CSRF validation failed`.
+- Send the user to sign-in when the stream gets a `401`.
+
+**Build.** Rebuild `web/**`, including `web/index.html`, through `npm run build`.
+
+**Review tests**
+- `sdk/typescript/test/a3-pause-auth.review.ts` → v3.
+- `sdk/typescript/reviews/a4-wake.review.ts` → v2.
+- A consuming test for this contract.
+
+**Server-side checklist (Lane A; informative):**
+- `src/workos-auth.js`;
+- `src/human-auth.js`, which has a second CSRF default;
+- `src/server.js`: CORS and the clears;
+- `.env.example`;
+- `docs/envoi-backend-rename-inventory.md`;
+- `test/browser-session.js`, the shared helper;
+- `test/session-lifecycle-integration.test.js`, `test/session-response.test.js`, `test/workos-auth.test.js`, `test/workos-session.test.js`, `test/human-instructions-integration.test.js` and `test/inbox-preferences-integration.test.js`.
+
+**Not adopted:** a `__Host-` cookie prefix. It cannot be combined with `WORKOS_COOKIE_DOMAIN`.
+
+### 6. Fixtures
+
+**Fixture fields.** The file fields are the a3 §6 ones, plus a top-level `cookies` field: `{ set: [names], cleared: [names] }`, which lists exactly the cookies the response sets and clears.
+
+**`client` block**
+- `lifecycle: "NOT_APPLICABLE"`.
+- `retry`.
+- `next`.
+- `guidance`, one of:
+  - `none`;
+  - `sign_in_again`: show sign-in and let the user start it again;
+  - `reload_browser` (as in a3).
+
+| Fixture | Case |
+| --- | --- |
+| `auth-config-csrf-cookie` | `GET /api/auth/config` reports `envoi_csrf`. |
+| `sign-in-start-sets-flow-cookie` | Sign-in start sets `envoi_workos_flow` and clears `sinaloa_workos_flow`. |
+| `sign-in-sets-cookies` | The callback sets `envoi_session` and `envoi_csrf`, and clears `envoi_workos_flow` and the three old names. |
+| `callback-old-flow-cookie` | A sign-in in progress at the deploy redirects to `/?auth_error=sign_in_failed` (§4). |
+| `phone-verify-sets-cookies` | Local phone verify (development, so no `Secure`) sets both cookies and clears the old names. |
+| `logout-clears-cookies` | Logout with the new cookies, the new header and a matching `Origin`. This is also the positive CSRF case. |
+| `logout-old-cookies-only` | Logout from a browser holding only old cookies. The gate is skipped, the response is `{ revoked: false, logoutUrl: null }`, and the old names are cleared. |
+| `me-old-cookies-only` | `GET /api/auth/me` with only old cookies returns `401` and clears them. |
+| `csrf-old-header-rejected` | The same as a valid mutation, except it sends only `x-sinaloa-csrf`. It gets `403`. |
+
+**`schemas.json`** carries the cookie table as `x-browser-cookies` and the header mapping as `x-browser-headers`.
+
+**What `test/contract-fixtures.test.js` checks**
+- The `set-cookie` values, as a set, match `cookies.set` and `cookies.cleared`.
+- Every cookie name is in the table.
+- Old names only ever appear as clears.
+- The successful callback, phone verify and both logout fixtures clear all three old names.
+- Every cookie that is set has a `Max-Age`.
+- Every mutation that carries `envoi_session` sends `x-envoi-csrf`, unless it is marked `oldNamesInRequest` (`x-browser-headers`).
+- Every cookie's `Path`, `HttpOnly` and `SameSite` match the table.
+- A redirect's `location` and `cache-control: no-store`.
+- No request carries a `sinaloa` cookie or header, except the fixtures marked `oldNamesInRequest`. N2-server extends this check to every contract when a3 v3 and a4 v2 land.
+- `plainError` is used only for browser requests (requests that carry a cookie).

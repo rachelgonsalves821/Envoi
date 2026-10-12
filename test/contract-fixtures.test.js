@@ -55,7 +55,41 @@ function checkDeltaPage(fixture, label) {
   if (hasMore) assert.ok(events.length > 0, `${label}: hasMore implies a non-empty page`);
 }
 
-const presenceFields = ['lastSeenAt', 'lastSuccessfulRefreshAt', 'lastWorkClaimAt', 'lastProcessedAt'];
+// envoi-browser-names §1 and §6: the response sets and clears exactly the listed cookies, with the
+// table's attributes; old names appear only as clears; requests carry old names only when marked.
+function checkBrowserNames(fixture, schemas, label) {
+  const table = schemas['x-browser-cookies'];
+  const set = [];
+  const cleared = [];
+  for (const header of fixture.response.headers?.['set-cookie'] || []) {
+    const [pair, ...attributes] = header.split(';').map((part) => part.trim());
+    const [name, value] = pair.split('=');
+    const row = table.find((entry) => entry.new === name || entry.old === name);
+    assert.ok(row, `${label}: ${name} is in x-browser-cookies`);
+    const isClear = value === '' && attributes.includes('Max-Age=0');
+    (isClear ? cleared : set).push(name);
+    if (!isClear) assert.ok(attributes.some((attribute) => /^Max-Age=\d+$/.test(attribute)), `${label}: ${name} has a Max-Age`);
+    if (name === row.old) assert.ok(isClear, `${label}: ${name} is only ever cleared`);
+    assert.ok(attributes.includes(`Path=${row.path}`), `${label}: ${name} Path`);
+    assert.equal(attributes.includes('HttpOnly'), row.httpOnly, `${label}: ${name} HttpOnly`);
+    assert.ok(attributes.includes(`SameSite=${row.sameSite}`), `${label}: ${name} SameSite`);
+    if (row.domain === 'never') assert.ok(!attributes.some((attribute) => attribute.startsWith('Domain=')), `${label}: ${name} has no Domain`);
+  }
+  assert.deepEqual(set.sort(), [...fixture.cookies.set].sort(), `${label}: cookies set`);
+  assert.deepEqual(cleared.sort(), [...fixture.cookies.cleared].sort(), `${label}: cookies cleared`);
+  const headers = fixture.request.headers || {};
+  const oldInRequest = /sinaloa/i.test(JSON.stringify(headers));
+  assert.equal(oldInRequest, fixture.oldNamesInRequest === true, `${label}: old names appear in the request only when oldNamesInRequest is set`);
+  // §1.3: responses that end or start a session clear every retired name.
+  const sessionResponse = fixture.cookies.set.includes('envoi_session') || fixture.request.path === '/api/auth/logout';
+  if (sessionResponse) for (const row of table) assert.ok(fixture.cookies.cleared.includes(row.old), `${label}: clears ${row.old}`);
+  // §2: a mutation with the Envoi session sends the Envoi CSRF header.
+  if (fixture.request.method !== 'GET' && /(?:^|;\s*)envoi_session=/.test(headers.cookie || '') && !fixture.oldNamesInRequest) {
+    for (const header of Object.values(schemas['x-browser-headers'])) assert.ok(headers[header], `${label}: sends ${header}`);
+  }
+}
+
+const presenceFields =['lastSeenAt', 'lastSuccessfulRefreshAt', 'lastWorkClaimAt', 'lastProcessedAt'];
 
 // a5-presence §2: no timestamp is later than asOf, and lastSeenAt leads the other three.
 function checkPresence(presence, asOf, label) {
@@ -165,6 +199,12 @@ test('every fixture matches its declared schema', async () => {
         } else if (fixture.response.status >= 400 && schemas['x-codes']) {
           assert.equal(fixture.response.schema, 'edgeText', `${label}: error responses must use the error envelope`);
         }
+        // envoi-browser-names: the plain { error } shape is kept only for browser requests (a3 §1).
+        if (fixture.response.schema === 'plainError') assert.ok(fixture.request?.headers?.cookie, `${label}: plainError is only for browser requests`);
+        if (fixture.response.status === 302) {
+          assert.match(String(fixture.response.headers?.location || ''), /^(?:\/|https:\/\/)/, `${label}: a redirect has a location`);
+          assert.equal(fixture.response.headers['cache-control'], 'no-store', `${label}: redirects are not cached`);
+        }
         const workMessage = fixture.response.body?.work?.message;
         if (workMessage && workMessage.kind !== 'humanInstruction') {
           // Claimed native work must be a stored message the server could have produced.
@@ -184,6 +224,7 @@ test('every fixture matches its declared schema', async () => {
       }
       if (fixture.frames) checkStreamFrames(fixture, label, check, validator);
       if (fixture.response?.schema === 'deltaPage') checkDeltaPage(fixture, label);
+      if (schemas['x-browser-cookies']) checkBrowserNames(fixture, schemas, label);
       if (['ownerAgentList', 'ownerAgent'].includes(fixture.response?.schema)) checkOwnerConnection(fixture, schemas, label);
       if (fixture.response?.schema === 'agentStatusWithPresence') checkPresence(fixture.response.body.presence, fixture.response.body.asOf, label);
       assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
