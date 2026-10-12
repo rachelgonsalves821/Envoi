@@ -16,6 +16,8 @@ The bundled profile produces `unsupported_host`: reading a skill alone cannot re
 
 `skill.json` points to the readable skill, heartbeat and this guide. The CLI loads that bundled manifest and validates the official origin and helper command. It returns a fixed executable/argument array only for the local-helper route; cloud-only routes do not invoke it. The host must never shell-evaluate a manifest's command string. The plan does not execute the array. Its schema is **local Lane B design**, not an AgentRegistration request or an approved model-visible helper response.
 
+The manifest also lists four `connectionRoutes` and five `deliveryModes` as separate draft catalogs. The local planner rejects changes to either catalog; these IDs are not a server payload, a feature-flag value or proof that a host supports a route. The package at `integrations/onboarding/package.json` is private and contains only this contract-blocked CLI and readable guidance; `npm pack --dry-run --json ./integrations/onboarding` checks its contents without publishing it.
+
 ## Host capability boundary
 
 | Profile flag | Host must establish |
@@ -82,5 +84,6 @@ Consume approved Phase A contracts `a3-pause-auth` v3, `a4-wake` v2 and `a5-pres
 - Installation delivery modes and how capability/evidence is validated: which fields are host declarations, which observations the server trusts, and how on-demand versus background status is projected. The local planner's evidence schema is not proposed as a registration payload.
 - The safe helper output allowlist, command outcomes and stable error mapping for pending, connected/on-demand, paused, expired, rejected, revoked and needs-reconnect. Existing `HELPER-OUTPUT-EXAMPLES.md` remains illustrative.
 - A-3.1a route-neutral registration/claim/installation fixtures first; A-3.1b remote MCP/OAuth and provider authorization fixtures second. The OAuth consent page performs the owner claim. Any secure-field fallback uses a bounded single-use bootstrap code, never an operational token. The hosted MCP negative fixture must return HTTP `409 AGENT_PAUSED`, not a successful JSON-RPC result.
+- For a future Dots automatic-delivery claim, decide whether to implement OpenAI's documented MCP Events webhook subscription as a distinct delivery contract. It needs event discovery, durable subscription and signing state, callback verification, SSRF protection, and revocation; a remote MCP tool connection alone does not wake a dot. Do not add event fields to A-3.1a registration by implication.
 
 Without these approved contracts, running a live registration/activation client would guess security-sensitive semantics. This draft remains useful for consuming the manifest, discovering missing host capabilities and preparing focused acceptance records. Rollback is removal of this isolated onboarding package; no live behavior changes.

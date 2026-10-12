@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -5,7 +6,9 @@ import { pathToFileURL } from 'node:url';
 const manifest = JSON.parse(await readFile(new URL('./skill/skill.json', import.meta.url), 'utf8'));
 
 export function draftConnect(args) {
-  if (args.length !== 2 || args[0] !== 'connect' || args[1] !== new URL(manifest.connectUrl).origin
+  if (args.length !== 2 || args[0] !== 'connect' || args[1] !== 'https://www.envoi-agents.com'
+    || manifest.connectUrl !== 'https://www.envoi-agents.com/connect'
+    || manifest.helperCommand !== 'envoi-link connect https://www.envoi-agents.com'
     || manifest.published !== false || manifest.status !== 'draft') {
     throw new Error('Only the unpublished Envoi connect draft is available');
   }

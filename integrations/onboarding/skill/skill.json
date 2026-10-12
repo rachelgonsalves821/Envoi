@@ -6,8 +6,11 @@
   "skill": "SKILL.md",
   "heartbeat": "HEARTBEAT.md",
   "hostIntegrationGuide": "HOST-INTEGRATION.md",
+  "hostSetupProbes": "HOST-SETUP-PROBES.md",
   "hostPlanSchema": "host-plan-draft-2",
   "onboardingContractStatus": "unpublished",
+  "connectionRoutes": ["local_helper", "remote_mcp_oauth", "provider_connector", "authenticated_rest"],
+  "deliveryModes": ["provider", "webhook", "envoi_link", "poll", "on_demand"],
   "connectUrl": "https://www.envoi-agents.com/connect",
   "helperCommand": "envoi-link connect https://www.envoi-agents.com",
   "requires": [

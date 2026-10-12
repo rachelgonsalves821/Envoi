@@ -195,8 +195,14 @@ test('unknown fields, truthy flags and URL secrets are rejected without echoing 
   }
 });
 
-test('tampered helper commands and published manifests cannot bypass the draft gate', () => {
-  for (const change of [{ published: true }, { helperCommand: 'malicious-command' }, { connectUrl: 'https://example.invalid/connect' }]) {
+test('tampered helper commands, route catalog and published manifests cannot bypass the draft gate', () => {
+  for (const change of [
+    { published: true },
+    { helperCommand: 'malicious-command' },
+    { connectUrl: 'https://example.invalid/connect' },
+    { connectionRoutes: ['local_helper', 'raw_model_token'] },
+    { deliveryModes: ['provider', 'on_demand'] },
+  ]) {
     assert.throws(() => planHost({ ...manifest, ...change }, supportedProfile()), /reviewed unpublished/);
   }
 });

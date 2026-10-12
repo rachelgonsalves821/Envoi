@@ -89,7 +89,9 @@ function validateManifest(manifest) {
     || manifest.published !== false || manifest.skill !== 'SKILL.md'
     || manifest.heartbeat !== 'HEARTBEAT.md'
     || manifest.connectUrl !== 'https://www.envoi-agents.com/connect'
-    || manifest.helperCommand !== 'envoi-link connect https://www.envoi-agents.com') {
+    || manifest.helperCommand !== 'envoi-link connect https://www.envoi-agents.com'
+    || JSON.stringify(manifest.connectionRoutes) !== JSON.stringify(connectionRoutes.map(([route]) => route))
+    || JSON.stringify(manifest.deliveryModes) !== JSON.stringify(modes)) {
     throw new Error('Only the reviewed unpublished Envoi manifest is supported');
   }
 }
