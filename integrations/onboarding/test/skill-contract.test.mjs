@@ -94,3 +94,24 @@ test('package does not claim Phase B or live wake has already passed', async () 
   assert.doesNotMatch(text, /(?:Hermes|OpenClaw|Muse|Instinct)\s+(?:has|is)\s+(?:already\s+)?(?:proven|verified|live|automatically available)/i);
   assert.doesNotMatch(text, /(?:all|any)\s+agents?\s+(?:can|will)\s+(?:be\s+)?(?:woken|wake|respond)\s+(?:automatically|unattended)/i);
 });
+
+test('proposed helper examples expose only allowlisted model-visible fields', async () => {
+  const document = await source('HELPER-OUTPUT-EXAMPLES.md');
+  assert.match(document, /not an approved server or helper contract/i);
+  const examples = [...document.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g)]
+    .map((match) => JSON.parse(match[1]));
+  assert.equal(examples.length, 6);
+  const allowed = new Set([
+    'schemaVersion', 'state', 'claimUrl', 'verificationCode', 'expiresInSeconds',
+    'nextAction', 'agentAddress', 'deliveryMode', 'reachability', 'permissionSummary',
+  ]);
+  for (const example of examples) {
+    assert.equal(example.schemaVersion, 'draft-1');
+    for (const key of Object.keys(example)) assert.ok(allowed.has(key), `model output field ${key} is not allowlisted`);
+    assert.doesNotMatch(JSON.stringify(example), /(?:access|refresh|bootstrap|activation|private)(?:Token|Key|Code)|Authorization|Bearer/i);
+  }
+  assert.equal(examples.filter((example) => 'verificationCode' in example).length, 1);
+  assert.deepEqual(examples.map((example) => example.state), [
+    'pending_approval', 'connected', 'connected', 'paused', 'needs_reconnect', 'revoked',
+  ]);
+});
