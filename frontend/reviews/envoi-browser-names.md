@@ -1,8 +1,9 @@
 # N2 browser client and contract consumption
 
-N2-server publication: `01764ca7fa38e0d5d96a90f4c6caeb3a4c9c3c0c` (Lane A PR #69).
+Approved N2-server head: `1abacd853f4691842182484966e760dab9f72f20` (Lane A PR #69).
+Integration refresh base: `ef6c4f46454599e91e9edb79379a2ce414b1962f` (includes #64, #66, #67 and #68).
 Browser contract: human-approved `envoi-browser-names v1`.
-Name-only consuming pins: `a3-pause-auth v3`, `a4-wake v2`.
+Human-approved name-only consuming pins: `a3-pause-auth v3`, `a4-wake v2`.
 
 The canonical registry and fixtures load through the existing shared loader with no copies. Run these commands from the paired server/client checkout in PowerShell:
 
@@ -28,6 +29,6 @@ The dedicated consuming tests validate all nine browser fixtures, cookie scope/c
 
 The full Lane B suite and contract reviews run on the exact paired tree; standard CI covers the normal lane suites, including the new recovery tests. Dedicated reviews are explicitly run locally and their counts are reported separately.
 
-The paired validation PR must have exactly the N2-client Lane B tree and exactly PR #69's Lane A tree. It is validation evidence, not a standalone integration target. Client-only commits are supplied separately for coordinated integration.
+The paired validation PR must have exactly the N2-client Lane B tree and the approved #69 server patches replayed unchanged onto the integration refresh base. Integrated B-3 presence/paused controls and the N2-config-1 changes are retained. `git range-diff` verifies both #69 commits are unchanged after rebase. It is validation evidence, not a standalone integration target. Client-only commits are supplied separately for coordinated integration.
 
 Already loaded pre-cutover bundles cannot retroactively gain a new Reload control; a reload fetches the new no-store index.html. Hosted sign-in/WorkOS/dashboard acceptance and real-runtime gates remain human release work. No hosted evidence is claimed here.
