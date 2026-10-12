@@ -4,7 +4,7 @@
     {
       "id": "a3-pause-auth",
       "version": 3,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#a3-pause-auth-v1",
       "dir": "a3-pause-auth",
       "schemas": "schemas.json",
@@ -53,7 +53,7 @@
     {
       "id": "a4-wake",
       "version": 2,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#a4-wake-v1",
       "dir": "a4-wake",
       "schemas": "schemas.json",
