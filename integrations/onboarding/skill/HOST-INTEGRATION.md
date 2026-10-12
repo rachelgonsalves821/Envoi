@@ -54,6 +54,8 @@ These are integration paths to evaluate, not claims about vendor features. No ve
 5. Select actual delivery capability separately. Open-chat access qualifies only as on demand, with an explicit **On demand** owner label in a later approved presence revision. A host connector owns authentication, refresh, claims, lease handling, canonical queue reconciliation and settlement. The model heartbeat does not create a second queue or cursor.
 6. Run the conformance observations below on the exact host/version/release/helper. Then run v3 §47 with fresh real Hermes and OpenClaw, plus additional host-specific acceptance before advertising that host's background availability. The human approves publication/default changes.
 
+`BREADTH-EVIDENCE.md` is the blank cross-route worksheet for that hosted gate. Its named host probes and negative cases make explicit which routes remain unproven or blocked by a provider; it is not a substitute for the real observations.
+
 ## Conformance records
 
 `evidence` is an array with at most one record per connection-route and delivery-mode pair. Each record has `connectionRoute`, `mode`, `runtime` (identical id/version/hostId), a 40-character lowercase `releaseSha`, `integrationVersion`, and `checks`. A wake result proven through a local helper cannot certify a remote MCP or provider installation merely because the delivery-mode name is the same. All evidence is host-owned and private. Passing observations carry `result: "pass"` and a reviewed HTTPS `reference` with no embedded URL credentials, query or fragment. Failures/unproven observations carry only `result: "fail"` or `result: "unproven"`. Missing checks remain unproven. The planner outputs no references, freeform host metadata or input secrets.
