@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { originOf, releaseMatches, manifestMatches, sha256 } from './phase-a-hosted-preflight.mjs';
+import { originOf, releaseMatches, manifestMatches, sha256, disposableHermesCommand } from './phase-a-hosted-preflight.mjs';
+
+test('uses the CLI inside the disposable profile instead of a machine-wide Hermes command', () => {
+  const home = 'C:\\disposable\\hermes';
+  assert.equal(disposableHermesCommand(home, 'win32'), 'C:\\disposable\\hermes\\bin\\hermes.exe');
+  assert.equal(disposableHermesCommand('/tmp/hermes', 'linux'), '/tmp/hermes/bin/hermes');
+});
 
 test('requires a bare HTTPS origin', () => {
   assert.equal(originOf('https://staging.example.test'), 'https://staging.example.test');

@@ -7,10 +7,10 @@ This is the executable preparation for [v3 §29](../../docs/architecture/agent-n
 Run on a clean checkout of the selected integration candidate. The gate driver itself may be on a separate branch; its preflight compares all production sources with `--sha`, excluding only `integrations/gates/**`.
 
 ```powershell
-node integrations/gates/phase-a-hosted-preflight.mjs --origin https://sinaloa-staging.rachelgonsalves821.workers.dev --sha <40-character-integration-SHA> --hermes-home C:\Users\Rachel\Documents\Codex\Envoi-phase-a-disposable-hermes
+node integrations/gates/phase-a-hosted-preflight.mjs --origin https://sinaloa-staging.rachelgonsalves821.workers.dev --sha <40-character-integration-SHA> --hermes-home C:\Users\Rachel\Documents\Codex\Envoi-phase-a-disposable-hermes\home
 ```
 
-All five checks must pass: source, hosted `/health` and `/ready` with that SHA and healthy database/R2/scanner, public and local connector bytes matching `release.json`, a separate profile directory, and a working Hermes CLI. Record the SHA and bundle hash. If any check fails, do not count a later behavior as Phase A evidence.
+All five checks must pass: source, hosted `/health` and `/ready` with that SHA and healthy database/R2/scanner, public and local connector bytes matching `release.json`, a separate profile directory, and the CLI at `<hermes-home>\\bin\\hermes.exe` on Windows (or `<hermes-home>/bin/hermes` on Unix). The preflight never resolves a machine-wide `hermes` from PATH. Record the SHA and bundle hash. If any check fails, do not count a later behavior as Phase A evidence.
 
 ## 1. Prepare the real host without reusing a live agent
 

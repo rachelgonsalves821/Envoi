@@ -24,6 +24,11 @@ export function releaseMatches(health, ready, sha) {
 
 export function sha256(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 
+export function disposableHermesCommand(profile, platform = process.platform) {
+  return platform === 'win32' ? path.win32.join(profile, 'bin', 'hermes.exe')
+    : path.posix.join(profile, 'bin', 'hermes');
+}
+
 export function manifestMatches(local, hosted, localBytes, hostedBytes) {
   const expected = local?.artifacts?.[artifactName];
   const actual = hosted?.artifacts?.[artifactName];
@@ -41,7 +46,7 @@ async function get(url) {
 
 function git(...args) { return execFileSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10_000 }).trim(); }
 
-export async function preflight({ origin, sha, hermesHome, hermesCommand = 'hermes' }) {
+export async function preflight({ origin, sha, hermesHome }) {
   const checks = {};
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('An exact 40-character integration SHA is required');
   origin = originOf(origin);
@@ -71,6 +76,9 @@ export async function preflight({ origin, sha, hermesHome, hermesCommand = 'herm
   const profileEntry = await lstat(profile).catch(() => null);
   checks.disposableProfile = profileEntry?.isDirectory() && !profileEntry.isSymbolicLink() ? 'PASS' : 'FAIL';
   try {
+    const hermesCommand = disposableHermesCommand(profile);
+    const commandEntry = await lstat(hermesCommand);
+    if (!commandEntry.isFile() || commandEntry.isSymbolicLink()) throw new Error('Disposable CLI is unavailable');
     const version = execFileSync(hermesCommand, ['--version'], {
       env: { ...process.env, HERMES_HOME: profile }, encoding: 'utf8', timeout: 15_000, windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe']
