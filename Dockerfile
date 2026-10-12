@@ -11,9 +11,9 @@ COPY --chown=node:node docs ./docs
 COPY --chown=node:node README.md ./README.md
 
 ENV NODE_ENV=production
-ENV SINALOA_AUTH_MODE=production
-ENV SINALOA_HOST=0.0.0.0
-ENV SINALOA_PORT=8787
+ENV ENVOI_AUTH_MODE=production
+ENV ENVOI_HOST=0.0.0.0
+ENV ENVOI_PORT=8787
 
 USER node
 EXPOSE 8787

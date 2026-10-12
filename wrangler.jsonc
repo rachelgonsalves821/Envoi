@@ -42,7 +42,7 @@
         "crons": ["* * * * *"]
       },
       "vars": {
-        "SINALOA_MALWARE_SCANNER_URL": "https://sinaloa-scanner-staging.rachelgonsalves821.workers.dev/scan"
+        "ENVOI_MALWARE_SCANNER_URL": "https://sinaloa-scanner-staging.rachelgonsalves821.workers.dev/scan"
       },
       "containers": [
         {
@@ -72,23 +72,23 @@
     "beta": {
       "workers_dev": false,
       "vars": {
-        "SINALOA_PUBLIC_URL": "https://www.envoi-agents.com",
+        "ENVOI_PUBLIC_URL": "https://www.envoi-agents.com",
         "ENVOI_WAITLIST_SHEET_ID": "1CDA4yMhNErfyx8NFETd2mZg9IjrWBHT2H3_XLqDurac",
-        "SINALOA_CORS_ORIGIN": "https://www.envoi-agents.com,https://beta.sinaloa-inbox.com,https://sinaloa-inbox.com,https://www.sinaloa-inbox.com",
-        "SINALOA_EDGE_ALLOWED_HOSTS": "www.envoi-agents.com,beta.sinaloa-inbox.com",
-        "SINALOA_AGENT_DOMAIN": "agents.envoi-agents.com",
-        "SINALOA_DB_SSL_MODE": "verify-full",
+        "ENVOI_CORS_ORIGIN": "https://www.envoi-agents.com,https://beta.sinaloa-inbox.com,https://sinaloa-inbox.com,https://www.sinaloa-inbox.com",
+        "ENVOI_EDGE_ALLOWED_HOSTS": "www.envoi-agents.com,beta.sinaloa-inbox.com",
+        "ENVOI_AGENT_DOMAIN": "agents.envoi-agents.com",
+        "ENVOI_DB_SSL_MODE": "verify-full",
         "WORKOS_CLIENT_ID": "client_01M3QMT1BN3HEBGE4VPEAQA0GT",
         "WORKOS_REDIRECT_URI": "https://www.envoi-agents.com/api/auth/workos/callback",
-        "SINALOA_POLICY_ACTIVE_KEY_ID": "primary",
-        "SINALOA_OBJECT_STORAGE_PROVIDER": "s3",
-        "SINALOA_S3_ENDPOINT": "https://54a5d6c680bd813fa60f8e088b098b8d.r2.cloudflarestorage.com",
-        "SINALOA_S3_BUCKET": "sinaloa-beta",
-        "SINALOA_S3_REGION": "auto",
-        "SINALOA_MALWARE_SCANNER_URL": "https://sinaloa-scanner-beta.rachelgonsalves821.workers.dev/scan",
-        "SINALOA_ENABLE_EXTERNAL_EMAIL": "false",
-        "SINALOA_ENABLE_CALENDAR_WRITES": "false",
-        "SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS": "false"
+        "ENVOI_POLICY_ACTIVE_KEY_ID": "primary",
+        "ENVOI_OBJECT_STORAGE_PROVIDER": "s3",
+        "ENVOI_S3_ENDPOINT": "https://54a5d6c680bd813fa60f8e088b098b8d.r2.cloudflarestorage.com",
+        "ENVOI_S3_BUCKET": "sinaloa-beta",
+        "ENVOI_S3_REGION": "auto",
+        "ENVOI_MALWARE_SCANNER_URL": "https://sinaloa-scanner-beta.rachelgonsalves821.workers.dev/scan",
+        "ENVOI_ENABLE_EXTERNAL_EMAIL": "false",
+        "ENVOI_ENABLE_CALENDAR_WRITES": "false",
+        "ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS": "false"
       },
       "routes": [
         {
