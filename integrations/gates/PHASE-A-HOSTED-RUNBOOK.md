@@ -2,6 +2,8 @@
 
 This is the executable preparation for [v3 §29](../../docs/architecture/agent-native-v2/build-plan-v3.md). It does not replace the 23 required observations. Use one disposable staging owner, a second staging sender, a new agent identity, a separate Hermes profile, and one exact integration commit. Never use an existing beta agent or Rachel's regular Hermes profile. The human owns staging deployment, agent approvals, real-host actions, and gate countersign under the [two-lane execution plan](../../docs/architecture/agent-native-v2/claude-codex-build-plan.md).
 
+This Phase A run does not depend on the Phase B registration-contract correction. Prepare and run it in parallel with #76/#72/#78 review work. [PHASE-A-SESSION-PREP.md](PHASE-A-SESSION-PREP.md) records the current technical preflight, private provider setup helper, owner responsibilities and unconfirmed scheduling prerequisites; it is not hosted acceptance evidence.
+
 ## 0. Freeze the candidate
 
 Run on a clean checkout of the selected integration candidate. The gate driver itself may be on a separate branch; its preflight compares all production sources with `--sha`, excluding only `integrations/gates/**`.
