@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createForwardedRequest,
+  environmentFingerprint,
   isAllowedHostname,
   parseAllowedHostnames,
   releaseIsStale,
   selectEnvironment,
   serviceUnavailableResponse,
+  settingsChanged,
   withNoStoreHeaders
 } from './router.js';
 
@@ -93,6 +95,23 @@ test('container failures return a sanitized retryable response', async () => {
     error: 'SERVICE_UNAVAILABLE',
     message: 'Envoi is temporarily unavailable'
   });
+});
+
+test('a settings fingerprint ignores key order and changes with any value', async () => {
+  const base = await environmentFingerprint({ ENVOI_MALWARE_SCANNER_TOKEN: 'one', ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com' });
+  assert.match(base, /^[a-f0-9]{64}$/);
+  assert.equal(await environmentFingerprint({ ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com', ENVOI_MALWARE_SCANNER_TOKEN: 'one' }), base);
+  assert.notEqual(await environmentFingerprint({ ENVOI_MALWARE_SCANNER_TOKEN: 'two', ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com' }), base, 'a rotated secret changes it');
+  assert.notEqual(await environmentFingerprint({ ENVOI_MALWARE_SCANNER_TOKEN: 'one' }), base, 'a removed setting changes it');
+  assert.doesNotMatch(base, /one|envoi-agents/, 'the fingerprint reveals no value');
+});
+
+test('a container restarts once for changed settings and never without a recorded start', () => {
+  assert.equal(settingsChanged('a', 'b', null), true, 'settings changed since the container started');
+  assert.equal(settingsChanged('a', 'a', null), false, 'unchanged settings');
+  assert.equal(settingsChanged(undefined, 'b', null), false, 'a container started before fingerprints were recorded');
+  assert.equal(settingsChanged('a', 'b', 'b'), false, 'already restarted for these settings, so no flapping');
+  assert.equal(settingsChanged('a', 'c', 'b'), true, 'a later edit restarts again');
 });
 
 test('a running container is stale only when it reports a different configured release', () => {
