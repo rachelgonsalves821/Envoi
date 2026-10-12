@@ -235,12 +235,9 @@
 .app-shell .integration-heading h2 { font-size: 17px; font-weight: 600; }
 .app-shell .verified-address { display: flex; align-items: center; max-width: 100%; color: var(--ink2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .app-shell .verified-address .icon-button { width: 24px; height: 24px; flex: none; }
-.app-shell .agent-online { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 11px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.app-shell .agent-online::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.app-shell .agent-online.online { color: var(--green); background: #e8f5eb; }
-.app-shell .agent-online.setting-up { color: var(--orange); background: #fff0df; }
-.app-shell .agent-online.frozen { color: var(--red); background: #fbeaec; }
-.app-shell .agent-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 16px; }
+.app-shell .integration-heading { flex-wrap: wrap; }
+.app-shell .agent-presence { flex-basis: 100%; padding: 4px 8px; border-radius: 6px; color: var(--ink2); background: var(--fill); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.app-shell .agent-stats { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; margin-bottom: 16px; }
 .app-shell .agent-stats > div { display: flex; flex-direction: column; gap: 2px; }
 .app-shell .agent-stats strong { font-size: 14px; font-weight: 600; }
 .app-shell .agent-stats span { color: var(--ink2); font-size: 12px; }

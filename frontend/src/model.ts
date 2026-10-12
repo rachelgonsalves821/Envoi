@@ -61,8 +61,8 @@ export function onboardingSteps(view: HumanView, agentInboxes: Inbox[] = []) {
         ? 'Open the agent inbox to verify its enrollment audit. Inbox creation alone does not confirm that a one-time token was redeemed.'
       : 'An agent identity alone does not confirm that its one-time token was redeemed.';
   const runtimeDescription = hasRuntimeActivity
-    ? 'A runtime acknowledged or processed work. This does not claim it is currently online.'
-    : 'No runtime activity is visible yet. Enrollment alone does not prove a runtime is online.';
+    ? 'A runtime acknowledged or processed work. This records past activity.'
+    : 'No runtime activity is visible yet. Enrollment alone does not show a work-loop check-in.';
   const hasOlderExchangeHistory = Boolean(view.history?.cases?.hasMore || view.history?.messages?.hasMore || view.history?.deliveryReceipts?.hasMore);
   const deliveryDescription = hasCompletedCaseOutcome
     ? 'Delivery evidence and a completed case outcome are visible to the human.'

@@ -74,7 +74,7 @@ describe('closed beta onboarding', () => {
       assets: [], calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [],
       deliveryReceipts: [{ id: 'delivery_receipt_1', type: 'delivery' as const, messageId: 'message_1', state: 'processed' as const, createdAt: '2026-09-27T16:35:00.000Z' }], recentEvents: []
     };
-    expect(onboardingSteps(view).find(step => step.id === 'runtime')).toMatchObject({ complete: true, description: 'A runtime acknowledged or processed work. This does not claim it is currently online.' });
+    expect(onboardingSteps(view).find(step => step.id === 'runtime')).toMatchObject({ complete: true, description: 'A runtime acknowledged or processed work. This records past activity.' });
     expect(onboardingSteps(view).find(step => step.id === 'delivery')).toMatchObject({ complete: false, description: 'Delivery is visible; a completed case with its own outcome receipt is still required.' });
   });
 
@@ -91,7 +91,7 @@ describe('closed beta onboarding', () => {
       calendarProviders: { google: { id: 'google' as const, label: 'Google Calendar', configured: false }, outlook: { id: 'outlook' as const, label: 'Outlook Calendar', configured: false } }, calendarConnectors: [], deliveryReceipts: [], recentEvents: []
     };
     expect(onboardingSteps(view).find(step => step.id === 'sdk')).toMatchObject({ complete: false, description: 'An agent identity alone does not confirm that its one-time token was redeemed.' });
-    expect(onboardingSteps(view).find(step => step.id === 'runtime')).toMatchObject({ complete: false, description: 'No runtime activity is visible yet. Enrollment alone does not prove a runtime is online.' });
+    expect(onboardingSteps(view).find(step => step.id === 'runtime')).toMatchObject({ complete: false, description: 'No runtime activity is visible yet. Enrollment alone does not show a work-loop check-in.' });
   });
 
   it('discloses when the completed case outcome may be outside loaded history', () => {
