@@ -3,7 +3,7 @@
   "version": 1,
   "id": "registration-poll-too-fast",
   "kind": "http",
-  "description": "Polling faster than pollAfterSeconds.",
+  "description": "Polling sooner than four seconds after the previous poll.",
   "request": {
     "method": "GET",
     "path": "/api/agent-registrations/registration_example",
@@ -29,9 +29,13 @@
   },
   "client": {
     "surface": "helper",
-    "lifecycle": "UNCHANGED",
+    "lifecycle": "DEGRADED",
     "retry": "after_retry_after",
     "guidance": "service_busy",
-    "next": "Wait retry-after, then poll at pollAfterSeconds."
+    "next": "Wait retry-after, then poll at pollAfterSeconds.",
+    "modelVisible": {
+      "state": "degraded",
+      "guidance": "service_busy"
+    }
   }
 }

@@ -1,0 +1,32 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-withdraw",
+  "kind": "http",
+  "description": "The owner withdraws an approval before the agent activated. The address and slot are released.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-claims/registration_example/withdraw",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimWithdrawn",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "withdrawn"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "The helper sees status withdrawn; a later activation gets REGISTRATION_ENDED reason withdrawn."
+  }
+}

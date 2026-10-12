@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-invalid",
   "kind": "http",
-  "description": "An approve body for a new agent without grantedPermissions.",
+  "description": "An approve body without grantedPermissions.",
   "request": {
     "method": "POST",
     "path": "/api/agent-registrations/registration_example/approve",
@@ -13,11 +13,12 @@
       "x-envoi-csrf": "PLACEHOLDER_csrf",
       "origin": "https://www.envoi-agents.com"
     },
+    "invalidAgainst": "claimApproveRequest",
     "body": {
       "verificationCode": "F7KQ-PM4D",
-      "workspaceInboxId": "inbox_workspace_example",
       "target": {
         "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
         "name": "Example agent",
         "localPart": "example"
       },

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "registration-approved",
   "kind": "http",
-  "description": "The owner approved; the helper may activate.",
+  "description": "The owner approved; the helper may activate. workspaceName lets the human beside the host check who approved.",
   "request": {
     "method": "GET",
     "path": "/api/agent-registrations/registration_example",
@@ -22,6 +22,7 @@
       "registrationId": "registration_example",
       "status": "approved",
       "target": "new_agent",
+      "workspaceName": "Example workspace",
       "agent": {
         "name": "Example agent",
         "address": "example@envoi.mail"
@@ -40,6 +41,7 @@
     "guidance": "none",
     "modelVisible": {
       "registrationStatus": "approved",
+      "workspaceName": "Example workspace",
       "agentName": "Example agent",
       "agentAddress": "example@envoi.mail",
       "permissionSummary": [

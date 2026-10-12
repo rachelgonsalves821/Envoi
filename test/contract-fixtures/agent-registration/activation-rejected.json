@@ -34,6 +34,10 @@
     "lifecycle": "REGISTRATION_ENDED",
     "retry": "none",
     "guidance": "owner_rejected",
-    "next": "Stop and delete local registration state."
+    "next": "Stop and delete local registration state.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "owner_rejected"
+    }
   }
 }

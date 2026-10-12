@@ -1,182 +1,337 @@
 {
   "$id": "agent-registration/schemas.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "agent-registration v1 schemas (A-3.1a). Fixtures name a definition in request.schema and response.schema. x-codes is handoffs.md agent-registration §8; x-limits §2; x-model-visible §7; x-route-availability and x-delivery-availability §1; x-operations §6.2.",
+  "description": "agent-registration v1 schemas (A-3.1a). Fixtures name a definition in request.schema / request.invalidAgainst and response.schema. x-codes is handoffs.md agent-registration §8 (rows by client surface); x-limits §2; x-model-visible §7; x-route-availability and x-delivery-availability §1; x-operations §6.6; x-legacy-projection and x-installation-derivation §6.4 and §9.",
   "x-codes": {
     "FEATURE_DISABLED": {
       "status": 404,
-      "lifecycle": "REGISTRATION_ENDED",
-      "retry": "none",
-      "guidance": "route_unavailable",
-      "surface": "helper or owner_ui",
-      "when": "ENVOI_AGENT_REGISTRATION_V2 (registration, claim, activation) or ENVOI_INSTALLATIONS_V2 (installation routes) is off."
+      "bySurface": {
+        "helper": {
+          "lifecycle": "REGISTRATION_ENDED",
+          "retry": "none",
+          "guidance": "route_unavailable"
+        },
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "route_unavailable"
+        }
+      },
+      "when": "ENVOI_AGENT_REGISTRATION_V2 is off (registration, polling, claim and activation routes) or ENVOI_INSTALLATIONS_V2 is off (owner installation routes)."
     },
     "ROUTE_NOT_AVAILABLE": {
       "status": 400,
-      "lifecycle": "REGISTRATION_ENDED",
-      "retry": "none",
-      "guidance": "route_unavailable",
-      "surface": "helper",
-      "when": "connectionRoute is not available for registration (GET /api/onboarding/routes says available:false), or deliveryMode at activation is not available."
+      "bySurface": {
+        "helper": {
+          "lifecycle": "REGISTRATION_ENDED",
+          "retry": "none",
+          "guidance": "route_unavailable"
+        }
+      },
+      "when": "Registration names a connectionRoute that GET /api/onboarding/routes reports available:false."
+    },
+    "DELIVERY_MODE_NOT_AVAILABLE": {
+      "status": 400,
+      "bySurface": {
+        "helper": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "update_helper"
+        }
+      },
+      "when": "Activation names a deliveryMode that is not available. Nothing is consumed; the helper may activate again with an available mode."
     },
     "REGISTRATION_INVALID": {
       "status": 400,
-      "lifecycle": "REGISTRATION_ENDED",
-      "retry": "none",
-      "guidance": "update_helper",
-      "surface": "helper",
-      "when": "The registration or activation body fails validation (§3.1, §5.1). Never consumes anything."
+      "bySurface": {
+        "helper": {
+          "lifecycle": "REGISTRATION_ENDED",
+          "retry": "none",
+          "guidance": "update_helper"
+        }
+      },
+      "when": "A registration (§3) or activation (§6.1) body fails validation. Nothing is consumed."
     },
     "REGISTRATION_TOKEN_INVALID": {
       "status": 401,
-      "lifecycle": "REGISTRATION_ENDED",
-      "retry": "none",
-      "guidance": "register_again",
-      "surface": "helper",
-      "when": "The bootstrap token is missing, malformed, unknown, deleted, or belongs to a different registration than the path or body names. Identical in every case."
+      "bySurface": {
+        "helper": {
+          "lifecycle": "REGISTRATION_ENDED",
+          "retry": "none",
+          "guidance": "register_again"
+        }
+      },
+      "when": "The bootstrap token is missing, malformed, unknown, deleted (including after the activation recovery window), or not this registration's. Identical in every case."
     },
     "REGISTRATION_PENDING": {
       "status": 409,
-      "lifecycle": "PENDING_CLAIM",
-      "retry": "poll_after",
-      "guidance": "wait_for_claim",
-      "surface": "helper",
+      "bySurface": {
+        "helper": {
+          "lifecycle": "PENDING_CLAIM",
+          "retry": "poll_after",
+          "guidance": "wait_for_claim"
+        }
+      },
       "when": "Activation before the owner approved."
     },
     "REGISTRATION_ENDED": {
       "status": 409,
-      "lifecycle": "REGISTRATION_ENDED",
-      "retry": "none",
-      "guidanceByReason": {
-        "rejected": "owner_rejected",
-        "expired": "register_again"
+      "bySurface": {
+        "helper": {
+          "lifecycle": "REGISTRATION_ENDED",
+          "retry": "none",
+          "guidanceByReason": {
+            "rejected": "owner_rejected",
+            "expired": "register_again",
+            "withdrawn": "owner_withdrew"
+          }
+        }
       },
-      "surface": "helper",
-      "when": "Activation of a rejected registration (reason rejected) or of one whose claim or activation window passed (reason expired)."
+      "when": "Activation of a registration that was rejected, expired (claim or activation window passed) or withdrawn (the owner withdrew the approval, or an activation-time re-check failed, §6.1)."
     },
     "ACTIVATION_ID_REQUIRED": {
       "status": 400,
-      "lifecycle": "UNCHANGED",
-      "retry": "none",
-      "guidance": "update_helper",
-      "surface": "helper",
+      "bySurface": {
+        "helper": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "update_helper"
+        }
+      },
       "when": "Activation without an activationId matching ^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$. Checked before the bootstrap token is looked up; nothing is consumed."
     },
     "ACTIVATION_REPLAY": {
       "status": 401,
-      "lifecycle": "REVOKED",
-      "retry": "none",
-      "guidance": "owner_reconnect",
-      "surface": "helper",
-      "when": "An already-activated registration is activated again with a different activationId: two holders of one bootstrap token. The installation is revoked."
+      "bySurface": {
+        "helper": {
+          "lifecycle": "REVOKED",
+          "retry": "none",
+          "guidance": "owner_reconnect"
+        }
+      },
+      "when": "Inside the 300 s recovery window, an activated registration is activated again with a different activationId: two holders of one bootstrap token. The installation is revoked."
     },
     "ACTIVATION_RECOVERY_EXPIRED": {
       "status": 401,
-      "lifecycle": "NEEDS_RECONNECT",
-      "retry": "none",
-      "guidance": "owner_reconnect",
-      "surface": "helper",
-      "when": "The same activationId after the 5-minute recovery window, or the recovery envelope cannot be decrypted."
+      "bySurface": {
+        "helper": {
+          "lifecycle": "NEEDS_RECONNECT",
+          "retry": "none",
+          "guidance": "owner_reconnect"
+        }
+      },
+      "when": "The same activationId inside the recovery window when the envelope cannot be decrypted or the installation has already ended."
     },
     "AUTHENTICATION_REQUIRED": {
       "status": 401,
-      "lifecycle": "UNCHANGED",
-      "retry": "none",
-      "guidance": "none",
-      "surface": "helper or owner_ui",
-      "when": "a3 §2 meaning. Also any non-registration route presented with a bootstrap token, and a claim request with no valid human session."
+      "bySurface": {
+        "helper": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "none"
+        },
+        "connector": {
+          "lifecycle": "UNCHANGED",
+          "retry": "refresh_then_retry_once",
+          "guidance": "none"
+        },
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "sign_in"
+        }
+      },
+      "when": "a3 §2 meaning (connector row unchanged). A bootstrap token on any authenticated route other than §4 and §6.1 is an unrecognized token. On the claim routes: no session, or the human is no longer admitted."
     },
     "CLAIM_CODE_INVALID": {
       "status": 404,
-      "lifecycle": "NOT_APPLICABLE",
-      "retry": "none",
-      "guidance": "check_code",
-      "surface": "owner_ui",
-      "when": "Claim lookup, approve or reject with a code that is malformed, unknown, expired, already decided, or does not belong to the registration in the path. Identical in every case."
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "check_code"
+        }
+      },
+      "when": "Lookup, approve or reject with a code that is malformed, unknown, expired, decided by someone else, or not this registration's. Identical in every case; counts as one claim failure."
     },
     "CLAIM_INVALID": {
       "status": 400,
-      "lifecycle": "NOT_APPLICABLE",
-      "retry": "none",
-      "guidance": "fix_claim",
-      "surface": "owner_ui",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "fix_claim"
+        }
+      },
       "when": "The approve body fails validation after the code matched."
     },
     "CLAIM_FORBIDDEN": {
       "status": 403,
-      "lifecycle": "NOT_APPLICABLE",
-      "retry": "none",
-      "guidance": "not_permitted",
-      "surface": "owner_ui",
-      "when": "The signed-in human cannot manage the chosen workspace (live owner/admin check), or does not own the chosen existing agent."
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "not_permitted"
+        }
+      },
+      "when": "The human cannot manage the target (live check): the workspace for new_agent, the agent's dedicated inbox for existing_agent. Unknown, foreign and removed ids get the identical response."
+    },
+    "CLAIM_STALE": {
+      "status": 409,
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "reload_claim"
+        }
+      },
+      "when": "existing_agent replacesInstallationId is not the agent's current active installation, or the same human re-approves with a different body."
+    },
+    "CLAIM_NOT_FOUND": {
+      "status": 404,
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "none"
+        }
+      },
+      "when": "Withdraw of a registration this human did not approve, or that is no longer approved."
     },
     "ADDRESS_TAKEN": {
       "status": 409,
-      "lifecycle": "NOT_APPLICABLE",
-      "retry": "none",
-      "guidance": "choose_another_address",
-      "surface": "owner_ui",
-      "when": "new_agent target whose address is already reserved."
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "choose_another_address"
+        }
+      },
+      "when": "new_agent address already held by an agent or by another live approval."
     },
     "ACTIVE_AGENT_LIMIT": {
       "status": 409,
-      "lifecycle": "NOT_APPLICABLE",
-      "retry": "none",
-      "guidance": "agent_limit",
-      "surface": "owner_ui",
-      "when": "new_agent target when the human already has the maximum active or paused agents (existing rule, now with the a3 envelope on this route)."
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "agent_limit"
+        }
+      },
+      "when": "The approval needs an agent slot (new_agent, or an existing agent with no live installation) and the human has none left. Existing rule, now with the a3 envelope."
+    },
+    "PENDING_ACTIVATION_LIMIT": {
+      "status": 409,
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "withdraw_or_wait"
+        }
+      },
+      "when": "The human already has 3 approvals waiting for activation."
     },
     "AGENT_NOT_RECONNECTABLE": {
       "status": 409,
-      "lifecycle": "NOT_APPLICABLE",
-      "retry": "none",
-      "guidance": "choose_another_agent",
-      "surface": "owner_ui",
-      "when": "existing_agent target that is pending, rejected or revoked as an agent, or not in the chosen workspace."
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "choose_another_agent"
+        }
+      },
+      "when": "existing_agent target the human manages that is pending, rejected, or frozen by the agent-wide revoke (status revoked)."
     },
     "INSTALLATION_NOT_FOUND": {
       "status": 404,
-      "lifecycle": "NOT_APPLICABLE",
-      "retry": "none",
-      "guidance": "none",
-      "surface": "owner_ui",
-      "when": "Owner installation revoke for an id that is not one of this agent's installations."
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "none"
+        }
+      },
+      "when": "Installation revoke for an id that is not one of this agent's installations."
     },
     "ACCOUNT_CHANGED": {
       "status": 409,
-      "lifecycle": "NOT_APPLICABLE",
-      "retry": "none",
-      "guidance": "reload_browser",
-      "surface": "owner_ui",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "reload_browser"
+        }
+      },
       "when": "a3 §2 meaning, on the claim routes."
     },
     "RATE_LIMITED": {
       "status": 429,
-      "lifecycle": "UNCHANGED",
-      "retry": "after_retry_after",
-      "guidance": "service_busy",
-      "guidanceByReason": {
-        "registration_limit": "service_busy",
-        "claim_attempts": "too_many_attempts",
-        "poll_interval": "service_busy"
+      "bySurface": {
+        "helper": {
+          "lifecycle": "DEGRADED",
+          "retry": "after_retry_after",
+          "guidance": "service_busy",
+          "guidanceByReason": {
+            "registration_limit": "service_busy",
+            "poll_interval": "service_busy"
+          }
+        },
+        "connector": {
+          "lifecycle": "DEGRADED",
+          "retry": "after_retry_after",
+          "guidance": "service_busy"
+        },
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "after_retry_after",
+          "guidance": "service_busy",
+          "guidanceByReason": {
+            "claim_attempts": "too_many_attempts"
+          }
+        }
       },
-      "surface": "helper or owner_ui",
-      "when": "Durable registration limit (reason registration_limit), durable claim-failure limit (reason claim_attempts), polling faster than pollAfterSeconds (reason poll_interval), or the ordinary a3 request limit (no reason)."
+      "when": "Durable registration limit (reason registration_limit), durable claim-failure lock (reason claim_attempts), polling faster than the minimum interval (reason poll_interval), or the ordinary a3 request limit (no reason)."
     },
     "INTERNAL_SERVER_ERROR": {
       "status": 500,
-      "lifecycle": "DEGRADED",
-      "retry": "backoff",
-      "guidance": "service_unavailable",
-      "surface": "helper or owner_ui",
-      "when": "a3 §2 meaning. An activation that fails this way is retried with the same activationId."
+      "bySurface": {
+        "helper": {
+          "lifecycle": "DEGRADED",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        },
+        "connector": {
+          "lifecycle": "DEGRADED",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        },
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        }
+      },
+      "when": "a3 §2 meaning. backoff means: repeat the identical request, including the same activationId, with bounded exponential backoff and jitter."
     },
     "AUTH_UNAVAILABLE": {
       "status": 503,
-      "lifecycle": "DEGRADED",
-      "retry": "backoff",
-      "guidance": "service_unavailable",
-      "surface": "helper or owner_ui",
+      "bySurface": {
+        "helper": {
+          "lifecycle": "DEGRADED",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        },
+        "connector": {
+          "lifecycle": "DEGRADED",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        },
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        }
+      },
       "when": "a3 §2 meaning."
     }
   },
@@ -199,9 +354,11 @@
     "activationWindowSeconds": 600,
     "activationRecoverySeconds": 300,
     "pollAfterSeconds": 5,
+    "pollMinIntervalSeconds": 4,
     "deleteRecordsAfterHours": 24,
     "registrationCreate": {
       "perSourcePerHour": 10,
+      "sourceKey": "clientIp (IPv4 address, IPv6 /64)",
       "pendingGlobalMax": 1000,
       "maxBodyBytes": 4096,
       "durable": true
@@ -210,22 +367,57 @@
       "perHuman": 5,
       "windowSeconds": 900,
       "durable": true
-    }
+    },
+    "approvalsAwaitingActivationPerHuman": 3,
+    "ownerClaimListMax": 10
   },
   "x-model-visible": {
-    "description": "The only server-derived values a helper, connector or tool may put where the model can read them (helper stdout, tool results, chat). Everything else stays private to the trusted host.",
-    "allowed": {
+    "description": "The only values a helper, connector or tool may put where a model can read them (helper stdout, tool results, chat). serverDerived values must equal their source; helperDerived values are closed enums or helper-authored text. Everything else stays private to the trusted host.",
+    "serverDerived": {
       "claimUrl": "registrationCreated.claim.url",
-      "verificationCode": "registrationCreated.claim.verificationCode, only while status is pending_claim and before claim.expiresAt",
+      "verificationCode": "registrationCreated.claim.verificationCode, only while the registration is pending_claim and before claim.expiresAt",
       "expiresInSeconds": "derived from claim.expiresAt",
-      "registrationStatus": "registrationStatus.status",
+      "registrationStatus": "registrationStatus.status; \"pending_claim\" for registrationCreated; \"activated\" for activated",
+      "workspaceName": "workspaceName of an approved registration, so the human beside the host can check who approved",
       "agentName": "agent.name",
       "agentAddress": "agent.address",
-      "permissionSummary": "effectivePermissions mapped through x-permission-labels",
+      "agentStatus": "agent.status (active or paused)",
+      "permissionSummary": "effectivePermissions mapped through x-permission-labels, in the same order",
       "connectionRoute": "installation.connectionRoute",
       "deliveryMode": "installation.deliveryMode",
-      "agentStatus": "agent.status (active or paused)",
       "guidance": "client.guidance of the code received"
+    },
+    "helperDerived": {
+      "schemaVersion": {
+        "type": "string",
+        "pattern": "^[a-z0-9.-]{1,16}$"
+      },
+      "state": {
+        "enum": [
+          "pending_approval",
+          "connected",
+          "connected_on_demand",
+          "paused",
+          "needs_reconnect",
+          "revoked",
+          "degraded",
+          "registration_ended",
+          "needs_help"
+        ]
+      },
+      "reachability": {
+        "enum": [
+          "not_verified_closed_app",
+          "verified_while_host_running",
+          "verified_closed_app"
+        ],
+        "note": "Host-owned evidence (v3 §47). The server never asserts it in v1."
+      },
+      "nextAction": {
+        "type": "string",
+        "maxLength": 300,
+        "note": "Helper-authored text; it may quote only serverDerived values."
+      }
     },
     "never": [
       "bootstrapToken",
@@ -235,6 +427,7 @@
       "any envoi_ token or token fragment",
       "registrationId",
       "installation id",
+      "agent id",
       "inboxId",
       "request or response bodies",
       "Authorization or cookie headers",
@@ -273,11 +466,11 @@
     },
     {
       "deliveryMode": "poll",
-      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2"
+      "availableWhen": "never in v1 (needs an a5-presence revision with an honest owner label)"
     },
     {
       "deliveryMode": "on_demand",
-      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2"
+      "availableWhen": "never in v1 (needs the a5-presence \"On demand\" label)"
     },
     {
       "deliveryMode": "webhook",
@@ -296,7 +489,7 @@
     {
       "operation": "identity",
       "request": "GET /api/agent/status",
-      "contract": "a3-pause-auth v3 §3, a5-presence v1 §4.1, this contract §6.1"
+      "contract": "a3-pause-auth v3 §3, a5-presence v1 §4.1, agent-registration §6.4"
     },
     {
       "operation": "work availability",
@@ -324,6 +517,37 @@
       "contract": "A1 and a3-pause-auth v3 §2.2"
     }
   ],
+  "x-legacy-projection": {
+    "appliesTo": "credential families of agents whose onboardingStatus is approved and which have no installationId",
+    "id": "installation_legacy_ + the family UUID",
+    "connectionRoute": "local_helper",
+    "deliveryMode": "envoi_link",
+    "runtime": "{ type: family.runtime || agent.runtime || \"unknown\", version: null }",
+    "createdAt": "family.createdAt",
+    "activatedAt": "family.createdAt",
+    "status": "active when family.revokedAt is null, otherwise ended",
+    "endedReason": "family.revokedReason || \"revoked\" when ended, otherwise null",
+    "endedAt": "family.revokedAt"
+  },
+  "x-installation-derivation": {
+    "stored": [
+      "id",
+      "agentId",
+      "credentialFamilyId",
+      "registrationId",
+      "connectionRoute",
+      "deliveryMode",
+      "runtime",
+      "createdAt",
+      "activatedAt",
+      "replayDetectedAt"
+    ],
+    "derivedAtRead": {
+      "status": "active when the credential family is not revoked, otherwise ended",
+      "endedReason": "\"activation_replay\" when replayDetectedAt is set, otherwise family.revokedReason || \"revoked\"",
+      "endedAt": "family.revokedAt"
+    }
+  },
   "definitions": {
     "lifecycle": {
       "enum": [
@@ -345,7 +569,7 @@
         "poll_after",
         "after_retry_after",
         "backoff",
-        "retry_same_activation_id"
+        "refresh_then_retry_once"
       ]
     },
     "guidance": {
@@ -359,20 +583,25 @@
         "not_permitted",
         "owner_reconnect",
         "owner_rejected",
+        "owner_withdrew",
         "register_again",
         "reload_browser",
+        "reload_claim",
         "route_unavailable",
         "service_busy",
         "service_unavailable",
+        "sign_in",
         "too_many_attempts",
         "update_helper",
-        "wait_for_claim"
+        "wait_for_claim",
+        "withdraw_or_wait"
       ]
     },
     "errorCode": {
       "enum": [
         "FEATURE_DISABLED",
         "ROUTE_NOT_AVAILABLE",
+        "DELIVERY_MODE_NOT_AVAILABLE",
         "REGISTRATION_INVALID",
         "REGISTRATION_TOKEN_INVALID",
         "REGISTRATION_PENDING",
@@ -384,8 +613,11 @@
         "CLAIM_CODE_INVALID",
         "CLAIM_INVALID",
         "CLAIM_FORBIDDEN",
+        "CLAIM_STALE",
+        "CLAIM_NOT_FOUND",
         "ADDRESS_TAKEN",
         "ACTIVE_AGENT_LIMIT",
+        "PENDING_ACTIVATION_LIMIT",
         "AGENT_NOT_RECONNECTABLE",
         "INSTALLATION_NOT_FOUND",
         "ACCOUNT_CHANGED",
@@ -424,6 +656,11 @@
     "verificationCode": {
       "type": "string",
       "pattern": "^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$"
+    },
+    "typedCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
     },
     "bootstrapToken": {
       "type": "string",
@@ -504,6 +741,7 @@
     },
     "errorEnvelope": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "code",
         "error",
@@ -537,6 +775,7 @@
           "enum": [
             "rejected",
             "expired",
+            "withdrawn",
             "registration_limit",
             "claim_attempts",
             "poll_interval"
@@ -556,6 +795,13 @@
             "required": [
               "retryAfterSeconds"
             ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "retryAfterSeconds"
+              ]
+            }
           }
         },
         {
@@ -574,7 +820,28 @@
               "reason": {
                 "enum": [
                   "rejected",
-                  "expired"
+                  "expired",
+                  "withdrawn"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "enum": [
+                  "registration_limit",
+                  "claim_attempts",
+                  "poll_interval"
                 ]
               }
             }
@@ -596,29 +863,6 @@
               "required": [
                 "reason"
               ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "code": {
-                "const": "RATE_LIMITED"
-              }
-            },
-            "required": [
-              "reason"
-            ]
-          },
-          "then": {
-            "properties": {
-              "reason": {
-                "enum": [
-                  "registration_limit",
-                  "claim_attempts",
-                  "poll_interval"
-                ]
-              }
             }
           }
         }
@@ -720,9 +964,18 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 80,
-          "not": {
-            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
-          }
+          "allOf": [
+            {
+              "not": {
+                "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+              }
+            }
+          ]
         },
         "requestedLocalPart": {
           "$ref": "#/definitions/localPart"
@@ -818,6 +1071,40 @@
       },
       "additionalProperties": false
     },
+    "approvedAgent": {
+      "type": "object",
+      "required": [
+        "name",
+        "address"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "allOf": [
+            {
+              "not": {
+                "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+              }
+            }
+          ]
+        },
+        "address": {
+          "$ref": "#/definitions/address"
+        }
+      },
+      "additionalProperties": false
+    },
     "registrationStatus": {
       "oneOf": [
         {
@@ -852,6 +1139,7 @@
             "registrationId",
             "status",
             "target",
+            "workspaceName",
             "agent",
             "effectivePermissions",
             "activationExpiresAt"
@@ -870,26 +1158,25 @@
                 "existing_agent"
               ]
             },
-            "agent": {
-              "type": "object",
-              "required": [
-                "name",
-                "address"
-              ],
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 80,
+            "workspaceName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "allOf": [
+                {
                   "not": {
                     "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
                   }
                 },
-                "address": {
-                  "$ref": "#/definitions/address"
+                {
+                  "not": {
+                    "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+                  }
                 }
-              },
-              "additionalProperties": false
+              ]
+            },
+            "agent": {
+              "$ref": "#/definitions/approvedAgent"
             },
             "effectivePermissions": {
               "type": "array",
@@ -897,6 +1184,7 @@
                 "$ref": "#/definitions/permission"
               },
               "minItems": 1,
+              "maxItems": 5,
               "uniqueItems": true
             },
             "activationExpiresAt": {
@@ -942,7 +1230,8 @@
             "status": {
               "enum": [
                 "rejected",
-                "expired"
+                "expired",
+                "withdrawn"
               ]
             }
           },
@@ -957,9 +1246,7 @@
       ],
       "properties": {
         "verificationCode": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32
+          "$ref": "#/definitions/typedCode"
         }
       },
       "additionalProperties": false
@@ -991,9 +1278,18 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 80,
-          "not": {
-            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
-          }
+          "allOf": [
+            {
+              "not": {
+                "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+              }
+            }
+          ]
         },
         "requestedLocalPart": {
           "anyOf": [
@@ -1011,6 +1307,7 @@
             "$ref": "#/definitions/permission"
           },
           "minItems": 1,
+          "maxItems": 5,
           "uniqueItems": true
         },
         "grantablePermissions": {
@@ -1019,6 +1316,7 @@
             "$ref": "#/definitions/permission"
           },
           "minItems": 1,
+          "maxItems": 5,
           "uniqueItems": true
         },
         "connectionRoute": {
@@ -1043,22 +1341,15 @@
     },
     "claimApproveRequest": {
       "type": "object",
-      "additionalProperties": false,
       "required": [
         "verificationCode",
-        "workspaceInboxId",
         "target",
+        "grantedPermissions",
         "policyProfile"
       ],
       "properties": {
         "verificationCode": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32
-        },
-        "workspaceInboxId": {
-          "type": "string",
-          "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+          "$ref": "#/definitions/typedCode"
         },
         "target": {
           "oneOf": [
@@ -1066,6 +1357,7 @@
               "type": "object",
               "required": [
                 "kind",
+                "workspaceInboxId",
                 "name",
                 "localPart"
               ],
@@ -1073,13 +1365,26 @@
                 "kind": {
                   "const": "new_agent"
                 },
+                "workspaceInboxId": {
+                  "type": "string",
+                  "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+                },
                 "name": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 80,
-                  "not": {
-                    "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
-                  }
+                  "allOf": [
+                    {
+                      "not": {
+                        "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+                      }
+                    },
+                    {
+                      "not": {
+                        "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+                      }
+                    }
+                  ]
                 },
                 "localPart": {
                   "$ref": "#/definitions/localPart"
@@ -1091,7 +1396,8 @@
               "type": "object",
               "required": [
                 "kind",
-                "agentId"
+                "agentId",
+                "replacesInstallationId"
               ],
               "properties": {
                 "kind": {
@@ -1100,6 +1406,17 @@
                 "agentId": {
                   "type": "string",
                   "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+                },
+                "replacesInstallationId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "additionalProperties": false
@@ -1119,33 +1436,7 @@
           "const": "default"
         }
       },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "target": {
-                "properties": {
-                  "kind": {
-                    "const": "new_agent"
-                  }
-                }
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "grantedPermissions"
-            ]
-          },
-          "else": {
-            "not": {
-              "required": [
-                "grantedPermissions"
-              ]
-            }
-          }
-        }
-      ]
+      "additionalProperties": false
     },
     "claimRejectRequest": {
       "type": "object",
@@ -1154,42 +1445,7 @@
       ],
       "properties": {
         "verificationCode": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32
-        }
-      },
-      "additionalProperties": false
-    },
-    "agentSummary": {
-      "type": "object",
-      "required": [
-        "id",
-        "name",
-        "address",
-        "status"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 80,
-          "not": {
-            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
-          }
-        },
-        "address": {
-          "$ref": "#/definitions/address"
-        },
-        "status": {
-          "enum": [
-            "active",
-            "paused"
-          ]
+          "$ref": "#/definitions/typedCode"
         }
       },
       "additionalProperties": false
@@ -1200,8 +1456,8 @@
         "registrationId",
         "status",
         "target",
+        "workspaceName",
         "agent",
-        "inboxId",
         "effectivePermissions",
         "policyProfile",
         "activationExpiresAt"
@@ -1220,12 +1476,25 @@
             "existing_agent"
           ]
         },
-        "agent": {
-          "$ref": "#/definitions/agentSummary"
-        },
-        "inboxId": {
+        "workspaceName": {
           "type": "string",
-          "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+          "minLength": 1,
+          "maxLength": 80,
+          "allOf": [
+            {
+              "not": {
+                "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+              }
+            }
+          ]
+        },
+        "agent": {
+          "$ref": "#/definitions/approvedAgent"
         },
         "effectivePermissions": {
           "type": "array",
@@ -1233,6 +1502,7 @@
             "$ref": "#/definitions/permission"
           },
           "minItems": 1,
+          "maxItems": 5,
           "uniqueItems": true
         },
         "policyProfile": {
@@ -1262,6 +1532,104 @@
       },
       "additionalProperties": false
     },
+    "ownerClaim": {
+      "type": "object",
+      "required": [
+        "registrationId",
+        "status",
+        "target",
+        "agent",
+        "effectivePermissions",
+        "approvedAt",
+        "activationExpiresAt",
+        "installationId"
+      ],
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "activated",
+            "withdrawn",
+            "expired"
+          ]
+        },
+        "target": {
+          "enum": [
+            "new_agent",
+            "existing_agent"
+          ]
+        },
+        "agent": {
+          "$ref": "#/definitions/approvedAgent"
+        },
+        "effectivePermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true
+        },
+        "approvedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "activationExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "installationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ownerClaimList": {
+      "type": "object",
+      "required": [
+        "claims"
+      ],
+      "properties": {
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ownerClaim"
+          },
+          "maxItems": 10
+        }
+      },
+      "additionalProperties": false
+    },
+    "claimWithdrawn": {
+      "type": "object",
+      "required": [
+        "registrationId",
+        "status"
+      ],
+      "properties": {
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "status": {
+          "const": "withdrawn"
+        }
+      },
+      "additionalProperties": false
+    },
     "activationRequest": {
       "type": "object",
       "required": [
@@ -1279,6 +1647,48 @@
         },
         "deliveryMode": {
           "$ref": "#/definitions/deliveryMode"
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "address",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "allOf": [
+            {
+              "not": {
+                "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+              }
+            }
+          ]
+        },
+        "address": {
+          "$ref": "#/definitions/address"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "paused"
+          ]
         }
       },
       "additionalProperties": false
@@ -1360,7 +1770,35 @@
           ]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "status": {
+            "const": "active"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "endedReason": {
+            "type": "null"
+          },
+          "endedAt": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "endedReason": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+          }
+        }
+      }
     },
     "activated": {
       "type": "object",
@@ -1368,7 +1806,7 @@
         "installation",
         "agent",
         "inboxId",
-        "permissions",
+        "effectivePermissions",
         "agentApiToken",
         "agentRefreshToken",
         "agentTokenExpiresAt",
@@ -1386,12 +1824,13 @@
           "type": "string",
           "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
         },
-        "permissions": {
+        "effectivePermissions": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/permission"
           },
           "minItems": 1,
+          "maxItems": 5,
           "uniqueItems": true
         },
         "agentApiToken": {
@@ -1587,6 +2026,30 @@
       },
       "additionalProperties": false
     },
+    "storedAgent": {
+      "type": "object",
+      "required": [
+        "id",
+        "onboardingStatus"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "onboardingStatus": {
+          "enum": [
+            "pending_approval",
+            "approved",
+            "rejected",
+            "revoked"
+          ]
+        },
+        "runtime": {
+          "type": "string"
+        }
+      }
+    },
     "storedCredentialFamily": {
       "type": "object",
       "required": [
@@ -1629,6 +2092,13 @@
             }
           ]
         },
+        "revokedReason": {
+          "enum": [
+            "revoked",
+            "replaced",
+            "refresh_replay"
+          ]
+        },
         "runtime": {
           "type": "string"
         },
@@ -1638,8 +2108,71 @@
         }
       }
     },
+    "storedInstallation": {
+      "type": "object",
+      "required": [
+        "id",
+        "agentId",
+        "credentialFamilyId",
+        "registrationId",
+        "connectionRoute",
+        "deliveryMode",
+        "runtime",
+        "createdAt",
+        "activatedAt",
+        "replayDetectedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "credentialFamilyId": {
+          "type": "string",
+          "pattern": "^credential_family_[A-Za-z0-9_-]{1,80}$"
+        },
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "connectionRoute": {
+          "$ref": "#/definitions/connectionRoute"
+        },
+        "deliveryMode": {
+          "$ref": "#/definitions/deliveryMode"
+        },
+        "runtime": {
+          "$ref": "#/definitions/runtime"
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "activatedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "replayDetectedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "fixture": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "contract",
         "version",
@@ -1690,17 +2223,6 @@
           },
           "additionalProperties": false
         },
-        "stored": {
-          "type": "object",
-          "properties": {
-            "credentialFamilies": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/storedCredentialFamily"
-              }
-            }
-          }
-        },
         "context": {
           "type": "object",
           "required": [
@@ -1713,7 +2235,33 @@
                 "$ref": "#/definitions/permission"
               },
               "minItems": 1,
+              "maxItems": 5,
               "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "stored": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "agents": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedAgent"
+              }
+            },
+            "credentialFamilies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedCredentialFamily"
+              }
+            },
+            "installations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedInstallation"
+              }
             }
           },
           "additionalProperties": false
@@ -1765,7 +2313,12 @@
             "required": [
               "request",
               "response"
-            ]
+            ],
+            "not": {
+              "required": [
+                "steps"
+              ]
+            }
           }
         },
         {
@@ -1782,14 +2335,21 @@
           "then": {
             "required": [
               "flags",
+              "stored",
               "steps"
-            ]
+            ],
+            "not": {
+              "required": [
+                "request"
+              ]
+            }
           }
         }
       ]
     },
     "fixtureRequest": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "method",
         "path",
@@ -1813,19 +2373,25 @@
             "agent_access",
             "human_session"
           ],
-          "description": "none: public. bootstrap: the registration bootstrap token in headers.authorization. agent_access: an agent access token. human_session: a signed-in, allowlisted human with the envoi_session and envoi_csrf cookies, x-envoi-csrf and origin (envoi-browser-names v1)."
+          "description": "none: public. bootstrap: the registration bootstrap token in headers.authorization. agent_access: an agent access token. human_session: a signed-in, allowlisted human with the envoi_session cookie, and for POST the envoi_csrf cookie, x-envoi-csrf and origin (envoi-browser-names v1)."
         },
         "headers": {
           "type": "object"
         },
         "schema": {
-          "type": "string"
+          "type": "string",
+          "description": "A definition the body must match."
+        },
+        "invalidAgainst": {
+          "type": "string",
+          "description": "A definition the body must NOT match (negative fixtures)."
         },
         "body": {}
       }
     },
     "fixtureResponse": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "status",
         "schema",
@@ -1846,6 +2412,7 @@
     },
     "fixtureClient": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "surface",
         "next"
@@ -1875,7 +2442,25 @@
           "type": "string",
           "minLength": 1
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "surface": {
+                "const": "helper"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "lifecycle",
+              "retry",
+              "guidance"
+            ]
+          }
+        }
+      ]
     }
   }
 }

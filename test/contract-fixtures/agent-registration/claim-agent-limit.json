@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-agent-limit",
   "kind": "http",
-  "description": "The human already has the maximum number of active or paused agents.",
+  "description": "The human already uses every agent slot.",
   "request": {
     "method": "POST",
     "path": "/api/agent-registrations/registration_example/approve",
@@ -16,9 +16,9 @@
     "schema": "claimApproveRequest",
     "body": {
       "verificationCode": "F7KQ-PM4D",
-      "workspaceInboxId": "inbox_workspace_example",
       "target": {
         "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
         "name": "Example agent",
         "localPart": "example"
       },

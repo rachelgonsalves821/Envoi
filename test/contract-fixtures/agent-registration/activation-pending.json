@@ -33,6 +33,10 @@
     "lifecycle": "PENDING_CLAIM",
     "retry": "poll_after",
     "guidance": "wait_for_claim",
-    "next": "Poll the registration and activate only after status approved."
+    "next": "Poll the registration and activate only after status approved.",
+    "modelVisible": {
+      "state": "pending_approval",
+      "guidance": "wait_for_claim"
+    }
   }
 }

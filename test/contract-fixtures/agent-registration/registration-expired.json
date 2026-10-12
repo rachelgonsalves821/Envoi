@@ -3,7 +3,7 @@
   "version": 1,
   "id": "registration-expired",
   "kind": "http",
-  "description": "Nobody claimed within ten minutes (or nobody activated within ten minutes of approval).",
+  "description": "Nobody claimed within ten minutes, or nobody activated within ten minutes of approval.",
   "request": {
     "method": "GET",
     "path": "/api/agent-registrations/registration_example",
@@ -29,6 +29,7 @@
     "retry": "none",
     "guidance": "register_again",
     "modelVisible": {
+      "state": "registration_ended",
       "registrationStatus": "expired",
       "guidance": "register_again"
     },

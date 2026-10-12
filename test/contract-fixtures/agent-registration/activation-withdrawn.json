@@ -1,0 +1,43 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-withdrawn",
+  "kind": "http",
+  "description": "Activation after the owner withdrew, or after an activation-time re-check failed (the target agent was frozen, removed or replaced, or the approver can no longer manage it).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REGISTRATION_ENDED",
+      "error": "REGISTRATION_ENDED",
+      "message": "The owner withdrew this approval.",
+      "requestId": "req_example",
+      "reason": "withdrawn"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "owner_withdrew",
+    "next": "Stop. Ask the human before registering again.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "owner_withdrew"
+    }
+  }
+}

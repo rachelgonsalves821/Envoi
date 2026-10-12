@@ -3,7 +3,7 @@
   "version": 1,
   "id": "routes-disabled",
   "kind": "http",
-  "description": "Default production state: both V2 flags off. Nothing is offered and Quick Connect stays the only path.",
+  "description": "Default production state: both V2 flags off. Nothing is offered; Quick Connect stays the only path.",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": false,
     "ENVOI_INSTALLATIONS_V2": false,
@@ -76,6 +76,13 @@
   },
   "client": {
     "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "modelVisible": {
+      "state": "needs_help",
+      "guidance": "route_unavailable"
+    },
     "next": "Tell the human agent-led setup is not available yet. Do not attempt registration."
   }
 }

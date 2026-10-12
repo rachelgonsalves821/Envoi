@@ -1,0 +1,38 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-withdrawn",
+  "kind": "http",
+  "description": "The owner withdrew the approval before activation, or an activation-time re-check failed.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "registrationStatus",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "withdrawn"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "owner_withdrew",
+    "modelVisible": {
+      "state": "registration_ended",
+      "registrationStatus": "withdrawn",
+      "guidance": "owner_withdrew"
+    },
+    "next": "Stop and delete the bootstrap token. Ask the human before registering again."
+  }
+}

@@ -29,6 +29,7 @@
     "retry": "none",
     "guidance": "owner_rejected",
     "modelVisible": {
+      "state": "registration_ended",
       "registrationStatus": "rejected",
       "guidance": "owner_rejected"
     },

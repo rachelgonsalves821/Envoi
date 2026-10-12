@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-attempts-exhausted",
   "kind": "http",
-  "description": "Five claim failures by this human inside 15 minutes.",
+  "description": "Five claim failures by this human inside 15 minutes: even the correct code is refused.",
   "request": {
     "method": "POST",
     "path": "/api/agent-claims/lookup",
@@ -35,9 +35,9 @@
   },
   "client": {
     "surface": "owner_ui",
-    "lifecycle": "UNCHANGED",
+    "lifecycle": "NOT_APPLICABLE",
     "retry": "after_retry_after",
     "guidance": "too_many_attempts",
-    "next": "Disable code entry until retry-after passes. The correct code is refused too while locked."
+    "next": "Disable code entry until retry-after passes."
   }
 }

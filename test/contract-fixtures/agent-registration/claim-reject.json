@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-reject",
   "kind": "http",
-  "description": "The owner rejects the registration.",
+  "description": "The owner rejects a pending registration.",
   "request": {
     "method": "POST",
     "path": "/api/agent-registrations/registration_example/reject",

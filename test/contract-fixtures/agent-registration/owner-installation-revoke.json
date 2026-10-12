@@ -3,7 +3,7 @@
   "version": 1,
   "id": "owner-installation-revoke",
   "kind": "http",
-  "description": "The owner revokes one installation. The agent identity is not frozen; it can be reconnected by a new registration.",
+  "description": "The owner revokes one installation. The agent identity is not frozen; a new registration can attach to it.",
   "request": {
     "method": "POST",
     "path": "/api/inboxes/inbox_example/agents/agent_example/installations/installation_example/revoke",
@@ -41,6 +41,6 @@
   },
   "client": {
     "surface": "owner_ui",
-    "next": "Holders of that installation get CREDENTIAL_REVOKED reason revoked and credential.ended (a3 §2, §5)."
+    "next": "Holders get CREDENTIAL_REVOKED reason revoked and credential.ended (a3 §2, §5)."
   }
 }

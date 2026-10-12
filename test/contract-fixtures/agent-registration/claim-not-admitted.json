@@ -1,0 +1,38 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-not-admitted",
+  "kind": "http",
+  "description": "A human who has left the beta allowlist since signing in.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-claims/lookup",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimLookupRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Please sign in again.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "sign_in",
+    "next": "Send the human to sign in. Nothing about the code is revealed."
+  }
+}

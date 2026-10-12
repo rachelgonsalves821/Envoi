@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-agent-not-reconnectable",
   "kind": "http",
-  "description": "existing_agent target that is revoked as an agent.",
+  "description": "existing_agent target the human manages but which was frozen by the agent-wide revoke.",
   "request": {
     "method": "POST",
     "path": "/api/agent-registrations/registration_example/approve",
@@ -16,11 +16,14 @@
     "schema": "claimApproveRequest",
     "body": {
       "verificationCode": "F7KQ-PM4D",
-      "workspaceInboxId": "inbox_workspace_example",
       "target": {
         "kind": "existing_agent",
-        "agentId": "agent_revoked"
+        "agentId": "agent_frozen",
+        "replacesInstallationId": null
       },
+      "grantedPermissions": [
+        "send_agent_messages"
+      ],
       "policyProfile": "default"
     }
   },
@@ -30,7 +33,7 @@
     "body": {
       "code": "AGENT_NOT_RECONNECTABLE",
       "error": "AGENT_NOT_RECONNECTABLE",
-      "message": "That agent cannot be reconnected.",
+      "message": "That agent cannot be reconnected here.",
       "requestId": "req_example"
     }
   },

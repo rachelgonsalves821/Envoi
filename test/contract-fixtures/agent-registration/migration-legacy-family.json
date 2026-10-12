@@ -3,13 +3,19 @@
   "version": 1,
   "id": "migration-legacy-family",
   "kind": "migration",
-  "description": "Turning ENVOI_INSTALLATIONS_V2 on projects each existing credential family as a legacy installation. Nothing is written and nobody re-enrolls.",
+  "description": "Turning ENVOI_INSTALLATIONS_V2 on projects the credential families of approved agents as legacy installations. Nothing is written and nobody re-enrolls. The older family predates A1 (no revokedReason, no runtime).",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": false,
     "ENVOI_INSTALLATIONS_V2": true,
     "ENVOI_AUTHENTICATED_REST_ROUTE": false
   },
   "stored": {
+    "agents": [
+      {
+        "id": "agent_example",
+        "onboardingStatus": "approved"
+      }
+    ],
     "credentialFamilies": [
       {
         "id": "credential_family_0b6f8f9e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
@@ -19,6 +25,14 @@
         "refreshExpiresAt": "2026-11-11T08:00:00.000Z",
         "revokedAt": null,
         "runtime": "openclaw"
+      },
+      {
+        "id": "credential_family_7a7a7a7a-1111-4222-8333-944444444444",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-01T08:00:00.000Z",
+        "refreshExpiresAt": "2026-10-01T08:00:00.000Z",
+        "revokedAt": "2026-09-20T08:00:00.000Z"
       }
     ]
   },
@@ -29,7 +43,7 @@
         "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
         "auth": "human_session",
         "headers": {
-          "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf"
+          "cookie": "envoi_session=PLACEHOLDER_session"
         }
       },
       "response": {
@@ -56,6 +70,22 @@
               "createdAt": "2026-09-20T08:00:00.000Z",
               "activatedAt": "2026-09-20T08:00:00.000Z",
               "endedAt": null
+            },
+            {
+              "id": "installation_legacy_7a7a7a7a-1111-4222-8333-944444444444",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "unknown",
+                "version": null
+              },
+              "status": "ended",
+              "endedReason": "revoked",
+              "legacy": true,
+              "createdAt": "2026-09-01T08:00:00.000Z",
+              "activatedAt": "2026-09-01T08:00:00.000Z",
+              "endedAt": "2026-09-20T08:00:00.000Z"
             }
           ]
         }
@@ -109,6 +139,6 @@
   ],
   "client": {
     "surface": "server",
-    "next": "Projection only: installation id is installation_legacy_ + the family UUID; route local_helper; delivery envoi_link; runtime from the family; presence keyed by the family as in a5-presence §1."
+    "next": "Projection only, per x-legacy-projection."
   }
 }

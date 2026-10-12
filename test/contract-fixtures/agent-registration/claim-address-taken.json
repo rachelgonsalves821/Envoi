@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-address-taken",
   "kind": "http",
-  "description": "The chosen address is already reserved.",
+  "description": "The chosen address is already held.",
   "request": {
     "method": "POST",
     "path": "/api/agent-registrations/registration_example/approve",
@@ -16,9 +16,9 @@
     "schema": "claimApproveRequest",
     "body": {
       "verificationCode": "F7KQ-PM4D",
-      "workspaceInboxId": "inbox_workspace_example",
       "target": {
         "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
         "name": "Example agent",
         "localPart": "example"
       },

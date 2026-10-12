@@ -31,8 +31,9 @@
     "retry": "poll_after",
     "guidance": "wait_for_claim",
     "modelVisible": {
+      "state": "pending_approval",
       "registrationStatus": "pending_claim"
     },
-    "next": "Poll again after pollAfterSeconds. Do not print the code again unless the human asks."
+    "next": "Poll again after pollAfterSeconds. Show the code again only if the human asks and it has not expired."
   }
 }

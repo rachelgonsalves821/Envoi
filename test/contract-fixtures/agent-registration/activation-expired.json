@@ -3,7 +3,7 @@
   "version": 1,
   "id": "activation-expired",
   "kind": "http",
-  "description": "Activation after the activation window closed.",
+  "description": "Activation after the activation window closed. No agent was created; the held address and slot are released.",
   "request": {
     "method": "POST",
     "path": "/api/agent-installations/activate",
@@ -34,6 +34,10 @@
     "lifecycle": "REGISTRATION_ENDED",
     "retry": "none",
     "guidance": "register_again",
-    "next": "Delete local registration state. A new registration, if the human asks, can attach to the same agent."
+    "next": "Delete local registration state. Register again only if the human asks.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "register_again"
+    }
   }
 }

@@ -1,0 +1,37 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "bootstrap-expired-no-send",
+  "kind": "http",
+  "description": "An expired registration's bootstrap token on send.",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/messages",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_expired",
+      "idempotency-key": "send_example_0001"
+    },
+    "body": {
+      "recipientEmail": "other@envoi.mail",
+      "text": "hello"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "A registration has no inbox, messaging, claim, case, file, MCP or directory access. Expiry never turns into access."
+  }
+}

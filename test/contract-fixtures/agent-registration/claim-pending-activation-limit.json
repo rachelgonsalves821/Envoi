@@ -1,0 +1,50 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-pending-activation-limit",
+  "kind": "http",
+  "description": "The human already has three approvals waiting for activation.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "execute_cases"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "PENDING_ACTIVATION_LIMIT",
+      "error": "PENDING_ACTIVATION_LIMIT",
+      "message": "Too many approvals are still waiting for their agents.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "withdraw_or_wait",
+    "next": "Show the waiting approvals (GET /api/agent-claims) with Withdraw."
+  }
+}

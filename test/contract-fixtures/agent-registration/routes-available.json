@@ -3,7 +3,7 @@
   "version": 1,
   "id": "routes-available",
   "kind": "http",
-  "description": "Both V2 flags on, ENVOI_AUTHENTICATED_REST_ROUTE off: only the local helper is offered.",
+  "description": "Both V2 flags on, ENVOI_AUTHENTICATED_REST_ROUTE off: only the local helper with envoi_link delivery is offered.",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": true,
     "ENVOI_INSTALLATIONS_V2": true,
@@ -61,11 +61,11 @@
         },
         {
           "deliveryMode": "poll",
-          "available": true
+          "available": false
         },
         {
           "deliveryMode": "on_demand",
-          "available": true
+          "available": false
         },
         {
           "deliveryMode": "a2a",
@@ -76,6 +76,9 @@
   },
   "client": {
     "surface": "helper",
-    "next": "/connect, skill.json and the helper offer only routes with available:true. Never infer availability from a frontend build."
+    "lifecycle": "REGISTERING",
+    "retry": "none",
+    "guidance": "none",
+    "next": "/connect, skill.json and the helper offer only routes and modes with available:true. Never infer availability from a frontend build."
   }
 }

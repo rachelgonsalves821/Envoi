@@ -11,6 +11,7 @@
     "headers": {
       "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
     },
+    "invalidAgainst": "activationRequest",
     "body": {
       "registrationId": "registration_example",
       "deliveryMode": "envoi_link"
@@ -31,6 +32,10 @@
     "lifecycle": "UNCHANGED",
     "retry": "none",
     "guidance": "update_helper",
-    "next": "Do not retry automatically. The helper is out of date."
+    "next": "Do not retry automatically. The helper is out of date.",
+    "modelVisible": {
+      "state": "needs_help",
+      "guidance": "update_helper"
+    }
   }
 }

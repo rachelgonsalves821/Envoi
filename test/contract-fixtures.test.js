@@ -133,21 +133,28 @@ function checkOwnerConnection(fixture, schemas, label) {
   }
 }
 
-// agent-registration §8: an error body follows x-codes for status, lifecycle, retry and guidance.
+// An x-codes row may give lifecycle, retry and guidance per client surface (agent-registration §8).
+function codeEntry(schemas, code, surface) {
+  const entry = schemas['x-codes']?.[code];
+  if (!entry) return undefined;
+  const row = entry.bySurface ? entry.bySurface[surface] : entry;
+  return row && { status: entry.status, ...row };
+}
+
+// agent-registration §8: an error body follows its x-codes row for status, lifecycle, retry and guidance.
 function checkCodedError(response, client, schemas, label) {
   const value = response.body;
   if (!value || typeof value !== 'object' || !('code' in value)) {
     assert.ok(response.status < 400, `${label}: error responses must use the error envelope`);
     return;
   }
-  const entry = schemas['x-codes'][value.code];
-  assert.ok(entry, `${label}: ${value.code} is not in x-codes`);
+  const entry = codeEntry(schemas, value.code, client.surface);
+  assert.ok(entry, `${label}: ${value.code} has no x-codes row for ${client.surface}`);
   assert.equal(value.error, value.code, `${label}: error must equal code`);
   assert.equal(response.status, entry.status, `${label}: HTTP status for ${value.code}`);
   assert.equal(client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
   assert.equal(client.retry, entry.retry, `${label}: retry for ${value.code}`);
-  const guidance = value.reason && entry.guidanceByReason ? entry.guidanceByReason[value.reason] : entry.guidance;
-  assert.equal(client.guidance, guidance, `${label}: guidance for ${value.code}`);
+  assert.equal(client.guidance, (value.reason && entry.guidanceByReason?.[value.reason]) || entry.guidance, `${label}: guidance for ${value.code}`);
   if (response.status === 429) assert.equal(response.headers?.['retry-after'], String(value.retryAfterSeconds), `${label}: retry-after`);
 }
 
@@ -157,65 +164,148 @@ const normalizeVerificationCode = (code) => {
   return `${symbols.slice(0, 4)}-${symbols.slice(4)}`;
 };
 
-// agent-registration v1: route availability (§1), model-visible allowlist (§7), permission
-// intersection (§5.3), legacy projection (§9) and migration/rollback steps.
+const sameMembers = (a, b) => a.length === b.length && a.every((item) => b.includes(item));
+
+// agent-registration §7: the values each response may expose to a model, by x-model-visible key.
+function modelVisibleSources(response, schemas) {
+  const body = response.body;
+  const labels = (permissions) => permissions.map((permission) => schemas['x-permission-labels'][permission]);
+  switch (response.schema) {
+    case 'registrationCreated':
+      return { registrationStatus: 'pending_claim', claimUrl: body.claim.url, verificationCode: body.claim.verificationCode, expiresInSeconds: schemas['x-limits'].registrationTtlSeconds };
+    case 'registrationStatus':
+      return { registrationStatus: body.status, workspaceName: body.workspaceName, agentName: body.agent?.name, agentAddress: body.agent?.address, permissionSummary: body.effectivePermissions && labels(body.effectivePermissions) };
+    case 'activated':
+      return { registrationStatus: 'activated', agentName: body.agent.name, agentAddress: body.agent.address, agentStatus: body.agent.status, connectionRoute: body.installation.connectionRoute, deliveryMode: body.installation.deliveryMode, permissionSummary: labels(body.effectivePermissions) };
+    case 'agentStatusWithInstallation':
+      return { agentAddress: body.agent.address, agentStatus: body.agent.status, connectionRoute: body.installation?.connectionRoute, deliveryMode: body.installation?.deliveryMode };
+    default:
+      return {};
+  }
+}
+
+// agent-registration §1: which flag gates a path, and the lifecycle each successful helper response implies.
+const registrationPath = /^\/api\/(?:agent-registrations|agent-claims|agent-installations\/activate)/;
+const installationsPath = /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/installations/;
+const successLifecycle = {
+  registrationCreated: () => 'PENDING_CLAIM',
+  registrationStatus: (body) => ({ pending_claim: 'PENDING_CLAIM', approved: 'ACTIVATING', activated: 'ACTIVATING' })[body.status] || 'REGISTRATION_ENDED',
+  activated: () => 'ACTIVATING',
+  agentStatusWithInstallation: () => 'CONNECTED',
+};
+
+// agent-registration v1 rules a schema cannot express. Applied to each exchange of a fixture.
 function checkAgentRegistration(fixture, schemas, check, validator, label) {
   const exchanges = fixture.steps ? fixture.steps.map((step, index) => ({ ...step, label: `${label} step ${index}` }))
     : [{ request: fixture.request, response: fixture.response, client: fixture.client, label }];
   const flags = { ENVOI_AGENT_REGISTRATION_V2: true, ENVOI_INSTALLATIONS_V2: true, ENVOI_AUTHENTICATED_REST_ROUTE: false, ...fixture.flags };
   const core = flags.ENVOI_AGENT_REGISTRATION_V2 && flags.ENVOI_INSTALLATIONS_V2;
+  const routeAvailable = { local_helper: core, authenticated_rest: core && flags.ENVOI_AUTHENTICATED_REST_ROUTE, remote_mcp_oauth: false, provider_connector: false };
+  const modeAvailable = (mode) => core && mode === 'envoi_link';
+  const visible = schemas['x-model-visible'];
   for (const { request, response, client, label: stepLabel } of exchanges) {
+    const body = response.body;
+    const code = body && typeof body === 'object' ? body.code : undefined;
     if (request.schema) check(validator(request.schema), request.body, `${stepLabel} request`);
+    if (request.invalidAgainst) assert.equal(validator(request.invalidAgainst)(request.body), false, `${stepLabel}: the negative request must fail ${request.invalidAgainst}`);
     if (fixture.steps) {
-      check(validator(response.schema), response.body, `${stepLabel} response`);
+      check(validator(response.schema), body, `${stepLabel} response`);
       checkCodedError(response, client, schemas, stepLabel);
     }
-    const body = response.body;
+    // §1: flags decide FEATURE_DISABLED, ROUTE_NOT_AVAILABLE and DELIVERY_MODE_NOT_AVAILABLE, and nothing else does.
+    const pathname = request.path.split('?')[0];
+    const gate = registrationPath.test(pathname) ? flags.ENVOI_AGENT_REGISTRATION_V2 : installationsPath.test(pathname) ? flags.ENVOI_INSTALLATIONS_V2 : true;
+    assert.equal(code === 'FEATURE_DISABLED', !gate, `${stepLabel}: FEATURE_DISABLED exactly when the route's flag is off`);
+    if (gate && request.method === 'POST' && pathname === '/api/agent-registrations' && request.schema) {
+      assert.equal(code === 'ROUTE_NOT_AVAILABLE', !routeAvailable[request.body.connectionRoute], `${stepLabel}: ROUTE_NOT_AVAILABLE exactly when the route is unavailable`);
+    }
+    if (gate && pathname === '/api/agent-installations/activate' && request.schema) {
+      assert.equal(code === 'DELIVERY_MODE_NOT_AVAILABLE', !modeAvailable(request.body.deliveryMode), `${stepLabel}: DELIVERY_MODE_NOT_AVAILABLE exactly when the mode is unavailable`);
+    }
+    if (!code && client.surface === 'helper' && successLifecycle[response.schema]) {
+      assert.equal(client.lifecycle, successLifecycle[response.schema](body), `${stepLabel}: lifecycle for a ${response.schema} response`);
+    }
+    // §7: model-visible keys are allowlisted and server-derived values equal their source.
     if (client.modelVisible) {
-      const allowed = Object.keys(schemas['x-model-visible'].allowed);
-      for (const key of Object.keys(client.modelVisible)) assert.ok(allowed.includes(key), `${stepLabel}: ${key} is not model-visible`);
-      assert.doesNotMatch(JSON.stringify(client.modelVisible), /envoi_(?:agent_|mcp_read_|enroll_|reg_)|PLACEHOLDER|"(?:registration|installation|inbox|agent|credential_family)_/, `${stepLabel}: model-visible values carry no token or internal id`);
-      if ('verificationCode' in client.modelVisible) assert.equal(client.modelVisible.registrationStatus, 'pending_claim', `${stepLabel}: the code is shown only while pending`);
-      for (const summary of client.modelVisible.permissionSummary || []) assert.ok(Object.values(schemas['x-permission-labels']).includes(summary), `${stepLabel}: permission label ${summary}`);
+      const sources = modelVisibleSources(response, schemas);
+      for (const [key, value] of Object.entries(client.modelVisible)) {
+        if (key in visible.serverDerived) {
+          const expected = key === 'guidance' ? client.guidance : sources[key];
+          assert.notEqual(expected, undefined, `${stepLabel}: ${key} has no source in a ${response.schema} response`);
+          assert.deepEqual(value, expected, `${stepLabel}: model-visible ${key} equals its source`);
+        } else {
+          const rule = visible.helperDerived[key];
+          assert.ok(rule, `${stepLabel}: ${key} is not model-visible`);
+          if (rule.enum) assert.ok(rule.enum.includes(value), `${stepLabel}: ${key} value ${value}`);
+          if (rule.pattern) assert.match(value, new RegExp(rule.pattern), `${stepLabel}: ${key} format`);
+          if (rule.maxLength) assert.ok(value.length <= rule.maxLength, `${stepLabel}: ${key} length`);
+        }
+      }
+      if ('verificationCode' in client.modelVisible) assert.ok(response.schema === 'registrationCreated' || body.status === 'pending_claim', `${stepLabel}: the code is shown only while pending`);
+      const shown = JSON.stringify(client.modelVisible);
+      assert.doesNotMatch(shown, /envoi_(?:agent_|mcp_read_|enroll_|reg_)|PLACEHOLDER/, `${stepLabel}: model-visible values carry no token`);
+      const ids = JSON.stringify(body).match(/(?:registration|installation|inbox|agent|credential_family)_[A-Za-z0-9-]+/g) || [];
+      for (const internalId of ids) assert.ok(!shown.includes(internalId), `${stepLabel}: model-visible values carry no internal id (${internalId})`);
     }
     if (response.schema === 'routeAvailability') {
       assert.equal(body.registrationEnabled, flags.ENVOI_AGENT_REGISTRATION_V2, `${stepLabel}: registrationEnabled`);
       assert.equal(body.installationsEnabled, flags.ENVOI_INSTALLATIONS_V2, `${stepLabel}: installationsEnabled`);
-      const route = { local_helper: core, authenticated_rest: core && flags.ENVOI_AUTHENTICATED_REST_ROUTE, remote_mcp_oauth: false, provider_connector: false };
-      for (const entry of body.routes) assert.equal(entry.available, route[entry.connectionRoute], `${stepLabel}: ${entry.connectionRoute} availability`);
-      for (const entry of body.deliveryModes) assert.equal(entry.available, core && ['envoi_link', 'poll', 'on_demand'].includes(entry.deliveryMode), `${stepLabel}: ${entry.deliveryMode} availability`);
+      assert.deepEqual(body.routes.map((entry) => entry.connectionRoute), schemas.definitions.connectionRoute.enum, `${stepLabel}: every route once, in order`);
+      assert.deepEqual(body.deliveryModes.map((entry) => entry.deliveryMode), schemas.definitions.deliveryMode.enum, `${stepLabel}: every delivery mode once, in order`);
+      for (const entry of body.routes) assert.equal(entry.available, routeAvailable[entry.connectionRoute], `${stepLabel}: ${entry.connectionRoute} availability`);
+      for (const entry of body.deliveryModes) assert.equal(entry.available, modeAvailable(entry.deliveryMode), `${stepLabel}: ${entry.deliveryMode} availability`);
     }
-    if (response.schema === 'registrationCreated') {
-      assert.equal(body.claim.expiresAt, body.expiresAt, `${stepLabel}: the claim expires with the registration`);
-      assert.equal(client.modelVisible.expiresInSeconds, schemas['x-limits'].registrationTtlSeconds, `${stepLabel}: registration lifetime`);
-    }
+    if (response.schema === 'registrationCreated') assert.equal(body.claim.expiresAt, body.expiresAt, `${stepLabel}: the claim expires with the registration`);
     if (response.schema === 'claimLookup') {
       assert.equal(body.verificationCode, normalizeVerificationCode(request.body.verificationCode), `${stepLabel}: the code is normalized`);
-      assert.ok(body.grantablePermissions.every((permission) => body.requestedPermissions.includes(permission)), `${stepLabel}: only requested permissions are grantable`);
+      const maximum = schemas.definitions.permission.enum;
+      assert.ok(sameMembers(body.grantablePermissions, body.requestedPermissions.filter((permission) => maximum.includes(permission))), `${stepLabel}: grantable is requested ∩ organization maximum`);
     }
-    if (response.schema === 'claimApproved' && request.body.target.kind === 'new_agent') {
-      assert.ok(fixture.context?.requestedPermissions, `${stepLabel}: a new-agent approval names the requested permissions in context`);
+    // §5.3: effective = requested ∩ granted ∩ organization maximum, plus receive, for both targets.
+    if (response.schema === 'claimApproved') {
+      assert.equal(body.target, request.body.target.kind, `${stepLabel}: response target matches the request`);
+      assert.ok(fixture.context?.requestedPermissions, `${stepLabel}: an approval names the requested permissions in context`);
       const maximum = schemas.definitions.permission.enum;
       const expected = request.body.grantedPermissions.filter((permission) => fixture.context.requestedPermissions.includes(permission) && maximum.includes(permission));
       if (!expected.includes('receive_agent_messages')) expected.push('receive_agent_messages');
-      assert.deepEqual([...body.effectivePermissions].sort(), expected.sort(), `${stepLabel}: requested ∩ granted ∩ organization maximum, plus receive`);
+      assert.ok(sameMembers(body.effectivePermissions, expected), `${stepLabel}: requested ∩ granted ∩ organization maximum, plus receive`);
+      assert.equal('id' in body.agent, body.target === 'existing_agent', `${stepLabel}: only an existing agent has an id before activation`);
+      if (body.target === 'existing_agent') assert.equal(body.agent.id, request.body.target.agentId, `${stepLabel}: the approved agent is the requested one`);
     }
     if (response.schema === 'ownerInstallationList') {
-      const active = body.installations.filter((installation) => installation.status === 'active');
-      assert.ok(active.length <= 1, `${stepLabel}: at most one active installation`);
-      if (active.length) assert.equal(body.installations[0].status, 'active', `${stepLabel}: the active installation comes first`);
-      for (const installation of body.installations) assert.equal(installation.endedReason === null, installation.status === 'active', `${stepLabel}: endedReason is set exactly when ended`);
+      const list = body.installations;
+      const active = list.filter((installation) => installation.status === 'active');
+      assert.ok(active.filter((installation) => !installation.legacy).length <= 1, `${stepLabel}: v1 creates at most one active installation`);
+      assert.ok(list.every((installation, index) => installation.status === 'active' || list.slice(index).every((later) => later.status === 'ended')), `${stepLabel}: active installations come first`);
+      const endedList = list.filter((installation) => installation.status === 'ended');
+      assert.ok(endedList.length <= 5, `${stepLabel}: at most five ended installations`);
+      assert.ok(endedList.every((installation, index) => index === 0 || endedList[index - 1].endedAt >= installation.endedAt), `${stepLabel}: ended installations newest first`);
     }
-    if (response.schema === 'agentStatusWithInstallation') checkPresence(body.presence, body.asOf, stepLabel);
-    if (response.schema === 'agentStatusWithInstallation') assert.equal('installation' in body, flags.ENVOI_INSTALLATIONS_V2, `${stepLabel}: installation appears only with ENVOI_INSTALLATIONS_V2`);
+    if (response.schema === 'agentStatusWithInstallation') {
+      checkPresence(body.presence, body.asOf, stepLabel);
+      assert.equal('installation' in body, flags.ENVOI_INSTALLATIONS_V2, `${stepLabel}: installation appears exactly when ENVOI_INSTALLATIONS_V2 is on`);
+    }
   }
-  if (fixture.kind === 'migration') {
-    for (const family of fixture.stored.credentialFamilies.filter((entry) => !entry.revokedAt && !entry.installationId)) {
-      const projected = fixture.steps.flatMap((step) => step.response.body.installations || []).find((installation) => installation.legacy);
-      assert.ok(projected, `${label}: legacy family is projected`);
-      assert.equal(projected.id, `installation_legacy_${family.id.replace(/^credential_family_/, '')}`, `${label}: legacy installation id`);
-      assert.deepEqual([projected.connectionRoute, projected.deliveryMode, projected.runtime.type, projected.createdAt], ['local_helper', 'envoi_link', family.runtime, family.createdAt], `${label}: legacy projection`);
+  if (fixture.stored) checkInstallationDerivation(fixture, schemas, label);
+}
+
+// agent-registration §6.4 and §9: every listed installation is derived from the stored families.
+function checkInstallationDerivation(fixture, schemas, label) {
+  const { agents = [], credentialFamilies = [], installations: storedInstallations = [] } = fixture.stored;
+  for (const step of fixture.steps.filter((entry) => entry.response.schema === 'ownerInstallationList')) {
+    const expected = [];
+    for (const family of credentialFamilies) {
+      const agent = agents.find((entry) => entry.id === family.agentId);
+      if (!agent || agent.onboardingStatus !== 'approved') continue;
+      const ended = Boolean(family.revokedAt);
+      const stored = family.installationId && storedInstallations.find((entry) => entry.id === family.installationId);
+      if (family.installationId) assert.ok(stored, `${label}: family ${family.id} names a stored installation`);
+      expected.push(stored
+        ? { ...Object.fromEntries(Object.entries(stored).filter(([key]) => !['credentialFamilyId', 'registrationId', 'replayDetectedAt'].includes(key))), status: ended ? 'ended' : 'active', endedReason: ended ? (stored.replayDetectedAt ? 'activation_replay' : family.revokedReason || 'revoked') : null, endedAt: family.revokedAt, legacy: false }
+        : { id: `installation_legacy_${family.id.replace(/^credential_family_/, '')}`, agentId: family.agentId, connectionRoute: 'local_helper', deliveryMode: 'envoi_link', runtime: { type: family.runtime || agent.runtime || 'unknown', version: null }, status: ended ? 'ended' : 'active', endedReason: ended ? family.revokedReason || 'revoked' : null, legacy: true, createdAt: family.createdAt, activatedAt: family.createdAt, endedAt: family.revokedAt });
     }
+    const byId = (list) => [...list].sort((a, b) => a.id.localeCompare(b.id));
+    assert.deepEqual(byId(step.response.body.installations), byId(expected), `${label}: installations are derived from the stored families (x-legacy-projection, x-installation-derivation)`);
   }
 }
 
@@ -275,7 +365,7 @@ test('every fixture matches its declared schema', async () => {
         check(validator(fixture.response.schema), value, `${label} response`);
         if (value && typeof value === 'object' && 'code' in value) {
           assert.equal(value.error, value.code, `${label}: error must equal code`);
-          const entry = schemas['x-codes']?.[value.code];
+          const entry = codeEntry(schemas, value.code, fixture.client.surface);
           assert.ok(entry, `${label}: ${value.code} is not in x-codes`);
           assert.equal(fixture.response.status, entry.status, `${label}: HTTP status for ${value.code}`);
           assert.equal(fixture.client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
@@ -324,4 +414,23 @@ test('every fixture matches its declared schema', async () => {
       assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }
+});
+
+// agent-registration §5.3 and §6.2: replays repeat the original response exactly, and fixtures that
+// describe one registration agree with each other.
+test('agent-registration fixtures agree across cases', async () => {
+  const dir = path.join(root, 'agent-registration');
+  const load = (name) => readJson(path.join(dir, `${name}.json`));
+  const [created, recovered] = await Promise.all([load('activation-created'), load('activation-recovered')]);
+  assert.deepEqual(recovered.response.body, created.response.body, 'activation recovery returns the identical body');
+  const [approved, replayed] = await Promise.all([load('claim-approve-new-agent'), load('claim-approve-replayed')]);
+  assert.deepEqual(replayed.response.body, approved.response.body, 'an identical approval replays the identical body');
+  assert.deepEqual(replayed.request.body, approved.request.body, 'the replayed approval is the identical request');
+  const [registration, lookup, polled] = await Promise.all([load('registration-created'), load('claim-lookup'), load('registration-approved')]);
+  assert.deepEqual(lookup.response.body.requestedPermissions, registration.request.body.requestedPermissions, 'lookup shows what the agent requested');
+  assert.equal(lookup.response.body.verificationCode, registration.response.body.claim.verificationCode, 'lookup finds the registration by its code');
+  assert.deepEqual(approved.context.requestedPermissions, registration.request.body.requestedPermissions, 'approval context is the registration');
+  assert.deepEqual(polled.response.body.effectivePermissions, approved.response.body.effectivePermissions, 'polling reports the approved permissions');
+  assert.deepEqual(polled.response.body.agent, approved.response.body.agent, 'polling reports the approved agent');
+  assert.equal(polled.response.body.workspaceName, approved.response.body.workspaceName, 'polling reports the approving workspace');
 });

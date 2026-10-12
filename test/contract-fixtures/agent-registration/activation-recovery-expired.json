@@ -3,7 +3,7 @@
   "version": 1,
   "id": "activation-recovery-expired",
   "kind": "http",
-  "description": "The same activationId after the five-minute recovery window.",
+  "description": "The same activationId inside the window, but the installation has already ended (or the envelope cannot be decrypted).",
   "request": {
     "method": "POST",
     "path": "/api/agent-installations/activate",
@@ -33,6 +33,10 @@
     "lifecycle": "NEEDS_RECONNECT",
     "retry": "none",
     "guidance": "owner_reconnect",
-    "next": "Delete local registration state. The owner reconnects the same agent with a new registration."
+    "next": "Delete local registration state. The owner reconnects the same agent with a new registration.",
+    "modelVisible": {
+      "state": "needs_reconnect",
+      "guidance": "owner_reconnect"
+    }
   }
 }

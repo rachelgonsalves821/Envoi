@@ -50,6 +50,10 @@
     "lifecycle": "REGISTRATION_ENDED",
     "retry": "none",
     "guidance": "route_unavailable",
-    "next": "Stop. Re-read GET /api/onboarding/routes and name the missing route to the human."
+    "next": "Stop. Re-read GET /api/onboarding/routes and name the missing route to the human.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "route_unavailable"
+    }
   }
 }

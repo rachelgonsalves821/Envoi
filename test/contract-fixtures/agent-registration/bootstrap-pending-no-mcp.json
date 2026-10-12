@@ -1,15 +1,21 @@
 {
   "contract": "agent-registration",
   "version": 1,
-  "id": "bootstrap-token-no-access",
+  "id": "bootstrap-pending-no-mcp",
   "kind": "http",
-  "description": "A bootstrap token grants nothing outside the registration routes (v3 §36).",
+  "description": "A pending registration's bootstrap token on /mcp.",
   "request": {
-    "method": "GET",
-    "path": "/api/agent/status",
+    "method": "POST",
+    "path": "/mcp",
     "auth": "bootstrap",
     "headers": {
-      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list"
     }
   },
   "response": {
@@ -27,6 +33,6 @@
     "lifecycle": "UNCHANGED",
     "retry": "none",
     "guidance": "none",
-    "next": "A pending registration has no inbox, messaging, claim, case, file, MCP or directory access."
+    "next": "A registration has no inbox, messaging, claim, case, file, MCP or directory access. It is an HTTP 401, not a JSON-RPC result."
   }
 }

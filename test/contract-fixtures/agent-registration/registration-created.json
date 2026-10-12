@@ -57,13 +57,16 @@
   "client": {
     "surface": "helper",
     "lifecycle": "PENDING_CLAIM",
-    "retry": "none",
-    "guidance": "none",
+    "retry": "poll_after",
+    "guidance": "wait_for_claim",
     "modelVisible": {
+      "schemaVersion": "1",
+      "state": "pending_approval",
       "registrationStatus": "pending_claim",
       "claimUrl": "https://www.envoi-agents.com/claim",
       "verificationCode": "F7KQ-PM4D",
-      "expiresInSeconds": 600
+      "expiresInSeconds": 600,
+      "nextAction": "Open the claim page, sign in, type this code, and approve or reject. No agent access exists yet."
     },
     "next": "Store bootstrapToken privately, print only modelVisible, then poll every pollAfterSeconds."
   }

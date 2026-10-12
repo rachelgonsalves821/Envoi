@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-forbidden",
   "kind": "http",
-  "description": "The human may not manage the chosen workspace (live owner/admin check).",
+  "description": "The human may not manage the chosen workspace (live owner/admin check). An unknown or foreign workspace gets the same answer.",
   "request": {
     "method": "POST",
     "path": "/api/agent-registrations/registration_example/approve",
@@ -16,9 +16,9 @@
     "schema": "claimApproveRequest",
     "body": {
       "verificationCode": "F7KQ-PM4D",
-      "workspaceInboxId": "inbox_workspace_example",
       "target": {
         "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
         "name": "Example agent",
         "localPart": "example"
       },
@@ -36,7 +36,7 @@
     "body": {
       "code": "CLAIM_FORBIDDEN",
       "error": "CLAIM_FORBIDDEN",
-      "message": "You cannot add agents to that workspace.",
+      "message": "You cannot connect agents there.",
       "requestId": "req_example"
     }
   },
@@ -45,6 +45,6 @@
     "lifecycle": "NOT_APPLICABLE",
     "retry": "none",
     "guidance": "not_permitted",
-    "next": "Let the owner pick a workspace they manage. The registration stays pending."
+    "next": "Let the owner pick a workspace or agent they manage. The registration stays pending."
   }
 }

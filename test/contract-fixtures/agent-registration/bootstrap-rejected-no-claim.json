@@ -1,0 +1,33 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "bootstrap-rejected-no-claim",
+  "kind": "http",
+  "description": "A rejected registration's bootstrap token on work claim.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_rejected"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "A registration has no inbox, messaging, claim, case, file, MCP or directory access. Rejection never turns into access."
+  }
+}

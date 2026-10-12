@@ -3,7 +3,7 @@
   "version": 1,
   "id": "activation-replay",
   "kind": "http",
-  "description": "A second activation with a different activationId: two holders of one bootstrap token. The installation is revoked.",
+  "description": "Inside the recovery window, a second activation with a different activationId: two holders of one bootstrap token. The installation is revoked.",
   "request": {
     "method": "POST",
     "path": "/api/agent-installations/activate",
@@ -33,6 +33,10 @@
     "lifecycle": "REVOKED",
     "retry": "none",
     "guidance": "owner_reconnect",
-    "next": "Stop. The installation is revoked; holders of its credentials get CREDENTIAL_REVOKED. The owner reconnects."
+    "next": "Stop. Holders of the installation get CREDENTIAL_REVOKED reason revoked. The owner reconnects.",
+    "modelVisible": {
+      "state": "revoked",
+      "guidance": "owner_reconnect"
+    }
   }
 }

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-lookup",
   "kind": "http",
-  "description": "The owner types the code shown by the agent and sees what the agent asked for.",
+  "description": "The owner types the code shown by the agent (any case, spaces allowed) and sees what the agent asked for.",
   "request": {
     "method": "POST",
     "path": "/api/agent-claims/lookup",
@@ -56,6 +56,6 @@
   },
   "client": {
     "surface": "owner_ui",
-    "next": "Show the requested details as claims made by the agent, not facts. The owner picks workspace, new or existing agent, permissions (from grantablePermissions) and policy, then approves or rejects."
+    "next": "Show the requested details as claims made by the agent, and how long ago it registered. The owner picks new or existing agent, permissions (from grantablePermissions) and policy, then approves or rejects."
   }
 }

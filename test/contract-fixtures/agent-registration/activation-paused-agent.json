@@ -3,7 +3,7 @@
   "version": 1,
   "id": "activation-paused-agent",
   "kind": "http",
-  "description": "Activation for an existing paused agent: earlier installations are replaced, the agent stays paused (a3 §4).",
+  "description": "Activation for an existing paused agent: earlier installations are replaced, permissions become the approved ones, and the agent stays paused (a3 §4).",
   "request": {
     "method": "POST",
     "path": "/api/agent-installations/activate",
@@ -48,7 +48,7 @@
         "status": "paused"
       },
       "inboxId": "inbox_example",
-      "permissions": [
+      "effectivePermissions": [
         "send_agent_messages",
         "receive_agent_messages"
       ],
@@ -61,7 +61,7 @@
   },
   "client": {
     "surface": "helper",
-    "lifecycle": "CONNECTED",
+    "lifecycle": "ACTIVATING",
     "retry": "none",
     "guidance": "none",
     "modelVisible": {

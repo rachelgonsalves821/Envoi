@@ -15,24 +15,28 @@
     "body": {
       "registrationId": "registration_example",
       "activationId": "activation_7f3c9a1e",
-      "deliveryMode": "webhook"
+      "deliveryMode": "poll"
     }
   },
   "response": {
     "status": 400,
     "schema": "errorEnvelope",
     "body": {
-      "code": "ROUTE_NOT_AVAILABLE",
-      "error": "ROUTE_NOT_AVAILABLE",
+      "code": "DELIVERY_MODE_NOT_AVAILABLE",
+      "error": "DELIVERY_MODE_NOT_AVAILABLE",
       "message": "That delivery mode is not available.",
       "requestId": "req_example"
     }
   },
   "client": {
     "surface": "helper",
-    "lifecycle": "REGISTRATION_ENDED",
+    "lifecycle": "UNCHANGED",
     "retry": "none",
-    "guidance": "route_unavailable",
-    "next": "Activate with an available delivery mode (envoi_link, poll or on_demand). Nothing was consumed."
+    "guidance": "update_helper",
+    "next": "Nothing was consumed. Activate again with an available mode (envoi_link in v1).",
+    "modelVisible": {
+      "state": "needs_help",
+      "guidance": "update_helper"
+    }
   }
 }

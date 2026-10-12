@@ -1,0 +1,42 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-server-error",
+  "kind": "http",
+  "description": "A server error during activation.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 500,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "INTERNAL_SERVER_ERROR",
+      "error": "INTERNAL_SERVER_ERROR",
+      "message": "Something went wrong. Try again.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "next": "Retry the identical request with the same activationId, with bounded backoff. Recovery returns the same credentials if the first attempt committed.",
+    "modelVisible": {
+      "state": "degraded",
+      "guidance": "service_unavailable"
+    }
+  }
+}

@@ -3,13 +3,13 @@
   "version": 1,
   "id": "owner-installations",
   "kind": "http",
-  "description": "The owner lists an agent's installations: the current one first, then up to five ended ones.",
+  "description": "The owner lists an agent's installations: the current one first, then up to five ended ones, newest first.",
   "request": {
     "method": "GET",
     "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
     "auth": "human_session",
     "headers": {
-      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf"
+      "cookie": "envoi_session=PLACEHOLDER_session"
     }
   },
   "response": {

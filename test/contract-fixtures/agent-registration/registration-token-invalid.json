@@ -18,7 +18,7 @@
     "body": {
       "code": "REGISTRATION_TOKEN_INVALID",
       "error": "REGISTRATION_TOKEN_INVALID",
-      "message": "This setup link is no longer valid.",
+      "message": "This setup is no longer valid.",
       "requestId": "req_example"
     }
   },
@@ -27,6 +27,10 @@
     "lifecycle": "REGISTRATION_ENDED",
     "retry": "none",
     "guidance": "register_again",
-    "next": "Delete local registration state. Start a new registration only if the human asks."
+    "next": "Delete local registration state. Start a new registration only if the human asks.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "register_again"
+    }
   }
 }

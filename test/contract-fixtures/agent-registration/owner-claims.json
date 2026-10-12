@@ -1,0 +1,63 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "owner-claims",
+  "kind": "http",
+  "description": "The owner lists their recent approvals: one waiting for activation, one activated.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-claims",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerClaimList",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "claims": [
+        {
+          "registrationId": "registration_example",
+          "status": "approved",
+          "target": "new_agent",
+          "agent": {
+            "name": "Example agent",
+            "address": "example@envoi.mail"
+          },
+          "effectivePermissions": [
+            "send_agent_messages",
+            "receive_agent_messages"
+          ],
+          "approvedAt": "2026-10-12T12:03:00.000Z",
+          "activationExpiresAt": "2026-10-12T12:13:00.000Z",
+          "installationId": null
+        },
+        {
+          "registrationId": "registration_earlier",
+          "status": "activated",
+          "target": "existing_agent",
+          "agent": {
+            "id": "agent_other",
+            "name": "Other agent",
+            "address": "other@envoi.mail"
+          },
+          "effectivePermissions": [
+            "send_agent_messages",
+            "receive_agent_messages"
+          ],
+          "approvedAt": "2026-10-12T11:40:00.000Z",
+          "activationExpiresAt": "2026-10-12T11:50:00.000Z",
+          "installationId": "installation_other"
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Offer Withdraw on approved entries. Activated entries link to the agent."
+  }
+}

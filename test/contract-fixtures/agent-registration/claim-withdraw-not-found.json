@@ -1,0 +1,34 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-withdraw-not-found",
+  "kind": "http",
+  "description": "Withdrawing an approval that already activated (or was never this human's).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-claims/registration_earlier/withdraw",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "CLAIM_NOT_FOUND",
+      "error": "CLAIM_NOT_FOUND",
+      "message": "That approval cannot be withdrawn.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "If it activated, revoke the installation instead (§6.5)."
+  }
+}

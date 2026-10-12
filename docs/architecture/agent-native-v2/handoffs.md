@@ -1042,84 +1042,96 @@ The five `event-*` fixtures are already clean.
 
 ## agent-registration v1
 
-**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** published, awaiting Lane B `CONTRACT-ACK` and the human's `CONTRACT-APPROVED`. Design only: no server code exists, and nothing here is default-on.
+**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** published. It awaits Lane B `CONTRACT-ACK` and the human's `CONTRACT-APPROVED`. Design only: no server code exists, and nothing here is default-on.
 
-**Fixtures:** [`test/contract-fixtures/agent-registration/`](../../../test/contract-fixtures/agent-registration/). That holds:
-- `schemas.json`: the schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-model-visible`, `x-permission-labels`, `x-route-availability`, `x-delivery-availability` and `x-operations`;
-- one JSON file per case, including one migration and one rollback fixture (§9).
+**Fixtures:** [`test/contract-fixtures/agent-registration/`](../../../test/contract-fixtures/agent-registration/). It holds:
+- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-model-visible`, `x-permission-labels`, `x-route-availability`, `x-delivery-availability`, `x-operations`, `x-legacy-projection` and `x-installation-derivation`;
+- one JSON file per case, including migration, rollback and re-enable fixtures (§9).
 
-**Owner:** Lane A. **Consumer:** Lane B (`envoi-link connect`, the `/connect` skill and manifest, the claim UI, and the host planner in PR #72). **Implemented by:** A-4.x, which waits for this contract's approval **and** the hosted Phase A gate (two-owner plan A5).
+**Owner:** Lane A. **Consumer:** Lane B. That covers `envoi-link connect`, the `/connect` skill and manifest, the claim UI, and the host planner in PR #72. **Implemented by:** A-4.x. It waits for this contract's approval **and** the hosted Phase A gate (two-owner plan A5).
 
-This is the route-neutral Phase B core from v3 §30–§45, as amended by PR #75:
+**What it covers.** This is the route-neutral Phase B core from v3 §30–§45, as amended by PR #75:
 - one registration, human claim, activation and installation state machine;
 - the same agent operations for every connection route.
 
 It builds on `a3-pause-auth` v3 (envelope, codes, pause, reconnect), `a4-wake` v2 (work availability) and `a5-presence` v1 (presence, owner connection states).
 
-**Not in v1.** Everything below belongs to **A-3.1b** (`agent-remote-auth`), published separately:
-- the remote MCP/OAuth route and the provider-connector route, including OAuth metadata, consent-as-claim and the secure-field bootstrap code;
+**Not in v1.** Everything below is **A-3.1b** (`agent-remote-auth`), which is published separately:
+- the remote MCP/OAuth route;
+- the provider-connector route, including OAuth metadata, consent-as-claim and the secure-field bootstrap code;
 - the delivery modes `webhook`, `provider` and `a2a`.
 
-Each of those routes and modes is `available: false` in v1, and registration refuses it (§1).
+`poll` and `on_demand` also stay off until an `a5-presence` revision gives them an honest owner label (§1). Each of these is `available: false` in v1, and registration or activation refuses it.
 
 ### 1. Flags and route availability
 
 | Flag (server-only, default off) | Turns on |
 | --- | --- |
 | `ENVOI_INSTALLATIONS_V2` | The installation model: the legacy projection (§9), `installation` on agent status (§6.4) and the owner installation routes (§6.5). |
-| `ENVOI_AGENT_REGISTRATION_V2` | Registration (§3), polling (§4), the human claim (§5) and activation (§6). Requires `ENVOI_INSTALLATIONS_V2`. Startup fails closed if this flag is on and that one is off. |
-| `ENVOI_AUTHENTICATED_REST_ROUTE` | The `authenticated_rest` route, in addition to the two above. **New** relative to v3 §65: the breadth gate (v3 §47) proves REST separately from the local helper, so REST needs its own switch. |
+| `ENVOI_AGENT_REGISTRATION_V2` | Registration (§3), polling (§4), the claim routes (§5) and activation (§6). It requires `ENVOI_INSTALLATIONS_V2`; startup fails closed if this flag is on and that one is off. |
+| `ENVOI_AUTHENTICATED_REST_ROUTE` | Offers the `authenticated_rest` route, in addition to the two above. **New** relative to v3 §65, because the breadth gate (v3 §47) proves REST separately. |
 
-Lane A owns these flags. The client never reads them. It reads the public route-availability endpoint:
+**About `ENVOI_AUTHENTICATED_REST_ROUTE`.** `connectionRoute` is declared by the client, and in v1 both routes use the same bootstrap and bearer mechanics. So this flag controls what Envoi **offers and supports**:
+- what the routes endpoint, `/connect` and `skill.json` advertise;
+- whether a registration declaring `authenticated_rest` is accepted.
 
-`GET /api/onboarding/routes` (no auth, `cache-control: public, max-age=60`) → `routeAvailability`:
+It cannot stop a REST client that declares `local_helper`.
+
+**Route availability.** Lane A owns the flags; clients never read them. Clients read `GET /api/onboarding/routes`, which needs no auth and is served with `cache-control: public, max-age=60`. It returns `routeAvailability`:
 - `registrationEnabled` and `installationsEnabled`;
-- all four `connectionRoute`s and all six `deliveryMode`s, each with `available`.
+- all four `connectionRoute`s and all six `deliveryMode`s, each exactly once, in schema order, with `available`.
 
-The rules are `x-route-availability` and `x-delivery-availability`:
-- `local_helper` is available when both V2 flags are on;
-- `authenticated_rest` additionally needs `ENVOI_AUTHENTICATED_REST_ROUTE`;
-- `remote_mcp_oauth` and `provider_connector` are never available in v1;
-- `envoi_link`, `poll` and `on_demand` are available when both V2 flags are on;
-- `webhook`, `provider` and `a2a` are never available in v1.
+The rules are in `x-route-availability` and `x-delivery-availability`:
 
-`/connect`, `skill.json` and the helper offer only what this endpoint marks available. A flag-off route returns `404 FEATURE_DISABLED`.
+| Route or mode | Available when |
+| --- | --- |
+| `local_helper` | both V2 flags are on |
+| `authenticated_rest` | both V2 flags and `ENVOI_AUTHENTICATED_REST_ROUTE` are on |
+| `remote_mcp_oauth`, `provider_connector` | never in v1 (A-3.1b) |
+| delivery mode `envoi_link` | both V2 flags are on |
+| any other delivery mode | never in v1 |
 
-**Rollout.** The human turns a flag on only after the route's hosted gate passes (v3 §47). The default `/connect` copy names only routes that are available.
+`envoi_link` means SSE plus the a4-wake safety poll, run by a trusted host process. A REST client that implements a4 the same way also declares it.
+
+**Outcomes.** `/connect`, `skill.json` and the helper offer only what this endpoint marks available. A route whose flag is off returns `404 FEATURE_DISABLED`, and the fixture test ties that code to the fixture's flags. The human turns a flag on only after the route's hosted gate passes (v3 §47).
 
 ### 2. Codes, tokens and limits
 
-All values are machine-readable in `x-limits`.
+Every value here is machine-readable in `x-limits`.
 
 | Item | Rule |
 | --- | --- |
-| Verification code | 8 symbols from the Crockford alphabet `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, uniformly random (40 bits), shown as `XXXX-XXXX`. Input is case-insensitive, spaces and hyphens are ignored, and `I`/`L` read as `1` and `O` as `0`. Stored only as an HMAC-SHA256 under a key derived from `ENVOI_DATA_ENCRYPTION_KEY`, never in clear and never logged. If a new code collides with a live one, the server draws again. |
-| Bootstrap token | `envoi_reg_` + 32 random bytes, base64url. Stored as SHA-256. Bound to one registration. It authenticates only §4 and §6. On any other route it is an unknown token: `401 AUTHENTICATION_REQUIRED`, identical to any unrecognized bearer (fixture `bootstrap-token-no-access`). |
+| Verification code | 8 symbols, uniformly random, from the Crockford alphabet `0123456789ABCDEFGHJKMNPQRSTVWXYZ` (40 bits), shown as `XXXX-XXXX`. Typing is case-insensitive, spaces and hyphens are ignored, `I`/`L` read as `1` and `O` as `0`. Stored only as HMAC-SHA256 under a key derived from `ENVOI_DATA_ENCRYPTION_KEY`, never in clear and never logged. A new code that collides with a live one is drawn again. |
+| Bootstrap token | `envoi_reg_` + 32 random bytes, base64url. Stored as SHA-256 and bound to one registration. See below. |
 | Claim window | 600 s from creation (`expiresAt`). |
 | Activation window | 600 s from approval (`activationExpiresAt`). |
-| Activation recovery | 300 s, as for A1 refresh recovery (§6.2). |
-| Polling | `pollAfterSeconds` 5. Polling faster gets `429 RATE_LIMITED`, reason `poll_interval`. This limit may live in memory, because it is not a safety boundary. |
-| Registration creation | At most 10 per source address per hour, at most 1,000 pending registrations globally, and a body of at most 4,096 bytes. **Durable:** the counters live in the document store, so a container restart does not reset them. Over a limit → `429 RATE_LIMITED`, reason `registration_limit`. |
-| Claim failures | At most 5 per human per 15 minutes, durable. A lookup, approve or reject with a code that does not match counts as one failure. When the limit is hit → `429 RATE_LIMITED`, reason `claim_attempts`, and the **correct** code is refused too until `retry-after`. |
-| Cleanup | Every registration record and its code and token index are deleted within 24 h of creation, whatever their state. The code index is deleted as soon as the registration is decided or expires. |
+| Activation recovery | 300 s from activation (§6.2). The bootstrap token is deleted when it ends. |
+| Polling | `pollAfterSeconds` is 5. A poll less than 4 s after the previous one gets `429 RATE_LIMITED` with reason `poll_interval`. This check may live in memory; it is not a safety boundary. |
+| Registration creation | At most 10 per source per hour, at most 1,000 pending globally, and a body of at most 4,096 bytes. **Source** is `clientIp` (with today's trusted-proxy rule), aggregated to the /64 for IPv6. It is never the bearer- or cookie-keyed `rateIdentity`, which an unauthenticated caller could vary. **Durable:** the counters live in the document store, so a container restart does not reset them. Over a limit → `429 RATE_LIMITED`, reason `registration_limit`. |
+| Claim failures | At most 5 per human per 15 minutes, durable. A lookup, approve or reject whose code does not match counts as one failure; 5xx responses never count. When the limit is hit → `429 RATE_LIMITED`, reason `claim_attempts`, and the correct code is refused too until `retry-after`. |
+| Approvals waiting | At most 3 approved-but-unactivated registrations per human (`PENDING_ACTIVATION_LIMIT`). |
+| Cleanup | Each registration record, its token index, its code index, its address hold and its recovery envelope are deleted within 24 h of creation, whatever its state. The code index ends earlier: when the registration ends (`activated`, `rejected`, `expired`, `withdrawn`). It stays through `approved` so an identical approval can be replayed (§5.3). |
+| Abuse monitoring | Creating a registration and hitting any limit emit structured log events: `agent_registration.created` and `agent_registration.limited`. They carry the hashed source, the route and the reason, never the body or a token (v3 §37). |
 
-**Change from the two-owner plan's starting numbers ("five wrong claims before invalidation").** The human **types** the code (§5.1), so a wrong code does not identify a registration and there is nothing to invalidate. The cap therefore applies per human. With 40 bits, five tries per 15 minutes, and only allowlisted, signed-in humans able to try, guessing a live code is negligible. Every other starting value is unchanged.
+**Where a bootstrap token works.** It authenticates only the registration status route (§4) and activation (§6.1). On any other **authenticated** route it is an unrecognized bearer and gets `401 AUTHENTICATION_REQUIRED`, identical to an unknown token. That covers `/mcp` (an HTTP 401, not a JSON-RPC result), claim, send and status. Public routes ignore it. `POST /api/agent-token` reads only its own body (a3 §2.2). There are fixtures for pending, rejected and expired tokens.
+
+**Change from the two-owner plan.** The plan's starting rule was "five wrong claims before invalidation". Here the human **types** the code (§5.1), so a wrong code never identifies a registration and there is nothing to invalidate. The cap applies per human instead. Five tries per 15 minutes against a 40-bit space, by allowlisted, signed-in humans only, makes guessing a live code negligible. Every other starting value is unchanged.
 
 ### 3. Registration
 
-`POST /api/agent-registrations`, no auth. Body `registrationCreateRequest` (closed object; unknown fields → `400 REGISTRATION_INVALID`).
+`POST /api/agent-registrations` takes no auth. The body is `registrationCreateRequest`, a closed object: unknown fields → `400 REGISTRATION_INVALID`.
 
 | Field | Rule |
 | --- | --- |
-| `requestedName` | 1–80 characters. |
-| `requestedLocalPart` | Optional. Same rules as today's agent address local part: 3–32 characters, `^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`, not reserved. Not reserved at this step; the human chooses the final address (§5.3). |
+| `requestedName` | 1–80 characters. Control, zero-width and bidirectional formatting characters are refused. |
+| `requestedLocalPart` | Optional. Today's local-part rules: 3–32 characters matching `^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`, and not reserved. Nothing is held at this step. |
 | `requestedPermissions` | 1–5 of `send_agent_messages`, `receive_agent_messages`, `create_assets`, `execute_cases`, `use_email_transport`. The agent asks; it never grants (v3 §40). |
-| `connectionRoute` | Must be available (§1), or the response is `400 ROUTE_NOT_AVAILABLE`. |
-| `runtime` | `{ type, version }`. `type` matches `^[a-z0-9][a-z0-9_-]{0,31}$`; `version` is a short version string or `null`. Metadata only, never trusted. |
-| `deliveryCapabilities` | Six booleans, as in v3 §36: `persistentProcess`, `outboundHttps`, `sse`, `webhook`, `scheduledPolling`, `a2a`. Host declarations, shown to the human as claims, never trusted as evidence. |
+| `connectionRoute` | Must be available (§1), otherwise `400 ROUTE_NOT_AVAILABLE`. |
+| `runtime` | `{ type, version }`. Metadata only, never trusted. |
+| `deliveryCapabilities` | The six booleans of v3 §36. These are host declarations: shown to the human as claims, never used as evidence. |
 | `helper` | Optional `{ name, version }`. |
 
-**`201` `registrationCreated`** (`cache-control: no-store`):
+**`201` `registrationCreated`** is sent with `cache-control: no-store`:
 
 ```json
 { "registrationId": "registration_…", "status": "pending_claim", "bootstrapToken": "envoi_reg_…",
@@ -1127,159 +1139,206 @@ All values are machine-readable in `x-limits`.
   "expiresAt": "…", "pollAfterSeconds": 5 }
 ```
 
-- `claim.url` is `${ENVOI_PUBLIC_URL}/claim` and **never contains the code**. That is deliberate (§10).
-- **Not idempotent.** If the response is lost, the helper registers again. The orphan expires in 10 minutes and grants nothing.
-- **A pending registration grants nothing.** It has no inbox, messaging, work claim, case, file, MCP or directory access (v3 §36).
+- `claim.url` is `${ENVOI_PUBLIC_URL}/claim` and **never contains the code** (§10).
+- **Not idempotent.** If the response is lost, the helper registers again. The orphan expires and grants nothing.
+- **A registration grants nothing,** in any state other than activated. It has no inbox, messaging, work claim, case, file, MCP or directory access (v3 §36).
 
 ### 4. Registration status
 
-`GET /api/agent-registrations/{registrationId}` with `Authorization: Bearer envoi_reg_…`. The response is `registrationStatus`, one of:
+`GET /api/agent-registrations/{registrationId}` with `Authorization: Bearer envoi_reg_…` returns `registrationStatus`.
+
+**Status is derived from time.** A pending registration past `expiresAt`, or an approved one past `activationExpiresAt`, *is* `expired`. That holds even if no cleanup job has run yet, and it holds on every route.
 
 | `status` | Extra fields | Helper does |
 | --- | --- | --- |
-| `pending_claim` | `expiresAt`, `pollAfterSeconds` | Wait and poll. |
-| `approved` | `target` (`new_agent` or `existing_agent`), `agent { name, address }`, `effectivePermissions`, `activationExpiresAt` | Activate (§6). |
-| `activated` | `installationId` | Already done. Credentials are **never** repeated here. If they were lost, recover with the same `activationId` inside 300 s (§6.2); otherwise the owner reconnects. |
-| `rejected` | none | Stop, and delete the bootstrap token. |
-| `expired` | none | Stop. Never show the old code again. Start one new registration only if the human asks. |
+| `pending_claim` | `expiresAt`, `pollAfterSeconds` | Waits and polls. Shows the code again only if the human asks and it has not expired. |
+| `approved` | `target`, `workspaceName`, `agent { name, address, id? }`, `effectivePermissions`, `activationExpiresAt` | Activates (§6). Shows `workspaceName`, so the human beside the host can check who approved. |
+| `activated` | `installationId` | Visible only inside the 300 s recovery window; after that the token is gone. Credentials are **never** repeated here. A helper that lost them retries activation with its `activationId` (§6.2); otherwise the owner reconnects. |
+| `rejected` | none | Stops and deletes the bootstrap token. |
+| `expired` | none | Stops. Never shows the old code again. Starts one new registration only if the human asks. |
+| `withdrawn` | none | Stops. The owner withdrew, or an activation-time re-check failed (§6.1). Asks the human before registering again. |
 
-`expired` covers both an unclaimed registration and an approved one that was not activated in time. A token that is unknown, deleted, or does not belong to `{registrationId}` gets `401 REGISTRATION_TOKEN_INVALID`, identical in every case.
+An unknown, deleted or mismatched token gets `401 REGISTRATION_TOKEN_INVALID`, the same response in every case.
 
 ### 5. Human claim
 
 #### 5.1 Who can claim
 
-Every claim request needs all of the following:
-- **A human session** with CSRF, as for every human mutation (envoi-browser-names v1). Lookup is a POST, so it carries CSRF too.
-- **A fresh allowlist check.** The beta allowlist is re-evaluated at claim time, not taken from an earlier login. If the human is no longer admitted, the response is `401 AUTHENTICATION_REQUIRED`.
-- **Authentication assurance.** Under local auth, the current assurance rule (`mfa`) applies. WorkOS sessions keep their provider assurance.
-- **A live management check for approve.** The human must be able to manage the chosen workspace, using the live provider-membership check (`maxAgeMs: 0`). For `existing_agent`, the human must also be that agent's owner (its principal human, or the workspace manager). Otherwise `403 CLAIM_FORBIDDEN`.
+Every claim route checks the following, in this order:
 
-The human types the code shown by their agent at `/claim`. Typing it is the confirmation that the code matches (v3 §38).
+1. **A human session.** Mutations also need CSRF, as envoi-browser-names v1 requires. A CSRF failure keeps today's plain `403 { error }` browser response; it is not an `x-codes` entry.
+2. **The beta allowlist,** re-evaluated now rather than taken from an earlier login. A human who is no longer admitted → `401 AUTHENTICATION_REQUIRED`.
+3. **The current assurance rule.** Local auth requires `mfa`. WorkOS sessions keep their provider assurance.
+
+**Managing the target** is a separate check, at approve time. It uses the live provider-membership check (`maxAgeMs: 0`):
+- `new_agent`: the human must be able to manage `workspaceInboxId`;
+- `existing_agent`: the human must be able to manage that agent's **dedicated inbox**, the same rule today's reconnect-token route uses.
+
+An unknown, foreign or removed id gets the **identical** `403 CLAIM_FORBIDDEN`. Holding a code never reveals whether a workspace or agent exists.
+
+The human types the code their agent shows at `/claim`. Typing it is the comparison v3 §38 asks for. §10 covers what typing does and does not protect against.
 
 #### 5.2 Lookup
 
-`POST /api/agent-claims/lookup` with `{ verificationCode }`. The response is `claimLookup`:
-- the normalized code, `requestedName` and `requestedLocalPart`;
-- `requestedPermissions` and `grantablePermissions` (requested ∩ organization maximum);
+`POST /api/agent-claims/lookup` with `{ verificationCode }` returns `claimLookup`:
+- the normalized code;
+- `requestedName` and `requestedLocalPart`;
+- `requestedPermissions`, and `grantablePermissions` (requested ∩ organization maximum);
 - `connectionRoute`, `runtime` and `deliveryCapabilities`;
-- `createdAt` and `expiresAt`.
+- `createdAt`, so the UI can show "registered N minutes ago", and `expiresAt`.
 
-The UI presents the agent's fields as **things the agent claims**, not facts.
+The UI presents the agent's fields as **claims the agent makes**, not facts.
 
-If the code is malformed, unknown, expired, already decided, or belongs to another registration, the response is `404 CLAIM_CODE_INVALID`. It is identical in every case and counts as one failure.
+A code that is malformed, unknown, expired, decided, or another registration's gets `404 CLAIM_CODE_INVALID`. The response is identical in every case and counts as one failure.
 
 #### 5.3 Approve
 
-`POST /api/agent-registrations/{registrationId}/approve`, body `claimApproveRequest`:
+`POST /api/agent-registrations/{registrationId}/approve`. The body is `claimApproveRequest`:
 
 ```json
-{ "verificationCode": "F7KQ-PM4D", "workspaceInboxId": "inbox_…",
-  "target": { "kind": "new_agent", "name": "…", "localPart": "…" },
+{ "verificationCode": "F7KQ-PM4D",
+  "target": { "kind": "new_agent", "workspaceInboxId": "inbox_…", "name": "…", "localPart": "…" },
   "grantedPermissions": ["send_agent_messages", "receive_agent_messages"], "policyProfile": "default" }
 ```
 
-The code is required again, which binds the decision to what the owner saw. `{registrationId}` comes from the lookup.
+For an existing agent, `target` is `{ "kind": "existing_agent", "agentId": "agent_…", "replacesInstallationId": "installation_…" | null }`.
+
+The code is required again, which binds the decision to what the owner saw. The `{registrationId}` comes from the lookup.
+
+**Permissions, for both targets**
+- `grantedPermissions` is required. The UI pre-fills it with the requested permissions, or for an existing agent with its current ones.
+- The server computes `effectivePermissions` = requested ∩ granted ∩ organization maximum, plus `receive_agent_messages`.
+- In v1 the organization maximum is the full list, since there are no per-organization ceilings yet.
+- Anything granted but not requested is dropped silently. The response states the result.
+- **Re-attaching an agent re-decides its permissions,** as today's re-enroll does. This matters most after a revocation or replay: old permissions are never restored without a fresh decision.
 
 **`new_agent`**
-- `grantedPermissions` is required.
-- The server computes `effectivePermissions` = requested ∩ granted ∩ organization maximum, plus `receive_agent_messages` (today's rule: an agent always receives).
-- In v1, the organization maximum is the full permission list, because there are no per-organization ceilings yet.
-- Anything granted but not requested is dropped silently. The response says what was actually granted.
-- The agent is created **at approval**: `status: "active"`, `onboardingStatus: "approved"`, its address reserved and its dedicated inbox created, as enrollment does today.
-- It has no credential family until activation, so a5-presence shows it as `not_connected` ("Not connected").
-- `ACTIVE_AGENT_LIMIT` and address uniqueness (`409 ADDRESS_TAKEN`) apply here.
+- **Nothing is created at approval.** The server:
+  - holds the address for this registration;
+  - counts one agent slot (`ACTIVE_AGENT_LIMIT`) and one waiting approval (`PENDING_ACTIVATION_LIMIT`);
+  - records the decision.
+- The agent, its dedicated inbox and its directory entries are created **at activation** (§6.3).
+- If activation never happens (expiry or withdrawal), the hold and the slot are released and no agent ever existed.
+- An address held by a live approval counts as taken (`409 ADDRESS_TAKEN`).
 
 **`existing_agent`**
-- `grantedPermissions` must be absent. The agent keeps its permissions, address, cases and history.
-- The target must be an approved agent that is `active` or `paused` in the chosen workspace. It may have every credential family revoked; that is today's re-enroll case. Otherwise the response is `409 AGENT_NOT_RECONNECTABLE`.
-- Approval changes nothing yet. The current installation keeps working until the new one **activates** (§6.3). A paused agent stays paused (a3 §4).
+- The agent must be approved and `active` or `paused`. It may have every credential family revoked.
+- A pending or rejected agent, or one frozen by the agent-wide revoke (status `revoked`), gets `409 AGENT_NOT_RECONNECTABLE`. A frozen agent is still re-enrolled through Quick Connect in v1.
+- If the agent has no live installation, it is not counted today, so the approval also needs an agent slot (`ACTIVE_AGENT_LIMIT`).
+- **`replacesInstallationId` must name the agent's current active installation,** or be `null` when it has none, otherwise `409 CLAIM_STALE`. This forces the UI to show the owner which installation, and which last check-in, will be disconnected.
+- Approval changes nothing yet. The current installation keeps working until the new one **activates**.
 
-**Other fields and response**
-- `policyProfile` is `"default"` only in v1, meaning the workspace's active policy. Named profiles come later.
-- **`200` `claimApproved`:** `agent { id, name, address, status }`, `inboxId`, `effectivePermissions`, `policyProfile` and `activationExpiresAt`.
-- **No credential is ever returned to the browser.** That differs from today's `POST …/agent-onboarding/{agentId}/approve`, which returns tokens. A-4.x moves both paths onto one approval module (v3 §41), and only the legacy route keeps its response shape.
-- **Audit:** `agent.registration_approved`, with the target and the effective permissions.
+**Policy profile.** `policyProfile` is `"default"` only in v1: the workspace's active policy.
+
+**`200` `claimApproved`** returns:
+- `target` and `workspaceName`;
+- `agent { name, address }`, plus `id` for `existing_agent`;
+- `effectivePermissions`, `policyProfile` and `activationExpiresAt`.
+
+**No credential ever reaches the browser.** Today's `POST …/agent-onboarding/{agentId}/approve` returns tokens; A-4.x moves both paths onto one approval module (v3 §41), and only the legacy route keeps its response shape. The server stores the following for the activation-time re-checks (§6.1):
+- `approverHumanId`;
+- the target;
+- for `existing_agent`, the agent's `accessGeneration` and `replacesInstallationId`.
+
+**Audit:** `agent.registration_approved`, with the target and the effective permissions.
+
+**Replay.** The same human sending the identical body while the registration is `approved` gets the identical `200`. It does not count as a failure. The same human sending a different body gets `409 CLAIM_STALE`; to change a decision, withdraw it first. Anyone else gets `CLAIM_CODE_INVALID`.
 
 **Precedence.** The first matching check wins:
-1. `RATE_LIMITED` (claim failures, or the ordinary request limit);
-2. session and CSRF (`401`, `403`, `ACCOUNT_CHANGED`);
-3. `CLAIM_CODE_INVALID`, if the registration is missing, not pending, expired, or the code does not match;
+1. session and CSRF (`401`, plain `403`), then `ACCOUNT_CHANGED`;
+2. `RATE_LIMITED`, for the claim-failure lock or the ordinary limit;
+3. `CLAIM_CODE_INVALID`: the registration is missing or no longer pending, it is expired, or the code does not match (identical-body replays excepted);
 4. `CLAIM_INVALID` (body validation);
 5. `CLAIM_FORBIDDEN`;
-6. `AGENT_NOT_RECONNECTABLE`, `ADDRESS_TAKEN` or `ACTIVE_AGENT_LIMIT`.
+6. `AGENT_NOT_RECONNECTABLE`, `CLAIM_STALE`, `ADDRESS_TAKEN`, `ACTIVE_AGENT_LIMIT` or `PENDING_ACTIVATION_LIMIT`.
 
 The code is checked before anything that would reveal facts about workspaces or agents.
 
-**Concurrency.** The first decision wins. A second human entering the same code afterwards gets `CLAIM_CODE_INVALID`.
+**Concurrency.** The first decision wins, through a conditional write.
 
-#### 5.4 Reject
+#### 5.4 Reject, list and withdraw
 
-`POST /api/agent-registrations/{registrationId}/reject` with `{ verificationCode }` returns `200` `{ registrationId, status: "rejected" }`. Audit: `agent.registration_rejected`.
+- **Reject:** `POST /api/agent-registrations/{registrationId}/reject` with `{ verificationCode }` → `200 { registrationId, status: "rejected" }`. Allowed while pending. Audit `agent.registration_rejected`.
+- **List:** `GET /api/agent-claims` → `ownerClaimList`. These are the approvals this human made in the last 24 hours, newest first, at most 10, each with its status and activation deadline. The owner sees what is waiting and what activated.
+- **Withdraw:** `POST /api/agent-claims/{registrationId}/withdraw` → `200 { registrationId, status: "withdrawn" }`.
+  - Allowed only for this human's own approval while it is `approved`. Otherwise → `404 CLAIM_NOT_FOUND`.
+  - It releases the address hold and the slot, and makes later activation fail with `REGISTRATION_ENDED` reason `withdrawn`.
+  - Audit `agent.registration_withdrawn`.
 
 ### 6. Activation and installations
 
 #### 6.1 Activate
 
-`POST /api/agent-installations/activate` with `Authorization: Bearer envoi_reg_…`. Body:
+`POST /api/agent-installations/activate` with `Authorization: Bearer envoi_reg_…`:
 
 ```json
 { "registrationId": "registration_…", "activationId": "…", "deliveryMode": "envoi_link" }
 ```
 
-**`activationId`**
-- Matches `^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$`.
-- The helper persists it privately **before** sending, exactly like A1's `rotationId`.
-- It is checked before the token is looked up. If it is missing → `400 ACTIVATION_ID_REQUIRED`, and nothing is consumed.
+**`activationId`** matches `^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$`. The helper persists it privately **before** sending, like A1's `rotationId`.
 
-**`deliveryMode`**
-- The host's declared wake mode: `envoi_link`, `poll` or `on_demand` in v1. Anything else → `400 ROUTE_NOT_AVAILABLE`.
-- It is a **declaration**. The server never treats it as evidence of closed-app reachability (§7).
+**`deliveryMode`** is the host's declared wake mode. It is `envoi_link` only in v1. It is a **declaration**, never evidence of closed-app reachability (§7).
 
-**Outcomes.** The first matching row wins.
+The first matching row wins:
 
-| Condition | Response |
-| --- | --- |
-| Feature off | `404 FEATURE_DISABLED` |
-| `activationId` missing or malformed | `400 ACTIVATION_ID_REQUIRED` |
-| Token unknown, deleted, or not this registration's | `401 REGISTRATION_TOKEN_INVALID` |
-| Body otherwise invalid / mode unavailable | `400 REGISTRATION_INVALID` / `400 ROUTE_NOT_AVAILABLE` |
-| `pending_claim` | `409 REGISTRATION_PENDING` |
-| Rejected, or claim/activation window passed | `409 REGISTRATION_ENDED` with `reason` `rejected` or `expired` |
-| Already activated, **different** `activationId` | `401 ACTIVATION_REPLAY`. The installation that activation created is revoked, because two parties hold one bootstrap token. Its holders get `CREDENTIAL_REVOKED` with `reason: "revoked"` and `credential.ended` (a3 §2, §5). Audit `agent.activation_replay_detected` for the owner. |
-| Already activated, **same** `activationId`, within 300 s | `200` with the **identical** body as the original `201` |
-| Already activated, same `activationId`, after 300 s or envelope undecryptable | `401 ACTIVATION_RECOVERY_EXPIRED` |
-| Approved and inside the window | `201` `activated` |
+| # | Condition | Response |
+| --- | --- | --- |
+| 1 | `ENVOI_AGENT_REGISTRATION_V2` off | `404 FEATURE_DISABLED` |
+| 2 | `activationId` missing or malformed (checked before the token; nothing consumed) | `400 ACTIVATION_ID_REQUIRED` |
+| 3 | Token unknown, deleted (including after the recovery window), or not this registration's | `401 REGISTRATION_TOKEN_INVALID`. Revokes nothing. |
+| 4 | Body otherwise invalid | `400 REGISTRATION_INVALID` |
+| 5 | Status `activated` and the **same** `activationId` | `200` with the **identical** body as the original `201`. If the installation has since ended, or the envelope cannot be decrypted → `401 ACTIVATION_RECOVERY_EXPIRED`. |
+| 6 | Status `activated` and a **different** `activationId` | `401 ACTIVATION_REPLAY`. Two parties hold one bootstrap token, so the installation that activation created is revoked. See below. |
+| 7 | `deliveryMode` not available | `400 DELIVERY_MODE_NOT_AVAILABLE`. Nothing consumed. |
+| 8 | Status `pending_claim` and not expired | `409 REGISTRATION_PENDING` |
+| 9 | `rejected`, `expired` (derived from time, §4) or `withdrawn` | `409 REGISTRATION_ENDED` with that `reason` |
+| 10 | `approved`, but a re-check fails | `409 REGISTRATION_ENDED` reason `withdrawn`, and the registration becomes `withdrawn` |
+| 11 | `approved` and every re-check passes | `201` `activated` |
+
+**What `ACTIVATION_REPLAY` does.** It applies only inside the recovery window, because rows 5 and 6 need the token and the token is deleted when the window ends. The revoked family's `revokedReason` is stored as `"revoked"`, so a3 holders get `CREDENTIAL_REVOKED` with `reason: "revoked"` and `credential.ended`. `activation_replay` is recorded only on the installation (`replayDetectedAt`) and in the audit event `agent.activation_replay_detected`. It never reaches an a3 reason.
+
+**Re-checks (row 10)** run inside the activation's lock, so a decision the owner has since undone can never activate:
+- the approver is still admitted and can still manage the target (live check);
+- for `new_agent`, the address hold still belongs to this registration;
+- for `existing_agent`:
+  - the agent still exists, is approved, and is `active` or `paused`;
+  - its `accessGeneration` is unchanged, so the agent-wide revoke or freeze has not happened since;
+  - its current active installation is still `replacesInstallationId`.
 
 **`activated` body:**
-- `installation` (§6.4), `agent { id, name, address, status }` and `inboxId`;
-- `permissions`;
+- `installation` (§6.4);
+- `agent { id, name, address, status }` and `inboxId`;
+- `effectivePermissions`;
 - `agentApiToken`, `agentRefreshToken`, `agentTokenExpiresAt`, `agentRefreshTokenExpiresAt` and `tokenType`.
 
-The token fields are the same as today's enrollment response. Refresh continues through `POST /api/agent-token` unchanged (A1, a3 §2.2).
+The token fields are the same as today's enrollment response. Refresh then continues through `POST /api/agent-token` unchanged (A1, a3 §2.2).
+
+**Retries.** A 5xx, network error or timeout is retried as the identical request, same `activationId` included, with bounded backoff (`backoff` in `x-codes`). If the first attempt committed, row 5 returns its credentials.
 
 #### 6.2 Lost activation response
 
-On `201`, the server stores a 300-second AES-GCM recovery envelope of the response, bound to:
-- the bootstrap token's hash;
-- the `activationId`;
-- the registration;
-- `ENVOI_DATA_ENCRYPTION_KEY`.
+On `201`, the server stores a 300-second AES-GCM recovery envelope of the response. Its key is derived with HKDF from the **raw** bootstrap token, the `activationId`, the registration id and `ENVOI_DATA_ENCRYPTION_KEY`. This is the same construction as A1's `rotationRecoveryKey`, so a database read plus the server key cannot decrypt it.
 
-This is the same construction as A1. The helper saves the credentials atomically, then deletes the bootstrap token and `activationId`.
+The envelope is deleted when the window ends, and also when the installation ends (revoke, replace or replay). The helper saves the credentials atomically, then deletes the bootstrap token and the `activationId`.
 
 #### 6.3 What activation does
 
-**Creates the installation and its credential family together.** One installation has exactly one credential family in v1. Presence stays keyed by that family, exactly as a5-presence §1 defines it.
+**Creates the installation and its credential family together.**
+- In v1 an installation has exactly one family.
+- Presence stays keyed by that family with the a5 field names (§10).
+- Activation itself writes no presence, as a5 §3 already says for enrollment redemption.
 
-**For `existing_agent` targets:**
-- revokes **every earlier** credential family of the agent with `reason: "replaced"`;
-- releases held leases;
-- closes their streams with `credential.ended`.
+**For `new_agent`, it also creates the agent:** `status: "active"`, `onboardingStatus: "approved"`, the held address, its dedicated inbox and its directory entries, exactly as enrollment does today. `approvedByHumanId` is the approver.
+
+**For `existing_agent`, it:**
+1. sets the agent's permissions to `effectivePermissions`;
+2. revokes **every earlier** family with `reason: "replaced"`;
+3. releases held leases, emitting `work.available` with reason `lease_released` (a4 §4);
+4. closes the old streams with `credential.ended`.
 
 This matches a3 §4 reconnect redemption. A paused agent stays paused: the response carries `agent.status: "paused"`, and the connector enters `PAUSED`.
 
-**Audit:** `agent.installation_activated`.
+**Audit:** `agent.installation_activated`, for the owner.
 
 #### 6.4 The installation object
 
@@ -1291,31 +1350,36 @@ This matches a3 §4 reconnect redemption. A paused agent stays paused: the respo
 | `deliveryMode` | The host's **declared** wake mode. |
 | `runtime` | `{ type, version }` as declared; `version` may be `null`. |
 | `status` | `active` or `ended` (§10). |
-| `endedReason` | `null` while active; otherwise `revoked`, `replaced`, `refresh_replay` or `activation_replay`. |
+| `endedReason` | `null` while active. Otherwise `revoked`, `replaced`, `refresh_replay` or `activation_replay`. |
 | `legacy` | `true` for a projected pre-Phase-B family (§9). |
 | `createdAt`, `activatedAt`, `endedAt` | Timestamps. `endedAt` is `null` while active. |
 
-**At most one active installation per agent in v1.** A second runtime for the same identity replaces the first at activation. Concurrent installations for one agent are a later version.
+**Stored vs derived (`x-installation-derivation`).** The installation document stores only immutable fields: ids, route, mode, runtime, timestamps and `replayDetectedAt`. `status`, `endedReason` and `endedAt` are **derived from its credential family at read time**:
+- active while the family is not revoked;
+- `endedReason` is `activation_replay` if `replayDetectedAt` is set, otherwise the family's `revokedReason`, defaulting to `revoked`;
+- `endedAt` is the family's `revokedAt`.
 
-**Agent status.** `GET /api/agent/status` gains `installation: { id, connectionRoute, deliveryMode, legacy }` when `ENVOI_INSTALLATIONS_V2` is on. This is additive (a3 §1 forward compatibility); old connectors ignore it.
+Every path that revokes a family therefore updates its installation, with no second write to drift. That includes Quick Connect reconnect, the agent-wide revoke and `REFRESH_REPLAY`, even while the flags are off.
+
+**Agent status.** `GET /api/agent/status` gains `installation: { id, connectionRoute, deliveryMode, legacy }` exactly when `ENVOI_INSTALLATIONS_V2` is on. The field is additive (a3 §1); old connectors ignore it.
 
 #### 6.5 Owner installation routes (`ENVOI_INSTALLATIONS_V2`)
 
-**List:** `GET /api/inboxes/{inboxId}/agents/{agentId}/installations` → `ownerInstallationList`.
-- Bounded: the active installation first, then at most five ended ones, newest first.
-- The owner UI shows route, delivery mode and runtime **as declared**.
-- The connection state and wording still come only from a5-presence §4–§5.
+**`GET /api/inboxes/{inboxId}/agents/{agentId}/installations`** → `ownerInstallationList`:
+- active installations first, then at most five ended ones, newest first;
+- v1 creates at most one active installation per agent, but legacy data with several live families shows each as active until a reconnect replaces them;
+- the UI shows route, mode and runtime **as declared**, while connection state and wording still come only from a5-presence §4–§5.
 
-**Revoke:** `POST …/installations/{installationId}/revoke` (human session, workspace manager) → `200 { installation }`, now `ended`/`revoked`.
-- Holders get `CREDENTIAL_REVOKED` with `reason: "revoked"`.
-- Unlike the agent-wide `credentials/revoke` route, this **does not freeze the agent identity**. A new registration can attach to the same agent (`existing_agent`).
-- If the agent is left with no active family, a5-presence v1 reports it as `revoked` ("Access revoked"), as it already does when every family is revoked.
-- An unknown id → `404 INSTALLATION_NOT_FOUND`.
-- Audit: `agent.installation_revoked`.
+**`POST …/installations/{installationId}/revoke`** (human session, manager of the agent's inbox) → `200 { installation }`, now `ended`/`revoked`:
+- it revokes that installation's family; holders get `CREDENTIAL_REVOKED` with `reason: "revoked"`;
+- unlike the agent-wide `credentials/revoke`, it **does not freeze the identity**: a new registration can attach to it (`existing_agent`, with permissions decided again);
+- with no live family left, a5-presence v1 reports the agent as `revoked` ("Access revoked"), as it already does when every family is revoked;
+- an unknown id → `404 INSTALLATION_NOT_FOUND`;
+- audit `agent.installation_revoked`.
 
 #### 6.6 One set of agent operations for every route
 
-Route-neutral means every connection route reaches the **same** operations, with the same codes. They are listed in `x-operations`:
+"Route-neutral" means every route reaches the **same** operations, with the same codes (`x-operations`):
 
 | Operation | Requests | Defined by |
 | --- | --- | --- |
@@ -1326,13 +1390,13 @@ Route-neutral means every connection route reaches the **same** operations, with
 | Settlement | `POST /api/agent/work/{workId}/{renew,acknowledge,complete,fail}` | a3 §3 |
 | Refresh | `POST /api/agent-token` | A1, a3 §2.2 |
 
-v1 adds no new agent operation:
-- the local helper and REST client call these directly;
-- A-3.1b maps the remote MCP and provider routes onto the same operations, including HTTP `409 AGENT_PAUSED` rather than a JSON-RPC result (a3 §3).
+v1 adds no new agent operation. A-3.1b maps the remote MCP and provider routes onto these same operations, including HTTP `409 AGENT_PAUSED` rather than a JSON-RPC result (a3 §3).
 
 ### 7. What the model may see
 
-`x-model-visible` is the allowlist. A helper, connector or tool may put **only these values** where a model can read them (helper stdout, tool results, chat):
+`x-model-visible` is the allowlist. A helper, connector or tool may put **only these keys** where a model can read them: helper stdout, tool results or chat.
+
+**Server-derived keys.** Each must equal its source in the response; the fixture test checks this.
 
 | Key | Source |
 | --- | --- |
@@ -1340,126 +1404,190 @@ v1 adds no new agent operation:
 | `verificationCode` | `claim.verificationCode`, only while `pending_claim` and before `expiresAt` |
 | `expiresInSeconds` | derived from `claim.expiresAt` |
 | `registrationStatus` | `status` |
+| `workspaceName` | from an approved registration |
 | `agentName`, `agentAddress`, `agentStatus` | `agent` |
-| `permissionSummary` | `effectivePermissions` through `x-permission-labels` |
+| `permissionSummary` | `effectivePermissions` mapped through `x-permission-labels`, in the same order |
 | `connectionRoute`, `deliveryMode` | `installation` |
 | `guidance` | the received code's guidance |
 
-**Never model-visible:** the bootstrap token, the `activationId`, any access or refresh token or fragment, registration, installation and inbox ids, raw request and response bodies, authorization and cookie headers, and storage paths. Each helper fixture's `client.modelVisible` shows the exact projection, and the fixture test enforces this allowlist.
+**Helper-derived keys.** Closed values, or helper-authored text.
+
+| Key | Values |
+| --- | --- |
+| `schemaVersion` | short version string |
+| `state` | `pending_approval`, `connected`, `connected_on_demand`, `paused`, `needs_reconnect`, `revoked`, `degraded`, `registration_ended`, `needs_help` |
+| `reachability` | `not_verified_closed_app`, `verified_while_host_running`, `verified_closed_app`. Host-owned evidence (v3 §47); the server never asserts it in v1. |
+| `nextAction` | at most 300 characters of helper text, quoting only server-derived values |
+
+**Never model-visible:** the bootstrap token, the `activationId`, any access or refresh token or fragment, registration, installation, agent and inbox ids, raw bodies, authorization and cookie headers, and storage paths.
 
 **Answers to Lane B's open questions** (PR #72, `HELPER-OUTPUT-EXAMPLES.md`):
-1. **Wire states and error codes.** These are §4 and §8. The helper's own `contract_blocked` placeholder goes away once this is approved.
-2. **What "connected" means.** It means an authenticated `GET /api/agent/status` succeeded after activation (fixture `agent-status-installation`). It is **not** delivery. In v1 the server never asserts closed-app reachability. A `verified_closed_app` claim stays host-owned evidence (v3 §47), and the owner-visible "On demand" label is a later a5-presence revision.
-3. **Code expiry and retry.** Codes expire after 10 minutes. On retry while pending, the helper reuses the stored registration and does not print the code again. An expired code is never shown again.
-4. **Permission labels.** Only `x-permission-labels` may be shown to the model.
-5. **Publishing `/connect`.** `/connect` is published when `GET /api/onboarding/routes` shows an available route. The server exposes availability; the UI never reads flags.
-6. **`verified_closed_app` evidence.** None is defined in v1. See question 2.
+1. **Wire states and codes:** see §4 and §8.
+2. **What "connected" means:** an authenticated `GET /api/agent/status` succeeded after activation (fixture `agent-status-installation`, lifecycle `CONNECTED`). Activation responses are `ACTIVATING` until that check passes. It is never delivery evidence; `verified_closed_app` stays host-owned (v3 §47), and the owner's "On demand" label is a later a5 revision.
+3. **Code expiry and retry:** codes last 10 minutes. On retry while pending, the helper reuses the stored registration and shows the code again only if the human asks. An expired code is never shown.
+4. **Permission labels:** only `x-permission-labels`.
+5. **Publishing `/connect`:** when `GET /api/onboarding/routes` shows an available route. The UI never reads flags.
+6. **`verified_closed_app` evidence:** none in v1 (see 2).
 
 ### 8. Codes
 
-New codes use the a3 §1 envelope. `reason` carries the values below. A3 and a5 codes keep their meanings. The `lifecycle` column is the helper's registration lifecycle (`REGISTERING`, `PENDING_CLAIM`, `ACTIVATING`, `CONNECTED`, `REGISTRATION_ENDED`) or an a3 connector state. The same table is machine-readable in `x-codes`.
+New codes use the a3 §1 envelope. `reason` carries the values shown below.
 
-| Code | HTTP | Lifecycle | Retry | Guidance |
-| --- | --- | --- | --- | --- |
-| `FEATURE_DISABLED` | 404 | `REGISTRATION_ENDED` | none | `route_unavailable` |
-| `ROUTE_NOT_AVAILABLE` | 400 | `REGISTRATION_ENDED` | none | `route_unavailable` |
-| `REGISTRATION_INVALID` | 400 | `REGISTRATION_ENDED` | none | `update_helper` |
-| `REGISTRATION_TOKEN_INVALID` | 401 | `REGISTRATION_ENDED` | none | `register_again` |
-| `REGISTRATION_PENDING` | 409 | `PENDING_CLAIM` | `poll_after` | `wait_for_claim` |
-| `REGISTRATION_ENDED` | 409 | `REGISTRATION_ENDED` | none | `rejected` → `owner_rejected`; `expired` → `register_again` |
-| `ACTIVATION_ID_REQUIRED` | 400 | `UNCHANGED` | none | `update_helper` |
-| `ACTIVATION_REPLAY` | 401 | `REVOKED` | none | `owner_reconnect` |
-| `ACTIVATION_RECOVERY_EXPIRED` | 401 | `NEEDS_RECONNECT` | none | `owner_reconnect` |
-| `AUTHENTICATION_REQUIRED` | 401 | `UNCHANGED` | none | `none` |
-| `CLAIM_CODE_INVALID` | 404 | `NOT_APPLICABLE` | none | `check_code` |
-| `CLAIM_INVALID` | 400 | `NOT_APPLICABLE` | none | `fix_claim` |
-| `CLAIM_FORBIDDEN` | 403 | `NOT_APPLICABLE` | none | `not_permitted` |
-| `ADDRESS_TAKEN` | 409 | `NOT_APPLICABLE` | none | `choose_another_address` |
-| `ACTIVE_AGENT_LIMIT` | 409 | `NOT_APPLICABLE` | none | `agent_limit` |
-| `AGENT_NOT_RECONNECTABLE` | 409 | `NOT_APPLICABLE` | none | `choose_another_agent` |
-| `INSTALLATION_NOT_FOUND` | 404 | `NOT_APPLICABLE` | none | `none` |
-| `ACCOUNT_CHANGED` | 409 | `NOT_APPLICABLE` | none | `reload_browser` |
-| `RATE_LIMITED` | 429 | `UNCHANGED` | `after_retry_after` | `service_busy`; `claim_attempts` → `too_many_attempts` |
-| `INTERNAL_SERVER_ERROR` / `AUTH_UNAVAILABLE` | 500 / 503 | `DEGRADED` | `backoff` | `service_unavailable` |
+**Rows are per client surface** (`x-codes` → `bySurface`):
+- **`helper`:** the registration helper or REST client during setup. Its lifecycle values are `REGISTERING`, `PENDING_CLAIM`, `ACTIVATING`, `CONNECTED` and `REGISTRATION_ENDED`, plus a3's `NEEDS_RECONNECT`, `REVOKED` and `DEGRADED`.
+- **`connector`:** the a3 rows, unchanged.
+- **`owner_ui`:** lifecycle `NOT_APPLICABLE`.
 
-**Retries.** A helper retries an activation that failed on a 5xx, network error or timeout with the **same** `activationId` (`retry_same_activation_id` in `x-codes`' retry vocabulary). Request bodies over the server's general limit keep today's `413`.
+| Code | HTTP | Surface: lifecycle / retry / guidance |
+| --- | --- | --- |
+| `FEATURE_DISABLED` | 404 | helper: `REGISTRATION_ENDED` / none / `route_unavailable`; owner_ui: `route_unavailable` |
+| `ROUTE_NOT_AVAILABLE` | 400 | helper: `REGISTRATION_ENDED` / none / `route_unavailable` |
+| `DELIVERY_MODE_NOT_AVAILABLE` | 400 | helper: `UNCHANGED` / none / `update_helper` |
+| `REGISTRATION_INVALID` | 400 | helper: `REGISTRATION_ENDED` / none / `update_helper` |
+| `REGISTRATION_TOKEN_INVALID` | 401 | helper: `REGISTRATION_ENDED` / none / `register_again` |
+| `REGISTRATION_PENDING` | 409 | helper: `PENDING_CLAIM` / `poll_after` / `wait_for_claim` |
+| `REGISTRATION_ENDED` | 409 | helper: `REGISTRATION_ENDED` / none / `rejected` → `owner_rejected`, `expired` → `register_again`, `withdrawn` → `owner_withdrew` |
+| `ACTIVATION_ID_REQUIRED` | 400 | helper: `UNCHANGED` / none / `update_helper` |
+| `ACTIVATION_REPLAY` | 401 | helper: `REVOKED` / none / `owner_reconnect` |
+| `ACTIVATION_RECOVERY_EXPIRED` | 401 | helper: `NEEDS_RECONNECT` / none / `owner_reconnect` |
+| `AUTHENTICATION_REQUIRED` | 401 | helper: `UNCHANGED` / none / none; connector: a3 (`refresh_then_retry_once`); owner_ui: `sign_in` |
+| `CLAIM_CODE_INVALID` | 404 | owner_ui: `check_code` |
+| `CLAIM_INVALID` | 400 | owner_ui: `fix_claim` |
+| `CLAIM_FORBIDDEN` | 403 | owner_ui: `not_permitted` |
+| `CLAIM_STALE` | 409 | owner_ui: `reload_claim` |
+| `CLAIM_NOT_FOUND` | 404 | owner_ui: none |
+| `ADDRESS_TAKEN` | 409 | owner_ui: `choose_another_address` |
+| `ACTIVE_AGENT_LIMIT` | 409 | owner_ui: `agent_limit` |
+| `PENDING_ACTIVATION_LIMIT` | 409 | owner_ui: `withdraw_or_wait` |
+| `AGENT_NOT_RECONNECTABLE` | 409 | owner_ui: `choose_another_agent` |
+| `INSTALLATION_NOT_FOUND` | 404 | owner_ui: none |
+| `ACCOUNT_CHANGED` | 409 | owner_ui: `reload_browser` |
+| `RATE_LIMITED` | 429 | helper: `DEGRADED` / `after_retry_after` / `service_busy`; connector: a3; owner_ui: `after_retry_after` / `service_busy`, `claim_attempts` → `too_many_attempts` |
+| `INTERNAL_SERVER_ERROR` / `AUTH_UNAVAILABLE` | 500 / 503 | every surface: `backoff` / `service_unavailable` (helper and connector `DEGRADED`) |
+
+**Two more points.** The test reads a fixture's row from its `client.surface`. Request bodies over the server's general limit keep today's `413`.
 
 ### 9. Migration and rollback
 
-**Migration, `ENVOI_INSTALLATIONS_V2` on.** Each existing credential family that is not revoked and has no `installationId` is **projected** as an installation. The fixture is `migration-legacy-family`.
+**Migration (`ENVOI_INSTALLATIONS_V2` on).** Every credential family of an **approved** agent that has no `installationId` is **projected** as an installation (`x-legacy-projection`; fixture `migration-legacy-family`). Families of pending or rejected agents are not projected.
 
 | Installation field | Projected value |
 | --- | --- |
 | `id` | `installation_legacy_` + the family UUID |
-| `connectionRoute` | `local_helper`, because every shipped connector (Hermes, OpenClaw, xAI) is a local bridge |
-| `deliveryMode` | `envoi_link` |
-| `runtime` | `{ type: family.runtime, version: null }` |
+| `connectionRoute` / `deliveryMode` | `local_helper` / `envoi_link`. Every shipped connector (Hermes, OpenClaw, xAI) is a local bridge. |
+| `runtime` | `{ type: family.runtime \|\| agent.runtime \|\| "unknown", version: null }`. Families issued by the legacy approve have no `runtime`. |
 | `createdAt`, `activatedAt` | the family's `createdAt` |
+| `status`, `endedReason`, `endedAt` | from the family, as in §6.4. Families revoked before A1 have no `revokedReason`, so they default to `revoked`. |
 | `legacy` | `true` |
 
 - **Nothing is written.** No user re-enrolls, no SQL migration runs and presence is untouched.
-- **Ended legacy installations** are projected from revoked families with the a3 `revokedReason`.
 - **Replacement.** A legacy installation is replaced like any other when a new registration activates for that agent.
 
-**New documents** (no SQL migration; path-keyed documents on FileStore and PostgreSQL):
+**New documents.** These are path-keyed documents on both FileStore and PostgreSQL, so there is no SQL migration:
 
 | Path | Holds |
 | --- | --- |
-| `auth/agent-registrations/{registrationId}.json` | the registration |
+| `auth/agent-registrations/{registrationId}.json` | the registration, including the decision and its re-check fields |
 | `auth/agent-registration-tokens/{sha256}.json` | `{ registrationId }` |
 | `auth/agent-registration-codes/{hmac}.json` | `{ registrationId }` |
-| `auth/agent-installations/{agentInboxId}/{agentId}/{installationId}.json` | the installation |
-| `rate-limits/agent-registrations/…` and `rate-limits/agent-claims/…` | the durable counters |
+| `auth/agent-registration-recovery/{…}.json` | the §6.2 envelope |
+| `auth/agent-installations/{agentInboxId}/{agentId}/{installationId}.json` | immutable installation fields |
+| `rate-limits/agent-registrations/…`, `rate-limits/agent-claims/…` | durable counters |
+| `identities/{address}.json` | an address hold, marked with its `registrationId` and expiry |
 
-New families also gain `installationId`, a new field on an existing document.
+New families also gain `installationId`, a new field on an existing document. **Address holds:** a hold whose registration has ended counts as free, and is replaced through a conditional write.
 
-**Rollback.** Turn both flags off. The fixture is `rollback-flags-off`.
-- Agents activated through the new flow keep working on their credential families. `GET /api/agent/status` just loses its `installation` field.
+**Rollback: both flags off** (fixture `rollback-flags-off`).
+- Agents activated through the new flow keep working on their families. `GET /api/agent/status` just loses `installation`.
 - The registration, claim and activation routes return `404 FEATURE_DISABLED`.
-- An approved but unactivated agent shows "Not connected", and the owner reconnects it with Quick Connect.
-- Nothing is deleted. Installation and registration documents are ignored and come back if the flags are turned on again. Registrations still age out (§2).
+- An approved but unactivated registration cannot finish. No agent was created for it, and the owner uses Quick Connect instead.
+- Nothing is deleted.
 
-**Code rollback.** Reverting A-4.x leaves those documents unread. Families keep working, because `installationId` is an ignored extra field.
+**Re-enable** (fixture `reenable-after-rollback`). Status is derived from the families, so changes made while the flags were off show up correctly with nothing to reconcile. For example, a Quick Connect reconnect that replaced the new-flow family appears as an ended `replaced` installation next to the new legacy one.
 
-### 10. Deliberate differences from v3 and the two-owner plan
+**Code rollback.** Reverting A-4.x leaves the documents unread, and families keep working, because `installationId` is an ignored extra field. No cleanup job then runs, so registration documents (requested name, runtime) remain. The rollback runbook purges the `auth/agent-registration*` prefixes and expired holds by hand.
+
+### 10. Deliberate differences, and residual risk
 
 | Plan text | v1 decision | Why |
 | --- | --- | --- |
-| §42: a separate short-lived activation code after approval | The bootstrap token itself activates, once, with `activationId` recovery | It removes one more secret and keeps the same binding: one registration, private to the helper, single use. The secure-field fallback's bootstrap **code** is A-3.1b's, not this. |
-| §43: `AgentInstallation.status` has `connected`, `offline`, `degraded`, `needs_reconnect` and `paused` | The stored `status` is `active` or `ended` | Connection wording already has one source of truth (a5-presence). `paused` belongs to the agent, and `needs_reconnect` is credential expiry. Storing them twice would let them disagree. |
-| §38: the claim screen "displays the same code" | The human types the code; `claim.url` never contains it | A pre-filled code lets anyone who sends the owner a link get their agent approved with one click (the known device-flow phishing pattern). Typing the code is the comparison. |
-| §39: the human chooses permissions **per installation** ("installation grants") | Permissions stay **per agent** in v1 | That matches today's model and a3. Per-installation grants arrive with central authorization (Phase D). |
-| §39: a policy profile | `"default"` only | No named profiles exist yet. The field is in the wire shape so adding them later is additive. |
-| Two-owner plan: "five wrong claims before invalidation" | Five failures per human per 15 minutes | See §2. |
+| §42: a separate short-lived activation code after approval | The bootstrap token activates once, with `activationId` recovery | One fewer secret, with the same binding: one registration, private to the helper, single use. The secure-field fallback's bootstrap **code** belongs to A-3.1b. |
+| §43: `status` includes `connected`, `offline`, `degraded`, `needs_reconnect` and `paused` | Stored status is `active` or `ended`, derived from the family | Connection wording has one source of truth, a5-presence. `paused` belongs to the agent and `needs_reconnect` is credential expiry. Storing them twice would let them disagree. |
+| §43: `inboxId` and `capabilities` on the installation | Not included | The inbox belongs to the agent. Declared capabilities stay on the registration, so they are never mistaken for proof. |
+| §36: registration statuses | Adds `activated` and `withdrawn` | Recovery needs `activated`; the owner's undo needs `withdrawn`. |
+| §38: the claim screen "displays the same code" | The human types the code, and `claim.url` never contains it | See below. |
+| §39: grants **per installation** | Permissions stay **per agent**, re-decided at every attach | Matches today's model and a3. Per-installation grants arrive with central authorization (Phase D). |
+| §39: a policy profile | `"default"` only | No named profiles exist yet. The field is in the wire shape, so adding them later is additive. |
+| §65: the flag list | Adds `ENVOI_AUTHENTICATED_REST_ROUTE` | REST is proven separately (§1). |
+| a5 §1: presence renames at Phase B (`lastWorkClaimAt` → `lastClaimAt`) | Not renamed | Installation and family are 1:1 in v1, so a rename would only break a5 consumers. Revisit when an installation can have several families. |
+| Two-owner plan: "five wrong claims before invalidation" | Five failures per human per 15 minutes | §2 |
+| PR #75: on-demand hosts need an "On demand" label | `poll` and `on_demand` stay unavailable | The label does not exist yet; with a5 v1 a healthy on-demand host would look broken. |
+
+**What typing the code protects against, and what it does not.** Typing stops the one-click case: a link that pre-fills a code and gets an agent approved without the owner ever handling the code. It does **not** stop social engineering. Anyone can create a registration with no auth, then talk an owner into typing its code: a new agent in the victim's workspace, or a takeover of an existing agent's identity. Conversely, a code exposed in a chat transcript can be claimed by whoever types it first.
+
+The v1 mitigations are:
+- only allowlisted, signed-in humans can claim;
+- the lookup shows the requested details as the agent's claims, with its age;
+- `existing_agent` forces explicit confirmation of the installation being replaced (`replacesInstallationId`), re-decides permissions, and re-checks everything at activation;
+- `approved` shows `workspaceName` to the human beside the host before activation;
+- every approval appears in `GET /api/agent-claims` with Withdraw until activation;
+- approvals, activations and replays are audited;
+- names refuse control and bidirectional characters.
+
+**Accepted for the beta, not in v1:** a coarse network origin on the lookup screen, and fresh re-authentication before replacing an existing agent's installation. Both are candidates for v2 or A-3.1b.
 
 ### 11. Fixtures
 
 `test/contract-fixtures.test.js` checks the following for every fixture:
-- schemas, including request bodies that name a `request.schema`;
-- the `x-codes` row: status, lifecycle, retry, guidance and `retry-after`;
-- the model-visible allowlist;
-- route availability against the fixture's flags;
-- code normalization;
-- the permission intersection;
-- installation-list ordering;
-- the legacy projection;
-- every migration and rollback step;
-- placeholder-only tokens, now including `envoi_reg_`.
+- **schemas:** responses, request bodies named in `request.schema`, and negative bodies named in `request.invalidAgainst`, which must **fail**;
+- **codes:** the `x-codes` row for the fixture's surface (status, lifecycle, retry, guidance, `retry-after`), and that `FEATURE_DISABLED`, `ROUTE_NOT_AVAILABLE` and `DELIVERY_MODE_NOT_AVAILABLE` occur exactly when the fixture's flags say so;
+- **helper lifecycle:** the lifecycle of each successful helper response;
+- **model-visible output:** every key is allowlisted, server-derived values equal their source, and no token or internal id appears;
+- **route availability:** completeness and the flag rules;
+- **claims:** code normalization, grantable and effective permissions, and that the response target matches the request;
+- **installation lists:** ordering and bounds;
+- **derivation:** every installation is re-derived from the stored families (projection and read-time status);
+- **migration steps:** every step of the migration, rollback and re-enable fixtures;
+- **tokens:** placeholders only, now including `envoi_reg_`.
+
+A separate test checks that `activation-recovered` and `claim-approve-replayed` repeat their originals byte for byte, and that the registration, lookup, approval and polling fixtures describe one consistent registration.
 
 | Group | Fixtures |
 | --- | --- |
-| Availability | `routes-available`, `routes-disabled` |
-| Registration | `registration-created`, `registration-feature-disabled`, `registration-route-not-available`, `registration-invalid`, `registration-rate-limited`, `bootstrap-token-no-access` |
-| Polling | `registration-pending`, `registration-approved`, `registration-rejected`, `registration-expired`, `registration-activated`, `registration-poll-too-fast`, `registration-token-invalid` |
-| Claim | `claim-lookup`, `claim-code-invalid`, `claim-attempts-exhausted`, `claim-approve-new-agent`, `claim-approve-existing-agent`, `claim-reject`, `claim-forbidden`, `claim-address-taken`, `claim-agent-limit`, `claim-agent-not-reconnectable`, `claim-invalid` |
-| Activation | `activation-created`, `activation-recovered`, `activation-paused-agent`, `activation-pending`, `activation-rejected`, `activation-expired`, `activation-id-required`, `activation-replay`, `activation-recovery-expired`, `activation-delivery-not-available` |
+| Availability | `routes-available`, `routes-available-rest`, `routes-disabled` |
+| Registration | `registration-created`, `registration-feature-disabled`, `registration-route-not-available`, `registration-rest-not-enabled`, `registration-invalid`, `registration-unsafe-name`, `registration-rate-limited` |
+| No access | `bootstrap-pending-no-status`, `bootstrap-pending-no-mcp`, `bootstrap-rejected-no-claim`, `bootstrap-expired-no-send` |
+| Polling | `registration-pending`, `registration-approved`, `registration-rejected`, `registration-expired`, `registration-withdrawn`, `registration-activated`, `registration-poll-too-fast`, `registration-token-invalid` |
+| Claim | `claim-lookup`, `claim-code-invalid`, `claim-attempts-exhausted`, `claim-not-admitted`, `claim-auth-unavailable`, `claim-approve-new-agent`, `claim-approve-replayed`, `claim-approve-existing-agent`, `claim-approve-wrong-code`, `claim-account-changed`, `claim-forbidden`, `claim-address-taken`, `claim-agent-limit`, `claim-pending-activation-limit`, `claim-agent-not-reconnectable`, `claim-stale`, `claim-invalid`, `claim-reject`, `claim-reject-wrong-code`, `owner-claims`, `claim-withdraw`, `claim-withdraw-not-found` |
+| Activation | `activation-created`, `activation-recovered`, `activation-paused-agent`, `activation-pending`, `activation-rejected`, `activation-expired`, `activation-withdrawn`, `activation-id-required`, `activation-replay`, `activation-token-consumed`, `activation-recovery-expired`, `activation-delivery-not-available`, `activation-server-error` |
 | Installations | `agent-status-installation`, `owner-installations`, `owner-installation-revoke`, `owner-installation-not-found`, `installations-feature-disabled` |
-| Migration | `migration-legacy-family`, `rollback-flags-off` |
+| Migration | `migration-legacy-family`, `rollback-flags-off`, `reenable-after-rollback` |
 
 ### 12. Implementation notes for A-4.x (Lane A; informative)
 
-- **One approval module.** Extract today's pending-agent approval into `src/agent-approval.js` and call it from both the legacy approve route and §5.3 (v3 §41). Registration and installations go in `src/agent-registration.js` and `src/agent-installations.js` (v3 §64).
-- **Locks.** Approve and activate run inside `withInboxMutation`, with lock keys for the registration and `human:<id>:active-agents`. A registration moves state through a conditional write, so two approvals or two activations cannot both win.
-- **Test coverage.** Every fixture runs against FileStore and PostgreSQL. Restart tests prove that the durable limits and pending registrations survive a container restart (two-owner plan B), and a cleanup test proves the 24-hour deletion.
+- **One approval module.** Extract today's pending-agent approval into `src/agent-approval.js` and call it from the legacy approve route and from §5.3 (v3 §41). Registration and installations go in `src/agent-registration.js` and `src/agent-installations.js` (v3 §64).
+- **Locks and slot counting.** Approve, withdraw and activate run inside `withInboxMutation`, with lock keys for the registration and `human:<id>:active-agents`. State moves only through conditional writes. Slot counting (`assertActiveAgentSlot`) adds this human's live `new_agent` approvals, plus `existing_agent` approvals of agents with no live family.
+- **Tests.** Every fixture runs against FileStore and PostgreSQL. Restart tests prove that durable limits, holds and pending registrations survive a container restart (two-owner plan B). A cleanup test proves the 24-hour deletion and the release of address holds.
 - **Deployment.** Add the three flags to the Worker allowlist, `production-config`, `promote-release`, `.env.production.example` and `check-deployment`, all defaulting off.
-- **Constraint from the two-owner plan.** No implementation starts before `CONTRACT-APPROVED agent-registration v1`, and none is enabled before the hosted Phase A gate passes.
+- **Order (two-owner plan).** No implementation starts before `CONTRACT-APPROVED agent-registration v1`, and none is enabled before the hosted Phase A gate passes.
+
+### 13. Revisions within v1 (before ACK)
+
+- **Lane A independent review, against `a814a75`.** The review found three blockers:
+  - activation did not re-check the decision, and approvals could not be undone;
+  - re-attaching an agent restored its old permissions and skipped the agent limit;
+  - approval created an agent that was orphaned if activation never happened.
+
+  Most of the should-fix items were also addressed:
+  - surface-specific code rows that match a3;
+  - read-time installation status;
+  - HKDF over the raw token;
+  - the IPv6 /64 source key;
+  - `CLAIM_FORBIDDEN` without an existence oracle;
+  - approve replay and the owner claim list;
+  - `poll` and `on_demand` held back;
+  - a model-visible allowlist that fits Lane B's output;
+  - the missing fixtures;
+  - test checks that now fail on each of the review's 26 surviving mutations.
+
+  Nothing had been consumed yet, so the version stays 1.

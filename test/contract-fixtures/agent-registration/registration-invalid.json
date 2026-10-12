@@ -8,6 +8,7 @@
     "method": "POST",
     "path": "/api/agent-registrations",
     "auth": "none",
+    "invalidAgainst": "registrationCreateRequest",
     "body": {
       "requestedName": "Example agent",
       "requestedLocalPart": "example",
@@ -52,6 +53,10 @@
     "lifecycle": "REGISTRATION_ENDED",
     "retry": "none",
     "guidance": "update_helper",
-    "next": "Do not retry. The helper is out of date or broken."
+    "next": "Do not retry. The helper is out of date or broken.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "update_helper"
+    }
   }
 }

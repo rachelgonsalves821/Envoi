@@ -3,7 +3,7 @@
   "version": 1,
   "id": "registration-activated",
   "kind": "http",
-  "description": "Polling after activation (the helper lost its own state). Status only; credentials are never repeated here.",
+  "description": "Polling inside the recovery window after activation (the helper lost the response). Status only; credentials are never repeated here.",
   "request": {
     "method": "GET",
     "path": "/api/agent-registrations/registration_example",
@@ -26,12 +26,13 @@
   },
   "client": {
     "surface": "helper",
-    "lifecycle": "CONNECTED",
+    "lifecycle": "ACTIVATING",
     "retry": "none",
     "guidance": "none",
     "modelVisible": {
+      "state": "needs_help",
       "registrationStatus": "activated"
     },
-    "next": "If the helper holds no credentials, retry activation with its persisted activationId inside the recovery window; otherwise the owner reconnects."
+    "next": "Retry activation with the persisted activationId inside the 300 s window. Without it, the owner reconnects."
   }
 }

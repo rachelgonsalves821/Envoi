@@ -10,6 +10,13 @@
     "ENVOI_AUTHENTICATED_REST_ROUTE": false
   },
   "stored": {
+    "agents": [
+      {
+        "id": "agent_example",
+        "onboardingStatus": "approved",
+        "runtime": "hermes"
+      }
+    ],
     "credentialFamilies": [
       {
         "id": "credential_family_5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
@@ -20,6 +27,23 @@
         "revokedAt": null,
         "runtime": "hermes",
         "installationId": "installation_example"
+      }
+    ],
+    "installations": [
+      {
+        "id": "installation_example",
+        "agentId": "agent_example",
+        "credentialFamilyId": "credential_family_5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "registrationId": "registration_example",
+        "connectionRoute": "local_helper",
+        "deliveryMode": "envoi_link",
+        "runtime": {
+          "type": "hermes",
+          "version": "0.9.0"
+        },
+        "createdAt": "2026-10-12T12:03:20.000Z",
+        "activatedAt": "2026-10-12T12:03:20.000Z",
+        "replayDetectedAt": null
       }
     ]
   },
@@ -89,12 +113,16 @@
         "lifecycle": "REGISTRATION_ENDED",
         "retry": "none",
         "guidance": "route_unavailable",
-        "next": "An approved but unactivated registration cannot finish; the agent shows Not connected and the owner uses Quick Connect reconnect."
+        "next": "An approved but unactivated registration cannot finish; no agent was created, and the owner uses Quick Connect instead.",
+        "modelVisible": {
+          "state": "registration_ended",
+          "guidance": "route_unavailable"
+        }
       }
     }
   ],
   "client": {
     "surface": "server",
-    "next": "Rollback writes nothing: installation and registration documents stay and are ignored; re-enabling the flags restores them."
+    "next": "Rollback writes nothing. Installation documents stay and are ignored."
   }
 }

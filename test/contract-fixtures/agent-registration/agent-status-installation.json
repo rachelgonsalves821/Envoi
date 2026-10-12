@@ -3,7 +3,7 @@
   "version": 1,
   "id": "agent-status-installation",
   "kind": "http",
-  "description": "With ENVOI_INSTALLATIONS_V2 on, the agent status names its installation.",
+  "description": "With ENVOI_INSTALLATIONS_V2 on, the agent status names its installation. This authenticated call is what \"connected\" means.",
   "request": {
     "method": "GET",
     "path": "/api/agent/status",
@@ -44,11 +44,15 @@
     "retry": "none",
     "guidance": "none",
     "modelVisible": {
+      "schemaVersion": "1",
+      "state": "connected",
+      "reachability": "not_verified_closed_app",
       "agentAddress": "example@envoi.mail",
       "agentStatus": "active",
       "connectionRoute": "local_helper",
-      "deliveryMode": "envoi_link"
+      "deliveryMode": "envoi_link",
+      "nextAction": "Connected while this host runs. Closed-app wake has not been tested."
     },
-    "next": "This authenticated call is what \"connected\" means. It is not evidence of closed-app delivery."
+    "next": "Report connected. This is not evidence of closed-app delivery."
   }
 }

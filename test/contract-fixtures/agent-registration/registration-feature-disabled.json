@@ -55,9 +55,10 @@
     "lifecycle": "REGISTRATION_ENDED",
     "retry": "none",
     "guidance": "route_unavailable",
+    "next": "Stop. Tell the human agent-led setup is not available; Quick Connect remains under Advanced.",
     "modelVisible": {
+      "state": "registration_ended",
       "guidance": "route_unavailable"
-    },
-    "next": "Stop. Tell the human agent-led setup is not available; Quick Connect remains under Advanced."
+    }
   }
 }
