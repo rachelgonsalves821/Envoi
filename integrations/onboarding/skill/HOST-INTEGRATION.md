@@ -75,7 +75,7 @@ Only records matching the target release and integration version count. Every ch
 
 ## REQUEST lane-a: decisions before live helper implementation
 
-Consume approved Phase A contracts `a3-pause-auth` v2, `a4-wake` v1 and `a5-presence` v1 as lifecycle constraints at this base; this kit introduces no server wire fields. Je needs to publish Phase B fixtures/text and obtain human approval for:
+Consume approved Phase A contracts `a3-pause-auth` v3, `a4-wake` v2 and `a5-presence` v1 as lifecycle constraints at integration base `a740c51`; this kit introduces no server wire fields. Je needs to publish Phase B fixtures/text, Lane B must acknowledge them, and the designated human approver (`pjsk02` under the current build rules) must post `CONTRACT-APPROVED` before fixture-based client implementation. Live enrollment additionally waits for A-4.x server work and the hosted Phase A gate. The contract must cover:
 
 - Registration/bootstrap authentication, bounded expiry/retry/status/error schemas, repeated connect/idempotency and existing-installation recovery, with negative pending/rejected/expired access fixtures.
 - Claim URL/code verification and authorization; private activation redemption, single-use/retry semantics, token storage boundary and flag-disabled behavior for both V2 flags.
