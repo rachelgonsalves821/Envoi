@@ -31,6 +31,20 @@ export function releaseIsStale(expectedSha, reportedSha) {
   return /^[a-f0-9]{40}$/.test(expectedSha || '') && reportedSha !== expectedSha;
 }
 
+// A digest of the settings a container is started with, so a dashboard edit (a new Worker
+// version with the same release) can be detected. It is stored privately; never log it.
+export async function environmentFingerprint(envVars) {
+  const entries = Object.entries(envVars || {}).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(entries)));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+// Restart only when the running container's settings are known and differ from the Worker's,
+// and at most once per new set of settings, so a container that still disagrees cannot flap.
+export function settingsChanged(startedFingerprint, currentFingerprint, lastRestartFingerprint) {
+  return Boolean(startedFingerprint) && startedFingerprint !== currentFingerprint && lastRestartFingerprint !== currentFingerprint;
+}
+
 export function createForwardedRequest(request) {
   const url = new URL(request.url);
   const headers = new Headers(request.headers);

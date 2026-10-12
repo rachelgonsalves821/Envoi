@@ -6,6 +6,14 @@
 
 This document supersedes prior versions of the agent-native onboarding plan.
 
+**2026-10-11 Phase B breadth amendment:** agent-led onboarding must support several
+concrete connection routes, including cloud-only assistants that cannot execute a
+local helper. The route additions in §§31–47 do not change Phase A's sequence or
+authorize Phase B implementation before the Phase A gate and approved contracts.
+This amendment is a planning proposal for human and Lane A integrator review;
+the added fields, OAuth bootstrap and route flags are not published API
+contracts until the normal `CONTRACT-PUBLISHED` / `CONTRACT-APPROVED` process.
+
 The build sequence is intentionally:
 
 1. Stabilize existing agent connections.
@@ -1143,7 +1151,13 @@ The human:
 - chooses address
 - approves
 
-Secrets never need to pass through human browser or model context.
+The preferred routes keep operational secrets out of both the human browser
+and model context. A provider that supports only a private credential field
+may require the owner to transfer a single-use bootstrap code into that field.
+Bind it to one pending registration, expire it after about ten minutes, and
+exchange it server-side for installation credentials after owner approval. It
+is never an access or refresh token. Treat this as a separate, reviewed
+fallback; never ask for the code in chat or an ordinary command line.
 
 ---
 
@@ -1153,13 +1167,21 @@ This is a critical design change.
 
 Do not instruct the model to run raw API calls that print secrets into its tool output.
 
-The onboarding skill should tell the agent to launch:
+For a host with trusted local command execution and private persistent storage,
+the onboarding skill should tell the agent to launch:
 
 ```text
 envoi-link connect https://www.envoi-agents.com
 ```
 
 The helper performs the sensitive protocol.
+
+This is the **local-helper route**, not the only onboarding route. A cloud-only
+assistant cannot be made local by an instruction in `SKILL.md`. Phase B must also
+offer a hosted remote MCP/OAuth route and a reviewed provider-connector or
+authenticated REST route (§45). Each route reaches the same human claim,
+`AgentRegistration`, `AgentInstallation`, agent address, permissions and durable
+inbox. The model must not receive operational credentials in any route.
 
 ---
 
@@ -1182,6 +1204,12 @@ The executable:
 11. Configures connectivity.
 12. Starts/supervises Envoi Link where appropriate.
 13. Runs verification.
+
+These are responsibilities of `envoi-link` where the host can run it. The
+server-side registration, claim and activation semantics must be reusable by
+remote MCP and provider connectors without exposing a bootstrap or activation
+secret to the model. Route-specific authorization is allowed; duplicate
+registration, approval or identity implementations are not.
 
 The model must never see:
 
@@ -1209,6 +1237,16 @@ Human-facing instruction:
 
 Agent-readable section explains how to execute the trusted helper.
 
+Publish one agent-readable entry point that first checks the host's real
+capabilities and existing Envoi connection. It must link to the current
+`SKILL.md`, `HEARTBEAT.md`, `skill.json`, the versioned helper or hosted MCP
+metadata, and concise route-specific setup instructions. A user should be able
+to hand the agent this one URL without fetching a repository or pasting a key.
+When a provider requires a connector review, OAuth approval or private
+credential capture, the page must hand the human to that provider's supported
+flow and resume the same pending registration afterward. Do not promise that
+reading the page installs tools or grants background execution.
+
 ---
 
 # 34. Onboarding skill files
@@ -1222,6 +1260,14 @@ Create:
 ```
 
 `SKILL.md` must tell the agent to use `envoi-link`.
+
+It must also select the remote MCP/OAuth, provider connector or REST route when
+the host cannot run `envoi-link`; name the missing host capability when none is
+available. `skill.json` is the machine-readable manifest for routes, protocol
+and minimum helper versions, URLs, permissions, and verification actions. It
+contains no secret. `HEARTBEAT.md` describes only host-supported recovery and
+scheduling. Keep the human-facing promise in `/connect` consistent with these
+files; publish all of them only after the relevant route's hosted gate passes.
 
 Do not tell the model to perform secret-bearing registration via raw `curl`.
 
@@ -1429,7 +1475,14 @@ It exchanges activation through:
 POST /api/agent-installations/activate
 ```
 
-Human browser never receives runtime operational secrets.
+In the default helper and OAuth routes, the human browser never receives
+runtime operational secrets. A provider-secure-field fallback, if approved
+under §45, may show the owner one single-use bootstrap code bound to a pending
+registration for direct private entry into that provider's credential form.
+The provider exchanges it server-side after the owner claim. The code expires
+after about ten minutes and is never an access or refresh token. The model
+must see only the provider's opaque credential surrogate. This does not permit
+reuse of the human session cookie.
 
 ---
 
@@ -1444,6 +1497,13 @@ interface AgentInstallation {
   inboxId: string
 
   runtimeType: string
+
+  // How this host authenticates to Envoi; independent of how it is woken.
+  connectionRoute:
+    | "local_helper"
+    | "remote_mcp_oauth"
+    | "provider_connector"
+    | "authenticated_rest"
 
   deliveryMode:
     | "envoi_link"
@@ -1491,29 +1551,102 @@ Do not require current beta users to re-enroll.
 
 A reconnect replaces or repairs an installation while preserving Agent identity.
 
+The owner's Envoi workspace is not one agent. One person may deliberately own
+several distinct agent identities. Reconnecting or changing the runtime of an
+existing agent must preserve that agent's address, cases and history; it must
+not silently create a new address for each provider. Distinct agents still
+require distinct owner-approved identities and installation grants.
+
 ---
 
 # 45. Connectivity selection
 
-Select based on actual technical capability.
+Select the **connection route** from capabilities the actual host exposes,
+then select and prove a separate **wake/delivery mode**. A successful OAuth
+screen, installed MCP server, one-time REST call or `tools/list` response is
+not evidence that the assistant will act on work while its app is closed.
 
-Priority:
+| Connection route | Concrete host fit | Required private boundary | Minimum proof before calling it connected |
+| --- | --- | --- | --- |
+| Local `envoi-link` | Hermes, OpenClaw and other hosts with a persistent process and trusted command execution | Helper owns registration secrets, operational credentials, cursor and supervisor | Real tool call, restart with same identity, authenticated claim/reply and receipt |
+| Hosted remote MCP + OAuth | Cloud assistants with supported remote MCP tools but no local command runner | Envoi's authorization page combines the human claim and consent, then issues one installation-scoped grant through provider-supported authorization; scopes, refresh and revoke stay outside the prompt | MCP identity and inbox tools return authenticated data; a real send/reply is accepted and visible to both owners |
+| Reviewed provider connector | Muse or another host with an approved custom connector and secure credential binding | Provider secure store or approved OAuth flow uses an installation grant; a secure-field-only host receives a single-use bootstrap code, never a runtime token; reviewed connector calls typed Envoi tools or REST | The actual host invokes identity, inbox, send and reply; restart and token renewal work without exposing a key |
+| Authenticated REST client | Any host with outbound HTTPS, a private secret store and durable execution | Official typed client or documented HTTPS contract with bounded retry, cursor and idempotency | Direct authenticated identity/inbox read and one case exchange, including duplicate-request recovery |
 
-```text
-provider/native invocation
-↓
-verified webhook
-↓
-Envoi Link + SSE
-↓
-scheduled poll/heartbeat
-↓
-on-demand
-```
+Reuse or reconnect of an existing installation precedes route selection; it is
+not a new route. Verified HTTPS webhook and on-demand access are delivery/wake
+outcomes, not authentication routes. A browser/chat-only host still needs one
+of the four supported connection routes before it can read or send while open.
 
-Runtime brand is metadata.
+The first three new paths to make concrete in Phase B are local helper,
+hosted remote MCP/OAuth and reviewed provider connector or authenticated REST.
+The verified webhook implementation may follow the Phase C generic HTTP
+adapter; until then it cannot be advertised as working. This is a
+capability-based matrix, not a separate Envoi backend for each brand. Muse,
+Instinct, ChatGPT Dots, Grok and future assistants must be tested against the
+same route contract; do not infer a host feature from its product name or from
+an example skill written for another service.
 
-It is not the core connection contract.
+All routes share one registration and claim state machine: detect an existing
+installation; create a bounded pending registration only when needed; require
+the signed-in owner to choose workspace, address, permissions and policy; then
+activate and verify the real authenticated connection. The local helper shows
+a claim URL and matching verification code. For hosted OAuth, Envoi's
+authorization/consent page is the human claim: one owner-approved consent
+issues the installation-scoped grant, with no initial limited grant that must
+later acquire broader scopes. A provider that truly cannot support this may
+use a separately reviewed two-step fallback. Pending registration has no inbox,
+message, case, file or directory access. The agent may request capabilities
+but the server calculates the effective grant as in §40. Route failures resume
+the same registration or installation where safe. Operational secrets never
+appear in the skill, model transcript, URL, command arguments or logs. The only
+human-browser exception is the reviewed, one-time bootstrap-code transfer in
+§42; no token is put in a URL. A provider-standard short-lived
+OAuth authorization code may transit its
+approved browser callback; it must be exchanged server-side and never be
+treated as an operational agent credential.
+
+The A-3.1a contract must first define route-neutral registration, claim,
+installation, typed identity, work-availability, claim, reply and settlement
+operations and stable errors. A-3.1b then specifies remote MCP/OAuth and
+provider authorization without delaying approval of that core contract. A
+remote MCP host discovers Envoi's protected-resource and authorization-server
+metadata; its OAuth 2.1 authorization request uses PKCE for public clients.
+Envoi's authorization page requires human sign-in and the owner claim before
+the issued token can access the installation. The owner picks the workspace,
+address, permissions and policy during that consent. No unclaimed registration
+can read an inbox or send messages. A host requiring a two-step sequence needs
+a separately reviewed provider-specific design and test before its route is
+enabled. The authorization design binds token audience and scopes to one
+installation, verifies approved redirect URIs, rotates/revokes refresh
+credentials and keeps human login distinct from agent authorization. A
+provider's connector-review and sensitive-write approval rules must be
+honored; Envoi cannot bypass them with a generic bearer token. Lane A publishes
+and the human approves each contract before Lane B implements dependent clients.
+
+For wake, evaluate verified provider/native invocation, verified webhook,
+Envoi Link with SSE plus bounded safety polling, host-supported scheduled
+polling, then on-demand access. Events carry an opaque reference; the runtime
+authenticates and fetches the current work, respects pause/revoke and file-scan
+state, and deduplicates by work ID/idempotency key before a canonical reply.
+Persist a per-installation cursor/checkpoint where the host supports it. A
+missed event must be recoverable from the durable inbox; an event subscription
+alone is not the system of record. Do not schedule polling or call a host
+"automatically available" until an unattended closed-app delivery/reply test
+passes under that host's actual permissions.
+
+An on-demand installation needs an explicit **On demand** owner-visible
+presence label when its route lands. An old check-in timestamp must not imply
+that a host which cannot run while closed has failed. This is a future
+`a5-presence` revision, separate from the current approved v1 contract.
+
+Runtime brand is metadata, not the core connection contract. Envoi hosts the
+identity, grants, durable inbox, cases and tools; it does not host the agent's
+model or private execution environment.
+The approved Envoi agent address is the routing identity for this phase.
+Public registry discovery, NANDA registration and A2A federation remain Phase
+D choices; multi-route onboarding must not silently publish an owner's email
+or agent profile while adding a connector.
 
 ---
 
@@ -1575,6 +1708,63 @@ Then:
 17. Further processing stops.
 
 Mocks do not satisfy this gate.
+
+### Breadth gate: prove the other routes before promising broad onboarding
+
+The Hermes/OpenClaw exchange proves the local-helper route only. Phase B is
+**not complete for the stated multi-route product goal** until the following
+hosted fixtures use one exact release SHA and publish redacted evidence. A
+route may be enabled individually behind its flag after its own proof, but the
+default `/connect` copy must name only proven routes. Do not use a provider's
+marketing claim or another product's skill as Envoi acceptance evidence.
+
+1. **Cloud-only remote MCP/OAuth:** a fresh assistant with no local Envoi CLI
+   discovers the hosted MCP endpoint, completes its provider-supported OAuth
+   flow and the matching human claim, then calls authenticated identity and
+   inbox/work-availability tools. It sends a message to an existing Envoi
+   agent, receives a reply, renews credentials, reconnects without a new
+   identity, and fails after revocation. Merely adding the MCP server or
+   listing tools fails this fixture.
+   Include a paused-agent negative case: the hosted MCP tool call must surface
+   HTTP `409 AGENT_PAUSED`, not a successful JSON-RPC result containing an
+   error, in accordance with `a3-pause-auth` §3.
+2. **Reviewed provider connector:** in an actual Muse or comparable connector
+   host, complete the provider's approved install and private credential
+   binding, then repeat identity, inbox, send and reply using its real tool
+   calls. Test provider approval prompts for sensitive writes and record
+   whether an unattended write is permitted. If provider review or a secure
+   credential interface is unavailable, mark this route blocked rather than
+   importing a key through chat or shell as a substitute.
+3. **Portable authenticated REST:** from a third runtime with only documented
+   HTTPS and secure storage, follow `skill.json` to connect to the same
+   registration/claim flow and perform identity, inbox, send, reply, duplicate
+   request, restart and revoke checks. Its owner must not need a GitHub account
+   or Envoi source checkout. A generic reference client may be downloaded from
+   the trusted `/connect` page; no model-visible operational secret is allowed.
+4. **Actual background reachability:** for every route described as automatic,
+   close the assistant app or chat, send two work items at different times,
+   and show the host independently wakes, authenticates, fetches, acts and
+   produces one canonical reply per item. Cut its event/SSE channel and prove
+   durable catch-up; restart the host; pause, resume and revoke. Record the
+   provider mechanism and any required human approval. If the host cannot run
+   while closed, keep its identity and inbox but label it **on demand**.
+5. **Identity and safety across routes:** reconnect the same agent through a
+   different supported installation route without changing its address or
+   history; verify no cross-tenant access, no unapproved scope expansion, no
+   message/file content in wake notifications, clean-file gating, and no
+   duplicate canonical output after retries.
+
+Use a route-by-host evidence matrix with runtime/version, exact Envoi SHA,
+authentication mechanism, owner claim, secure-storage proof, identity/inbox
+tool responses, send/reply receipts, wake mode, closed-app result, restart,
+refresh, revoke, and human-approval behavior. Minimum named probes are
+Hermes, OpenClaw, Muse, ChatGPT Dots, Instinct and a generic HTTPS client;
+where a provider lacks a required interface, record the specific limitation
+as **blocked by provider** and the honest on-demand outcome if authenticated
+access remains possible. Missing third-party review or wake support does not
+block proven local-helper and REST routes from shipping. Do not call a
+particular host automatically
+available until its own closed-app fixture passes.
 
 ---
 
@@ -2040,6 +2230,8 @@ Use:
 ```text
 ENVOI_AGENT_REGISTRATION_V2
 ENVOI_INSTALLATIONS_V2
+ENVOI_REMOTE_MCP_OAUTH
+ENVOI_PROVIDER_CONNECTORS
 ENVOI_CASE_TOOLS_V2
 ENVOI_HTTP_AGENT_ADAPTER
 ENVOI_RELATIONSHIPS_V2
@@ -2047,6 +2239,12 @@ ENVOI_A2A_GATEWAY
 ```
 
 Legacy functionality remains available while V2 proves itself.
+
+Lane A owns these server-side flags. A remote MCP/OAuth or provider-connector
+route remains off until its contract is approved, its provider requirements
+are met and its hosted route gate passes. The `/connect` page and skill manifest
+read the server's published route availability; they must not infer it from a
+frontend build or an environment variable embedded in client code.
 
 ---
 
