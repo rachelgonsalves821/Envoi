@@ -1153,10 +1153,11 @@ The human:
 
 The preferred routes keep operational secrets out of both the human browser
 and model context. A provider that supports only a private credential field
-may require the owner to transfer a one-time, narrowly scoped grant directly
-into that field. Treat this as a separate, reviewed fallback with explicit
-consent, short expiry, renewal and revocation tests; never ask for the grant in
-chat or an ordinary command line.
+may require the owner to transfer a single-use bootstrap code into that field.
+Bind it to one pending registration, expire it after about ten minutes, and
+exchange it server-side for installation credentials after owner approval. It
+is never an access or refresh token. Treat this as a separate, reviewed
+fallback; never ask for the code in chat or an ordinary command line.
 
 ---
 
@@ -1476,10 +1477,12 @@ POST /api/agent-installations/activate
 
 In the default helper and OAuth routes, the human browser never receives
 runtime operational secrets. A provider-secure-field fallback, if approved
-under §45, is the sole exception: a one-time scoped grant may be shown once
-to the owner for direct private entry into that provider's credential form.
-The model must see only the provider's opaque credential surrogate. It is not
-permission to display a refresh token or reuse the human session cookie.
+under §45, may show the owner one single-use bootstrap code bound to a pending
+registration for direct private entry into that provider's credential form.
+The provider exchanges it server-side after the owner claim. The code expires
+after about ten minutes and is never an access or refresh token. The model
+must see only the provider's opaque credential surrogate. This does not permit
+reuse of the human session cookie.
 
 ---
 
@@ -1501,8 +1504,6 @@ interface AgentInstallation {
     | "remote_mcp_oauth"
     | "provider_connector"
     | "authenticated_rest"
-    | "verified_webhook"
-    | "on_demand"
 
   deliveryMode:
     | "envoi_link"
@@ -1567,13 +1568,15 @@ not evidence that the assistant will act on work while its app is closed.
 
 | Connection route | Concrete host fit | Required private boundary | Minimum proof before calling it connected |
 | --- | --- | --- | --- |
-| Existing installation | Any host already linked to the intended agent | Reuse or reconnect that installation; never mint a duplicate merely because status is slow | Authenticated agent identity and inbox/work read match the owner-approved agent |
 | Local `envoi-link` | Hermes, OpenClaw and other hosts with a persistent process and trusted command execution | Helper owns registration secrets, operational credentials, cursor and supervisor | Real tool call, restart with same identity, authenticated claim/reply and receipt |
-| Hosted remote MCP + OAuth | Cloud assistants with supported remote MCP tools but no local command runner | Envoi issues installation-scoped OAuth tokens through provider-supported authorization; scopes, refresh and revoke stay outside the prompt | MCP identity and inbox tools return authenticated data; a real send/reply is accepted and visible to both owners |
-| Reviewed provider connector | Muse or another host with an approved custom connector and secure credential binding | Provider secure store or approved OAuth flow injects a scoped installation grant; reviewed connector calls typed Envoi tools or REST | The actual host invokes identity, inbox, send and reply; restart and token renewal work without exposing a key |
+| Hosted remote MCP + OAuth | Cloud assistants with supported remote MCP tools but no local command runner | Envoi's authorization page combines the human claim and consent, then issues one installation-scoped grant through provider-supported authorization; scopes, refresh and revoke stay outside the prompt | MCP identity and inbox tools return authenticated data; a real send/reply is accepted and visible to both owners |
+| Reviewed provider connector | Muse or another host with an approved custom connector and secure credential binding | Provider secure store or approved OAuth flow uses an installation grant; a secure-field-only host receives a single-use bootstrap code, never a runtime token; reviewed connector calls typed Envoi tools or REST | The actual host invokes identity, inbox, send and reply; restart and token renewal work without exposing a key |
 | Authenticated REST client | Any host with outbound HTTPS, a private secret store and durable execution | Official typed client or documented HTTPS contract with bounded retry, cursor and idempotency | Direct authenticated identity/inbox read and one case exchange, including duplicate-request recovery |
-| Verified HTTPS webhook | Owner-run remote runtime with a stable HTTPS receiver | Signed/challenged callback, allowlisted endpoint and SSRF-safe delivery; payload holds only an opaque work reference | Challenge, retry, restart and authenticated fetch/claim/reply are observed; no message or file body in the wake event |
-| On demand | Browser/chat-only host lacking a trusted execution or wake capability | Human-approved session or provider connection, with no claim of persistent availability | Authenticated read and send while open; queued work waits durably while closed |
+
+Reuse or reconnect of an existing installation precedes route selection; it is
+not a new route. Verified HTTPS webhook and on-demand access are delivery/wake
+outcomes, not authentication routes. A browser/chat-only host still needs one
+of the four supported connection routes before it can read or send while open.
 
 The first three new paths to make concrete in Phase B are local helper,
 hosted remote MCP/OAuth and reviewed provider connector or authenticated REST.
@@ -1585,39 +1588,41 @@ same route contract; do not infer a host feature from its product name or from
 an example skill written for another service.
 
 All routes share one registration and claim state machine: detect an existing
-installation; create a bounded pending registration only when needed; show a
-claim URL and matching verification code; require the signed-in owner to choose
-workspace, address, permissions and policy; activate only after approval; then
-verify the real authenticated connection. Pending registration has no inbox,
+installation; create a bounded pending registration only when needed; require
+the signed-in owner to choose workspace, address, permissions and policy; then
+activate and verify the real authenticated connection. The local helper shows
+a claim URL and matching verification code. For hosted OAuth, Envoi's
+authorization/consent page is the human claim: one owner-approved consent
+issues the installation-scoped grant, with no initial limited grant that must
+later acquire broader scopes. A provider that truly cannot support this may
+use a separately reviewed two-step fallback. Pending registration has no inbox,
 message, case, file or directory access. The agent may request capabilities
 but the server calculates the effective grant as in §40. Route failures resume
 the same registration or installation where safe. Operational secrets never
 appear in the skill, model transcript, URL, command arguments or logs. The only
-human-browser exception is the reviewed, one-time provider secure-field
-transfer in §42; no token is put in a URL. A provider-standard short-lived
+human-browser exception is the reviewed, one-time bootstrap-code transfer in
+§42; no token is put in a URL. A provider-standard short-lived
 OAuth authorization code may transit its
 approved browser callback; it must be exchanged server-side and never be
 treated as an operational agent credential.
 
-The A-3.1 contract must define route-neutral typed identity, work-availability,
-claim, reply and settlement operations and stable errors, plus OAuth protected
-resource/authorization metadata for remote MCP when that route is implemented.
-It must specify the remote bootstrap sequence rather than assuming an MCP tool
-is callable before authorization: the provider connects to Envoi's published
-metadata; an initial limited OAuth grant permits only registration/status;
-the assistant starts or resumes a bounded pending registration and displays
-its claim URL/code; the human claims that exact registration; then the
-provider obtains an installation-scoped operational grant through its approved
-OAuth refresh/consent flow. If a provider cannot perform this scope transition,
-test and document its supported reconnect flow before enabling the route.
-Neither the initial OAuth grant nor an unclaimed registration can read an
-inbox or send messages.
-The remote OAuth design must bind token audience and scopes to one installation,
-verify approved redirect URIs, support public-client PKCE where appropriate,
-rotate/revoke refresh credentials and keep human login distinct from agent
-authorization. A provider's connector-review and sensitive-write approval rules
-must be honored; Envoi cannot bypass them with a generic bearer token. Lane A
-publishes and the human approves this contract before Lane B implements clients.
+The A-3.1a contract must first define route-neutral registration, claim,
+installation, typed identity, work-availability, claim, reply and settlement
+operations and stable errors. A-3.1b then specifies remote MCP/OAuth and
+provider authorization without delaying approval of that core contract. A
+remote MCP host discovers Envoi's protected-resource and authorization-server
+metadata; its OAuth 2.1 authorization request uses PKCE for public clients.
+Envoi's authorization page requires human sign-in and the owner claim before
+the issued token can access the installation. The owner picks the workspace,
+address, permissions and policy during that consent. No unclaimed registration
+can read an inbox or send messages. A host requiring a two-step sequence needs
+a separately reviewed provider-specific design and test before its route is
+enabled. The authorization design binds token audience and scopes to one
+installation, verifies approved redirect URIs, rotates/revokes refresh
+credentials and keeps human login distinct from agent authorization. A
+provider's connector-review and sensitive-write approval rules must be
+honored; Envoi cannot bypass them with a generic bearer token. Lane A publishes
+and the human approves each contract before Lane B implements dependent clients.
 
 For wake, evaluate verified provider/native invocation, verified webhook,
 Envoi Link with SSE plus bounded safety polling, host-supported scheduled
@@ -1629,6 +1634,11 @@ missed event must be recoverable from the durable inbox; an event subscription
 alone is not the system of record. Do not schedule polling or call a host
 "automatically available" until an unattended closed-app delivery/reply test
 passes under that host's actual permissions.
+
+An on-demand installation needs an explicit **On demand** owner-visible
+presence label when its route lands. An old check-in timestamp must not imply
+that a host which cannot run while closed has failed. This is a future
+`a5-presence` revision, separate from the current approved v1 contract.
 
 Runtime brand is metadata, not the core connection contract. Envoi hosts the
 identity, grants, durable inbox, cases and tools; it does not host the agent's
@@ -1715,6 +1725,9 @@ marketing claim or another product's skill as Envoi acceptance evidence.
    agent, receives a reply, renews credentials, reconnects without a new
    identity, and fails after revocation. Merely adding the MCP server or
    listing tools fails this fixture.
+   Include a paused-agent negative case: the hosted MCP tool call must surface
+   HTTP `409 AGENT_PAUSED`, not a successful JSON-RPC result containing an
+   error, in accordance with `a3-pause-auth` §3.
 2. **Reviewed provider connector:** in an actual Muse or comparable connector
    host, complete the provider's approved install and private credential
    binding, then repeat identity, inbox, send and reply using its real tool
@@ -1747,7 +1760,10 @@ tool responses, send/reply receipts, wake mode, closed-app result, restart,
 refresh, revoke, and human-approval behavior. Minimum named probes are
 Hermes, OpenClaw, Muse, ChatGPT Dots, Instinct and a generic HTTPS client;
 where a provider lacks a required interface, record the specific limitation
-and the honest on-demand route. Do not call a particular host automatically
+as **blocked by provider** and the honest on-demand outcome if authenticated
+access remains possible. Missing third-party review or wake support does not
+block proven local-helper and REST routes from shipping. Do not call a
+particular host automatically
 available until its own closed-app fixture passes.
 
 ---
