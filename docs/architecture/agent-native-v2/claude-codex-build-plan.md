@@ -176,8 +176,8 @@ Exit condition: `INTEGRATED` posted with an all-green SHA.
 | --- | --- | --- |
 | **A-3.0 / A-3** | Claude | Contract `a5-presence v1`, then the implementation: `lastSeenAt`, `lastSuccessfulRefreshAt`, `lastWorkClaimAt` and `lastProcessedAt` on the credential family, defined as an installation-presence projection. Writes are throttled (at most one per family per 60 s per field). Add a bounded status response. |
 | **B-3** | Codex → `a5-presence` approved | UI shows "seen recently", "paused" or "needs reconnect". It never treats enrollment or an open browser as a running runtime. |
-| **A-3.1** | Claude (design only) | Phase B contract drafts: registration, claim, activation and installation schemas behind `ENVOI_AGENT_REGISTRATION_V2` / `ENVOI_INSTALLATIONS_V2`, plus a migration and rollback fixture. Publish only. No default-on code. |
-| **B-3.1** | Codex (design only) | `envoi-link connect` skeleton and `/connect` `SKILL.md` / `HEARTBEAT.md` drafts against A-3.1. They stay behind the flag and are not the default. |
+| **A-3.1** | Claude (design only) | Phase B contract drafts: one registration, claim, activation and installation state machine behind `ENVOI_AGENT_REGISTRATION_V2` / `ENVOI_INSTALLATIONS_V2`, plus migration and rollback fixtures. Define connection route separately from wake mode, route-neutral typed identity/work/claim/reply operations, scoped remote MCP/OAuth and provider-connector authorization, and stable errors. Publish only. No default-on code. |
+| **B-3.1** | Codex (design only) | `envoi-link connect` skeleton and `/connect` `SKILL.md` / `HEARTBEAT.md` / `skill.json` drafts against A-3.1. Include a host-capability planner and honest local-helper, remote MCP/OAuth, provider-connector, authenticated REST and on-demand outcomes. These stay unpublished behind the flag. No client implementation before `CONTRACT-APPROVED`. |
 
 **Gate GA — Phase A hosted acceptance (v3 §29, all 23 steps).**
 1. The human deploys one integration SHA to staging (H-3).
@@ -191,7 +191,7 @@ Exit condition: `INTEGRATED` posted with an all-green SHA.
 
 ### Later waves (planned when GA passes, using the same pattern)
 
-- **Phase B:** A-4.x for registration/claim/activation/installation, the durable rate limit and the migration. B-4.x for `envoi-link`, `/connect` and the claim UI, with Quick Connect kept under Advanced. Gate: two-owner plan Phase B with fresh real Hermes and OpenClaw.
+- **Phase B:** A-4.x owns the single registration/claim/activation/installation backend, durable rate limit, migration, and the reviewed remote MCP/OAuth plus scoped provider/REST contract. B-4.x owns `envoi-link`, `/connect`, claim UI, runtime-neutral skill/JSON, and host adapters. Keep Quick Connect under Advanced. Integrate the common claim path first; add local helper, remote MCP/OAuth, then reviewed provider connector/authenticated REST as separate reviewed tasks. Do not make an unfinished route appear selectable. The core Hermes/OpenClaw gate remains, followed by v3 §47's multi-route breadth gate using a cloud-only MCP host, a real reviewed connector host and a generic HTTPS client. A host is advertised as automatically reachable only after its own closed-app wake fixture passes; otherwise show on-demand status.
 - **Phase C:** CaseSession, case-scoped tools and an SSRF-safe HTTPS wake adapter in Lane A. Host claim/renew moved out of the model, plus adapter migration, in Lane B.
 - **Phase D:** relationships and A2A, after C.
 
