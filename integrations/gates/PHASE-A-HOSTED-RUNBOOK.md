@@ -40,7 +40,7 @@ It prints a `http://127.0.0.1:<port>` URL. Point only the disposable connector's
 
 ## 2. Execute all 23 observations on one release
 
-Record each step's UTC time, redacted request/audit IDs, connector state, message/work ID, and observed outcome. Keep sensitive raw logs private. A local test or a status label alone does not prove work was processed. The authoritative sanitized evidence goes to `docs/architecture/agent-native-v2/evidence/phase-a-<sha>.md` through Lane A and needs the human's countersign.
+Record each step's UTC time, redacted request/audit IDs, connector state, message/work ID, and observed outcome in the [blank 23-row worksheet](PHASE-A-EVIDENCE-WORKSHEET.md). Keep sensitive raw logs private. A local test or a status label alone does not prove work was processed. The authoritative sanitized evidence goes to `docs/architecture/agent-native-v2/evidence/phase-a-<sha>.md` through Lane A and needs the human's countersign.
 
 | Steps | Operator action and required observation |
 | --- | --- |
