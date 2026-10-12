@@ -9,7 +9,7 @@ A host that reads Envoi's skill still needs a reviewed connection route, private
 - Task/lane: B-3.1a design only, Lane B. This PR has not been rebased onto the latest integration head; live feature work must start from a fresh exact base after the core contract is approved.
 - Changed paths: integrations/onboarding/** plus the pre-existing integrations/gates/PHASE-A-HOSTED-PREP.md worksheet. This update touches only onboarding; #73's hosted fixture is separate.
 - Contract consumed: v3 §§30–47 and §54 design constraints; approved a3-pause-auth v2, a4-wake v1, a5-presence v1 lifecycle constraints. No new server wire fields or Lane A edits.
-- Compatibility: same manifest and claim/installation boundary for every runtime. The draft planner selects local-helper, remote MCP/OAuth, reviewed provider connector or authenticated REST only from observed capabilities. Candidate provider/webhook/SSE/poll flags alone classify as on demand. A background mode requires all eight conformance checks and matching host/version/release/integration references. Missing private storage/HTTPS or any reviewed connection route is unsupported.
+- Compatibility: same manifest and claim/installation boundary for every runtime. The draft planner selects local-helper, remote MCP/OAuth, reviewed provider connector or authenticated REST only from observed capabilities. Candidate provider/webhook/SSE/poll flags alone classify as on demand. A background mode requires all eight conformance checks and matching connection-route/host/version/release/integration references; wake proof cannot transfer between routes. Missing private storage/HTTPS or any reviewed connection route is unsupported.
 - Live gate: every supported plan returns contract_blocked and liveEnrollmentAllowed:false. Phase B contracts are unpublished/unapproved. skill.json remains published:false. No registration, activation, helper execution, network call, deployment or publication occurs.
 
 Local entry point (schema `host-plan-draft-2`):
@@ -18,7 +18,7 @@ node integrations/onboarding/host-plan.mjs integrations/onboarding/profiles/unve
 The seed correctly reports unsupported_host. A trusted host may supply observed capabilities and private evidence using skill/HOST-INTEGRATION.md. Output includes only fixed safe planning fields and a planned executable/argument array; it never echoes evidence URLs or raw input. Evidence checks validate references only, not their authenticity or a real host run.
 
 Validation at this tree:
-- node --test integrations/onboarding/test/*.test.mjs: 19/19 on the 2026-10-12 follow-up.
+- node --test integrations/onboarding/test/*.test.mjs: 20/20 on the 2026-10-12 follow-up.
 - npm run typecheck: PASS.
 - npm run test:integrations: 200 PASS / 1 existing skip, including the onboarding Node suite through Vitest/CI. Windows sandbox temp-file loading failed before tests; the unchanged suite passed outside the sandbox.
 - npm run test:frontend: 246 PASS.

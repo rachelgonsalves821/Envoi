@@ -48,16 +48,18 @@ function validateProfile(profile) {
   if (!capabilityKeys.every((key) => typeof profile.capabilities[key] === 'boolean')) {
     throw new Error('Capabilities must be explicit booleans');
   }
-  if (!Array.isArray(profile.evidence) || profile.evidence.length > modes.length) {
+  if (!Array.isArray(profile.evidence) || profile.evidence.length > modes.length * connectionRoutes.length) {
     throw new Error('Invalid conformance evidence');
   }
-  const seenModes = new Set();
+  const seenRouteModes = new Set();
   for (const evidence of profile.evidence) {
-    objectWithKeys(evidence, ['mode', 'runtime', 'releaseSha', 'integrationVersion', 'checks']);
-    if (!modes.includes(evidence.mode) || seenModes.has(evidence.mode)) {
-      throw new Error('Invalid or duplicate evidence mode');
+    objectWithKeys(evidence, ['connectionRoute', 'mode', 'runtime', 'releaseSha', 'integrationVersion', 'checks']);
+    const routeMode = `${evidence.connectionRoute}:${evidence.mode}`;
+    if (!connectionRoutes.some(([route]) => route === evidence.connectionRoute)
+      || !modes.includes(evidence.mode) || seenRouteModes.has(routeMode)) {
+      throw new Error('Invalid or duplicate route/mode evidence');
     }
-    seenModes.add(evidence.mode);
+    seenRouteModes.add(routeMode);
     objectWithKeys(evidence.runtime, ['id', 'version', 'hostId']);
     if (!['id', 'version', 'hostId'].every((key) => evidence.runtime[key] === profile.runtime[key])
       || typeof evidence.releaseSha !== 'string'
@@ -112,6 +114,7 @@ export function planHost(manifest, profile) {
   }
   const completeModes = candidates.filter((mode) => mode !== 'on_demand'
     && profile.evidence.some((entry) => entry.mode === mode
+      && entry.connectionRoute === selectedConnectionRoute
       && entry.releaseSha === profile.target.releaseSha
       && entry.integrationVersion === profile.target.integrationVersion
       && requiredChecks.every((key) => entry.checks[key]?.result === 'pass')));

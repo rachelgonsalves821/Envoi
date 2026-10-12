@@ -16,9 +16,9 @@ function supportedProfile(runtime = 'arbitrary-agent') {
   return profile;
 }
 
-function evidenceFor(profile, mode) {
+function evidenceFor(profile, mode, connectionRoute = 'local_helper') {
   return {
-    mode, runtime: { ...profile.runtime }, releaseSha: 'a'.repeat(40), integrationVersion: 'test-only',
+    connectionRoute, mode, runtime: { ...profile.runtime }, releaseSha: 'a'.repeat(40), integrationVersion: 'test-only',
     checks: Object.fromEntries(requiredChecks.map((key) => [key, {
       result: 'pass', reference: `https://example.invalid/test-fixture/${key}`,
     }])),
@@ -79,12 +79,24 @@ test('connection route and closed-app wake are independently assessed', () => {
   const before = planHost(manifest, profile);
   assert.equal(before.selectedConnectionRoute, 'remote_mcp_oauth');
   assert.equal(before.selectedDeliveryMode, 'on_demand');
-  profile.evidence = [evidenceFor(profile, 'provider')];
+  profile.evidence = [evidenceFor(profile, 'provider', 'remote_mcp_oauth')];
   const after = planHost(manifest, profile);
   assert.equal(after.selectedConnectionRoute, 'remote_mcp_oauth');
   assert.equal(after.selectedDeliveryMode, 'provider');
   assert.equal(after.liveEnrollmentAllowed, false);
   assert.equal(after.plannedHelperInvocation, null);
+});
+
+test('wake evidence for one connection route cannot certify another route', () => {
+  const profile = supportedProfile('multi-route-host');
+  profile.capabilities.remoteMcpOAuth = true;
+  profile.capabilities.providerInvocation = true;
+  profile.evidence = [evidenceFor(profile, 'provider', 'remote_mcp_oauth')];
+  assert.equal(planHost(manifest, profile).selectedConnectionRoute, 'local_helper');
+  assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'on_demand');
+  profile.capabilities.invokeTrustedHelper = false;
+  assert.equal(planHost(manifest, profile).selectedConnectionRoute, 'remote_mcp_oauth');
+  assert.equal(planHost(manifest, profile).selectedDeliveryMode, 'provider');
 });
 
 test('capability flags and an open-chat reply do not establish unattended reachability', () => {
