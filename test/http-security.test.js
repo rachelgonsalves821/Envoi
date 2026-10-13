@@ -56,11 +56,11 @@ test('REST flood stays limited when bearer tokens, cookies and forwarded IP head
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-http-rate-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: new URL('../', import.meta.url),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_HOST: '127.0.0.1', SINALOA_PORT: '0',
-      SINALOA_RELEASE_SHA: '0123456789abcdef0123456789abcdef01234567', SINALOA_DATA_DIR: dataDir, SINALOA_AUTH_MODE: 'development', SINALOA_HUMAN_AUTH_PROVIDER: 'local',
-      SINALOA_OBJECT_STORAGE_PROVIDER: 'local', SINALOA_TRUSTED_PROXY: '',
-      SINALOA_ENABLE_EXTERNAL_EMAIL: 'false', SINALOA_ENABLE_CALENDAR_WRITES: 'false',
-      SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS: 'false' },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_HOST: '127.0.0.1', ENVOI_PORT: '0',
+      ENVOI_RELEASE_SHA: '0123456789abcdef0123456789abcdef01234567', ENVOI_DATA_DIR: dataDir, ENVOI_AUTH_MODE: 'development', ENVOI_HUMAN_AUTH_PROVIDER: 'local',
+      ENVOI_OBJECT_STORAGE_PROVIDER: 'local', ENVOI_TRUSTED_PROXY: '',
+      ENVOI_ENABLE_EXTERNAL_EMAIL: 'false', ENVOI_ENABLE_CALENDAR_WRITES: 'false',
+      ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS: 'false' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   t.after(async () => {

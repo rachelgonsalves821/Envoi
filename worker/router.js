@@ -1,3 +1,5 @@
+import { CONTAINER_LEGACY_FALLBACKS } from './runtime-config.js';
+
 const normalizeHostname = value => String(value || '').trim().toLowerCase().replace(/\.$/, '');
 
 export function parseAllowedHostnames(value) {
@@ -12,13 +14,15 @@ export function isAllowedHostname(url, configuredHostnames) {
   return allowed.has(normalizeHostname(url.hostname));
 }
 
+// N2-config-2: the container receives only ENVOI_* names. The single honoured legacy name is the
+// data encryption key (src/envoi-environment.js), which staging still holds only as SINALOA_*.
 export function selectEnvironment(source, keys, defaults = {}) {
   const selected = { ...defaults };
   for (const key of keys) {
-    const legacyKey = key.startsWith('ENVOI_') ? `SINALOA_${key.slice('ENVOI_'.length)}` : null;
+    const legacyKey = CONTAINER_LEGACY_FALLBACKS[key];
     const value = source?.[key] ?? (legacyKey ? source?.[legacyKey] : undefined);
     if (legacyKey && source?.[key] !== undefined && source?.[legacyKey] !== undefined && source[key] !== source[legacyKey]) {
-      throw new Error(`Conflicting Envoi environment aliases: ${key} and ${legacyKey}`);
+      throw new Error(`Conflicting Envoi environment settings: ${key} and ${legacyKey}`);
     }
     if (typeof value === 'string' && value.length > 0) selected[key] = value;
   }

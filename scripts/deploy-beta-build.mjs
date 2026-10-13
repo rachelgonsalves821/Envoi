@@ -2,15 +2,16 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDeploymentConfiguration } from './check-deployment.mjs';
-import { RELEASE_ACCOUNT_ID } from './promote-release.mjs';
+import { RELEASE_ACCOUNT_ID, requireBetaSecretNames, secretInventory } from './promote-release.mjs';
 
 export function betaBuildDeployArgs(sha) {
   if (!/^[a-f0-9]{40}$/.test(sha || '')) throw new Error('Beta build requires a full Git commit SHA');
-  return ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${sha}`, '--var', `SINALOA_RELEASE_SHA:${sha}`];
+  return ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${sha}`];
 }
 
 export async function deployBetaBuild({ cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env } = {}) {
   await checkDeploymentConfiguration();
+  requireBetaSecretNames((...argv) => secretInventory({ cwd, env }, ...argv));
   const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
   const args = betaBuildDeployArgs(sha);
   const wrangler = resolve(cwd, 'node_modules/wrangler/bin/wrangler.js');

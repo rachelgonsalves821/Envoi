@@ -14,7 +14,7 @@ const browserSession = new BrowserSession();
 
 async function startServer(environment = {}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-test-'));
-  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_ENABLE_CALENDAR_WRITES: 'true', SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS: 'true', SINALOA_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR: '10000', ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_ENABLE_CALENDAR_WRITES: 'true', ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS: 'true', ENVOI_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR: '10000', ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10000);
     child.once('exit', code => reject(new Error(`Server exited with ${code}`)));
@@ -566,7 +566,7 @@ test('verified human issues a single-use permissioned agent enrollment', async t
 });
 
 test('chosen beta agent addresses are exact, unique, and capped per human', async t => {
-  const server = await startServer({ SINALOA_AGENT_DOMAIN: 'agents.envoi-agents.com', SINALOA_ENFORCE_BETA_AGENT_LIMIT: '1' });
+  const server = await startServer({ ENVOI_AGENT_DOMAIN: 'agents.envoi-agents.com', ENVOI_ENFORCE_BETA_AGENT_LIMIT: '1' });
   t.after(server.stop);
   const started = await request(server.baseUrl, '/api/auth/phone/start', { body: { phoneNumber: '+14165550991', displayName: 'Address Owner' } });
   const verified = await request(server.baseUrl, '/api/auth/phone/verify', { body: { challengeId: started.payload.challengeId, code: started.payload.developmentCode } });
@@ -626,10 +626,10 @@ test('chosen beta agent addresses are exact, unique, and capped per human', asyn
 test('failed enrollment rolls back token claim and all account records', async t => {
   const oversizedPublicDomain = `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(55)}.com`;
   const server = await startServer({
-    SINALOA_ENABLE_EXTERNAL_EMAIL: 'true',
-    SINALOA_EMAIL_PROVIDER: 'resend',
-    SINALOA_PUBLIC_EMAIL_DOMAIN: oversizedPublicDomain,
-    SINALOA_EMAIL_DOMAIN_VERIFIED: 'true',
+    ENVOI_ENABLE_EXTERNAL_EMAIL: 'true',
+    ENVOI_EMAIL_PROVIDER: 'resend',
+    ENVOI_PUBLIC_EMAIL_DOMAIN: oversizedPublicDomain,
+    ENVOI_EMAIL_DOMAIN_VERIFIED: 'true',
     RESEND_API_KEY: 're_test_atomic_rollback',
     RESEND_WEBHOOK_SECRET: 'whsec_test_atomic_rollback'
   });

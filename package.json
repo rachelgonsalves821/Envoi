@@ -29,7 +29,7 @@
     "cf:deploy": "node -e \"throw new Error('Choose cf:deploy:staging or cf:deploy:beta; an unqualified deploy targets the old production Worker')\"",
     "cf:deploy:staging": "node scripts/deploy-staging.mjs",
     "cf:deploy:beta": "node scripts/deploy-beta-build.mjs",
-    "cf:deploy:scanner:beta": "npm run cf:config-check && wrangler deploy --config scanner/wrangler.beta.jsonc"
+    "cf:deploy:scanner:beta": "node scripts/deploy-scanner-beta.mjs"
   },
   "dependencies": {
     "@fontsource-variable/commissioner": "^5.3.0",

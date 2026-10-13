@@ -1,3 +1,9 @@
+// N2-config-2: the one legacy name still forwarded, under its ENVOI_* name. Keep it equal to
+// LEGACY_ENVIRONMENT_FALLBACKS in src/envoi-environment.js (worker/router.test.js checks this).
+export const CONTAINER_LEGACY_FALLBACKS = Object.freeze({
+  ENVOI_DATA_ENCRYPTION_KEY: 'SINALOA_DATA_ENCRYPTION_KEY'
+});
+
 export const CONTAINER_ENV_KEYS = Object.freeze([
   'DATABASE_URL',
   'ENVOI_WAITLIST_SHEET_ID',

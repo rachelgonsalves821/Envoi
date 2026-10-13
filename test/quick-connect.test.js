@@ -13,7 +13,7 @@ async function startServer(t) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-quick-connect-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_PUBLIC_URL: 'https://www.envoi-agents.com/' },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com/' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let stderr = '';

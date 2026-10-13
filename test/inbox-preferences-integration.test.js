@@ -11,9 +11,9 @@ import { FileStore } from '../src/storage.js';
 async function launch(dataDir) {
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_HUMAN_AUTH_PROVIDER: 'local',
-      SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir,
-      SINALOA_EMAIL_PROVIDER: 'disabled', SINALOA_OBJECT_STORAGE_PROVIDER: 'local' },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_HUMAN_AUTH_PROVIDER: 'local',
+      ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir,
+      ENVOI_EMAIL_PROVIDER: 'disabled', ENVOI_OBJECT_STORAGE_PROVIDER: 'local' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let stderr = '';

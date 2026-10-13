@@ -33,13 +33,27 @@ const validProduction = (overrides = {}) => ({
   ...overrides
 });
 
-test('production accepts existing SINALOA-prefixed settings during migration', () => {
+// N2-config-2: retired SINALOA_* names are refused in every mode, naming the settings only.
+test('retired SINALOA-prefixed settings are refused, never silently ignored', () => {
   const legacy = Object.fromEntries(Object.entries(validProduction()).map(([key, value]) => [
-    key.startsWith('ENVOI_') ? `SINALOA_${key.slice('ENVOI_'.length)}` : key,
+    key.startsWith('ENVOI_') && key !== 'ENVOI_DATA_ENCRYPTION_KEY' ? `SINALOA_${key.slice('ENVOI_'.length)}` : key,
     value
   ]));
-  assert.equal(validateProductionConfiguration(legacy).validated, true);
-  assert.throws(() => validateProductionConfiguration({ ...legacy, ENVOI_PUBLIC_URL: 'https://other.example' }), /Conflicting Envoi environment aliases/);
+  assert.throws(() => validateProductionConfiguration(legacy), error => {
+    assert.match(error.message, /Retired SINALOA_\* settings are no longer read; rename them to ENVOI_\*: .*SINALOA_AUTH_MODE, /);
+    assert.equal(error.message.includes('private-scanner-test-token'), false);
+    return true;
+  });
+  // SINALOA_AUTH_MODE alone must not select development mode.
+  assert.throws(() => validateProductionConfiguration({ SINALOA_AUTH_MODE: 'production' }), /SINALOA_AUTH_MODE/);
+});
+
+test('the data encryption key may still come from its one honoured legacy name', () => {
+  const { ENVOI_DATA_ENCRYPTION_KEY: key, ...rest } = validProduction();
+  assert.equal(validateProductionConfiguration({ ...rest, SINALOA_DATA_ENCRYPTION_KEY: key }).validated, true);
+  assert.equal(validateProductionConfiguration({ ...rest, ENVOI_DATA_ENCRYPTION_KEY: key, SINALOA_DATA_ENCRYPTION_KEY: key }).validated, true);
+  assert.throws(() => validateProductionConfiguration({ ...rest, ENVOI_DATA_ENCRYPTION_KEY: key, SINALOA_DATA_ENCRYPTION_KEY: `${key}-other` }),
+    error => /Conflicting Envoi environment settings: ENVOI_DATA_ENCRYPTION_KEY and SINALOA_DATA_ENCRYPTION_KEY/.test(error.message) && !error.message.includes(key));
 });
 
 test('production requires an exact invite list without SMS credentials', () => {

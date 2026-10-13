@@ -1,6 +1,6 @@
 import { scannerHealthUrl } from './dependency-readiness.js';
 import { createPostgresOptions } from './postgres-options.js';
-import { applyEnvoiEnvironmentAliases } from './envoi-environment.js';
+import { applyLegacyEnvironmentFallbacks, retiredEnvironmentNames } from './envoi-environment.js';
 
 const required = (env, name, errors, minimumLength = 1) => {
   const value = String(env[name] || '').trim();
@@ -21,7 +21,11 @@ const httpsUrl = (value, name, errors) => {
 };
 
 export function validateProductionConfiguration(env = process.env) {
-  env = applyEnvoiEnvironmentAliases({ ...env });
+  // N2-config-2: a retired name is refused before the mode is read, so SINALOA_AUTH_MODE alone
+  // can never select development mode for a production deployment.
+  const retired = retiredEnvironmentNames(env);
+  if (retired.length) throw new Error(`Retired SINALOA_* settings are no longer read; rename them to ENVOI_*: ${retired.join(', ')}`);
+  env = applyLegacyEnvironmentFallbacks({ ...env });
   if (env.ENVOI_AUTH_MODE !== 'production') return { mode: env.ENVOI_AUTH_MODE || 'development', validated: false };
   const errors = [];
   if (env.ENVOI_RELEASE_SHA !== undefined && !/^[a-f0-9]{40}$/.test(env.ENVOI_RELEASE_SHA)) errors.push('ENVOI_RELEASE_SHA must be a full lowercase 40-character Git commit SHA');

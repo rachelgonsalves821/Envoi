@@ -1,3 +1,4 @@
-import { applyEnvoiEnvironmentAliases } from './envoi-environment.js';
+import { applyLegacyEnvironmentFallbacks, assertNoRetiredEnvironment } from './envoi-environment.js';
 
-applyEnvoiEnvironmentAliases();
+assertNoRetiredEnvironment();
+applyLegacyEnvironmentFallbacks();

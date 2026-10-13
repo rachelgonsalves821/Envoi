@@ -1,10 +1,10 @@
 import { validateProductionConfiguration } from './production-config.js';
 import { CONTAINER_DEFAULTS, CONTAINER_ENV_KEYS } from '../worker/runtime-config.js';
 import { selectEnvironment, parseAllowedHostnames } from '../worker/router.js';
-import { applyEnvoiEnvironmentAliases } from './envoi-environment.js';
+import { applyLegacyEnvironmentFallbacks, retiredEnvironmentNames } from './envoi-environment.js';
 
 export function deploymentPreflight(source) {
-  source = applyEnvoiEnvironmentAliases({ ...source });
+  source = applyLegacyEnvironmentFallbacks({ ...source });
   const environment = selectEnvironment(source, CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS);
   const errors = [];
   try { validateProductionConfiguration(environment); }
@@ -20,6 +20,8 @@ export function deploymentPreflight(source) {
     ready: errors.length === 0,
     errors,
     configuredNames: CONTAINER_ENV_KEYS.filter(name => typeof source[name] === 'string' && source[name].length > 0),
+    // Names only. The container never receives these; delete them once nothing older needs them.
+    retiredNames: retiredEnvironmentNames(source),
     scope: 'Configuration only; does not verify account plan, credentials, migrations or provider operations.'
   };
 }

@@ -9,26 +9,26 @@ import {
   S3CompatibleObjectStorageAdapter
 } from '../src/object-storage.js';
 
-const r2Enabled = process.env.SINALOA_RUN_LIVE_R2_TESTS === '1';
-const scannerEnabled = process.env.SINALOA_RUN_LIVE_SCANNER_TESTS === '1';
+const r2Enabled = process.env.ENVOI_RUN_LIVE_R2_TESTS === '1';
+const scannerEnabled = process.env.ENVOI_RUN_LIVE_SCANNER_TESTS === '1';
 const checksum = body => crypto.createHash('sha256').update(body).digest('base64');
 const eicar = Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*');
 
 function liveR2Adapter() {
   return new S3CompatibleObjectStorageAdapter({
     provider: 'r2',
-    endpoint: process.env.SINALOA_LIVE_R2_ENDPOINT,
-    bucket: process.env.SINALOA_LIVE_R2_BUCKET,
+    endpoint: process.env.ENVOI_LIVE_R2_ENDPOINT,
+    bucket: process.env.ENVOI_LIVE_R2_BUCKET,
     region: 'auto',
-    accessKeyId: process.env.SINALOA_LIVE_R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.SINALOA_LIVE_R2_SECRET_ACCESS_KEY,
-    sessionToken: process.env.SINALOA_LIVE_R2_SESSION_TOKEN,
+    accessKeyId: process.env.ENVOI_LIVE_R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.ENVOI_LIVE_R2_SECRET_ACCESS_KEY,
+    sessionToken: process.env.ENVOI_LIVE_R2_SESSION_TOKEN,
     requestTimeoutMs: 15_000
   });
 }
 
-function liveScanner(token = process.env.SINALOA_LIVE_SCANNER_TOKEN, timeoutMs = 15_000) {
-  return new HttpMalwareScanner({ endpoint: process.env.SINALOA_LIVE_SCANNER_URL, token, timeoutMs });
+function liveScanner(token = process.env.ENVOI_LIVE_SCANNER_TOKEN, timeoutMs = 15_000) {
+  return new HttpMalwareScanner({ endpoint: process.env.ENVOI_LIVE_SCANNER_URL, token, timeoutMs });
 }
 
 async function upload(adapter, started, body) {
@@ -48,9 +48,9 @@ test('live R2 signed upload, metadata, download, and deletion', { skip: !r2Enabl
     assert.equal(head.size, body.length);
     assert.equal(head.checksumSha256, checksum(body));
     const denied = new S3CompatibleObjectStorageAdapter({
-      provider: 'r2', endpoint: process.env.SINALOA_LIVE_R2_ENDPOINT,
-      bucket: process.env.SINALOA_LIVE_R2_BUCKET, region: 'auto',
-      accessKeyId: process.env.SINALOA_LIVE_R2_ACCESS_KEY_ID,
+      provider: 'r2', endpoint: process.env.ENVOI_LIVE_R2_ENDPOINT,
+      bucket: process.env.ENVOI_LIVE_R2_BUCKET, region: 'auto',
+      accessKeyId: process.env.ENVOI_LIVE_R2_ACCESS_KEY_ID,
       secretAccessKey: `invalid-${crypto.randomUUID()}`
     });
     await assert.rejects(() => denied.headObject(key), error => error.code === 'OBJECT_STORAGE_UNAVAILABLE');
@@ -69,7 +69,7 @@ test('live scanner distinguishes harmless content from EICAR and rejects bad cre
   assert.equal(cleanResult.status, 'clean');
   const infectedResult = await scanner.scan({ body: eicar, object: { id: `obj_${crypto.randomUUID()}`, mimeType: 'text/plain', checksumSha256: checksum(eicar) } });
   assert.equal(infectedResult.status, 'infected');
-  if (process.env.SINALOA_LIVE_SCANNER_TOKEN) {
+  if (process.env.ENVOI_LIVE_SCANNER_TOKEN) {
     const invalid = liveScanner(`invalid-${crypto.randomUUID()}`);
     await assert.rejects(() => invalid.scan({ body: clean, object: { id: `obj_${crypto.randomUUID()}`, mimeType: 'text/plain', checksumSha256: checksum(clean) } }), error => error.code === 'SCANNER_UNAVAILABLE');
   }

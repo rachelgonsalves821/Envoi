@@ -5,7 +5,7 @@ import { once } from 'node:events';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-test('local server starts with a relative SINALOA_DATA_DIR', { timeout: 20_000 }, async t => {
+test('local server starts with a relative ENVOI_DATA_DIR', { timeout: 20_000 }, async t => {
   const fixtureRoot = path.join(process.cwd(), 'data');
   await mkdir(fixtureRoot, { recursive: true });
   const directory = await mkdtemp(path.join(fixtureRoot, 'startup-relative-'));
@@ -14,10 +14,10 @@ test('local server starts with a relative SINALOA_DATA_DIR', { timeout: 20_000 }
   assert.equal(path.isAbsolute(relative), false);
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, NODE_ENV: 'development', DATABASE_URL: '', SINALOA_HOST: '127.0.0.1', SINALOA_PORT: '0',
-      SINALOA_DATA_DIR: relative, SINALOA_AUTH_MODE: 'development', SINALOA_HUMAN_AUTH_PROVIDER: 'local',
-      SINALOA_OBJECT_STORAGE_PROVIDER: 'local', SINALOA_PUBLIC_URL: '', SINALOA_ENABLE_EXTERNAL_EMAIL: 'false',
-      SINALOA_ENABLE_CALENDAR_WRITES: 'false', SINALOA_COOKIE_SECURE: 'false' },
+    env: { ...process.env, NODE_ENV: 'development', DATABASE_URL: '', ENVOI_HOST: '127.0.0.1', ENVOI_PORT: '0',
+      ENVOI_DATA_DIR: relative, ENVOI_AUTH_MODE: 'development', ENVOI_HUMAN_AUTH_PROVIDER: 'local',
+      ENVOI_OBJECT_STORAGE_PROVIDER: 'local', ENVOI_PUBLIC_URL: '', ENVOI_ENABLE_EXTERNAL_EMAIL: 'false',
+      ENVOI_ENABLE_CALENDAR_WRITES: 'false', ENVOI_COOKIE_SECURE: 'false' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   t.after(async () => {
