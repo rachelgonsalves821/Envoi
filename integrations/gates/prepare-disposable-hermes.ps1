@@ -3,6 +3,7 @@ param(
     [ValidateSet('Setup', 'ModelTurn')]
     [string]$Action,
     [string]$Provider,
+    [string]$Model,
     [string]$HermesHome = 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-disposable-hermes\home'
 )
 
@@ -29,10 +30,13 @@ try {
         Write-Host 'If offered to import Codex CLI credentials, decline; do not copy credentials or paste them into chat.'
         & $hermesCli setup model
     } else {
-        Write-Host 'This operator-run model request uses the disposable profile configuration unless a provider override was supplied, and may consume account usage.'
+        Write-Host 'This operator-run model request uses the disposable profile configuration unless provider/model overrides were supplied, and may consume account usage.'
         $chatArguments = @('chat', '--oneshot', '--ignore-rules', '--toolsets', 'context_engine', '--max-turns', '3', '--run-budget', '120', '-q', 'Reply exactly READY. Do not call tools.')
         if ($Provider) {
             $chatArguments += @('--provider', $Provider)
+        }
+        if ($Model) {
+            $chatArguments += @('--model', $Model)
         }
         & $hermesCli @chatArguments
     }

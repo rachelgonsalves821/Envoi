@@ -22,6 +22,13 @@ test('text-only model check excludes optional toolsets and stays bounded', () =>
   assert.match(source, /&\s*\$hermesCli\s*@chatArguments/);
 });
 
+test('model override is invocation-only and defaults to the disposable profile', () => {
+  assert.match(source, /\[string\]\$Model\s*,/);
+  assert.ok(!argumentsList.includes('--model'));
+  assert.match(source, /if\s*\(\$Model\)\s*\{\s*\$chatArguments\s*\+=\s*@\('--model',\s*\$Model\)/);
+  assert.ok(!/Set-Content|Out-File|config\.yaml/.test(source));
+});
+
 test('helper scopes and restores the profile without starting enrollment or installing extras', () => {
   assert.match(source, /\$env:HERMES_HOME\s*=\s*\$profile/);
   assert.match(source, /finally\s*\{\s*\$env:HERMES_HOME\s*=\s*\$previousHome/);
