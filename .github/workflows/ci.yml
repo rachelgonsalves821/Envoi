@@ -46,7 +46,8 @@ jobs:
       # Committed generated files (web/**, release.json, connector bundles) must equal a fresh build, so the
       # hosted bundle hash checked at a gate is provably built from this source.
       - name: Generated files match their sources
-        run: git diff --exit-code && test -z "$(git status --porcelain)"
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then git status --porcelain; git diff --stat; exit 1; fi
       - run: npm run cf:check
       - name: Build actual production container
         # The Dockerfile stays on node:22-alpine; pre-load that official image so the build uses the

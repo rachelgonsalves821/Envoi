@@ -494,12 +494,15 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated =
   if (!result.replayed) {
     // A new successor or an A1 recovery of the same one: both are a successful refresh.
     onRotated({ inboxId: pending.inboxId, agentId: pending.agentId, familyId: pending.familyId });
-    // Gate GA: a refresh, and a recovered lost response, are otherwise invisible to the owner. Names,
-    // ids and timestamps only, never a credential. Best-effort: the rotation has already committed.
-    await audit(pending.inboxId, 'agent.credentials_rotated', {
-      agentId: pending.agentId, credentialFamilyId: pending.familyId, recovered,
-      refreshExpiresAt: result.agentRefreshTokenExpiresAt
-    }).catch(error => console.error('Credential rotation audit failed', { name: error?.name || 'Error' }));
+    // Gate GA: a recovered lost refresh response is otherwise invisible to the owner. Only recoveries
+    // are audited: they are rare, while an event per ordinary refresh (about 4 an hour per agent) would
+    // flood the owner's activity. Ids and a timestamp only, never a credential. Best-effort: the rotation
+    // has already committed.
+    if (recovered) {
+      await audit(pending.inboxId, 'agent.refresh_recovered', {
+        agentId: pending.agentId, credentialFamilyId: pending.familyId, refreshExpiresAt: result.agentRefreshTokenExpiresAt
+      }).catch(error => console.error('Refresh recovery audit failed', { name: error?.name || 'Error', agentId: pending.agentId, credentialFamilyId: pending.familyId }));
+    }
     return result;
   }
   const { inboxId, agentId, familyId } = result.replayed;

@@ -24,7 +24,7 @@ The human operator stays signed in to staging as the disposable owner. At each c
 
 | View | URL (on the staging origin) | What it proves |
 | --- | --- | --- |
-| Audit feed | `/api/inboxes/{agentInboxId}/events/delta?limit=200` (follow `cursor` for more) | Every server decision: delivery, claim, settlement, pause, resume, rotation, recovery, revoke |
+| Audit feed | `/api/inboxes/{agentInboxId}/events/delta?limit=200` (follow `cursor` for more) | Every server decision: delivery, claim, settlement, pause, resume, refresh recovery, revoke. Ordinary refreshes are not events; use the agent view |
 | Agent view | `/api/inboxes/{agentInboxId}/agents` | Status, `paused`, `credentialRevoked`, `connection.state`, `credentialExpiresAt`, presence |
 | Receipts | `/api/inboxes/{agentInboxId}/delivery-receipts` | Canonical delivered and processed receipts |
 | Outbox rows | `/api/inboxes/{agentInboxId}/deliveries` | Delivery `status`, `attempts`, `deadLetteredAt` |
@@ -40,7 +40,7 @@ node scripts/ga-evidence.mjs deliveries <private>\deliveries-step8.json
 
 The extractor drops message text, worker lease tokens and error strings. It refuses any value that looks like a credential. **Never save or publish `/messages` or `agent-view`, which contain message bodies.**
 
-**Correlation ids.** The server's durable ids are the audit event `id` and `sequence`, plus `workId`, `messageId`, receipt `id` and `credentialFamilyId`. Cite those. A request id appears only in an error body and is not logged, so it correlates nothing on the server.
+**Correlation ids.** The server's durable ids are the audit event `id` and `sequence`, plus `workId`, `messageId`, receipt `id` and `credentialFamilyId`. Cite those. A request id appears only in an error body and is logged only for 5xx errors, so it rarely correlates anything.
 
 **Presence is throttled** to one write per field per 60 s. Read the agent view before and after each refresh, at least 60 s apart.
 
@@ -53,26 +53,26 @@ The extractor drops message text, worker lease tokens and error strings. It refu
 | 1 | Hermes connects | `agent.enrolled` and `agent.connection_setup_checked`; agent view `status: active`, `connection.state: seen_recently` | identity and tool access; a real model turn | |
 | 2 | Native work processed | `message.delivered` → `agent.work_claimed` (`fence: 1`, `attempts: 1`, `credentialFamilyId`) → `message.processed`; one `delivery_receipt_{messageId}_processed`; one reply `message.queued` | the model turn acted once | |
 | 3 | Restart the connector | presence `lastSeenAt` stops, then resumes | process stopped and restarted with the same state directory | |
-| 4 | Reconnects and continues | no `agent.credentials_reconnected` or `agent.reenrolled`; the next `agent.work_claimed` and `agent.credentials_rotated` carry the **same** `credentialFamilyId`; one `message.processed` for offline work | no duplicate output | |
+| 4 | Reconnects and continues | no `agent.credentials_reconnected` or `agent.reenrolled`; the next `agent.work_claimed` carries the **same** `credentialFamilyId` as step 2; one `message.processed` for offline work | no duplicate output | |
 | 5 | Pause | `agent.paused`; agent view `paused: true`, `status: paused` | connector `PAUSED` | |
 | 6 | New work while paused | `message.delivered` for the new message, sent from the distinct sender | — | |
-| 7 | Work persists | no `agent.work_claimed` between `agent.paused` and `agent.resumed`; the message is still listed | claim returns `{work: null, state: "paused"}`; send gets `409 AGENT_PAUSED` | |
+| 7 | Work persists | no `agent.work_claimed` between `agent.paused` and `agent.resumed`; its `_delivered` receipt exists with no `_processed` receipt | claim returns `{work: null, state: "paused"}`; send gets `409 AGENT_PAUSED` | |
 | 8 | No dead letter | outbox row `status: delivered`, `deadLetteredAt: null`; no `message.failed`/dead-letter event; the first claim after resume shows `attempts: 1` | — | |
-| 9 | Refresh while paused | `agent.credentials_rotated` (`recovered: false`) between pause and resume; `credentialExpiresAt` advances in the agent view | refresh succeeded; the refresh is lazy (about every 14 min), so plan the pause across a refresh boundary | |
+| 9 | Refresh while paused | agent view, saved before and after: `connection.credentialExpiresAt` and `presence.lastSuccessfulRefreshAt` advance while `paused: true` | refresh succeeded; the refresh is lazy (about every 14 min), so plan the pause across a refresh boundary | |
 | 10 | Resume | `agent.resumed`, then `work.available` (`reason: agent_resumed`) | — | |
 | 11 | Claimable immediately, in case order | the `agent.work_claimed` times follow `agent.resumed` closely; for **two** held messages in one case, the claim order matches delivery order | — | |
 | 12 | Processed once | one `message.processed` and one processed receipt per held message | one reply | |
-| 13 | Lost refresh response | `agent.credentials_rotated` (`recovered: false`) at the drop | proxy `refreshResponsesDropped: 1` | |
-| 14 | Retry with the same `rotationId` | the next `agent.credentials_rotated` has `recovered: true` and the same `credentialFamilyId`; no `agent.refresh_replay_detected`; the family is not revoked | the connector reused its persisted `rotationId` | |
-| 15 | Identical successor | the `recovered: true` event's `refreshExpiresAt` **equals** that of the dropped rotation | private equality of the successor (proxy digest), published as yes/no | |
-| 16 | Rolling expiry advances | `refreshExpiresAt` across the step 9 and 13 rotations increases; agent view `credentialExpiresAt` matches | — | |
+| 13 | Lost refresh response | agent view after the drop: `credentialExpiresAt` has advanced (the rotation committed) | proxy `refreshResponsesDropped: 1` | |
+| 14 | Retry with the same `rotationId` | `agent.refresh_recovered` with the same `credentialFamilyId` (written only when the stored successor is returned for the same `rotationId`); no `agent.refresh_replay_detected`; the family is not revoked | the connector reused its persisted `rotationId` | |
+| 15 | Identical successor | `agent.refresh_recovered` `refreshExpiresAt` **equals** the agent view's `credentialExpiresAt` saved after step 13 (the dropped rotation's successor) | private equality of the successor (proxy digest), published as yes/no | |
+| 16 | Rolling expiry advances | agent view `credentialExpiresAt` saved at steps 9 and 13 increases | — | |
 | 17 | Drop SSE | — (the server keeps no SSE record) | proxy `sseStreamsCut > 0`; REST still answers | |
 | 18 | Safety polling | `message.delivered` then `agent.work_claimed` for work sent while SSE is cut | no SSE event reached the connector | |
 | 19 | Retry-delayed work | `agent.work_failed` with `retryable: true`, `attempts: 1`, `retryAt` | the single injected pre-effect failure | |
 | 20 | Processed when eligible | a second `agent.work_claimed` for the **same** `workId`, `fence: 2`, `createdAt ≥ retryAt`; one `message.processed`; one receipt | no new SSE event | |
 | 21 | Revoke the family | `agent.credentials_revoked` (`credentialFamilyCount`); agent view `credentialRevoked: true`, `connection.state: revoked` | — | |
 | 22 | Connector `REVOKED` | presence stops | terminal `REVOKED`, no re-enrollment | |
-| 23 | Nothing succeeds afterwards | no `agent.credentials_rotated`, `agent.work_claimed`, `message.processed`, `message.queued` or receipt after the revoke time | each of refresh, claim, send, MCP write and late settlement denied with `401 CREDENTIAL_REVOKED` (late settlement via the proxy's held request) | |
+| 23 | Nothing succeeds afterwards | `presence.lastSuccessfulRefreshAt` does not advance; no `agent.refresh_recovered`, `agent.work_claimed`, `message.processed`, `message.queued` or receipt after the revoke time | each of refresh, claim, send, MCP write and late settlement denied with `401 CREDENTIAL_REVOKED` (late settlement via the proxy's held request) | |
 
 ## Result
 

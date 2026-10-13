@@ -11,7 +11,7 @@ const noSecrets = (events, ...secrets) => {
   assert.doesNotMatch(text, /envoi_agent_(?:access|refresh)_/, 'audit events never carry a token');
 };
 
-test('a refresh and a recovered lost refresh response are both audited, with the same successor expiry', async t => {
+test('a recovered lost refresh response is audited with the successor expiry; an ordinary refresh is not', async t => {
   const server = await launch();
   t.after(() => server.stop());
   const { baseUrl } = server;
@@ -25,21 +25,21 @@ test('a refresh and a recovered lost refresh response are both audited, with the
   assert.equal(recovered.status, 200, recovered.text);
   assert.deepEqual(recovered.payload, first.payload);
 
-  const rotations = (await ownerEvents(baseUrl, agent)).filter(event => event.type === 'agent.credentials_rotated');
-  assert.equal(rotations.length, 2, 'one event for the rotation and one for its recovery');
-  const [rotation, recovery] = rotations;
-  for (const event of rotations) {
-    assert.equal(event.agentId, agent.agent.id);
-    assert.equal(event.credentialFamilyId, familyId, 'the same credential family continues');
-    assert.equal(event.refreshExpiresAt, first.payload.agentRefreshTokenExpiresAt, 'step 16: the rolled expiry');
-  }
-  assert.equal(rotation.recovered, false);
-  assert.equal(recovery.recovered, true, 'step 14-15: the server served the stored successor');
-  assert.ok(recovery.sequence > rotation.sequence);
-  noSecrets(rotations, agent.agentRefreshToken, agent.agentApiToken, first.payload.agentRefreshToken, first.payload.agentApiToken, rotationId);
+  const events = await ownerEvents(baseUrl, agent);
+  const recoveries = events.filter(event => event.type === 'agent.refresh_recovered');
+  assert.equal(recoveries.length, 1, 'only the recovery is audited, not the ordinary rotation');
+  const [recovery] = recoveries;
+  assert.equal(recovery.agentId, agent.agent.id);
+  assert.equal(recovery.credentialFamilyId, familyId, 'the same credential family continues');
+  assert.equal(recovery.refreshExpiresAt, first.payload.agentRefreshTokenExpiresAt, 'steps 14-15: the server served the stored successor');
+  // Steps 9 and 16 come from the owner agent view: its credential expiry is the successor's.
+  const agents = await api(baseUrl, `/api/inboxes/${agent.inbox.id}/agents`, { session: agent.session });
+  const view = agents.payload.find(item => item.id === agent.agent.id);
+  assert.equal(view.connection.credentialExpiresAt, recovery.refreshExpiresAt, 'the agent view and the recovery agree');
+  noSecrets(events, agent.agentRefreshToken, agent.agentApiToken, first.payload.agentRefreshToken, first.payload.agentApiToken, rotationId);
 });
 
-test('a refresh replay is audited as replay only, never as a rotation', async t => {
+test('a refresh replay is audited as replay only, never as a recovery', async t => {
   const server = await launch();
   t.after(() => server.stop());
   const { baseUrl } = server;
@@ -47,7 +47,7 @@ test('a refresh replay is audited as replay only, never as a rotation', async t 
   assert.equal((await refresh(baseUrl, agent.agentRefreshToken, newRotationId())).status, 200);
   assert.equal((await refresh(baseUrl, agent.agentRefreshToken, newRotationId())).status, 401);
   const types = (await ownerEvents(baseUrl, agent)).map(event => event.type);
-  assert.equal(types.filter(type => type === 'agent.credentials_rotated').length, 1);
+  assert.equal(types.filter(type => type === 'agent.refresh_recovered').length, 0);
   assert.ok(types.includes('agent.refresh_replay_detected'));
 });
 
