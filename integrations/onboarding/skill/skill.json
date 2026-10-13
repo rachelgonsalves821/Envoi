@@ -1,0 +1,30 @@
+{
+  "name": "envoi-agent-connect",
+  "version": "0.1.0-draft",
+  "status": "draft",
+  "description": "Agent-facing instructions for planned local-helper, remote MCP/OAuth, reviewed provider-connector and authenticated REST routes through one human-approved Envoi connection flow.",
+  "skill": "SKILL.md",
+  "heartbeat": "HEARTBEAT.md",
+  "hostIntegrationGuide": "HOST-INTEGRATION.md",
+  "hostSetupProbes": "HOST-SETUP-PROBES.md",
+  "hostPlanSchema": "host-plan-draft-2",
+  "coreContract": {
+    "id": "agent-registration",
+    "version": 1,
+    "publishedSha": "4da219e7156138c94e26b8105efe7ffe43ec6f98"
+  },
+  "availabilitySource": "GET /api/onboarding/routes",
+  "offeredConnectionRoutes": [],
+  "offeredDeliveryModes": [],
+  "connectionRoutes": ["local_helper", "remote_mcp_oauth", "provider_connector", "authenticated_rest"],
+  "deliveryModes": ["provider", "webhook", "envoi_link", "poll", "on_demand", "a2a"],
+  "connectUrl": "https://www.envoi-agents.com/connect",
+  "helperCommand": "envoi-link connect https://www.envoi-agents.com",
+  "requires": [
+    "one-reviewed-connection-route",
+    "private-operational-credential-storage",
+    "authenticated-human-claim",
+    "verified-runtime-capabilities"
+  ],
+  "published": false
+}

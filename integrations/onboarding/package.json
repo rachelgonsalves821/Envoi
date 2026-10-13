@@ -1,0 +1,18 @@
+{
+  "name": "@envoi/agent-link-draft",
+  "version": "0.0.0-draft",
+  "private": true,
+  "type": "module",
+  "description": "Unpublished, contract-blocked Envoi agent onboarding helper skeleton",
+  "bin": {
+    "envoi-link": "./envoi-link.mjs"
+  },
+  "files": [
+    "README.md",
+    "envoi-link.mjs",
+    "host-plan.mjs",
+    "skill/*.md",
+    "skill/skill.json",
+    "profiles/unverified-host.json"
+  ]
+}
