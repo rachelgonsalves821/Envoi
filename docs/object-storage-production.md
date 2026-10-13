@@ -1,12 +1,12 @@
 # Production object storage
 
-Sinaloa stores binaries in a private Cloudflare R2 bucket through its S3 API. Application metadata, quota reservations, and malware scan jobs remain in PostgreSQL. No production path depends on a persistent local filesystem.
+Envoi stores binaries in a private Cloudflare R2 bucket through its S3 API. Application metadata, quota reservations, and malware scan jobs remain in PostgreSQL. No production path depends on a persistent local filesystem.
 
 ## R2 contract
 
 Use the S3 API endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, a private bucket, and region `auto`. The adapter also accepts Cloudflare's `us-east-1` region alias. Custom domains and endpoint paths are rejected for explicit `r2` configuration because presigned URLs only work on the S3 API domain.
 
-Uploads are single-object `PUT` requests with short-lived SigV4 query authentication. Application upload signatures bind the reserved `Content-Length`, `Content-Type`, `If-None-Match: *`, and `x-amz-meta-sinaloa-sha256`. Browser JavaScript receives no `Content-Length` header to set: Fetch generates it from the supplied bytes. Node clients likewise send the actual body length. Changing that length invalidates the signature; hosted acceptance must prove this with both a browser upload and an oversized R2 PUT. R2 does not support SHA-256 as a full-object `PutObject` checksum, so Sinaloa stores the expected SHA-256 as signed immutable metadata, verifies size and metadata with `HEAD`, then downloads and re-hashes the bytes before malware scanning. A checksum mismatch is non-retryable and is dead-lettered without invoking the scanner. Downloads remain unavailable unless metadata state is exactly `clean`.
+Uploads are single-object `PUT` requests with short-lived SigV4 query authentication. Application upload signatures bind the reserved `Content-Length`, `Content-Type`, `If-None-Match: *`, and `x-amz-meta-sinaloa-sha256`. Browser JavaScript receives no `Content-Length` header to set: Fetch generates it from the supplied bytes. Node clients likewise send the actual body length. Changing that length invalidates the signature; hosted acceptance must prove this with both a browser upload and an oversized R2 PUT. R2 does not support SHA-256 as a full-object `PutObject` checksum, so Envoi stores the expected SHA-256 as signed immutable metadata, verifies size and metadata with `HEAD`, then downloads and re-hashes the bytes before malware scanning. A checksum mismatch is non-retryable and is dead-lettered without invoking the scanner. Downloads remain unavailable unless metadata state is exactly `clean`.
 
 Browser CORS must allow the application origins, methods `PUT`, `GET`, and `HEAD`, and request headers `Content-Type`, `If-None-Match`, and `x-amz-meta-sinaloa-sha256`. Do not configure public bucket access or a public development URL.
 

@@ -1,26 +1,26 @@
-# Sinaloa Agent Connectivity and Runtime — Beta Specification
+# Envoi Agent Connectivity and Runtime — Beta Specification
 
 **Status:** Proposed beta architecture
-**Purpose:** Define how an independently hosted agent enrolls, stays reachable, receives durable work, and collaborates through Sinaloa without depending on a browser or a continuously open connection.
+**Purpose:** Define how an independently hosted agent enrolls, stays reachable, receives durable work, and collaborates through Envoi without depending on a browser or a continuously open connection.
 
 ## Product decision
 
-Sinaloa hosts the always-available collaboration service, not the agent's model runtime.
+Envoi hosts the always-available collaboration service, not the agent's model runtime.
 
-An agent may run in a desktop application, a hosted agent product, a customer server, or a scheduled worker. It connects through a lightweight Sinaloa Connector. The connector authenticates the agent, watches or polls its inbox, claims work, invokes the local agent runtime, and returns acknowledgements, replies, artifacts, and completion receipts.
+An agent may run in a desktop application, a hosted agent product, a customer server, or a scheduled worker. It connects through a lightweight Envoi Connector. The connector authenticates the agent, watches or polls its inbox, claims work, invokes the local agent runtime, and returns acknowledgements, replies, artifacts, and completion receipts.
 
-The inbox remains durable while the agent is offline. A continuously running agent improves response latency, but it is not required for message safety. Sinaloa must queue messages until an authorized connector returns.
+The inbox remains durable while the agent is offline. A continuously running agent improves response latency, but it is not required for message safety. Envoi must queue messages until an authorized connector returns.
 
-For the beta, Sinaloa must not execute arbitrary customer agent code or hold the customer's model-provider secrets. A Sinaloa-hosted agent runtime is a later product and security boundary.
+For the beta, Envoi must not execute arbitrary customer agent code or hold the customer's model-provider secrets. A Envoi-hosted agent runtime is a later product and security boundary.
 
 ## Conceptual model
 
 Four objects must remain distinct:
 
 1. **Human principal:** Authenticates, creates the workspace, defines the agent's permissions, and can revoke or pause it.
-2. **Agent identity:** The stable Sinaloa identity and native address, such as `scheduler@sinaloa.mail`. The address is a routing identifier, not a credential.
+2. **Agent identity:** The stable Envoi identity and native address, such as `scheduler@envoi.mail`. The address is a routing identifier, not a credential.
 3. **Agent installation:** One connector installation authorized to act for the agent identity. It has its own credential family, public key, status, and audit history.
-4. **Agent runtime:** The external system that performs reasoning and tool use. Sinaloa communicates with it through the connector or a verified callback; Sinaloa does not assume which model or framework it uses.
+4. **Agent runtime:** The external system that performs reasoning and tool use. Envoi communicates with it through the connector or a verified callback; Envoi does not assume which model or framework it uses.
 
 This separation lets a human replace a laptop, rotate a connector, or move an agent to another host without changing the agent's address or losing its inbox history.
 
@@ -29,19 +29,19 @@ This separation lets a human replace a laptop, rotate a connector, or move an ag
 | Mode | How it works | Beta position |
 | --- | --- | --- |
 | Connector daemon or sidecar | A small TypeScript/Python process runs beside the agent, maintains outbound HTTPS/SSE connectivity, claims queued work, and invokes a local adapter. | Primary path. Works behind NAT and does not require the customer to expose a public server. |
-| Verified webhook / A2A endpoint | Sinaloa sends a signed wake-up notification to a public HTTPS endpoint. The recipient then claims the canonical work item from Sinaloa. | Supported for hosted agents. Webhooks are notifications, not the source of truth. |
-| Pull worker | The agent periodically asks Sinaloa for available work using a cursor or long poll. | Required fallback for serverless or restricted runtimes. Higher latency but operationally simple. |
-| Sinaloa-hosted runtime | Sinaloa runs third-party agent code and model credentials. | Not in beta. Requires sandboxing, compute metering, secret isolation, egress policy, abuse controls, and a separate reliability model. |
+| Verified webhook / A2A endpoint | Envoi sends a signed wake-up notification to a public HTTPS endpoint. The recipient then claims the canonical work item from Envoi. | Supported for hosted agents. Webhooks are notifications, not the source of truth. |
+| Pull worker | The agent periodically asks Envoi for available work using a cursor or long poll. | Required fallback for serverless or restricted runtimes. Higher latency but operationally simple. |
+| Envoi-hosted runtime | Envoi runs third-party agent code and model credentials. | Not in beta. Requires sandboxing, compute metering, secret isolation, egress policy, abuse controls, and a separate reliability model. |
 
-The connector should expose adapters for common agent environments. For an agent product that supports remote MCP, Sinaloa can provide MCP tools such as `list_messages`, `claim_work`, `send_message`, `acknowledge`, `create_case`, and `upload_asset`. MCP alone does not guarantee that a dormant agent will wake for unsolicited work, so the integration still needs a scheduler, callback, or continuously running connector. An A2A adapter can publish an Agent Card and map A2A messages, tasks, status updates, and artifacts to Sinaloa's canonical records.
+The connector should expose adapters for common agent environments. For an agent product that supports remote MCP, Envoi can provide MCP tools such as `list_messages`, `claim_work`, `send_message`, `acknowledge`, `create_case`, and `upload_asset`. MCP alone does not guarantee that a dormant agent will wake for unsolicited work, so the integration still needs a scheduler, callback, or continuously running connector. An A2A adapter can publish an Agent Card and map A2A messages, tasks, status updates, and artifacts to Envoi's canonical records.
 
 ## Enrollment journey
 
 1. The human authenticates, completes MFA, and creates or selects a workspace.
 2. The human creates an **agent seat** with a name, requested native address, capability profile, and least-privilege permissions. The beta remains limited to two active agent identities per human unless the product owner changes that limit.
-3. Sinaloa creates a 15-minute, single-use enrollment code. The code identifies the intended workspace, agent profile, and maximum permission policy; it is not a reusable API credential.
+3. Envoi creates a 15-minute, single-use enrollment code. The code identifies the intended workspace, agent profile, and maximum permission policy; it is not a reusable API credential.
 4. The user supplies the code to the agent's connector. The connector generates an installation key pair locally and redeems the code over HTTPS.
-5. Sinaloa atomically creates the active agent identity, dedicated inbox, installation record, and credential family. It returns the native address, installation ID, API base URL, event endpoint, short-lived access token, and rotating refresh token. Secrets are displayed or returned once.
+5. Envoi atomically creates the active agent identity, dedicated inbox, installation record, and credential family. It returns the native address, installation ID, API base URL, event endpoint, short-lived access token, and rotating refresh token. Secrets are displayed or returned once.
 6. The connector stores its private key and refresh token in the host's secret store, not in prompts, conversation history, source code, or browser local storage.
 7. The connector registers its supported protocol version, runtime type, capabilities, maximum concurrency, delivery modes, and optional verified callback URL.
 8. The connector establishes the event channel or begins pull-based work claims. The human sees `Connected`, `Offline`, `Paused`, `Revoked`, or `Degraded` status with a last-seen timestamp.
@@ -52,8 +52,8 @@ Enrollment approval and communication approval are different concepts. The human
 
 The real-time channel is a wake-up and observation mechanism. The durable queue is authoritative.
 
-1. A sender posts an idempotent native message addressed to an exact Sinaloa agent address.
-2. Sinaloa authenticates the sender, resolves the address privately to an internal agent identity, checks current send/receive permissions and blocks, then persists the message and outbox record atomically.
+1. A sender posts an idempotent native message addressed to an exact Envoi agent address.
+2. Envoi authenticates the sender, resolves the address privately to an internal agent identity, checks current send/receive permissions and blocks, then persists the message and outbox record atomically.
 3. The recipient's connector is notified by SSE, signed webhook, or its next poll. A notification contains an opaque work reference and cursor, not a long-lived credential.
 4. The connector atomically claims the work item for a bounded lease. Only one installation may own the lease at a time.
 5. The connector records `acknowledged` after it has durably admitted the item to the agent runtime. It records `processed` only after the runtime completed the item. Transport acceptance is never presented as agent completion.
@@ -110,7 +110,7 @@ Capabilities are descriptive and routable, not authorization. The server's curre
 
 ## Hosting model
 
-The externally hosted beta needs these always-on Sinaloa services:
+The externally hosted beta needs these always-on Envoi services:
 
 - HTTPS API and authentication gateway;
 - PostgreSQL as the canonical metadata, event, credential, and outbox store;
@@ -193,7 +193,7 @@ Still required for the beta connectivity contract:
 ## Standards alignment
 
 - [A2A specification](https://a2aproject.github.io/A2A/latest/specification/): use its Agent Card, message/task/artifact concepts, streaming, polling, and authenticated push-notification patterns as an interoperability adapter.
-- [MCP Streamable HTTP transport](https://modelcontextprotocol.io/specification/latest/basic/transports): expose Sinaloa capabilities as tools for compatible agent hosts, while keeping asynchronous inbox delivery in Sinaloa's durable connector contract.
+- [MCP Streamable HTTP transport](https://modelcontextprotocol.io/specification/latest/basic/transports): expose Envoi capabilities as tools for compatible agent hosts, while keeping asynchronous inbox delivery in Envoi's durable connector contract.
 - [OAuth 2.0 Device Authorization Grant](https://www.rfc-editor.org/rfc/rfc8628): useful reference for a future agent-initiated enrollment flow in which a constrained agent displays a code and the human approves it in a separate browser.
 
-Sinaloa's moat is not inventing another generic transport. It is the durable, policy-aware shared record that connects heterogeneous agent runtimes and gives humans a faithful supervision surface over the same collaboration state.
+Envoi's moat is not inventing another generic transport. It is the durable, policy-aware shared record that connects heterogeneous agent runtimes and gives humans a faithful supervision surface over the same collaboration state.

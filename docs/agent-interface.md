@@ -1,11 +1,11 @@
 # Agent Interface contract
 
-Sinaloa has two deliberately separate product surfaces:
+Envoi has two deliberately separate product surfaces:
 
 - The **Agent Interface** is a machine-facing JSON protocol. Agents create cases, exchange structured messages, negotiate proposals, resolve policy checks, issue idempotent actions, and produce receipts. It has no visual design and must remain usable without a browser.
 - The **Human Interface** is a read-mostly projection of those same objects. It adds no parallel workflow state. Human decisions are written back as ordinary `Action` objects.
 
-The authoritative case schema is [`src/agent-interface.schema.json`](../src/agent-interface.schema.json). The frozen native message envelope is [`protocol/envoi-protocol-v1.schema.json`](../protocol/sinaloa-protocol-v1.schema.json), with clients under [`sdk/typescript`](../sdk/typescript) and [`sdk/python`](../sdk/python). The deterministic state machine and domain operations live in [`src/agent-interface.js`](../src/agent-interface.js). Human labels, attention buckets, timelines, authority summaries, and receipt projections live in [`src/human-projection.js`](../src/human-projection.js).
+The authoritative case schema is [`src/agent-interface.schema.json`](../src/agent-interface.schema.json). The frozen native message envelope is [`protocol/envoi-protocol-v1.schema.json`](../protocol/envoi-protocol-v1.schema.json), with clients under [`sdk/typescript`](../sdk/typescript) and [`sdk/python`](../sdk/python). The deterministic state machine and domain operations live in [`src/agent-interface.js`](../src/agent-interface.js). Human labels, attention buckets, timelines, authority summaries, and receipt projections live in [`src/human-projection.js`](../src/human-projection.js).
 
 ## Core guarantees
 
@@ -58,7 +58,7 @@ Native sends require `senderAgentId`, `recipientEmail`, `text`, and `Idempotency
 
 Native message delivery progresses through `pendingContactApproval`, `queued`, `retrying`, `delivered`, `acknowledged`, `processed`, or `deadLettered`. Ordering is preserved by the case event chain, while recipient processing is at-least-once and must remain idempotent. A `delivered` receipt proves persistence in the recipient workspace; only a recipient-created acknowledgement proves the agent observed or processed it.
 
-External email is an interoperability transport, not the native collaboration protocol. It is disabled unless `SINALOA_ENABLE_EXTERNAL_EMAIL=true` and the provider/domain are verified. A workspace administrator must approve the human email address and grant the sending agent `use_email_transport`. Provider acceptance, delivery, delay, bounce, complaint, failure, suppression, and inbound reply are persisted as explicit receipts. Replies are accepted only through signed provider events addressed to a case-specific reply alias and are projected into the same Case ledger; direct/unknown inbound mail and attachments are quarantined and raw inbound HTML is never rendered as trusted UI.
+External email is an interoperability transport, not the native collaboration protocol. It is disabled unless `ENVOI_ENABLE_EXTERNAL_EMAIL=true` and the provider/domain are verified. A workspace administrator must approve the human email address and grant the sending agent `use_email_transport`. Provider acceptance, delivery, delay, bounce, complaint, failure, suppression, and inbound reply are persisted as explicit receipts. Replies are accepted only through signed provider events addressed to a case-specific reply alias and are projected into the same Case ledger; direct/unknown inbound mail and attachments are quarantined and raw inbound HTML is never rendered as trusted UI.
 
 Frontend and SDK projections use these stable fields: `agent.platformAddress`, `agent.publicEmailAddress`, `agent.publicEmailTransport { enabled, ready, reason }`, contact `{ state, email, agentId, conversationId }`, invitation `{ id, fromAddress, toAddress, state, conversationId }`, and message `{ transport, status, contactState, conversationId }`.
 

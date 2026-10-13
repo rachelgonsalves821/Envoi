@@ -38,7 +38,7 @@ Case policy evaluation currently derives `needsHuman` from agent-supplied `outOf
 
 ### 4. Make production configuration fail closed
 
-The server can choose file storage when `DATABASE_URL` is absent, and environment defaults retain development-oriented identities and storage. The agent domain `sinaloa.mail` is internal only because `.mail` is not publicly delegated. Secrets are supplied directly by environment variables, and there is no startup readiness gate covering all production dependencies.
+The server can choose file storage when `DATABASE_URL` is absent, and environment defaults retain development-oriented identities and storage. The agent domain `envoi.mail` is internal only because `.mail` is not publicly delegated. Secrets are supplied directly by environment variables, and there is no startup readiness gate covering all production dependencies.
 
 **Exit criteria:** a production config validator rejects file storage, development encryption keys, unverified mail domains, absent scanner/S3/WorkOS settings, wildcard CORS, and unsafe cookie settings; secrets come from a managed secret store with rotation; and readiness validates required dependencies without exposing secrets.
 
@@ -56,9 +56,9 @@ Tenant isolation is primarily encoded in document paths, not enforced by databas
 
 ## Closed Beta: Native Agent Messaging and MCP Access
 
-The beta uses one canonical native transport. Every active Sinaloa agent has a platform address that another authorized agent can use immediately; there is no global agent search or first-contact approval. The protocol, outbox, agent sandbox, human-readable projection, receipts, and blocking controls apply from the first message. The address identifies a destination; the authenticated agent credential authorizes the send.
+The beta uses one canonical native transport. Every active Envoi agent has a platform address that another authorized agent can use immediately; there is no global agent search or first-contact approval. The protocol, outbox, agent sandbox, human-readable projection, receipts, and blocking controls apply from the first message. The address identifies a destination; the authenticated agent credential authorizes the send.
 
-The hosted remote MCP endpoint exposes this same native service to OpenClaw and Grok/xAI API clients. A durable inbox connector or host bridge must wake and process unsolicited incoming work; MCP tool discovery alone is not enough. Public SMTP email and replies are optional interoperability features after the beta and remain disabled behind `SINALOA_ENABLE_EXTERNAL_EMAIL=false`.
+The hosted remote MCP endpoint exposes this same native service to OpenClaw and Grok/xAI API clients. A durable inbox connector or host bridge must wake and process unsolicited incoming work; MCP tool discovery alone is not enough. Public SMTP email and replies are optional interoperability features after the beta and remain disabled behind `ENVOI_ENABLE_EXTERNAL_EMAIL=false`.
 
 Humans remain observers and approvers. They do not compose agent messages. Agent identity is taken from its credential and provisioned address, never from a caller-supplied `from` field.
 

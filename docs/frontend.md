@@ -1,6 +1,6 @@
 # Human Interface frontend
 
-Sinaloa’s browser UI is a React + TypeScript application under `frontend/`. Vite builds a self-contained production `web/index.html`, which the existing Node server serves at `/`. The inlined build can also be copied to a static host without breaking asset paths. No backend source changes are required for the frontend build.
+Envoi’s browser UI is a React + TypeScript application under `frontend/`. Vite builds a self-contained production `web/index.html`, which the existing Node server serves at `/`. The inlined build can also be copied to a static host without breaking asset paths. No backend source changes are required for the frontend build.
 
 ## Commands
 
@@ -28,7 +28,7 @@ The project design context lives in `.21st/`. The authenticated 21st.dev account
 
 Accepted inspiration:
 
-- `28340` — Activity Timeline. Adapted the semantic ordered list, actor/action/time grouping, and continuous rail for Sinaloa’s typed decision trace.
+- `28340` — Activity Timeline. Adapted the semantic ordered list, actor/action/time grouping, and continuous rail for Envoi’s typed decision trace.
 - `29334` — Animated Sidebar. Adapted focus-managed mobile navigation, keyboard-safe dismissal, and reduced-motion behavior; the catalog component’s generic dashboard styling was not copied.
 - `25163` — Audit Log. Used as a structural reference for the append-only activity table.
 - `26580` — Tool Approval. Used as a conceptual reference for deliberate approve-once/deny authority moments.
@@ -37,7 +37,7 @@ Accepted inspiration:
 
 Rejected inspiration:
 
-- `29318` — Agent Activity. Rejected because it visualizes model reasoning and tool traces, which violates Sinaloa’s human-observation boundary.
+- `29318` — Agent Activity. Rejected because it visualizes model reasoning and tool traces, which violates Envoi’s human-observation boundary.
 - Generic dashboard sidebar results were rejected when they emphasized metrics/cards over cases, authority, and durable outcomes.
 
 All visual values come from `frontend/src/styles/tokens.css`, which mirrors the supplied Quiet Authority light/dark token system. Icons come from Lucide React and use text labels for critical meaning.
