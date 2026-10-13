@@ -1728,3 +1728,17 @@ The revision-3 checks were mutation-tested: 42 deliberate fixture and schema mut
     - no double-counted slots;
     - limit consistency checks.
   - **Mutation testing:** 42 deliberate mutations caught (§11).
+
+## Gate GA observability (additive audit data, 2026-10-13)
+
+**What it is.** Audit data that makes the Phase A hosted gate (v3 §29) provable from the server side. It is additive under a3 §5 and a4 §2, because clients ignore unknown event types and fields. No contract version changes and no fixture changes. These events reach the owner audit feed (`GET /api/inboxes/{id}/events/delta`) and the agent's own event stream, like every audit event.
+
+| Event | Fields | When |
+| --- | --- | --- |
+| `agent.credentials_rotated` (**new**) | `agentId`, `credentialFamilyId`, `recovered`, `refreshExpiresAt` | After every successful `POST /api/agent-token`. `recovered: true` means an A1 recovery that returned the already-issued successor, so the same `rotationId` was retried; its `refreshExpiresAt` equals that of the original rotation. A replay writes only `agent.refresh_replay_detected`. Best-effort: the rotation has already committed. |
+| `agent.work_claimed` | adds `attempts`, `credentialFamilyId` | Every claim. |
+| `agent.work_failed` | adds `attempts`, `retryAt` (`null` unless retryable) | Every `fail` settlement. |
+
+**Never in these events:** a token, a lease token, a `rotationId` or message text.
+
+**Evidence capture** for the gate uses `scripts/ga-evidence.mjs` and `docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md`.
