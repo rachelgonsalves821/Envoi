@@ -18,6 +18,6 @@ test('idempotency records are tenant scoped and require exact canonical requests
 test('idempotency keys are bounded and human conversation injection is disabled in production', () => {
   assert.equal(validateIdempotencyKey('safe-key'), 'safe-key');
   for (const value of ['', 'x'.repeat(201), 'bad\nkey']) assert.throws(() => validateIdempotencyKey(value, { required: true }), /required|invalid/);
-  assert.equal(humanConversationMessagingEnabled({ SINALOA_AUTH_MODE: 'production' }), false);
-  assert.equal(humanConversationMessagingEnabled({ SINALOA_AUTH_MODE: 'development' }), true);
+  assert.equal(humanConversationMessagingEnabled({ ENVOI_AUTH_MODE: 'production' }), false);
+  assert.equal(humanConversationMessagingEnabled({ ENVOI_AUTH_MODE: 'development' }), true);
 });

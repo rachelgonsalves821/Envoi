@@ -44,22 +44,9 @@ export function assertSchema(name, value) {
 
 // ---------------------------------------------------------------- server
 
-// The server reads ENVOI_* and keeps SINALOA_* as legacy aliases; a conflicting
-// pair fails closed (src/envoi-environment.js). Set both names to one value.
-function withAliases(values) {
-  const out = {};
-  for (const [key, value] of Object.entries(values)) {
-    const suffix = key.replace(/^(ENVOI|SINALOA)_/, '');
-    if (suffix === key) { out[key] = value; continue; }
-    out[`ENVOI_${suffix}`] = value;
-    out[`SINALOA_${suffix}`] = value;
-  }
-  return out;
-}
-
 export async function launch(extraEnv = {}, existingDataDir = null) {
   const dataDir = existingDataDir || await mkdtemp(path.join(tmpdir(), 'envoi-a3-'));
-  const env = { ...process.env, ...withAliases({ DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ...extraEnv }) };
+  const env = { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ...extraEnv };
   const child = spawn(process.execPath, ['src/server.js'], { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });

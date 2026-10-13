@@ -18,7 +18,7 @@ git show --no-patch --format=fuller HEAD
 
 The release record must contain the **full candidate SHA**, main baseline, review/CI URL, clean working-tree result, migration set/checksums, environment, operator, timestamp, previous accepted Worker version and Container image digest. Do not record only “latest main”. If fixes change the SHA, rerun the affected checks and replace the candidate record before promotion; staging and beta must deploy that same accepted SHA.
 
-Cloudflare staging Builds has historically tracked `codex/staging-readiness`. Merging to main therefore does not prove staging updated. Use the guarded manual promotion command from the candidate checkout. Freeze concurrent legacy staging Builds during acceptance so an automatic build cannot replace the candidate. Live promotion fetches origin/main and requires a clean checkout with HEAD equal to both the supplied full SHA and fetched main; merge reviewed fixes and obtain CI before live promotion. A dry-run can check a descendant candidate before merge and does not authorize live deployment. It pins the intended Cloudflare account and sets SINALOA_RELEASE_SHA. Its default is a dry-run; --deploy performs the live deployment from Rachel's authenticated account. Verify that the old `sinaloa` Worker remains disconnected from Git Builds. Avoid bare `wrangler deploy`, which selects that old Worker; `npm run cf:deploy` intentionally fails.
+Cloudflare staging Builds has historically tracked `codex/staging-readiness`. Merging to main therefore does not prove staging updated. Use the guarded manual promotion command from the candidate checkout. Freeze concurrent legacy staging Builds during acceptance so an automatic build cannot replace the candidate. Live promotion fetches origin/main and requires a clean checkout with HEAD equal to both the supplied full SHA and fetched main; merge reviewed fixes and obtain CI before live promotion. A dry-run can check a descendant candidate before merge and does not authorize live deployment. It pins the intended Cloudflare account and sets ENVOI_RELEASE_SHA. Its default is a dry-run; --deploy performs the live deployment from Rachel's authenticated account. Verify that the old `sinaloa` Worker remains disconnected from Git Builds. Avoid bare `wrangler deploy`, which selects that old Worker; `npm run cf:deploy` intentionally fails.
 
 Run the repository CI matrix on the candidate: clean install, backend, frontend, TypeScript/Python SDK, bridge, Worker/scanner tests, local stress, typecheck/build, disposable PostgreSQL tests, actual Docker build and fail-closed startup, production dependency audit and `npm run cf:check`. CI's disposable PostgreSQL and missing-configuration Docker checks are code evidence, not live-service evidence. Report live-test skips explicitly. Record focused regressions for scanner-token preflight and rotating invalid bearer/cookie abuse; passing configuration shape alone does not close those security gates.
 
@@ -35,15 +35,15 @@ The user confirms only staging secrets have been configured; beta secret entry r
 
 | Secret name | Rule |
 | --- | --- |
-| `DATABASE_URL` | Beta Neon active branch/database, direct TLS connection; `SINALOA_DB_SSL_MODE=verify-full` controls verified certificate behavior |
+| `DATABASE_URL` | Beta Neon active branch/database, direct TLS connection; `ENVOI_DB_SSL_MODE=verify-full` controls verified certificate behavior |
 | `WORKOS_API_KEY` | Beta application's key from its separate WorkOS environment |
 | `WORKOS_COOKIE_PASSWORD` | New strong beta cookie key, at least 32 characters |
-| `SINALOA_DATA_ENCRYPTION_KEY` | New strong beta encryption key, at least 32 characters; securely retain for recovery |
-| `SINALOA_POLICY_SIGNING_KEY` | New strong beta signing key, at least 32 characters; active key ID `primary` |
-| `SINALOA_S3_ACCESS_KEY_ID` | Bucket-scoped beta R2 credential |
-| `SINALOA_S3_SECRET_ACCESS_KEY` | Matching beta R2 secret |
-| `SINALOA_BETA_INVITED_EMAILS` | Exact approved beta emails, comma-separated; no wildcard |
-| `SINALOA_MALWARE_SCANNER_TOKEN` | New beta scanner bearer, matching scanner Worker's encrypted `SINALOA_SCANNER_TOKEN` |
+| `ENVOI_DATA_ENCRYPTION_KEY` | Beta already has its key, held as `SINALOA_DATA_ENCRYPTION_KEY`. **Keep it under that name; never create a new one.** Changing or deleting it locks out encrypted data. The key's own migration is in [the rename inventory](envoi-backend-rename-inventory.md#encryption-key-its-own-migration-task). |
+| `ENVOI_POLICY_SIGNING_KEY` | New strong beta signing key, at least 32 characters; active key ID `primary` |
+| `ENVOI_S3_ACCESS_KEY_ID` | Bucket-scoped beta R2 credential |
+| `ENVOI_S3_SECRET_ACCESS_KEY` | Matching beta R2 secret |
+| `ENVOI_BETA_INVITED_EMAILS` | Exact approved beta emails, comma-separated; no wildcard |
+| `ENVOI_MALWARE_SCANNER_TOKEN` | New beta scanner bearer, matching scanner Worker's encrypted `ENVOI_SCANNER_TOKEN` |
 
 Cookie, encryption, signing and scanner keys must be independent of each other and of staging/old production keys. The matching app/scanner bearer is the deliberate exception. Store durable encryption/signing recovery material privately and retain old keys as needed for existing data/signatures. Provider deployment credentials are not app runtime secrets. Additional provider CA/session-token settings are conditional, not substitutes for these nine names.
 
@@ -125,7 +125,7 @@ Recipient grants use authenticated app content URLs and recheck current controls
 
 Before user admission, assign and prove automated backup policy/retention, recovery access and secure key storage. Historical empty-schema restore branches and Neon's recorded six-hour Free history window do not prove durable populated recovery. Seed representative test data: two owners, cases/messages/events/receipts, asset metadata/grants, object bytes, queue/scan states and encrypted records. Back up the populated database and required R2 objects/key material, then restore into an isolated branch/bucket with isolated secrets and optional actions off. Compare IDs, counts, canonical outcomes, object hashes, grants, decryption/signature verification and migration ledger. Prove restored queued work resumes once. Record actual recovery time and recovered-data boundary/RPO; never replace active user data to perform this drill.
 
-Use the read-only database comparison helper after quiescing the source and restoring a populated snapshot. Privately populate ignored `.env.restore` with `SINALOA_RESTORE_SOURCE_DATABASE_URL`, `SINALOA_RESTORE_TARGET_DATABASE_URL` and optional separate CA settings. Set `SINALOA_RESTORE_SOURCE_QUIESCED=1` and `SINALOA_RESTORE_TARGET_ISOLATED=1` only after establishing those conditions. Both connections require verified TLS and distinct endpoints:
+Use the read-only database comparison helper after quiescing the source and restoring a populated snapshot. Privately populate ignored `.env.restore` with `ENVOI_RESTORE_SOURCE_DATABASE_URL`, `ENVOI_RESTORE_TARGET_DATABASE_URL` and optional separate CA settings. Set `ENVOI_RESTORE_SOURCE_QUIESCED=1` and `ENVOI_RESTORE_TARGET_ISOLATED=1` only after establishing those conditions. Both connections require verified TLS and distinct endpoints:
 
 ```powershell
 node --env-file=.env.restore scripts/verify-restored-data.mjs

@@ -44,36 +44,36 @@ Override these durations through the `scanLifecycle` constructor options only af
 
 The existing server integration must provide:
 
-- `SINALOA_OBJECT_STORAGE_PROVIDER=s3`
-- `SINALOA_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
-- `SINALOA_S3_BUCKET=<private bucket>`
-- `SINALOA_S3_REGION=auto`
-- `SINALOA_S3_ACCESS_KEY_ID` and `SINALOA_S3_SECRET_ACCESS_KEY` from a bucket-scoped R2 API token
-- Optional `SINALOA_S3_SESSION_TOKEN` when temporary credentials are used
-- `SINALOA_MALWARE_SCANNER_URL` over HTTPS and required production secret `SINALOA_MALWARE_SCANNER_TOKEN`
+- `ENVOI_OBJECT_STORAGE_PROVIDER=s3`
+- `ENVOI_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
+- `ENVOI_S3_BUCKET=<private bucket>`
+- `ENVOI_S3_REGION=auto`
+- `ENVOI_S3_ACCESS_KEY_ID` and `ENVOI_S3_SECRET_ACCESS_KEY` from a bucket-scoped R2 API token
+- Optional `ENVOI_S3_SESSION_TOKEN` when temporary credentials are used
+- `ENVOI_MALWARE_SCANNER_URL` over HTTPS and required production secret `ENVOI_MALWARE_SCANNER_TOKEN`
 - `DATABASE_URL` for durable quotas, metadata, and scan jobs
-- Optional `SINALOA_SCAN_WORKER_INTERVAL_MS` (default `1000`) for queued scans, retries, and expired leases
-- Optional `SINALOA_SCAN_RETENTION_INTERVAL_MS` (default `60000`) for clean-job purging and infected/dead-letter binary retention
+- Optional `ENVOI_SCAN_WORKER_INTERVAL_MS` (default `1000`) for queued scans, retries, and expired leases
+- Optional `ENVOI_SCAN_RETENTION_INTERVAL_MS` (default `60000`) for clean-job purging and infected/dead-letter binary retention
 
-The background scan workers are enabled only when `DATABASE_URL` is configured. The R2 token needs object read/write permission on only the configured bucket. The scanner credential must authorize the scan endpoint and its same-origin health endpoint. `GET /health` (or `SINALOA_MALWARE_SCANNER_HEALTH_URL`) must return HTTP 200 with JSON `{"ready":true}`; redirects and other responses fail readiness. Neither secret may be exposed to clients; only presigned bearer URLs leave the server.
+The background scan workers are enabled only when `DATABASE_URL` is configured. The R2 token needs object read/write permission on only the configured bucket. The scanner credential must authorize the scan endpoint and its same-origin health endpoint. `GET /health` (or `ENVOI_MALWARE_SCANNER_HEALTH_URL`) must return HTTP 200 with JSON `{"ready":true}`; redirects and other responses fail readiness. Neither secret may be exposed to clients; only presigned bearer URLs leave the server.
 
 ## Credential-gated verification
 
 Live tests are opt-in and skipped by default:
 
 ```powershell
-$env:SINALOA_RUN_LIVE_R2_TESTS='1'
-$env:SINALOA_LIVE_R2_ENDPOINT='https://<ACCOUNT_ID>.r2.cloudflarestorage.com'
-$env:SINALOA_LIVE_R2_BUCKET='<private bucket>'
-$env:SINALOA_LIVE_R2_ACCESS_KEY_ID='<access key>'
-$env:SINALOA_LIVE_R2_SECRET_ACCESS_KEY='<secret key>'
+$env:ENVOI_RUN_LIVE_R2_TESTS='1'
+$env:ENVOI_LIVE_R2_ENDPOINT='https://<ACCOUNT_ID>.r2.cloudflarestorage.com'
+$env:ENVOI_LIVE_R2_BUCKET='<private bucket>'
+$env:ENVOI_LIVE_R2_ACCESS_KEY_ID='<access key>'
+$env:ENVOI_LIVE_R2_SECRET_ACCESS_KEY='<secret key>'
 
-$env:SINALOA_RUN_LIVE_SCANNER_TESTS='1'
-$env:SINALOA_LIVE_SCANNER_URL='https://scanner.example/scan'
-$env:SINALOA_LIVE_SCANNER_TOKEN='<scanner token>'
+$env:ENVOI_RUN_LIVE_SCANNER_TESTS='1'
+$env:ENVOI_LIVE_SCANNER_URL='https://scanner.example/scan'
+$env:ENVOI_LIVE_SCANNER_TOKEN='<scanner token>'
 
 node --test test/object-storage-live.test.js
 ```
 
 The R2 tests write unique objects, verify signed upload/HEAD/download, reject oversized body lengths, and prove a still-live signed PUT cannot replace a same-key tombstone. Test keys are deleted in a `finally` block; this explicit cleanup is safe for synthetic test data and must not be copied to application tombstone maintenance. Use a dedicated integration-test bucket rather than production data.
-The scanner test sends harmless text and the EICAR test signature to confirm distinct verdicts. When a scanner token is configured, it also checks that an invalid token is rejected. With both services configured, a combined test verifies quarantine, clean download, infected download denial, and immutable checksum rejection. Tests are skipped unless the matching `SINALOA_RUN_LIVE_*_TESTS` flag is set. Run them only against a dedicated test bucket and scanner endpoint; do not use production objects.
+The scanner test sends harmless text and the EICAR test signature to confirm distinct verdicts. When a scanner token is configured, it also checks that an invalid token is rejected. With both services configured, a combined test verifies quarantine, clean download, infected download denial, and immutable checksum rejection. Tests are skipped unless the matching `ENVOI_RUN_LIVE_*_TESTS` flag is set. Run them only against a dedicated test bucket and scanner endpoint; do not use production objects.

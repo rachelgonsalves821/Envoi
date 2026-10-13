@@ -10,8 +10,8 @@ import { FileStore } from '../src/storage.js';
 
 async function launch(dataDir, environment = {}) {
   const child = spawn(process.execPath, ['src/server.js'], {
-    cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0',
-      SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, ...environment },
+    cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0',
+      ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ...environment },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let stderr = '';
@@ -247,7 +247,7 @@ test('controlled case, permission loss and credential revocation stop claim, rep
 });
 
 test('expired human work fences, retry backoff and permanent failures use existing claim lifecycle', async context => {
-  const state = await fixture(context, { SINALOA_AGENT_WORK_MAX_ATTEMPTS: '2', SINALOA_AGENT_WORK_RETRY_BASE_MS: '1000' });
+  const state = await fixture(context, { ENVOI_AGENT_WORK_MAX_ATTEMPTS: '2', ENVOI_AGENT_WORK_RETRY_BASE_MS: '1000' });
   await state.send();
   const first = (await state.claim()).payload.work;
   const claimPath = path.join('inboxes', state.own.inbox.id, 'work-claims', `${first.workId}.json`);

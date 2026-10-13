@@ -51,7 +51,7 @@ test('workspace pages, delta boundaries and capped SSE replay preserve all histo
 
 async function startServer() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-test-'));
-  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, SINALOA_ENABLE_CALENDAR_WRITES: 'true', SINALOA_ENABLE_CONSEQUENTIAL_ACTIONS: 'true', SINALOA_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR: '10000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ENVOI_ENABLE_CALENDAR_WRITES: 'true', ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS: 'true', ENVOI_POLICY_MAX_AUTOMATIC_PAYMENT_MINOR: '10000' }, stdio: ['ignore', 'pipe', 'pipe'] });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10000);
     child.once('exit', code => reject(new Error(`Server exited with ${code}`)));

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
-import { applyEnvoiEnvironmentAliases } from '../src/envoi-environment.js';
+import { applyLegacyEnvironmentFallbacks, retiredEnvironmentNames } from '../src/envoi-environment.js';
 import { createPostgresOptions } from '../src/postgres-options.js';
 import { loadMigrations } from '../src/migrations.js';
 
@@ -17,7 +17,7 @@ const safeCodes = new Set([
   'RESTORE_CONFIGURATION_INVALID', 'RESTORE_SAME_ENDPOINT', 'RESTORE_ATTESTATION_REQUIRED',
   'RESTORE_MIGRATIONS_UNAVAILABLE', 'RESTORE_CONNECTION_FAILED', 'RESTORE_DATABASE_READ_FAILED',
   'RESTORE_LEDGER_MISMATCH', 'RESTORE_SOURCE_NOT_POPULATED', 'RESTORE_DATA_MISMATCH',
-  'RESTORE_VERIFICATION_FAILED'
+  'RESTORE_VERIFICATION_FAILED', 'RESTORE_RETIRED_SETTINGS'
 ]);
 class RestoreVerificationError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -43,18 +43,20 @@ export function assertDistinctEndpoints(sourceUrl, targetUrl) {
   if (endpointIdentity(sourceUrl) === endpointIdentity(targetUrl)) fail('RESTORE_SAME_ENDPOINT');
 }
 export function validateRestoreConfiguration(env = process.env) {
-  env = applyEnvoiEnvironmentAliases({ ...env });
+  // N2-config-2: an operator's old SINALOA_RESTORE_* attestations are refused, not silently ignored.
+  if (retiredEnvironmentNames(env).length) fail('RESTORE_RETIRED_SETTINGS');
+  env = applyLegacyEnvironmentFallbacks({ ...env });
   const sourceUrl = env.ENVOI_RESTORE_SOURCE_DATABASE_URL;
   const targetUrl = env.ENVOI_RESTORE_TARGET_DATABASE_URL;
   assertDistinctEndpoints(sourceUrl, targetUrl);
   if (env.ENVOI_RESTORE_SOURCE_QUIESCED !== '1' || env.ENVOI_RESTORE_TARGET_ISOLATED !== '1') fail('RESTORE_ATTESTATION_REQUIRED');
   try {
-    const forced = { ...env, ENVOI_AUTH_MODE: 'production', SINALOA_AUTH_MODE: 'production', ENVOI_DB_SSL_MODE: 'verify-full', SINALOA_DB_SSL_MODE: 'verify-full', ENVOI_DB_POOL_SIZE: '1', SINALOA_DB_POOL_SIZE: '1' };
+    const forced = { ...env, ENVOI_AUTH_MODE: 'production', ENVOI_DB_SSL_MODE: 'verify-full', ENVOI_DB_POOL_SIZE: '1' };
     const sourceCa = env.ENVOI_RESTORE_SOURCE_DB_CA || env.ENVOI_DB_CA;
     const targetCa = env.ENVOI_RESTORE_TARGET_DB_CA || env.ENVOI_DB_CA;
     return {
-      source: createPostgresOptions(sourceUrl, { ...forced, ENVOI_DB_CA: sourceCa, SINALOA_DB_CA: sourceCa }, { max: 1 }),
-      target: createPostgresOptions(targetUrl, { ...forced, ENVOI_DB_CA: targetCa, SINALOA_DB_CA: targetCa }, { max: 1 })
+      source: createPostgresOptions(sourceUrl, { ...forced, ENVOI_DB_CA: sourceCa }, { max: 1 }),
+      target: createPostgresOptions(targetUrl, { ...forced, ENVOI_DB_CA: targetCa }, { max: 1 })
     };
   } catch {
     fail('RESTORE_CONFIGURATION_INVALID');

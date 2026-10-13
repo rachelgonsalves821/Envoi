@@ -158,7 +158,7 @@ test('public scanner admission rejects missing/wrong tokens before opening a Con
   for (const [path, method] of [['/health', 'GET'], ['/scan', 'POST']]) {
     for (const authorization of [null, 'Bearer wrong', 'Basic fixture']) {
       const headers = authorization ? { authorization } : {};
-      const response = await handler.fetch(new Request(`https://scanner.example${path}`, { method, headers }), { SINALOA_SCANNER_TOKEN: 'fixture-token' });
+      const response = await handler.fetch(new Request(`https://scanner.example${path}`, { method, headers }), { ENVOI_SCANNER_TOKEN: 'fixture-token' });
       assert.equal(response.status, 401);
     }
   }
@@ -166,7 +166,8 @@ test('public scanner admission rejects missing/wrong tokens before opening a Con
   assert.equal(noConfiguredToken.status, 401);
   const renamedToken = await handler.fetch(new Request('https://scanner.example/health', { headers: { authorization: 'Bearer wrong' } }), { ENVOI_SCANNER_TOKEN: 'fixture-token' });
   assert.equal(renamedToken.status, 401);
-  const conflictingTokens = await handler.fetch(new Request('https://scanner.example/health', { headers: { authorization: 'Bearer fixture-token' } }), { ENVOI_SCANNER_TOKEN: 'fixture-token', SINALOA_SCANNER_TOKEN: 'different-token' });
-  assert.equal(conflictingTokens.status, 503);
+  // N2-config-2: the retired name authorizes nothing, so a scanner that only has it fails closed.
+  const retiredTokenOnly = await handler.fetch(new Request('https://scanner.example/health', { headers: { authorization: 'Bearer fixture-token' } }), { SINALOA_SCANNER_TOKEN: 'fixture-token' });
+  assert.equal(retiredTokenOnly.status, 401);
   assert.equal(accesses, 0);
 });

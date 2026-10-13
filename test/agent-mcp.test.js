@@ -17,7 +17,7 @@ async function startServer(t, environment = {}, dataDirOverride = null) {
   t.serverOutput = '';
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, ...environment },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ...environment },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const baseUrl = await new Promise((resolve, reject) => {
@@ -272,7 +272,7 @@ test('case-scoped provider tokens expose only MCP reads and stop after credentia
 
 test('MCP asset tools use signed binary URLs and enforce scanner state, permission and workspace boundaries', async t => {
   const scannerUrl = await startScanner(t);
-  const baseUrl = await startServer(t, { SINALOA_MALWARE_SCANNER_URL: scannerUrl });
+  const baseUrl = await startServer(t, { ENVOI_MALWARE_SCANNER_URL: scannerUrl });
   const alice = await owner(baseUrl, '1301', ['send_agent_messages', 'receive_agent_messages', 'create_assets']);
   const outsider = await owner(baseUrl, '1302');
   const blob = Buffer.from('safe collaboration file');
@@ -319,7 +319,7 @@ test('MCP asset tools use signed binary URLs and enforce scanner state, permissi
 
 test('MCP typed collaboration shares one result and grants one clean asset to the counterparty', async t => {
   const scannerUrl = await startScanner(t);
-  const baseUrl = await startServer(t, { SINALOA_MALWARE_SCANNER_URL: scannerUrl });
+  const baseUrl = await startServer(t, { ENVOI_MALWARE_SCANNER_URL: scannerUrl });
   const [alice, bob, outsider] = await Promise.all([
     owner(baseUrl, '1401', ['send_agent_messages', 'receive_agent_messages', 'create_assets']),
     owner(baseUrl, '1402', ['send_agent_messages', 'receive_agent_messages', 'create_assets']),

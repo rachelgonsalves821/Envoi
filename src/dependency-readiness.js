@@ -1,7 +1,7 @@
-import { applyEnvoiEnvironmentAliases } from './envoi-environment.js';
+import { applyLegacyEnvironmentFallbacks } from './envoi-environment.js';
 
 export function scannerHealthUrl(env) {
-  env = applyEnvoiEnvironmentAliases({ ...env });
+  env = applyLegacyEnvironmentFallbacks({ ...env });
   const scanner = new URL(env.ENVOI_MALWARE_SCANNER_URL);
   const health = env.ENVOI_MALWARE_SCANNER_HEALTH_URL
     ? new URL(env.ENVOI_MALWARE_SCANNER_HEALTH_URL)
@@ -13,7 +13,7 @@ export function scannerHealthUrl(env) {
 }
 
 export async function checkScannerHealth(env, { signal, fetchImpl = fetch } = {}) {
-  env = applyEnvoiEnvironmentAliases({ ...env });
+  env = applyLegacyEnvironmentFallbacks({ ...env });
   const response = await fetchImpl(scannerHealthUrl(env), {
     method: 'GET', redirect: 'error', signal,
     headers: env.ENVOI_MALWARE_SCANNER_TOKEN
@@ -31,7 +31,7 @@ export async function checkScannerHealth(env, { signal, fetchImpl = fetch } = {}
 // These probes establish connectivity/configuration, not end-to-end provider
 // functionality. Signed uploads and actual sign-in are separate release gates.
 export function dependencyReadinessChecks({ store, adapter, provider, env, externalEmailEnabled, emailTransport }) {
-  env = applyEnvoiEnvironmentAliases({ ...env });
+  env = applyLegacyEnvironmentFallbacks({ ...env });
   const production = env.ENVOI_AUTH_MODE === 'production';
   return [
     { name: 'database', run: () => store.queryJson('readiness-probe', { limit: 1 }) },

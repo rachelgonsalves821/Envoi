@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { CONTAINER_ENV_KEYS, CONTAINER_LEGACY_FALLBACKS } from './runtime-config.js';
+import { LEGACY_ENVIRONMENT_FALLBACKS } from '../src/envoi-environment.js';
 import {
   createForwardedRequest,
   environmentFingerprint,
@@ -31,14 +33,20 @@ test('only allowlisted non-empty environment values reach the container', () => 
   ), { NODE_ENV: 'production', SAFE: 'value' });
 });
 
-test('Envoi container settings accept matching legacy aliases and reject conflicting values', () => {
-  assert.deepEqual(selectEnvironment({ SINALOA_PUBLIC_URL: 'https://www.envoi-agents.com' }, ['ENVOI_PUBLIC_URL']), {
-    ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com'
-  });
-  assert.deepEqual(selectEnvironment({ ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com' }, ['ENVOI_PUBLIC_URL']), {
-    ENVOI_PUBLIC_URL: 'https://www.envoi-agents.com'
-  });
-  assert.throws(() => selectEnvironment({ ENVOI_PUBLIC_URL: 'https://a.example', SINALOA_PUBLIC_URL: 'https://b.example' }, ['ENVOI_PUBLIC_URL']), /Conflicting Envoi environment aliases/);
+// N2-config-2: only the data encryption key is still forwarded from its legacy name; staging holds it
+// only as SINALOA_DATA_ENCRYPTION_KEY. Every other retired name reaches the container as nothing.
+test('the container receives only ENVOI_* names, plus the one honoured legacy key', () => {
+  assert.deepEqual(selectEnvironment({ SINALOA_PUBLIC_URL: 'https://www.envoi-agents.com' }, ['ENVOI_PUBLIC_URL']), {});
+  assert.deepEqual(selectEnvironment({ SINALOA_RELEASE_SHA: 'a'.repeat(40), ENVOI_RELEASE_SHA: 'b'.repeat(40) }, ['ENVOI_RELEASE_SHA']), { ENVOI_RELEASE_SHA: 'b'.repeat(40) });
+  assert.deepEqual(selectEnvironment({ SINALOA_DATA_ENCRYPTION_KEY: 'k'.repeat(40) }, ['ENVOI_DATA_ENCRYPTION_KEY']), { ENVOI_DATA_ENCRYPTION_KEY: 'k'.repeat(40) });
+  assert.deepEqual(selectEnvironment({ SINALOA_DATA_ENCRYPTION_KEY: 'k'.repeat(40), ENVOI_DATA_ENCRYPTION_KEY: 'k'.repeat(40) }, ['ENVOI_DATA_ENCRYPTION_KEY']), { ENVOI_DATA_ENCRYPTION_KEY: 'k'.repeat(40) });
+  assert.throws(() => selectEnvironment({ ENVOI_DATA_ENCRYPTION_KEY: 'new-private', SINALOA_DATA_ENCRYPTION_KEY: 'old-private' }, ['ENVOI_DATA_ENCRYPTION_KEY']),
+    error => /Conflicting Envoi environment settings/.test(error.message) && !/private/.test(error.message));
+});
+
+test('the Worker and the server honour the same legacy names', () => {
+  assert.deepEqual(CONTAINER_LEGACY_FALLBACKS, LEGACY_ENVIRONMENT_FALLBACKS);
+  assert.ok(Object.keys(CONTAINER_LEGACY_FALLBACKS).every(name => CONTAINER_ENV_KEYS.includes(name)));
 });
 
 test('forwarded headers are derived from the trusted request URL and Cloudflare IP', async () => {

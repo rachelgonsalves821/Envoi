@@ -13,7 +13,7 @@ const browserSession = new BrowserSession();
 
 async function startServer(dataDir = null, environment = {}) {
   const directory = dataDir || await mkdtemp(path.join(tmpdir(), 'sinaloa-work-claims-'));
-  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: directory, ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['src/server.js'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: directory, ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server start timed out')), 10000);
     child.once('exit', code => reject(new Error(`Server exited with ${code}`)));
@@ -129,7 +129,7 @@ test('claims are exclusive and fenced completion creates one replayable processe
 });
 
 test('expired leases are reclaimed under a new fence and retry failures observe backoff', async t => {
-  const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000', SINALOA_AGENT_WORK_RETRY_BASE_MS: '40' });
+  const state = await fixture(t, { ENVOI_AGENT_WORK_LEASE_MS: '1000', ENVOI_AGENT_WORK_RETRY_BASE_MS: '40' });
   const first = (await state.claim()).payload.work;
   const claimPath = path.join('inboxes', state.recipient.inbox.id, 'work-claims', `${first.workId}.json`);
   const firstClaim = await state.fixtureStore.getJson(claimPath);
@@ -176,7 +176,7 @@ test('expired leases are reclaimed under a new fence and retry failures observe 
 });
 
 test('retry attempts are capped and an expired final lease fails visibly to both humans', async t => {
-  const state = await fixture(t, { SINALOA_AGENT_WORK_LEASE_MS: '1000', SINALOA_AGENT_WORK_MAX_ATTEMPTS: '2', SINALOA_AGENT_WORK_RETRY_BASE_MS: '500' });
+  const state = await fixture(t, { ENVOI_AGENT_WORK_LEASE_MS: '1000', ENVOI_AGENT_WORK_MAX_ATTEMPTS: '2', ENVOI_AGENT_WORK_RETRY_BASE_MS: '500' });
   const first = (await state.claim()).payload.work;
   const firstFailure = await state.work('fail', first.workId, state.recipient.agentApiToken, { leaseToken: first.leaseToken, retryable: true, reasonCode: 'temporary' });
   assert.equal(firstFailure.payload.status, 'retryable');

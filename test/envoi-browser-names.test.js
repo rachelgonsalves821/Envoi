@@ -90,7 +90,7 @@ test('a server started with a retired cookie override refuses to start', async t
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: path.join(here, '..'),
-    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', SINALOA_PORT: '0', ENVOI_AUTH_MODE: 'development', SINALOA_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, SINALOA_DATA_DIR: dataDir, WORKOS_COOKIE_NAME: 'sinaloa_session' },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, WORKOS_COOKIE_NAME: 'sinaloa_session' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let output = '';
