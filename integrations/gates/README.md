@@ -1,6 +1,6 @@
 # Agent-native gate runners
 
-The hosted real-Hermes Phase A gate has a read-only [preflight and operator runbook](PHASE-A-HOSTED-RUNBOOK.md). Its loopback fault proxy can drop one successful refresh response and disconnect SSE while keeping REST available. The preflight and proxy are tested with `node --test integrations/gates/phase-a-*.test.mjs`. Neither tool marks the 23-step hosted gate passed; that requires a real runtime, server audit evidence, and the human's countersign.
+The hosted real-Hermes Phase A gate has a read-only [preflight and operator runbook](PHASE-A-HOSTED-RUNBOOK.md). Its loopback proxy uses a required fixed --port, compares lost-refresh successors by an in-memory digest, holds/releases completion after revoke, injects one acknowledge 503 before processing, and cuts/restores SSE with REST available. Optional refresh/claim replays expose only server status/code after revoke. Preflight requires configurationValidated, the expected Hermes version and a separate API_SERVER_PORT. The 25 Node runner tests run with `node --test integrations/gates/phase-a-*.test.mjs integrations/gates/prepare-disposable-hermes.test.mjs` and through the hosted-runner integration test in CI. Neither tool marks the 23-step hosted gate passed; that requires a real runtime, server audit evidence, and the human's countersign.
 
 ## GA3/A2 local real-service rerun
 

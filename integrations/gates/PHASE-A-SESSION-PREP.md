@@ -1,62 +1,64 @@
 # Phase A hosted session preparation
 
-Prepared on 2026-10-12 for Rachel and Je. **Preparation only: no hosted behavioral step has passed.** This track can run in parallel with the #76 contract correction and #72/#78 re-review. It does not call Phase B registration endpoints.
+Updated 2026-10-13 for REQUEST lane-b 6149888145. **Preparation only: all hosted behaviors remain UNPROVEN.** The October 12 slot and the `9e178da` preflight are historical, not current release or model evidence. No new appointment is booked.
 
-## Verified technical preflight
+## Fresh preflight pin
 
-| Requirement | Evidence |
+The runner is based on integration `83dadf556c49b82c664b746702113c04c8638dd5`. This is a preparation base, **not** the final Gate GA candidate. Lane A must pair #84 with #85 on one SHA and the human must select/deploy/freeze the resulting candidate. Re-pin this table from a **fresh** preflight on that candidate, immediately before the session; do not carry forward a previous PASS, timestamp or bundle hash.
+
+| Requirement | Current evidence / required fresh value |
 | --- | --- |
-| Host | Rachel's Windows machine |
-| Disposable profile | `C:\Users\Rachel\Documents\Codex\Envoi-phase-a-disposable-hermes\home`; existing directory and isolated CLI verified |
-| Hermes CLI | `v0.21.6+774.g835c3dd`; the normal installation was not updated or reconfigured |
-| Candidate | `9e178da96e840b169b17d6a2c6c99722cf0e8cab` on `integration/agent-native` |
-| Validation checkout | `C:\Users\Rachel\Documents\Codex\Envoi-phase-a-candidate-prep`; detached candidate with #73 gate tooling only |
-| Staging source/release/bundle/profile/CLI | All five #73 preflight checks PASS against that candidate |
-| Hosted connector SHA-256 | `cb1aab5757d89bacaac425395b630eaeb956ff724c6fd257946d6ecd44f7873a` |
-| Runner tests | 5/5 PASS outside the Windows sandbox; loopback networking was denied inside it |
-| Model-provider access | PASS on 2026-10-12 Toronto time: a fresh isolated Nous request with invocation-only model `upstage/solar-mini4:free` returned a standalone `READY`, exit 0, no partial-response warning. Sanitized result only; no credential values recorded. Persistent default remains the unavailable `stealth/space-bunny-alpha`; use the explicit working model below |
-| Time and attendance | CONFIRMED by Rachel for herself and Je: Monday 2026-10-12, 20:30–22:00 America/Toronto. Rachel explicitly requested no calendar invitation |
+| Final exact integration candidate | UNPROVEN — record the paired 40-character SHA |
+| Fresh preflight UTC | UNPROVEN — record the current run, not the October 12 report |
+| Staging release/readiness | UNPROVEN — matching SHA, configurationValidated: true, database/object storage/scanner ready |
+| Hosted/local connector SHA-256 | UNPROVEN — copy only the successful fresh preflight hash |
+| Disposable Hermes profile | UNPROVEN — operator supplies an absolute separate home with its own CLI |
+| Hermes observed and expected version | UNPROVEN — exact equality required; historical reference was 0.21.6+774.g835c3dd |
+| Disposable API_SERVER_PORT | UNPROVEN — explicitly set in private .env, distinct from the regular profile port and unused before starting Gateway |
+| Proxy port | UNPROVEN — choose a fixed unused loopback port before enrollment; reuse it after restart |
+| Runner tests | Previously 9; revised runner has 25 Node tests, all must pass on the selected runner head; also run through the integration CI wrapper |
+| Real provider/model turn | UNPROVEN — an ordinary new turn in the disposable profile; old Nous/Solar success proves only that past request |
+| Owner and distinct sender | UNPROVEN — disposable staging accounts, labels only |
+| New slot and frozen staging Builds | UNPROVEN — human confirmation required; no calendar invitation requested |
 
-The read-only preflight does not prove provider access or any of the 23 observations. Re-run it immediately before the session; if staging has changed, agree on a new exact candidate and do not combine results across SHAs.
-
-## Private provider preparation by Rachel
-
-Use the existing provider account through a separate login session for this disposable profile. Rachel selected Nous and completed its private login. Do not import or copy another application's rotating credentials, read them aloud, or post account details. The installed Hermes Codex login implementation recommends a separate login rather than importing CLI credentials if that provider is selected later.
-
-Run the prepared script from a private PowerShell terminal:
+On a clean checkout of the selected candidate with only `integrations/gates/**` runner differences, the operator runs:
 
 ```powershell
-& 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-gate\integrations\gates\prepare-disposable-hermes.ps1' -Action Setup
+$gateSha = '<final-paired-40-character-SHA>'
+$gateHome = '<absolute-disposable-home>'
+$expectedVersion = '<human-confirmed-Hermes-version>'
+$regularPort = <regular-profile-API-port>
+node integrations/gates/phase-a-hosted-preflight.mjs --origin https://sinaloa-staging.rachelgonsalves821.workers.dev --sha $gateSha --hermes-home $gateHome --hermes-version $expectedVersion --regular-api-port $regularPort
+node --test integrations/gates/phase-a-*.test.mjs integrations/gates/prepare-disposable-hermes.test.mjs
 ```
 
-Select the intended provider in the wizard and complete its private login/consent. Do not repeat setup merely because a previous example named a different provider. Existing provider login does not guarantee quota or entitlement; do not accept billing changes merely to make this test pass.
+All five preflight checks must PASS. Save the sanitized report privately and transfer its candidate SHA, observed/expected version, bundle hash, ports and fresh UTC into the run header. It is only READY_FOR_MODEL_TURN; it proves no Phase A behavior. Repeat after a SHA, runtime version, bundle or profile/port change. Source mismatch or a failed check stops preparation.
 
-Then run one ordinary real model turn, substituting the provider selected above:
+## Isolated host and model preparation
+
+The human selects a separate absolute `-HermesHome`. If a separate Hermes install is needed, its `-InstallDir` must be `<HermesHome>\bin`, because both helper and preflight resolve `<HermesHome>\bin\hermes.exe`; the Unix preflight resolves `<home>/bin/hermes`. Never update or repair the regular profile for this gate. Privately configure a distinct API_SERVER_PORT in the disposable `.env`; if config.yaml overrides the API port, reconcile that override to the same disposable port before running. Pass the actual regular profile port to preflight (8642 is only its default).
+
+Use the explicit profile in every helper call, Gateway and connector process:
 
 ```powershell
-& 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-gate\integrations\gates\prepare-disposable-hermes.ps1' -Action ModelTurn -Provider nous -Model 'upstage/solar-mini4:free'
+.\integrations\gates\prepare-disposable-hermes.ps1 -Action Setup -HermesHome $gateHome
+.\integrations\gates\prepare-disposable-hermes.ps1 -Action ModelTurn -HermesHome $gateHome -Provider <selected-provider> -Model <working-test-model>
 ```
 
-The helper uses the model/provider saved by setup unless optional `-Provider` and `-Model` overrides are supplied. The command above avoids the unavailable saved default without editing persistent configuration or credentials. The turn should produce `READY` without tool calls. Record only provider/model names, successful turn yes/no, runtime version and timestamp. Do not use `--safe-mode`, which ignores profile configuration. This script does not enroll an agent, start a Gateway, change the regular profile, or submit a gate result.
+The profile path is required; there is no personal default. The human owns provider login/consent/credential entry and real inference. The helper confines HERMES_HOME and restores it on exit. Its bounded text-only model probe uses context_engine with no optional tool installation and no --safe-mode; only a completed real reply with exit 0 establishes current model access. Verify the disposable Gateway's actual model/tool access separately. Record provider/model names and success only, never keys, account details, raw diagnostics or rotating credentials.
 
-For this text-only check the helper explicitly selects `context_engine`, an installed Hermes toolset that resolves to zero model tools in the verified runtime. This avoids loading the profile's optional image/browser/audio tools and does not alter its persistent tool settings. If an earlier invocation asks to install `fal`, cancel that invocation rather than installing an unrelated feature, then rerun the corrected helper. A later Envoi tool-access check is a separate gate step; this zero-tool model turn does not prove Envoi tool availability.
+## Agenda and responsibilities
 
-The earlier operator run hit `Iteration budget reached (1/1)` and exited unsuccessfully; it is not readiness evidence. In this Hermes version `max-turns` counts API iterations, including completion/recovery work, not distinct user prompts. The corrected single-prompt probe permits at most three API iterations with a 120-second run budget. A partial response or nonzero exit remains a failure; only a completed ordinary model reply establishes readiness. The run budget is Hermes-managed, not a guarantee that an in-flight provider request is forcibly terminated at exactly 120 seconds. Do not resume the earlier session to substitute for a fresh completed probe.
+Allow **at least 120 minutes**, including two waits of up to about 14 minutes each. This is a planning budget, not an appointment or a promise of completion. Refresh is lazy at saved `agentTokenExpiresAt − 60 seconds` (900-second access TTL), with no force command. The status command exposes that access expiry as `credentialExpiresAt`. Plan pause across one boundary and arm lost-refresh before the next; do not mutate expiries or re-enroll to shorten the test.
 
-The subsequent Nous request returned a nonretryable model-not-found error. Do not keep retrying the missing curated model. The live authenticated `/v1/models` catalog was read without changing credentials or running inference: HTTP 200, 423 models, no `stealth/space-bunny-alpha`; `upstage/solar-mini4:free` was listed with zero prompt/completion prices. Catalog presence alone was not readiness evidence. After Rachel authorized Codex to run the small check, a fresh request explicitly selecting Nous and Solar completed successfully with `READY`. Raw diagnostic output was captured privately in memory; only the sanitized verdict was emitted. This verifies model access, not any Envoi hosted behavior. It does not change the saved default, guarantee future availability or authorize billing changes. Recheck access at session start, and explicitly select the working model for the disposable Gateway rather than assuming the profile default works.
-
-## Responsibilities and session agenda
-
-| Owner | Before and during the session |
+| Owner | Required action |
 | --- | --- |
-| Rachel / human operator | Complete private provider setup and real turn; confirm a 90-minute Toronto-time slot with Je; use a disposable staging owner/agent and a distinct staging sender; perform approval, pause/resume and disposable-family revocation; countersign only after all evidence passes |
-| Lane B / Codex | Supply #73 runbook, loopback fault proxy, preflight and blank 23-row worksheet; preserve private connector state; collect sanitized connector/fault observations; never turn proxy counters alone into PASS |
-| Je / Lane A | Confirm and hold one exact staging SHA; verify database/R2/scanner readiness; provide owner/sender access without transmitting secrets; collect request IDs, audit events and canonical receipts in `docs/architecture/agent-native-v2/evidence/phase-a-<sha>.md` |
+| Human operator | Confirm a new slot with the distinct sender; choose disposable identities/profile/ports; run fresh preflight and real model turn; freeze staging Builds; approve, pause/resume and revoke only the test agent; countersign after all 23 rows agree |
+| Lane B | Provide #73 tools/runbook/worksheet and sanitized connector/proxy observations; preserve private state; record successor equality without credential values; hold completion before revoke, then release after it |
+| Lane A | Pair #84/#85 and verify one candidate; capture authoritative owner-view/audit/receipt evidence using its extractor and phase-a-TEMPLATE.md; reconcile IDs/sequences and publish formal gate result |
 
-Suggested session allocation: 15 minutes for preflight/model/identity setup, 20 minutes for message/restart/pause/resume, 30 minutes for refresh/SSE/retry faults, 15 minutes for disposable revocation, and 10 minutes for evidence reconciliation. This is an agenda, not a booked appointment or a promise the gate fits one session.
+Suggested allocation: 15 minutes fresh preflight/model/identity; 30 minutes messages/restart/pause including first lazy refresh; 30 minutes lost refresh/SSE/retry including second lazy refresh; 20 minutes restored-SSE/held-settlement/revoke; 15 minutes reconciliation plus 10 minutes margin. Confirm a longer slot if preparation or provider responses need it.
 
-Use [PHASE-A-HOSTED-RUNBOOK.md](PHASE-A-HOSTED-RUNBOOK.md) and [PHASE-A-EVIDENCE-WORKSHEET.md](PHASE-A-EVIDENCE-WORKSHEET.md) for all 23 rows. Stop on any failed observation, integrate the responsible fix, and repeat the entire gate on the new SHA. No beta or existing-agent test is authorized. Gateway, connector and proxy must use the disposable profile, private state and an unused local port.
+Part 1's real-assets.test.ts:131 race is separate from hosted acceptance: a recipient transition can precede the sender's delivery projection, leaving queued vs delivered snapshots. #85 waits for both projections before the unchanged equality assertion. A local snapshot race, a passing unit test or proxy counter is never hosted PASS evidence.
 
-## Coordination request for Je
-
-Phase A can proceed independently of the Phase B contract correction. Rachel confirmed herself and Je for Monday 2026-10-12, 20:30–22:00 America/Toronto, with no calendar invitation. The read-only five-check preflight was rerun before the session and passed against `9e178da96e840b169b17d6a2c6c99722cf0e8cab` with the same connector bundle hash. Recheck at session start and confirm the rollback reference and distinct disposable test owner/sender privately. Nous model access is verified with invocation-only `upstage/solar-mini4:free`, not the saved default. Lane B supplies the runner; Je collects authoritative server evidence. No hosted PASS, calendar event, merge or deployment is claimed by this preparation.
+Use PHASE-A-HOSTED-RUNBOOK.md, PHASE-A-EVIDENCE-WORKSHEET.md and Lane A's `docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md`. All rows remain UNPROVEN until the real session. On any failed observation, fix/integrate/deploy a new exact SHA and rerun **all 23**; do not combine releases. No deploy, real-host run or frozen Builds is claimed by this preparation update.

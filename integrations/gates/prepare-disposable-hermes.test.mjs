@@ -30,6 +30,9 @@ test('model override is invocation-only and defaults to the disposable profile',
 });
 
 test('helper scopes and restores the profile without starting enrollment or installing extras', () => {
+  assert.match(source, /\[Parameter\(Mandatory = \$true\)\]\s*\[string\]\$HermesHome\s*\)/);
+  assert.match(source, /IsPathRooted\(\$HermesHome\)/);
+  assert.ok(!source.includes('C:\\Users\\Rachel'));
   assert.match(source, /\$env:HERMES_HOME\s*=\s*\$profile/);
   assert.match(source, /finally\s*\{\s*\$env:HERMES_HOME\s*=\s*\$previousHome/);
   assert.ok(!/pm install|prepare-runtime|agent-registration|secret put/.test(source));

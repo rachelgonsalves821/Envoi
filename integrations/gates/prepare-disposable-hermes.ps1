@@ -4,10 +4,14 @@ param(
     [string]$Action,
     [string]$Provider,
     [string]$Model,
-    [string]$HermesHome = 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-disposable-hermes\home'
+    [Parameter(Mandatory = $true)]
+    [string]$HermesHome
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not [System.IO.Path]::IsPathRooted($HermesHome) -or $HermesHome -notmatch '^(?:[A-Za-z]:[\\/]|\\\\)') {
+    throw 'Supply an absolute disposable HermesHome.'
+}
 $profile = [System.IO.Path]::GetFullPath($HermesHome).TrimEnd('\')
 $normalHome = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'hermes')).TrimEnd('\')
 if ($profile -eq $normalHome -or $profile.StartsWith($normalHome + '\', [System.StringComparison]::OrdinalIgnoreCase) -or $normalHome.StartsWith($profile + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
