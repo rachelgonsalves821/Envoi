@@ -15,7 +15,7 @@ import { shareCaseAsset } from './asset-exchange';
 import { loadAssetManifest, manifestAssetExchange } from './asset-manifest';
 import { bridgeHandler, parseAgentReply, type BridgeDecision } from './bridge';
 
-const serverEntry = process.env.SINALOA_P2_SERVER_ENTRY;
+const serverEntry = process.env.ENVOI_P2_SERVER_ENTRY;
 const test = serverEntry ? it : it.skip;
 
 async function startServer(dataDir: string, scannerUrl: string): Promise<{ baseUrl: string; child: ChildProcess }> {
