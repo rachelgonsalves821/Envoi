@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDeploymentConfiguration } from './check-deployment.mjs';
 import { CONTAINER_LEGACY_FALLBACKS } from '../worker/runtime-config.js';
+import { orphanedLegacyNames } from '../src/envoi-environment.js';
 
 export const RELEASE_ACCOUNT_ID = '54a5d6c680bd813fa60f8e088b098b8d';
 export const APP_SECRET_NAMES = Object.freeze([
@@ -21,12 +22,16 @@ export function requireSecretNames(inventory, required = APP_SECRET_NAMES) {
   const missing = required.filter(name => !hasSecret(name)
     && !(name === 'ENVOI_POLICY_SIGNING_KEY' && hasSecret('ENVOI_POLICY_SIGNING_KEYS')));
   if (missing.length) throw new Error(`Missing encrypted runtime secrets: ${missing.join(', ')}`);
+  // An optional secret (a policy keyring, a DB CA, a session token) held only as SINALOA_* would be
+  // dropped without an error, because the Worker no longer forwards it.
+  const orphaned = orphanedLegacyNames(names);
+  if (orphaned.length) throw new Error(`Encrypted runtime secrets held only under retired names: ${orphaned.join(', ')}; add their ENVOI_* twins`);
 }
 
 // Names and types of a Worker's encrypted secrets. Values are never fetched or logged.
-export function secretInventory({ cwd, env }, ...argv) {
+export function secretInventory({ cwd, env, run = spawnSync }, ...argv) {
   const wrangler = resolve(cwd, 'node_modules/wrangler/bin/wrangler.js');
-  const result = spawnSync(process.execPath, [wrangler, 'secret', 'list', ...argv], {
+  const result = run(process.execPath, [wrangler, 'secret', 'list', ...argv], {
     cwd, env: { ...env, CLOUDFLARE_ACCOUNT_ID: RELEASE_ACCOUNT_ID }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
   });
   if (result.error || result.status !== 0) throw new Error('Could not verify encrypted secret names in the intended Cloudflare account');

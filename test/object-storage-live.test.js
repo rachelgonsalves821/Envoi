@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { assertNoRetiredEnvironment } from '../src/envoi-environment.js';
 import crypto from 'node:crypto';
 import {
   HttpMalwareScanner,
@@ -9,6 +10,8 @@ import {
   S3CompatibleObjectStorageAdapter
 } from '../src/object-storage.js';
 
+// N2-config-2: an old SINALOA_RUN_LIVE_* switch must fail loudly, not skip as if nothing was asked.
+assertNoRetiredEnvironment();
 const r2Enabled = process.env.ENVOI_RUN_LIVE_R2_TESTS === '1';
 const scannerEnabled = process.env.ENVOI_RUN_LIVE_SCANNER_TESTS === '1';
 const checksum = body => crypto.createHash('sha256').update(body).digest('base64');

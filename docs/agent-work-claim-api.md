@@ -1,6 +1,6 @@
 # Agent Work Claim API
 
-All routes use the active v1 bearer credential. Claims are scoped to its inbox, agent, and credential family. A lease lasts 60 seconds by default; `SINALOA_AGENT_WORK_LEASE_MS` may set a duration from 1 to 300 seconds.
+All routes use the active v1 bearer credential. Claims are scoped to its inbox, agent, and credential family. A lease lasts 60 seconds by default; `ENVOI_AGENT_WORK_LEASE_MS` may set a duration from 1 to 300 seconds.
 
 ## Claim
 

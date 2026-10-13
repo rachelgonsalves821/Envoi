@@ -1,3 +1,4 @@
+import '../src/envoi-environment-bootstrap.js';
 import { writeFile } from 'node:fs/promises';
 import pg from 'pg';
 import { createPostgresOptions } from '../src/postgres-options.js';

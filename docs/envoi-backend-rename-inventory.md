@@ -15,13 +15,14 @@
 - That covers server start, production validation and the restore check.
 - Without the refusal, a deployment still holding `SINALOA_AUTH_MODE=production` would silently start in development mode.
 - The Cloudflare container never sees retired names, because the Worker forwards only `ENVOI_*` names (plus the key).
-- `scripts/preflight.mjs` lists leftover names as `retiredNames`.
+- `scripts/preflight.mjs` lists leftover names as `retiredNames`, and fails for any that has no `ENVOI_*` twin.
 
 **Deploys stamp only `ENVOI_RELEASE_SHA`.** A kept dashboard `SINALOA_RELEASE_SHA` is no longer read. So it can no longer conflict, and it can be deleted.
 
-**Every beta deploy path checks secret names first.** That covers `promote-release.mjs`, `cf:deploy:beta` and `cf:deploy:scanner:beta`.
+**Every beta deploy path checks secret names first.** That covers `promote-release.mjs`, `cf:deploy:beta`, `cf:deploy:scanner:beta` and `cf:deploy:scanner:staging`.
 - The app Worker must have the `ENVOI_*` twins of every secret except the data encryption key.
 - The beta scanner must have `ENVOI_SCANNER_TOKEN`.
+- No secret may be held only under a retired name. An optional secret (a policy keyring, a database CA, an S3 session token) would otherwise be dropped without any error.
 - So code that ignores the old names cannot reach beta before the H-5 dashboard step.
 
 **CI** sets `ENVOI_P2_SERVER_ENTRY`, paired on one SHA with Lane B's `integrations/agent-bridges/real-assets.test.ts`.
@@ -132,7 +133,7 @@ Audited against `origin/main` at `376c760bc100b38c8f1c9f689875019f58327724` on 2
 ## Changed in code without a live cutover
 
 - Human-readable process logs, the private npm package name, WorkOS metadata on newly created organizations, MCP server display name, and `/health`/`/ready` `service` now say Envoi. The deployment smoke script accepts either service label while older releases remain live.
-- Backend code reads `ENVOI_*` names. Until N2-config-2, a conflict-detecting compatibility layer also accepted `SINALOA_*` settings, and the Worker fell back to old dashboard names. Since N2-config-2 only `SINALOA_DATA_ENCRYPTION_KEY` is still honoured, and any other `SINALOA_*` name is refused (see the top of this file). The scanner accepts either token name, but refuses conflicting tokens.
+- Backend code reads `ENVOI_*` names. Until N2-config-2, a conflict-detecting compatibility layer also accepted `SINALOA_*` settings, and the Worker fell back to old dashboard names. Since N2-config-2 only `SINALOA_DATA_ENCRYPTION_KEY` is still honoured, and any other `SINALOA_*` name is refused (see the top of this file). The scanner reads only `ENVOI_SCANNER_TOKEN`; deploy it with `cf:deploy:scanner:staging` or `cf:deploy:scanner:beta`, which check that name first.
 - The development-only agent domain defaults to `envoi.mail`; production already uses `agents.envoi-agents.com`. This does not migrate previously stored development addresses.
 
 ## Runtime environment keys: rename only as one coordinated migration

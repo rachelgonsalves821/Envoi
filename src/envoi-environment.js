@@ -23,6 +23,12 @@ export function retiredEnvironmentNames(env = process.env) {
   return Object.keys(env).filter(key => key.startsWith('SINALOA_') && !honoured.has(key)).sort();
 }
 
+// Retired names with no ENVOI_* twin: settings that would be lost, not merely leftovers.
+export function orphanedLegacyNames(names) {
+  const present = new Set(names);
+  return retiredEnvironmentNames(Object.fromEntries([...present].map(name => [name, '']))).filter(name => !present.has(`ENVOI_${name.slice('SINALOA_'.length)}`));
+}
+
 // A retired name is refused in every mode: SINALOA_AUTH_MODE=production alone would otherwise
 // start a development server. The message names the settings, never their values.
 export function assertNoRetiredEnvironment(env = process.env) {

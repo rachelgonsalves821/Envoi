@@ -64,7 +64,7 @@ An authenticated manager can also pause a structured case through `POST /api/inb
 
 ### WorkOS beta admission and management assurance
 
-Hosted beta requires `SINALOA_BETA_INVITED_EMAILS` containing exact, comma-separated invited addresses and WorkOS self-service signup disabled. A verified WorkOS email is admitted only if it is on that list. `/api/auth/me` reports hosted `auth.assurance` as `provider`; Sinaloa trusts the authenticated WorkOS session and current membership for human reads and management. The sealed session and its session ID remain required throughout. MFA Off is the approved beta setting; keep the first cohort to 20 invited humans and revalidate admission for every sign-in method, including SSO if enabled.
+Hosted beta requires `ENVOI_BETA_INVITED_EMAILS` containing exact, comma-separated invited addresses and WorkOS self-service signup disabled. A verified WorkOS email is admitted only if it is on that list. `/api/auth/me` reports hosted `auth.assurance` as `provider`; Sinaloa trusts the authenticated WorkOS session and current membership for human reads and management. The sealed session and its session ID remain required throughout. MFA Off is the approved beta setting; keep the first cohort to 20 invited humans and revalidate admission for every sign-in method, including SSO if enabled.
 
 WorkOS performs hosted sign-in before redirecting to Sinaloa. The approved beta policy has MFA Off; the application does not request a separate SMS or TOTP code. The server limits each human to two active or paused enrolled agents across inboxes; pending and fully credential-revoked identities do not consume a slot. Redemption of an already issued third enrollment token fails `409 ACTIVE_AGENT_LIMIT` when the cap is reached.
 

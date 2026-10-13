@@ -1,4 +1,4 @@
-import { applyLegacyEnvironmentFallbacks } from './envoi-environment.js';
+import { applyLegacyEnvironmentFallbacks, assertNoRetiredEnvironment } from './envoi-environment.js';
 
 const positiveInteger = (env, name, fallback) => {
   const raw = env[name];
@@ -9,6 +9,8 @@ const positiveInteger = (env, name, fallback) => {
 };
 
 export function createPostgresOptions(connectionString, env = process.env, overrides = {}) {
+  // N2-config-2: SINALOA_DB_SSL_MODE would otherwise be ignored, silently dropping TLS.
+  assertNoRetiredEnvironment(env);
   env = applyLegacyEnvironmentFallbacks({ ...env });
   if (!connectionString) throw new Error('DATABASE_URL is required');
   const parsed = new URL(connectionString);

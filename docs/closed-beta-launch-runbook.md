@@ -38,7 +38,7 @@ The user confirms only staging secrets have been configured; beta secret entry r
 | `DATABASE_URL` | Beta Neon active branch/database, direct TLS connection; `ENVOI_DB_SSL_MODE=verify-full` controls verified certificate behavior |
 | `WORKOS_API_KEY` | Beta application's key from its separate WorkOS environment |
 | `WORKOS_COOKIE_PASSWORD` | New strong beta cookie key, at least 32 characters |
-| `ENVOI_DATA_ENCRYPTION_KEY` | New strong beta encryption key, at least 32 characters; securely retain for recovery |
+| `ENVOI_DATA_ENCRYPTION_KEY` | Beta already has its key, held as `SINALOA_DATA_ENCRYPTION_KEY`. **Keep it under that name; never create a new one.** Changing or deleting it locks out encrypted data. The key's own migration is in [the rename inventory](envoi-backend-rename-inventory.md#encryption-key-its-own-migration-task). |
 | `ENVOI_POLICY_SIGNING_KEY` | New strong beta signing key, at least 32 characters; active key ID `primary` |
 | `ENVOI_S3_ACCESS_KEY_ID` | Bucket-scoped beta R2 credential |
 | `ENVOI_S3_SECRET_ACCESS_KEY` | Matching beta R2 secret |

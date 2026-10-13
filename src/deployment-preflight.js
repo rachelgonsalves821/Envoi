@@ -1,14 +1,21 @@
 import { validateProductionConfiguration } from './production-config.js';
 import { CONTAINER_DEFAULTS, CONTAINER_ENV_KEYS } from '../worker/runtime-config.js';
 import { selectEnvironment, parseAllowedHostnames } from '../worker/router.js';
-import { applyLegacyEnvironmentFallbacks, retiredEnvironmentNames } from './envoi-environment.js';
+import { applyLegacyEnvironmentFallbacks, orphanedLegacyNames, retiredEnvironmentNames } from './envoi-environment.js';
 
 export function deploymentPreflight(source) {
-  source = applyLegacyEnvironmentFallbacks({ ...source });
-  const environment = selectEnvironment(source, CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS);
   const errors = [];
-  try { validateProductionConfiguration(environment); }
-  catch (error) { errors.push(...error.message.split('\n').slice(1).map(line => line.replace(/^- /, ''))); }
+  // N2-config-2: a SINALOA_* setting without its ENVOI_* twin would be lost on Cloudflare.
+  for (const name of orphanedLegacyNames(Object.keys(source || {}))) errors.push(`${name} is no longer read; set ENVOI_${name.slice('SINALOA_'.length)} instead`);
+  let environment = {};
+  try {
+    source = applyLegacyEnvironmentFallbacks({ ...source });
+    environment = selectEnvironment(source, CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS);
+    validateProductionConfiguration(environment);
+  } catch (error) {
+    const lines = error.message.split('\n');
+    errors.push(...(lines.length > 1 ? lines.slice(1) : lines).map(line => line.replace(/^- /, '')));
+  }
   const allowedHosts = parseAllowedHostnames(source.ENVOI_EDGE_ALLOWED_HOSTS);
   if (!allowedHosts.size) errors.push('ENVOI_EDGE_ALLOWED_HOSTS must explicitly list the deployment hostname');
   try {

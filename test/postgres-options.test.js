@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPostgresOptions } from '../src/postgres-options.js';
 
+// N2-config-2: a retired TLS setting is refused, never silently ignored (which would drop TLS).
+test('PostgreSQL options refuse retired SINALOA_* settings', () => {
+  assert.throws(() => createPostgresOptions('postgresql://db.example/envoi', { SINALOA_DB_SSL_MODE: 'verify-full' }), /Retired SINALOA_\* settings .*SINALOA_DB_SSL_MODE/);
+});
+
 test('production PostgreSQL requires certificate-verified TLS', () => {
   assert.throws(() => createPostgresOptions('postgresql://user:secret@db.example/sinaloa', {
     ENVOI_AUTH_MODE: 'production', ENVOI_DB_SSL_MODE: 'disable'
