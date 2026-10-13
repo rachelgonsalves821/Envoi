@@ -126,8 +126,18 @@ describe('P2 clean case asset exchange against a real local server', () => {
         if (Date.now() > deadline) throw new Error('Typed decision was not delivered');
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      const aliceCase = await alice.connector.getCase(caseId) as any;
-      const bobCase = await bob.connector.getCase(caseId) as any;
+      // A recipient's transition precedes the sender-side delivery update. Wait
+      // for both projections' deliveries before comparing their complete state.
+      let aliceCase = await alice.connector.getCase(caseId) as any;
+      let bobCase = await bob.connector.getCase(caseId) as any;
+      const delivered = (item: any) => item.state === 'waitingForHuman'
+        && item.events.every((event: any) => !event.payload?.deliveryState || event.payload.deliveryState === 'delivered');
+      while (!delivered(aliceCase) || !delivered(bobCase)) {
+        if (Date.now() > deadline) throw new Error('Both case delivery projections did not converge');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        aliceCase = await alice.connector.getCase(caseId) as any;
+        bobCase = await bob.connector.getCase(caseId) as any;
+      }
       expect(aliceCase).toEqual(bobCase);
       expect(aliceCase.proposals[0].status).toBe('accepted');
       expect(aliceCase.events.find((event: any) => event.type === 'decision')?.payload.data.decision.kind).toBe('accept');

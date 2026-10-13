@@ -43,6 +43,11 @@ jobs:
           ENVOI_P2_SERVER_ENTRY: ${{ github.workspace }}/src/server.js
       - run: npm run test:sdk:python
       - run: npm run build
+      # Committed generated files (web/**, release.json, connector bundles) must equal a fresh build, so the
+      # hosted bundle hash checked at a gate is provably built from this source.
+      - name: Generated files match their sources
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then git status --porcelain; git diff --stat; exit 1; fi
       - run: npm run cf:check
       - name: Build actual production container
         # The Dockerfile stays on node:22-alpine; pre-load that official image so the build uses the

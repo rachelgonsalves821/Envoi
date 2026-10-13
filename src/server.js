@@ -449,6 +449,8 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated =
   const refreshPath = agentRefreshCredentialPath(tokenHash);
   const pending = await store.getJson(refreshPath);
   if (!pending?.inboxId) throw credentialError('REFRESH_TOKEN_INVALID');
+  // Set when the request is an A1 recovery of a successor already issued, for the audit below.
+  let recovered = false;
   const rotate = async () => {
     const current = await store.getJson(refreshPath);
     if (!current || current.tokenType !== 'refresh') throw credentialError('REFRESH_TOKEN_INVALID');
@@ -468,8 +470,11 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated =
       }
       const recovery = await store.getJson(agentRotationRecoveryPath(tokenHash));
       if (!recovery || recovery.rotationIdHash !== rotationIdHash || recovery.familyId !== current.familyId || new Date(recovery.expiresAt) <= new Date()) throw credentialError('REFRESH_RECOVERY_EXPIRED');
-      try { return decryptAgentRotation(rawRefreshToken, rotationRecoveryContext(tokenHash, current.familyId, rotationIdHash), recovery.encrypted); }
-      catch { throw credentialError('REFRESH_RECOVERY_EXPIRED'); }
+      try {
+        const successor = decryptAgentRotation(rawRefreshToken, rotationRecoveryContext(tokenHash, current.familyId, rotationIdHash), recovery.encrypted);
+        recovered = true;
+        return successor;
+      } catch { throw credentialError('REFRESH_RECOVERY_EXPIRED'); }
     }
     if (new Date(current.expiresAt) <= new Date()) throw credentialError('REFRESH_TOKEN_INVALID');
     if (agent.onboardingStatus !== 'approved' || !['active', 'paused'].includes(agent.status)) throw Object.assign(new Error('Agent is not active and approved'), { statusCode: 401 });
@@ -489,6 +494,15 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated =
   if (!result.replayed) {
     // A new successor or an A1 recovery of the same one: both are a successful refresh.
     onRotated({ inboxId: pending.inboxId, agentId: pending.agentId, familyId: pending.familyId });
+    // Gate GA: a recovered lost refresh response is otherwise invisible to the owner. Only recoveries
+    // are audited: they are rare, while an event per ordinary refresh (about 4 an hour per agent) would
+    // flood the owner's activity. Ids and a timestamp only, never a credential. Best-effort: the rotation
+    // has already committed.
+    if (recovered) {
+      await audit(pending.inboxId, 'agent.refresh_recovered', {
+        agentId: pending.agentId, credentialFamilyId: pending.familyId, refreshExpiresAt: result.agentRefreshTokenExpiresAt
+      }).catch(error => console.error('Refresh recovery audit failed', { name: error?.name || 'Error', agentId: pending.agentId, credentialFamilyId: pending.familyId }));
+    }
     return result;
   }
   const { inboxId, agentId, familyId } = result.replayed;
@@ -2198,7 +2212,7 @@ async function route(req, res) {
             updatedAt: now
           };
           await store.putJson(claimPath, claim);
-          await writeAudit('agent.work_claimed', { workId: message.id, agentId: identity.agent.id, fence: claim.fence }, now);
+          await writeAudit('agent.work_claimed', { workId: message.id, agentId: identity.agent.id, fence: claim.fence, attempts: claim.attempts, credentialFamilyId: claim.credentialFamilyId }, now);
           return { status: 200, payload: { work: { workId: message.id, message, leaseToken, leaseExpiresAt }, state: 'claimed' } };
         }
         const idle = { work: null, state: 'idle' };
@@ -2291,7 +2305,7 @@ async function route(req, res) {
           claim.updatedAt = now;
           await store.putJson(claimPath, claim);
         } else await failAgentWorkPermanently(currentMessage, claim, reasonCode || 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
-        await writeAudit('agent.work_failed', { workId, agentId: identity.agent.id, retryable, reasonCode }, now);
+        await writeAudit('agent.work_failed', { workId, agentId: identity.agent.id, retryable, reasonCode, attempts: agentWorkAttempts(claim), retryAt: retryable ? claim.retryAt : null }, now);
         return { status: 200, payload: { workId, status: claim.status } };
       }
 
