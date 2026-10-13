@@ -15,7 +15,7 @@ Prepared on 2026-10-12 for Rachel and Je. **Preparation only: no hosted behavior
 | Hosted connector SHA-256 | `cb1aab5757d89bacaac425395b630eaeb956ff724c6fd257946d6ecd44f7873a` |
 | Runner tests | 5/5 PASS outside the Windows sandbox; loopback networking was denied inside it |
 | Model-provider access | PASS on 2026-10-12 Toronto time: a fresh isolated Nous request with invocation-only model `upstage/solar-mini4:free` returned a standalone `READY`, exit 0, no partial-response warning. Sanitized result only; no credential values recorded. Persistent default remains the unavailable `stealth/space-bunny-alpha`; use the explicit working model below |
-| Time and attendance | DEFERRED by Rachel: not ready to schedule yet. No appointment or invitation created; obtain both participants' agreement when ready, using America/Toronto |
+| Time and attendance | CONFIRMED by Rachel for herself and Je: Monday 2026-10-12, 20:30–22:00 America/Toronto. Rachel explicitly requested no calendar invitation |
 
 The read-only preflight does not prove provider access or any of the 23 observations. Re-run it immediately before the session; if staging has changed, agree on a new exact candidate and do not combine results across SHAs.
 
@@ -59,4 +59,4 @@ Use [PHASE-A-HOSTED-RUNBOOK.md](PHASE-A-HOSTED-RUNBOOK.md) and [PHASE-A-EVIDENCE
 
 ## Coordination request for Je
 
-Phase A can proceed independently of the Phase B contract correction. When Rachel is ready to schedule, please confirm a 90-minute Toronto-time window, the exact staging candidate and rollback reference, the distinct test sender/owner, and availability to collect server evidence. The current preflight candidate is `9e178da96e840b169b17d6a2c6c99722cf0e8cab`; it must be rechecked at session start. Nous model access is verified with invocation-only `upstage/solar-mini4:free`, not the saved default. No hosted PASS, appointment, merge or deployment is claimed by this preparation.
+Phase A can proceed independently of the Phase B contract correction. Rachel confirmed herself and Je for Monday 2026-10-12, 20:30–22:00 America/Toronto, with no calendar invitation. The read-only five-check preflight was rerun before the session and passed against `9e178da96e840b169b17d6a2c6c99722cf0e8cab` with the same connector bundle hash. Recheck at session start and confirm the rollback reference and distinct disposable test owner/sender privately. Nous model access is verified with invocation-only `upstage/solar-mini4:free`, not the saved default. Lane B supplies the runner; Je collects authoritative server evidence. No hosted PASS, calendar event, merge or deployment is claimed by this preparation.
