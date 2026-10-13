@@ -2,7 +2,7 @@
 
 This is the executable preparation for [v3 §29](../../docs/architecture/agent-native-v2/build-plan-v3.md). It does not replace the 23 required observations. Use one disposable staging owner, a second staging sender, a new agent identity, a separate Hermes profile, and one exact integration commit. Never use an existing beta agent or Rachel's regular Hermes profile. The human owns staging deployment, agent approvals, real-host actions, and gate countersign under the [two-lane execution plan](../../docs/architecture/agent-native-v2/claude-codex-build-plan.md).
 
-This Phase A run does not depend on the Phase B registration-contract correction. Prepare and run it in parallel with #76/#72/#78 review work. [PHASE-A-SESSION-PREP.md](PHASE-A-SESSION-PREP.md) records the current technical preflight, private provider setup helper, owner responsibilities and unconfirmed scheduling prerequisites; it is not hosted acceptance evidence.
+This Phase A run does not depend on the Phase B registration-contract correction. Prepare and run it in parallel with #76/#72/#78 review work. [PHASE-A-SESSION-PREP.md](PHASE-A-SESSION-PREP.md) records the current technical preflight, private provider setup helper, owner responsibilities and confirmed session time; it is not hosted acceptance evidence.
 
 ## 0. Freeze the candidate
 
@@ -23,10 +23,10 @@ On a machine that already runs Hermes, give the disposable Gateway a different `
 ```powershell
 $env:HERMES_HOME = 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-disposable-hermes\home'
 $hermesCli = Join-Path $env:HERMES_HOME 'bin\hermes.exe'
-& $hermesCli setup model
-$testProvider = 'openrouter' # Replace with the provider configured in this disposable profile.
-& $hermesCli chat --provider $testProvider --oneshot --ignore-rules --max-turns 1 --run-budget 60 -q 'Reply exactly READY. Do not call tools.'
+& 'C:\Users\Rachel\Documents\Codex\Envoi-phase-a-gate\integrations\gates\prepare-disposable-hermes.ps1' -Action ModelTurn -Provider nous -Model 'upstage/solar-mini4:free'
 ```
+
+The verified Nous/Solar probe uses invocation-only overrides and does not fix an unavailable saved default. Before starting the disposable Gateway, privately select the working model in this profile with `& $hermesCli setup model`, retaining the existing Nous login. Do not change the regular profile. The corrected helper runs a bounded text-only check without optional model tools; use it rather than the former one-iteration example. Gateway model/tool access must still be verified separately.
 
 The model turn must return a real model response from the explicitly selected test provider. Do **not** use `--safe-mode` for this check: the installed Hermes CLI states that it implies `--ignore-user-config`, so it can report no provider even when this profile has model settings. A successful CLI `--version`, a running API Server, or `tools/list` does not establish model readiness. The bundled connector's `prepare --runtime hermes --prepare-runtime` must reach both Envoi staging and this profile's API Server; `MODEL_NOT_READY` is a provider setup failure, not an Envoi enrollment failure.
 
