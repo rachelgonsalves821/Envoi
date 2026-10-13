@@ -1728,3 +1728,19 @@ The revision-3 checks were mutation-tested: 42 deliberate fixture and schema mut
     - no double-counted slots;
     - limit consistency checks.
   - **Mutation testing:** 42 deliberate mutations caught (§11).
+
+## Gate GA observability (additive audit data, 2026-10-13)
+
+**What it is.** Audit data that makes the Phase A hosted gate (v3 §29) provable from the server side. It is additive under a3 §5 and a4 §2: agent clients ignore unknown event types and fields. No contract version changes and no fixture changes. These events reach the owner audit feed (`GET /api/inboxes/{id}/events/delta`) and the agent's own event stream, like every audit event.
+
+The web client is the exception to "ignore unknown types". It subscribes to a fixed list (`frontend/src/event-replay.ts`), and its Activity page shows recent events. So a new type lands paired with that list, as progress-only. An event per ordinary refresh would also have flooded Activity, which is why only recoveries are audited.
+
+| Event | Fields | When |
+| --- | --- | --- |
+| `agent.refresh_recovered` (**new**) | `agentId`, `credentialFamilyId`, `refreshExpiresAt` | When `POST /api/agent-token` is an A1 recovery: the same token and `rotationId` retried after a lost response, answered with the stored successor. `refreshExpiresAt` is that successor's, so it equals the family's current expiry. Ordinary refreshes stay visible only as the owner view's `credentialExpiresAt` and `presence.lastSuccessfulRefreshAt`. A replay writes only `agent.refresh_replay_detected`. Best-effort: the rotation has already committed. |
+| `agent.work_claimed` | adds `attempts`, `credentialFamilyId` | Every claim. |
+| `agent.work_failed` | adds `attempts`, `retryAt` (`null` unless retryable) | Every `fail` settlement. |
+
+**Never in these events:** a token, a lease token, a `rotationId` or message text.
+
+**Evidence capture** for the gate uses `scripts/ga-evidence.mjs` and `docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md`.
