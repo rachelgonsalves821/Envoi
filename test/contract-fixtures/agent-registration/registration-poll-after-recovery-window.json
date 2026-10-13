@@ -1,0 +1,36 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-poll-after-recovery-window",
+  "kind": "http",
+  "description": "Polling an activated registration after the recovery window (tombstoned token).",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACTIVATION_RECOVERY_EXPIRED",
+      "error": "ACTIVATION_RECOVERY_EXPIRED",
+      "message": "Setup can no longer be recovered. Ask the owner to reconnect.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "NEEDS_RECONNECT",
+    "retry": "none",
+    "guidance": "owner_reconnect",
+    "next": "Do not register a new agent. The owner reconnects the existing one.",
+    "modelVisible": {
+      "state": "needs_reconnect",
+      "guidance": "owner_reconnect"
+    }
+  }
+}

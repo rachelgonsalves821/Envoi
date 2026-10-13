@@ -1,0 +1,36 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-token-invalid",
+  "kind": "http",
+  "description": "Unknown, deleted or mismatched bootstrap token. Identical whatever the cause.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_unknown"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REGISTRATION_TOKEN_INVALID",
+      "error": "REGISTRATION_TOKEN_INVALID",
+      "message": "This setup is no longer valid.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "register_again",
+    "next": "Delete local registration state. Start a new registration only if the human asks.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "register_again"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-approved",
+  "kind": "http",
+  "description": "The owner approved. Before activating, the helper shows workspaceName, the agent and its permissions to the human beside the host and waits for that human to confirm.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "registrationStatus",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "approved",
+      "target": "new_agent",
+      "workspaceName": "Example workspace",
+      "agent": {
+        "name": "Example agent",
+        "address": "example@envoi.mail"
+      },
+      "effectivePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "activationExpiresAt": "2026-10-12T12:13:00.000Z",
+      "approverEmailHint": "o***@example.com"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "CONFIRMING",
+    "retry": "none",
+    "guidance": "none",
+    "modelVisible": {
+      "state": "confirm_approval",
+      "registrationStatus": "approved",
+      "workspaceName": "Example workspace",
+      "agentName": "Example agent",
+      "agentAddress": "example@envoi.mail",
+      "permissionSummary": [
+        "send agent messages",
+        "receive agent messages"
+      ],
+      "approverEmailHint": "o***@example.com"
+    },
+    "next": "Ask the human beside the host to confirm the approver, workspace, agent and permissions, preferably in a host-native prompt. On confirmation, persist a new activationId privately, then POST /api/agent-installations/activate before activationExpiresAt. If the human declines, delete the bootstrap token and do not activate; the approval expires."
+  }
+}

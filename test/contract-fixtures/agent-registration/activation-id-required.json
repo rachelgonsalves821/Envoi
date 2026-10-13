@@ -1,0 +1,45 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-id-required",
+  "kind": "http",
+  "description": "Activation without a valid activationId. Nothing is consumed.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "invalidAgainst": "activationRequest",
+    "invalidBecause": {
+      "keyword": "required",
+      "instancePath": ""
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACTIVATION_ID_REQUIRED",
+      "error": "ACTIVATION_ID_REQUIRED",
+      "message": "This helper must be updated.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "update_helper",
+    "next": "Do not retry automatically. The helper is out of date.",
+    "modelVisible": {
+      "state": "needs_help",
+      "guidance": "update_helper"
+    }
+  }
+}

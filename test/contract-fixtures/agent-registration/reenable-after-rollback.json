@@ -1,0 +1,124 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "reenable-after-rollback",
+  "kind": "migration",
+  "description": "While the flags were off, the owner reconnected with Quick Connect, which revoked the new-flow family (replaced). Re-enabling derives status from the families, so exactly one installation is active.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "stored": {
+    "agents": [
+      {
+        "id": "agent_example",
+        "onboardingStatus": "approved",
+        "runtime": "hermes"
+      }
+    ],
+    "credentialFamilies": [
+      {
+        "id": "credential_family_9c9c9c9c-2222-4333-8444-955555555555",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-10-13T09:00:00.000Z",
+        "refreshExpiresAt": "2026-11-12T09:00:00.000Z",
+        "revokedAt": null,
+        "runtime": "hermes"
+      },
+      {
+        "id": "credential_family_5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-10-12T12:03:20.000Z",
+        "refreshExpiresAt": "2026-11-11T12:03:20.000Z",
+        "revokedAt": "2026-10-13T09:00:00.000Z",
+        "runtime": "hermes",
+        "installationId": "installation_example",
+        "revokedReason": "replaced"
+      }
+    ],
+    "installations": [
+      {
+        "id": "installation_example",
+        "agentId": "agent_example",
+        "credentialFamilyId": "credential_family_5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "registrationId": "registration_example",
+        "connectionRoute": "local_helper",
+        "deliveryMode": "envoi_link",
+        "runtime": {
+          "type": "hermes",
+          "version": "0.9.0"
+        },
+        "createdAt": "2026-10-12T12:03:20.000Z",
+        "activatedAt": "2026-10-12T12:03:20.000Z",
+        "replayDetectedAt": null
+      }
+    ]
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerInstallationList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "agentId": "agent_example",
+          "installations": [
+            {
+              "id": "installation_legacy_9c9c9c9c-2222-4333-8444-955555555555",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "hermes",
+                "version": null
+              },
+              "status": "active",
+              "endedReason": null,
+              "legacy": true,
+              "createdAt": "2026-10-13T09:00:00.000Z",
+              "activatedAt": "2026-10-13T09:00:00.000Z",
+              "endedAt": null
+            },
+            {
+              "id": "installation_example",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "hermes",
+                "version": "0.9.0"
+              },
+              "status": "ended",
+              "endedReason": "replaced",
+              "legacy": false,
+              "createdAt": "2026-10-12T12:03:20.000Z",
+              "activatedAt": "2026-10-12T12:03:20.000Z",
+              "endedAt": "2026-10-13T09:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner_ui",
+        "next": "The stored installation is shown ended because its family is revoked; nothing had to be reconciled."
+      }
+    }
+  ],
+  "client": {
+    "surface": "server",
+    "next": "Status, endedReason and endedAt are derived at read time (x-installation-derivation)."
+  }
+}

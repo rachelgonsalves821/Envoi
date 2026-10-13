@@ -1,0 +1,43 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-rejected",
+  "kind": "http",
+  "description": "Activation of a rejected registration.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REGISTRATION_ENDED",
+      "error": "REGISTRATION_ENDED",
+      "message": "The owner rejected this agent.",
+      "requestId": "req_example",
+      "reason": "rejected"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "owner_rejected",
+    "next": "Stop and delete local registration state.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "owner_rejected"
+    }
+  }
+}

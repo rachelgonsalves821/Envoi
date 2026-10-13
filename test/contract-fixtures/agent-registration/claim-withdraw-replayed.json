@@ -1,0 +1,32 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-withdraw-replayed",
+  "kind": "http",
+  "description": "The browser lost the withdraw response; the same human retries. The identical 200 is replayed.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-claims/registration_example/withdraw",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimWithdrawn",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "withdrawn"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show the approval as withdrawn."
+  }
+}

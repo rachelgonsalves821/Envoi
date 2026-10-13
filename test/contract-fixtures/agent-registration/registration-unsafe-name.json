@@ -1,0 +1,63 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-unsafe-name",
+  "kind": "http",
+  "description": "A requested name containing a bidirectional override is refused.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations",
+    "auth": "none",
+    "invalidAgainst": "registrationCreateRequest",
+    "invalidBecause": {
+      "keyword": "not",
+      "instancePath": "/requestedName"
+    },
+    "body": {
+      "requestedName": "Example\u202Etnega",
+      "requestedLocalPart": "example",
+      "requestedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "connectionRoute": "local_helper",
+      "runtime": {
+        "type": "hermes",
+        "version": "0.9.0"
+      },
+      "deliveryCapabilities": {
+        "persistentProcess": true,
+        "outboundHttps": true,
+        "sse": true,
+        "webhook": false,
+        "scheduledPolling": false,
+        "a2a": false
+      },
+      "helper": {
+        "name": "envoi-link",
+        "version": "1.0.0"
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REGISTRATION_INVALID",
+      "error": "REGISTRATION_INVALID",
+      "message": "The registration request is not valid.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "update_helper",
+    "next": "Do not retry with the same name.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "update_helper"
+    }
+  }
+}

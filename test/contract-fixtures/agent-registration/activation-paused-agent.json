@@ -1,0 +1,81 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-paused-agent",
+  "kind": "http",
+  "description": "Activation for an existing paused agent: earlier installations are replaced, permissions become the approved ones, and the agent stays paused (a3 §4).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "activated",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "installation": {
+        "id": "installation_example",
+        "agentId": "agent_example",
+        "connectionRoute": "local_helper",
+        "deliveryMode": "envoi_link",
+        "runtime": {
+          "type": "hermes",
+          "version": "0.9.0"
+        },
+        "status": "active",
+        "endedReason": null,
+        "legacy": false,
+        "createdAt": "2026-10-12T12:03:20.000Z",
+        "activatedAt": "2026-10-12T12:03:20.000Z",
+        "endedAt": null
+      },
+      "agent": {
+        "id": "agent_example",
+        "name": "Example agent",
+        "address": "example@envoi.mail",
+        "status": "paused"
+      },
+      "inboxId": "inbox_example",
+      "effectivePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "agentApiToken": "envoi_agent_access_PLACEHOLDER_example",
+      "agentRefreshToken": "envoi_agent_refresh_PLACEHOLDER_example",
+      "agentTokenExpiresAt": "2026-10-12T12:18:20.000Z",
+      "agentRefreshTokenExpiresAt": "2026-11-11T12:03:20.000Z",
+      "tokenType": "Bearer"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "ACTIVATING",
+    "retry": "none",
+    "guidance": "none",
+    "modelVisible": {
+      "registrationStatus": "activated",
+      "agentName": "Example agent",
+      "agentAddress": "example@envoi.mail",
+      "agentStatus": "paused",
+      "connectionRoute": "local_helper",
+      "deliveryMode": "envoi_link",
+      "permissionSummary": [
+        "send agent messages",
+        "receive agent messages"
+      ]
+    },
+    "next": "Hand over to the connector, which enters PAUSED (a3 §3). Never resume by itself."
+  }
+}

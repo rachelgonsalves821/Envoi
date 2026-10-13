@@ -1,0 +1,47 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-stale",
+  "kind": "http",
+  "description": "existing_agent whose current installation changed since the owner looked.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "target": {
+        "kind": "existing_agent",
+        "agentId": "agent_example",
+        "replacesInstallationId": "installation_legacy_0b6f8f9e-1c2d-4e5f-8a9b-0c1d2e3f4a5b"
+      },
+      "grantedPermissions": [
+        "send_agent_messages"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "CLAIM_STALE",
+      "error": "CLAIM_STALE",
+      "message": "This agent's connection changed. Review it again.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "reload_claim",
+    "next": "Reload the agent's installations and ask the owner to confirm again."
+  }
+}

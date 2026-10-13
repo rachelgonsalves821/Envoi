@@ -1,0 +1,63 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "owner-installations",
+  "kind": "http",
+  "description": "The owner lists an agent's installations: the current one first, then up to five ended ones, newest first.",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerInstallationList",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "agentId": "agent_example",
+      "installations": [
+        {
+          "id": "installation_example",
+          "agentId": "agent_example",
+          "connectionRoute": "local_helper",
+          "deliveryMode": "envoi_link",
+          "runtime": {
+            "type": "hermes",
+            "version": "0.9.0"
+          },
+          "status": "active",
+          "endedReason": null,
+          "legacy": false,
+          "createdAt": "2026-10-12T12:03:20.000Z",
+          "activatedAt": "2026-10-12T12:03:20.000Z",
+          "endedAt": null
+        },
+        {
+          "id": "installation_legacy_0b6f8f9e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+          "agentId": "agent_example",
+          "connectionRoute": "local_helper",
+          "deliveryMode": "envoi_link",
+          "runtime": {
+            "type": "openclaw",
+            "version": null
+          },
+          "status": "ended",
+          "endedReason": "replaced",
+          "legacy": true,
+          "createdAt": "2026-09-20T08:00:00.000Z",
+          "activatedAt": "2026-09-20T08:00:00.000Z",
+          "endedAt": "2026-10-12T12:03:20.000Z"
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show route, delivery mode and runtime as declared by the host. Connection wording still comes only from a5-presence."
+  }
+}

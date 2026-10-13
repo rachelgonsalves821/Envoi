@@ -1,0 +1,50 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-forbidden",
+  "kind": "http",
+  "description": "The human may not manage the chosen workspace (live owner/admin check). An unknown or foreign workspace gets the same answer.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "execute_cases"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 403,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "CLAIM_FORBIDDEN",
+      "error": "CLAIM_FORBIDDEN",
+      "message": "You cannot connect agents there.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "not_permitted",
+    "next": "Let the owner pick a workspace or agent they manage. The registration stays pending."
+  }
+}

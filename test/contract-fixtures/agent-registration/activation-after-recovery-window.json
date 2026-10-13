@@ -1,0 +1,42 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-after-recovery-window",
+  "kind": "http",
+  "description": "After the 300 s recovery window the token is a tombstone: a late retry, even with a different activationId, learns the registration was activated and must not register again. Revokes nothing.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_late_holder",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACTIVATION_RECOVERY_EXPIRED",
+      "error": "ACTIVATION_RECOVERY_EXPIRED",
+      "message": "Setup can no longer be recovered. Ask the owner to reconnect.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "NEEDS_RECONNECT",
+    "retry": "none",
+    "guidance": "owner_reconnect",
+    "next": "Do not register a new agent: one already exists. The owner reconnects it with a new registration (existing_agent).",
+    "modelVisible": {
+      "state": "needs_reconnect",
+      "guidance": "owner_reconnect"
+    }
+  }
+}

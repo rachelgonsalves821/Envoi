@@ -1,0 +1,50 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-account-changed",
+  "kind": "http",
+  "description": "The signed-in account changed in another tab before approval.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4D",
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "execute_cases"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACCOUNT_CHANGED",
+      "error": "ACCOUNT_CHANGED",
+      "message": "You signed in as someone else. Reload before continuing.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "reload_browser",
+    "next": "Reload the browser before doing anything else."
+  }
+}

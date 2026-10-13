@@ -1,0 +1,88 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "routes-disabled",
+  "kind": "http",
+  "description": "Default production state: both V2 flags off. Nothing is offered; Quick Connect stays the only path.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": false,
+    "ENVOI_INSTALLATIONS_V2": false,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/onboarding/routes",
+    "auth": "none"
+  },
+  "response": {
+    "status": 200,
+    "schema": "routeAvailability",
+    "headers": {
+      "cache-control": "public, max-age=60"
+    },
+    "body": {
+      "asOf": "2026-10-12T12:00:00.000Z",
+      "contract": {
+        "id": "agent-registration",
+        "version": 1
+      },
+      "registrationEnabled": false,
+      "installationsEnabled": false,
+      "routes": [
+        {
+          "connectionRoute": "local_helper",
+          "available": false
+        },
+        {
+          "connectionRoute": "remote_mcp_oauth",
+          "available": false
+        },
+        {
+          "connectionRoute": "provider_connector",
+          "available": false
+        },
+        {
+          "connectionRoute": "authenticated_rest",
+          "available": false
+        }
+      ],
+      "deliveryModes": [
+        {
+          "deliveryMode": "envoi_link",
+          "available": false
+        },
+        {
+          "deliveryMode": "webhook",
+          "available": false
+        },
+        {
+          "deliveryMode": "provider",
+          "available": false
+        },
+        {
+          "deliveryMode": "poll",
+          "available": false
+        },
+        {
+          "deliveryMode": "on_demand",
+          "available": false
+        },
+        {
+          "deliveryMode": "a2a",
+          "available": false
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "modelVisible": {
+      "state": "needs_help",
+      "guidance": "route_unavailable"
+    },
+    "next": "Tell the human agent-led setup is not available yet. Do not attempt registration."
+  }
+}

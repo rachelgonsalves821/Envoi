@@ -1,0 +1,42 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-recovery-expired",
+  "kind": "http",
+  "description": "The same activationId inside the window, but the installation has already ended (or the envelope cannot be decrypted).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACTIVATION_RECOVERY_EXPIRED",
+      "error": "ACTIVATION_RECOVERY_EXPIRED",
+      "message": "Setup can no longer be recovered. Ask the owner to reconnect.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "NEEDS_RECONNECT",
+    "retry": "none",
+    "guidance": "owner_reconnect",
+    "next": "Delete local registration state. The owner reconnects the same agent with a new registration.",
+    "modelVisible": {
+      "state": "needs_reconnect",
+      "guidance": "owner_reconnect"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-poll-too-fast",
+  "kind": "http",
+  "description": "Polling sooner than four seconds after the previous poll.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "errorEnvelope",
+    "headers": {
+      "retry-after": "5"
+    },
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Polling too quickly.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 5,
+      "reason": "poll_interval"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "DEGRADED",
+    "retry": "after_retry_after",
+    "guidance": "service_busy",
+    "next": "Wait retry-after, then poll at pollAfterSeconds.",
+    "modelVisible": {
+      "state": "degraded",
+      "guidance": "service_busy"
+    }
+  }
+}

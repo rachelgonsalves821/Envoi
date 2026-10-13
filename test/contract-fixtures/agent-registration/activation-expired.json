@@ -1,0 +1,43 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-expired",
+  "kind": "http",
+  "description": "Activation after the activation window closed. No agent was created; the held address and slot are released.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_7f3c9a1e",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "REGISTRATION_ENDED",
+      "error": "REGISTRATION_ENDED",
+      "message": "This setup expired.",
+      "requestId": "req_example",
+      "reason": "expired"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "register_again",
+    "next": "Delete local registration state. Register again only if the human asks.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "register_again"
+    }
+  }
+}

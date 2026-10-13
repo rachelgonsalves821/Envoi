@@ -1,0 +1,83 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "owner-claims",
+  "kind": "http",
+  "description": "The owner lists recent approvals whose target they can manage: their own (one waiting, one activated) and a co-manager's, which they may withdraw too.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-claims",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerClaimList",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "claims": [
+        {
+          "registrationId": "registration_example",
+          "status": "approved",
+          "target": "new_agent",
+          "agent": {
+            "name": "Example agent",
+            "address": "example@envoi.mail"
+          },
+          "effectivePermissions": [
+            "send_agent_messages",
+            "receive_agent_messages"
+          ],
+          "approvedAt": "2026-10-12T12:03:00.000Z",
+          "activationExpiresAt": "2026-10-12T12:13:00.000Z",
+          "installationId": null,
+          "approvedByMe": true
+        },
+        {
+          "registrationId": "registration_colleague",
+          "status": "approved",
+          "target": "existing_agent",
+          "agent": {
+            "id": "agent_colleague",
+            "name": "Quarterly research and procurement assistant for Quarterly research and procure…",
+            "address": "quarterly-research-and-procurement-assistant-v24@envoi.mail"
+          },
+          "effectivePermissions": [
+            "send_agent_messages",
+            "receive_agent_messages"
+          ],
+          "approvedAt": "2026-10-12T11:58:00.000Z",
+          "activationExpiresAt": "2026-10-12T12:08:00.000Z",
+          "installationId": null,
+          "approvedByMe": false
+        },
+        {
+          "registrationId": "registration_earlier",
+          "status": "activated",
+          "target": "existing_agent",
+          "agent": {
+            "id": "agent_other",
+            "name": "Other agent",
+            "address": "other@envoi.mail"
+          },
+          "effectivePermissions": [
+            "send_agent_messages",
+            "receive_agent_messages"
+          ],
+          "approvedAt": "2026-10-12T11:40:00.000Z",
+          "activationExpiresAt": "2026-10-12T11:50:00.000Z",
+          "installationId": "installation_other",
+          "approvedByMe": true
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Offer Withdraw on every approved entry, including a co-manager's. Activated entries link to the agent."
+  }
+}

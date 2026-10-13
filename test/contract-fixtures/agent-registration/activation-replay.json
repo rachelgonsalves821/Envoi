@@ -1,0 +1,42 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "activation-replay",
+  "kind": "http",
+  "description": "Inside the recovery window, a second activation with a different activationId: two holders of one bootstrap token. The installation is revoked.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-installations/activate",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    },
+    "schema": "activationRequest",
+    "body": {
+      "registrationId": "registration_example",
+      "activationId": "activation_other_holder",
+      "deliveryMode": "envoi_link"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACTIVATION_REPLAY",
+      "error": "ACTIVATION_REPLAY",
+      "message": "This setup was already used. Ask the owner to reconnect.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REVOKED",
+    "retry": "none",
+    "guidance": "owner_reconnect",
+    "next": "Stop. Holders of the installation get CREDENTIAL_REVOKED reason revoked. The owner reconnects.",
+    "modelVisible": {
+      "state": "revoked",
+      "guidance": "owner_reconnect"
+    }
+  }
+}

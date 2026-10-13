@@ -1,0 +1,73 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-created",
+  "kind": "http",
+  "description": "A local helper registers. Only the claim URL and code may be shown to the model.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations",
+    "auth": "none",
+    "schema": "registrationCreateRequest",
+    "body": {
+      "requestedName": "Example agent",
+      "requestedLocalPart": "example",
+      "requestedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "connectionRoute": "local_helper",
+      "runtime": {
+        "type": "hermes",
+        "version": "0.9.0"
+      },
+      "deliveryCapabilities": {
+        "persistentProcess": true,
+        "outboundHttps": true,
+        "sse": true,
+        "webhook": false,
+        "scheduledPolling": false,
+        "a2a": false
+      },
+      "helper": {
+        "name": "envoi-link",
+        "version": "1.0.0"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "registrationCreated",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "pending_claim",
+      "bootstrapToken": "envoi_reg_PLACEHOLDER_example",
+      "claim": {
+        "url": "https://www.envoi-agents.com/claim",
+        "verificationCode": "F7KQ-PM4D",
+        "expiresAt": "2026-10-12T12:10:00.000Z"
+      },
+      "expiresAt": "2026-10-12T12:10:00.000Z",
+      "pollAfterSeconds": 5
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "PENDING_CLAIM",
+    "retry": "poll_after",
+    "guidance": "wait_for_claim",
+    "modelVisible": {
+      "schemaVersion": "1",
+      "state": "pending_approval",
+      "registrationStatus": "pending_claim",
+      "claimUrl": "https://www.envoi-agents.com/claim",
+      "verificationCode": "F7KQ-PM4D",
+      "expiresInSeconds": 600,
+      "nextAction": "Open the claim page, sign in, type this code, and approve or reject. No agent access exists yet."
+    },
+    "next": "Store bootstrapToken privately, print only modelVisible, then poll every pollAfterSeconds."
+  }
+}

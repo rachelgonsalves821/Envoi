@@ -1,0 +1,61 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-lookup",
+  "kind": "http",
+  "description": "The owner types the code shown by the agent (any case, spaces allowed) and sees what the agent asked for.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-claims/lookup",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimLookupRequest",
+    "body": {
+      "verificationCode": "f7kq pm4d"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimLookup",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "verificationCode": "F7KQ-PM4D",
+      "requestedName": "Example agent",
+      "requestedLocalPart": "example",
+      "requestedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "grantablePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "connectionRoute": "local_helper",
+      "runtime": {
+        "type": "hermes",
+        "version": "0.9.0"
+      },
+      "deliveryCapabilities": {
+        "persistentProcess": true,
+        "outboundHttps": true,
+        "sse": true,
+        "webhook": false,
+        "scheduledPolling": false,
+        "a2a": false
+      },
+      "createdAt": "2026-10-12T12:00:00.000Z",
+      "expiresAt": "2026-10-12T12:10:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show the requested details as claims made by the agent, and how long ago it registered. The owner picks new or existing agent, permissions (from grantablePermissions) and policy, then approves or rejects."
+  }
+}

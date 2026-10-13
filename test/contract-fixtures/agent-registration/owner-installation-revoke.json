@@ -1,0 +1,46 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "owner-installation-revoke",
+  "kind": "http",
+  "description": "The owner revokes one installation. The agent identity is not frozen; a new registration can attach to it.",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/installations/installation_example/revoke",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "installationRevoked",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "installation": {
+        "id": "installation_example",
+        "agentId": "agent_example",
+        "connectionRoute": "local_helper",
+        "deliveryMode": "envoi_link",
+        "runtime": {
+          "type": "hermes",
+          "version": "0.9.0"
+        },
+        "status": "ended",
+        "endedReason": "revoked",
+        "legacy": false,
+        "createdAt": "2026-10-12T12:03:20.000Z",
+        "activatedAt": "2026-10-12T12:03:20.000Z",
+        "endedAt": "2026-10-12T12:05:00.000Z"
+      }
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Holders get CREDENTIAL_REVOKED reason revoked and credential.ended (a3 §2, §5)."
+  }
+}

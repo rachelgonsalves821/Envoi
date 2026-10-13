@@ -1,0 +1,50 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "claim-approve-wrong-code",
+  "kind": "http",
+  "description": "Approve with a code that does not match the registration. Counts as one claim failure.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations/registration_example/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "claimApproveRequest",
+    "body": {
+      "verificationCode": "F7KQ-PM4E",
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "execute_cases"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "CLAIM_CODE_INVALID",
+      "error": "CLAIM_CODE_INVALID",
+      "message": "That code is not valid. Check the code your agent shows.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "check_code",
+    "next": "Let the owner re-enter the code."
+  }
+}

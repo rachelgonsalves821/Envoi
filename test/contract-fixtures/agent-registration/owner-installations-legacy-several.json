@@ -1,0 +1,235 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "owner-installations-legacy-several",
+  "kind": "migration",
+  "description": "Legacy data from before the approve guard: two active legacy installations (one on an expired family) and six ended ones. The list shows both active installations first, newest first, then only the five newest ended ones.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "stored": {
+    "agents": [
+      {
+        "id": "agent_example",
+        "onboardingStatus": "approved"
+      }
+    ],
+    "credentialFamilies": [
+      {
+        "id": "credential_family_00000000-0000-4000-8000-000000000001",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-22T08:00:00.000Z",
+        "refreshExpiresAt": "2026-11-11T08:00:00.000Z",
+        "revokedAt": null,
+        "runtime": "openclaw"
+      },
+      {
+        "id": "credential_family_00000000-0000-4000-8000-000000000002",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-21T08:00:00.000Z",
+        "refreshExpiresAt": "2026-10-05T08:00:00.000Z",
+        "revokedAt": null,
+        "runtime": "openclaw"
+      },
+      {
+        "id": "credential_family_00000000-0000-4000-8000-000000000003",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-01T08:00:00.000Z",
+        "refreshExpiresAt": "2026-10-01T08:00:00.000Z",
+        "revokedAt": "2026-09-20T08:00:00.000Z",
+        "revokedReason": "refresh_replay"
+      },
+      {
+        "id": "credential_family_00000000-0000-4000-8000-000000000004",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-01T08:00:00.000Z",
+        "refreshExpiresAt": "2026-10-01T08:00:00.000Z",
+        "revokedAt": "2026-09-19T08:00:00.000Z"
+      },
+      {
+        "id": "credential_family_00000000-0000-4000-8000-000000000005",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-01T08:00:00.000Z",
+        "refreshExpiresAt": "2026-10-01T08:00:00.000Z",
+        "revokedAt": "2026-09-18T08:00:00.000Z",
+        "revokedReason": "replaced"
+      },
+      {
+        "id": "credential_family_00000000-0000-4000-8000-000000000006",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-01T08:00:00.000Z",
+        "refreshExpiresAt": "2026-10-01T08:00:00.000Z",
+        "revokedAt": "2026-09-17T08:00:00.000Z"
+      },
+      {
+        "id": "credential_family_00000000-0000-4000-8000-000000000007",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-01T08:00:00.000Z",
+        "refreshExpiresAt": "2026-10-01T08:00:00.000Z",
+        "revokedAt": "2026-09-16T08:00:00.000Z",
+        "revokedReason": "replaced"
+      },
+      {
+        "id": "credential_family_00000000-0000-4000-8000-000000000008",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-09-01T08:00:00.000Z",
+        "refreshExpiresAt": "2026-10-01T08:00:00.000Z",
+        "revokedAt": "2026-09-15T08:00:00.000Z"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerInstallationList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "agentId": "agent_example",
+          "installations": [
+            {
+              "id": "installation_legacy_00000000-0000-4000-8000-000000000001",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "openclaw",
+                "version": null
+              },
+              "status": "active",
+              "endedReason": null,
+              "legacy": true,
+              "createdAt": "2026-09-22T08:00:00.000Z",
+              "activatedAt": "2026-09-22T08:00:00.000Z",
+              "endedAt": null
+            },
+            {
+              "id": "installation_legacy_00000000-0000-4000-8000-000000000002",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "openclaw",
+                "version": null
+              },
+              "status": "active",
+              "endedReason": null,
+              "legacy": true,
+              "createdAt": "2026-09-21T08:00:00.000Z",
+              "activatedAt": "2026-09-21T08:00:00.000Z",
+              "endedAt": null
+            },
+            {
+              "id": "installation_legacy_00000000-0000-4000-8000-000000000003",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "unknown",
+                "version": null
+              },
+              "status": "ended",
+              "endedReason": "refresh_replay",
+              "legacy": true,
+              "createdAt": "2026-09-01T08:00:00.000Z",
+              "activatedAt": "2026-09-01T08:00:00.000Z",
+              "endedAt": "2026-09-20T08:00:00.000Z"
+            },
+            {
+              "id": "installation_legacy_00000000-0000-4000-8000-000000000004",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "unknown",
+                "version": null
+              },
+              "status": "ended",
+              "endedReason": "revoked",
+              "legacy": true,
+              "createdAt": "2026-09-01T08:00:00.000Z",
+              "activatedAt": "2026-09-01T08:00:00.000Z",
+              "endedAt": "2026-09-19T08:00:00.000Z"
+            },
+            {
+              "id": "installation_legacy_00000000-0000-4000-8000-000000000005",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "unknown",
+                "version": null
+              },
+              "status": "ended",
+              "endedReason": "replaced",
+              "legacy": true,
+              "createdAt": "2026-09-01T08:00:00.000Z",
+              "activatedAt": "2026-09-01T08:00:00.000Z",
+              "endedAt": "2026-09-18T08:00:00.000Z"
+            },
+            {
+              "id": "installation_legacy_00000000-0000-4000-8000-000000000006",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "unknown",
+                "version": null
+              },
+              "status": "ended",
+              "endedReason": "revoked",
+              "legacy": true,
+              "createdAt": "2026-09-01T08:00:00.000Z",
+              "activatedAt": "2026-09-01T08:00:00.000Z",
+              "endedAt": "2026-09-17T08:00:00.000Z"
+            },
+            {
+              "id": "installation_legacy_00000000-0000-4000-8000-000000000007",
+              "agentId": "agent_example",
+              "connectionRoute": "local_helper",
+              "deliveryMode": "envoi_link",
+              "runtime": {
+                "type": "unknown",
+                "version": null
+              },
+              "status": "ended",
+              "endedReason": "replaced",
+              "legacy": true,
+              "createdAt": "2026-09-01T08:00:00.000Z",
+              "activatedAt": "2026-09-01T08:00:00.000Z",
+              "endedAt": "2026-09-16T08:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner_ui",
+        "next": "Show every active installation; never truncate or hide one. The expired one shows a5-presence \"Needs reconnect\". A reconnect replaces all of them."
+      }
+    }
+  ],
+  "client": {
+    "surface": "owner_ui",
+    "next": "Clients must not assume a bound on active installations; only ended ones are capped at five."
+  }
+}

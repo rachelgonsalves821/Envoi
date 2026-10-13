@@ -1,0 +1,128 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "rollback-flags-off",
+  "kind": "rollback",
+  "description": "Both V2 flags turned off after an agent was activated through the new flow. The agent keeps working on its credential family; only the new routes disappear.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": false,
+    "ENVOI_INSTALLATIONS_V2": false,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false
+  },
+  "stored": {
+    "agents": [
+      {
+        "id": "agent_example",
+        "onboardingStatus": "approved",
+        "runtime": "hermes"
+      }
+    ],
+    "credentialFamilies": [
+      {
+        "id": "credential_family_5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-10-12T12:03:20.000Z",
+        "refreshExpiresAt": "2026-11-11T12:03:20.000Z",
+        "revokedAt": null,
+        "runtime": "hermes",
+        "installationId": "installation_example"
+      }
+    ],
+    "installations": [
+      {
+        "id": "installation_example",
+        "agentId": "agent_example",
+        "credentialFamilyId": "credential_family_5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "registrationId": "registration_example",
+        "connectionRoute": "local_helper",
+        "deliveryMode": "envoi_link",
+        "runtime": {
+          "type": "hermes",
+          "version": "0.9.0"
+        },
+        "createdAt": "2026-10-12T12:03:20.000Z",
+        "activatedAt": "2026-10-12T12:03:20.000Z",
+        "replayDetectedAt": null
+      }
+    ]
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/status",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "agentStatusWithInstallation",
+        "body": {
+          "state": "active",
+          "agent": {
+            "id": "agent_example",
+            "address": "example@envoi.mail",
+            "status": "active"
+          },
+          "inboxId": "inbox_example",
+          "asOf": "2026-10-12T12:05:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-10-12T12:05:00.000Z",
+            "lastSuccessfulRefreshAt": null,
+            "lastWorkClaimAt": "2026-10-12T12:05:00.000Z",
+            "lastProcessedAt": null
+          }
+        }
+      },
+      "client": {
+        "surface": "connector",
+        "lifecycle": "UNCHANGED",
+        "next": "No installation field; the connector keeps running."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent-installations/activate",
+        "auth": "bootstrap",
+        "headers": {
+          "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+        },
+        "schema": "activationRequest",
+        "body": {
+          "registrationId": "registration_example",
+          "activationId": "activation_7f3c9a1e",
+          "deliveryMode": "envoi_link"
+        }
+      },
+      "response": {
+        "status": 404,
+        "schema": "errorEnvelope",
+        "body": {
+          "code": "FEATURE_DISABLED",
+          "error": "FEATURE_DISABLED",
+          "message": "Agent-led setup is not available yet.",
+          "requestId": "req_example"
+        }
+      },
+      "client": {
+        "surface": "helper",
+        "lifecycle": "REGISTRATION_ENDED",
+        "retry": "none",
+        "guidance": "route_unavailable",
+        "next": "An approved but unactivated registration cannot finish; no agent was created, and the owner uses Quick Connect instead.",
+        "modelVisible": {
+          "state": "registration_ended",
+          "guidance": "route_unavailable"
+        }
+      }
+    }
+  ],
+  "client": {
+    "surface": "server",
+    "next": "Rollback writes nothing. Installation documents stay and are ignored."
+  }
+}

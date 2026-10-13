@@ -1,0 +1,38 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-rejected",
+  "kind": "http",
+  "description": "The owner rejected the registration.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "registrationStatus",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "rejected"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "owner_rejected",
+    "modelVisible": {
+      "state": "registration_ended",
+      "registrationStatus": "rejected",
+      "guidance": "owner_rejected"
+    },
+    "next": "Stop and delete the bootstrap token. Do not register again unless the human asks."
+  }
+}

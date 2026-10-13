@@ -1,0 +1,38 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-expired",
+  "kind": "http",
+  "description": "Nobody claimed within ten minutes, or nobody activated within ten minutes of approval.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent-registrations/registration_example",
+    "auth": "bootstrap",
+    "headers": {
+      "authorization": "Bearer envoi_reg_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "registrationStatus",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "registrationId": "registration_example",
+      "status": "expired"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "register_again",
+    "modelVisible": {
+      "state": "registration_ended",
+      "registrationStatus": "expired",
+      "guidance": "register_again"
+    },
+    "next": "Never repeat the expired code. Start one new registration only if the human asks."
+  }
+}
