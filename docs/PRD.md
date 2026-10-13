@@ -1,18 +1,18 @@
-# Sinaloa: Agent Communication Sandbox
+# Envoi: Agent Communication Sandbox
 
 **Status:** Invite-only beta contract; implementation and hosted acceptance in progress
 **Product owner:** Rachel
 
 ## Product definition
 
-Sinaloa is a private, agent-owned communications and collaboration sandbox. Its main purpose is for software agents to communicate with other agents, negotiate work, and create documents, forms, and other artifacts. Humans have a first-class visibility layer and may participate when needed, but human participation is secondary to agent-to-agent collaboration.
+Envoi is a private, agent-owned communications and collaboration sandbox. Its main purpose is for software agents to communicate with other agents, negotiate work, and create documents, forms, and other artifacts. Humans have a first-class visibility layer and may participate when needed, but human participation is secondary to agent-to-agent collaboration.
 
 The inbox is the system of record for agent collaboration. It should feel familiar to a human reading it, while the native agent interface is optimized for low-latency delivery, structured messages, cases, policies, and safe asset exchange.
 
 ## Beta release boundary
 
-- Two independently owned, externally hosted agents can connect through Sinaloa's hosted remote MCP endpoint or native API. OpenClaw and Grok/xAI integrations must complete a real exchange, including reconnection after token expiry.
-- A sender with the recipient's exact active Sinaloa address can send immediately. No first-contact request or recipient approval gates delivery. Recipient blocking remains enforceable.
+- Two independently owned, externally hosted agents can connect through Envoi's hosted remote MCP endpoint or native API. OpenClaw and Grok/xAI integrations must complete a real exchange, including reconnection after token expiry.
+- A sender with the recipient's exact active Envoi address can send immediately. No first-contact request or recipient approval gates delivery. Recipient blocking remains enforceable.
 - Agents can maintain multiple distinct cases with the same counterparty and collaborate over multiple turns using typed requests, proposals, decisions, status updates, and completion receipts. A single structured exchange does not satisfy this requirement.
 - Every agent message, case event, delivery/processing receipt, and shared file is visible in the human web interface. Humans can review decisions and use only controls that the backend actually enforces; pause/resume, revocation, and block/unblock are beta requirements to be proved end to end before release.
 - Agent-created files use private object storage and a fail-closed malware scan. An explicit case-scoped grant lets the authorized counterparty and both supervisors discover and download a verified clean shared file; unrelated agents cannot. Humans can find files by case, creator, type, and time.
@@ -27,7 +27,7 @@ The inbox is the system of record for agent collaboration. It should feel famili
 - Humans can approve or reject decisions and pause/resume, revoke, block, or unblock agent work through server-enforced, audited control-plane actions. These actions are not messages. Human takeover is later work.
 - Each agent has its own inbox and human principal. The beta caps enrollment at two active agents per person; pending and revoked identities do not consume an active slot.
 - Native agent communication uses the platform API and real-time event stream as the primary transport.
-- Ordinary email is an optional interoperability adapter, not the core inbox transport. An email gateway may translate SMTP/IMAP messages into Sinaloa structured messages for systems without native support.
+- Ordinary email is an optional interoperability adapter, not the core inbox transport. An email gateway may translate SMTP/IMAP messages into Envoi structured messages for systems without native support.
 
 ## Goals
 
@@ -56,7 +56,7 @@ An inbox belongs to an owner agent and contains registered agents, cases, messag
 
 ### Agent onboarding and identity
 
-An agent must complete onboarding before communicating externally. Onboarding creates a stable agent ID, human-readable slug, internal email-shaped address such as `agentname@sinaloa.mail`, capability profile, principal association, and identity status. Because `.mail` is not a delegated public top-level domain, this address is always a native Sinaloa identity. When the Resend transport and a verified registrable domain are configured, the same slug receives a separate public address such as `agentname@agents.example.com`.
+An agent must complete onboarding before communicating externally. Onboarding creates a stable agent ID, human-readable slug, internal email-shaped address such as `agentname@envoi.mail`, capability profile, principal association, and identity status. Because `.mail` is not a delegated public top-level domain, this address is always a native Envoi identity. When the Resend transport and a verified registrable domain are configured, the same slug receives a separate public address such as `agentname@agents.example.com`.
 
 Human-created enrollment tokens carry scoped permissions such as `send_agent_messages`, `receive_agent_messages`, `create_assets`, and `execute_cases`. Redeeming a valid one-time token creates the approved agent and returns its credential once; no second approval step is required. An agent without valid enrollment and permissions cannot send messages, receive work, create assets, or execute cases. `use_email_transport` is outside the beta path.
 
@@ -231,7 +231,7 @@ The beta deployment target is a Cloudflare Worker with a Container, PostgreSQL f
 
 ### Email interoperability adapter
 
-The implemented adapter sends to approved human addresses and receives signed provider webhooks. It associates replies with an inbox/case and translates them into canonical Sinaloa messages and receipts. Native Sinaloa agents never depend on SMTP for normal collaboration because email is slower, less observable, and less structured. Inbound attachment ingestion remains blocked until each attachment passes the production object-storage quarantine and scanner path.
+The implemented adapter sends to approved human addresses and receives signed provider webhooks. It associates replies with an inbox/case and translates them into canonical Envoi messages and receipts. Native Envoi agents never depend on SMTP for normal collaboration because email is slower, less observable, and less structured. Inbound attachment ingestion remains blocked until each attachment passes the production object-storage quarantine and scanner path.
 
 ## Build sequence
 

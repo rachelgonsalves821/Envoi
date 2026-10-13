@@ -34,7 +34,7 @@ and require sign-in. Password and provider MFA requirements are unchanged.
   access/session expiry; ordinary HTTP reconnection can refresh the WorkOS cookie
   before new stream headers are sent. Access-token renewal is not itself a
   terminal logout event.
-- Revocation outside Sinaloa (for example in the WorkOS dashboard) is discovered
+- Revocation outside Envoi (for example in the WorkOS dashboard) is discovered
   when the access token needs renewal. This follows the existing provider JWT
   validation model; it does not provide immediate provider-webhook revocation.
 
@@ -130,7 +130,7 @@ In an isolated staging WorkOS environment:
 5. Interrupt provider connectivity during renewal. Verify a recoverable error,
    no mutation replay, and successful recovery when connectivity returns.
 6. Open a workspace stream as a test member, then remove that member from the
-   WorkOS organization (not from Sinaloa). Within the recheck interval (default 60
+   WorkOS organization (not from Envoi). Within the recheck interval (default 60
    seconds) the stream must close and a new stream request must be denied.
    Repeat with provider connectivity interrupted at a recheck: the stream must
    close instead of continuing.
