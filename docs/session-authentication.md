@@ -7,7 +7,7 @@ and require sign-in. Password and provider MFA requirements are unchanged.
 
 ## Server behavior
 
-- `SINALOA_SESSION_HOURS` remains the fixed application session maximum (24 hours
+- `ENVOI_SESSION_HOURS` remains the fixed application session maximum (24 hours
   by default). Refresh does not move the maximum; WorkOS can enforce an earlier
   expiry. There is no new application inactivity timer.
 - Authentication resolves once per HTTP request. The rotated sealed cookie is
@@ -22,7 +22,7 @@ and require sign-in. Password and provider MFA requirements are unchanged.
 - Live streams check human session leases and local workspace membership before
   each event and heartbeat. WorkOS organization membership is rechecked on a
   schedule: an open stream reuses one WorkOS answer for at most
-  `SINALOA_STREAM_MEMBERSHIP_RECHECK_MS` (default 60 seconds) and then asks WorkOS
+  `ENVOI_STREAM_MEMBERSHIP_RECHECK_MS` (default 60 seconds) and then asks WorkOS
   again, so a person removed from the organization loses an open stream within
   about that long, not when the stream eventually closes. If WorkOS cannot be
   reached at a recheck, the stream closes rather than continuing on a stale

@@ -105,11 +105,11 @@ test('restore endpoints ignore credential changes and normalize direct/pooler al
 
 test('configuration requires operator attestations and forces verified production TLS independently', () => {
   const env = {
-    SINALOA_RESTORE_SOURCE_DATABASE_URL: 'postgresql://fixture:private@source.example/app',
-    SINALOA_RESTORE_TARGET_DATABASE_URL: 'postgresql://fixture:private@target.example/app',
-    SINALOA_RESTORE_SOURCE_QUIESCED: '1', SINALOA_RESTORE_TARGET_ISOLATED: '1',
-    SINALOA_DB_SSL_MODE: 'disable', SINALOA_AUTH_MODE: 'development',
-    SINALOA_RESTORE_SOURCE_DB_CA: 'source fixture CA', SINALOA_RESTORE_TARGET_DB_CA: 'target fixture CA'
+    ENVOI_RESTORE_SOURCE_DATABASE_URL: 'postgresql://fixture:private@source.example/app',
+    ENVOI_RESTORE_TARGET_DATABASE_URL: 'postgresql://fixture:private@target.example/app',
+    ENVOI_RESTORE_SOURCE_QUIESCED: '1', ENVOI_RESTORE_TARGET_ISOLATED: '1',
+    ENVOI_DB_SSL_MODE: 'disable', ENVOI_AUTH_MODE: 'development',
+    ENVOI_RESTORE_SOURCE_DB_CA: 'source fixture CA', ENVOI_RESTORE_TARGET_DB_CA: 'target fixture CA'
   };
   const options = validateRestoreConfiguration(env);
   assert.equal(options.source.ssl.rejectUnauthorized, true);
@@ -117,11 +117,12 @@ test('configuration requires operator attestations and forces verified productio
   assert.equal(options.source.ssl.ca, 'source fixture CA');
   assert.equal(options.target.ssl.ca, 'target fixture CA');
   assert.equal(options.source.max, 1);
-  const renamedEnv = Object.fromEntries(Object.entries(env).map(([key, value]) => [key.replace(/^SINALOA_/, 'ENVOI_'), value]));
-  assert.equal(validateRestoreConfiguration(renamedEnv).source.ssl.ca, 'source fixture CA');
-  assert.throws(() => validateRestoreConfiguration({ ...env, SINALOA_RESTORE_TARGET_ISOLATED: '0' }), { code: 'RESTORE_ATTESTATION_REQUIRED' });
-  assert.throws(() => validateRestoreConfiguration({ ...env, SINALOA_RESTORE_SOURCE_QUIESCED: undefined }), { code: 'RESTORE_ATTESTATION_REQUIRED' });
-  assert.throws(() => validateRestoreConfiguration({ ...env, SINALOA_RESTORE_SOURCE_DATABASE_URL: `${env.SINALOA_RESTORE_SOURCE_DATABASE_URL}?ssl=false` }), { code: 'RESTORE_CONFIGURATION_INVALID' });
+  // N2-config-2: the retired SINALOA_* names are refused rather than silently ignored.
+  const retiredEnv = Object.fromEntries(Object.entries(env).map(([key, value]) => [key.replace(/^ENVOI_/, 'SINALOA_'), value]));
+  assert.throws(() => validateRestoreConfiguration(retiredEnv), { code: 'RESTORE_RETIRED_SETTINGS' });
+  assert.throws(() => validateRestoreConfiguration({ ...env, ENVOI_RESTORE_TARGET_ISOLATED: '0' }), { code: 'RESTORE_ATTESTATION_REQUIRED' });
+  assert.throws(() => validateRestoreConfiguration({ ...env, ENVOI_RESTORE_SOURCE_QUIESCED: undefined }), { code: 'RESTORE_ATTESTATION_REQUIRED' });
+  assert.throws(() => validateRestoreConfiguration({ ...env, ENVOI_RESTORE_SOURCE_DATABASE_URL: `${env.ENVOI_RESTORE_SOURCE_DATABASE_URL}?ssl=false` }), { code: 'RESTORE_CONFIGURATION_INVALID' });
 });
 
 test('snapshot reads fixed tables using bounded stable pages inside a read-only repeatable transaction', async () => {
@@ -152,7 +153,7 @@ test('failed database reads always end the snapshot and return sanitized diagnos
 });
 
 test('CLI rejects missing private settings without printing inherited credentials or provider data', () => {
-  const env = { ...process.env, SINALOA_RESTORE_SOURCE_DATABASE_URL: '', SINALOA_RESTORE_TARGET_DATABASE_URL: '', SINALOA_RESTORE_SOURCE_QUIESCED: '', SINALOA_RESTORE_TARGET_ISOLATED: '', DATABASE_URL: 'postgresql://private:do-not-print@private.example/private' };
+  const env = { ...process.env, ENVOI_RESTORE_SOURCE_DATABASE_URL: '', ENVOI_RESTORE_TARGET_DATABASE_URL: '', ENVOI_RESTORE_SOURCE_QUIESCED: '', ENVOI_RESTORE_TARGET_ISOLATED: '', DATABASE_URL: 'postgresql://private:do-not-print@private.example/private' };
   const result = spawnSync(process.execPath, ['scripts/verify-restored-data.mjs'], { env, encoding: 'utf8' });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');

@@ -12,7 +12,7 @@ async function startServer(t, environment = {}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'sinaloa-session-test-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: '', SINALOA_PORT: '0', SINALOA_AUTH_MODE: 'development', SINALOA_DATA_DIR: dataDir, WORKOS_COOKIE_NAME: 'envoi_session', ENVOI_CSRF_COOKIE_NAME: 'envoi_csrf', ...environment },
+    env: { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, WORKOS_COOKIE_NAME: 'envoi_session', ENVOI_CSRF_COOKIE_NAME: 'envoi_csrf', ...environment },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const controllers = new Set();
@@ -207,7 +207,7 @@ test('logout revokes APIs and an open stream; repeated logout still clears brows
 });
 
 test('an idle open stream closes when its human session expires', async t => {
-  const server = await startServer(t, { SINALOA_SESSION_HOURS: String(5 / 3600) });
+  const server = await startServer(t, { ENVOI_SESSION_HOURS: String(5 / 3600) });
   const { session, expiresAt } = await signIn(server);
   const inbox = await createWorkspace(server, session);
   const stream = await openStream(server, session, inbox.id);

@@ -2,6 +2,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDeploymentConfiguration } from './check-deployment.mjs';
+import { CONTAINER_LEGACY_FALLBACKS } from '../worker/runtime-config.js';
+import { orphanedLegacyNames } from '../src/envoi-environment.js';
 
 export const RELEASE_ACCOUNT_ID = '54a5d6c680bd813fa60f8e088b098b8d';
 export const APP_SECRET_NAMES = Object.freeze([
@@ -14,10 +16,34 @@ export const APP_SECRET_NAMES = Object.freeze([
 export function requireSecretNames(inventory, required = APP_SECRET_NAMES) {
   if (!Array.isArray(inventory)) throw new Error('Worker secret inventory must be a JSON array');
   const names = new Set(inventory.filter(item => item?.type === 'secret_text').map(item => item.name));
-  const hasSecret = name => names.has(name) || (name.startsWith('ENVOI_') && names.has(`SINALOA_${name.slice('ENVOI_'.length)}`));
+  // N2-config-2: only the data encryption key may still be held under its SINALOA_* name, as the
+  // Worker forwards it (worker/runtime-config.js). Every other secret needs its ENVOI_* name.
+  const hasSecret = name => names.has(name) || (CONTAINER_LEGACY_FALLBACKS[name] !== undefined && names.has(CONTAINER_LEGACY_FALLBACKS[name]));
   const missing = required.filter(name => !hasSecret(name)
     && !(name === 'ENVOI_POLICY_SIGNING_KEY' && hasSecret('ENVOI_POLICY_SIGNING_KEYS')));
   if (missing.length) throw new Error(`Missing encrypted runtime secrets: ${missing.join(', ')}`);
+  // An optional secret (a policy keyring, a DB CA, a session token) held only as SINALOA_* would be
+  // dropped without an error, because the Worker no longer forwards it.
+  const orphaned = orphanedLegacyNames(names);
+  if (orphaned.length) throw new Error(`Encrypted runtime secrets held only under retired names: ${orphaned.join(', ')}; add their ENVOI_* twins`);
+}
+
+// Names and types of a Worker's encrypted secrets. Values are never fetched or logged.
+export function secretInventory({ cwd, env, run = spawnSync }, ...argv) {
+  const wrangler = resolve(cwd, 'node_modules/wrangler/bin/wrangler.js');
+  const result = run(process.execPath, [wrangler, 'secret', 'list', ...argv], {
+    cwd, env: { ...env, CLOUDFLARE_ACCOUNT_ID: RELEASE_ACCOUNT_ID }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
+  });
+  if (result.error || result.status !== 0) throw new Error('Could not verify encrypted secret names in the intended Cloudflare account');
+  try { return JSON.parse(result.stdout); }
+  catch { throw new Error('Worker secret inventory was not valid JSON'); }
+}
+
+// N2-config-2: beta still holds SINALOA_* secrets until its ENVOI_* twins are added (H-5). Every beta
+// deploy path checks names first, so code that no longer reads the old names cannot reach beta early.
+export function requireBetaSecretNames(inventory) {
+  requireSecretNames(inventory('--env', 'beta'));
+  requireSecretNames(inventory('--config', 'scanner/wrangler.beta.jsonc'), ['ENVOI_SCANNER_TOKEN']);
 }
 
 export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedFromMain, deploy = false }) {
@@ -31,7 +57,7 @@ export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedF
   if (deploy && sha !== mainSha) throw new Error('Live promotion requires HEAD to equal fetched origin/main; merge and fetch the reviewed fixes first');
   return {
     target, sha, accountId: RELEASE_ACCOUNT_ID, deploy,
-    args: ['deploy', '--env', target, '--var', `ENVOI_RELEASE_SHA:${sha}`, '--var', `SINALOA_RELEASE_SHA:${sha}`,
+    args: ['deploy', '--env', target, '--var', `ENVOI_RELEASE_SHA:${sha}`,
       ...(deploy ? [] : ['--dry-run', '--containers-rollout=none'])]
   };
 }
@@ -53,19 +79,9 @@ export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', 
   const wrangler = resolve(cwd, 'node_modules/wrangler/bin/wrangler.js');
   const workerEnv = { ...env, CLOUDFLARE_ACCOUNT_ID: RELEASE_ACCOUNT_ID };
   if (plan.deploy) {
-    // Secret list contains names/types only. Values are never fetched or logged.
-    const inventory = (...argv) => {
-      const result = spawnSync(process.execPath, [wrangler, 'secret', 'list', ...argv], {
-        cwd, env: workerEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
-      });
-      if (result.error || result.status !== 0) throw new Error('Could not verify encrypted secret names in the intended Cloudflare account');
-      try { return JSON.parse(result.stdout); }
-      catch { throw new Error('Worker secret inventory was not valid JSON'); }
-    };
-    requireSecretNames(inventory('--env', target));
-    if (target === 'beta') {
-      requireSecretNames(inventory('--config', 'scanner/wrangler.beta.jsonc'), ['ENVOI_SCANNER_TOKEN']);
-    }
+    const inventory = (...argv) => secretInventory({ cwd, env }, ...argv);
+    if (target === 'beta') requireBetaSecretNames(inventory);
+    else requireSecretNames(inventory('--env', target));
   }
   console.log(JSON.stringify({ target: plan.target, releaseSha: plan.sha, accountId: plan.accountId,
     action: plan.deploy ? 'deploy' : 'dry-run',

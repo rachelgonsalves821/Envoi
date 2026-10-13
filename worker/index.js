@@ -85,9 +85,7 @@ async function probeContainer(env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (env.ENVOI_EDGE_ALLOWED_HOSTS !== undefined && env.SINALOA_EDGE_ALLOWED_HOSTS !== undefined
-      && env.ENVOI_EDGE_ALLOWED_HOSTS !== env.SINALOA_EDGE_ALLOWED_HOSTS) return serviceUnavailableResponse();
-    if (!isAllowedHostname(url, env.ENVOI_EDGE_ALLOWED_HOSTS ?? env.SINALOA_EDGE_ALLOWED_HOSTS)) {
+    if (!isAllowedHostname(url, env.ENVOI_EDGE_ALLOWED_HOSTS)) {
       return new Response('Misdirected Request', {
         status: 421,
         headers: { 'cache-control': 'private, no-store' }

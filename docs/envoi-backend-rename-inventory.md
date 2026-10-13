@@ -1,6 +1,93 @@
 # Envoi backend rename inventory
 
+## N2-config-2: retired `SINALOA_*` settings (2026-10-13)
+
+**Names only. Never paste a value into chat, GitHub or docs.**
+
+### What changed
+
+**The server, Worker and scanner read only `ENVOI_*` names**, with one exception: `SINALOA_DATA_ENCRYPTION_KEY`.
+- It is still honoured as the source of `ENVOI_DATA_ENCRYPTION_KEY` (`src/envoi-environment.js`, `worker/runtime-config.js`).
+- Staging holds its key only under that name. The value cannot be read back from the dashboard, and the original is not recoverable with confidence.
+- If both names are set with different values, the server and Worker refuse to start, naming the settings only.
+
+**The server refuses any other `SINALOA_*` name, in every mode.**
+- That covers server start, production validation and the restore check.
+- Without the refusal, a deployment still holding `SINALOA_AUTH_MODE=production` would silently start in development mode.
+- The Cloudflare container never sees retired names, because the Worker forwards only `ENVOI_*` names (plus the key).
+- `scripts/preflight.mjs` lists leftover names as `retiredNames`, and fails for any that has no `ENVOI_*` twin.
+
+**Deploys stamp only `ENVOI_RELEASE_SHA`.** A kept dashboard `SINALOA_RELEASE_SHA` is no longer read. So it can no longer conflict, and it can be deleted.
+
+**Every beta deploy path checks secret names first.** That covers `promote-release.mjs`, `cf:deploy:beta`, `cf:deploy:scanner:beta` and `cf:deploy:scanner:staging`.
+- The app Worker must have the `ENVOI_*` twins of every secret except the data encryption key.
+- The beta scanner must have `ENVOI_SCANNER_TOKEN`.
+- No secret may be held only under a retired name. An optional secret (a policy keyring, a database CA, an S3 session token) would otherwise be dropped without any error.
+- So code that ignores the old names cannot reach beta before the H-5 dashboard step.
+
+**CI** sets `ENVOI_P2_SERVER_ENTRY`, paired on one SHA with Lane B's `integrations/agent-bridges/real-assets.test.ts`.
+
+**Live storage tests** use `ENVOI_RUN_LIVE_R2_TESTS`, `ENVOI_RUN_LIVE_SCANNER_TESTS` and `ENVOI_LIVE_*`.
+
+### Before the human merges (staging builds from the integration branch)
+
+**1. Staging app Worker `sinaloa-staging`.** Under Settings → Variables and Secrets, the only `SINALOA_*` names left must be:
+- `SINALOA_DATA_ENCRYPTION_KEY` (secret);
+- `SINALOA_RELEASE_SHA` (plain).
+
+Rachel's report of 2026-10-12 says so. Any other `SINALOA_X` needs its `ENVOI_X` twin first, or that setting is lost.
+
+**2. Staging scanner `sinaloa-scanner-staging`.** It must have `ENVOI_SCANNER_TOKEN`; the 2026-10-12 report says it does. The scanner code reaches that Worker only when someone deploys the scanner by hand.
+
+### After the merge (Lane A checks; the human signs in)
+
+- **`/health`:** `releaseSha` is the merge SHA and `configurationValidated` is `true`. Production validation requires `ENVOI_DATA_ENCRYPTION_KEY`, so this proves the key arrived through its legacy name.
+- **`/ready`:** `ready: true`, including the malware scanner.
+- **Sign-in:** browser sign-in works.
+
+### Rollback
+
+Revert the PR. The previous code still reads every `ENVOI_*` name it needs, plus `SINALOA_DATA_ENCRYPTION_KEY`. It also stamps both release-SHA names again. Nothing needs restoring in the dashboard, as long as `SINALOA_DATA_ENCRYPTION_KEY` has not been deleted, and it must not be until the key migration below is done.
+
+### Cleanup on staging (human, after the rollback window)
+
+Delete `SINALOA_RELEASE_SHA`. Keep `SINALOA_DATA_ENCRYPTION_KEY`.
+
+### Beta at H-5 (before any build containing N2-config-2 deploys to beta)
+
+**1. `sinaloa-beta`.** Add the `ENVOI_*` twin, with the same value, of each beta secret still held as `SINALOA_*`:
+- `BETA_INVITED_EMAILS`;
+- `POLICY_SIGNING_KEY` (or `POLICY_SIGNING_KEYS`);
+- `S3_ACCESS_KEY_ID`;
+- `S3_SECRET_ACCESS_KEY`;
+- `MALWARE_SCANNER_TOKEN`.
+
+A value that cannot be recovered is rotated: add the new value under `ENVOI_*` and delete the `SINALOA_*` name in the same change. Keep `SINALOA_DATA_ENCRYPTION_KEY` as it is. Beta's plain variables already come from `wrangler.jsonc` as `ENVOI_*` (N2-config-1). Any dashboard-only plain `SINALOA_*` variable needs its twin too.
+
+**2. `sinaloa-scanner-beta`.** Add `ENVOI_SCANNER_TOKEN`, with the same value as beta's `ENVOI_MALWARE_SCANNER_TOKEN`.
+
+**3. Deploy.** `promote-release.mjs beta <sha> --deploy` refuses with the missing names if step 1 or 2 is incomplete. After the deploy, check beta `/ready` and sign-in.
+
+**4. Clean up.** Delete the old beta `SINALOA_*` secrets except `SINALOA_DATA_ENCRYPTION_KEY`, then `SINALOA_RELEASE_SHA`.
+
+### Encryption key: its own migration task
+
+`ENVOI_DATA_ENCRYPTION_KEY` protects persistent data:
+- in `src/auth.js` (local auth): the phone lookup HMAC and the encrypted TOTP secrets;
+- calendar connector tokens (`src/server.js`, `connectorEncryptionKey`).
+
+It also salts the five-minute refresh-rotation recovery envelopes. A-4.x will derive the registration-code HMAC and activation envelopes from it too. Changing the value without migrating therefore locks out MFA and connectors and breaks lookups.
+
+**Options, decided by the human before anything is changed:**
+1. **Same value.** Someone with the authorized original enters it as `ENVOI_DATA_ENCRYPTION_KEY`. A wrong value is caught safely: the server refuses to start with "Conflicting Envoi environment settings", and deleting the new name restores service. Once it starts, delete `SINALOA_DATA_ENCRYPTION_KEY`. Lane A then removes the last fallback.
+2. **Rotate with a keyring (code task N2-key).** The new key goes in `ENVOI_DATA_ENCRYPTION_KEY` and the old one stays readable as `SINALOA_DATA_ENCRYPTION_KEY`. Reads try both, and lookups match either hash. A resumable job re-encrypts and re-indexes every protected record on PostgreSQL and FileStore. The old name is deleted only after the job reports zero remaining. This is the safe path when the old value is lost and the data must survive.
+3. **Staging only: reset.** Rotate the key and clear the data it protects. It is test data, but users must re-enroll MFA and reconnect calendars. This is never an option for beta.
+
+**Why:** dashboard secrets are write-only, and the original staging key was not recoverable with confidence (report of 2026-10-12).
+
 ## N2 configuration cutover checklist (2026-10-11)
+
+Steps 1–4 are done on staging (report of 2026-10-12). Steps 5–6 are superseded by N2-config-2 above: the data encryption key keeps its legacy name until its own migration.
 
 This is Envoi naming plan N2, tasks N2-config-1 → N2-config-dashboards → N2-config-2. **Names only: never paste a value into chat, GitHub or docs.**
 
@@ -46,7 +133,7 @@ Audited against `origin/main` at `376c760bc100b38c8f1c9f689875019f58327724` on 2
 ## Changed in code without a live cutover
 
 - Human-readable process logs, the private npm package name, WorkOS metadata on newly created organizations, MCP server display name, and `/health`/`/ready` `service` now say Envoi. The deployment smoke script accepts either service label while older releases remain live.
-- Backend code reads `ENVOI_*` names; the Container startup, migration entry point, production validator, and PostgreSQL option builder accept existing `SINALOA_*` settings through a conflict-detecting compatibility layer. The Worker allowlist forwards `ENVOI_*`, falling back to old dashboard names. The scanner accepts either token name, but refuses conflicting tokens.
+- Backend code reads `ENVOI_*` names. Until N2-config-2, a conflict-detecting compatibility layer also accepted `SINALOA_*` settings, and the Worker fell back to old dashboard names. Since N2-config-2 only `SINALOA_DATA_ENCRYPTION_KEY` is still honoured, and any other `SINALOA_*` name is refused (see the top of this file). The scanner reads only `ENVOI_SCANNER_TOKEN`; deploy it with `cf:deploy:scanner:staging` or `cf:deploy:scanner:beta`, which check that name first.
 - The development-only agent domain defaults to `envoi.mail`; production already uses `agents.envoi-agents.com`. This does not migrate previously stored development addresses.
 
 ## Runtime environment keys: rename only as one coordinated migration
