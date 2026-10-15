@@ -4,6 +4,8 @@ This is the executable preparation for [v3 §29](../../docs/architecture/agent-n
 
 This Phase A run does not depend on the Phase B registration-contract correction. The candidate must contain the #84 server evidence and its paired #85 browser event update before the run. [PHASE-A-SESSION-PREP.md](PHASE-A-SESSION-PREP.md) requires a fresh candidate preflight, private provider check, owner responsibilities and a new human-confirmed session time; it is not hosted acceptance evidence.
 
+[Beta runtime reliability acceptance](BETA-RUNTIME-ACCEPTANCE.md) explicitly tracks the observed tool-discovery and process-continuity failures. Repairs restored operation but do not establish connector-only restart or unattended recovery. Keep these probes and their evidence separate; a Gateway-assisted repair cannot pass steps 3–4.
+
 ## 0. Freeze the candidate
 
 Run on a clean checkout of the selected integration candidate. The gate driver itself may be on a separate branch; its preflight compares all production sources with `--sha`, excluding only `integrations/gates/**`.

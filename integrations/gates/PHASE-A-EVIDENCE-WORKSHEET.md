@@ -2,6 +2,8 @@
 
 This blank Lane B worksheet aligns with [Lane A's phase-a-TEMPLATE.md](../../docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md) from #84. Use the [operator runbook](PHASE-A-HOSTED-RUNBOOK.md) for all 23 observations on one exact paired integration SHA. Lane A owns the authoritative `phase-a-<sha>.md`; the human countersigns. **Every row starts UNPROVEN.**
 
+Record the independent tool-discovery/process-continuity probes in [BETA-RUNTIME-ACCEPTANCE.md](BETA-RUNTIME-ACCEPTANCE.md). Connector-only restart remains UNPROVEN after a Gateway-assisted repair. For rows 3–4 retain before/after Gateway PID identity, private owner timestamps, the offline delivered message ID, the original credential family, and exactly-one processing/reply evidence; do not infer success from presence labels or historical status files.
+
 ## Run header
 
 | Field | Record without secrets |
