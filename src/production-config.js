@@ -1,6 +1,7 @@
 import { scannerHealthUrl } from './dependency-readiness.js';
 import { createPostgresOptions } from './postgres-options.js';
 import { applyLegacyEnvironmentFallbacks, retiredEnvironmentNames } from './envoi-environment.js';
+import { isDeploymentName } from './deployment-identity.js';
 
 const required = (env, name, errors, minimumLength = 1) => {
   const value = String(env[name] || '').trim();
@@ -29,6 +30,12 @@ export function validateProductionConfiguration(env = process.env) {
   if (env.ENVOI_AUTH_MODE !== 'production') return { mode: env.ENVOI_AUTH_MODE || 'development', validated: false };
   const errors = [];
   if (env.ENVOI_RELEASE_SHA !== undefined && !/^[a-f0-9]{40}$/.test(env.ENVOI_RELEASE_SHA)) errors.push('ENVOI_RELEASE_SHA must be a full lowercase 40-character Git commit SHA');
+  // The name this deployment stamps on its database (src/deployment-identity.js). wrangler.jsonc
+  // sets it per environment; without it two deployments could share one database unnoticed.
+  const deploymentEnvironment = required(env, 'ENVOI_DEPLOYMENT_ENVIRONMENT', errors);
+  if (deploymentEnvironment && !isDeploymentName(deploymentEnvironment)) errors.push('ENVOI_DEPLOYMENT_ENVIRONMENT must be a lowercase deployment name such as staging or beta');
+  const reassignFrom = env.ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM;
+  if (reassignFrom !== undefined && (!isDeploymentName(reassignFrom) || reassignFrom === deploymentEnvironment)) errors.push('ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM must name a different deployment');
   const publicUrl = httpsUrl(required(env, 'ENVOI_PUBLIC_URL', errors), 'ENVOI_PUBLIC_URL', errors);
   const databaseUrl = required(env, 'DATABASE_URL', errors);
   if (databaseUrl) {
@@ -190,5 +197,5 @@ export function validateProductionConfiguration(env = process.env) {
   if (env.ENVOI_SCAN_RETRY_BASE_MS !== undefined && env.ENVOI_SCAN_RETRY_MAX_MS !== undefined && Number(env.ENVOI_SCAN_RETRY_BASE_MS) > Number(env.ENVOI_SCAN_RETRY_MAX_MS)) errors.push('ENVOI_SCAN_RETRY_BASE_MS must not exceed ENVOI_SCAN_RETRY_MAX_MS');
 
   if (errors.length) throw new Error(`Invalid production configuration:\n- ${[...new Set(errors)].join('\n- ')}`);
-  return { mode: 'production', validated: true, publicOrigin: publicUrl.origin, corsOrigins: origins, platformDomain, externalEmailEnabled, emailDomain, objectStorageProvider: 's3', humanAuthProvider: 'workos', databaseTlsMode: 'verify-full', policyActiveKeyId };
+  return { mode: 'production', validated: true, deploymentEnvironment, publicOrigin: publicUrl.origin, corsOrigins: origins, platformDomain, externalEmailEnabled, emailDomain, objectStorageProvider: 's3', humanAuthProvider: 'workos', databaseTlsMode: 'verify-full', policyActiveKeyId };
 }

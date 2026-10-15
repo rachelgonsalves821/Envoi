@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { runMigrations } from './migrations.js';
 import { createPostgresOptions } from './postgres-options.js';
 import { normalizeDocumentPath } from './path-safety.js';
+import { DEPLOYMENT_IDENTITY_PATH } from './deployment-identity.js';
 
 const { Pool } = pg;
 const likePrefix = relative => `${normalizeDocumentPath(relative).replace(/[\\%_]/g, value => `\\${value}`)}/%`;
@@ -119,8 +120,16 @@ export class PostgresStore {
     const result = await this.query(`SELECT * FROM sinaloa_outbox ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT $${values.length}`, values);
     return result.rows.map(row => this.rowToOutbox(row));
   }
-  async claimOutbox(workerId, leaseMs = 30_000) {
+  // With deploymentEnvironment, nothing is claimed unless the database is stamped for that
+  // deployment, checked in the same statement (src/deployment-identity.js).
+  async claimOutbox(workerId, leaseMs = 30_000, { deploymentEnvironment = null } = {}) {
     const leaseToken = crypto.randomUUID();
+    const values = [workerId, leaseMs, leaseToken];
+    let identityCondition = '';
+    if (deploymentEnvironment) {
+      values.push(DEPLOYMENT_IDENTITY_PATH, deploymentEnvironment);
+      identityCondition = `AND EXISTS (SELECT 1 FROM sinaloa_documents AS identity WHERE identity.path = $4 AND identity.value->>'environment' = $5)`;
+    }
     const result = await this.query(`WITH candidate AS (
       SELECT pending.id FROM sinaloa_outbox AS pending
       WHERE ((pending.status IN ('queued', 'retrying') AND pending.available_at <= NOW())
@@ -132,12 +141,13 @@ export class PostgresStore {
           AND earlier.status NOT IN ('delivered', 'deadLettered', 'cancelled')
           AND earlier.delivery_sequence < pending.delivery_sequence
       )
+      ${identityCondition}
       ORDER BY pending.available_at, pending.delivery_sequence
       FOR UPDATE SKIP LOCKED LIMIT 1
     )
     UPDATE sinaloa_outbox AS outbox
     SET status = 'processing', locked_at = NOW(), locked_by = $1, updated_at = NOW(), value = value || jsonb_build_object('leaseToken', $3::text)
-    FROM candidate WHERE outbox.id = candidate.id RETURNING outbox.*`, [workerId, leaseMs, leaseToken]);
+    FROM candidate WHERE outbox.id = candidate.id RETURNING outbox.*`, values);
     return this.rowToOutbox(result.rows[0]);
   }
   async assertOutboxLease(client, id, lease) {
