@@ -4,6 +4,20 @@ import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolvePathWithin } from './path-safety.js';
 
+// Windows refuses to replace a file that another process has open, for example a reader or an
+// antivirus or indexer scan. The rename is retried briefly (about 2.5 s in total) instead of
+// failing the whole transaction.
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+async function replaceFile(temporary, target) {
+  for (let delayMs = 10; ; delayMs *= 2) {
+    try { return await rename(temporary, target); }
+    catch (error) {
+      if (process.platform !== 'win32' || !RENAME_RETRY_CODES.has(error.code) || delayMs > 1280) throw error;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 export class FileStore {
   constructor(root) {
     this.root = path.resolve(root);
@@ -46,7 +60,7 @@ export class FileStore {
     const temporary = `${target}.${crypto.randomUUID()}.tmp`;
     try {
       await writeFile(temporary, content, { flag: 'wx' });
-      await rename(temporary, target);
+      await replaceFile(temporary, target);
     } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
   }
 
