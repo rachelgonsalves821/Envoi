@@ -70,6 +70,8 @@ The rules:
 - [ ] CI is green on `C`.
 - [ ] `origin/main` is still an ancestor of `C`. It was on 2026-10-13, so the merge introduces nothing that the gate did not test.
 - [ ] Lane A posts the exact merge PR on the board.
+- [ ] **Beta and staging use separate databases.** On 2026-10-15 they shared one, and beta's worker dead-lettered a staging delivery (Gate GA, PAUSE-2). Probe, unauthenticated: take an inbox id that exists only on staging, such as the Gate GA test agent's, and `GET https://www.envoi-agents.com/api/inboxes/<id>/cases`. It must return `404`, the same as a made-up id. `401` means beta can see staging's data. Stop: the human gives each its own `DATABASE_URL` database first, then the probe is rerun.
+  - With the deployment-identity guard (PR #91) at `C`, each server stamps its database with `ENVOI_DEPLOYMENT_ENVIRONMENT` (`wrangler.jsonc`) and refuses one stamped by the other deployment. If the database beta keeps was already stamped `staging`, set the plain variable `ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM=staging` on `sinaloa-beta` for the first start only, after the probe passes, and delete it once `/ready` reports `deploymentEnvironment: beta`.
 
 ## Merge and deploy
 
@@ -97,7 +99,7 @@ npm run smoke:deployment -- https://www.envoi-agents.com/ <M>
 ```
 The smoke script checks `/health` and `/ready` (production mode, `configurationValidated`, ready, exact `releaseSha`), `/api/auth/config`, the page at `/` and the WorkOS redirect. Check the rest by hand:
 - [ ] `/health` says `service: envoi`. The smoke script also accepts the old `sinaloa`. `configurationValidated: true` proves the encryption key arrived through its legacy name.
-- [ ] `/ready`: database, object storage and malware scanner each `ready`.
+- [ ] `/ready`: database, object storage and malware scanner each `ready`. With the deployment-identity guard, also `deploymentIdentity` `ready` and `deploymentEnvironment: beta`.
 - [ ] `/web/downloads/release.json` lists `envoi-connector.mjs` and `envoi-openclaw.mjs`, and the SHA-256 of each file served from `/web/downloads/` matches it. Lane B's preflight already checks this for staging.
 
 **9. Browser (human).**
