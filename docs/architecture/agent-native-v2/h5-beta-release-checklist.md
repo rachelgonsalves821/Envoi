@@ -111,7 +111,7 @@ The smoke script checks `/health` and `/ready` (production mode, `configurationV
 **10. Agents (human, with Lane B).** For each existing beta test agent:
 - [ ] download the new connector from beta's `/web/downloads/`;
 - [ ] reconnect it from the owner UI;
-- [ ] confirm it reaches `CONNECTED`;
+- [ ] confirm the connector status command reports `running`, then after a real work-loop check-in confirm the owner UI shows `Active · Seen recently`;
 - [ ] send one message and get one processed reply.
 
 ## Close out
