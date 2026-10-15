@@ -8,6 +8,7 @@ export class DeliveryWorker {
     store,
     deliver,
     prepare = async () => ({}),
+    observe = () => {},
     onFailure = async () => ({ documents: [] }),
     onHold = async () => ({ documents: [] }),
     onHeld = async () => {},
@@ -21,6 +22,7 @@ export class DeliveryWorker {
     this.store = store;
     this.deliver = deliver;
     this.prepare = prepare;
+    this.observe = (...args) => { try { observe(...args); } catch { /* telemetry cannot affect delivery */ } };
     this.onFailure = onFailure;
     this.onHold = onHold;
     this.onHeld = onHeld;
@@ -45,6 +47,7 @@ export class DeliveryWorker {
   start() {
     if (this.running) return;
     this.running = true;
+    this.observe('started');
     this.kick();
   }
 
@@ -82,6 +85,7 @@ export class DeliveryWorker {
   async processOne() {
     const record = await this.store.claimOutbox(this.workerId, this.leaseMs);
     if (!record) return false;
+    this.observe('claimed', record);
     let lockKeys = [record.senderInboxId, record.recipientInboxId].filter(Boolean).map(inboxId => `inbox:${inboxId}:mutations`);
     let context;
     let notification;
@@ -95,7 +99,7 @@ export class DeliveryWorker {
         return { settled, events: outcome.events || [] };
       });
     } catch (error) {
-      if (error?.code === 'LEASE_LOST') return true;
+      if (error?.code === 'LEASE_LOST') { this.observe('lease_lost', record); return true; }
       // A hold (for example a paused sender) parks the record without using an attempt.
       if (error?.hold) {
         try {
@@ -105,10 +109,12 @@ export class DeliveryWorker {
             return { settled, events: held.events || [] };
           });
         } catch (holdError) { if (holdError?.code === 'LEASE_LOST') return true; throw holdError; }
+        this.observe('settled', notification.settled);
         await this.onSettled(notification.settled, notification.events);
         await this.onHeld(notification.settled);
         return true;
       }
+      this.observe('rejected', { ...record, reasonCode: error?.reasonCode });
       const attempt = Number(record.attempts || 0) + 1;
       const deadLettered = Boolean(error?.permanent) || attempt >= Number(record.maxAttempts || 5);
       const nextAttemptAt = new Date(Date.now() + this.retryDelay(attempt)).toISOString();
@@ -121,6 +127,7 @@ export class DeliveryWorker {
       }
       catch (failureError) { if (failureError?.code === 'LEASE_LOST') return true; throw failureError; }
     }
+    this.observe('settled', notification.settled);
     await this.onSettled(notification.settled, notification.events);
     return true;
   }

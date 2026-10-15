@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { createConsumerIdentity } from '../src/consumer-identity.js';
+import { inspectQueueConsumers } from '../scripts/queue-consumers.mjs';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { PostgresStore } from '../src/postgres-storage.js';
@@ -338,4 +340,21 @@ test('PostgreSQL retained upload quota survives generic reaping and is released 
   assert.equal((await metadataStore.get(started.object.id)).state, 'deleted');
   assert.deepEqual(calls, ['delete', 'seal', 'delete', 'seal']);
   await assert.rejects(() => service.completeUpload(started.object.id), { code: 'UPLOAD_REJECTED' });
+});
+
+
+test('PostgreSQL reports the stamped consumer identity on its actual session', { skip: !process.env.DATABASE_URL }, async t => {
+  const identity = createConsumerIdentity({ connectionString: process.env.DATABASE_URL, releaseSha: 'a'.repeat(40) });
+  const store = new PostgresStore(process.env.DATABASE_URL, { applicationName: identity.applicationName });
+  t.after(() => store.close());
+  await store.init();
+  const result = await store.pool.query("SELECT application_name FROM pg_stat_activity WHERE pid = pg_backend_pid()");
+  assert.equal(result.rows[0].application_name, identity.applicationName);
+  const client = await store.pool.connect();
+  try {
+    const inventory = await inspectQueueConsumers(client);
+    assert.ok(Array.isArray(inventory.connections));
+    assert.ok(Array.isArray(inventory.leases));
+    assert.equal((await client.query('SHOW transaction_read_only')).rows[0].transaction_read_only, 'off');
+  } finally { client.release(); }
 });
