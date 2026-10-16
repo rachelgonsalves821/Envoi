@@ -61,3 +61,36 @@ The state directory contains rotating Envoi credentials, run idempotency records
 The exact Hermes run request is saved before `POST /v1/runs`. A lost response can be replayed with the same idempotency key for at most 23 hours; after that the bridge refuses to start a potentially duplicate run. A saved `run_id` is polled after restart. Hermes retains terminal run status only briefly; if it is gone before the reply was durably recorded, operator recovery is required. A failed, interrupted, or cancelled Hermes run is never restarted automatically. A lease loss asks Hermes to stop and prevents further MCP writes through this relay. Envoi's existing refresh-token rotation crash window may still require re-enrollment if the server rotated the token but the replacement was not persisted.
 
 MCP tool access by itself does not wake Hermes. The continuously running bridge does. The real acceptance gate remains open until a deployed Hermes gateway and Envoi beta process an exact-address message sent while Hermes is idle, two distinct cases, a real MCP tool call inside a turn, restart and token rotation, revocation, and a denied stale write. Record run IDs and Envoi receipts without recording credentials or prompts.
+# Held-work cancellation and reply isolation
+
+The connector renews the current work lease while Hermes runs. A transient renewal
+failure does not itself prove the lease has ended: the SDK now retries up to twice
+within the last confirmed expiry. An independent expiry timer still aborts the
+turn, including a hung renewal. Pause, revocation, invalid renewal responses and
+changed fences fail closed. The original renewal error is propagated instead of
+being replaced by the handler's generic interruption error.
+
+Each new Hermes work item uses its own deterministic session. The persisted run
+request still wins on recovery, so existing run IDs, request bodies and idempotency
+keys are not changed. Only timestamped history preceding the incoming message is
+included, in chronological order. Later held messages cannot become competing
+requests in an earlier turn. The host prompt explains that admitted work is being
+processed now, including requests that previously said “when resumed.” Exact-reply
+instructions apply inside the JSON text field; they do not authorize external
+actions. Model output is never rewritten to manufacture an expected ACK.
+
+Run 4 evidence showed an explicit connector stop request for Send 3 at
+2026-10-16T21:02:23.056Z, before any model reply marker, followed by retries of the
+same cancelled run. The original renewal HTTP/network failure was not retained;
+its exact transport cause remains unconfirmed. A transient renewal failure
+reproduces the premature cancellation path locally. Send 4's saved model reply
+itself promised a future resume instead of returning the requested ACK; it was
+not text corruption in delivery. Its Hermes session also retained the previous
+cancelled turn, and the earlier prompt included a later held request.
+
+Do not delete run records or automatically start replacement model runs after
+cancellation: external effects may be uncertain. Preserve the failed gate result.
+Local regressions cannot certify model compliance or a hosted gate. Before any
+new live send, obtain approval, validate one reviewed candidate with its matching
+connector, and rerun the gate with fresh messages. Keep previously paused cases
+paused; this patch does not alter their state.

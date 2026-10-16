@@ -60,7 +60,7 @@ describe('Hermes automatic run bridge', () => {
     } finally { await state.cleanup(); }
   });
 
-  it('recovers an existing run ID without creating another run, and keeps cases in separate Hermes sessions', async () => {
+  it('recovers an existing run ID without creating another run, and isolates successive work in the same case', async () => {
     const state = await fixture();
     try {
       const bodies: Array<Record<string, string>> = [];
@@ -80,7 +80,7 @@ describe('Hermes automatic run bridge', () => {
       await expect(make()(message('msg_1', 'case_1'), new AbortController().signal)).rejects.toThrow('poll lost');
       expect((await state.runs.load('msg_1'))?.runId).toBe('run_1');
       await expect(make()(message('msg_1', 'case_1'), new AbortController().signal)).resolves.toEqual({ stop: true });
-      await expect(make()(message('msg_2', 'case_2'), new AbortController().signal)).resolves.toEqual({ stop: true });
+      await expect(make()(message('msg_2', 'case_1'), new AbortController().signal)).resolves.toEqual({ stop: true });
       expect(bodies).toHaveLength(2);
       expect(bodies[0].session_id).not.toBe(bodies[1].session_id);
     } finally { await state.cleanup(); }
@@ -101,10 +101,10 @@ describe('Hermes automatic run bridge', () => {
     } finally { await state.cleanup(); }
   });
 
-  it('never restarts a failed run, rejects malformed output, and requests stop on lease loss', async () => {
+  it.each(['failed', 'cancelled'] as const)('never restarts a %s run, rejects malformed output, and requests stop on lease loss', async initialStatus => {
     const state = await fixture();
     try {
-      let status: 'failed' | 'completed' | 'running' = 'failed';
+      let status: 'failed' | 'cancelled' | 'completed' | 'running' = initialStatus;
       const calls: string[] = [];
       const fetcher = vi.fn<typeof fetch>(async (url) => {
         const pathname = new URL(String(url)).pathname;
@@ -115,7 +115,8 @@ describe('Hermes automatic run bridge', () => {
       });
       const make = () => hermesTurn({ apiUrl: 'http://127.0.0.1:8642', apiKey: 'key', agentId: 'hermes_agent',
         runs: state.runs, replies: state.replies, fetch: fetcher, pollIntervalMs: 1 });
-      await expect(make()(message('msg_1', 'case_1'), new AbortController().signal)).rejects.toThrow('ended failed');
+      await expect(make()(message('msg_1', 'case_1'), new AbortController().signal)).rejects.toThrow(`ended ${initialStatus}`);
+      await expect(make()(message('msg_1', 'case_1'), new AbortController().signal)).rejects.toThrow(`ended ${initialStatus}`);
       expect(calls.filter(pathname => pathname === '/v1/runs')).toHaveLength(1);
       status = 'completed';
       await expect(make()(message('msg_1', 'case_1'), new AbortController().signal)).rejects.toThrow('invalid reply');

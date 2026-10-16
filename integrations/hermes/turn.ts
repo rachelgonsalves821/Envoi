@@ -75,7 +75,7 @@ export function hermesTurn(options: HermesTurnOptions): AgentTurn {
           allowEnvoiMcpWrites: options.allowEnvoiMcpWrites,
           assetHandles: options.assetHandles
         }),
-        session_id: sessionId(options.agentId, message.caseId || message.id)
+        session_id: sessionId(options.agentId, message.id)
       };
       let record = await options.runs.create(message.id, request);
       runId = record.runId;

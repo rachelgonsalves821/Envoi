@@ -538,6 +538,89 @@ describe('Envoi outbound connector', () => {
     } finally { stop.abort(); }
   });
 
+  it.each(['network', '503'])('survives one transient %s renewal failure without cancelling or rerunning work', async failure => {
+    vi.useFakeTimers();
+    try {
+      const memory = memoryStore(session());
+      let renewals = 0;
+      const process = vi.fn(async (_message, context) => {
+        await new Promise(resolve => setTimeout(resolve, 650));
+        expect(context.signal.aborted).toBe(false);
+      });
+      const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+        const route = String(url);
+        if (route.endsWith('/claim')) return Response.json({ work: {
+          workId: 'work_one', message: { id: 'msg_one', recipientAgentId: 'agent_one', from: { address: 'two@envoi.mail' }, text: 'hello', status: 'delivered' },
+          leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 900).toISOString()
+        } });
+        if (route.endsWith('/renew')) {
+          expect(JSON.parse(String(init?.body))).toEqual({ leaseToken: 'fence_one' });
+          if (++renewals === 1) {
+            if (failure === 'network') throw new TypeError('fetch failed');
+            return Response.json({ message: 'temporarily unavailable' }, { status: 503 });
+          }
+          return Response.json({ workId: 'work_one', leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 900).toISOString() });
+        }
+        if (route.endsWith('/acknowledge')) return Response.json({ workId: 'work_one', status: 'acknowledged', receipt: { messageId: 'msg_one', state: 'acknowledged' } });
+        if (route.endsWith('/complete')) return Response.json({ workId: 'work_one', status: 'processed', receipt: { messageId: 'msg_one', state: 'processed' } });
+        throw new Error(`Unexpected route ${route}`);
+      });
+      const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher, handler: { admit: async () => {}, process } });
+      const pending = connector.processWorkOnce();
+      const result = expect(pending).resolves.toBe(true);
+      await vi.advanceTimersByTimeAsync(700);
+      await result;
+      expect(renewals).toBe(2);
+      expect(process).toHaveBeenCalledTimes(1);
+      expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/claim'))).toHaveLength(1);
+      expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/complete'))).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['hang', 'revoked', 'paused', 'invalid', 'expired', 'repeated-network'])('stops work safely on %s renewal instead of extending an unconfirmed lease', async failure => {
+    vi.useFakeTimers();
+    try {
+      const memory = memoryStore(session());
+      let abortedAt = 0;
+      let startedAt = 0;
+      const paths: string[] = [];
+      const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+        const route = String(url);
+        paths.push(route);
+        if (route.endsWith('/claim')) {
+          startedAt = Date.now();
+          return Response.json({ work: { workId: 'work_one', message: { id: 'msg_one', recipientAgentId: 'agent_one', from: { address: 'two@envoi.mail' }, text: 'hello', status: 'delivered' },
+            leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 900).toISOString() } });
+        }
+        if (route.endsWith('/acknowledge')) return Response.json({ workId: 'work_one', status: 'acknowledged', receipt: { messageId: 'msg_one', state: 'acknowledged' } });
+        if (route.endsWith('/renew')) {
+          if (failure === 'repeated-network') throw new TypeError('network unavailable');
+          if (failure === 'revoked') return Response.json({ code: 'CREDENTIAL_REVOKED', message: 'Revoked' }, { status: 401 });
+          if (failure === 'paused') return Response.json({ code: 'AGENT_PAUSED', message: 'Paused' }, { status: 409 });
+          if (failure === 'expired') return Response.json({ workId: 'work_one', leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() - 1).toISOString() });
+          if (failure === 'invalid') return Response.json({ workId: 'work_one', leaseToken: 'other_fence', leaseExpiresAt: new Date(Date.now() + 900).toISOString() });
+          return new Promise((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new Error('request cancelled')), { once: true }));
+        }
+        throw new Error(`Unexpected route ${route}`);
+      });
+      const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher, handler: {
+        admit: async () => {}, process: async (_message, context) => {
+          await new Promise<void>((_resolve, reject) => context.signal.addEventListener('abort', () => {
+            abortedAt = Date.now(); reject(new Error('handler interrupted'));
+          }, { once: true }));
+        }
+      } });
+      const pending = connector.processWorkOnce();
+      const result = expect(pending).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(1000);
+      await result;
+      expect(abortedAt - startedAt).toBe(failure === 'hang' ? 900 : failure === 'repeated-network' ? 633 : 300);
+      expect(paths.filter(route => route.endsWith('/renew'))).toHaveLength(failure === 'repeated-network' ? 3 : 1);
+      expect(paths.some(route => route.endsWith('/complete') || route.endsWith('/fail') || route.endsWith('/messages'))).toBe(false);
+      if (failure === 'revoked') expect(memory.current()?.lifecycle?.state).toBe('REVOKED');
+    } finally { vi.useRealTimers(); }
+  });
+
   it('renews the same fence while a long handler is running', async () => {
     const memory = memoryStore(session());
     let renewals = 0;

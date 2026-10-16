@@ -5,6 +5,7 @@ import { mcpReplyMessageId, openClawTurn, withRecordedMcpReply } from './turn';
 
 const message: WorkMessage = {
   id: 'msg_1',
+  createdAt: '2026-10-16T20:32:21Z',
   senderAgentId: 'sender_1',
   recipientAgentId: 'receiver_1',
   from: { agentId: 'sender_1', address: 'sender@example.test' },
@@ -18,7 +19,7 @@ function turn(fetcher: typeof fetch) {
     gatewayUrl: 'https://gateway.example.test',
     gatewayToken: 'secret-gateway-token',
     agentId: 'envoi-agent',
-    history: async () => [{ id: 'older_1', senderAgentId: 'other', text: 'Earlier context', intent: 'message' }],
+    history: async () => [{ id: 'older_1', createdAt: '2026-10-16T20:31:00Z', senderAgentId: 'other', text: 'Earlier context', intent: 'message' }],
     fetch: fetcher
   });
 }

@@ -586,15 +586,16 @@ export class EnvoiConnector {
     return this.withFreshClient((client, session) => client.getCleanAssetDownload(session.inboxId, assetId), false);
   }
 
-  private async postWork<T>(path: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
+  private async postWork<T>(path: string, body: Record<string, unknown>, idempotencyKey?: string, signal?: AbortSignal): Promise<T> {
     return this.withFreshSession(async (session, actionSignal) => {
+      signal?.throwIfAborted();
       const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
       let response: Response;
       try {
         response = await (this.options.fetch || fetch)(`${this.origin}${path}`, {
           method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${session.agentApiToken}`,
             ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
-          body: JSON.stringify(body), signal: AbortSignal.any([timeout, actionSignal!])
+          body: JSON.stringify(body), signal: AbortSignal.any([timeout, actionSignal!, ...(signal ? [signal] : [])])
         });
       } catch { throw new EnvoiError(timeout.aborted ? 'Envoi request timed out' : 'Envoi could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : timeout.aborted ? 'TIMEOUT' : 'NETWORK_ERROR'); }
       return responsePayload<T>(response, 'Envoi work request failed');
@@ -685,19 +686,42 @@ export class EnvoiConnector {
     if (signal?.aborted) workAbort.abort();
     let leaseExpiresAt = work.leaseExpiresAt;
     let renewalError: unknown = null;
+    let leaseDeadline: ReturnType<typeof setTimeout>;
+    const scheduleDeadline = () => {
+      clearTimeout(leaseDeadline);
+      leaseDeadline = setTimeout(() => {
+        renewalError = new EnvoiError('Work lease expired during processing', undefined, 'REQUEST_CANCELLED');
+        workAbort.abort();
+      }, Math.max(0, Date.parse(leaseExpiresAt) - Date.now()));
+    };
+    scheduleDeadline();
     const renewal = (async () => {
+      let failures = 0;
       while (!workAbort.signal.aborted) {
         const remaining = Date.parse(leaseExpiresAt) - Date.now();
-        await delay(Math.max(100, Math.min(30_000, Math.floor(remaining / 3))), workAbort.signal);
+        await delay(failures ? Math.min(1_000, Math.max(1, Math.floor(remaining / 3)))
+          : Math.max(100, Math.min(30_000, Math.floor(remaining / 3))), workAbort.signal);
         if (workAbort.signal.aborted) break;
         try {
-          const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken });
+          const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken }, undefined, workAbort.signal);
+          if (workAbort.signal.aborted) break;
           if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new EnvoiError('Envoi returned an invalid lease renewal');
+          if (Date.parse(renewed.leaseExpiresAt) <= Date.now()) throw new EnvoiError('Envoi returned an expired lease renewal');
           leaseExpiresAt = renewed.leaseExpiresAt;
-        } catch (error) { renewalError = error; workAbort.abort(); break; }
+          failures = 0;
+          scheduleDeadline();
+        } catch (error) {
+          if (workAbort.signal.aborted) break;
+          const transient = error instanceof EnvoiError && (['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? '')
+            || (!error.code && [502, 503, 504].includes(error.status ?? 0)) || error.code === 'INTERNAL_SERVER_ERROR');
+          if (transient && ++failures <= 2 && Date.parse(leaseExpiresAt) > Date.now()) continue;
+          renewalError = error;
+          workAbort.abort();
+          break;
+        }
       }
     })();
-    const stopRenewal = async () => { workAbort.abort(); await renewal; };
+    const stopRenewal = async () => { clearTimeout(leaseDeadline); workAbort.abort(); await renewal; };
     let settled = false;
     let humanReplyError: unknown = null;
     try {
@@ -747,7 +771,7 @@ export class EnvoiConnector {
       if (interrupted && !renewalError && error instanceof EnvoiError && !error.code)
         throw new EnvoiError(error.message, error.status, 'REQUEST_CANCELLED');
       if (!(error instanceof EnvoiError)) await this.observeError(new EnvoiError('Work handler failed', undefined, 'HANDLER_FAILED'));
-      throw error;
+      throw renewalError ?? error;
     } finally {
       this.activeWork.delete(workAbort);
       signal?.removeEventListener('abort', onAbort);

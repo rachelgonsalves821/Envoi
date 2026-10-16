@@ -12,6 +12,7 @@ afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recurs
 
 const message = (): WorkMessage => ({
   id: 'msg_one', senderAgentId: 'agent_a', recipientAgentId: 'agent_b',
+  createdAt: '2026-10-16T20:32:21Z',
   from: { agentId: 'agent_a', address: 'a@envoi.mail' }, caseId: 'case_one', text: 'Can we agree?', intent: 'request'
 });
 
@@ -27,7 +28,7 @@ describe('Grok-backed durable bridge', () => {
       return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '{"text":"Agreed","intent":"accept"}' }] }] }), { status: 200 });
     });
     const turn = xaiTurn({ apiKey: 'xai-secret', model: 'grok-4.7', fetch: fetcher as typeof fetch,
-      history: async () => [{ id: 'msg_prev', senderAgentId: 'agent_b', intent: 'offer', text: 'Earlier proposal' }] });
+      history: async () => [{ id: 'msg_prev', createdAt: '2026-10-16T20:31:00Z', senderAgentId: 'agent_b', intent: 'offer', text: 'Earlier proposal' }] });
     expect(await turn(message(), new AbortController().signal)).toEqual({ text: 'Agreed', intent: 'accept' });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
