@@ -4,12 +4,14 @@ import { createHash } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { createInterface } from 'node:readline';
+import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MAX_RESPONSE = 64 * 1024;
 const MAX_SETTLEMENT = 1024 * 1024;
 const tokenFields = ['agentApiToken', 'agentTokenExpiresAt', 'agentRefreshToken', 'agentRefreshTokenExpiresAt'];
+const responseDecoders = new Map([['gzip', gunzipSync], ['deflate', inflateSync], ['br', brotliDecompressSync]]);
 
 function boundedBody(stream, limit, done) {
   let chunks = [], size = 0, overflow = false;
@@ -21,17 +23,28 @@ function boundedBody(stream, limit, done) {
   stream.once('end', () => { const bytes = overflow ? null : Buffer.concat(chunks); chunks = []; done(bytes); });
 }
 
-function successorDigest(bytes) {
+function responseJson(bytes, contentEncoding) {
+  if (!Buffer.isBuffer(bytes) || bytes.length > MAX_RESPONSE) return null;
   try {
-    const value = JSON.parse(bytes);
+    const encoding = (contentEncoding ?? 'identity').trim().toLowerCase();
+    const decoder = responseDecoders.get(encoding);
+    if (encoding && encoding !== 'identity' && !decoder) return null;
+    const decoded = decoder ? decoder(bytes, { maxOutputLength: MAX_RESPONSE }) : bytes;
+    return JSON.parse(decoded.toString('utf8'));
+  } catch { return null; }
+}
+
+function successorDigest(bytes, contentEncoding) {
+  try {
+    const value = responseJson(bytes, contentEncoding);
     if (!tokenFields.every(key => typeof value[key] === 'string' && value[key])) return null;
     return createHash('sha256').update(JSON.stringify(tokenFields.map(key => value[key]))).digest('hex');
   } catch { return null; }
 }
 
-function responseCode(bytes) {
+function responseCode(bytes, contentEncoding) {
   try {
-    const code = JSON.parse(bytes).code;
+    const code = responseJson(bytes, contentEncoding).code;
     return typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : null;
   } catch { return null; }
 }
@@ -71,7 +84,7 @@ export function createFaultProxy(upstreamOrigin, report = () => {}) {
           upstreamResponse.pipe(pending.response);
         }
         boundedBody(upstreamResponse, MAX_RESPONSE, bytes => {
-          resolve({ status: upstreamResponse.statusCode || 502, code: responseCode(bytes) });
+          resolve({ status: upstreamResponse.statusCode || 502, code: responseCode(bytes, upstreamResponse.headers['content-encoding']) });
         });
       });
       request.on('error', interrupted);
@@ -126,7 +139,7 @@ export function createFaultProxy(upstreamOrigin, report = () => {}) {
       if (refresh && dropRefreshOnce && upstreamResponse.statusCode === 200) {
         dropRefreshOnce = false;
         boundedBody(upstreamResponse, MAX_RESPONSE, bytes => {
-          droppedDigest = successorDigest(bytes); waitingForSuccessor = true;
+          droppedDigest = successorDigest(bytes, upstreamResponse.headers['content-encoding']); waitingForSuccessor = true;
           counts.refreshResponsesDropped++; response.destroy();
           report({ refreshResponsesDropped: counts.refreshResponsesDropped });
         });
@@ -134,7 +147,7 @@ export function createFaultProxy(upstreamOrigin, report = () => {}) {
       }
       if (refresh && waitingForSuccessor && upstreamResponse.statusCode === 200) {
         boundedBody(upstreamResponse, MAX_RESPONSE, bytes => {
-          const digest = successorDigest(bytes);
+          const digest = successorDigest(bytes, upstreamResponse.headers['content-encoding']);
           recoveredIdentical = droppedDigest !== null && digest === droppedDigest;
           droppedDigest = null; waitingForSuccessor = false;
           report({ recoveredIdentical });
