@@ -192,6 +192,17 @@ test('production requires scanner authentication before deployment with redacted
   assert.equal(validateProductionConfiguration({ ENVOI_AUTH_MODE: 'development' }).validated, false);
 });
 
+// agent-registration v1 §12: the Phase B flags default off and refuse values that are not exactly true or false.
+test('production validates the onboarding flags', () => {
+  assert.equal(validateProductionConfiguration(validProduction()).validated, true);
+  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_INSTALLATIONS_V2: 'false', ENVOI_AGENT_REGISTRATION_V2: 'false', ENVOI_AUTHENTICATED_REST_ROUTE: 'false' })).validated, true);
+  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_INSTALLATIONS_V2: 'true', ENVOI_AGENT_REGISTRATION_V2: 'true', ENVOI_AUTHENTICATED_REST_ROUTE: 'true' })).validated, true);
+  for (const name of ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE']) {
+    assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_INSTALLATIONS_V2: 'true', [name]: 'TRUE' })), new RegExp(`${name} must be true or false`));
+  }
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_AGENT_REGISTRATION_V2: 'true', ENVOI_INSTALLATIONS_V2: 'false' })), /ENVOI_AGENT_REGISTRATION_V2 requires ENVOI_INSTALLATIONS_V2/);
+});
+
 test('production permits legacy deployments without a release SHA but validates supplied provenance', () => {
   assert.equal(validateProductionConfiguration(validProduction()).validated, true);
   assert.equal(validateProductionConfiguration(validProduction({ ENVOI_RELEASE_SHA: 'a'.repeat(40) })).validated, true);

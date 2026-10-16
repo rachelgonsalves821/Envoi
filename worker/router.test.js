@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CONTAINER_ENV_KEYS, CONTAINER_LEGACY_FALLBACKS } from './runtime-config.js';
 import { LEGACY_ENVIRONMENT_FALLBACKS } from '../src/envoi-environment.js';
+import { onboardingFlagNames } from '../src/onboarding-flags.js';
 import {
   createForwardedRequest,
   environmentFingerprint,
@@ -42,6 +43,13 @@ test('the container receives only ENVOI_* names, plus the one honoured legacy ke
   assert.deepEqual(selectEnvironment({ SINALOA_DATA_ENCRYPTION_KEY: 'k'.repeat(40), ENVOI_DATA_ENCRYPTION_KEY: 'k'.repeat(40) }, ['ENVOI_DATA_ENCRYPTION_KEY']), { ENVOI_DATA_ENCRYPTION_KEY: 'k'.repeat(40) });
   assert.throws(() => selectEnvironment({ ENVOI_DATA_ENCRYPTION_KEY: 'new-private', SINALOA_DATA_ENCRYPTION_KEY: 'old-private' }, ['ENVOI_DATA_ENCRYPTION_KEY']),
     error => /Conflicting Envoi environment settings/.test(error.message) && !/private/.test(error.message));
+});
+
+// agent-registration v1 §12: the server reads the Phase B flags, so the Worker must forward them.
+test('the container receives the onboarding flags', () => {
+  for (const name of onboardingFlagNames) assert.ok(CONTAINER_ENV_KEYS.includes(name), name);
+  const flags = { ENVOI_INSTALLATIONS_V2: 'true', ENVOI_AGENT_REGISTRATION_V2: 'true', ENVOI_AUTHENTICATED_REST_ROUTE: 'false' };
+  assert.deepEqual(selectEnvironment(flags, CONTAINER_ENV_KEYS, {}), flags);
 });
 
 test('the Worker and the server honour the same legacy names', () => {
