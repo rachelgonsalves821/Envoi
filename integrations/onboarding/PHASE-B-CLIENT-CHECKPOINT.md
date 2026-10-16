@@ -7,7 +7,7 @@ Worktree: `C:/Users/KAILASH/.codex/worktrees/phase-b-onboarding/Sinaloa`.
 
 ## Gate and authoritative inputs
 
-**BLOCKED B-4 implementation: formal Phase A closeout pending.** The fetched integration contains only `docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md`; the latest board has no reconciled completed-run ledger, Lane A exact-release gate result and human countersign. The human-confirmed corrections remain accepted. Historical failures do not justify another hosted run. Full CI alone cannot satisfy the hosted gate.
+**BLOCKED B-4 implementation: human Phase A countersign pending.** Since the initial claim, Lane A published [GATE GA PASS on human attestation](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6226642223) for `2b18170d59b0096ff997d9a79487d50ccb627ef9` and [draft #98 @9793e07](https://github.com/rachelgonsalves821/Envoi/pull/98). Its record explicitly says 23/23 rows are human-attested, no row-level server observations are independently cited on this SHA, and the human countersign is missing. Lane A requests the countersign plus confirmation of the closing-run Builds freeze and test-agent identity. This agent does not supply that countersign or convert attestation into observed test evidence. The human-confirmed corrections remain accepted; no new hosted run is requested. Full CI alone cannot satisfy the hosted gate. #98 also prepares the existing contract approval annotation correction, with no wire change; it has not been merged into this base.
 
 Read [AGENTS.md](../../AGENTS.md), the [governing build plan](../../docs/architecture/agent-native-v2/claude-codex-build-plan.md), current handoffs and canonical fixtures. Read both preparation files directly at PR #96 head `f29f885dd0c949c0b1413fb406d10ce5dc85742c`, without merging that PR:
 
@@ -87,7 +87,7 @@ Tests inject transport, storage, confirmation, clocks and crashes. No real Envoi
 
 ## REQUEST lane-a and next action
 
-1. Complete the authoritative Phase A ledger/result and obtain/record the human countersign. Link both on #34. No repeated approval for the existing contracts and no invented PASS rows.
+1. Lane A has published the closeout record/result in #98 (linked above). The next prerequisite is the human countersign on that stated basis, including the requested freeze and test-agent confirmations; Lane A then records the formal gate completion on #34. No repeated contract approval or invented PASS rows.
 2. Reconcile stale contract approval annotations. Continue A-4.1 foundation, A-4.2 registration/claim and A-4.3 activation/recovery against the unchanged fixtures, default flags off. Publish endpoint readiness per task so Lane B can schedule real-service validation.
 3. Public route wiring: support `GET/HEAD /claim` and `/connect` using the built frontend entry with existing nonce/CSP/cache handling. Current static entry routing accepts `/` and `/web/**` (plus robots/sitemap), not these paths. Serve reviewed `/connect/SKILL.md`, `/connect/HEARTBEAT.md` and `/connect/skill.json` from the initial response with correct content types. Derive offered manifest values from route availability, preserving the catalog/offer distinction. Lane B supplies content; Lane A owns route binding/security tests. Do not enable unavailable routes.
 4. Root build/package changes, if needed, belong to Lane A (`scripts/**`, root package files). Request an exact diff after module layout and helper bundling are settled; no speculative root dependency change is needed for planning.
