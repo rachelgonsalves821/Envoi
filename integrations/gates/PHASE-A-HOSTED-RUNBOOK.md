@@ -82,6 +82,12 @@ For a separately approved diagnostic retest:
 5. Capture a fresh owner view immediately after the drop, before a subsequent unrelated rotation. Require one dropped response, recoveredIdentical: true, a same-family agent.refresh_recovered event and equality between its refreshExpiresAt and that owner credentialExpiresAt. Record expiry advancement and successful connector recovery independently. False, null, missing or invalid evidence is not a pass; do not silently re-arm.
 6. Stop after this diagnostic. Further SSE faults, live sends or revocation require their own approval. A complete hosted gate still requires the runbook's one-release, all-23 observations and human countersign.
 
+### Saved post-revoke refresh probes
+
+The TypeScript SDK authenticates `/api/agent-token` with `grantType: refresh_token`, the refresh token and rotation ID in the request body; it does not send an access-token Authorization header. The proxy retains the latest bounded refresh request in memory with its original headers/body so `replay-refresh` works with the real SDK. Claims still require the original bearer header to be retained for replay. Neither request is logged or persisted, and each saved probe is consumed once by an explicitly approved replay.
+
+A missing saved probe is unproven evidence, not a successful server refusal. Do not invent a replacement request, rotate a credential, re-enroll or repeat a fault to hide it. Keep the failure and use the corrected proxy in the separately approved full rerun. Updating this source does not update an already-running proxy; pin its actual loaded artifact independently.
+
 ### Lazy refresh timing (steps 9 and 13)
 
 There is no force-refresh command. Refresh happens on the next authenticated operation at `agentTokenExpiresAt − 60 seconds`; the access TTL is 900 seconds, so a wait of about **14 minutes** per boundary is possible. Use the bundled connector's nonsecret status output immediately before pause and again before arming lost-refresh:

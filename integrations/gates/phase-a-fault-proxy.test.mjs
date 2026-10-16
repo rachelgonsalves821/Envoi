@@ -262,6 +262,32 @@ test('requires an explicit stable operator port and can restart on it without ch
   finally { await second.close(); }
 });
 
+test('retains a body-authenticated SDK refresh without adding a bearer header', async () => {
+  let revoked = false;
+  const calls = [];
+  const f = await upstreamFixture((req, res) => {
+    assert.equal(req.headers.authorization, undefined);
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      calls.push([req.url, body]);
+      res.writeHead(revoked ? 401 : 200).end(JSON.stringify({ code: revoked ? 'CREDENTIAL_REVOKED' : 'SUCCESS' }));
+    });
+  });
+  try {
+    const first = JSON.stringify({ grantType: 'refresh_token', agentRefreshToken: 'fixture-refresh-first', rotationId: 'fixture-rotation-first' });
+    const latest = JSON.stringify({ grantType: 'refresh_token', agentRefreshToken: 'fixture-refresh-latest', rotationId: 'fixture-rotation-latest' });
+    for (const body of [first, latest]) await (await fetch(`${f.url}/api/agent-token`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).text();
+    await (await fetch(`${f.url}/api/agent/work/claim`, { method: 'POST', body: '{}' })).text();
+    await assert.rejects(f.proxy.replayClaim());
+    revoked = true;
+    assert.deepEqual(await f.proxy.replayRefresh(), { status: 401, code: 'CREDENTIAL_REVOKED' });
+    assert.deepEqual(calls.at(-1), ['/api/agent-token', latest]);
+    await assert.rejects(f.proxy.replayRefresh());
+    assert.ok(!JSON.stringify(f.proxy.status()).includes('fixture-refresh'));
+  } finally { await f.close(); }
+});
+
 test('post-revoke refresh and claim probes preserve the latest private request and print only status/code', async () => {
   let revoked = false; const calls = [];
   const f = await upstreamFixture((req, res) => {

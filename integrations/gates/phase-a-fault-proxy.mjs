@@ -104,7 +104,7 @@ export function createFaultProxy(upstreamOrigin, report = () => {}) {
     const acknowledge = client.method === 'POST' && /^\/api\/agent\/work\/[^/]+\/acknowledge$/.test(target.pathname);
     const complete = client.method === 'POST' && /^\/api\/agent\/work\/[^/]+\/complete$/.test(target.pathname);
     const claim = client.method === 'POST' && target.pathname === '/api/agent/work/claim';
-    if ((refresh || claim) && client.headers.authorization) {
+    if (refresh || (claim && client.headers.authorization)) {
       // Optional post-revoke probes keep only the latest request of each kind.
       // They are never logged/persisted and are consumed once by explicit replay.
       const kind = refresh ? 'refresh' : 'claim';
