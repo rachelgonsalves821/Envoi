@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generateSync } from 'otplib';
@@ -192,6 +192,8 @@ test('human pause, case pause, block and revoke gate REST, MCP, work and assets'
   assert.equal((await api(baseUrl, `/api/inboxes/${bob.inbox.id}/messages`, { token: restored.payload.agentApiToken, key: 'reenrolled-limited', body: { senderAgentId: bob.agent.id, recipientEmail: alice.agent.address, caseId, type: 'request', text: 'Send permission not restored' } })).status, 403);
 });
 
+// Pre-freeze data (before ce07de5): families revoked with no revokedReason and an agent left
+// active. The reconciliation runs once more for such data, then retires behind its marker.
 test('startup freezes previously revoked credential families without restoring old permissions', async t => {
   const first = await launch();
   let current = first;
@@ -205,6 +207,12 @@ test('startup freezes previously revoked credential families without restoring o
   const directory = JSON.parse(await readFile(directoryPath, 'utf8'));
   await writeFile(agentPath, JSON.stringify({ ...agent, status: 'active', onboardingStatus: 'approved', permissions: ['send_agent_messages', 'receive_agent_messages'], accessGeneration: 0 }));
   await writeFile(directoryPath, JSON.stringify({ ...directory, status: 'active' }));
+  const familyDir = path.join(first.dataDir, 'auth', 'agent-credential-families', account.inbox.id, account.agent.id);
+  for (const name of await readdir(familyDir)) {
+    const { revokedReason: _reason, ...family } = JSON.parse(await readFile(path.join(familyDir, name), 'utf8'));
+    await writeFile(path.join(familyDir, name), JSON.stringify(family));
+  }
+  await rm(path.join(first.dataDir, 'system', 'agent-revocations-reconciled-v1.json'), { force: true });
   await first.stop(true);
   current = await launch(first.dataDir);
   const frozen = (await api(current.baseUrl, `/api/inboxes/${account.inbox.id}/human-view`, { session: account.session })).payload.agents.find(item => item.id === account.agent.id);

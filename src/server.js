@@ -60,8 +60,13 @@ import { attachInboxPreferencesToView, createInboxPreferencesHttp } from './inbo
 import { getPrefsForCases } from './inbox-preferences.js';
 import { createProviderMembershipCache, streamRecheckMs } from './provider-membership.js';
 import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenceRecorder, ownerConnection, reportedFamily } from './agent-presence.js';
+import { createAgentSlots, legacyApprovalPermissions } from './agent-approval.js';
+import { createInstallationReader, installationSummary, ownerInstallationList, publicInstallation } from './agent-installations.js';
+import { readOnboardingFlags, routeAvailability } from './onboarding-flags.js';
 
 const productionConfig = validateProductionConfiguration();
+// agent-registration v1 §1: fails closed in every mode, before anything starts.
+const onboardingFlags = readOnboardingFlags();
 const releaseSha = process.env.ENVOI_RELEASE_SHA || null;
 const deploymentIdentity = configuredDeploymentIdentity();
 // Connectors refuse to start unless /health reports exactly this identity, so it changes
@@ -726,11 +731,12 @@ const publish = (inboxId, event) => {
   }
 };
 // Not a persisted event: no SSE id, so the client's cursor does not move.
-const closeAgentStreams = (inboxId, agentId, ended = { code: 'CREDENTIAL_REVOKED', reason: 'revoked' }) => {
+// With familyId, only that installation's streams end; other installations keep theirs.
+const closeAgentStreams = (inboxId, agentId, ended = { code: 'CREDENTIAL_REVOKED', reason: 'revoked' }, familyId = null) => {
   const subscriptions = streams.get(inboxId);
   if (!subscriptions) return;
   for (const subscription of [...subscriptions]) {
-    if (subscription.agentId !== agentId) continue;
+    if (subscription.agentId !== agentId || (familyId && subscription.familyId !== familyId)) continue;
     subscription.close?.('credential.ended', ended);
   }
   if (!subscriptions.size) streams.delete(inboxId);
@@ -801,19 +807,10 @@ const inboxMutationKey = inboxId => `inbox:${inboxId}:mutations`;
 const caseMutationKey = caseId => `case:${caseId}:mutations`;
 const enrollmentMutationKey = tokenHash => `enrollment:${tokenHash}:mutations`;
 const humanAgentLimitKey = humanId => `human:${humanId}:active-agents`;
-async function assertActiveAgentSlot(humanId, excludingAgentId = null) {
-  const directories = await store.listJson(path.join('directory', 'agents'));
-  let active = 0;
-  for (const directory of directories) {
-    if (!['active', 'paused'].includes(directory.status) || directory.agentId === excludingAgentId) continue;
-    const agent = await store.getJson(path.join('inboxes', directory.inboxId, 'agents', `${directory.agentId}.json`));
-    if (agent?.principalHumanId === humanId && ['active', 'paused'].includes(agent.status)) {
-      const families = await store.listJson(path.join('auth', 'agent-credential-families', directory.inboxId, agent.id));
-      if (!families.length || families.some(family => !family.revokedAt && new Date(family.refreshExpiresAt) > new Date())) active += 1;
-    }
-  }
-  if (active >= 2) throw Object.assign(new Error('Beta limit of two active agents per human reached'), { statusCode: 409, code: 'ACTIVE_AGENT_LIMIT' });
-}
+// One slot rule for every path (agent-registration v1 §5.3): live approvals count too.
+const agentSlots = createAgentSlots({ store });
+const assertActiveAgentSlot = (humanId, excludingAgentId = null) => agentSlots.assertActiveAgentSlot(humanId, { excludingAgentId });
+const installations = createInstallationReader({ store, agentCredentialFamilyPath });
 async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = [], allowRemoved = false) {
   const committedEvents = [];
   const run = async () => {
@@ -862,6 +859,16 @@ async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedA
   return active.length;
 }
 
+// Ends one installation (agent-registration v1 §6.5) without freezing the identity.
+async function revokeCredentialFamily(inboxId, agentId, familyId, humanId, revokedAt = store.now(), revokedReason = 'revoked') {
+  const familyPath = agentCredentialFamilyPath(inboxId, agentId, familyId);
+  const family = await store.getJson(familyPath);
+  if (!family || family.revokedAt) return null;
+  const revoked = { ...family, revokedAt, revokedReason, revokedByHumanId: humanId, updatedAt: revokedAt };
+  await store.putJson(familyPath, revoked);
+  return revoked;
+}
+
 async function freezeAgentRecord(inboxId, agent, humanId, revokedAt) {
   const frozen = { ...agent, status: 'revoked', onboardingStatus: 'revoked', permissions: [], revokedAt, revokedByHumanId: humanId, accessGeneration: (agent.accessGeneration || 0) + 1, updatedAt: revokedAt };
   const documents = [
@@ -874,7 +881,14 @@ async function freezeAgentRecord(inboxId, agent, humanId, revokedAt) {
   return frozen;
 }
 
+// Freezes agents whose families were all revoked before the agent-wide revoke froze in its own
+// mutation (ce07de5). agent-registration v1 §6.5 and §12: it must never freeze an agent whose
+// families ended by a per-installation revoke, a replay or a replacement. Those all carry a
+// revokedReason (a50766c), so only families without one are reconciled, and the job runs one
+// last time behind a marker and then retires.
+const legacyRevocationMarkerPath = path.join('system', 'agent-revocations-reconciled-v1.json');
 async function reconcileLegacyAgentRevocations() {
+  if (await store.getJson(legacyRevocationMarkerPath)) return;
   const directory = await store.listJson(path.join('directory', 'agents'));
   for (const entry of directory) {
     if (!['active', 'paused'].includes(entry.status)) continue;
@@ -882,12 +896,13 @@ async function reconcileLegacyAgentRevocations() {
       const agent = await store.getJson(path.join('inboxes', entry.inboxId, 'agents', `${entry.agentId}.json`));
       if (!agent || !['active', 'paused'].includes(agent.status)) return;
       const families = await store.listJson(path.join('auth', 'agent-credential-families', entry.inboxId, entry.agentId));
-      if (!families.length || families.some(family => !family.revokedAt)) return;
+      if (!families.length || families.some(family => !family.revokedAt || family.revokedReason)) return;
       const revokedAt = families.map(family => family.revokedAt).sort().at(-1);
       await freezeAgentRecord(entry.inboxId, agent, families.find(family => family.revokedByHumanId)?.revokedByHumanId || null, revokedAt);
       await writeAudit('agent.revocation_reconciled', { agentId: agent.id });
     });
   }
+  await store.putJson(legacyRevocationMarkerPath, { reconciledAt: store.now(), releaseSha });
 }
 
 function setCaseMessageDeliveryState(value, message, state, at) {
@@ -2440,7 +2455,13 @@ async function route(req, res) {
       console.error(JSON.stringify({ event: 'envoi.agent_presence_read_failed' }));
       return null;
     });
-    return json(res, 200, { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId, ...agentStatusPresence(record, store.now()) });
+    const status = { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId, ...agentStatusPresence(record, store.now()) };
+    // agent-registration v1 §6.4: additive, exactly when installations are on.
+    if (onboardingFlags.installations) {
+      const installation = await installations.forFamily(identity.inboxId, agent, identity.familyId);
+      if (installation) status.installation = installationSummary(installation);
+    }
+    return json(res, 200, status);
   }
 
   if (req.method === 'POST' && url.pathname === '/api/agent/connection-status') {
@@ -2635,6 +2656,12 @@ async function route(req, res) {
     const returnUrl = new URL(pending.returnTo || '/', process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`);
     returnUrl.searchParams.set('calendarConnected', providerId);
     return redirect(res, returnUrl.toString());
+  }
+
+  // agent-registration v1 §1: what Envoi offers, for /connect, skill.json and the helper.
+  if (req.method === 'GET' && url.pathname === '/api/onboarding/routes') {
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=60' });
+    return res.end(JSON.stringify(routeAvailability(onboardingFlags, store.now())));
   }
 
   if (req.method === 'POST' && url.pathname === '/api/agent-enroll') {
@@ -2839,6 +2866,44 @@ async function route(req, res) {
   if (!inbox) return fail(res, 404, 'Inbox not found');
 
   if (await inboxPreferencesHttp.handleRequest(req, res, url)) return;
+
+  // agent-registration v1 §6.5: the owner's installation list and per-installation revoke.
+  const installationRoute = suffix.match(/^agents\/([^/]+)\/installations(?:\/([^/]+)\/revoke)?$/);
+  if (installationRoute && (req.method === 'GET' ? !installationRoute[2] : req.method === 'POST' && installationRoute[2])) {
+    if (!onboardingFlags.installations) throw codedError(404, 'FEATURE_DISABLED', 'Installations are not available yet.');
+    const human = await auth.getHuman(req);
+    if (!human) throw codedError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
+    const agentId = assertSafeIdentifier(installationRoute[1], 'agentId');
+    const notFound = () => codedError(404, 'INSTALLATION_NOT_FOUND', 'That installation was not found.');
+    if (req.method === 'GET') {
+      if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Workspace membership required');
+      const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      if (!agent || inbox.ownerAgentId !== agentId) return fail(res, 404, 'Owned agent not found');
+      return json(res, 200, ownerInstallationList(agentId, await installations.list(inboxId, agent)));
+    }
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const installationId = assertSafeIdentifier(installationRoute[2], 'installationId');
+    const revoked = await withInboxMutation(inboxId, async writeAudit => {
+      if (!await canManageInbox(await auth.getHuman(req), inbox)) throw Object.assign(new Error('Workspace administrator required'), { statusCode: 403 });
+      const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+      if (!agent || inbox.ownerAgentId !== agentId) throw notFound();
+      const installation = (await installations.list(inboxId, agent)).find(item => item.id === installationId);
+      if (!installation) throw notFound();
+      // Already ended: nothing changes, and the response keeps how it ended.
+      if (installation.status === 'ended') return { installation, familyId: null };
+      const revokedAt = store.now();
+      await revokeCredentialFamily(inboxId, agentId, installation.familyId, human.id, revokedAt, 'revoked');
+      // Leases held by this installation would block the next one until they expire.
+      const heldLeases = (await store.listJson(path.join('inboxes', inboxId, 'work-claims')))
+        .filter(claim => claim.agentId === agentId && claim.credentialFamilyId === installation.familyId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(revokedAt));
+      await store.putJsonBatch(heldLeases.map(claim => document(workClaimPath(inboxId, claim.workId), { ...claim, status: 'retryable', retryAt: revokedAt, leaseExpiresAt: null, reofferWithoutAttempt: true, releasedAt: revokedAt, updatedAt: revokedAt })));
+      await writeAudit('agent.installation_revoked', { agentId, installationId, credentialFamilyId: installation.familyId, humanId: human.id }, revokedAt);
+      if (heldLeases.length) await writeAudit('work.available', { agentId, reason: 'lease_released' }, revokedAt);
+      return { installation: await installations.forFamily(inboxId, agent, installation.familyId), familyId: installation.familyId };
+    });
+    if (revoked.familyId) closeAgentStreams(inboxId, agentId, { code: 'CREDENTIAL_REVOKED', reason: 'revoked' }, revoked.familyId);
+    return json(res, 200, { installation: publicInstallation(revoked.installation) });
+  }
 
   if (inbox.status === 'removed' && req.method !== 'GET' && !/^agents\/[^/]+\/remove$/.test(suffix)) return fail(res, 409, 'Removed agent history is read-only');
 
@@ -3057,6 +3122,8 @@ async function route(req, res) {
     flushAgentPresence(req, res);
     const subscription = { res, cursor: startCursor, sentIds: new Set(), heartbeat: null, expiryTimer: null, sessionKey, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
     if (agent && !human) {
+      // The installation this stream belongs to, so ending one installation closes only its streams.
+      subscription.familyId = (await store.getJson(agentCredentialPath(hashSecret(bearerToken(req)))))?.familyId || null;
       // Re-check the credential on every heartbeat: pause keeps the stream, revocation or expiry ends it.
       const credentialRequest = { headers: { authorization: req.headers.authorization }, method: 'GET' };
       subscription.credentialEnded = async () => {
@@ -3366,8 +3433,7 @@ async function route(req, res) {
         if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId, address: publicEmailAddressForAgent(agent), status: agent.status });
       } else {
         await assertActiveAgentSlot(agent.principalHumanId || inbox.ownerHumanId);
-        const permissions = Array.isArray(input.permissions) ? input.permissions.filter((permission) => allowedPermissions.has(permission)) : ['send_agent_messages', 'receive_agent_messages'];
-        if (!permissions.includes('receive_agent_messages')) permissions.push('receive_agent_messages');
+        const permissions = legacyApprovalPermissions(input.permissions);
         agent.status = 'active';
         agent.onboardingStatus = 'approved';
         agent.permissions = permissions;
