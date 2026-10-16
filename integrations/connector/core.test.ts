@@ -313,6 +313,37 @@ describe('authenticated local management', () => {
     } finally { stop.abort(); await started; }
   // Real filesystem and authenticated loopback requests need margin under full-suite load.
   }, 60_000);
+  it('keeps the same runtime bridge alive while parked Hermes tools recover before claiming work', async () => {
+    const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
+    const original = f.adapter.createBridge;
+    const stop = new AbortController();
+    let bridges = 0;
+    let verifications = 0;
+    let recovering = false;
+    f.adapter.createBridge = async (config, context) => {
+      bridges++;
+      const bridge = await original(config, context);
+      bridge.verify = async () => {
+        verifications++;
+        if (!recovering) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Tools parked');
+      };
+      bridge.connector.run = async () => { stop.abort(); };
+      return bridge;
+    };
+    await startConnection(f.options.stateDir, stop.signal, f.resolver, {
+      ...f.options, toolRecoveryRetryMs: 1,
+      onWaiting(code) {
+        expect(code).toBe('TOOLS_NOT_READY');
+        expect(f.counts().closes).toBe(1);
+        expect(f.requests.some(request => request.url.endsWith('/work/claim'))).toBe(false);
+        recovering = true;
+      }
+    });
+    expect(bridges).toBe(1);
+    expect(verifications).toBe(2);
+    expect(f.counts().enrollmentCount).toBe(1);
+    expect(f.counts().closes).toBe(2);
+  });
   it('stops gracefully during startup retry and fails promptly on invalid configuration', async () => {
     const f = await fixture(); await setupConnection(f.handoff, f.resolver, f.options);
     f.healthFails(); const stop = new AbortController();

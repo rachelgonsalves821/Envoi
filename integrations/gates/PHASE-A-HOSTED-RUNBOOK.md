@@ -42,6 +42,16 @@ Choose the fixed unused port before enrollment and reuse exactly that --port aft
 
 ## 2. Execute all 23 observations on one release
 
+### Corrected restart candidate prerequisites
+
+After a runtime-reconnection fix, retain the failed run as evidence and select a new reviewed, committed candidate; uncommitted local bundles are not a release SHA. Rebuild and verify its generated connector metadata, pass exact-head CI, then have the release operator deploy and freeze that exact SHA. Do not apply a local bundle to a running old-SHA fixture and count mixed results. Pair any required UI perspective correction before selecting the final candidate.
+
+Start a fresh 23-row ledger and use fresh messages/cases with individual human approval before every send. Keep the original paused case paused and preserve its messages and receipts. Do not re-enroll or overwrite the existing private connector state to make restart recovery pass; establish its saved identity and credential family first. Obtain authenticated receiver-owner snapshots before and after the offline checkpoint. If the owner view is unavailable, record the missing evidence rather than substituting the sender view.
+
+For steps 3-4, stop only the disposable connector, leaving its Gateway and fixed proxy port unchanged. Capture offline delivery before restarting. A parked Hermes MCP connection can take five minutes to self-probe; the corrected connector should retain the same relay for a bounded six-minute recovery window, report waiting/pending checks, and claim nothing before an actual identity-tool call succeeds. Manually restarting the Gateway is recovery evidence, not a passing connector-only restart test. A timeout or failed assertion stops the gate and preserves that attempt.
+
+Specify each expected ACK as a standalone, clearly delimited value without sentence punctuation after it. Agree the expected exact string before its approved send; do not normalize an unexpected reply or resend to conceal a mismatch. No live sends are authorized by this runbook.
+
 Record each step's UTC time, audit sequence/event ID, connector state, message/work ID, credential-family ID and observed outcome in the [blank 23-row worksheet](PHASE-A-EVIDENCE-WORKSHEET.md). Keep sensitive raw logs private. A local test or a status label alone does not prove work was processed. The authoritative sanitized evidence goes to `docs/architecture/agent-native-v2/evidence/phase-a-<sha>.md` through Lane A and needs the human's countersign.
 
 | Steps | Operator action and required observation |

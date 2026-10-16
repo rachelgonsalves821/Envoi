@@ -14,6 +14,7 @@ import { checkServiceManager } from './service';
 import { startControl, queryControl } from './control';
 import { enrollmentSetupError, readEnrollmentDiagnostic } from './enrollment-error';
 import { migrateConnectionDirectory } from './migrate';
+import { waitForRuntimeTools } from './runtime-readiness';
 
 export interface InstalledConnection {
   version: 1;
@@ -180,7 +181,7 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
 }
 
 export async function startConnection(stateDir: string, signal: AbortSignal, resolveAdapter: AdapterResolver,
-  options: AdapterOptions & { secureDirectory?: typeof privateDirectory; pollIntervalMs?: number; onReady?: () => void; onWaiting?: (code: string) => void; retryDelayMs?: number; control?: boolean } = {}) {
+  options: AdapterOptions & { secureDirectory?: typeof privateDirectory; pollIntervalMs?: number; onReady?: () => void; onWaiting?: (code: string) => void; retryDelayMs?: number; toolRecoveryTimeoutMs?: number; toolRecoveryRetryMs?: number; control?: boolean } = {}) {
   const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(stateDir, options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = noRedirectFetch(options.fetch);
@@ -213,7 +214,18 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         bridge.connector.onState(lifecycle => { diagnostics = { ...diagnostics, status: lifecycle.state === 'DEGRADED' ? 'waiting' : lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance }; });
         await bridge.connector.start();
         await bridge.connector.checkStatus();
-        if (!(await bridge.connector.lifecycle()).paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
+        if (!(await bridge.connector.lifecycle()).paused) {
+          if (saved.runtime === 'hermes') await waitForRuntimeTools(bridge, stop.signal, {
+            timeoutMs: options.toolRecoveryTimeoutMs, retryMs: options.toolRecoveryRetryMs,
+            onWaiting(code) {
+              diagnostics = { status: 'waiting', runtimeChecks: 'pending', errorCode: code,
+                guidance: 'Waiting for the selected Gateway to rediscover Envoi tools. Saved enrollment is unchanged.' };
+              options.onWaiting?.(code);
+            }
+          });
+          else await bridge.verify?.();
+          if (!(await bridge.connector.lifecycle()).paused) await report(saved, bridge.connector, 'ready', fetcher);
+        }
         const lifecycle = await bridge.connector.lifecycle();
         diagnostics = { status: lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance, runtimeChecks: lifecycle.paused ? 'deferred_while_paused' : 'passed', checkedAt: new Date().toISOString(), ...adapter.describe(config) };
         break;

@@ -2920,9 +2920,12 @@ var At = {
 		return {
 			connector: i.connector,
 			close: i.close,
-			async verify() {
-				let i = r;
-				if (await gt(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${n.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, t), r <= i) throw new O("TOOLS_NOT_READY", "Hermes did not invoke the configured Envoi identity tool. Start a fresh API session, or restart the selected profile Gateway from a separate terminal to load its MCP configuration, then rerun setup using the same state directory. Enrollment is saved; do not create another token.");
+			async verify(i) {
+				let a = r;
+				if (await gt(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${n.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, {
+					...t,
+					...i ? { signal: i } : {}
+				}), r <= a) throw new O("TOOLS_NOT_READY", "Hermes did not invoke the configured Envoi identity tool. Start a fresh API session, or restart the selected profile Gateway from a separate terminal to load its MCP configuration, then rerun setup using the same state directory. Enrollment is saved; do not create another token.");
 			}
 		};
 	},
@@ -3494,12 +3497,41 @@ async function tn(e, t = it) {
 	}
 }
 //#endregion
+//#region integrations/connector/runtime-readiness.ts
+function nn(e, t) {
+	return new Promise((n) => {
+		if (t.aborted) {
+			n();
+			return;
+		}
+		let r = () => {
+			clearTimeout(i), t.removeEventListener("abort", r), n();
+		}, i = setTimeout(r, e);
+		t.addEventListener("abort", r, { once: !0 });
+	});
+}
+async function rn(e, t, n = {}) {
+	if (!e.verify) return;
+	let r = AbortSignal.timeout(n.timeoutMs ?? 36e4), i = AbortSignal.any([t, r]);
+	for (; !i.aborted;) try {
+		if (await e.connector.checkStatus(), (await e.connector.lifecycle()).paused) return;
+		await e.verify(i), i.throwIfAborted();
+		return;
+	} catch (e) {
+		if (t.aborted) throw new O("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.");
+		if (r.aborted) break;
+		if (!(e instanceof O) || e.code !== "TOOLS_NOT_READY") throw e;
+		n.onWaiting?.(e.code), await nn(n.retryMs ?? 15e3, i);
+	}
+	throw t.aborted ? new O("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.") : new O("TOOLS_NOT_READY", "Runtime tools did not recover within six minutes. Check the selected Gateway MCP connection; saved enrollment is unchanged.");
+}
+//#endregion
 //#region integrations/connector/core.ts
-function nn(e, t, n, r = {}) {
+function an(e, t, n, r = {}) {
 	let i = r.env ?? process.env, a = r.homeDir ?? h(), o = r.platform ?? process.platform, s = g("sha256").update(`${D(e)}\n${t.toLowerCase()}`).digest("hex").slice(0, 24), c = o === "win32" ? i.LOCALAPPDATA || d.join(a, "AppData", "Local") : o === "darwin" ? d.join(a, "Library", "Application Support") : i.XDG_STATE_HOME && d.isAbsolute(i.XDG_STATE_HOME) ? i.XDG_STATE_HOME : d.join(a, ".local", "state");
 	return d.join(c, "envoi", n, s);
 }
-function rn(e, t = process.platform) {
+function on(e, t = process.platform) {
 	let n = [
 		process.execPath,
 		d.join(e, "connector.mjs"),
@@ -3509,11 +3541,11 @@ function rn(e, t = process.platform) {
 	];
 	return t === "win32" ? `& ${n.map((e) => `'${e.replaceAll("'", "''")}'`).join(" ")}` : n.map((e) => `'${e.replaceAll("'", "'\"'\"'")}'`).join(" ");
 }
-var an = (e = fetch) => (t, n) => e(t, {
+var sn = (e = fetch) => (t, n) => e(t, {
 	...n,
 	redirect: "error"
 });
-async function on(n, r) {
+async function cn(n, r) {
 	if (!r || d.resolve(r) === d.join(n, "connector.mjs")) return;
 	let i = d.join(n, `.connector-${v()}.tmp`);
 	try {
@@ -3522,7 +3554,7 @@ async function on(n, r) {
 		await l(i, { force: !0 });
 	}
 }
-async function sn(e) {
+async function ln(e) {
 	let t = d.join(e, "session.json"), r = await n(t).catch((e) => {
 		if (e.code === "ENOENT") return null;
 		throw e;
@@ -3556,7 +3588,7 @@ async function $(e) {
 	if (!i || typeof i != "object" || Array.isArray(i) || (i.runtime === "openclaw" && !i.configuration && i.openclaw && (i.configuration = i.openclaw), i.version !== 1 || !T.includes(i.runtime) || !i.configuration || typeof i.configuration != "object" || Array.isArray(i.configuration) || typeof i.address != "string" || typeof i.agentName != "string")) throw new O("STATE_INVALID", "The saved connection is invalid");
 	return i.apiUrl = D(i.apiUrl), i;
 }
-async function cn(e, t) {
+async function un(e, t) {
 	let n;
 	try {
 		n = await t(`${D(e)}/health`, { signal: AbortSignal.timeout(1e4) });
@@ -3569,7 +3601,7 @@ async function cn(e, t) {
 		throw new O("ENVOI_UNREACHABLE", "The selected URL did not return Envoi health. Check the deployment origin before enrolling");
 	}
 }
-async function ln(e, t, n, r, i) {
+async function dn(e, t, n, r, i) {
 	await t.reportConnectionStatus({
 		version: 1,
 		runtime: e.runtime,
@@ -3578,9 +3610,9 @@ async function ln(e, t, n, r, i) {
 		...i ? { errorCode: i } : {}
 	});
 }
-async function un(e, t, n, r = {}) {
-	let i = an(r.fetch);
-	await cn(t, i);
+async function fn(e, t, n, r = {}) {
+	let i = sn(r.fetch);
+	await un(t, i);
 	let a = n(e), o = await a.discover({
 		...r,
 		fetch: i
@@ -3595,18 +3627,18 @@ async function un(e, t, n, r = {}) {
 		note: "Preparation did not enroll an agent or prove unattended receiving"
 	};
 }
-async function dn(e, t, n = {}) {
-	let r = ee(e, { allowExpired: !0 }), i = await (n.secureDirectory ?? it)(await tn(n.stateDir ?? nn(r.apiUrl, r.address, r.runtime, n), n.secureDirectory)), a = await K(i), o = an(n.fetch), s, c, u;
+async function pn(e, t, n = {}) {
+	let r = ee(e, { allowExpired: !0 }), i = await (n.secureDirectory ?? it)(await tn(n.stateDir ?? an(r.apiUrl, r.address, r.runtime, n), n.secureDirectory)), a = await K(i), o = sn(n.fetch), s, c, u;
 	try {
 		let a = new V(i);
 		await a.init();
-		let f = await sn(i), p = await $(i).catch((e) => {
+		let f = await ln(i), p = await $(i).catch((e) => {
 			if (e.code !== "ENOENT") throw e;
 		});
 		if (p && (p.apiUrl !== r.apiUrl || p.address !== r.address || p.runtime !== r.runtime) || f && f.address !== r.address) throw new O("STATE_MISMATCH", "This directory belongs to another connection. Use a separate agent-specific directory");
 		if (f && !p) throw new O("STATE_INVALID", "Saved credentials have no connection configuration; preserve this directory and inspect it");
 		let m = r.operation === "reconnect" ? g("sha256").update(r.enrollmentToken).digest("hex") : void 0, h = f?.setupRedemptionId, _ = !f || !!m && h !== m && p?.lastReconnectId !== m;
-		_ && ee(e), n.installService && await Ut(), n.onProgress?.("Checking Envoi reachability"), await cn(r.apiUrl, o);
+		_ && ee(e), n.installService && await Ut(), n.onProgress?.("Checking Envoi reachability"), await un(r.apiUrl, o);
 		let v = t(r.runtime), y = {
 			...n,
 			apiUrl: r.apiUrl,
@@ -3623,7 +3655,7 @@ async function dn(e, t, n = {}) {
 			agentName: r.agentName,
 			configuration: b,
 			...p?.lastReconnectId ? { lastReconnectId: p.lastReconnectId } : {}
-		}, await G(d.join(i, "connection.json"), c), await on(i, n.executableFile), _) {
+		}, await G(d.join(i, "connection.json"), c), await cn(i, n.executableFile), _) {
 			n.onProgress?.(r.operation === "reconnect" ? "Reconnecting the existing agent" : "Enrolling the agent");
 			let e = {
 				load: () => a.load(),
@@ -3646,7 +3678,7 @@ async function dn(e, t, n = {}) {
 		if (!f || f.address !== r.address) throw new O("STATE_MISMATCH", "The enrolled address differs from this handoff. Inspect Agent connections before starting");
 		await l(d.join(i, "enrollment-error.json"), { force: !0 }), u = new z(c.apiUrl, a, { fetch: o }), await v.configure?.(b, y), await G(d.join(i, "connection.json"), c), n.onProgress?.("Verifying runtime tools and Envoi access"), s = await v.createBridge(b, y), await s.connector.start(), await s.connector.checkStatus();
 		let x = (await s.connector.lifecycle()).paused;
-		x || (await s.verify?.(), await ln(c, s.connector, "ready", o));
+		x || (await s.verify?.(), await dn(c, s.connector, "ready", o));
 		let S = x ? "deferred_while_paused" : "passed";
 		return await G(d.join(i, "setup-check.json"), {
 			runtime: c.runtime,
@@ -3660,7 +3692,7 @@ async function dn(e, t, n = {}) {
 			checks: S
 		};
 	} catch (e) {
-		throw c && (s || u) && await ln(c, s?.connector ?? u, "error", o, e instanceof O ? e.code : "CONNECTION_TEST_FAILED").catch(() => {}), e;
+		throw c && (s || u) && await dn(c, s?.connector ?? u, "error", o, e instanceof O ? e.code : "CONNECTION_TEST_FAILED").catch(() => {}), e;
 	} finally {
 		try {
 			await s?.close();
@@ -3669,15 +3701,15 @@ async function dn(e, t, n = {}) {
 		}
 	}
 }
-async function fn(e, t, n, r = {}) {
-	let i = await (r.secureDirectory ?? it)(await tn(e, r.secureDirectory)), a = await K(i), o = an(r.fetch), s = new AbortController(), c = () => s.abort();
+async function mn(e, t, n, r = {}) {
+	let i = await (r.secureDirectory ?? it)(await tn(e, r.secureDirectory)), a = await K(i), o = sn(r.fetch), s = new AbortController(), c = () => s.abort();
 	t.addEventListener("abort", c, { once: !0 }), t.aborted && s.abort();
 	let l, u, f, p = {
 		status: "starting",
 		runtimeChecks: "pending"
 	};
 	try {
-		if (f = await $(i), !await sn(i)) throw new O("STATE_INVALID", "Saved credentials are missing; reconnect through Envoi before starting");
+		if (f = await $(i), !await ln(i)) throw new O("STATE_INVALID", "Saved credentials are missing; reconnect through Envoi before starting");
 		let e = new z(f.apiUrl, new V(i), { fetch: o });
 		await e.start();
 		let t = n(f.runtime), a = {
@@ -3695,7 +3727,7 @@ async function fn(e, t, n, r = {}) {
 		for (m.retryAt && await w(Math.max(0, Date.parse(m.retryAt) - Date.now()), void 0, { signal: s.signal }).catch((e) => {
 			if (!s.signal.aborted) throw e;
 		}); !s.signal.aborted;) try {
-			await cn(f.apiUrl, o);
+			await un(f.apiUrl, o);
 			let e = await t.discover(a, f.configuration);
 			await t.preflight(e, a), await t.configure?.(e, a), f.configuration = e, await G(d.join(i, "connection.json"), f), l = await t.createBridge(e, a), l.connector.onState((e) => {
 				p = {
@@ -3704,7 +3736,18 @@ async function fn(e, t, n, r = {}) {
 					lifecycle: e,
 					guidance: e.guidance
 				};
-			}), await l.connector.start(), await l.connector.checkStatus(), (await l.connector.lifecycle()).paused || (await l.verify?.(), await ln(f, l.connector, "ready", o));
+			}), await l.connector.start(), await l.connector.checkStatus(), (await l.connector.lifecycle()).paused || (f.runtime === "hermes" ? await rn(l, s.signal, {
+				timeoutMs: r.toolRecoveryTimeoutMs,
+				retryMs: r.toolRecoveryRetryMs,
+				onWaiting(e) {
+					p = {
+						status: "waiting",
+						runtimeChecks: "pending",
+						errorCode: e,
+						guidance: "Waiting for the selected Gateway to rediscover Envoi tools. Saved enrollment is unchanged."
+					}, r.onWaiting?.(e);
+				}
+			}) : await l.verify?.(), (await l.connector.lifecycle()).paused || await dn(f, l.connector, "ready", o));
 			let n = await l.connector.lifecycle();
 			p = {
 				status: n.state.toLowerCase(),
@@ -3738,7 +3781,7 @@ async function fn(e, t, n, r = {}) {
 		if (s.signal.aborted || !l) return;
 		r.onReady?.(), await l.connector.run(s.signal);
 	} catch (e) {
-		if (f && l && !s.signal.aborted && await ln(f, l.connector, "error", o, "CONNECTOR_START_FAILED").catch(() => {}), !s.signal.aborted) throw e;
+		if (f && l && !s.signal.aborted && await dn(f, l.connector, "error", o, "CONNECTOR_START_FAILED").catch(() => {}), !s.signal.aborted) throw e;
 	} finally {
 		t.removeEventListener("abort", c);
 		try {
@@ -3748,8 +3791,8 @@ async function fn(e, t, n, r = {}) {
 		}
 	}
 }
-async function pn(e) {
-	let t = d.resolve(e), n = await $(t), r = await sn(t), i = await qt(t, "status").catch(() => null), o = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), s = await Zt(t);
+async function hn(e) {
+	let t = d.resolve(e), n = await $(t), r = await ln(t), i = await qt(t, "status").catch(() => null), o = await a(d.join(t, "setup-check.json"), "utf8").then((e) => JSON.parse(e)).catch(() => null), s = await Zt(t);
 	return {
 		runtime: n.runtime,
 		address: n.address,
@@ -3767,17 +3810,17 @@ async function pn(e) {
 		note: "A running connector is not proof of successful message delivery. Verify a real agent exchange"
 	};
 }
-async function mn(e, t, n = {}) {
+async function gn(e, t, n = {}) {
 	let r = d.resolve(e), i = await qt(r, "doctor").catch(() => null);
 	if (i) return {
-		...await pn(r),
+		...await hn(r),
 		...i,
 		note: "Checks are from the running connector; verify a real message exchange"
 	};
 	let a = await K(r);
 	try {
-		let e = await $(r), i = t(e.runtime), a = an(n.fetch);
-		await cn(e.apiUrl, a);
+		let e = await $(r), i = t(e.runtime), a = sn(n.fetch);
+		await un(e.apiUrl, a);
 		let o = {
 			...n,
 			apiUrl: e.apiUrl,
@@ -3787,7 +3830,7 @@ async function mn(e, t, n = {}) {
 		await i.preflight(s, o);
 		let c = new V(r);
 		return await new z(e.apiUrl, c, { fetch: a }).checkStatus(), {
-			...await pn(r),
+			...await hn(r),
 			runtimeChecks: "passed",
 			...i.describe(s)
 		};
@@ -3795,7 +3838,7 @@ async function mn(e, t, n = {}) {
 		await a();
 	}
 }
-async function hn(e) {
+async function _n(e) {
 	let t = d.resolve(e), n, r = Date.now() + 15e3;
 	for (; !n;) try {
 		n = await K(t);
@@ -3811,7 +3854,7 @@ async function hn(e) {
 }
 //#endregion
 //#region integrations/connector/cli.ts
-var gn = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", _n = [
+var vn = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", yn = [
 	"--handoff",
 	"--state-dir",
 	"--runtime",
@@ -3820,26 +3863,26 @@ var gn = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --
 	"--profile",
 	"--agent",
 	"--gateway-url"
-], vn = [
+], bn = [
 	"--handoff-stdin",
 	"--install-service",
 	"--prepare-runtime"
 ];
-async function yn(e = process.argv.slice(2)) {
+async function xn(e = process.argv.slice(2)) {
 	if (!e.length || e.length === 1 && e[0] === "--help") {
-		process.stdout.write(gn);
+		process.stdout.write(vn);
 		return;
 	}
 	if (Number(process.versions.node.split(".")[0]) < 22) throw new O("NODE_UNSUPPORTED", "Install Node.js 22 or newer before connecting");
 	let [t, ...r] = e, i = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Set();
 	for (let e = 0; e < r.length; e++) {
 		let t = r[e];
-		if (vn.includes(t)) {
+		if (bn.includes(t)) {
 			if (o.has(t)) throw new O("ARGUMENT_INVALID", "Duplicate option");
 			o.add(t);
 			continue;
 		}
-		if (!_n.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new O("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
+		if (!yn.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new O("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
 		i.set(t, r[++e]);
 	}
 	let s = {
@@ -3851,7 +3894,7 @@ async function yn(e = process.argv.slice(2)) {
 	};
 	if (t === "prepare") {
 		if (!T.includes(i.get("--runtime")) || !i.get("--api-url") || o.has("--install-service") || o.has("--handoff-stdin") || i.has("--handoff") || i.has("--state-dir")) throw new O("ARGUMENT_INVALID", "Supply --runtime and --api-url for prepare. Run --help");
-		let e = await un(i.get("--runtime"), i.get("--api-url"), zt, s);
+		let e = await fn(i.get("--runtime"), i.get("--api-url"), zt, s);
 		process.stdout.write(`${JSON.stringify(e)}\n`);
 		return;
 	}
@@ -3877,14 +3920,14 @@ async function yn(e = process.argv.slice(2)) {
 		} catch {
 			throw new O("HANDOFF_INVALID", "Download a valid Envoi setup file");
 		}
-		let r = await dn(t, zt, {
+		let r = await pn(t, zt, {
 			...s,
 			stateDir: i.get("--state-dir"),
 			installService: o.has("--install-service"),
 			executableFile: m(import.meta.url),
 			onProgress: (e) => process.stderr.write(`${e}…\n`)
 		});
-		if (process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${rn(r.stateDir)}\n`), o.has("--install-service")) {
+		if (process.stdout.write(`${JSON.stringify(r)}\n`), process.stderr.write(`Setup checks: ${r.checks === "passed" ? "passed" : "tool verification deferred while paused"}. Delete the temporary handoff.\nStart: ${on(r.stateDir)}\n`), o.has("--install-service")) {
 			let e = await Wt(r.stateDir, r.runtime);
 			process.stdout.write(`${JSON.stringify({
 				startupService: e,
@@ -3904,11 +3947,11 @@ async function yn(e = process.argv.slice(2)) {
 	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new O("ARGUMENT_INVALID", "Supply a supported command and --state-dir. Run --help");
 	let c = d.resolve(i.get("--state-dir"));
 	if (t === "status") {
-		process.stdout.write(`${JSON.stringify(await pn(c))}\n`);
+		process.stdout.write(`${JSON.stringify(await hn(c))}\n`);
 		return;
 	}
 	if (t === "doctor") {
-		process.stdout.write(`${JSON.stringify(await mn(c, zt))}\n`);
+		process.stdout.write(`${JSON.stringify(await gn(c, zt))}\n`);
 		return;
 	}
 	if (t === "install-service") {
@@ -3929,7 +3972,7 @@ async function yn(e = process.argv.slice(2)) {
 		return;
 	}
 	if (t === "uninstall") {
-		await Gt(c, (await $(c)).runtime), await qt(c, "stop").catch(() => null), await hn(c), process.stdout.write(`${JSON.stringify({
+		await Gt(c, (await $(c)).runtime), await qt(c, "stop").catch(() => null), await _n(c), process.stdout.write(`${JSON.stringify({
 			status: "startup removed",
 			note: "Credentials and work history are preserved. Revoke access in Envoi to invalidate credentials"
 		})}\n`);
@@ -3938,7 +3981,7 @@ async function yn(e = process.argv.slice(2)) {
 	let l = new AbortController(), u = () => l.abort();
 	process.once("SIGINT", u), process.once("SIGTERM", u);
 	try {
-		await fn(c, l.signal, zt, {
+		await mn(c, l.signal, zt, {
 			onReady: () => process.stdout.write("Envoi connector started. Waiting for incoming work.\n"),
 			onWaiting: (e) => process.stderr.write(`Connection temporarily unavailable (${e}); retrying automatically.\n`)
 		});
@@ -3948,7 +3991,7 @@ async function yn(e = process.argv.slice(2)) {
 }
 //#endregion
 //#region integrations/connector/error.ts
-function bn(e) {
+function Sn(e) {
 	if (e instanceof O) return `${e.code}: ${e.message}`;
 	if (e instanceof U || e instanceof E) return e.message;
 	if (e instanceof M) {
@@ -3959,7 +4002,7 @@ function bn(e) {
 }
 //#endregion
 //#region integrations/connector/entry.ts
-yn().catch((e) => {
-	process.stderr.write(`${bn(e)}\n`), process.exitCode = 1;
+xn().catch((e) => {
+	process.stderr.write(`${Sn(e)}\n`), process.exitCode = 1;
 });
 //#endregion

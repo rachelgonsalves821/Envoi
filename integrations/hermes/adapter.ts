@@ -71,10 +71,11 @@ export const hermesAdapter: ConnectorAdapter<HermesConfiguration> = {
       if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') throw new ConnectorSetupError('RELAY_UNAVAILABLE', 'This Hermes connection relay port is occupied. Stop its prior connector or the conflicting process, then retry with the same state directory.');
       throw error;
     }
-    return { connector: bridge.connector, close: bridge.close, async verify() {
+    return { connector: bridge.connector, close: bridge.close, async verify(signal) {
       const before = observedInfo;
       await boundedHermesRun(config,
-        `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, context);
+        `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`,
+        { ...context, ...(signal ? { signal } : {}) });
       if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Hermes did not invoke the configured Envoi identity tool. Start a fresh API session, or restart the selected profile Gateway from a separate terminal to load its MCP configuration, then rerun setup using the same state directory. Enrollment is saved; do not create another token.');
     } };
   },

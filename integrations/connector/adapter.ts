@@ -26,7 +26,7 @@ export interface RuntimeBridge {
   connector: EnvoiConnector;
   close(): Promise<void>;
   /** Actual tool invocation, not discovery; runs before setup is reported ready. */
-  verify?(): Promise<void>;
+  verify?(signal?: AbortSignal): Promise<void>;
 }
 export interface ConnectorAdapter<C = unknown> {
   runtime: ConnectorRuntime;
