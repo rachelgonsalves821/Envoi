@@ -61,7 +61,7 @@ export function createAgentSlots({ store }) {
       if (!index?.registrationId || index.registrationId === excludingRegistrationId) continue;
       const registration = await store.getJson(registrationPath(index.registrationId));
       if (!liveApproval(registration, now) || registration.principalHumanId !== humanId) continue;
-      const target = registration.decision?.target;
+      const target = registration.target;
       if (target?.kind === 'new_agent') used += 1;
       else if (target?.kind === 'existing_agent' && target.agentId !== excludingAgentId) {
         // An agent with no family already counts itself; only all-dead families need a new slot.
