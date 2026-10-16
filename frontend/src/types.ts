@@ -274,6 +274,7 @@ export type HistoryCollection = 'cases' | 'messages' | 'assets' | 'recentEvents'
 export type HistoryMetadata = Partial<Record<HistoryCollection, { total: number; hasMore: boolean; nextCursor: string | null }>>;
 export interface WorkspaceRequester { id: string; auth: { provider: string; assurance: string } }
 export interface HumanView {
+  sourceViews?: HumanView[];
   folders?: InboxFolder[];
   requester?: WorkspaceRequester;
   history?: HistoryMetadata;

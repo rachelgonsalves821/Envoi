@@ -204,8 +204,8 @@ describe('Agent Interface to Human Interface translation', () => {
       agent_acme: { id: 'agent_acme', type: 'externalAgent' as const, displayName: 'Acme scheduling agent', accessState: 'active' as const }
     };
     const workCase = baseCase({ participants: ['agent_scheduling', 'agent_acme'] });
-    const outbound = exchangeParties(workCase, { id: 'evt_out', type: 'message', actor: 'agent_scheduling', createdAt: '2026-09-27T16:30:00.000Z', payload: { senderAgentId: 'agent_scheduling', recipientAgentId: 'agent_acme' }, linkedPolicyEvaluation: null, precedingEventRef: null }, [], directory);
-    const inbound = exchangeParties(workCase, { id: 'evt_in', type: 'message', actor: 'agent_acme', createdAt: '2026-09-27T16:35:00.000Z', payload: { senderAgentId: 'agent_acme', recipientAgentId: 'agent_scheduling' }, linkedPolicyEvaluation: null, precedingEventRef: null }, [], directory);
+    const outbound = exchangeParties(workCase, { id: 'evt_out', type: 'message', actor: 'agent_scheduling', createdAt: '2026-09-27T16:30:00.000Z', payload: { senderAgentId: 'agent_scheduling', recipientAgentId: 'agent_acme' }, linkedPolicyEvaluation: null, precedingEventRef: null }, [], directory, 'agent_scheduling');
+    const inbound = exchangeParties(workCase, { id: 'evt_in', type: 'message', actor: 'agent_acme', createdAt: '2026-09-27T16:35:00.000Z', payload: { senderAgentId: 'agent_acme', recipientAgentId: 'agent_scheduling' }, linkedPolicyEvaluation: null, precedingEventRef: null }, [], directory, 'agent_scheduling');
     expect(outbound).toMatchObject({ direction: 'outbound', sender: { displayName: 'My scheduling agent' }, recipient: { displayName: 'Acme scheduling agent' } });
     expect(inbound).toMatchObject({ direction: 'inbound', sender: { displayName: 'Acme scheduling agent' }, recipient: { displayName: 'My scheduling agent' } });
   });

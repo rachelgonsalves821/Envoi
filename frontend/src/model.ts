@@ -131,7 +131,21 @@ export function participantIds(workCase: WorkCase, events: CaseEvent[] = []): st
   return [...new Set([workCase.actingAgent, ...(workCase.participants || []), ...(workCase.participantAgentIds || []), ...(workCase.participantHumanIds || []), ...eventParticipants].filter((value): value is string => Boolean(value)))];
 }
 
-export function resolveParticipant(workCase: WorkCase, participantId: string | undefined, agents: Agent[] = [], participantDirectory?: Record<string, ParticipantIdentity> | ParticipantIdentity[]): ResolvedParticipant {
+export function caseSourceView(workCase: WorkCase, view: HumanView): HumanView {
+  if (!view.sourceViews) return view;
+  const exact = view.sourceViews.filter(source => source.caseQueue.includes(workCase));
+  const sources = exact.length ? exact : view.sourceViews.filter(source => source.caseQueue.some(item => item.id === workCase.id));
+  if (sources.length === 1) return sources[0];
+  return { ...view, sourceViews: undefined, inbox: { ...view.inbox, ownerAgentId: null } };
+}
+
+export function localAgentId(workCase: WorkCase, view: HumanView): string | undefined {
+  const source = caseSourceView(workCase, view);
+  const id = source.inbox?.ownerAgentId;
+  return id && participantIds(workCase, timelineForCase(workCase, source.messages || [])).includes(id) ? id : undefined;
+}
+
+export function resolveParticipant(workCase: WorkCase, participantId: string | undefined, agents: Agent[] = [], participantDirectory?: Record<string, ParticipantIdentity> | ParticipantIdentity[], localId?: string): ResolvedParticipant {
   const id = participantId || 'unknown-external-agent';
   const sourceDirectory = participantDirectory || workCase.participantDirectory;
   const directory = Array.isArray(sourceDirectory)
@@ -139,7 +153,7 @@ export function resolveParticipant(workCase: WorkCase, participantId: string | u
     : Object.entries(sourceDirectory || {}).map(([key, value]) => ({ ...value, id: value.id || key }));
   const listed = directory.find(item => item.id === id);
   const agent = agents.find(item => item.id === id);
-  const relationship = id === workCase.actingAgent
+  const relationship = id === localId
     ? 'localAgent'
     : id === workCase.principal
       ? 'principal'
@@ -148,24 +162,24 @@ export function resolveParticipant(workCase: WorkCase, participantId: string | u
         : listed
           ? 'participant'
           : 'unknown';
-  if (listed) return { ...listed, relationship };
-  if (agent) return { id, type: id === workCase.actingAgent ? 'internalAgent' : 'externalAgent', displayName: agent.name, accessState: agent.status === 'active' ? 'active' : 'unavailable', address: agent.address, relationship };
+  if (listed) return { ...listed, type: listed.type === 'internalAgent' || listed.type === 'externalAgent' ? id === localId ? 'internalAgent' : 'externalAgent' : listed.type, relationship };
+  if (agent) return { id, type: id === localId ? 'internalAgent' : 'externalAgent', displayName: agent.name, accessState: agent.status === 'active' ? 'active' : 'unavailable', address: agent.address, relationship };
   if (id === workCase.principal) return { id, type: 'human', displayName: 'Human principal', accessState: 'active', relationship: 'principal' };
-  return { id, type: id === workCase.actingAgent ? 'internalAgent' : 'externalAgent', displayName: id === 'unknown-external-agent' ? 'Unknown external agent' : humanize(id), accessState: 'unavailable', relationship };
+  return { id, type: id === localId ? 'internalAgent' : 'externalAgent', displayName: id === 'unknown-external-agent' ? 'Unknown external agent' : humanize(id), accessState: 'unavailable', relationship };
 }
 
-export function exchangeParties(workCase: WorkCase, event: CaseEvent, agents: Agent[] = [], participantDirectory?: Record<string, ParticipantIdentity> | ParticipantIdentity[]) {
+export function exchangeParties(workCase: WorkCase, event: CaseEvent, agents: Agent[] = [], participantDirectory?: Record<string, ParticipantIdentity> | ParticipantIdentity[], localId?: string) {
   const senderId = event.payload.senderAgentId || event.payload.senderHumanId || event.actor;
   const knownIds = participantIds(workCase, [event]);
   const inferredRecipient = knownIds.find(id => id !== senderId && (senderId === workCase.actingAgent ? id !== workCase.principal : id === workCase.actingAgent))
     || knownIds.find(id => id !== senderId && id !== workCase.principal);
   const recipientId = event.payload.recipientAgentId || inferredRecipient;
-  const sender = resolveParticipant(workCase, senderId, agents, participantDirectory);
-  const recipient = resolveParticipant(workCase, recipientId, agents, participantDirectory);
+  const sender = resolveParticipant(workCase, senderId, agents, participantDirectory, localId);
+  const recipient = resolveParticipant(workCase, recipientId, agents, participantDirectory, localId);
   return {
     sender,
     recipient,
-    direction: sender.id === workCase.actingAgent ? 'outbound' as const : recipient.id === workCase.actingAgent ? 'inbound' as const : 'betweenParties' as const
+    direction: sender.id === localId ? 'outbound' as const : recipient.id === localId ? 'inbound' as const : 'betweenParties' as const
   };
 }
 

@@ -27,7 +27,7 @@ import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
   STATE_META, assetDisplayName, assetStateMeta, auditSummary, canDownloadAsset, caseCounts, caseLabel, caseState, casesForSection, caseTone, decisionPolicy,
-  eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
+  caseSourceView, localAgentId, eventSummary, exchangeParties, filterAssets, humanize, isExchangeEvent, onboardingSteps, participantIds, resolveParticipant,
   sectionForCase, stateLabel, timelineForCase
 } from './model';
 import type {
@@ -45,7 +45,7 @@ const previewWorkspace: Workspace = { id: 'inbox_preview', organizationId: 'org_
 const previewAgents: Agent[] = [
   { id: 'agent_milo', name: 'Milo', address: 'milo@agents.envoi-agents.com', principalHumanId: previewHuman.id, status: 'active', onboardingStatus: 'approved', permissions: ['send_agent_messages', 'receive_agent_messages', 'execute_cases'] }
 ];
-const previewView: HumanView = {
+export const previewView: HumanView = {
   folders: [{ id: 'folder_preview', name: 'Launch' }],
   inbox: previewWorkspace,
   mode: 'human-observer',
@@ -764,6 +764,7 @@ export function AppShell(props: ShellProps) {
   const aggregateViews = [view, ...[rootWorkspace, ...agentInboxes].filter(inbox => inbox.id !== workspace.id).map(inbox => childViews[inbox.id]).filter((item): item is HumanView => Boolean(item))];
   const queueView: HumanView = workspace.id === rootWorkspace.id ? {
     ...view,
+    sourceViews: aggregateViews,
     agents: agentEntries.map(entry => entry.agent),
     caseQueue: aggregateViews.flatMap(item => item.caseQueue),
     messages: aggregateViews.flatMap(item => item.messages),
@@ -974,7 +975,8 @@ function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId,
   }, [hasMore, historyBusy, onLoadOlder]);
   const filtered = cases.filter(item => {
     const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-    const agent = view.agents.find(value => value.id === item.actingAgent);
+    const source = caseSourceView(item, view);
+    const agent = source.agents.find(value => value.id === localAgentId(item, source));
     const searchable = `${item.objective || item.id} ${conversationPreview(item)} ${conversationTags(item).join(' ')} ${agent?.name || ''}`.toLowerCase();
     return words.every(word => {
       if (word.startsWith('agent:')) return (agent?.name || '').toLowerCase().includes(word.slice(6));
@@ -989,7 +991,7 @@ function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId,
       <div className="queue-header"><div className="queue-context">{currentAgent ? <><span className="agent-dot" style={{ '--agent-color': AGENT_COLORS[Math.max(0, view.agents.indexOf(currentAgent)) % AGENT_COLORS.length] } as React.CSSProperties}>{initials(currentAgent.name)}</span><span title={currentAgent.address}>{currentAgent.name} · {currentAgent.address}</span></> : <span>All agents</span>}</div><div className="queue-title-row"><button className="icon-button mobile-only queue-menu" aria-label="Open navigation" onClick={onOpenNav}><Menu size={18} /></button><h1>{folderName || (section === 'needsMe' ? 'Needs you' : section === 'completed' ? 'Done' : 'All inboxes')}</h1></div></div>
       <label className="queue-search"><Search size={15} /><span className="sr-only">Search cases</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search" /><kbd>/</kbd></label>
       <div className="case-list" role="listbox" aria-label="Conversations">
-        {filtered.map(item => <CaseRow key={caseKey(item)} workCase={item} view={view} showOwner={!currentAgent} selected={selectedId === caseKey(item)} onSelect={onSelect} />)}
+        {filtered.map(item => <CaseRow key={caseKey(item)} workCase={item} view={caseSourceView(item, view)} showOwner={!currentAgent} selected={selectedId === caseKey(item)} onSelect={onSelect} />)}
         {!filtered.length && <div className="empty-list"><Inbox size={24} /><strong>{query ? 'No matches' : 'All clear'}</strong><span>{query ? 'Try a different search.' : 'Cases will appear here.'}</span></div>}
         {hasMore && <div ref={loadMarker} aria-hidden="true" />}
       </div>
@@ -997,12 +999,13 @@ function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId,
   );
 }
 
-function CaseRow({ workCase, view, showOwner, selected, onSelect }: { workCase: WorkCase; view: HumanView; showOwner: boolean; selected: boolean; onSelect: (workCase: WorkCase) => void }) {
+export function CaseRow({ workCase, view, showOwner, selected, onSelect }: { workCase: WorkCase; view: HumanView; showOwner: boolean; selected: boolean; onSelect: (workCase: WorkCase) => void }) {
+  view = caseSourceView(workCase, view);
   const updated = workCase.updatedAt || workCase.createdAt;
   const events = timelineForCase(workCase, view.messages);
-  const counterpartId = participantIds(workCase, events).find(id => id !== workCase.actingAgent && id !== workCase.principal);
-  const counterparty = resolveParticipant(workCase, counterpartId, view.agents, view.participantDirectory);
-  const owner = view.agents.find(item => item.id === workCase.actingAgent);
+  const counterpartId = participantIds(workCase, events).find(id => id !== localAgentId(workCase, view) && id !== workCase.principal);
+  const counterparty = resolveParticipant(workCase, counterpartId, view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const owner = view.agents.find(item => item.id === localAgentId(workCase, view));
   const today = new Date(updated).toDateString() === new Date().toDateString();
   const counterpartyColor = AGENT_COLORS[Math.abs(Array.from(counterparty.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
   const ownerColor = AGENT_COLORS[Math.max(0, view.agents.findIndex(item => item.id === owner?.id)) % AGENT_COLORS.length];
@@ -1016,6 +1019,7 @@ function CaseRow({ workCase, view, showOwner, selected, onSelect }: { workCase: 
 }
 
 export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRailToggle, onBack, onRefresh, onPreferencesChanged, notify }: { workCase: WorkCase; view: HumanView; canManageInbox: boolean; railOpen: boolean; onRailToggle: () => void; onBack: () => void; onRefresh: () => Promise<unknown>; onPreferencesChanged: (preference: InboxPreference) => Promise<unknown>; notify: (message: string) => void }) {
+  view = caseSourceView(workCase, view);
   const state = caseState(workCase);
   const events = timelineForCase(workCase, view.messages);
   const policy = workCase.policyEvaluations?.find(item => item.id === workCase.decision?.policyEvaluationId) || decisionPolicy(workCase);
@@ -1030,9 +1034,9 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   const [instructionBusy, setInstructionBusy] = useState(false);
   const [instructionError, setInstructionError] = useState('');
   const instructionRequest = useRef<{ text: string; key: string } | null>(null);
-  const local = resolveParticipant(workCase, workCase.actingAgent, view.agents, view.participantDirectory);
-  const counterpartyId = participantIds(workCase, events).find(id => id !== workCase.actingAgent && id !== workCase.principal);
-  const counterparty = resolveParticipant(workCase, counterpartyId, view.agents, view.participantDirectory);
+  const local = resolveParticipant(workCase, localAgentId(workCase, view), view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const counterpartyId = participantIds(workCase, events).find(id => id !== localAgentId(workCase, view) && id !== workCase.principal);
+  const counterparty = resolveParticipant(workCase, counterpartyId, view.agents, view.participantDirectory, localAgentId(workCase, view));
 
   async function act(actionKey: HumanActionKey) {
     setBusy(actionKey);
@@ -1045,7 +1049,7 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
   const hasOpenDecision = Boolean(workCase.schemaVersion) && !['completed', 'expired', 'revoked'].includes(state);
   const canAct = canManageInbox && hasOpenDecision;
   const canOrganize = Boolean(workCase.inboxPreference && view.folders);
-  const ownAgent = view.agents.find(agent => agent.id === view.inbox.ownerAgentId);
+  const ownAgent = view.agents.find(agent => agent.id === localAgentId(workCase, view));
   const canInstruct = canAct && state !== 'paused' && ownAgent?.status === 'active' && ownAgent.onboardingStatus === 'approved' && !ownAgent.credentialRevoked && !ownAgent.paused && ownAgent.permissions.includes('receive_agent_messages');
   async function updatePreference(patch: { archive?: boolean; folderId?: string | null }) {
     setPreferenceBusy(true); setPreferenceError('');
@@ -1086,9 +1090,9 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
           <h1 className="thread-subject">{workCase.objective || 'Untitled case'}</h1>
           <div className="thread-meta"><StatusBadge workCase={workCase} /><button className="add-folder" disabled={!canOrganize || preferenceBusy} onClick={() => { setPreferenceError(''); setMoveOpen(true); }}><Folder size={13} />{view.folders?.find(folder => folder.id === workCase.inboxPreference?.folderId)?.name || 'Folder'}</button></div>
           <div className="participant-duo">
-            <ParticipantCard participant={local} label="Your agent" />
+            <ParticipantCard participant={local} label={local.relationship === 'localAgent' ? 'Your agent' : 'Local identity unavailable'} />
             <ArrowLeftRight size={18} className="participant-swap" aria-hidden="true" />
-            <ParticipantCard participant={counterparty} label={`Agent for ${counterparty.orgRef || 'another organization'}`} nativeControl={canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
+            <ParticipantCard participant={counterparty} label={`Agent for ${counterparty.orgRef || 'another organization'}`} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && counterparty.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />
           </div>
           {workCase.decision && hasOpenDecision && <DecisionCard workCase={workCase} view={view} events={events} policy={policy} canManageInbox={canManageInbox} busy={busy} onAction={key => key === 'decline' ? setConfirm(key) : void act(key)} onPolicy={() => policy && setDrawer({ type: 'policy', item: policy })} />}
           {state === 'unknownExternalResult' && <InlineNotice title="Result unknown" body="The external service did not confirm the result. Do not retry with a new key." tone="unknown" />}
@@ -1096,10 +1100,10 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
           <div className="conversation" aria-label="Conversation">{events.length ? events.map((event, index) => <ConversationEntry key={event.id} event={event} previous={events[index - 1]} workCase={workCase} view={view} />) : <div className="empty-list"><Inbox size={20} /><strong>No messages yet</strong></div>}</div>
           {workCase.receipt && <ReceiptCard workCase={workCase} />}
         </div></div>
-        <div className="thread-composer"><form className="composer-box" onSubmit={event => void sendInstruction(event)}><input aria-label={`Instructions for ${local.displayName}`} value={instruction} onChange={event => setInstruction(event.target.value)} maxLength={15000} placeholder={canInstruct ? 'Send an instruction to your agent' : 'Instructions require an active agent and conversation'} disabled={!canInstruct || instructionBusy} /><button aria-label="Send instruction" disabled={!canInstruct || instructionBusy || !instruction.trim()}><ArrowRight size={16} /></button></form><FormError message={instructionError || preferenceError} /></div>
+        <div className="thread-composer"><form className="composer-box" onSubmit={event => void sendInstruction(event)}><input aria-label={local.relationship === 'localAgent' ? `Instructions for ${local.displayName}` : 'Instructions unavailable: local identity unknown'} value={instruction} onChange={event => setInstruction(event.target.value)} maxLength={15000} placeholder={canInstruct ? 'Send an instruction to your agent' : 'Instructions require an active agent and conversation'} disabled={!canInstruct || instructionBusy} /><button aria-label="Send instruction" disabled={!canInstruct || instructionBusy || !instruction.trim()}><ArrowRight size={16} /></button></form><FormError message={instructionError || preferenceError} /></div>
       </div>
       {moveOpen && <Modal title="Move conversation" dismissible={!preferenceBusy} onClose={() => setMoveOpen(false)}><MoveInboxCaseContent folders={view.folders || []} currentFolderId={workCase.inboxPreference?.folderId || null} busy={preferenceBusy} error={preferenceError} onClose={() => setMoveOpen(false)} onMove={folderId => void updatePreference({ folderId })} /></Modal>}
-      {railOpen && <aside className="case-details" aria-label="Case details"><div className="details-heading"><strong>Details</strong><button className="icon-button" aria-label="Close details" onClick={onRailToggle}><X size={16} /></button></div><h2>{local.displayName} can</h2>{view.agents.find(item => item.id === local.id)?.permissions.map(permission => <div className="details-row" key={permission}><Check size={14} />{humanize(permission)}</div>) || <p>No permissions listed</p>}<h2>{local.displayName} asks you before</h2><p>Actions outside its permissions</p><h2>Files</h2>{view.assets.filter(item => item.caseId === workCase.id).map(asset => <AssetRow key={asset.id} asset={asset} inboxId={view.inbox.id} notify={notify} />)}<h2>Case</h2><dl><dt>Deadline</dt><dd>{workCase.deadline ? formatDate(workCase.deadline) : 'None'}</dd><dt>ID</dt><dd className="case-id">{workCase.id}</dd></dl></aside>}
+      {railOpen && <aside className="case-details" aria-label="Case details"><div className="details-heading"><strong>Details</strong><button className="icon-button" aria-label="Close details" onClick={onRailToggle}><X size={16} /></button></div><h2>{ownAgent ? `${local.displayName} can` : 'Local permissions unavailable'}</h2>{ownAgent?.permissions.map(permission => <div className="details-row" key={permission}><Check size={14} />{humanize(permission)}</div>) || <p>No permissions listed</p>}{ownAgent && <><h2>{local.displayName} asks you before</h2><p>Actions outside its permissions</p></>}<h2>Files</h2>{view.assets.filter(item => item.caseId === workCase.id).map(asset => <AssetRow key={asset.id} asset={asset} inboxId={view.inbox.id} notify={notify} />)}<h2>Case</h2><dl><dt>Deadline</dt><dd>{workCase.deadline ? formatDate(workCase.deadline) : 'None'}</dd><dt>ID</dt><dd className="case-id">{workCase.id}</dd></dl></aside>}
       {drawer && <DetailDrawer drawer={drawer} onClose={() => setDrawer(null)} />}
       {confirm && canAct && <ConfirmDialog action={confirm} busy={busy === confirm} onCancel={() => setConfirm(null)} onConfirm={() => void act(confirm)} />}
     </div>
@@ -1107,9 +1111,11 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
 }
 
 export function ConversationEntry({ event, previous, workCase, view }: { event: CaseEvent; previous?: CaseEvent; workCase: WorkCase; view: HumanView }) {
+  view = caseSourceView(workCase, view);
   const ownHuman = Boolean(event.payload.senderHumanId && event.payload.senderHumanId === view.requester?.id);
-  const mine = (event.payload.senderAgentId || event.actor) === workCase.actingAgent || ownHuman;
-  const participant = resolveParticipant(workCase, event.payload.senderAgentId || event.payload.senderHumanId || event.actor, view.agents, view.participantDirectory);
+  const senderId = event.payload.senderAgentId || event.payload.senderHumanId || event.actor;
+  const mine = Boolean(localAgentId(workCase, view) && senderId === localAgentId(workCase, view)) || ownHuman;
+  const participant = resolveParticipant(workCase, event.payload.senderAgentId || event.payload.senderHumanId || event.actor, view.agents, view.participantDirectory, localAgentId(workCase, view));
   const date = new Date(event.createdAt);
   const priorDate = previous ? new Date(previous.createdAt) : null;
   const showDay = !priorDate || date.toDateString() !== priorDate.toDateString();
@@ -1120,18 +1126,18 @@ return <>{showDay && <div className="conversation-day">{date.toDateString() === 
 }
 
 function NegotiationParticipants({ workCase, view, events, canManageInbox, onRefresh, notify }: { workCase: WorkCase; view: HumanView; events: CaseEvent[]; canManageInbox: boolean; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
-  const local = resolveParticipant(workCase, workCase.actingAgent, view.agents, view.participantDirectory);
-  const counterpartIds = participantIds(workCase, events).filter(id => id !== workCase.actingAgent && id !== workCase.principal);
+  const local = resolveParticipant(workCase, localAgentId(workCase, view), view.agents, view.participantDirectory, localAgentId(workCase, view));
+  const counterpartIds = participantIds(workCase, events).filter(id => id !== localAgentId(workCase, view) && id !== workCase.principal);
   const counterparties = counterpartIds.length
-    ? counterpartIds.map(id => resolveParticipant(workCase, id, view.agents, view.participantDirectory))
-    : [resolveParticipant(workCase, undefined, view.agents, view.participantDirectory)];
+    ? counterpartIds.map(id => resolveParticipant(workCase, id, view.agents, view.participantDirectory, localAgentId(workCase, view)))
+    : [resolveParticipant(workCase, undefined, view.agents, view.participantDirectory, localAgentId(workCase, view))];
   return (
     <section className="participant-strip" aria-labelledby="participants-title">
       <div className="participant-strip-heading"><div><p className="eyebrow">Agent negotiation</p><h2 id="participants-title">Participants in this exchange</h2></div><span><ArrowLeftRight size={14} />Two-way exchange</span></div>
       <div className="participant-flow">
-        <ParticipantCard participant={local} label="Your acting agent" />
+        <ParticipantCard participant={local} label={local.relationship === 'localAgent' ? 'Your agent' : 'Local identity unavailable'} />
         <div className="participant-connector" aria-hidden="true"><ArrowRight size={17} /><span>Negotiating with</span></div>
-        <div className="counterparty-stack">{counterparties.map(participant => <ParticipantCard key={participant.id} participant={participant} label={participant.relationship === 'unknown' ? 'Identity unavailable' : 'Counterparty'} nativeControl={canManageInbox && participant.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />)}</div>
+        <div className="counterparty-stack">{counterparties.map(participant => <ParticipantCard key={participant.id} participant={participant} label={participant.relationship === 'unknown' ? 'Identity unavailable' : 'Counterparty'} nativeControl={Boolean(localAgentId(workCase, view)) && canManageInbox && participant.type === 'externalAgent' ? { inboxId: view.inbox.id, onRefresh, notify } : undefined} />)}</div>
       </div>
     </section>
   );
@@ -1212,17 +1218,17 @@ function proposalParties(workCase: WorkCase, proposalId: string, events: CaseEve
   const proposalEvents = events.filter(event => event.payload.proposalId === proposalId);
   const originEvent = proposalEvents.find(event => String(event.payload.status || '').toLowerCase() !== 'countered');
   const counterEvent = proposalEvents.slice().reverse().find(event => String(event.payload.messageType || event.payload.status || '').toLowerCase().includes('counter'));
-  const originator = resolveParticipant(workCase, originEvent?.actor || workCase.actingAgent, view.agents, view.participantDirectory);
+  const originator = resolveParticipant(workCase, originEvent?.actor || workCase.actingAgent, view.agents, view.participantDirectory, localAgentId(workCase, view));
   const candidateId = participantIds(workCase, events).find(id => id !== workCase.actingAgent && id !== workCase.principal);
-  const counterExchange = counterEvent ? exchangeParties(workCase, counterEvent, view.agents, view.participantDirectory) : null;
+  const counterExchange = counterEvent ? exchangeParties(workCase, counterEvent, view.agents, view.participantDirectory, localAgentId(workCase, view)) : null;
   const counterparty = counterExchange
     ? counterExchange.sender.id === workCase.actingAgent ? counterExchange.recipient : counterExchange.sender
-    : resolveParticipant(workCase, candidateId, view.agents, view.participantDirectory);
+    : resolveParticipant(workCase, candidateId, view.agents, view.participantDirectory, localAgentId(workCase, view));
   return { originator, counterparty };
 }
 
 function TimelineEvent({ event, last, view, workCase, onPolicy }: { event: CaseEvent; last: boolean; view: HumanView; workCase: WorkCase; onPolicy: (policy: PolicyEvaluation) => void }) {
-  const participant = resolveParticipant(workCase, event.actor, view.agents, view.participantDirectory);
+  const participant = resolveParticipant(workCase, event.actor, view.agents, view.participantDirectory, localAgentId(workCase, view));
   const policy = workCase.policyEvaluations?.find(item => item.id === event.linkedPolicyEvaluation);
   const actor = event.actor ? participant.displayName : 'Envoi system';
   const actorIsAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent';
@@ -1240,7 +1246,7 @@ function TimelineEvent({ event, last, view, workCase, onPolicy }: { event: CaseE
 }
 
 export function ExchangeLedgerEvent({ event, view, workCase }: { event: CaseEvent; view: HumanView; workCase: WorkCase }) {
-  const exchange = exchangeParties(workCase, event, view.agents, view.participantDirectory);
+  const exchange = exchangeParties(workCase, event, view.agents, view.participantDirectory, localAgentId(workCase, view));
   const label = exchangeEventLabel(event);
   return (
     <article className="exchange-ledger" aria-label={`${label} from ${exchange.sender.displayName} to ${exchange.recipient.displayName}`}>
@@ -1276,7 +1282,7 @@ function exchangeEventLabel(event: CaseEvent) {
 }
 
 function participantRole(participant: ReturnType<typeof resolveParticipant>) {
-  if (participant.relationship === 'localAgent') return 'Your acting agent';
+  if (participant.relationship === 'localAgent') return 'Your agent';
   if (participant.relationship === 'principal') return 'Human principal';
   if (participant.relationship === 'unknown') return 'Unknown external agent';
   if (participant.type === 'externalAgent') return 'Counterparty agent';
@@ -1302,7 +1308,7 @@ function ContextRail({ workCase, view, onPolicy, onEvidence, notify }: { workCas
         {deliveries.length ? deliveries.map(item => <div key={item.id} className="rail-row"><CheckCircle2 size={17} /><span><strong>{item.transport === 'email' || item.type === 'email' ? `Email ${humanize(item.state).toLowerCase()}` : humanize(item.state)}</strong><small>{item.recipientEmail || item.senderEmail || item.recipientAgentId || item.messageId} · {formatAbsolute(item.createdAt)}</small></span></div>) : <RailEmpty>No delivery receipt has been recorded.</RailEmpty>}
       </RailSection>
       <RailSection title="Participants" icon={<UsersRound size={16} />}>
-        {participants.length ? participants.map(id => { const participant = resolveParticipant(workCase, id, view.agents, view.participantDirectory); const isAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent'; return <div key={id} className="rail-row"><span className={`identity-mark ${isAgent ? 'agent' : 'human'}`}>{isAgent ? <Bot size={14} /> : <UserRound size={14} />}</span><span><strong>{participant.displayName}</strong><small>{participantRole(participant)}</small></span></div>; }) : <RailEmpty>No additional participants are recorded.</RailEmpty>}
+        {participants.length ? participants.map(id => { const participant = resolveParticipant(workCase, id, view.agents, view.participantDirectory, localAgentId(workCase, view)); const isAgent = participant.type === 'internalAgent' || participant.type === 'externalAgent'; return <div key={id} className="rail-row"><span className={`identity-mark ${isAgent ? 'agent' : 'human'}`}>{isAgent ? <Bot size={14} /> : <UserRound size={14} />}</span><span><strong>{participant.displayName}</strong><small>{participantRole(participant)}</small></span></div>; }) : <RailEmpty>No additional participants are recorded.</RailEmpty>}
       </RailSection>
       <RailSection title="Constraints" icon={<ListFilter size={16} />}>
         {Object.keys(workCase.constraints || {}).length ? Object.entries(workCase.constraints || {}).map(([key, value]) => <div className="constraint-row" key={key}><span>{humanize(key)}</span><strong>{String(value)}</strong></div>) : <RailEmpty>No structured constraints are recorded.</RailEmpty>}
@@ -1368,14 +1374,16 @@ function SharedFilesPage({ view, notify, onOpenCase }: { view: HumanView; notify
     const workCase = caseFor(asset);
     if (!workCase) return 'Other files';
     const events = timelineForCase(workCase, view.messages);
-    const id = participantIds(workCase, events).find(value => value !== workCase.actingAgent && value !== workCase.principal);
-    return resolveParticipant(workCase, id, view.agents, view.participantDirectory).displayName;
+    const id = participantIds(workCase, events).find(value => value !== localAgentId(workCase, view) && value !== workCase.principal);
+    return resolveParticipant(workCase, id, view.agents, view.participantDirectory, localAgentId(workCase, view)).displayName;
   };
   const folders = [...new Set(view.assets.map(folderFor))].sort();
   const kinds = [{ label: 'PDFs', match: 'pdf' }, { label: 'Documents', match: 'document' }, { label: 'Spreadsheets', match: 'sheet' }, { label: 'Images', match: 'image/' }, { label: 'Archives', match: 'zip' }];
   const files = view.assets.filter(asset => {
-    const owner = view.agents.some(agent => agent.id === asset.createdByAgentId);
-    return (!folder || folderFor(asset) === folder) && (!query || `${assetDisplayName(asset)} ${caseFor(asset)?.objective || ''} ${folderFor(asset)}`.toLowerCase().includes(query.toLowerCase())) && (direction === 'all' || (direction === 'sent') === owner) && (!kind || `${asset.mimeType} ${assetDisplayName(asset)}`.toLowerCase().includes(kind));
+    const workCase = caseFor(asset);
+    const localId = workCase ? localAgentId(workCase, view) : view.inbox.ownerAgentId;
+    const owner = Boolean(localId && asset.createdByAgentId === localId);
+    return (!folder || folderFor(asset) === folder) && (!query || `${assetDisplayName(asset)} ${caseFor(asset)?.objective || ''} ${folderFor(asset)}`.toLowerCase().includes(query.toLowerCase())) && (direction === 'all' || Boolean(localId) && (direction === 'sent') === owner) && (!kind || `${asset.mimeType} ${assetDisplayName(asset)}`.toLowerCase().includes(kind));
   }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   return <div className="files-page">
     <div className="files-heading"><h1>Files</h1><div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div><button className="button primary" disabled title="Human uploads need server support"><Plus size={16} />New</button></div>
@@ -1512,7 +1520,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   const platformAddress = agent.platformAddress || transportAgent?.platformAddress || transportAgent?.internalAddress || agent.address;
   const publicEmailAddress = agent.publicEmailAddress || agent.identity?.externalAddress || transportAgent?.publicEmailAddress || transportAgent?.externalAddress || null;
   const approvedAccess = !frozen && agent.onboardingStatus === 'approved';
-  const agentCases = cases.filter(item => item.actingAgent === agent.id);
+  const agentCases = cases.filter(item => participantIds(item).includes(agent.id));
   const setupSteps = [
     ['Create workspace', true], ['Create agent identity', true], ['Redeem one-time token', agent.onboardingStatus !== 'pending'],
     ['Approve access', agent.onboardingStatus === 'approved'], ['Observe a work-loop check-in', Boolean(agent.connection?.presence.lastWorkClaimAt)],
