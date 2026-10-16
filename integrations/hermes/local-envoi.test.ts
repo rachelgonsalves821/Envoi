@@ -71,6 +71,91 @@ async function eventually<T>(call: () => Promise<T | null>, timeoutMs = 7_000): 
 }
 
 describe('Hermes bridge against real local Envoi', () => {
+  it('polls with SSE unavailable and settles one MCP reply before the provider tail finishes', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'envoi-hermes-poll-'));
+    const stop = new AbortController();
+    let app: Awaited<ReturnType<typeof server>> | null = null;
+    let bridge: Awaited<ReturnType<typeof createHermesBridge>> | null = null;
+    let running: Promise<void> | undefined;
+    try {
+      app = await server(path.join(directory, 'server'));
+      const senderStore = new FileBridgeStore(path.join(directory, 'sender'));
+      const recipientStore = new FileBridgeStore(path.join(directory, 'recipient'));
+      await Promise.all([senderStore.init(), recipientStore.init()]);
+      const sender = await owner(app.baseUrl, '7303', senderStore);
+      const recipient = await owner(app.baseUrl, '7304', recipientStore);
+      const relayToken = 'local-test-relay-token-with-32-characters';
+      let emptyClaims = 0;
+      let sseFailures = 0;
+      let runCount = 0;
+      let replyCount = 0;
+      let stopCount = 0;
+      let work: { id: string; caseId: string } | undefined;
+      let input = '';
+      const fetcher: typeof fetch = async (url, init) => {
+        const parsed = new URL(String(url));
+        if (parsed.origin === 'http://127.0.0.1:8642') {
+          if (parsed.pathname === '/v1/runs') {
+            runCount++;
+            input = JSON.parse(String(init?.body)).input;
+            return Response.json({ run_id: 'run_poll', status: 'started' }, { status: 202 });
+          }
+          if (parsed.pathname.endsWith('/stop')) { stopCount++; return Response.json({}); }
+          if (!replyCount) {
+            expect(input).toContain(work!.id);
+            const response = await fetch(bridge!.relayUrl!, { method: 'POST',
+              headers: { authorization: `Bearer ${relayToken}`, 'content-type': 'application/json', 'mcp-protocol-version': '2025-11-25' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'envoi_send_message',
+                arguments: { recipientAddress: sender.agent.address, caseId: work!.caseId, text: 'ACK POLLING',
+                  idempotencyKey: `bridge:${work!.id}:reply:1` } } }) });
+            expect(response.status).toBe(200);
+            const result = await response.json() as any;
+            expect(JSON.parse(result.result.content[0].text).status).toBe(202);
+            replyCount++;
+          }
+          return Response.json({ run_id: 'run_poll', status: 'running' });
+        }
+        if (/\/events$/.test(parsed.pathname)) { sseFailures++; throw new Error('SSE unavailable'); }
+        const response = await fetch(url, init);
+        if (parsed.pathname.endsWith('/work/claim')) {
+          const payload = await response.clone().json() as any;
+          if (payload.work === null) emptyClaims++;
+        }
+        return response;
+      };
+      bridge = await createHermesBridge({ apiUrl: app.baseUrl, stateDir: path.join(directory, 'recipient'),
+        hermesUrl: 'http://127.0.0.1:8642', hermesKey: 'local-test-key', relayToken, relayPort: 0, writeEnabled: true }, { fetch: fetcher, env: {} });
+      running = bridge.connector.run(stop.signal);
+      await eventually(async () => emptyClaims > 0 && sseFailures > 0 ? true : null);
+      work = await new EnvoiClient(app.baseUrl, sender.agent.agentApiToken).startCase(sender.agent.inboxId,
+        'polling-regression', { senderAgentId: sender.agent.agentId, recipientEmail: recipient.agent.address, text: 'Reply once', caseId: newCaseId() });
+      await eventually(async () => {
+        const result = await api(app!.baseUrl, `/api/inboxes/${recipient.agent.inboxId}/delivery-receipts`, recipient.browser);
+        return result.payload.some((item: { messageId: string; state: string }) => item.messageId === work!.id && item.state === 'processed') ? true : null;
+      }, 25_000);
+      const delta = await api(app.baseUrl, `/api/inboxes/${recipient.agent.inboxId}/events/delta?limit=200`, recipient.browser);
+      const claims = delta.payload.events.filter((item: { type: string; workId: string }) => item.type === 'agent.work_claimed' && item.workId === work!.id);
+      expect(claims).toHaveLength(1);
+      expect(claims[0]).toMatchObject({ attempts: 1, fence: 1 });
+      const receipts = await api(app.baseUrl, `/api/inboxes/${recipient.agent.inboxId}/delivery-receipts`, recipient.browser);
+      expect(receipts.payload.filter((item: { messageId: string; state: string }) => item.messageId === work!.id && item.state === 'processed')).toHaveLength(1);
+      expect(delta.payload.events.filter((item: { type: string; messageId: string }) => item.type === 'message.processed' && item.messageId === work!.id)).toHaveLength(1);
+      expect(runCount).toBe(1);
+      expect(replyCount).toBe(1);
+      expect(stopCount).toBe(1);
+      expect(sseFailures).toBeGreaterThan(0);
+      expect(await recipientStore.replyFor(work.id)).toEqual({ stop: true });
+    } finally {
+      stop.abort();
+      try { await running; } finally {
+        await bridge?.close();
+        if (app?.child && app.child.exitCode === null) await new Promise<void>(resolve => { app!.child.once('exit', resolve); app!.child.kill('SIGTERM'); });
+        if (path.dirname(path.resolve(directory)) !== path.resolve(tmpdir())) throw new Error('Unsafe test cleanup path');
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  }, 60_000);
+
   it('wakes on two offline exact-address cases, resumes a run after restart, records one reply per case, and stops on revoke', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'envoi-hermes-local-'));
     let app: Awaited<ReturnType<typeof server>> | null = null;

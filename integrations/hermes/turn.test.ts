@@ -173,6 +173,66 @@ describe('Hermes automatic run bridge', () => {
     } finally { await state.cleanup(); }
   });
 
+  it('settles a recorded MCP reply without waiting for a running provider tail', async () => {
+    const state = await fixture();
+    try {
+      let recorded = false;
+      const fetcher = vi.fn<typeof fetch>(async (url) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname === '/v1/runs') return json({ run_id: 'run_one', status: 'started' }, 202);
+        if (pathname.endsWith('/stop')) return json({});
+        recorded = true;
+        return json({ run_id: 'run_one', status: 'running' });
+      });
+      const turn = hermesTurn({ apiUrl: 'http://127.0.0.1:8642', apiKey: 'key', agentId: 'hermes_agent',
+        runs: state.runs, replies: state.replies, fetch: fetcher, pollIntervalMs: 1, maxRunMs: 1000,
+        mcpReplySent: async () => recorded, allowEnvoiMcpWrites: true });
+      await expect(turn(message('msg_1', 'case_1'), new AbortController().signal)).resolves.toEqual({ stop: true });
+      expect(await state.replies.replyFor('msg_1')).toEqual({ stop: true });
+      expect(fetcher.mock.calls.filter(call => String(call[0]).endsWith('/stop'))).toHaveLength(1);
+      expect(fetcher.mock.calls.filter(call => String(call[0]).endsWith('/run_one'))).toHaveLength(1);
+    } finally { await state.cleanup(); }
+  });
+
+  it.each(['marker', 'stop'])('does not settle when the lease is aborted during %s', async stage => {
+    const state = await fixture();
+    try {
+      const controller = new AbortController();
+      const fetcher = vi.fn<typeof fetch>(async url => {
+        if (String(url).endsWith('/v1/runs')) return json({ run_id: 'run_one', status: 'started' }, 202);
+        if (stage === 'stop') controller.abort();
+        return json({});
+      });
+      const turn = hermesTurn({ apiUrl: 'http://127.0.0.1:8642', apiKey: 'key', agentId: 'hermes_agent',
+        runs: state.runs, replies: state.replies, fetch: fetcher,
+        mcpReplySent: async () => { if (stage === 'marker') controller.abort(); return true; }, allowEnvoiMcpWrites: true });
+      await expect(turn(message('msg_1', 'case_1'), controller.signal)).rejects.toThrow('interrupted');
+      expect(await state.replies.replyFor('msg_1')).toBeNull();
+    } finally { await state.cleanup(); }
+  });
+
+  it('does not shortcut a human instruction with a native MCP reply marker', async () => {
+    const state = await fixture();
+    try {
+      let polls = 0;
+      const marker = vi.fn(async () => true);
+      const fetcher = vi.fn<typeof fetch>(async url => {
+        if (String(url).endsWith('/v1/runs')) return json({ run_id: 'run_one', status: 'started' }, 202);
+        polls++;
+        return json({ run_id: 'run_one', status: polls === 1 ? 'running' : 'completed', output: 'Human reply' });
+      });
+      const turn = hermesTurn({ apiUrl: 'http://127.0.0.1:8642', apiKey: 'key', agentId: 'hermes_agent',
+        runs: state.runs, replies: state.replies, fetch: fetcher, pollIntervalMs: 1,
+        mcpReplySent: marker, allowEnvoiMcpWrites: true });
+      await expect(turn({ id: 'instruction_one', kind: 'humanInstruction', senderType: 'human', senderHumanId: 'human_one',
+        recipientAgentId: 'hermes_agent', recipientInboxId: 'inbox_one', from: { humanId: 'human_one' },
+        caseId: 'case_one', type: 'instruction', text: 'Help me' }, new AbortController().signal))
+        .resolves.toEqual({ text: 'Human reply', intent: 'message' });
+      expect(marker).not.toHaveBeenCalled();
+      expect(polls).toBe(2);
+    } finally { await state.cleanup(); }
+  });
+
   it('rejects insecure remote Hermes API URLs', async () => {
     const state = await fixture();
     try {

@@ -477,6 +477,67 @@ describe('Envoi outbound connector', () => {
     }
   });
 
+  it('does not let repeated SSE reconnect failures postpone safety polling', async () => {
+    vi.useFakeTimers();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    const stop = new AbortController();
+    let running: Promise<void> | undefined;
+    try {
+      const memory = memoryStore(session());
+      let available = false;
+      let completed = false;
+      let sseFailures = 0;
+      let workClaims = 0;
+      const process = vi.fn(async () => {});
+      const fetcher = vi.fn<typeof fetch>(async url => {
+        const route = String(url);
+        if (/\/events(?:\?|$)/.test(route)) { sseFailures++; throw new Error('SSE unavailable'); }
+        if (route.endsWith('/work/claim')) {
+          if (!available || completed) return Response.json({ work: null, state: 'idle' });
+          workClaims++;
+          return Response.json({ work: { workId: 'work_one', message: { id: 'msg_one', senderAgentId: 'agent_two',
+            recipientAgentId: 'agent_one', from: { agentId: 'agent_two', address: 'two@envoi.mail' }, text: 'hello' },
+            leaseToken: 'fence_one', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString() } });
+        }
+        if (route.endsWith('/acknowledge')) return Response.json({ workId: 'work_one', status: 'acknowledged', receipt: { messageId: 'msg_one', state: 'acknowledged' } });
+        if (route.endsWith('/complete')) {
+          completed = true;
+          return Response.json({ workId: 'work_one', status: 'processed', receipt: { messageId: 'msg_one', state: 'processed' } });
+        }
+        throw new Error('Unexpected request');
+      });
+      const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher, handler: { admit: async () => {}, process } });
+      running = connector.run(stop.signal);
+      await vi.advanceTimersByTimeAsync(100);
+      available = true;
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(sseFailures).toBeGreaterThan(5);
+      expect(workClaims).toBe(1);
+      expect(process).toHaveBeenCalledTimes(1);
+      expect(completed).toBe(true);
+    } finally {
+      stop.abort();
+      try { await running; } finally { random.mockRestore(); vi.useRealTimers(); }
+    }
+  });
+
+  it.each(['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED'])('still stops on terminal SSE authentication error %s', async code => {
+    const memory = memoryStore(session());
+    const stop = new AbortController();
+    const process = vi.fn(async () => {});
+    const fetcher = vi.fn<typeof fetch>(async url => {
+      if (/\/events(?:\?|$)/.test(String(url))) return Response.json({ error: code, code }, { status: 401 });
+      if (String(url).endsWith('/work/claim')) return Response.json({ work: null, state: 'idle' });
+      throw new Error('Unexpected request');
+    });
+    const connector = new EnvoiConnector('https://api.example', memory.store, { fetch: fetcher, handler: { admit: async () => {}, process } });
+    try {
+      await expect(connector.run(stop.signal)).rejects.toMatchObject({ code });
+      expect(memory.current()?.lifecycle?.state).toBe(code === 'CREDENTIAL_REVOKED' ? 'REVOKED' : 'NEEDS_RECONNECT');
+      expect(process).not.toHaveBeenCalled();
+    } finally { stop.abort(); }
+  });
+
   it('renews the same fence while a long handler is running', async () => {
     const memory = memoryStore(session());
     let renewals = 0;

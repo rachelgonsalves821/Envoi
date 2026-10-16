@@ -67,6 +67,27 @@ Record each step's UTC time, audit sequence/event ID, connector state, message/w
 
 The proxy terminal accepts lost-refresh, cut-sse, restore-sse, fail-ack-once, hold-settlement, release, replay-refresh, replay-claim, status and exit. restore-sse belongs **before** step 21, not after the revoke. If no credential.ended frame is observed, identify the actual REST refusal path and leave the frame path unproven. Its counters prove only that faults were injected, not that the connector recovered. Correlate them with server audit sequence/IDs and canonical receipts. Use Lane A's [phase-a-TEMPLATE.md](../../docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md), saving raw owner views only to a private folder and publishing only scripts/ga-evidence.mjs output; never publish /messages, agent-view or raw HTTP. If any step fails, file the responsible Lane A/Lane B defect, integrate its fix, deploy a new exact SHA, and rerun **all 23**; never combine partial results from different commits. Publish the Phase B `/connect` skill only after human-countersigned `GATE GA PASS`.
 
+### Compressed proxy responses and a diagnostic Test 15 retest
+
+The fault proxy compares the four decoded successor fields, not compressed wire bytes. It supports identity, gzip, deflate and Brotli responses, with independent 64 KiB encoded and decoded limits. Unsupported encodings, malformed data and oversized decoded bodies cannot prove equality. Ordinary forwarding retains the upstream bytes and Content-Encoding header. Buffered revocation probes also decode only the bounded comparison copy before extracting a public error code; no credential, digest or raw response is printed or persisted.
+
+If an earlier proxy reported a mismatch because it could not decode compression, preserve that attempt as **UNPROVEN — measurement defect**, not a retroactive pass or proof of server credential divergence. An offline regression fix does not repair the historical measurement. Retain every other failed gate assertion, including any exact-ACK failure.
+
+For a separately approved diagnostic retest:
+
+1. Record the frozen server/connector candidate and the corrected proxy artifact identity. A gate-only tooling patch is not a newly deployed application release; never combine diagnostic evidence into a claimed all-23-check pass.
+2. Get approval for the isolated fixture maintenance needed to load the corrected proxy. The existing supervisor imports the proxy once; editing a file does not replace its running code. Preserve the private connector state, agent/address/family and fixed proxy port. Do not restart another profile, re-enroll or deploy. If maintenance also restarts the disposable Gateway or connector, record it explicitly and recheck readiness before arming any fault.
+3. Record a fresh owner baseline and the next natural access-refresh boundary. Do not edit expiry or trigger an unrelated rotation. Ensure the earlier fault has completed and no other fault is armed. Keep the original case paused.
+4. Ask the human before arming exactly one lost-refresh fault. This retest needs no new message send. Observe the persisted pending rotation without printing its ID, tokens or fingerprint; record only whether it stays unchanged.
+5. Capture a fresh owner view immediately after the drop, before a subsequent unrelated rotation. Require one dropped response, recoveredIdentical: true, a same-family agent.refresh_recovered event and equality between its refreshExpiresAt and that owner credentialExpiresAt. Record expiry advancement and successful connector recovery independently. False, null, missing or invalid evidence is not a pass; do not silently re-arm.
+6. Stop after this diagnostic. Further SSE faults, live sends or revocation require their own approval. A complete hosted gate still requires the runbook's one-release, all-23 observations and human countersign.
+
+### Saved post-revoke refresh probes
+
+The TypeScript SDK authenticates `/api/agent-token` with `grantType: refresh_token`, the refresh token and rotation ID in the request body; it does not send an access-token Authorization header. The proxy retains the latest bounded refresh request in memory with its original headers/body so `replay-refresh` works with the real SDK. Claims still require the original bearer header to be retained for replay. Neither request is logged or persisted, and each saved probe is consumed once by an explicitly approved replay.
+
+A missing saved probe is unproven evidence, not a successful server refusal. Do not invent a replacement request, rotate a credential, re-enroll or repeat a fault to hide it. Keep the failure and use the corrected proxy in the separately approved full rerun. Updating this source does not update an already-running proxy; pin its actual loaded artifact independently.
+
 ### Lazy refresh timing (steps 9 and 13)
 
 There is no force-refresh command. Refresh happens on the next authenticated operation at `agentTokenExpiresAt − 60 seconds`; the access TTL is 900 seconds, so a wait of about **14 minutes** per boundary is possible. Use the bundled connector's nonsecret status output immediately before pause and again before arming lost-refresh:

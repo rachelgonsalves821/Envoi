@@ -988,31 +988,31 @@ var z = class {
 			this.refreshInFlight = null;
 		}
 	}
-	async withFreshSession(e, t = !1) {
+	async withFreshSession(e, t = !1, n = !1) {
 		await this.guard(t);
-		let n = await this.freshSession();
+		let r = await this.freshSession();
 		await this.guard(t);
-		let r = this.actionEpoch, i = new AbortController();
-		t && this.activeActions.add(i);
-		let a = async (n) => {
-			if (await this.guard(t), t && r !== this.actionEpoch) throw new M("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
-			let a = await e(n, i.signal);
-			if (await this.guard(t), t && r !== this.actionEpoch) throw new M("Connector action was interrupted");
-			return await this.healthy(), a;
+		let i = this.actionEpoch, a = new AbortController();
+		t && this.activeActions.add(a);
+		let o = async (n) => {
+			if (await this.guard(t), t && i !== this.actionEpoch) throw new M("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
+			let r = await e(n, a.signal);
+			if (await this.guard(t), t && i !== this.actionEpoch) throw new M("Connector action was interrupted");
+			return await this.healthy(), r;
 		};
 		try {
 			try {
-				return await a(n);
+				return await o(r);
 			} catch (e) {
 				if (!(e instanceof M) || P(e).retry !== "refresh_then_retry_once") throw e;
 				await this.guard(t);
-				let r = R(await this.store.load());
-				return await a(r.agentApiToken === n.agentApiToken ? await this.freshSession(!0) : r);
+				let n = R(await this.store.load());
+				return await o(n.agentApiToken === r.agentApiToken ? await this.freshSession(!0) : n);
 			}
 		} catch (e) {
-			throw t && i.signal.aborted ? (await this.guard(t), new M("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (await this.observeError(e), e);
+			throw t && a.signal.aborted ? (await this.guard(t), new M("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (n && e instanceof M && P(e).lifecycle === "DEGRADED" || await this.observeError(e), e);
 		} finally {
-			this.activeActions.delete(i);
+			this.activeActions.delete(a);
 		}
 	}
 	withFreshClient(e, t = !0) {
@@ -1336,11 +1336,15 @@ var z = class {
 		await this.start();
 		let t = new AbortController(), n = AbortSignal.any([e, t.signal]), r = !!this.options.handler, i = null, a, o = !1, s = Date.now() + 12e3 + Math.random() * 6e3, c = Date.now() + 3e4 + Math.random() * 3e4, l = () => this.wake.abort(), u = () => {
 			this.options.handler && (r = !0), l();
-		}, d = (e) => o && e?.state !== "DEGRADED" ? 3e4 + Math.random() * 3e4 : 12e3 + Math.random() * 6e3, f = async (e) => {
+		}, d = (e) => o && e?.state !== "DEGRADED" ? 3e4 + Math.random() * 3e4 : 12e3 + Math.random() * 6e3, f = async (e, r = !1) => {
 			if (n.aborted) return;
+			if (r && e instanceof M && P(e).lifecycle === "DEGRADED") {
+				s = Math.min(s, Date.now() + d()), l();
+				return;
+			}
 			await this.observeError(e);
-			let r = await this.lifecycle();
-			r.state === "DEGRADED" && (s = Math.min(s, Date.now() + 12e3 + Math.random() * 6e3)), (e instanceof I || e instanceof Ce || ["REVOKED", "NEEDS_RECONNECT"].includes(r.state) || !(e instanceof M) && r.state !== "DEGRADED" || e instanceof M && !(P(e).lifecycle === "DEGRADED" || [
+			let i = await this.lifecycle();
+			i.state === "DEGRADED" && (s = Math.min(s, Date.now() + 12e3 + Math.random() * 6e3)), (e instanceof I || e instanceof Ce || ["REVOKED", "NEEDS_RECONNECT"].includes(i.state) || !(e instanceof M) && i.state !== "DEGRADED" || e instanceof M && !(P(e).lifecycle === "DEGRADED" || [
 				"REQUEST_CANCELLED",
 				"AGENT_PAUSED",
 				"CASE_CONTROLLED"
@@ -1393,7 +1397,7 @@ var z = class {
 						} finally {
 							clearTimeout(i);
 						}
-					});
+					}, !1, !0);
 					i = Date.now(), y();
 					try {
 						for await (let t of be(e, r, y)) {
@@ -1418,7 +1422,7 @@ var z = class {
 						throw e instanceof M || e instanceof I ? e : new M("Envoi event stream was interrupted", void 0, "NETWORK_ERROR");
 					}
 				} catch (e) {
-					e instanceof M && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), u()) : (h = e instanceof M ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await f(e));
+					e instanceof M && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), u()) : (h = e instanceof M ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await f(e, !0));
 				} finally {
 					clearTimeout(p), t.abort(), this.activeStreams.delete(t), a = i ? Date.now() - i : 0, o = !1, s = Math.min(s, Date.now() + d()), l();
 				}
@@ -1437,7 +1441,7 @@ var z = class {
 				await ke(Math.max(h, Math.random() * b), n);
 			}
 		})().catch(async (e) => {
-			await f(e);
+			await f(e, !0);
 		}).finally(l);
 		try {
 			for (; !n.aborted;) {
@@ -2723,6 +2727,11 @@ function Ct(e) {
 			}
 			if (!l) throw Error("Hermes run identity was not saved");
 			for (; !c.aborted;) {
+				if (e.allowEnvoiMcpWrites && !F(s) && await e.mcpReplySent?.(s.id)) {
+					if (c.aborted || (await o(l), c.aborted)) throw Error("Hermes turn was interrupted");
+					let t = { stop: !0 };
+					return await e.replies.saveReply(s.id, t), t;
+				}
 				let u = await i(`${t}/v1/runs/${encodeURIComponent(l)}`, {
 					method: "GET",
 					redirect: "error",

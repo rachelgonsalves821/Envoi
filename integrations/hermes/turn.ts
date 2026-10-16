@@ -101,6 +101,14 @@ export function hermesTurn(options: HermesTurnOptions): AgentTurn {
       }
       if (!runId) throw new Error('Hermes run identity was not saved');
       while (!signal.aborted) {
+        if (options.allowEnvoiMcpWrites && !isHumanInstructionMessage(message) && await options.mcpReplySent?.(message.id)) {
+          if (signal.aborted) throw new Error('Hermes turn was interrupted');
+          await stop(runId);
+          if (signal.aborted) throw new Error('Hermes turn was interrupted');
+          const stopped = { stop: true } as const;
+          await options.replies.saveReply(message.id, stopped);
+          return stopped;
+        }
         const response = await fetcher(`${base}/v1/runs/${encodeURIComponent(runId)}`, {
           method: 'GET', redirect: 'error', headers, signal
         });

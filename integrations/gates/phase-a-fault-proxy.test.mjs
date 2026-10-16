@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { gzipSync, deflateSync, brotliCompressSync } from 'node:zlib';
 import { createFaultProxy, proxyArguments } from './phase-a-fault-proxy.mjs';
 
 test('drops one successful refresh response, cuts SSE, and leaves REST available', async () => {
@@ -47,6 +48,84 @@ async function upstreamFixture(handler, report = () => {}) {
 async function waitFor(check) {
   const deadline = Date.now() + 3_000;
   while (!check()) { assert.ok(Date.now() < deadline, 'Fault fixture did not reach expected state'); await new Promise(resolve => setTimeout(resolve, 10)); }
+}
+
+function encodedJson(value, encoding) {
+  const bytes = Buffer.from(JSON.stringify(value));
+  if (encoding === 'gzip') return gzipSync(bytes);
+  if (encoding === 'deflate') return deflateSync(bytes);
+  if (encoding === 'br') return brotliCompressSync(bytes);
+  return bytes;
+}
+
+for (const [droppedEncoding, recoveredEncoding] of [['identity', 'gzip'], ['gzip', 'identity'], ['gzip', 'gzip'], ['deflate', 'deflate'], ['br', 'br'], ['gzip', 'br']]) {
+  for (const changedField of [null, 'agentApiToken', 'agentRefreshToken', 'agentTokenExpiresAt', 'agentRefreshTokenExpiresAt']) {
+    test(`compressed successor comparison ${droppedEncoding}/${recoveredEncoding}, changed=${changedField}`, async () => {
+      const successor = { agentApiToken: 'private-access', agentTokenExpiresAt: '2030-01-01T00:15:00.000Z',
+        agentRefreshToken: 'private-refresh', agentRefreshTokenExpiresAt: '2030-02-01T00:00:00.000Z' };
+      let calls = 0;
+      const evidence = [];
+      const fixture = await upstreamFixture((request, response) => {
+        request.resume();
+        calls++;
+        const value = calls === 1 ? successor : { extra: 'ignored', ...Object.fromEntries(Object.entries(successor).reverse()) };
+        if (calls > 1 && changedField) value[changedField] += '-changed';
+        const encoding = calls === 1 ? droppedEncoding : recoveredEncoding;
+        response.writeHead(200, { 'content-type': 'application/json', 'content-encoding': encoding }).end(encodedJson(value, encoding));
+      }, value => evidence.push(value));
+      try {
+        fixture.proxy.armLostRefresh();
+        await assert.rejects(fetch(`${fixture.url}/api/agent-token`, { method: 'POST' }));
+        const response = await fetch(`${fixture.url}/api/agent-token`, { method: 'POST' });
+        assert.equal(response.headers.get('content-encoding'), recoveredEncoding);
+        const decoded = await response.json();
+        assert.equal(decoded.agentApiToken, successor.agentApiToken + (changedField === 'agentApiToken' ? '-changed' : ''));
+        assert.equal(fixture.proxy.status().recoveredIdentical, changedField === null);
+        assert.equal(fixture.proxy.status().refreshResponsesDropped, 1);
+        assert.deepEqual(evidence, [{ refreshResponsesDropped: 1 }, { recoveredIdentical: changedField === null }]);
+        assert.ok(!JSON.stringify([evidence, fixture.proxy.status()]).match(/private-access|private-refresh|digest|2030-/));
+      } finally { await fixture.close(); }
+    });
+  }
+}
+
+for (const encoding of ['gzip', 'deflate', 'br']) {
+  test(`compressed ${encoding} replay retains the server revocation code`, async () => {
+    let revoked = false;
+    const fixture = await upstreamFixture((request, response) => {
+      request.resume();
+      response.writeHead(revoked ? 401 : 200, { 'content-type': 'application/json', 'content-encoding': encoding })
+        .end(encodedJson({ code: revoked ? 'CREDENTIAL_REVOKED' : 'SUCCESS', secret: 'private-response' }, encoding));
+    });
+    try {
+      await (await fetch(`${fixture.url}/api/agent-token`, { method: 'POST', headers: { authorization: 'Bearer private-fixture' }, body: '{}' })).json();
+      revoked = true;
+      assert.deepEqual(await fixture.proxy.replayRefresh(), { status: 401, code: 'CREDENTIAL_REVOKED' });
+      assert.ok(!JSON.stringify(fixture.proxy.status()).includes('private-'));
+    } finally { await fixture.close(); }
+  });
+}
+
+for (const failure of ['unsupported-encoding', 'malformed-gzip', 'oversized-decoded']) {
+  test(`invalid comparison fails closed: ${failure}`, async () => {
+    const successor = { agentApiToken: 'private-access', agentTokenExpiresAt: '2030-01-01T00:15:00.000Z',
+      agentRefreshToken: 'private-refresh', agentRefreshTokenExpiresAt: '2030-02-01T00:00:00.000Z',
+      ...(failure === 'oversized-decoded' ? { padding: 'a'.repeat(65 * 1024) } : {}) };
+    const encoding = failure === 'unsupported-encoding' ? 'unsupported' : 'gzip';
+    const bytes = failure === 'malformed-gzip' ? Buffer.from(JSON.stringify(successor)) : encodedJson(successor, encoding);
+    const fixture = await upstreamFixture((request, response) => {
+      request.resume();
+      response.writeHead(200, { 'content-type': 'application/json', 'content-encoding': encoding }).end(bytes);
+    });
+    try {
+      fixture.proxy.armLostRefresh();
+      await assert.rejects(fetch(`${fixture.url}/api/agent-token`, { method: 'POST' }));
+      const response = await fetch(`${fixture.url}/api/agent-token`, { method: 'POST' });
+      await response.arrayBuffer().catch(() => undefined);
+      assert.equal(fixture.proxy.status().recoveredIdentical, false);
+      assert.equal(fixture.proxy.status().refreshResponsesDropped, 1);
+    } finally { await fixture.close(); }
+  });
 }
 
 for (const changedField of [null, 'agentApiToken', 'agentRefreshToken', 'agentTokenExpiresAt', 'agentRefreshTokenExpiresAt']) {
@@ -181,6 +260,32 @@ test('requires an explicit stable operator port and can restart on it without ch
   const second = createFaultProxy('http://127.0.0.1:1');
   try { assert.equal(await second.listen(Number(new URL(url).port)), url); }
   finally { await second.close(); }
+});
+
+test('retains a body-authenticated SDK refresh without adding a bearer header', async () => {
+  let revoked = false;
+  const calls = [];
+  const f = await upstreamFixture((req, res) => {
+    assert.equal(req.headers.authorization, undefined);
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      calls.push([req.url, body]);
+      res.writeHead(revoked ? 401 : 200).end(JSON.stringify({ code: revoked ? 'CREDENTIAL_REVOKED' : 'SUCCESS' }));
+    });
+  });
+  try {
+    const first = JSON.stringify({ grantType: 'refresh_token', agentRefreshToken: 'fixture-refresh-first', rotationId: 'fixture-rotation-first' });
+    const latest = JSON.stringify({ grantType: 'refresh_token', agentRefreshToken: 'fixture-refresh-latest', rotationId: 'fixture-rotation-latest' });
+    for (const body of [first, latest]) await (await fetch(`${f.url}/api/agent-token`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).text();
+    await (await fetch(`${f.url}/api/agent/work/claim`, { method: 'POST', body: '{}' })).text();
+    await assert.rejects(f.proxy.replayClaim());
+    revoked = true;
+    assert.deepEqual(await f.proxy.replayRefresh(), { status: 401, code: 'CREDENTIAL_REVOKED' });
+    assert.deepEqual(calls.at(-1), ['/api/agent-token', latest]);
+    await assert.rejects(f.proxy.replayRefresh());
+    assert.ok(!JSON.stringify(f.proxy.status()).includes('fixture-refresh'));
+  } finally { await f.close(); }
 });
 
 test('post-revoke refresh and claim probes preserve the latest private request and print only status/code', async () => {
