@@ -19,7 +19,7 @@ const addHistoryScope = (relativeDir, values, conditions) => {
 };
 
 export class PostgresStore {
-  constructor(connectionString) { this.pool = new Pool(createPostgresOptions(connectionString)); this.transactionContext = new AsyncLocalStorage(); }
+  constructor(connectionString, options = {}) { this.pool = new Pool(createPostgresOptions(connectionString, process.env, options)); this.transactionContext = new AsyncLocalStorage(); }
   query(statement, values) {
     const current = this.transactionContext.getStore();
     if (current && !current.active) throw new Error('Transaction is no longer active');

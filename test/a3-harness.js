@@ -49,6 +49,8 @@ export async function launch(extraEnv = {}, existingDataDir = null) {
   const env = { ...process.env, DATABASE_URL: '', ENVOI_PORT: '0', ENVOI_AUTH_MODE: 'development', ENVOI_DATA_DIR: dataDir, ...extraEnv };
   const child = spawn(process.execPath, ['src/server.js'], { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
+  let stdout = '';
+  child.stdout.on('data', chunk => { stdout += chunk.toString(); });
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });
   const baseUrl = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Server start timed out: ${stderr}`)), 15000);
@@ -65,6 +67,7 @@ export async function launch(extraEnv = {}, existingDataDir = null) {
     dataDir,
     streams,
     get stderr() { return stderr; },
+    get stdout() { return stdout; },
     stop: async (preserveData = false) => {
       if (stopped) return;
       stopped = true;

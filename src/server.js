@@ -14,6 +14,7 @@ import { authFlowCookieHeader, authFlowCookieName, createCsrfToken, csrfCookieHe
 import { installSessionCookieResponse } from './session-response.js';
 import { operationalBacklogSnapshot } from './operational-backlog.js';
 import { DeliveryWorker } from './delivery-worker.js';
+import { createConsumerIdentity, consumerLogger } from './consumer-identity.js';
 import { createEmailTransport } from './email-transport.js';
 import { createProtocolMessage } from './protocol-v1.js';
 import { createObjectStorageAdapter, DocumentObjectMetadataStore, FailClosedScanner, HttpMalwareScanner, ObjectStorageService, PersistentQuotaLedger } from './object-storage.js';
@@ -112,7 +113,10 @@ const calendarProviders = Object.freeze({
 const allowedPermissions = new Set(['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases', 'use_email_transport']);
 const actionPermission = actionKey => actionKey.startsWith('message.') ? 'send_agent_messages' : actionKey.startsWith('email.') ? 'use_email_transport' : 'execute_cases';
 const acknowledgementStateRank = Object.freeze({ delivered: 0, acknowledged: 1, processed: 2 });
-const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL) : new FileStore(dataDir);
+if (process.env.ENVOI_EXPECTED_DATABASE_FINGERPRINT && !process.env.DATABASE_URL) throw new Error('ENVOI_EXPECTED_DATABASE_FINGERPRINT requires DATABASE_URL');
+const consumerIdentity = createConsumerIdentity({ connectionString: process.env.DATABASE_URL, releaseSha });
+const logConsumer = consumerLogger(consumerIdentity);
+const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL, { applicationName: consumerIdentity.applicationName }) : new FileStore(dataDir);
 const auth = createHumanAuth(store);
 const presenceRecorder = createPresenceRecorder({
   store,
@@ -1424,7 +1428,7 @@ async function nativeCaseDocuments(message, state, at, { revealRecipient = false
   return { case: updated, documents: visibleDocuments };
 }
 
-const permanentDeliveryError = message => Object.assign(new Error(message), { permanent: true });
+const permanentDeliveryError = (message, reasonCode) => Object.assign(new Error(message), { permanent: true, ...(reasonCode ? { reasonCode } : {}) });
 
 async function enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType = 'message.queued', writeAudit = null, agentRequest = null) {
   if (!writeAudit) {
@@ -1501,7 +1505,9 @@ async function deliverNativeAgentMessage(outbox) {
     : await store.listJson(path.join('auth', 'agent-credential-families', outbox.senderInboxId, queued.senderAgentId));
   if (!senderFamilies.some(family => family && !family.revokedAt && new Date(family.refreshExpiresAt) > new Date())) throw permanentDeliveryError('Sender agent credential is revoked or expired');
   const directory = await store.getJson(path.join('directory', 'agents', `${queued.recipientAgentId}.json`));
-  if (!directory || !['active', 'paused'].includes(directory.status) || directory.inboxId !== outbox.recipientInboxId) throw permanentDeliveryError('Recipient agent is unavailable');
+  if (!directory) throw permanentDeliveryError('Recipient agent is unavailable', 'RECIPIENT_DIRECTORY_MISSING');
+  if (!['active', 'paused'].includes(directory.status)) throw permanentDeliveryError('Recipient agent is unavailable', 'RECIPIENT_DIRECTORY_STATUS');
+  if (directory.inboxId !== outbox.recipientInboxId) throw permanentDeliveryError('Recipient agent is unavailable', 'RECIPIENT_DIRECTORY_INBOX_MISMATCH');
   const recipient = await store.getJson(path.join('inboxes', directory.inboxId, 'agents', `${queued.recipientAgentId}.json`));
   if (!recipient || !canReceive(recipient)) throw permanentDeliveryError('Recipient is not approved to receive messages');
   const contact = await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${queued.senderAgentId}.json`));
@@ -1853,6 +1859,8 @@ async function recordDeliveryFailure(outbox, error, { attempt, deadLettered }) {
 
 const deliveryWorker = new DeliveryWorker({
   store,
+  workerId: consumerIdentity.workerId,
+  observe: logConsumer,
   prepare: prepareEmailDelivery,
   deliver: deliverQueuedMessage,
   onFailure: recordDeliveryFailure,
