@@ -426,7 +426,7 @@ export class EnvoiConnector {
     finally { this.refreshInFlight = null; }
   }
 
-  private async withFreshSession<T>(run: (session: ConnectorSession, signal?: AbortSignal) => Promise<T>, action = false): Promise<T> {
+  private async withFreshSession<T>(run: (session: ConnectorSession, signal?: AbortSignal) => Promise<T>, action = false, independentStream = false): Promise<T> {
     await this.guard(action);
     const session = await this.freshSession();
     await this.guard(action);
@@ -455,7 +455,8 @@ export class EnvoiConnector {
         await this.guard(action);
         throw new EnvoiError('Connector action was interrupted', undefined, 'REQUEST_CANCELLED');
       }
-      await this.observeError(error); throw error;
+      if (!(independentStream && error instanceof EnvoiError && lifecyclePolicy(error).lifecycle === 'DEGRADED')) await this.observeError(error);
+      throw error;
     } finally { this.activeActions.delete(controller); }
   }
 
@@ -822,8 +823,13 @@ export class EnvoiConnector {
     const notify = () => this.wake.abort();
     const trigger = () => { if (this.options.handler) pending = true; notify(); };
     const safetyDelay = (state?: ConnectorLifecycle) => connected && state?.state !== 'DEGRADED' ? 30_000 + Math.random() * 30_000 : 12_000 + Math.random() * 6000;
-    const failure = async (error: unknown) => {
+    const failure = async (error: unknown, independentStream = false) => {
       if (stopped.aborted) return;
+      if (independentStream && error instanceof EnvoiError && lifecyclePolicy(error).lifecycle === 'DEGRADED') {
+        safetyAt = Math.min(safetyAt, Date.now() + safetyDelay());
+        notify();
+        return;
+      }
       await this.observeError(error);
       const state = await this.lifecycle();
       if (state.state === 'DEGRADED') safetyAt = Math.min(safetyAt, Date.now() + 12_000 + Math.random() * 6000);
@@ -870,7 +876,7 @@ export class EnvoiConnector {
               if (!response.ok) await responsePayload(response, 'Envoi event stream failed');
               return response;
             } finally { clearTimeout(timer); }
-          });
+          }, false, true);
           openedAt = Date.now(); activity();
           try {
             for await (const frame of eventFrames(response, streamSignal, activity)) {
@@ -904,7 +910,7 @@ export class EnvoiConnector {
           }
         } catch (error) {
           if (error instanceof EnvoiError && error.code === 'EVENT_CURSOR_INVALID') { await this.saveCursor(session, null); trigger(); }
-          else { retryAfter = error instanceof EnvoiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0; await failure(error); }
+          else { retryAfter = error instanceof EnvoiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0; await failure(error, true); }
         } finally {
           clearTimeout(idle); stream.abort(); this.activeStreams.delete(stream);
           uptime = openedAt ? Date.now() - openedAt : 0;
@@ -925,7 +931,7 @@ export class EnvoiConnector {
         const ceiling = Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5));
         await delay(Math.max(retryAfter, Math.random() * ceiling), stopped);
       }
-    })().catch(async error => { await failure(error); }).finally(notify);
+    })().catch(async error => { await failure(error, true); }).finally(notify);
     try {
       while (!stopped.aborted) {
         this.wake = new AbortController();

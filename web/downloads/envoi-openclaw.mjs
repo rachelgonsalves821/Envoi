@@ -64,7 +64,7 @@ async function E(e, t, n, r) {
 		clearTimeout(a), n.signal?.removeEventListener("abort", o);
 	}
 }
-var D = class {
+var te = class {
 	baseUrl;
 	accessToken;
 	requestTimeoutMs;
@@ -176,7 +176,7 @@ var D = class {
 		return this.request(`/api/inboxes/${encodeURIComponent(e)}/events/delta?${r}`);
 	}
 };
-async function O(e, t, n = {}) {
+async function D(e, t, n = {}) {
 	if (e.method !== "PUT") throw TypeError("Signed upload must use PUT");
 	let r = new URL(e.url);
 	if (r.protocol !== "https:" && !(r.protocol === "http:" && [
@@ -192,7 +192,7 @@ async function O(e, t, n = {}) {
 	}, w(n.timeoutMs));
 	if (!i.ok) throw new C(`Signed upload failed with HTTP ${i.status}`, i.status);
 }
-async function k(e, t, n, r = {}) {
+async function O(e, t, n, r = {}) {
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(n)) throw TypeError("Valid rotationId required");
 	let i = await T(await E(r.fetch || fetch, `${e.replace(/\/$/, "")}/api/agent-token`, {
 		method: "POST",
@@ -212,7 +212,7 @@ async function k(e, t, n, r = {}) {
 }
 //#endregion
 //#region sdk/typescript/src/lifecycle.ts
-var te = {
+var ne = {
 	AGENT_PAUSED: {
 		lifecycle: "PAUSED",
 		retry: "after_resume",
@@ -289,8 +289,8 @@ var te = {
 		guidance: "service_unavailable"
 	}
 };
-function ne(e) {
-	let t = e?.code ? te[e.code] : void 0;
+function k(e) {
+	let t = e?.code ? ne[e.code] : void 0;
 	return t ? {
 		...t,
 		guidance: t.guidanceByReason?.[e?.reason ?? ""] ?? t.guidance
@@ -649,7 +649,7 @@ var he = class {
 	async observeError(e) {
 		if (!(e instanceof C) || this.observedErrors.has(e)) return;
 		this.observedErrors.add(e);
-		let t = ne(e);
+		let t = k(e);
 		if (t.lifecycle === "UNCHANGED" || t.lifecycle === "NOT_APPLICABLE") return;
 		let n = await this.lifecycle(), r = t.lifecycle === "DEGRADED" ? n.failures + 1 : 0;
 		await this.transition(t.lifecycle, {
@@ -712,7 +712,7 @@ var he = class {
 			this.activeRefresh.add(i);
 			let a;
 			try {
-				a = await k(this.origin, t.agentRefreshToken, r.rotationId, {
+				a = await O(this.origin, t.agentRefreshToken, r.rotationId, {
 					...this.options,
 					fetch: (e, t) => (this.options.fetch || fetch)(e, {
 						...t,
@@ -739,35 +739,35 @@ var he = class {
 			this.refreshInFlight = null;
 		}
 	}
-	async withFreshSession(e, t = !1) {
+	async withFreshSession(e, t = !1, n = !1) {
 		await this.guard(t);
-		let n = await this.freshSession();
+		let r = await this.freshSession();
 		await this.guard(t);
-		let r = this.actionEpoch, i = new AbortController();
-		t && this.activeActions.add(i);
-		let a = async (n) => {
-			if (await this.guard(t), t && r !== this.actionEpoch) throw new C("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
-			let a = await e(n, i.signal);
-			if (await this.guard(t), t && r !== this.actionEpoch) throw new C("Connector action was interrupted");
-			return await this.healthy(), a;
+		let i = this.actionEpoch, a = new AbortController();
+		t && this.activeActions.add(a);
+		let o = async (n) => {
+			if (await this.guard(t), t && i !== this.actionEpoch) throw new C("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
+			let r = await e(n, a.signal);
+			if (await this.guard(t), t && i !== this.actionEpoch) throw new C("Connector action was interrupted");
+			return await this.healthy(), r;
 		};
 		try {
 			try {
-				return await a(n);
+				return await o(r);
 			} catch (e) {
-				if (!(e instanceof C) || ne(e).retry !== "refresh_then_retry_once") throw e;
+				if (!(e instanceof C) || k(e).retry !== "refresh_then_retry_once") throw e;
 				await this.guard(t);
-				let r = I(await this.store.load());
-				return await a(r.agentApiToken === n.agentApiToken ? await this.freshSession(!0) : r);
+				let n = I(await this.store.load());
+				return await o(n.agentApiToken === r.agentApiToken ? await this.freshSession(!0) : n);
 			}
 		} catch (e) {
-			throw t && i.signal.aborted ? (await this.guard(t), new C("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (await this.observeError(e), e);
+			throw t && a.signal.aborted ? (await this.guard(t), new C("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (n && e instanceof C && k(e).lifecycle === "DEGRADED" || await this.observeError(e), e);
 		} finally {
-			this.activeActions.delete(i);
+			this.activeActions.delete(a);
 		}
 	}
 	withFreshClient(e, t = !0) {
-		return this.withFreshSession((t, n) => e(new D(this.origin, t.agentApiToken, {
+		return this.withFreshSession((t, n) => e(new te(this.origin, t.agentApiToken, {
 			...this.options,
 			fetch: (e, t) => (this.options.fetch || fetch)(e, {
 				...t,
@@ -1026,7 +1026,7 @@ var he = class {
 		}
 	}
 	async pollOnce() {
-		let e = I(await this.store.load()), t = await this.withFreshSession(async (t) => (e = t, new D(this.origin, t.agentApiToken, this.options).delta(t.inboxId, this.cursorFor(t) || void 0, this.pageSize)));
+		let e = I(await this.store.load()), t = await this.withFreshSession(async (t) => (e = t, new te(this.origin, t.agentApiToken, this.options).delta(t.inboxId, this.cursorFor(t) || void 0, this.pageSize)));
 		if (!Array.isArray(t.events) || typeof t.hasMore != "boolean" || t.hasMore && t.events.length === 0) throw new C("Envoi returned an invalid event page");
 		let n = 0;
 		for (let r of t.events) {
@@ -1087,11 +1087,15 @@ var he = class {
 		await this.start();
 		let t = new AbortController(), n = AbortSignal.any([e, t.signal]), r = !!this.options.handler, i = null, a, o = !1, s = Date.now() + 12e3 + Math.random() * 6e3, c = Date.now() + 3e4 + Math.random() * 3e4, l = () => this.wake.abort(), u = () => {
 			this.options.handler && (r = !0), l();
-		}, d = (e) => o && e?.state !== "DEGRADED" ? 3e4 + Math.random() * 3e4 : 12e3 + Math.random() * 6e3, f = async (e) => {
+		}, d = (e) => o && e?.state !== "DEGRADED" ? 3e4 + Math.random() * 3e4 : 12e3 + Math.random() * 6e3, f = async (e, r = !1) => {
 			if (n.aborted) return;
+			if (r && e instanceof C && k(e).lifecycle === "DEGRADED") {
+				s = Math.min(s, Date.now() + d()), l();
+				return;
+			}
 			await this.observeError(e);
-			let r = await this.lifecycle();
-			r.state === "DEGRADED" && (s = Math.min(s, Date.now() + 12e3 + Math.random() * 6e3)), (e instanceof N || e instanceof ue || ["REVOKED", "NEEDS_RECONNECT"].includes(r.state) || !(e instanceof C) && r.state !== "DEGRADED" || e instanceof C && !(ne(e).lifecycle === "DEGRADED" || [
+			let i = await this.lifecycle();
+			i.state === "DEGRADED" && (s = Math.min(s, Date.now() + 12e3 + Math.random() * 6e3)), (e instanceof N || e instanceof ue || ["REVOKED", "NEEDS_RECONNECT"].includes(i.state) || !(e instanceof C) && i.state !== "DEGRADED" || e instanceof C && !(k(e).lifecycle === "DEGRADED" || [
 				"REQUEST_CANCELLED",
 				"AGENT_PAUSED",
 				"CASE_CONTROLLED"
@@ -1144,7 +1148,7 @@ var he = class {
 						} finally {
 							clearTimeout(i);
 						}
-					});
+					}, !1, !0);
 					i = Date.now(), y();
 					try {
 						for await (let t of se(e, r, y)) {
@@ -1169,7 +1173,7 @@ var he = class {
 						throw e instanceof C || e instanceof N ? e : new C("Envoi event stream was interrupted", void 0, "NETWORK_ERROR");
 					}
 				} catch (e) {
-					e instanceof C && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), u()) : (h = e instanceof C ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await f(e));
+					e instanceof C && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), u()) : (h = e instanceof C ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await f(e, !0));
 				} finally {
 					clearTimeout(p), t.abort(), this.activeStreams.delete(t), a = i ? Date.now() - i : 0, o = !1, s = Math.min(s, Date.now() + d()), l();
 				}
@@ -1188,7 +1192,7 @@ var he = class {
 				await L(Math.max(h, Math.random() * b), n);
 			}
 		})().catch(async (e) => {
-			await f(e);
+			await f(e, !0);
 		}).finally(l);
 		try {
 			for (; !n.aborted;) {
@@ -1764,22 +1768,22 @@ async function Re(e = {}) {
 	let T = [...new Set(ee)], E = e.agentId ?? t.OPENCLAW_AGENT_ID ?? l?.agentId;
 	if (!E && T.length > 1) throw new W(`Choose the agent to connect by setting OPENCLAW_AGENT_ID. Available agents: ${T.join(", ")}.`);
 	if (E ??= T[0] ?? "main", T.length && !T.includes(E)) throw new W(`The selected OpenClaw agent is not configured. Set OPENCLAW_AGENT_ID to one of: ${T.join(", ")}.`);
-	let D = G(G(G(u.http).endpoints).chatCompletions).enabled === !0, O, k = f[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
+	let te = G(G(G(u.http).endpoints).chatCompletions).enabled === !0, D, O = f[_] ?? (_ === "password" ? t.OPENCLAW_GATEWAY_PASSWORD : void 0);
 	try {
-		O = Ie(y ?? k, t, y ? "token" : _);
+		D = Ie(y ?? O, t, y ? "token" : _);
 	} catch (t) {
-		let n = G(k), r = typeof k == "string" ? k.includes("${") && !k.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && je.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
+		let n = G(O), r = typeof O == "string" ? O.includes("${") && !O.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "").includes("${") : n.source === "env" && typeof n.id == "string" && je.test(n.id), i = e.allowMissingConfig ? e.fallbackConfiguration : void 0;
 		if (y || !r || !i || K(i.gatewayUrl) !== x) throw t;
-		O = i.gatewayToken;
+		D = i.gatewayToken;
 	}
-	let te = {
+	let ne = {
 		gatewayUrl: x,
-		gatewayToken: O,
+		gatewayToken: D,
 		agentId: E,
 		configPath: s,
-		chatCompletionsEnabled: c && !v ? D : void 0
+		chatCompletionsEnabled: c && !v ? te : void 0
 	};
-	return Le(te), te;
+	return Le(ne), ne;
 }
 async function ze(e, t = {}) {
 	let n = Le(e);
@@ -2115,7 +2119,7 @@ async function Qe(e) {
 	if (r?.state !== "clean") {
 		let t = null;
 		try {
-			await O(n.upload, e.bytes, { fetch: e.fetch });
+			await D(n.upload, e.bytes, { fetch: e.fetch });
 		} catch (e) {
 			t = e;
 		}
