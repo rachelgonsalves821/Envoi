@@ -24,6 +24,7 @@ export interface InstalledConnection {
   agentName: string;
   configuration: unknown;
   lastReconnectId?: string;
+  activationSetup?: { completionId: string; installationId: string };
 }
 export interface SetupOptions extends AdapterOptions {
   stateDir?: string;
@@ -177,6 +178,102 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
     if (saved && (bridge || enrolledConnector)) await report(saved, bridge?.connector ?? enrolledConnector!, 'error', fetcher,
       error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEST_FAILED').catch(() => {});
     throw error;
+  } finally { try { await bridge?.close(); } finally { await unlock(); } }
+}
+
+/** Private activation handoff. Never accepts a bootstrap token or calls legacy enrollment. */
+export interface ActivatedConnection {
+  installation: { id: string; agentId: string; connectionRoute: string; deliveryMode: string;
+    runtime: { type: string; version: string | null }; status: string; legacy: boolean };
+  agent: { id: string; name: string; address: string; status: string };
+  inboxId: string;
+  effectivePermissions: string[];
+  agentApiToken: string;
+  agentRefreshToken: string;
+  agentTokenExpiresAt: string;
+  agentRefreshTokenExpiresAt: string;
+  tokenType: 'Bearer';
+}
+
+export interface ActivatedSetupOptions extends SetupOptions { completionId: string }
+
+export async function adoptActivatedConnection(apiUrl: string, runtime: ConnectorRuntime, activation: ActivatedConnection,
+  resolveAdapter: AdapterResolver, options: ActivatedSetupOptions) {
+  const origin = quickConnectOrigin(apiUrl);
+  const validText = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
+  if (!['hermes', 'openclaw'].includes(runtime) || !activation || !validText(options.completionId)
+    || !activation.installation || activation.installation.runtime?.type !== runtime
+    || activation.installation.connectionRoute !== 'local_helper' || activation.installation.deliveryMode !== 'envoi_link'
+    || activation.installation.status !== 'active' || activation.installation.legacy !== false
+    || !validText(activation.installation.id) || !activation.agent || activation.installation.agentId !== activation.agent.id
+    || !['active', 'paused'].includes(activation.agent.status)
+    || !['id', 'name', 'address'].every(key => validText(activation.agent[key as keyof ActivatedConnection['agent']]))
+    || !validText(activation.inboxId) || !validText(activation.agentApiToken) || !validText(activation.agentRefreshToken)
+    || !Number.isFinite(Date.parse(activation.agentTokenExpiresAt)) || !Number.isFinite(Date.parse(activation.agentRefreshTokenExpiresAt))
+    || activation.tokenType !== 'Bearer' || !Array.isArray(activation.effectivePermissions)
+    || activation.effectivePermissions.some(permission => !validText(permission))) {
+    throw new ConnectorSetupError('ACTIVATION_INVALID', 'The private activation handoff is invalid; preserve saved state for recovery');
+  }
+  const directory = await (options.secureDirectory ?? privateDirectory)(options.stateDir ?? connectionDirectory(origin, activation.agent.address, runtime, options));
+  const unlock = await acquireConnectorLock(directory);
+  let bridge: RuntimeBridge | undefined;
+  try {
+    const store = new FileBridgeStore(directory); await store.init();
+    const session = await savedSession(directory) as (ConnectorSession & {
+      _onboarding?: { completionId: string; origin: string; runtime: { type: string }; installation: { id: string } }
+    }) | null;
+    const prior = await readConnection(directory).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    });
+    if (prior && (prior.apiUrl !== origin || prior.runtime !== runtime || prior.address !== activation.agent.address
+        || prior.activationSetup?.installationId !== activation.installation.id || prior.activationSetup?.completionId !== options.completionId)
+      || session && (session.agentId !== activation.agent.id || session.inboxId !== activation.inboxId || session.address !== activation.agent.address
+        || session._onboarding?.completionId !== options.completionId || session._onboarding?.installation?.id !== activation.installation.id
+        || session._onboarding?.origin !== origin || session._onboarding?.runtime?.type !== runtime)) {
+      throw new ConnectorSetupError('STATE_MISMATCH', 'This directory belongs to another installation; preserve it and use its original private handoff');
+    }
+    if (prior && !session) throw new ConnectorSetupError('STATE_INVALID', 'Saved configuration has lost its credentials; preserve this directory for recovery');
+    if (!session) {
+      // The completion identity and operational credentials become durable together.
+      // Retries preserve later rotations, pendingRotation, cursors and terminal state.
+      await privateJson(path.join(directory, 'session.json'), {
+        agentId: activation.agent.id, inboxId: activation.inboxId, address: activation.agent.address, cursor: null,
+        agentApiToken: activation.agentApiToken, agentRefreshToken: activation.agentRefreshToken,
+        agentTokenExpiresAt: activation.agentTokenExpiresAt, agentRefreshTokenExpiresAt: activation.agentRefreshTokenExpiresAt,
+        tokenType: activation.tokenType,
+        ...(activation.agent.status === 'paused' ? { lifecycle: { state: 'PAUSED', paused: true, failures: 0, changedAt: new Date().toISOString() } } : {}),
+        _onboarding: { completionId: options.completionId, origin, runtime: activation.installation.runtime, agent: activation.agent, installation: activation.installation,
+          effectivePermissions: activation.effectivePermissions }
+      });
+    }
+    const fetcher = noRedirectFetch(options.fetch);
+    const startup = new EnvoiConnector(origin, store, { fetch: fetcher });
+    // A saved revocation/reconnect requirement stops before any service or runtime call.
+    await startup.start();
+    await startup.checkStatus();
+    if (options.installService) await checkServiceManager();
+    const adapter = resolveAdapter(runtime);
+    const context = { ...options, apiUrl: origin, stateDir: directory, fetch: fetcher };
+    options.onProgress?.(`Preparing ${runtime}`);
+    const configuration = await adapter.discover(context, prior?.configuration);
+    await adapter.preflight(configuration, context);
+    const saved: InstalledConnection = { version: 1, runtime, apiUrl: origin, address: activation.agent.address,
+      agentName: activation.agent.name, configuration,
+      activationSetup: { completionId: options.completionId, installationId: activation.installation.id } };
+    // A crash during adapter configuration resumes using this same installation.
+    await privateJson(path.join(directory, 'connection.json'), saved);
+    await saveExecutable(directory, options.executableFile);
+    await adapter.configure?.(configuration, context);
+    await privateJson(path.join(directory, 'connection.json'), saved);
+    bridge = await adapter.createBridge(configuration, context);
+    await bridge.connector.start();
+    await bridge.connector.checkStatus();
+    const paused = (await bridge.connector.lifecycle()).paused;
+    if (!paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
+    const checks = paused ? 'deferred_while_paused' as const : 'passed' as const;
+    await privateJson(path.join(directory, 'setup-check.json'), { runtime, checkedAt: new Date().toISOString(), checks });
+    return { stateDir: directory, runtime, address: activation.agent.address, agentId: activation.agent.id, checks };
   } finally { try { await bridge?.close(); } finally { await unlock(); } }
 }
 

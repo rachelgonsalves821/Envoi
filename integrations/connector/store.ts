@@ -30,13 +30,19 @@ export async function privateDirectory(directory: string) {
   return absolute;
 }
 
+/** Flush data before replacement; flush the parent entry where supported. */
 export async function privateJson(filename: string, value: unknown) {
   const temporary = `${filename}.${randomUUID()}.tmp`;
-  const handle = await open(temporary, 'wx', 0o600);
-  try { await handle.writeFile(JSON.stringify(value, null, 2)); }
-  finally { await handle.close(); }
-  try { await rename(temporary, filename); }
-  finally { await rm(temporary, { force: true }); }
+  try {
+    const handle = await open(temporary, 'wx', 0o600);
+    try { await handle.writeFile(JSON.stringify(value, null, 2)); await handle.sync(); }
+    finally { await handle.close(); }
+    await rename(temporary, filename);
+    if (process.platform !== 'win32') {
+      const directory = await open(path.dirname(filename), 'r');
+      try { await directory.sync(); } finally { await directory.close(); }
+    }
+  } finally { await rm(temporary, { force: true }); }
 }
 
 /** One setup or running connector per state directory. Recover locks left by a dead process. */
