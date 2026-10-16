@@ -102,7 +102,7 @@ async function slotStore(t) {
     },
     async approval(registrationId, target, { humanId = HUMAN, principalHumanId = humanId, status = 'approved', activationExpiresAt = future() } = {}) {
       await store.putJson(approvalSlotIndexPath(humanId, registrationId), { registrationId });
-      await store.putJson(registrationPath(registrationId), { status, activationExpiresAt, principalHumanId, decision: { target } });
+      await store.putJson(registrationPath(registrationId), { status, activationExpiresAt, principalHumanId, target });
     }
   };
   return { store, seed, slots: createAgentSlots({ store }) };
