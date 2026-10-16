@@ -42,6 +42,7 @@ The closed beta runs one Cloudflare application Container behind its Worker. Pos
 - `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`: provider secret and signed-webhook secret. Register `POST /api/email-webhooks/resend` for inbound and delivery events.
 - `ENVOI_EXTERNAL_EMAIL_AGENT_HOURLY_LIMIT`, `ENVOI_EXTERNAL_EMAIL_RECIPIENT_HOURLY_LIMIT`: defense-in-depth caps for one-to-one public email. Use an edge/distributed limiter as well when running multiple instances.
 - `ENVOI_ENABLE_CALENDAR_WRITES`, `ENVOI_ENABLE_CONSEQUENTIAL_ACTIONS`: both default to `false`; enable only after the corresponding policy and provider controls are verified.
+- `ENVOI_INSTALLATIONS_V2`, `ENVOI_AGENT_REGISTRATION_V2`, `ENVOI_AUTHENTICATED_REST_ROUTE`: agent-registration v1 (Phase B) flags, all default to `false`. Only the exact value `true` turns one on; any other non-empty value, or registration on with installations off, fails startup in every mode.
 - `ENVOI_CALENDAR_OAUTH_TIMEOUT_MS`: bounded timeout for calendar token exchanges. Calendar authorization uses one-time state plus PKCE; enabling writes in production requires one complete Google or Microsoft OAuth configuration with an HTTPS callback on the public Envoi origin.
 - `ENVOI_REQUEST_TIMEOUT_MS`, `ENVOI_MAX_SSE_PER_PRINCIPAL`: request and concurrent-stream resource bounds.
 - `ENVOI_OBJECT_STORAGE_PROVIDER`: set to `s3` in production; `local` is for development.

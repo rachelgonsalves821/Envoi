@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS } from '../worker/runtime-config.js';
+import { onboardingFlagNames } from '../src/onboarding-flags.js';
 
 // Beta is verified only after its custom domain is bound. Staging keeps its
 // separate workers.dev origin; never add beta workers.dev to edge admission.
@@ -76,6 +77,11 @@ export async function checkDeploymentConfiguration() {
   assert.equal(betaScanner.containers?.[0]?.class_name, 'ClamAVContainer');
   assert.ok(betaScanner.triggers?.crons?.includes('*/5 * * * *'));
   assert.equal(new Set(CONTAINER_ENV_KEYS).size, CONTAINER_ENV_KEYS.length, 'Runtime allowlist contains duplicates');
+  // agent-registration v1 §12: the Phase B flags reach the container and default off on beta.
+  for (const name of onboardingFlagNames) {
+    assert.ok(CONTAINER_ENV_KEYS.includes(name), `Runtime allowlist must forward ${name}`);
+    assert.equal(beta.vars?.[name], 'false', `Beta must default ${name} off`);
+  }
   assert.equal(CONTAINER_DEFAULTS.ENVOI_PORT, '8787');
   const docker = await readFile(new URL('Dockerfile.cloudflare', root), 'utf8');
   assert.match(docker, /FROM node:22-alpine/);
