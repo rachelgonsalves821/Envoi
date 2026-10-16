@@ -14,6 +14,9 @@ export class DeliveryWorker {
     onHeld = async () => {},
     onSettled = () => {},
     workerId = `delivery_${crypto.randomUUID()}`,
+    // The server always sets this: claims are then refused unless the database is stamped for
+    // this deployment, so a worker never takes another deployment's outbox rows.
+    deploymentEnvironment = null,
     pollIntervalMs = Number(process.env.ENVOI_DELIVERY_POLL_MS || 250),
     leaseMs = Number(process.env.ENVOI_DELIVERY_LEASE_MS || 30_000),
     retryBaseMs = Number(process.env.ENVOI_DELIVERY_RETRY_BASE_MS || 1_000),
@@ -28,6 +31,7 @@ export class DeliveryWorker {
     this.onHeld = onHeld;
     this.onSettled = onSettled;
     this.workerId = workerId;
+    this.deploymentEnvironment = deploymentEnvironment;
     this.pollIntervalMs = pollIntervalMs;
     this.leaseMs = leaseMs;
     this.retryBaseMs = retryBaseMs;
@@ -83,7 +87,7 @@ export class DeliveryWorker {
   }
 
   async processOne() {
-    const record = await this.store.claimOutbox(this.workerId, this.leaseMs);
+    const record = await this.store.claimOutbox(this.workerId, this.leaseMs, { deploymentEnvironment: this.deploymentEnvironment });
     if (!record) return false;
     this.observe('claimed', record);
     let lockKeys = [record.senderInboxId, record.recipientInboxId].filter(Boolean).map(inboxId => `inbox:${inboxId}:mutations`);

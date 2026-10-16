@@ -1,4 +1,5 @@
 import { applyLegacyEnvironmentFallbacks } from './envoi-environment.js';
+import { assertDeploymentIdentity, configuredDeploymentIdentity } from './deployment-identity.js';
 
 export function scannerHealthUrl(env) {
   env = applyLegacyEnvironmentFallbacks({ ...env });
@@ -35,6 +36,9 @@ export function dependencyReadinessChecks({ store, adapter, provider, env, exter
   const production = env.ENVOI_AUTH_MODE === 'production';
   return [
     { name: 'database', run: () => store.queryJson('readiness-probe', { limit: 1 }) },
+    // A fixed reason, never the error: the check proves the database is still this deployment's.
+    { name: 'deploymentIdentity', failureReason: 'Database is not stamped for this deployment',
+      run: () => assertDeploymentIdentity(store, configuredDeploymentIdentity(env).environment) },
     { name: 'objectStorageReadAccess', critical: production, run: async () => {
       if (provider === 's3') await adapter.headObject('__sinaloa_readiness_probe__');
     } },

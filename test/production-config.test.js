@@ -5,6 +5,7 @@ import { deploymentPreflight } from '../src/deployment-preflight.js';
 
 const validProduction = (overrides = {}) => ({
   ENVOI_AUTH_MODE: 'production',
+  ENVOI_DEPLOYMENT_ENVIRONMENT: 'beta',
   ENVOI_PUBLIC_URL: 'https://app.sinaloa.example',
   DATABASE_URL: 'postgresql://user:secret@db.example/sinaloa',
   ENVOI_DB_SSL_MODE: 'verify-full',
@@ -46,6 +47,18 @@ test('retired SINALOA-prefixed settings are refused, never silently ignored', ()
   });
   // SINALOA_AUTH_MODE alone must not select development mode.
   assert.throws(() => validateProductionConfiguration({ SINALOA_AUTH_MODE: 'production' }), /SINALOA_AUTH_MODE/);
+});
+
+test('production names the deployment its database belongs to', () => {
+  assert.equal(validateProductionConfiguration(validProduction()).deploymentEnvironment, 'beta');
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_DEPLOYMENT_ENVIRONMENT: '' })), /ENVOI_DEPLOYMENT_ENVIRONMENT is required/);
+  for (const name of ['Beta', 'beta staging', '-beta', 'b'.repeat(33)]) {
+    assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_DEPLOYMENT_ENVIRONMENT: name })), /ENVOI_DEPLOYMENT_ENVIRONMENT must be a lowercase deployment name/);
+  }
+  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM: 'staging' })).validated, true);
+  for (const name of ['beta', 'Staging', '']) {
+    assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM: name })), /ENVOI_DEPLOYMENT_IDENTITY_REASSIGN_FROM must name a different deployment/);
+  }
 });
 
 test('the data encryption key may still come from its one honoured legacy name', () => {

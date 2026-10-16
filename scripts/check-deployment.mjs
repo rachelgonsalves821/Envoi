@@ -21,6 +21,9 @@ export function validateReleaseTargets(config) {
   assert.ok(beta.vars?.ENVOI_CORS_ORIGIN?.split(',').includes(beta.vars.ENVOI_PUBLIC_URL));
   assert.equal(beta.vars?.ENVOI_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com', 'Beta edge admission must remain limited to the two custom domains');
   assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.ENVOI_PUBLIC_URL}/api/auth/workos/callback`);
+  // Each deployment stamps its own database with this name and refuses one stamped by another.
+  assert.equal(config.env.staging.vars?.ENVOI_DEPLOYMENT_ENVIRONMENT, 'staging', 'Staging must name its deployment');
+  assert.equal(beta.vars?.ENVOI_DEPLOYMENT_ENVIRONMENT, 'beta', 'Beta must name its deployment');
 }
 
 export async function checkDeploymentConfiguration() {

@@ -9,7 +9,7 @@ async function runCheck(check, timeoutMs) {
     return { name: check.name, ready: true, critical: check.critical !== false };
   } catch {
     return { name: check.name, ready: false, critical: check.critical !== false,
-      reason: controller.signal.aborted ? 'Readiness check timed out' : 'Dependency check failed' };
+      reason: controller.signal.aborted ? 'Readiness check timed out' : check.failureReason || 'Dependency check failed' };
   } finally {
     clearTimeout(timer);
   }

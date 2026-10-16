@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolvePathWithin } from './path-safety.js';
+import { DEPLOYMENT_IDENTITY_PATH } from './deployment-identity.js';
 
 export class FileStore {
   constructor(root) {
@@ -146,8 +147,11 @@ export class FileStore {
       .slice(0, Math.max(1, Math.min(Number(limit) || 100, 200)));
   }
 
-  async claimOutbox(workerId, leaseMs = 30_000) {
+  // With deploymentEnvironment, nothing is claimed unless the store is stamped for that
+  // deployment (src/deployment-identity.js).
+  async claimOutbox(workerId, leaseMs = 30_000, { deploymentEnvironment = null } = {}) {
     return this.withOutboxMutation(async () => {
+      if (deploymentEnvironment && (await this.getJson(DEPLOYMENT_IDENTITY_PATH))?.environment !== deploymentEnvironment) return null;
       const now = Date.now();
       const records = await this.listJson('outbox');
       const next = records

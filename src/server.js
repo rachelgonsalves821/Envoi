@@ -22,6 +22,7 @@ import { PostgresMalwareScanJobStore } from './object-scan-lifecycle.js';
 import { validateProductionConfiguration } from './production-config.js';
 import { evaluateReadiness } from './readiness.js';
 import { dependencyReadinessChecks } from './dependency-readiness.js';
+import { configuredDeploymentIdentity, ensureDeploymentIdentity, verifyDeploymentIdentityBeforeInit } from './deployment-identity.js';
 import { clientIp, errorBody, publicHttpError, requestIdFrom } from './http-security.js';
 import { createPkcePair, exchangeCalendarAuthorizationCode } from './calendar-oauth.js';
 import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from './path-safety.js';
@@ -62,6 +63,7 @@ import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenc
 
 const productionConfig = validateProductionConfiguration();
 const releaseSha = process.env.ENVOI_RELEASE_SHA || null;
+const deploymentIdentity = configuredDeploymentIdentity();
 // Connectors refuse to start unless /health reports exactly this identity, so it changes
 // only together with the connector check (integrations/connector/core.ts).
 const serviceIdentity = 'envoi';
@@ -205,7 +207,7 @@ async function readinessReport() {
   const checks = dependencyReadinessChecks({ store, adapter: objectStorageAdapter,
     provider: objectStorageProvider, env: process.env, externalEmailEnabled, emailTransport });
   const report = await evaluateReadiness(checks, { timeoutMs: readinessTimeoutMs, at: store.now() });
-  return { ...report, service: serviceIdentity, mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha };
+  return { ...report, service: serviceIdentity, mode: productionConfig.mode, configurationValidated: productionConfig.validated, releaseSha, deploymentEnvironment: deploymentIdentity.environment };
 }
 
 const rateIdentity = req => hashSecret(String(req.headers.authorization || req.headers.cookie || clientIp(req))).slice(0, 32);
@@ -1861,6 +1863,7 @@ const deliveryWorker = new DeliveryWorker({
   store,
   workerId: consumerIdentity.workerId,
   observe: logConsumer,
+  deploymentEnvironment: deploymentIdentity.environment,
   prepare: prepareEmailDelivery,
   deliver: deliverQueuedMessage,
   onFailure: recordDeliveryFailure,
@@ -4215,7 +4218,11 @@ async function route(req, res) {
   return fail(res, 404, 'Not found');
 }
 
+// Refuse a database that belongs to another deployment before migrating or touching anything,
+// then stamp a new database (src/deployment-identity.js). A refusal exits non-zero.
+await verifyDeploymentIdentityBeforeInit(store, deploymentIdentity);
 await store.init();
+await ensureDeploymentIdentity(store, { ...deploymentIdentity, releaseSha, now: () => store.now() });
 await objectStorage.init();
 await objectStorage.reapExpiredUploads({ limit: 25 });
 await reconcileLegacyAgentRevocations();
