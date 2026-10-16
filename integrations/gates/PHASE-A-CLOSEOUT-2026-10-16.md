@@ -19,7 +19,6 @@ The chat supplies the correction and direction to close out. It does not supply 
 | Build/generated consistency, production container, stress, Cloudflare checks and both audits in that run | PASS; audits reported zero vulnerabilities |
 | [Integration run attempt 1](https://github.com/rachelgonsalves821/Envoi/actions/runs/38970607748/attempts/1) | Failed before checkout at PostgreSQL service-container pull |
 | [Human-requested rerun, attempt 2](https://github.com/rachelgonsalves821/Envoi/actions/runs/38970607748/attempts/2) | Same pre-test failure: public.ecr.aws returned toomanyrequests: Data limit exceeded |
-
 | [Final bounded retry, attempt 3](https://github.com/rachelgonsalves821/Envoi/actions/runs/38970607748/attempts/3) | SUCCESS on the candidate, including application suites, PostgreSQL, production container, generated consistency and audits |
 
 Attempt 2 reached no application test. After the preparation PR pulled PostgreSQL successfully, one final bounded retry was made: attempt 3 passed the full workflow. The integration check is green; no workflow change was needed to unblock it. No tests were weakened or skipped. The [preparation PR's full CI](https://github.com/rachelgonsalves821/Envoi/actions/runs/38975634468) also passed before this outcome-only documentation update.
