@@ -2,6 +2,8 @@
 
 Implementation branch: `lane-b/C-B1-case-sessions`. Dependency: published `case-session` v1 at `f5b7950b5162b37a1628afe9d3505bf9cf23c3db` (PR #115), based on integration `984051f`. Rachel explicitly approved that exact contract for client implementation in this Codex chat after Lane B's consuming ACK. This is not approval of the unfinished case-tools revisions, deployment, hosted flags, enrollment or live tests. Je retains integration and every server/fixture file.
 
+Follow-up on `lane-b/C-B2-case-tools`: Rachel separately approved the completed case-tools v1 and session amendment at `15fff09f336fe941858287511471b07b9f5184f8`. That branch adds the canonical human-decision host envelope and private mint binding, plus the typed SDK described in [CASE-TOOLS.md](CASE-TOOLS.md). This later approval does not change the historical C-B1 validation record below, authorize live operations or make the existing runtime adapters scoped.
+
 ## Implemented
 
 - `EnvoiConnector.mintCaseSession(work, options)` checks authenticated server availability, refuses unavailable/unknown versions, and mints with the existing host access-token transport and the exact lease-only body. Host end requests carry the lease and session ID privately.

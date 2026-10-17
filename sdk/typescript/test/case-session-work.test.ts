@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EnvoiConnector, type CaseSessionWorkHandler, type ConnectorSession, type WorkLease } from '../src/connector';
+import { EnvoiConnector, assertHumanDecisionMessage, type CaseSessionWorkHandler, type ConnectorSession, type WorkLease } from '../src/connector';
 import { CaseSessionChannel } from '../src/case-session';
 import { contractRegistry, loadContractFixture } from '../../../integrations/contract-fixtures/setup';
 
@@ -13,13 +13,13 @@ function deferred<Value>() {
   return { promise, resolve };
 }
 
-function harness(process: CaseSessionWorkHandler['process'] = async () => {}) {
+function harness(process: CaseSessionWorkHandler['process'] = async () => {}, suppliedWork?: WorkLease) {
   let saved: ConnectorSession = {
     agentId: 'agent_example', inboxId: 'inbox_example', address: 'example@envoi.mail',
     agentApiToken: 'HOST_ACCESS_SENTINEL', agentRefreshToken: 'HOST_REFRESH_SENTINEL',
     agentTokenExpiresAt: '2026-10-17T13:00:00.000Z', agentRefreshTokenExpiresAt: '2026-11-17T12:00:00.000Z', cursor: null
   };
-  const work: WorkLease = { workId: 'msg_example', leaseToken: 'lease_PRIVATE_SENTINEL', leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(), message: {
+  const work: WorkLease = suppliedWork ?? { workId: 'msg_example', leaseToken: 'lease_PRIVATE_SENTINEL', leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(), message: {
     id: 'msg_example', caseId: 'case_example', senderAgentId: 'agent_counterparty', recipientAgentId: 'agent_example', text: 'UNTRUSTED_MESSAGE_SENTINEL',
     from: { agentId: 'agent_counterparty', address: 'counterparty@envoi.mail' }
   } };
@@ -39,7 +39,9 @@ function harness(process: CaseSessionWorkHandler['process'] = async () => {}) {
     if (operation === 'session') {
       minted++;
       if (controls.mintFailures-- > 0) throw new Error('Committed mint response lost');
-      const payload = published().response.body;
+      const payload = work.message.kind === 'humanDecision'
+        ? (loadContractFixture(contract, 'session-created-human-decision.json') as Record<string, any>).response.body
+        : published().response.body;
       Object.assign(payload.session, { id: `case_session_run${minted}`, token: `envoi_case_session_PLACEHOLDER_run${minted}`, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900_000).toISOString() });
       payload.lease.leaseExpiresAt = work.leaseExpiresAt;
       return Response.json(payload, { status: 201 });
@@ -75,6 +77,36 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('scoped trusted-host work loop', () => {
+  it.each(['approved', 'declined', 'expired'])('processes %s human-decision work through its case-bound tool channel', async outcome => {
+    const source = loadContractFixture(contract, 'claimed-human-decision.json') as Record<string, any>;
+    const work = source.response.body.work as WorkLease;
+    work.message.outcome = outcome;
+    if (outcome === 'expired') { work.message.senderType = 'system'; delete work.message.senderHumanId; delete work.message.from; }
+    const test = harness(async channel => {
+      expect(channel.modelContext().counterpartyKind).toBe('agent');
+      expect(channel.modelContext().counterpartyAddress).toBe('counterparty@envoi.mail');
+      expect(JSON.stringify(channel)).not.toMatch(/human_example|request_example|policy_eval_example|lease_PLACEHOLDER|msg_human_decision_example/);
+      await channel.forward(call);
+    }, work);
+    await expect(test.connector.processWorkOnce()).resolves.toBe(true);
+    expect(test.handler.admit).toHaveBeenCalledWith(work.message);
+    expect(test.handler.process).toHaveBeenCalledTimes(1);
+    expect(test.order.filter(operation => operation === 'complete')).toHaveLength(1);
+    expect(test.order).not.toContain('fail');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    { senderType: 'system' }, { from: { humanId: 'human_other' } }, { senderAgentId: 'agent_other' },
+    { counterpartyAddress: 'invalid' }, { recipientInboxId: 'inbox_other' }, { caseId: '' },
+    { policyEvaluationId: '' }, { requestId: '' }, { action: 'asset.share' }, { outcome: 'unknown' },
+    { counterpartyAgentId: 'agent_example' }, { counterpartyInboxId: 'inbox_example' }, { text: '' }, { status: 'processed' }
+  ])('rejects an invalid decision envelope before admission: %j', update => {
+    const source = loadContractFixture(contract, 'claimed-human-decision.json') as Record<string, any>;
+    const message = { ...source.response.body.work.message, ...update };
+    expect(() => assertHumanDecisionMessage(message)).toThrow('invalid human decision');
+  });
+
   it('admits and acknowledges once, keeps the model scoped, then ends before host settlement', async () => {
     const test = harness(async (channel, context) => {
       expect(Object.keys(context)).toEqual(['signal']);

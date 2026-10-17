@@ -18,7 +18,7 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:
 afterEach(() => { for (const value of channels.splice(0)) value.invalidate(); vi.useRealTimers(); });
 
 describe('approved CaseSession custody and transport', () => {
-  it.each(['session-created', 'session-created-receive-only', 'session-created-human-instruction'])('consumes %s without exposing operational scope', id => {
+  it.each(['session-created', 'session-created-receive-only', 'session-created-human-instruction', 'session-created-human-decision'])('consumes %s without exposing operational scope', id => {
     const source = fixture(id);
     const bound = { ...binding(), workId: source.response.body.session.workId, caseId: source.response.body.session.caseId, workKind: source.response.body.session.workKind };
     const value = channel(source.response.body, {}, bound);
