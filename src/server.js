@@ -826,7 +826,8 @@ const registrations = createAgentRegistrations({
   codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')),
   limits: createRegistrationLimits({ store }), pollLimiter: createPollLimiter(), agentSlots, installations, withInboxMutation,
   canManageLive: (human, inbox) => canManageInbox(human, inbox, { maxAgeMs: 0 }),
-  normalizeLocalPart: normalizeAgentLocalPart, addressForLocalPart: agentAddressForLocalPart, identityTaken, semanticDigest
+  normalizeLocalPart: normalizeAgentLocalPart, addressForLocalPart: agentAddressForLocalPart, identityTaken, semanticDigest,
+  memberOf: async (human, organizationId) => Boolean(organizationId && await getMembership(organizationId, human.id))
 });
 async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = [], allowRemoved = false) {
   const committedEvents = [];
@@ -2056,16 +2057,21 @@ const inboxPreferencesHttp = createInboxPreferencesHttp({
 });
 
 // Reads a JSON body up to the server's general limit (413 beyond it). An unparseable body comes
-// back as `invalid`, so each route answers with its own contract code.
-async function readJsonBody(req) {
-  let raw = '';
+// back as `invalid`, so each route answers with its own contract code. With `stopAfter`, reading
+// stops once the body is longer and it comes back as `tooLarge`. Bytes are decoded once, so a
+// character split across chunks stays intact.
+async function readJsonBody(req, { stopAfter = null } = {}) {
+  const chunks = [];
+  let bytes = 0;
   for await (const chunk of req) {
-    raw += chunk;
-    if (Buffer.byteLength(raw) > maxBodyBytes) throw Object.assign(new Error(`Request body exceeds ${maxBodyBytes} bytes`), { statusCode: 413 });
+    bytes += chunk.length;
+    if (stopAfter !== null && bytes > stopAfter) return { bytes, value: null, invalid: false, tooLarge: true };
+    if (bytes > maxBodyBytes) throw Object.assign(new Error(`Request body exceeds ${maxBodyBytes} bytes`), { statusCode: 413 });
+    chunks.push(chunk);
   }
-  if (!raw) return { bytes: 0, value: {}, invalid: false };
-  try { return { bytes: Buffer.byteLength(raw), value: JSON.parse(raw), invalid: false }; }
-  catch { return { bytes: Buffer.byteLength(raw), value: null, invalid: true }; }
+  if (!bytes) return { bytes: 0, value: {}, invalid: false };
+  try { return { bytes, value: JSON.parse(Buffer.concat(chunks).toString('utf8')), invalid: false }; }
+  catch { return { bytes, value: null, invalid: true }; }
 }
 
 async function handleAgentRegistration(req, res, registrationRoute, claimRoute) {
@@ -2073,9 +2079,9 @@ async function handleAgentRegistration(req, res, registrationRoute, claimRoute) 
   if (registrationRoute && !registrationRoute[1]) {
     if (req.method !== 'POST') return fail(res, 405, 'Method not allowed');
     if (!onboardingFlags.registration) throw featureDisabled('Agent-led setup is not available yet.');
-    const input = await readJsonBody(req);
     // §2: a registration body over 4,096 bytes is over a creation limit.
-    if (input.bytes > registrationBodyMaxBytes) throw codedError(429, 'RATE_LIMITED', 'Too many setup attempts. Try again later.', { retryAfterSeconds: 3600, reason: 'registration_limit' });
+    const input = await readJsonBody(req, { stopAfter: registrationBodyMaxBytes });
+    if (input.tooLarge) throw registrations.oversized(clientIp(req));
     return json(res, 201, await registrations.create(input.invalid ? null : input.value, { ip: clientIp(req), claimUrl: `${publicBaseUrl(req)}/claim` }));
   }
   if (registrationRoute && !registrationRoute[2]) {

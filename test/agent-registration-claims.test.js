@@ -244,6 +244,37 @@ for (const backend of backends) {
     assertCode(await approveRequest(baseUrl, erin, frozen.registrationId, approveBody(code(frozen), { kind: 'existing_agent', agentId: 'agent_unknown', replacesInstallationId: null })), 'CLAIM_FORBIDDEN');
   });
 
+  test(`[${backend.name}] concurrent decisions: one wins, the loser gets a counted 404, never a 500`, { timeout: 90000 }, async t => {
+    const server = await launchRegistration(backend);
+    t.after(() => server.stop());
+    const { baseUrl } = server;
+    const [hana, ivan] = await Promise.all([owner(baseUrl, `${s}41`), owner(baseUrl, `${s}42`)]);
+    for (let round = 0; round < 3; round += 1) {
+      const created = await registered(baseUrl);
+      const current = (await api(baseUrl, `/api/inboxes/${hana.inbox.id}/agents/${hana.agent.id}/installations`, { session: hana.session })).payload.installations.find(item => item.status === 'active');
+      const results = await Promise.all([
+        approveRequest(baseUrl, hana, created.registrationId, approveBody(code(created), { kind: 'existing_agent', agentId: hana.agent.id, replacesInstallationId: current?.id ?? null })),
+        rejectRequest(baseUrl, ivan, created.registrationId, code(created))
+      ]);
+      assert.ok(!results.some(result => result.status >= 500), results.map(result => result.text).join('\n'));
+      assert.equal(results.filter(result => result.status === 200).length, 1, `exactly one decision wins: ${results.map(result => result.status)}`);
+      assertCode(results.find(result => result.status !== 200), 'CLAIM_CODE_INVALID');
+      // Free Hana's waiting approvals so the next round is not held by the three-waiting limit.
+      for (const claim of (await claims(baseUrl, hana)).payload.claims) if (claim.status === 'approved') assert.equal((await withdrawRequest(baseUrl, hana, claim.registrationId)).status, 200);
+    }
+  });
+
+  test(`[${backend.name}] a burst of wrong codes is held to five failures; the owner list stays reachable`, { timeout: 90000 }, async t => {
+    const server = await launchRegistration(backend);
+    t.after(() => server.stop());
+    const judy = await owner(server.baseUrl, `${s}43`);
+    const burst = await Promise.all(Array.from({ length: 12 }, () => lookup(server.baseUrl, judy, 'ZZZZ-ZZZZ')));
+    const counts = burst.reduce((map, res) => ({ ...map, [res.payload?.code]: (map[res.payload?.code] || 0) + 1 }), {});
+    assert.equal(counts.CLAIM_CODE_INVALID, 5, JSON.stringify(counts));
+    assert.equal(counts.RATE_LIMITED, 7, JSON.stringify(counts));
+    assert.equal((await claims(server.baseUrl, judy)).status, 200, 'the §10 undo list is not behind the claim lock');
+  });
+
   test(`[${backend.name}] claim failures lock the human, survive a restart, and spare 5xx`, { timeout: 90000 }, async t => {
     let server = await launchRegistration(backend);
     t.after(() => server.stop());

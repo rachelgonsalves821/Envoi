@@ -121,7 +121,7 @@ export function hintForHuman(human) {
 
 export function createAgentRegistrations({
   store, flags, codeKey, limits, pollLimiter, agentSlots, installations, withInboxMutation, canManageLive,
-  normalizeLocalPart, addressForLocalPart, identityTaken, semanticDigest, log = event => console.log(JSON.stringify(event))
+  normalizeLocalPart, addressForLocalPart, identityTaken, semanticDigest, memberOf = async () => true, log = event => console.log(JSON.stringify(event))
 }) {
   const now = () => new Date();
   const nowIso = () => store.now();
@@ -191,6 +191,12 @@ export function createAgentRegistrations({
     };
   }
 
+  // §2: a body over 4,096 bytes is over a creation limit, logged like the others.
+  function oversized(ip) {
+    log({ event: 'agent_registration.limited', source: sourceHash(ip), route: null, reason: 'registration_limit' });
+    return coded(429, 'RATE_LIMITED', 'Too many setup attempts. Try again later.', { retryAfterSeconds: 3600, reason: 'registration_limit' });
+  }
+
   // The registration a bootstrap token belongs to, or REGISTRATION_TOKEN_INVALID (§4, §6.1 row 3).
   async function registrationForToken(rawToken, registrationId) {
     const invalid = () => coded(401, 'REGISTRATION_TOKEN_INVALID', 'This setup is no longer valid.');
@@ -217,40 +223,52 @@ export function createAgentRegistrations({
 
   // ------------------------------------------------------------------ §5 claim
 
-  async function assertClaimAllowed(human) {
-    const retryAfterSeconds = await limits.claimLockRetryAfter(human.id);
-    if (retryAfterSeconds) throw coded(429, 'RATE_LIMITED', 'Too many incorrect codes. Try again later.', { retryAfterSeconds, reason: 'claim_attempts' });
+  // §2 claim failures, at most 5 per human per 15 minutes. Each lookup, approve or reject
+  // reserves one attempt before it runs, in the same transaction as the limit check, so a burst
+  // of concurrent attempts cannot all slip under it. A wrong code keeps the reservation as the
+  // failure; every other outcome (a match, a replay, any other error, a 5xx) releases it. The
+  // counter's transactions never run inside a decision's lock.
+  async function claimAttempt(human, work) {
+    const attempt = await limits.reserveClaimAttempt(human.id);
+    if (attempt.retryAfterSeconds) throw coded(429, 'RATE_LIMITED', 'Too many incorrect codes. Try again later.', { retryAfterSeconds: attempt.retryAfterSeconds, reason: 'claim_attempts' });
+    let failed = false;
+    try { return await work(); }
+    catch (error) { failed = error?.code === 'CLAIM_CODE_INVALID'; throw error; }
+    finally {
+      if (!failed) await limits.releaseClaimAttempt(human.id, attempt.reserved).catch(() => log({ event: 'agent_registration.claim_release_failed' }));
+    }
   }
-  // `counted` is false under a lock: the failure counter runs its own transaction, which must
-  // never nest inside another one. A re-check under the lock only loses a race, which is no guess.
-  async function codeInvalid(human, counted = true) {
-    if (counted) await limits.recordClaimFailure(human.id);
-    return coded(404, 'CLAIM_CODE_INVALID', 'That code is not valid. Check the code your agent shows.');
-  }
+  const codeInvalid = () => coded(404, 'CLAIM_CODE_INVALID', 'That code is not valid. Check the code your agent shows.');
   const codeMatches = (registration, normalized) => Boolean(registration && normalized && timingEqual(registration.codeHmac, verificationCodeHmac(normalized, codeKey)));
-  const decisionDigest = (kind, normalized, input) => semanticDigest({ kind, verificationCode: normalized, target: input.target ?? null, grantedPermissions: input.grantedPermissions ?? null, policyProfile: input.policyProfile ?? null });
+  // The identical body, apart from the code (which codeMatches binds and is never stored in clear).
+  const decisionDigest = (kind, input) => {
+    const { verificationCode: _code, ...rest } = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+    return semanticDigest({ kind, body: rest });
+  };
 
   // §5.3 precedence step 3, shared by approve and reject. Returns { replay } for this human's own
   // identical decision, or the pending registration; throws otherwise.
-  async function decisionTarget(human, registration, normalized, kind, input, { counted = true } = {}) {
+  async function decisionTarget(human, registration, normalized, kind, input) {
     if (codeMatches(registration, normalized) && registration.decision?.humanId === human.id) {
-      if (registration.decision.kind === kind && registration.decision.digest === decisionDigest(kind, normalized, input)) return { replay: registration.decision.response };
+      if (registration.decision.kind === kind && registration.decision.digest === decisionDigest(kind, input)) return { replay: registration.decision.response };
       throw coded(409, 'CLAIM_ALREADY_DECIDED', kind === 'approve' && registration.decision.kind === 'approve'
         ? 'You already approved this agent. Withdraw it and have the agent register again to change the decision.'
         : 'You already decided this registration.');
     }
-    if (!codeMatches(registration, normalized) || derivedStatus(registration, now()) !== 'pending_claim') throw await codeInvalid(human, counted);
+    if (!codeMatches(registration, normalized) || derivedStatus(registration, now()) !== 'pending_claim') throw codeInvalid();
     return { registration };
   }
 
   async function lookup(human, input) {
     assertRegistrationEnabled('This feature is not available.');
-    await assertClaimAllowed(human);
+    return claimAttempt(human, () => lookupCode(input));
+  }
+  async function lookupCode(input) {
     const normalized = normalizeVerificationCode(input?.verificationCode);
-    if (!normalized) throw await codeInvalid(human);
+    if (!normalized) throw codeInvalid();
     const index = await store.getJson(codeIndexPath(verificationCodeHmac(normalized, codeKey)));
     const registration = index?.registrationId ? await store.getJson(registrationPath(index.registrationId)) : null;
-    if (!codeMatches(registration, normalized) || derivedStatus(registration, now()) !== 'pending_claim') throw await codeInvalid(human);
+    if (!codeMatches(registration, normalized) || derivedStatus(registration, now()) !== 'pending_claim') throw codeInvalid();
     if (!validCodeOnlyBody(input)) throw coded(400, 'CLAIM_INVALID', 'The claim request is not valid.');
     const maximum = organizationMaximumPermissions();
     return {
@@ -294,7 +312,9 @@ export function createAgentRegistrations({
 
   async function approve(human, registrationId, input) {
     assertRegistrationEnabled('This feature is not available.');
-    await assertClaimAllowed(human);
+    return claimAttempt(human, () => approveCode(human, registrationId, input));
+  }
+  async function approveCode(human, registrationId, input) {
     const normalized = normalizeVerificationCode(input?.verificationCode);
     const found = await decisionTarget(human, await getRegistration(registrationId), normalized, 'approve', input || {});
     if (found.replay) return found.replay;
@@ -312,7 +332,7 @@ export function createAgentRegistrations({
     const lockKeys = [registrationLockKey(registrationId), `human:${principalHumanId}:active-agents`, `human:${human.id}:agent-approvals`, ...(address ? [addressHoldLockKey(address)] : [])];
     const outcome = await withInboxMutation(resolved.inbox.id, async writeAudit => {
       // First decision wins: re-read under the lock.
-      const again = await decisionTarget(human, await getRegistration(registrationId), normalized, 'approve', input, { counted: false });
+      const again = await decisionTarget(human, await getRegistration(registrationId), normalized, 'approve', input);
       if (again.replay) return again.replay;
       const registration = again.registration;
       const at = nowIso();
@@ -341,7 +361,7 @@ export function createAgentRegistrations({
         registrationId: registration.id, status: 'approved', target: target.kind, workspaceName: approved.workspaceName, agent: responseAgent(approved),
         effectivePermissions: effective, policyProfile: 'default', activationExpiresAt
       };
-      approved.decision = { kind: 'approve', humanId: human.id, digest: decisionDigest('approve', normalized, input), response, decidedAt: at };
+      approved.decision = { kind: 'approve', humanId: human.id, digest: decisionDigest('approve', input), response, decidedAt: at };
       const documents = [
         { path: registrationPath(registration.id), value: approved },
         { path: approvalSlotIndexPath(principalHumanId, registration.id), value: { registrationId: registration.id } },
@@ -366,18 +386,20 @@ export function createAgentRegistrations({
 
   async function reject(human, registrationId, input) {
     assertRegistrationEnabled('This feature is not available.');
-    await assertClaimAllowed(human);
+    return claimAttempt(human, () => rejectCode(human, registrationId, input));
+  }
+  async function rejectCode(human, registrationId, input) {
     const normalized = normalizeVerificationCode(input?.verificationCode);
     const found = await decisionTarget(human, await getRegistration(registrationId), normalized, 'reject', input || {});
     if (found.replay) return found.replay;
     if (!validCodeOnlyBody(input)) throw coded(400, 'CLAIM_INVALID', 'The claim request is not valid.');
     return store.withTransaction([registrationLockKey(registrationId)], async () => {
-      const again = await decisionTarget(human, await getRegistration(registrationId), normalized, 'reject', input, { counted: false });
+      const again = await decisionTarget(human, await getRegistration(registrationId), normalized, 'reject', input);
       if (again.replay) return again.replay;
       const at = nowIso();
       const response = { registrationId, status: 'rejected' };
       await store.putJsonBatch([
-        { path: registrationPath(registrationId), value: { ...again.registration, status: 'rejected', rejectedAt: at, decision: { kind: 'reject', humanId: human.id, digest: decisionDigest('reject', normalized, input), response, decidedAt: at } } }
+        { path: registrationPath(registrationId), value: { ...again.registration, status: 'rejected', rejectedAt: at, decision: { kind: 'reject', humanId: human.id, digest: decisionDigest('reject', input), response, decidedAt: at } } }
       ]);
       // A pending registration belongs to no workspace, so its rejection is logged, not audited
       // into an inbox feed.
@@ -388,16 +410,17 @@ export function createAgentRegistrations({
 
   // §5.4: approvals of registrations created in the last 24 hours whose target the caller can
   // manage now, whoever approved them.
+  // Not behind the claim-failure lock: the list and withdraw are the §10 undo, and stay reachable.
+  // The live provider check runs only for workspaces the human is a local member of.
   async function listClaims(human) {
     assertRegistrationEnabled('This feature is not available.');
-    await assertClaimAllowed(human);
     const current = now();
     const manageable = new Map();
     const canManageTarget = async target => {
       const inboxId = target.kind === 'new_agent' ? target.workspaceInboxId : target.agentInboxId;
       if (!manageable.has(inboxId)) {
         const inbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
-        manageable.set(inboxId, Boolean(inbox && inbox.status !== 'removed' && await canManageLive(human, inbox)));
+        manageable.set(inboxId, Boolean(inbox && inbox.status !== 'removed' && await memberOf(human, inbox.organizationId) && await canManageLive(human, inbox)));
       }
       return manageable.get(inboxId);
     };
@@ -440,10 +463,10 @@ export function createAgentRegistrations({
       if (address && (await store.getJson(addressHoldPath(address)))?.registrationId === registrationId) await store.deleteJson(addressHoldPath(address));
       await writeAudit('agent.registration_withdrawn', { registrationId, humanId: human.id, target: current.target.kind }, at);
       return { registrationId, status: 'withdrawn' };
-    }, [], [registrationLockKey(registrationId), ...(address ? [addressHoldLockKey(address)] : [])]);
+    }, [], [registrationLockKey(registrationId), `human:${registration.principalHumanId}:active-agents`, ...(address ? [addressHoldLockKey(address)] : [])]);
   }
 
-  return { create, status, lookup, approve, reject, listClaims, withdraw, registrationForToken, liveHold, addressTaken, getRegistration, recoveryExpired };
+  return { create, oversized, status, lookup, approve, reject, listClaims, withdraw, registrationForToken, liveHold, addressTaken, getRegistration, recoveryExpired };
 }
 
 export { tokenLikePattern, unsafeNameCharacters };
