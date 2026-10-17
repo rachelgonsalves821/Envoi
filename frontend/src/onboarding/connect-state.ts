@@ -1,5 +1,4 @@
-import Ajv from 'ajv';
-import addFormats from 'ajv-formats';
+import validate from './route-availability.validator.mjs';
 import schemas from '../../../test/contract-fixtures/agent-registration/schemas.json';
 
 export interface RouteAvailability {
@@ -9,9 +8,6 @@ export interface RouteAvailability {
   routes: Array<{ connectionRoute: string; available: boolean }>;
   deliveryModes: Array<{ deliveryMode: string; available: boolean }>;
 }
-const ajv = new Ajv({ strict: false });
-addFormats(ajv); ajv.addSchema(schemas);
-const validate = ajv.getSchema('agent-registration/schemas.json#/definitions/routeAvailability')!;
 
 /** One canonical schema source; no client flags or optimistic route fallback. */
 export function connectionOffer(value: unknown): { localHelper: boolean; availability: RouteAvailability } {
