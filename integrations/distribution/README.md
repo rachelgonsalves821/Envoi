@@ -1,14 +1,18 @@
 # Private installer and background-operation preparation
 
-Task B-4-packaging-background-prep, Rachel / Codex, Lane B. Base and frozen Gate B-local candidate: `7442248d16635c2256c11bf02dcaf493ca4fe039`. Assigned on build-board #34 before implementation. Only new `integrations/distribution/**` files belong to this task. The current Phase B team owns the existing helper, connector, contract, UI, root build and release paths.
+Task B-4-packaging-background-prep, Rachel / Codex, Lane B. Original PR #111 base: `7442248d16635c2256c11bf02dcaf493ca4fe039`, not a current Gate B-local instruction. Assigned on build-board #34 before implementation. Only new `integrations/distribution/**` files belong to this task. The current Phase B team owns the existing helper, connector, contract, UI, root build and release paths.
 
 This preparation consumes the existing agent-registration v1 revision 3 helper and connector unchanged. It creates a private local package, verifies artifact checksums before installing files, and prepares service lifecycle operations using the existing connector service definitions. It does not publish downloads, modify the frozen candidate, register services, enroll an agent or run a real runtime.
+
+Follow-up task B-4-install-hardening carries PR #111 unchanged as a dependency on integration base `984051f`. Its only new scope is new-install-directory protection and interruption tests within this directory. Je owns the current Gate B-local candidate; no version in this document is an instruction to restart or downgrade it.
 
 ## Prepare a private package
 
 Build the repository using its existing `npm run build`. The reviewed build emits `integrations/onboarding/dist/envoi-link.mjs`, its sibling `envoi-connector.mjs`, and `private-release.json`. The normal root build is owned by Lane A; no root build changes are required here.
 
 Record the SHA-256 of `private-release.json` from that trusted local build independently. This pin authenticates the selected manifest against the operator's expected value; it is not a publisher signature. Before public distribution, Lane A must decide how a release manifest is authenticated and attach its source SHA and acceptance evidence. Downloading a file and its checksum from one untrusted location does not establish publisher identity.
+
+The committed standalone `private-directory.mjs` is generated from the EXISTING connector `privateDirectory` helper via `private-directory.ts`, not an independent ACL policy. Preparation and a regression test rebuild it in memory and reject drift before creating package output. If its reviewed source changes, run `npm --prefix integrations/distribution run build:private-directory` and review the generated diff. The preparer uses the repository's existing Vite dependency; the resulting local installer requires Node only and no repository checkout or build tooling.
 
 From the repository root, prepare a NEW output directory:
 
@@ -34,7 +38,9 @@ Windows PowerShell:
 & C:\trusted\private-bundle\install.ps1 --bundle C:\trusted\private-bundle --destination C:\trusted\new-envoi-version --manifest-sha256 <approved-sha256>
 ```
 
-Node.js 22 or newer must already exist. No administrator elevation, shell-profile edit, PATH edit, automatic prerequisite download or runtime/provider modification is performed. The installer verifies the pinned manifest and both complete artifacts in memory before creating the destination. It refuses to overwrite an existing directory, writes the two immutable artifacts and manifest, then commits `installation.json`. Interrupted writes leave a partial new directory without a success result. Preserve it for inspection; retry with another new directory rather than deleting an existing installation or credential store automatically.
+Node.js 22 or newer must already exist. No administrator elevation, shell-profile edit, PATH edit, automatic prerequisite download or runtime/provider modification is performed. The installer verifies the pinned manifest and both complete artifacts in memory before creating the destination. It refuses an existing directory BEFORE applying permissions. Only the newly-created empty directory is passed to the existing account-only protection helper: Windows replaces inherited/explicit grants with the current account SID, while POSIX uses mode 0700. If protection fails, no artifacts or completion record are written. Source, parent, existing installations and private agent state are never permission targets.
+
+After protection, the installer writes the two artifacts and manifest, re-verifies persisted checksums, and writes `installation.pending.json` before committing `installation.json` by rename. Protection, partial-write, persisted-integrity or rename failures reject rather than return success. A partial new directory (possibly containing pending metadata) is preserved without a completed marker. Retry only with another NEW destination; the installer never repairs, removes or changes permissions on existing installations or credential stores. This is logical interruption detection, not a guarantee against power-loss/filesystem corruption; no automatic rollback or upgrade is implemented.
 
 The installer result explicitly reports `connected:false` and `serviceInstalled:false`. It does not run the helper. Once real-host acceptance is separately authorized, use the installed Node entry point for the existing interactive Phase B flow. The established helper still owns native approval confirmation, credentials, activation recovery and foreground operation.
 
@@ -68,9 +74,11 @@ npx tsc --noEmit -p integrations/distribution/tsconfig.json
 git diff --check
 ```
 
-The package test command anchors configuration and test discovery at the repository root. Running `npm test` inside `integrations/distribution` invokes the same 23 tests.
+The package test command anchors configuration and test discovery at the repository root. Running `npm test` inside `integrations/distribution` invokes the same focused distribution suite.
 
 Fixtures use new temporary package directories and fake artifact content. No service manager, real agent/runtime, model, enrollment endpoint or hosted environment is invoked. The single-owner test uses the current connector lock implementation and checks that service start is refused while an owner holds it. The lifecycle executor tests verify ordering and failure handling, not operating-system supervisor behavior. Windows sandbox restrictions can block atomic rename and junction fixtures; record the restriction and rerun unchanged tests outside the sandbox rather than skipping assertions.
+
+Hardening coverage injects protection failures, partial writes at every file stage, corrupted persisted bytes and completion-rename failure. It verifies no completed marker, source/state preservation, refusal to reuse partial directories, and successful fresh retry. A packaged CLI test runs outside the repository with fake artifacts. On Windows, a separate real ACL check is confined to disposable fixture directories and verifies current-SID-only grants plus unchanged parent ACLs; POSIX checks file/directory modes. Platform-specific skips do not establish acceptance of another platform or of a real service/runtime.
 
 ## Integration requests and open release items
 
@@ -78,7 +86,7 @@ Fixtures use new temporary package directories and fake artifact content. No ser
 2. Prove real Hermes/OpenClaw onboarding and same-identity recovery on the selected candidate. The prior 207/207 loopback/controller checks were at `dcd2960` with inert adapters; they are not proof of real-host acceptance at `7442248`.
 3. Bind the prepared executor to the existing credential/control/lock and service-manager implementations in a separately assigned helper/connector change. Avoid editing those shared files concurrently with acceptance work. Add bounded supervisor checks and idempotent handling of an already-stopped or absent service.
 4. Design the foreground-to-background handoff. Complete human confirmation and activation, stop the foreground owner cleanly, retain its state, and start the same installation under supervision. No second refresh/claim owner may run during handoff. Test cancel/failure and restart around this boundary.
-5. Prepare an account-protected install root on Windows using the existing account-only ACL helpers. This draft installs no credentials and accepts only operator-selected trusted local destinations; it does not claim that inherited destination ACLs are hardened.
+5. New Windows install directories now reuse the existing account-only helper and fail closed on protection errors, with a standalone-source drift guard and disposable-directory ACL evidence. Existing installations are deliberately not migrated or permission-modified; upgrades and real-host service acceptance remain separate work.
 6. Add platform launchers and authenticated, versioned release manifests with acceptance/source evidence. Review artifact provenance, downgrade/rollback policy, interrupted installation, upgrade of a running connector and uninstall behavior before public distribution. Automatic updates are outside this preparation.
 7. Lane A owns any download routes, root build/config, production-origin configuration and release wiring. No speculative public installer URL should be shown as working.
 8. Obtain separate authorization for service installation on disposable real hosts, then prove terminal closure, login/restart, offline catch-up, pause and revoke for each platform advertised. Label unsupported persistence honestly.
