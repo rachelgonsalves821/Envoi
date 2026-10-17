@@ -8,6 +8,8 @@ COPY --chown=node:node src ./src
 COPY --chown=node:node web ./web
 COPY --chown=node:node db ./db
 COPY --chown=node:node docs ./docs
+# The reviewed agent-facing /connect skill content only (served by src/server.js).
+COPY --chown=node:node integrations/onboarding/skill ./integrations/onboarding/skill
 COPY --chown=node:node README.md ./README.md
 
 ENV NODE_ENV=production
