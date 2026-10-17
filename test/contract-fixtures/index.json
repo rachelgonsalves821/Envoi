@@ -247,6 +247,7 @@
       "fixtures": [
         "agent-status-case-sessions.json",
         "claim-lost-response.json",
+        "claimed-human-decision.json",
         "event-case-session-ended-agent-paused.json",
         "event-case-session-ended-case-paused.json",
         "late-settlement-paused.json",
@@ -281,6 +282,7 @@
         "reclaim-after-reconnect.json",
         "reenable-after-rollback.json",
         "rollback-flag-off.json",
+        "session-created-human-decision.json",
         "session-created-human-instruction.json",
         "session-created-receive-only.json",
         "session-created.json",

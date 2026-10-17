@@ -516,7 +516,7 @@ function checkCaseSession(fixture, schemas, check, validator, label) {
       assert.equal(Date.parse(session.expiresAt) - Date.parse(session.createdAt), limits.sessionTtlSeconds * 1000, `${stepLabel}: expiresAt is createdAt + sessionTtlSeconds`);
       assert.ok(Date.parse(lease.leaseExpiresAt) > Date.parse(session.createdAt), `${stepLabel}: minted under a live lease`);
       assert.deepEqual(session.allowedTools, caseSessionTools(schemas, context.permissions, session.workKind), `${stepLabel}: allowedTools follows x-case-tools`);
-      assert.equal(session.counterparty.kind === 'agent', session.workKind === 'agent_message', `${stepLabel}: counterparty kind follows the work kind`);
+      assert.equal(session.counterparty.kind === 'agent', session.workKind !== 'human_instruction', `${stepLabel}: counterparty kind follows the work kind (a human decision's counterparty is the other agent)`);
     }
     if (['sessionCreated', 'sessionEnded'].includes(response.schema) || code) assert.equal(response.headers?.['cache-control'], 'no-store', `${stepLabel}: no-store`);
     // §6.4: tools/list is the effective set; tools/call outside it, or with a scope field, fails before anything runs.
@@ -780,7 +780,7 @@ test('every fixture matches its declared schema', async () => {
           assert.equal(fixture.response.headers['cache-control'], 'no-store', `${label}: redirects are not cached`);
         }
         const workMessage = fixture.response.body?.work?.message;
-        if (workMessage && workMessage.kind !== 'humanInstruction') {
+        if (workMessage && !['humanInstruction', 'humanDecision'].includes(workMessage.kind)) {
           // Claimed native work must be a stored message the server could have produced.
           assert.doesNotThrow(() => assertValidProtocolMessage(Object.fromEntries(protocolFields.map((key) => [key, workMessage[key]]))), `${label}: protocol envelope`);
           assert.equal(workMessage.id, workMessage.messageId, `${label}: id is the protocol messageId`);
@@ -905,6 +905,17 @@ test('case-session fixtures agree across cases', async () => {
     assert.equal(next.installationId !== session.installationId, name === 'reclaim-after-reconnect', `${name}: only a reconnect changes the installation`);
   }
 
+  // §3.1: the humanDecision claim and its session agree, and the session names the other agent, not the person.
+  const [decisionClaim, decisionMint] = await Promise.all([load('claimed-human-decision'), load('session-created-human-decision')]);
+  const decisionWork = decisionClaim.response.body.work;
+  const decisionSession = decisionMint.response.body.session;
+  assert.deepEqual(decisionClaim.request.body, {}, 'a humanDecision claim needs no acceptHumanInstructions');
+  assert.equal(decisionMint.request.body.leaseToken, decisionWork.leaseToken, 'the session binds the claimed lease');
+  assert.deepEqual([decisionSession.workId, decisionSession.caseId, decisionSession.workKind], [decisionWork.workId, decisionWork.message.caseId, 'human_decision'], 'the session is for the claimed decision');
+  assert.deepEqual(decisionSession.counterparty, { kind: 'agent', address: decisionWork.message.counterpartyAddress }, 'the counterparty is the case\'s other agent');
+  assert.equal(decisionWork.message.recipientAgentId, decisionSession.agentId, 'the decision is addressed to this agent');
+  const shown = JSON.stringify(decisionMint.client.modelVisible);
+  for (const value of [decisionWork.message.senderHumanId, decisionWork.message.requestId, decisionWork.message.policyEvaluationId, decisionWork.message.counterpartyAgentId]) assert.ok(!shown.includes(value), `model-visible values never include ${value}`);
   const late = await load('late-write-after-pause');
   assert.deepEqual(late.steps[1].request.body.params, late.steps[0].request.body.params, 'the late write is the identical call');
   const [status, rollback] = await Promise.all([load('agent-status-case-sessions'), load('rollback-flag-off')]);

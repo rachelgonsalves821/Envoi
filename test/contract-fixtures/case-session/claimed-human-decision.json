@@ -1,0 +1,74 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "claimed-human-decision",
+  "kind": "http",
+  "description": "A claim returns humanDecision work without acceptHumanInstructions. The host validates recipient, case and counterparty fields before minting; none of these ids reach the model.",
+  "context": {
+    "workKind": "human_decision",
+    "permissions": [
+      "send_agent_messages",
+      "receive_agent_messages",
+      "create_assets",
+      "execute_cases"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/claim",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "claimRequest",
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimClaimedHumanDecision",
+    "headers": {},
+    "body": {
+      "work": {
+        "workId": "msg_human_decision_example",
+        "message": {
+          "id": "msg_human_decision_example",
+          "kind": "humanDecision",
+          "type": "humanDecision",
+          "inboxId": "inbox_example",
+          "caseId": "case_example",
+          "senderType": "human",
+          "senderHumanId": "human_example",
+          "from": {
+            "humanId": "human_example"
+          },
+          "recipientInboxId": "inbox_example",
+          "recipientAgentId": "agent_example",
+          "counterpartyAgentId": "agent_counterparty",
+          "counterpartyInboxId": "inbox_counterparty",
+          "counterpartyAddress": "counterparty@envoi.mail",
+          "requestId": "request_example",
+          "policyEvaluationId": "policy_eval_example",
+          "action": "proposal.accept",
+          "outcome": "approved",
+          "text": "Approved: accept the requested option.",
+          "status": "delivered",
+          "createdAt": "2026-10-17T11:59:30.000Z",
+          "deliveredAt": "2026-10-17T11:59:30.000Z",
+          "updatedAt": "2026-10-17T11:59:30.000Z"
+        },
+        "leaseToken": "lease_PLACEHOLDER_example",
+        "leaseExpiresAt": "2026-10-17T12:01:00.000Z"
+      },
+      "state": "claimed"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "none",
+    "next": "Check recipientAgentId, recipientInboxId and caseId are yours, then mint a session for this lease."
+  }
+}

@@ -1177,6 +1177,234 @@
         }
       }
     },
+    "humanDecisionWorkMessage": {
+      "description": "case-session §3.1: the stored humanDecision message a claim returns. Host-only; never model-visible.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "type",
+        "inboxId",
+        "caseId",
+        "senderType",
+        "recipientInboxId",
+        "recipientAgentId",
+        "counterpartyAgentId",
+        "counterpartyInboxId",
+        "counterpartyAddress",
+        "requestId",
+        "policyEvaluationId",
+        "action",
+        "outcome",
+        "text",
+        "status",
+        "createdAt",
+        "deliveredAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^msg_"
+        },
+        "kind": {
+          "const": "humanDecision"
+        },
+        "type": {
+          "const": "humanDecision"
+        },
+        "inboxId": {
+          "type": "string",
+          "pattern": "^inbox_"
+        },
+        "caseId": {
+          "type": "string",
+          "pattern": "^case_"
+        },
+        "senderType": {
+          "enum": [
+            "human",
+            "system"
+          ]
+        },
+        "senderHumanId": {
+          "type": "string",
+          "pattern": "^human_"
+        },
+        "from": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "humanId"
+          ],
+          "properties": {
+            "humanId": {
+              "type": "string",
+              "pattern": "^human_"
+            }
+          }
+        },
+        "recipientInboxId": {
+          "type": "string",
+          "pattern": "^inbox_"
+        },
+        "recipientAgentId": {
+          "type": "string",
+          "pattern": "^agent_"
+        },
+        "counterpartyAgentId": {
+          "type": "string",
+          "pattern": "^agent_"
+        },
+        "counterpartyInboxId": {
+          "type": "string",
+          "pattern": "^inbox_"
+        },
+        "counterpartyAddress": {
+          "type": "string",
+          "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policyEvaluationId": {
+          "type": "string",
+          "pattern": "^policy_eval_"
+        },
+        "action": {
+          "enum": [
+            "proposal.accept",
+            "case.complete"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "approved",
+            "declined",
+            "expired"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "status": {
+          "const": "delivered"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deliveredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "senderType": {
+                "const": "human"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "senderHumanId",
+              "from"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "senderHumanId"
+                  ]
+                },
+                {
+                  "required": [
+                    "from"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "expired"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "senderType": {
+                "const": "system"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "senderType": {
+                "const": "human"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "claimClaimedHumanDecision": {
+      "description": "a3 §3 claimClaimed carrying a humanDecision message (§3.1).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work",
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "const": "claimed"
+        },
+        "work": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workId",
+            "message",
+            "leaseToken",
+            "leaseExpiresAt"
+          ],
+          "properties": {
+            "workId": {
+              "type": "string",
+              "pattern": "^msg_"
+            },
+            "message": {
+              "$ref": "#/definitions/humanDecisionWorkMessage"
+            },
+            "leaseToken": {
+              "type": "string",
+              "minLength": 1
+            },
+            "leaseExpiresAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      }
+    },
     "claimClaimed": {
       "description": "a3 §3 claimClaimed, unchanged.",
       "type": "object",

@@ -1747,7 +1747,11 @@ The web client is the exception to "ignore unknown types". It subscribes to a fi
 
 ## case-session v1
 
-**Contract:** `case-session`, version 1 (Phase C task **C-A0**, first of three). **Status:** published, awaiting Lane B `CONTRACT-ACK`, then a version-specific `CONTRACT-APPROVED case-session v1 @<sha>`.
+**Contract:** `case-session`, version 1 (Phase C task **C-A0**, first of three). **Status:** published, and approved by Rachel at `f5b7950` (C-B1 builds on it). case-tools v1 revision 2 then amended it, before that contract's approval:
+- added the `human_decision` work kind and its claim envelope (§2, §3, §3.1, §5);
+- moved `envoi_authority_check` and `envoi_request_human` to `execute_cases`.
+
+The amendment is additive for clients built on `f5b7950`. It needs the same final, exact-head human review as case-tools v1.
 
 The blanket "CONTRACT-APPROVED (for Phase C)" posted on board #34 at 17:01Z on 2026-10-17 predates this publication and names no version, so it does not approve this contract. Nothing here is implemented, and nothing is default-on. The server work is C-A1; the client work is C-B1.
 
@@ -1887,6 +1891,26 @@ Minting does **not** renew the lease. The lease keeps its own expiry, which the 
 - **`expiresAt`** is `createdAt` + 900 s (`x-limits.sessionTtlSeconds`). It is an absolute cap: a session is not renewable, and it stops earlier whenever §6.2 says so.
 - **`lease.leaseExpiresAt`** is the lease's current expiry, unchanged by the mint.
 - **What the session never depends on:** the expiry of the access token that minted it. Its credential family, however, must stay valid (§6.2).
+
+#### 3.1 The `humanDecision` work message
+
+This message was added with case-tools v1 revision 2 (§12.6). When a person resolves an agent's request for a human decision, the server writes one `humanDecision` message into that agent's inbox for the case.
+
+**How it is claimed.** A claim offers it like agent work, with no `acceptHumanInstructions` needed. `work.message` carries the schema `humanDecisionWorkMessage`, shown in fixture `claimed-human-decision`:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `kind: "humanDecision"`, `type: "humanDecision"` | The message, which is also the `workId`. |
+| `inboxId`, `caseId` | This agent's inbox, and the case the request was made in. |
+| `recipientInboxId`, `recipientAgentId` | This agent. The host checks both are its own before minting a session. |
+| `counterpartyAgentId`, `counterpartyInboxId`, `counterpartyAddress` | The case's other agent. This is the session's counterparty (`{ kind: "agent", address }`), and the §3 eligibility checks apply to that agent. |
+| `senderType` | `human` for an approval or a decline, and then `senderHumanId` and `from.humanId` name the person. `system` for an expiry, which carries no person. |
+| `requestId`, `policyEvaluationId`, `action` | The request and the authority it resolves. `action` is `proposal.accept` or `case.complete`. |
+| `outcome` | `approved`, `declined` or `expired`. |
+| `text` | A server-written summary of at most 500 characters. It never names the person. |
+| `status`, `createdAt`, `deliveredAt`, `updatedAt` | As for any delivered work message. |
+
+**Privacy.** Every id in this message is host-only, per §4: the person's id, the request and evaluation ids, and the counterparty's agent and inbox ids. The session minted for it (fixture `session-created-human-decision`) shows the model only the §4 keys, with the other agent as counterparty. Its lease, fence and expiry bind exactly as for agent work.
 
 **Audit:** `agent.case_session_created`, for the owner. It carries `agentId`, `installationId`, `workId`, `caseId`, `sessionId`, `fence`, `allowedTools` and `expiresAt`, never the token or the lease token.
 
@@ -2329,7 +2353,7 @@ A Phase C host never gives a model either credential, and never falls back to on
 
 | Group | Fixtures |
 | --- | --- |
-| Mint and use | `session-created`, `session-created-receive-only`, `session-created-human-instruction`, `session-mcp-initialize`, `session-tools-list`, `session-tool-call`, `agent-status-case-sessions` |
+| Mint and use | `session-created`, `session-created-receive-only`, `session-created-human-instruction`, `claimed-human-decision`, `session-created-human-decision`, `session-mcp-initialize`, `session-tools-list`, `session-tool-call`, `agent-status-case-sessions` |
 | Authentication and scope | `session-missing-auth`, `session-unknown-token`, `session-token-on-claim`, `session-token-on-renew`, `session-token-on-settlement`, `session-token-on-end`, `session-token-on-status`, `session-token-on-events`, `session-token-on-inbox-route`, `mint-with-session-token`, `mint-with-mcp-read-token`, `mint-with-bootstrap-token`, `session-tool-not-in-session`, `session-permission-removed`, `session-legacy-tool-rejected`, `session-lease-tool-rejected`, `session-scope-override-rejected`, `session-unknown-method` |
 | Wrong agent, work, installation, case or counterparty | `mint-unknown-work`, `mint-other-agent-work`, `mint-other-installation-lease`, `mint-case-controlled`, `mint-counterparty-unavailable`, `mint-relationship-blocked`, `mint-instruction-authority-lost`, `mint-permission-removed`, `mint-request-invalid`, `mint-feature-disabled`, `mint-agent-paused`, `mint-access-token-expired`, `mint-rate-limited`, `mint-server-error` |
 | Fence, expiry and lease | `mint-lease-superseded`, `mint-lease-expired`, `mint-lease-released`, `mint-lease-settled`, `session-expired`, `session-expired-outranks-later-pause`, `session-ended-lease-lost`, `session-ended-superseded` |
