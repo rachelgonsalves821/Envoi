@@ -1,0 +1,48 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-receiver-timeout",
+  "kind": "delivery",
+  "description": "No response within deliveryTimeoutMs (§6.1). The attempt is retried after the first scheduled delay, with jitter.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_0070",
+        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=xGPj19LvxsPtJzJIBGgeC5tWyrSw6rqU_Cf9g5R49pxmL12oXRw4Lsmu_Zh-WhTApmJE4rZHhJyTH9DsiCVZDw"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0070\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":70,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+    },
+    "response": null,
+    "failureClass": "timeout",
+    "outcome": "retry_scheduled",
+    "nextAttemptInSeconds": 9
+  }
+}

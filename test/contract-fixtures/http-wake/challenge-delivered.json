@@ -1,0 +1,83 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "challenge-delivered",
+  "kind": "delivery",
+  "description": "The signed wake.challenge (§3.2). The receiver verifies it like any notification, acknowledges, and its host activates with the challenge.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "pending",
+      "challengeExpiresAt": "2026-10-17T12:10:00.000Z"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_challenge",
+        "envoi-wake-timestamp": "1792238401",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=Vm1CrMGiOKWHKCO3E2Oi3O24HbWELLSePkDnWnGu6_hcAy629SpGAoIOAM86Dh9-aHayaKzi1cWgf04W0IASCQ"
+      },
+      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_challenge\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:10:00.000Z\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+    },
+    "response": {
+      "status": 200
+    },
+    "failureClass": null,
+    "outcome": "acknowledged"
+  },
+  "receiver": {
+    "clock": "2026-10-17T12:00:01.500Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionId": "wake_sub_example",
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "action": "activate",
+    "next": "Acknowledge, then POST the challenge to activate with the host access token."
+  }
+}

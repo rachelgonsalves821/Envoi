@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { createPublicKey, verify } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
+import { BlockList, isIP } from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -442,6 +444,325 @@ function checkInstallationDerivation(fixture, schemas, label) {
   }
 }
 
+// http-wake §4.2: x-blocked-ranges as two lists. One list would match every IPv4 address against ::ffff:0:0/96.
+function wakeBlockedCheck(schemas) {
+  const lists = { ipv4: new BlockList(), ipv6: new BlockList() };
+  for (const { cidr } of schemas['x-blocked-ranges']) {
+    const [address, prefix] = cidr.split('/');
+    const family = isIP(address) === 6 ? 'ipv6' : 'ipv4';
+    lists[family].addSubnet(address, Number(prefix), family);
+  }
+  return (address) => {
+    const family = isIP(address) === 6 ? 'ipv6' : isIP(address) === 4 ? 'ipv4' : null;
+    return !family || lists[family].check(address, family);
+  };
+}
+
+// http-wake §4.1–§4.2: the first rule a URL breaks, in x-url-checks order, or null. Without dns, only the rules
+// that need no lookup are applied.
+function wakeUrlRejection(raw, dns, schemas) {
+  const limits = schemas['x-limits'];
+  if (raw.length > limits.urlMaxLength) return 'url_too_long';
+  let url;
+  try { url = new URL(raw); } catch { return 'url_invalid'; }
+  if (url.protocol !== 'https:') return 'scheme_not_https';
+  if (url.username || url.password) return 'userinfo_present';
+  if (url.port && !limits.allowedPorts.includes(Number(url.port))) return 'port_not_allowed';
+  if (raw.includes('?')) return 'query_present';
+  if (raw.includes('#')) return 'fragment_present';
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (isIP(hostname)) return 'address_literal';
+  if (hostname === new URL(schemas['x-public-origin-example']).hostname) return 'self_target';
+  if (!hostname.includes('.') || schemas['x-reserved-names'].some((name) => hostname === name || hostname.endsWith(`.${name}`))) return 'reserved_name';
+  if (!dns) return null;
+  if (dns.addresses.length === 0) return 'dns_unresolvable';
+  if (dns.addresses.some(wakeBlockedCheck(schemas))) return 'address_not_public';
+  return null;
+}
+
+// http-wake §5.1: the bytes a notification signature covers.
+const wakeSigningBytes = (request, url) => {
+  const headers = request.headers;
+  return Buffer.concat([Buffer.from(`envoi-wake/1\n${headers['envoi-wake-key-id']}\n${headers['envoi-wake-timestamp']}\n${headers['envoi-wake-id']}\n${url}\n`, 'utf8'), Buffer.from(request.bodyText, 'utf8')]);
+};
+function wakeSignatureValid(request, url, key) {
+  const match = /^v1=([A-Za-z0-9_-]{86})$/.exec(request.headers['envoi-wake-signature'] || '');
+  if (!match) return false;
+  const publicKey = createPublicKey({ key: { kty: key.kty, crv: key.crv, x: key.x }, format: 'jwk' });
+  return verify(null, wakeSigningBytes(request, url), publicKey, Buffer.from(match[1], 'base64url'));
+}
+
+// http-wake §7.1: what a receiver concludes from a request, following x-receiver-checks in order.
+function wakeReceiverVerdict(request, receiver, schemas, validator) {
+  const limits = schemas['x-limits'];
+  const headers = request.headers;
+  const reject = (reason) => ({ verdict: 'reject', reason });
+  const wellFormed = request.method === 'POST' && headers['content-type'] === 'application/json'
+    && Buffer.byteLength(request.bodyText, 'utf8') <= limits.requestBodyMaxBytes
+    && /^wake_evt_[A-Za-z0-9_-]{3,64}$/.test(headers['envoi-wake-id'] || '') && /^[1-9][0-9]{0,11}$/.test(headers['envoi-wake-timestamp'] || '')
+    && /^[A-Za-z0-9._-]{1,64}$/.test(headers['envoi-wake-key-id'] || '') && /^v1=[A-Za-z0-9_-]{86}$/.test(headers['envoi-wake-signature'] || '');
+  if (!wellFormed) return reject('malformed');
+  const key = receiver.jwks.keys.find((entry) => entry.kid === headers['envoi-wake-key-id']);
+  if (!key) return reject('unknown_key');
+  if (key.notAfter && Date.parse(key.notAfter) <= Date.parse(receiver.clock)) return reject('key_expired');
+  if (Math.abs(Date.parse(receiver.clock) / 1000 - Number(headers['envoi-wake-timestamp'])) > limits.timestampToleranceSeconds) return reject('timestamp_out_of_window');
+  if (!wakeSignatureValid(request, receiver.registeredUrl, key)) return reject('signature_invalid');
+  let body;
+  try { body = JSON.parse(request.bodyText); } catch { return reject('binding_mismatch'); }
+  if (!validator('notification')(body) || body.id !== headers['envoi-wake-id'] || body.subscriptionId !== receiver.subscriptionId) return reject('binding_mismatch');
+  if (receiver.seenIds.includes(body.id)) return { verdict: 'duplicate', reason: null, body };
+  return { verdict: 'process', reason: null, body };
+}
+
+// http-wake §6.2: how the server classifies an attempt that was sent.
+function wakeFailureClass(delivery) {
+  if (!delivery.response) return undefined;
+  const { status } = delivery.response;
+  if (status >= 200 && status < 300) return null;
+  if (status === 410) return 'receiver_gone';
+  if (status >= 300 && status < 400) return 'redirect_rejected';
+  if ([408, 425, 429].includes(status) || status >= 500) return 'http_retryable';
+  return 'http_rejected';
+}
+
+const wakeHostRoute = /^\/api\/agent\/wake-subscriptions(?:\/[^/]+\/(?:activate|end))?$/;
+const wakeOwnerRoute = /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/wake-subscriptions(?:\/[^/]+\/revoke)?$/;
+const wakeKeysRoute = '/.well-known/envoi-wake-keys.json';
+const privateWakeContent = /\b(?:case|msg|agent|inbox|installation|credential_family|case_session|human|asset|lease|registration)_[A-Za-z0-9]|@|envoi_(?:agent_|mcp_read_|case_session_|reg_)|"text"|https?:/;
+
+// http-wake §3, §9: one subscription object is internally consistent.
+function checkWakeSubscription(subscription, schemas, label) {
+  const limits = schemas['x-limits'];
+  const { status, delivery } = subscription;
+  assert.equal(wakeUrlRejection(subscription.url, undefined, schemas), null, `${label}: a stored url passes the syntax rules`);
+  assert.equal(new URL(subscription.url).href, subscription.url, `${label}: the url is stored in canonical form`);
+  assert.equal(status === 'ended', subscription.endedReason !== null && subscription.endedAt !== null, `${label}: ended exactly when endedReason and endedAt are set`);
+  assert.equal(status === 'pending', subscription.challengeExpiresAt !== null, `${label}: only a pending subscription has a challenge deadline`);
+  if (status === 'pending') {
+    assert.equal(subscription.activatedAt, null, `${label}: pending is not activated`);
+    assert.equal(Date.parse(subscription.challengeExpiresAt) - Date.parse(subscription.createdAt), limits.challengeTtlSeconds * 1000, `${label}: challengeExpiresAt is createdAt + challengeTtlSeconds`);
+  }
+  if (status === 'active') assert.ok(subscription.activatedAt >= subscription.createdAt, `${label}: activated after it was created`);
+  assert.equal(delivery.state === 'failing', delivery.consecutiveFailures > 0, `${label}: failing exactly when a notification failed last`);
+  assert.equal(delivery.state === 'unverified', delivery.lastSuccessAt === null && delivery.consecutiveFailures === 0, `${label}: unverified until a first acknowledgement`);
+  assert.equal(delivery.lastFailureClass !== null, delivery.consecutiveFailures > 0, `${label}: a failure class only while failing`);
+  if (delivery.lastSuccessAt) assert.ok(delivery.lastAttemptAt >= delivery.lastSuccessAt, `${label}: the last attempt is not earlier than the last success`);
+  if (subscription.endedReason === 'delivery_failed') {
+    assert.ok(delivery.consecutiveFailures >= limits.endAfterFailedDeliveries, `${label}: delivery_failed needs endAfterFailedDeliveries failures`);
+    assert.ok(Date.parse(subscription.endedAt) - Date.parse(delivery.lastSuccessAt ?? subscription.activatedAt) >= limits.endAfterFailingSeconds * 1000, `${label}: delivery_failed needs endAfterFailingSeconds without an acknowledgement`);
+  }
+  if (subscription.endedReason === 'receiver_gone') assert.equal(delivery.lastFailureClass, 'receiver_gone', `${label}: receiver_gone follows a 410`);
+}
+
+// http-wake §3.6, §3.7: pending, then active, then at most the cap of ended ones, newest first; per installation at
+// most one pending and one active.
+function checkWakeList(subscriptions, max, label) {
+  const rank = { pending: 0, active: 1, ended: 2 };
+  assert.ok(subscriptions.every((entry, index) => index === 0 || rank[subscriptions[index - 1].status] <= rank[entry.status]), `${label}: pending, then active, then ended`);
+  const endedList = subscriptions.filter((entry) => entry.status === 'ended');
+  assert.ok(endedList.length <= max, `${label}: at most ${max} ended`);
+  assert.ok(endedList.every((entry, index) => index === 0 || endedList[index - 1].endedAt >= entry.endedAt), `${label}: ended newest first`);
+  for (const live of ['pending', 'active']) {
+    const installations = subscriptions.filter((entry) => entry.status === live).map((entry) => entry.installationId);
+    assert.equal(new Set(installations).size, installations.length, `${label}: at most one ${live} subscription per installation`);
+  }
+}
+
+// http-wake v1 rules for one delivery step: server checks (§4, §6, §8) and receiver checks (§7).
+function checkWakeDelivery(step, fixture, schemas, check, validator, label) {
+  const { delivery, receiver } = step;
+  const context = step.context || fixture.context || {};
+  const flags = { ENVOI_HTTP_WAKE_V1: true, ...fixture.flags };
+  const limits = schemas['x-limits'];
+  const blocked = wakeBlockedCheck(schemas);
+  let body;
+  if (delivery.request) {
+    assert.equal(Buffer.byteLength(delivery.request.bodyText, 'utf8') <= limits.requestBodyMaxBytes || delivery.origin === 'third_party', true, `${label}: body within requestBodyMaxBytes`);
+    assert.doesNotMatch(delivery.request.bodyText, /envoi_wake_challenge_(?!PLACEHOLDER)/, `${label}: challenges are placeholders`);
+  }
+  if (delivery.origin === 'server') {
+    const subscription = context.subscription;
+    assert.ok(subscription, `${label}: a server delivery names its subscription`);
+    if (delivery.outcome === 'not_sent') {
+      const expected = !flags.ENVOI_HTTP_WAKE_V1 ? 'feature_disabled' : subscription.status === 'ended' ? 'subscription_ended'
+        : subscription.status === 'pending' ? 'subscription_pending' : context.agentStatus === 'paused' ? 'agent_paused' : undefined;
+      assert.equal(delivery.notSentReason, expected, `${label}: the reason nothing was sent follows the state (§8)`);
+      assert.equal(delivery.sent, false, `${label}: not_sent sends nothing`);
+      return;
+    }
+    assert.ok(flags.ENVOI_HTTP_WAKE_V1, `${label}: nothing is attempted with the flag off`);
+    // §4.2: every attempt resolves once and checks every address.
+    const addressRejected = delivery.dns.addresses.length === 0 || delivery.dns.addresses.some(blocked);
+    assert.equal(delivery.failureClass === 'address_rejected', addressRejected, `${label}: address_rejected exactly when the resolution is empty or has a blocked address`);
+    assert.equal(delivery.dns.host, new URL(subscription.url).hostname, `${label}: the subscription host is resolved`);
+    assert.equal(delivery.sent, !addressRejected, `${label}: a rejected resolution sends nothing`);
+    if (delivery.sent) {
+      // §4.3: connect only to a checked address of that same resolution, verifying TLS for the URL host.
+      assert.ok(delivery.dns.addresses.includes(delivery.connect.address), `${label}: the connection uses an address from the checked resolution`);
+      assert.ok(limits.allowedPorts.includes(delivery.connect.port), `${label}: port`);
+      assert.equal(delivery.connect.servername, new URL(subscription.url).hostname, `${label}: SNI and certificate name are the URL host`);
+      assert.equal(delivery.request.url, subscription.url, `${label}: sent to the registered url`);
+      assert.equal(delivery.request.method, 'POST', `${label}: POST`);
+      check(validator('deliveryHeaders'), delivery.request.headers, `${label} headers`);
+      assert.ok(!Object.keys(delivery.request.headers).some((name) => /^(?:authorization|cookie)$/i.test(name)), `${label}: Envoi never sends credentials to a receiver`);
+      body = JSON.parse(delivery.request.bodyText);
+      check(validator('notification'), body, `${label} notification`);
+      assert.equal(body.id, delivery.request.headers['envoi-wake-id'], `${label}: header id is the body id`);
+      assert.equal(body.subscriptionId, subscription.id, `${label}: the body names the subscription`);
+      assert.equal(JSON.stringify(body), delivery.request.bodyText, `${label}: the body is compact JSON`);
+      assert.equal(body.type !== 'wake.challenge', subscription.status === 'active', `${label}: a pending subscription gets only its challenge, an active one never`);
+      if (body.type === 'wake.work_available') assert.notEqual(context.agentStatus, 'paused', `${label}: no work wake while the agent is paused (§8.1)`);
+      // §2.3: the body is opaque. No content, address, token, internal id or URL.
+      // type and reason are closed enums (notification schema); everything else is checked here.
+      const { id, subscriptionId, type, reason, ...rest } = body;
+      assert.doesNotMatch(JSON.stringify(rest), privateWakeContent, `${label}: no private content in the notification`);
+      assert.ok(id && subscriptionId && type, `${label}: only opaque ids`);
+    }
+    // §6.2: the class follows the response; the outcome follows the class and the attempt.
+    const sentClass = delivery.sent ? wakeFailureClass(delivery) : 'address_rejected';
+    if (sentClass === undefined) assert.ok(['timeout', 'connect_failed', 'tls_failed', 'interrupted'].includes(delivery.failureClass), `${label}: no response means a transport failure class`);
+    else assert.equal(delivery.failureClass, sentClass, `${label}: failure class for the response`);
+    const failure = delivery.failureClass && schemas['x-failure-classes'][delivery.failureClass];
+    const outcome = !failure ? 'acknowledged' : !failure.retryable ? 'failed' : delivery.attempt < limits.maxAttempts ? 'retry_scheduled' : 'exhausted';
+    assert.equal(delivery.outcome, outcome, `${label}: outcome`);
+    if (outcome === 'retry_scheduled') {
+      const base = limits.retryScheduleSeconds[delivery.attempt - 1];
+      const retryAfter = [429, 503].includes(delivery.response?.status) && delivery.response.headers?.['retry-after'] ? Math.min(Number(delivery.response.headers['retry-after']), limits.retryAfterMaxSeconds) : 0;
+      const low = Math.max(Math.floor(base * (1 - limits.retryJitterRatio)), retryAfter);
+      const high = Math.max(Math.ceil(base * (1 + limits.retryJitterRatio)), retryAfter);
+      assert.ok(delivery.nextAttemptInSeconds >= low && delivery.nextAttemptInSeconds <= high, `${label}: next attempt in ${low}–${high} s`);
+    }
+    assert.ok(delivery.attempt <= limits.maxAttempts, `${label}: at most maxAttempts`);
+  }
+  if (receiver) {
+    assert.ok(delivery.request, `${label}: a receiver verdict needs a request`);
+    if (delivery.origin === 'server') {
+      assert.equal(receiver.registeredUrl, context.subscription.url, `${label}: the receiver registered this url`);
+      assert.equal(receiver.subscriptionId, context.subscription.id, `${label}: the receiver registered this subscription`);
+      if (delivery.response) assert.equal(delivery.response.status, receiver.respondStatus, `${label}: the server saw the receiver's status`);
+    }
+    const derived = wakeReceiverVerdict(delivery.request, receiver, schemas, validator);
+    assert.equal(receiver.verdict, derived.verdict, `${label}: receiver verdict (x-receiver-checks)`);
+    assert.equal(receiver.reason, derived.reason, `${label}: receiver reason`);
+    const row = schemas['x-receiver-checks'].find((entry) => entry.check === (derived.reason || derived.verdict));
+    const acknowledged = receiver.respondStatus >= 200 && receiver.respondStatus < 300;
+    if (derived.verdict === 'process') {
+      // A receiver that verified the request may still answer 410, 429 or 5xx; then it acts on nothing.
+      assert.ok(acknowledged || receiver.respondStatus === 410 || receiver.respondStatus === 429 || receiver.respondStatus >= 500, `${label}: a verified request is acknowledged, refused as gone, or deferred`);
+      assert.equal(receiver.action, acknowledged ? schemas['x-wake-reasons'][derived.body.type].action : 'none', `${label}: action for ${derived.body.type}`);
+    } else {
+      assert.equal(receiver.respondStatus, row.status, `${label}: status for ${derived.reason || derived.verdict}`);
+      assert.equal(receiver.action, 'none', `${label}: rejected and duplicate requests act on nothing`);
+    }
+  }
+}
+
+// http-wake v1 rules a schema cannot express. Applied to each step of a fixture.
+function checkHttpWake(fixture, schemas, check, validator, label) {
+  const flags = { ENVOI_HTTP_WAKE_V1: true, ENVOI_INSTALLATIONS_V2: true, ...fixture.flags };
+  const steps = fixture.steps ? fixture.steps.map((step, index) => ({ ...step, label: `${label} step ${index}` }))
+    : [{ ...fixture, label }];
+  assert.doesNotMatch(JSON.stringify(fixture), /envoi_wake_challenge_(?!PLACEHOLDER)/, `${label}: challenges are placeholders`);
+  for (const [index, step] of steps.entries()) {
+    const stepLabel = step.label;
+    if (step.delivery) {
+      checkWakeDelivery(step, fixture, schemas, check, validator, stepLabel);
+      // §6.3: triggers during an attempt create exactly one follow-up notification.
+      if (step.context?.triggersDuringAttempt) {
+        const later = steps.slice(index + 1).filter((entry) => entry.delivery?.request);
+        assert.equal(later.length, 1, `${stepLabel}: exactly one follow-up notification`);
+        assert.equal(JSON.parse(later[0].delivery.request.bodyText).sequence, JSON.parse(step.delivery.request.bodyText).sequence + 1, `${stepLabel}: the follow-up is the next sequence`);
+      }
+      continue;
+    }
+    const { request, response, client } = step;
+    const body = response.body;
+    const code = body && typeof body === 'object' ? body.code : undefined;
+    const pathname = request.path.split('?')[0];
+    const context = step.context || fixture.context || {};
+    if (request.schema) check(validator(request.schema), request.body, `${stepLabel} request`);
+    if (request.invalidAgainst) {
+      const validate = validator(request.invalidAgainst);
+      assert.equal(validate(request.body), false, `${stepLabel}: the negative request must fail ${request.invalidAgainst}`);
+      assert.ok(validate.errors.some((error) => error.keyword === request.invalidBecause?.keyword && error.instancePath === request.invalidBecause?.instancePath), `${stepLabel}: fails for the named reason`);
+    }
+    if (fixture.steps) {
+      check(validator(response.schema), body, `${stepLabel} response`);
+      checkCodedError(response, client, schemas, stepLabel);
+    }
+    const wakeRoute = wakeHostRoute.test(pathname) || wakeOwnerRoute.test(pathname) || pathname === wakeKeysRoute;
+    // §1: the flag decides FEATURE_DISABLED on the wake routes, and nothing else returns it.
+    assert.equal(code === 'FEATURE_DISABLED', wakeRoute && !flags.ENVOI_HTTP_WAKE_V1, `${stepLabel}: FEATURE_DISABLED exactly on a wake route with the flag off`);
+    // §3: only the host's access token reaches the host routes; only a signed-in human the owner routes.
+    if (wakeHostRoute.test(pathname) && flags.ENVOI_HTTP_WAKE_V1 && request.auth !== 'agent_access') assert.equal(code, 'AUTHENTICATION_REQUIRED', `${stepLabel}: only an access token manages wake`);
+    if (wakeOwnerRoute.test(pathname)) assert.equal(request.auth, 'human_session', `${stepLabel}: owner routes take a human session`);
+    if (pathname === wakeKeysRoute) assert.equal(request.auth, 'none', `${stepLabel}: the key set is public`);
+    // §3: route-specific codes.
+    const create = request.method === 'POST' && pathname === '/api/agent/wake-subscriptions';
+    const activate = /\/activate$/.test(pathname);
+    if (code === 'WAKE_URL_REJECTED') assert.ok(create, `${stepLabel}: WAKE_URL_REJECTED only on create`);
+    if (['WAKE_CHALLENGE_INVALID', 'WAKE_SUBSCRIPTION_ENDED'].includes(code)) assert.ok(activate, `${stepLabel}: ${code} only on activate`);
+    // §3.1, §4: a create is accepted exactly when no rule fails, and a URL that fails a rule needing no lookup is never resolved.
+    if (create && request.schema === 'createRequest' && flags.ENVOI_HTTP_WAKE_V1 && request.auth === 'agent_access' && !['CREDENTIAL_REVOKED', 'RATE_LIMITED'].includes(code)) {
+      const syntax = wakeUrlRejection(request.body.url, undefined, schemas);
+      if (syntax) assert.equal(context.dns, undefined, `${stepLabel}: no DNS lookup for a URL that fails a syntax rule`);
+      const expected = syntax || wakeUrlRejection(request.body.url, context.dns, schemas);
+      assert.equal(code === 'WAKE_URL_REJECTED' ? body.reason : null, expected, `${stepLabel}: the first rule the URL breaks (x-url-checks)`);
+      if (!expected) assert.ok(context.dns, `${stepLabel}: an accepted URL was resolved`);
+    }
+    if (code === 'RATE_LIMITED' && body.reason) assert.equal(context.dns, undefined, `${stepLabel}: the create limit is checked before any lookup`);
+    if (!code && response.status < 300) {
+      const expected = pathname === wakeKeysRoute ? `public, max-age=${schemas['x-limits'].jwksMaxAgeSeconds}` : wakeRoute ? 'no-store' : undefined;
+      if (expected) assert.equal(response.headers?.['cache-control'], expected, `${stepLabel}: cache-control`);
+    }
+    if (code) assert.equal(response.headers?.['cache-control'], 'no-store', `${stepLabel}: errors are not cached`);
+    // §5.2: one active key; ids unique; retired keys carry notAfter.
+    if (response.schema === 'jwks') {
+      assert.equal(body.keys.filter((key) => key.status === 'active').length, 1, `${stepLabel}: exactly one active key`);
+      assert.equal(new Set(body.keys.map((key) => key.kid)).size, body.keys.length, `${stepLabel}: key ids are unique`);
+    }
+    if (response.schema === 'agentStatusHttpWake') assert.equal(body.httpWake.available, flags.ENVOI_HTTP_WAKE_V1, `${stepLabel}: httpWake.available is the flag`);
+    const subscriptions = response.schema === 'subscriptionResponse' ? [body.subscription] : ['hostSubscriptionList', 'ownerSubscriptionList'].includes(response.schema) ? body.subscriptions : [];
+    for (const [position, subscription] of subscriptions.entries()) checkWakeSubscription(subscription, schemas, `${stepLabel} subscription ${position}`);
+    if (response.schema === 'hostSubscriptionList') {
+      assert.ok(body.subscriptions.every((entry) => entry.installationId === body.installationId), `${stepLabel}: the host sees only its installation`);
+      checkWakeList(body.subscriptions, schemas['x-limits'].hostEndedListMax, stepLabel);
+    }
+    if (response.schema === 'ownerSubscriptionList') {
+      assert.ok(body.subscriptions.every((entry) => entry.agentId === body.agentId), `${stepLabel}: the owner sees this agent's subscriptions`);
+      checkWakeList(body.subscriptions, schemas['x-limits'].ownerEndedListMax, stepLabel);
+    }
+    if (response.schema === 'subscriptionResponse') {
+      const { subscription } = body;
+      if (create) {
+        assert.deepEqual([subscription.status, subscription.url, subscription.activatedAt, subscription.delivery.state], ['pending', request.body.url, null, 'unverified'], `${stepLabel}: a create returns a pending, unverified subscription for the requested url`);
+      } else {
+        assert.equal(pathname.split('/').at(-2), subscription.id, `${stepLabel}: the response is the subscription in the path`);
+        const expected = activate ? ['active', null] : pathname.endsWith('/revoke') ? ['ended', 'revoked_by_owner'] : ['ended', 'ended_by_host'];
+        assert.deepEqual([subscription.status, subscription.endedReason], expected, `${stepLabel}: status after ${pathname.split('/').at(-1)}`);
+      }
+    }
+  }
+  // §6.2: a notification's attempts rise by one, carry the identical body, and respect the scheduled delay.
+  const byId = new Map();
+  for (const step of steps.filter((entry) => entry.delivery?.origin === 'server' && entry.delivery.request)) {
+    const id = step.delivery.request.headers['envoi-wake-id'];
+    const previous = byId.get(id);
+    if (previous) {
+      assert.equal(step.delivery.attempt, previous.delivery.attempt + 1, `${step.label}: the next attempt`);
+      assert.equal(step.delivery.request.bodyText, previous.delivery.request.bodyText, `${step.label}: a retry carries the identical body`);
+      assert.notEqual(step.delivery.request.headers['envoi-wake-signature'], previous.delivery.request.headers['envoi-wake-signature'], `${step.label}: each attempt is signed again`);
+      const waited = Number(step.delivery.request.headers['envoi-wake-timestamp']) - Number(previous.delivery.request.headers['envoi-wake-timestamp']);
+      assert.ok(waited >= previous.delivery.nextAttemptInSeconds, `${step.label}: sent no earlier than scheduled`);
+    }
+    byId.set(id, step);
+  }
+  // §4.4: a redirect target is never requested.
+  for (const step of steps.filter((entry) => entry.delivery?.response?.headers?.location)) {
+    assert.ok(!steps.some((entry) => entry.delivery?.request?.url === step.delivery.response.headers.location), `${step.label}: the Location is never followed`);
+  }
+}
+
 // case-session §5: the x-case-tools rows a permission set allows for one work kind, in table order.
 const readPermissions = ['send_agent_messages', 'receive_agent_messages'];
 const caseSessionTools = (schemas, permissions, workKind) => schemas['x-case-tools']
@@ -655,6 +976,7 @@ test('every fixture matches its declared schema', async () => {
       }
       if (['ownerAgentList', 'ownerAgent'].includes(fixture.response?.schema)) checkOwnerConnection(fixture, schemas, label);
       if (fixture.response?.schema === 'agentStatusWithPresence') checkPresence(fixture.response.body.presence, fixture.response.body.asOf, label);
+      if (contract.id === 'http-wake') checkHttpWake(fixture, schemas, check, validator, label);
       if (contract.id === 'agent-registration') checkAgentRegistration(fixture, schemas, check, validator, label);
       if (contract.id === 'case-session') checkCaseSession(fixture, schemas, check, validator, label);
       assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_|envoi_case_session_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
@@ -703,6 +1025,140 @@ test('agent-registration fixtures agree across cases', async () => {
   assert.ok(limits.deleteRecordsByHours > limits.deleteRecordsAfterHours, 'records are deleted after they are kept');
   const create = limits.registrationCreate;
   assert.ok(create.perSourcePerHour <= create.perNetworkPerHour && create.perNetworkPerHour <= create.perWideNetworkPerHour, 'creation limits widen with the network');
+});
+
+// http-wake §3, §5, §6 and §11: fixtures that describe one flow agree with each other, every server attempt is
+// signed by an active published key, and the handoff's fixture table lists exactly the registered fixtures.
+test('http-wake fixtures agree across cases', async () => {
+  const dir = path.join(root, 'http-wake');
+  const load = (name) => readJson(path.join(dir, `${name}.json`));
+  const schemas = await load('schemas');
+  const index = await readJson(path.join(root, 'index.json'));
+  const names = index.contracts.find((contract) => contract.id === 'http-wake').fixtures.map((name) => name.replace(/\.json$/, ''));
+  const all = new Map(await Promise.all(names.map(async (name) => [name, await load(name)])));
+  const deliveries = [...all.values()].flatMap((fixture) => (fixture.steps || [fixture]).filter((step) => step.delivery).map((step) => ({ fixture, ...step })));
+
+  // The claim and mint schemas are case-session v1's, verbatim.
+  const caseSession = await readJson(path.join(root, 'case-session', 'schemas.json'));
+  for (const name of ['claimRequest', 'claimClaimed', 'claimIdle', 'mintRequest', 'sessionCreated', 'session', 'sessionToken', 'workKind', 'caseToolName']) {
+    assert.deepEqual(schemas.definitions[name], caseSession.definitions[name], `${name} is case-session's`);
+  }
+
+  // §5.2, §5.4: rotation promotes the next key and retires the old one; receivers only ever hold one of the two sets.
+  const published = all.get('keys-published').response.body;
+  const rotated = all.get('keys-rotated').response.body;
+  const status = (set, kid) => set.keys.find((key) => key.kid === kid)?.status;
+  const [oldActive] = published.keys.filter((key) => key.status === 'active');
+  const [next] = published.keys.filter((key) => key.status === 'next');
+  assert.equal(status(rotated, next.kid), 'active', 'the next key becomes active');
+  assert.equal(status(rotated, oldActive.kid), 'retired', 'the old active key is retired');
+  const retired = rotated.keys.find((key) => key.kid === oldActive.kid);
+  assert.ok(Date.parse(retired.notAfter) - Date.parse('2026-10-17T12:00:00.000Z') >= schemas['x-limits'].keyRetireGraceSeconds * 1000, 'a retired key stays published for keyRetireGraceSeconds');
+  for (const key of rotated.keys) {
+    const before = published.keys.find((entry) => entry.kid === key.kid);
+    if (before) assert.equal(before.x, key.x, `${key.kid} keeps its public key`);
+  }
+  for (const { fixture, receiver } of deliveries.filter((entry) => entry.receiver)) {
+    assert.ok([published, rotated].some((set) => JSON.stringify(set) === JSON.stringify(receiver.jwks)), `${fixture.id}: the receiver holds a published key set`);
+  }
+  const unknown = all.get('wake-unknown-key').delivery.request.headers['envoi-wake-key-id'];
+  assert.ok(![published, rotated].some((set) => status(set, unknown)), 'the forged key is never published');
+
+  // §5.1: Envoi signs every attempt with a key that is active in a published set, and every such signature verifies.
+  for (const { fixture, delivery } of deliveries.filter((entry) => entry.delivery.origin === 'server' && entry.delivery.request)) {
+    const kid = delivery.request.headers['envoi-wake-key-id'];
+    const key = [published, rotated].map((set) => set.keys.find((entry) => entry.kid === kid && entry.status === 'active')).find(Boolean);
+    assert.ok(key, `${fixture.id}: signed with an active key`);
+    assert.ok(wakeSignatureValid(delivery.request, delivery.request.url, key), `${fixture.id}: the signature verifies`);
+  }
+
+  // §7.2: a replay is the identical request; the forged and altered ones differ from the original only as described.
+  const signed = all.get('wake-delivered-signed').delivery.request;
+  assert.deepEqual(all.get('wake-replayed').delivery.request, signed, 'the replay is byte-identical');
+  assert.deepEqual({ ...all.get('wake-replayed-to-other-receiver').delivery.request, url: signed.url }, signed, 'the cross-receiver replay changes only the target');
+  const altered = all.get('wake-invalid-signature').delivery.request;
+  assert.deepEqual(altered.headers, signed.headers, 'the altered request keeps the original headers');
+  assert.notEqual(altered.bodyText, signed.bodyText, 'and changes the body');
+
+  // §3.2, §3.3: the challenge sent to the URL is the one the host activates with, for the subscription it created.
+  const created = all.get('subscription-created').response.body.subscription;
+  const challenge = JSON.parse(all.get('challenge-delivered').delivery.request.bodyText);
+  const activation = all.get('subscription-activated');
+  assert.equal(challenge.subscriptionId, created.id, 'the challenge names the created subscription');
+  assert.equal(challenge.expiresAt, created.challengeExpiresAt, 'the challenge expires with the subscription\'s window');
+  assert.equal(activation.request.body.challenge, challenge.challenge, 'the host activates with the delivered challenge');
+  assert.equal(activation.response.body.subscription.id, created.id, 'the activated subscription is the created one');
+  assert.equal(activation.response.body.subscription.url, created.url, 'with the same url');
+  const replayed = all.get('subscription-activate-replayed');
+  assert.deepEqual([replayed.request, replayed.response], [activation.request, activation.response], 'an identical activation repeats the original');
+  const [ended, endedAgain] = [all.get('subscription-ended-by-host'), all.get('subscription-end-replayed')];
+  assert.deepEqual([endedAgain.request, endedAgain.response], [ended.request, ended.response], 'ending twice repeats the first ending');
+  assert.notEqual(all.get('subscription-activate-wrong-challenge').request.body.challenge, challenge.challenge, 'the wrong challenge differs');
+
+  // §3.4: the replacement takes over from the active subscription.
+  const replacement = all.get('subscription-replacement-flow').steps;
+  const replacementCreated = replacement[0].response.body.subscription;
+  assert.equal(replacementCreated.replacesSubscriptionId, activation.response.body.subscription.id, 'the replacement names the active subscription');
+  assert.equal(JSON.parse(replacement[1].delivery.request.bodyText).challenge, replacement[2].request.body.challenge, 'it activates with its own challenge');
+  const listed = replacement[3].response.body.subscriptions;
+  assert.equal(listed.find((entry) => entry.id === replacementCreated.replacesSubscriptionId).endedAt, replacement[2].response.body.subscription.activatedAt, 'the old subscription ends in the activation\'s transaction');
+
+  // §3.1: the lost create leaves only the retried subscription able to activate.
+  const lost = all.get('subscription-create-lost-response-retry').steps;
+  assert.equal(lost[0].delivered, false, 'the first create response was lost');
+  assert.deepEqual(lost[1].request, lost[0].request, 'the retry is the identical request');
+  assert.equal(lost[2].response.body.subscriptions.find((entry) => entry.id === lost[0].response.body.subscription.id).endedReason, 'superseded', 'the lost one is superseded');
+
+  // §7.4: the receiver claims with its own credentials, correlates by wake id, and mints for the claimed lease.
+  const [wake, claim, mint] = all.get('wake-then-claim-and-mint').steps;
+  const wakeId = wake.delivery.request.headers['envoi-wake-id'];
+  assert.equal(claim.request.path, '/api/agent/work/claim', 'the receiver claims at the fixed claim route');
+  assert.equal(claim.request.headers['x-request-id'], wakeId, 'the claim carries the wake id for correlation');
+  assert.equal(claim.request.headers.authorization, activation.request.headers.authorization, 'with the host access token that manages the subscription');
+  assert.equal(mint.request.body.leaseToken, claim.response.body.work.leaseToken, 'the session is minted for the claimed lease');
+  assert.equal(mint.request.path, `/api/agent/work/${claim.response.body.work.workId}/session`, 'for the claimed work, which the wake never named');
+  assert.ok(!wake.delivery.request.bodyText.includes(claim.response.body.work.workId), 'the wake did not name the work');
+
+  // §6.5, §7.2: restarts on either side lose nothing and duplicate nothing canonical.
+  const serverRestart = all.get('wake-server-restart-recovery').steps;
+  assert.equal(serverRestart[0].delivery.failureClass, 'interrupted', 'the server stopped mid-attempt');
+  assert.equal(serverRestart[1].receiver.verdict, 'duplicate', 'the receiver recognizes the retried id');
+  const receiverRestart = all.get('wake-receiver-restart-recovery').steps;
+  assert.deepEqual(receiverRestart[1].receiver.seenIds, [], 'the restarted receiver forgot its ids');
+  assert.equal(receiverRestart[2].response.body.state, 'idle', 'the extra claim is idle');
+  const exhausted = all.get('wake-retries-exhausted').steps;
+  assert.equal(exhausted.filter((step) => step.delivery).length, schemas['x-limits'].maxAttempts, 'exactly maxAttempts attempts');
+  assert.equal(exhausted.find((step) => step.response?.schema === 'claimClaimed').response.body.work.workId, claim.response.body.work.workId, 'the safety poll claims the work the wakes announced');
+
+  // Tables agree with the schema enums, and every rule has a fixture.
+  assert.deepEqual(schemas['x-url-checks'], schemas.definitions.urlRejectedReason.enum, 'x-url-checks is the reason enum, in order');
+  assert.deepEqual(Object.keys(schemas['x-failure-classes']), schemas.definitions.failureClass.enum, 'x-failure-classes is the class enum');
+  assert.deepEqual(Object.keys(schemas['x-ended-reasons']), schemas.definitions.endedReason.enum, 'x-ended-reasons is the reason enum');
+  const endedRow = schemas['x-codes'].WAKE_SUBSCRIPTION_ENDED.bySurface.host;
+  for (const [reason, row] of Object.entries(schemas['x-ended-reasons'])) {
+    assert.deepEqual([endedRow.retryByReason[reason], endedRow.guidanceByReason[reason]], [row.hostRetry, row.hostGuidance], `WAKE_SUBSCRIPTION_ENDED ${reason} follows x-ended-reasons`);
+  }
+  const text = JSON.stringify([...all.values()]);
+  const urlReasons = [...all.values()].map((fixture) => fixture.response?.body?.code === 'WAKE_URL_REJECTED' && fixture.response.body.reason).filter(Boolean);
+  for (const reason of schemas['x-url-checks']) assert.ok(urlReasons.includes(reason), `a fixture covers WAKE_URL_REJECTED ${reason}`);
+  for (const reason of Object.keys(schemas['x-failure-classes'])) assert.ok(deliveries.some((entry) => entry.delivery.failureClass === reason), `a fixture covers failure class ${reason}`);
+  for (const row of schemas['x-receiver-checks']) assert.ok(deliveries.some((entry) => entry.receiver && (entry.receiver.reason || entry.receiver.verdict) === row.check), `a fixture covers receiver check ${row.check}`);
+  for (const reason of schemas.definitions.delivery.properties.notSentReason.enum) assert.ok(deliveries.some((entry) => entry.delivery.notSentReason === reason), `a fixture covers not-sent reason ${reason}`);
+  for (const reason of schemas['x-ended-reasons'] ? Object.keys(schemas['x-ended-reasons']) : []) assert.ok(text.includes(`"${reason}"`), `a fixture covers ended reason ${reason}`);
+  for (const [type, { reasons }] of Object.entries(schemas['x-wake-reasons'])) {
+    const sent = deliveries.filter((entry) => entry.delivery.request).map((entry) => { try { return JSON.parse(entry.delivery.request.bodyText); } catch { return {}; } }).filter((body) => body.type === type);
+    assert.ok(sent.length, `a fixture sends ${type}`);
+    for (const reason of Object.keys(reasons)) assert.ok(sent.some((body) => body.reason === reason), `a fixture sends ${type} ${reason}`);
+  }
+
+  const handoff = await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8');
+  const sectionStart = handoff.indexOf('\n## http-wake v1');
+  assert.ok(sectionStart >= 0, 'handoffs.md has the http-wake v1 section');
+  const sectionEnd = handoff.indexOf('\n## ', sectionStart + 1);
+  const section = handoff.slice(sectionStart, sectionEnd === -1 ? undefined : sectionEnd);
+  const table = section.slice(section.indexOf('| Group | Fixtures |'), section.indexOf('### 13.'));
+  const inTable = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => match[1]).sort();
+  assert.deepEqual(inTable, [...names].sort(), 'the handoff lists exactly the registered fixtures');
 });
 
 // case-session §11 and §14: replays repeat the original, retries and reclaims keep one live session, and the

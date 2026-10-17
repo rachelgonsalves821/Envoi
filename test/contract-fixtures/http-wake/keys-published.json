@@ -1,0 +1,49 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "keys-published",
+  "kind": "http",
+  "description": "The public key set (§5.2). One active signing key and one next key, published at least keyPublishLeadSeconds before it signs.",
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/envoi-wake-keys.json",
+    "auth": "none",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "jwks",
+    "headers": {
+      "cache-control": "public, max-age=300"
+    },
+    "body": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "receiver",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Cache the set for at most max-age. Verify every notification against it."
+  }
+}

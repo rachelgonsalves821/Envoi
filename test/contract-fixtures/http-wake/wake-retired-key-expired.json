@@ -1,0 +1,57 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-retired-key-expired",
+  "kind": "delivery",
+  "description": "A request signed by the retired key, presented after that key's notAfter (§5.4).",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_0003",
+        "envoi-wake-timestamp": "1792238340",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=xMXubMJ8G7jkQcWRKKEl6fmfNLUwH4awHAGGNjTDbkyaIzNuxEkjSNAEfegNN1eD-9gC3ExR8zp7jkTGvPL6DA"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0003\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:59:00.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-19T12:00:10.000Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionId": "wake_sub_example",
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "retired",
+          "notAfter": "2026-10-19T12:00:00.000Z"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "reject",
+    "reason": "key_expired",
+    "respondStatus": 401,
+    "action": "none",
+    "next": "Reject."
+  }
+}
