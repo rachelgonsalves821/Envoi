@@ -10,12 +10,18 @@ import { fileURLToPath } from 'node:url';
 export const EVIDENCE_FIELDS = Object.freeze({
   events: ['sequence', 'id', 'type', 'createdAt', 'agentId', 'workId', 'messageId', 'caseId', 'fence', 'attempts',
     'credentialFamilyId', 'credentialFamilyCount', 'retryable', 'reasonCode', 'retryAt', 'refreshExpiresAt',
-    'reason', 'runtime', 'phase'],
+    'reason', 'runtime', 'phase',
+    // Gate B-local (agent-registration v1): ids and enumerated values only.
+    'installationId', 'registrationId', 'target', 'connectionRoute', 'deliveryMode', 'replacedFamilyCount'],
   agents: ['id', 'address', 'status', 'paused', 'credentialRevoked', 'connection.state', 'connection.asOf', 'connection.seenAt',
     'connection.credentialExpiresAt', 'connection.presence.lastSeenAt', 'connection.presence.lastSuccessfulRefreshAt',
     'connection.presence.lastWorkClaimAt', 'connection.presence.lastProcessedAt'],
   receipts: ['createdAt', 'id', 'type', 'state', 'messageId', 'senderAgentId', 'recipientAgentId', 'attempt'],
-  deliveries: ['id', 'messageId', 'status', 'attempts', 'maxAttempts', 'availableAt', 'deliveredAt', 'deadLetteredAt']
+  deliveries: ['id', 'messageId', 'status', 'attempts', 'maxAttempts', 'availableAt', 'deliveredAt', 'deadLetteredAt'],
+  // GET /api/inboxes/{agentInboxId}/agents/{agentId}/installations
+  installations: ['id', 'status', 'endedReason', 'legacy', 'connectionRoute', 'deliveryMode', 'runtime.type', 'runtime.version', 'activatedAt', 'endedAt'],
+  // GET /api/agent-claims
+  claims: ['registrationId', 'status', 'target', 'agent.address', 'approvedAt', 'activationExpiresAt', 'installationId', 'approvedByMe']
 });
 
 const read = (item, field) => field.split('.').reduce((value, key) => (value == null ? undefined : value[key]), item);
@@ -43,12 +49,14 @@ function publishable(value, field) {
 export function extractEvidence(kind, payload, { since } = {}) {
   const fields = EVIDENCE_FIELDS[kind];
   if (!fields) throw new Error(`Usage: node scripts/ga-evidence.mjs ${Object.keys(EVIDENCE_FIELDS).join('|')} <saved-view.json> [--since <ISO time>]`);
-  const items = kind === 'events' ? payload?.events : payload;
+  // Paged views keep their list under one key; the others are bare lists.
+  const listKey = { events: 'events', installations: 'installations', claims: 'claims' }[kind];
+  const items = listKey ? payload?.[listKey] : payload;
   if (!Array.isArray(items)) throw new Error(`The saved ${kind} view is not the expected list`);
   const sinceMs = since === undefined ? null : Date.parse(since);
   if (since !== undefined && Number.isNaN(sinceMs)) throw new Error('--since must be an ISO time');
   // Deliveries have no stable creation time (availableAt moves on retry), so they are not filtered.
-  const timeField = { events: 'createdAt', agents: null, receipts: 'createdAt', deliveries: null }[kind];
+  const timeField = { events: 'createdAt', agents: null, receipts: 'createdAt', deliveries: null, installations: null, claims: null }[kind];
   if (since !== undefined && !timeField) throw new Error(`--since does not apply to ${kind}`);
   const rows = items
     .filter(item => sinceMs === null || !timeField || Date.parse(read(item, timeField)) >= sinceMs)

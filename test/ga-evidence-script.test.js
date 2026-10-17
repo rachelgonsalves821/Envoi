@@ -50,3 +50,24 @@ test('--since keeps only items at or after that time', () => {
   assert.throws(() => extractEvidence('deliveries', [], { since: '2026-10-13T10:00:00.000Z' }), /does not apply/);
   assert.equal(extractEvidence('events', page, { since: '2026-10-14T00:00:00.000Z' }), 'No events matched.');
 });
+
+// Gate B-local: the installation list and owner claim list publish ids, states and times only.
+test('installations and claims keep the allow-listed projection; registration events keep their ids', () => {
+  const installations = extractEvidence('installations', { agentId: 'agent_1', installations: [
+    { id: 'installation_1', agentId: 'agent_1', status: 'ended', endedReason: 'activation_replay', legacy: false, connectionRoute: 'local_helper', deliveryMode: 'envoi_link', runtime: { type: 'hermes', version: '0.9.0' }, createdAt: '2026-10-17T10:00:00.000Z', activatedAt: '2026-10-17T10:00:00.000Z', endedAt: '2026-10-17T10:05:00.000Z' }
+  ] });
+  assert.equal(installations.split('\n')[0], '| id | status | endedReason | legacy | connectionRoute | deliveryMode | runtime.type | runtime.version | activatedAt | endedAt |');
+  assert.match(installations, /installation_1 \| ended \| activation_replay \| false/);
+  const claims = extractEvidence('claims', { claims: [
+    { registrationId: 'registration_1', status: 'activated', target: 'new_agent', agent: { name: 'Private name', address: 'gate@envoi.mail' }, effectivePermissions: ['send_agent_messages'], approvedAt: '2026-10-17T10:01:00.000Z', activationExpiresAt: '2026-10-17T10:11:00.000Z', installationId: 'installation_1', approvedByMe: true }
+  ] });
+  assert.match(claims, /registration_1 \| activated \| new_agent \| gate@envoi\.mail/);
+  assert.doesNotMatch(claims, /Private name|send_agent_messages/, 'names and permissions are not listed');
+  const events = extractEvidence('events', { events: [
+    { id: 'evt_9', sequence: 9, type: 'agent.installation_activated', createdAt: '2026-10-17T10:02:00.000Z', agentId: 'agent_1', installationId: 'installation_1', registrationId: 'registration_1', target: 'new_agent', connectionRoute: 'local_helper', deliveryMode: 'envoi_link', permissions: ['send_agent_messages'], humanId: 'human_1' }
+  ] });
+  assert.match(events, /installationId/);
+  assert.match(events, /registration_1/);
+  assert.doesNotMatch(events, /human_1/, 'the approving human id is not published');
+  assert.throws(() => extractEvidence('claims', { claims: [{ registrationId: 'envoi_reg_leak', status: 'approved' }] }), /credential/);
+});
