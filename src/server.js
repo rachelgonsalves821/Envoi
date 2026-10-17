@@ -518,7 +518,7 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated =
   }
   const { inboxId, agentId, familyId } = result.replayed;
   await audit(inboxId, 'agent.refresh_replay_detected', { agentId, credentialFamilyId: familyId });
-  closeAgentStreams(inboxId, agentId, { code: 'CREDENTIAL_REVOKED', reason: 'refresh_replay' });
+  closeAgentStreams(inboxId, agentId, { code: 'CREDENTIAL_REVOKED', reason: 'refresh_replay' }, familyId);
   throw credentialError('REFRESH_REPLAY');
 }
 
@@ -2458,7 +2458,10 @@ async function route(req, res) {
     const status = { state: agent.status === 'paused' ? 'paused' : 'active', agent: { id: agent.id, address: agent.address, status: agent.status }, inboxId: identity.inboxId, ...agentStatusPresence(record, store.now()) };
     // agent-registration v1 §6.4: additive, exactly when installations are on.
     if (onboardingFlags.installations) {
-      const installation = await installations.forFamily(identity.inboxId, agent, identity.familyId);
+      const installation = await installations.forFamily(identity.inboxId, agent, identity.familyId).catch(() => {
+        console.error(JSON.stringify({ event: 'envoi.agent_installation_read_failed' }));
+        return null;
+      });
       if (installation) status.installation = installationSummary(installation);
     }
     return json(res, 200, status);
@@ -3110,6 +3113,10 @@ async function route(req, res) {
     const resume = await resumeEventCursor(inboxId, String(req.headers['last-event-id'] || url.searchParams.get('cursor') || ''));
     const cursor = resume.cursor;
     const startCursor = !cursor && url.searchParams.get('from') === 'latest' ? resume.newest || '' : cursor;
+    // The installation this stream belongs to, so ending one installation closes only its
+    // streams. Read before the connection is counted: nothing may await between the count and
+    // the close listener.
+    const streamFamilyId = agent && !human ? (await store.getJson(agentCredentialPath(hashSecret(bearerToken(req)))))?.familyId || null : null;
     const connectionKey = rateIdentity(req);
     if (Number(sseCounts.get(connectionKey) || 0) >= maxSsePerPrincipal) {
       res.setHeader('retry-after', '30');
@@ -3122,8 +3129,7 @@ async function route(req, res) {
     flushAgentPresence(req, res);
     const subscription = { res, cursor: startCursor, sentIds: new Set(), heartbeat: null, expiryTimer: null, sessionKey, agentId: agent?.id || null, humanId: human?.id || null, replaying: true, buffer: new Map(), overflow: false };
     if (agent && !human) {
-      // The installation this stream belongs to, so ending one installation closes only its streams.
-      subscription.familyId = (await store.getJson(agentCredentialPath(hashSecret(bearerToken(req)))))?.familyId || null;
+      subscription.familyId = streamFamilyId;
       // Re-check the credential on every heartbeat: pause keeps the stream, revocation or expiry ends it.
       const credentialRequest = { headers: { authorization: req.headers.authorization }, method: 'GET' };
       subscription.credentialEnded = async () => {
