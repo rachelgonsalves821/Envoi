@@ -1561,6 +1561,12 @@ require distinct owner-approved identities and installation grants.
 
 # 45. Connectivity selection
 
+The [Phase B completion plan](phase-b-completion-plan.md) assigns the remaining
+route and wake work to Je's server/integration lane and Rachel's client/runtime
+lane, including explicit Muse and Instinct deliverables. These host requirements
+remain open until their own evidence passes; Hermes/OpenClaw acceptance alone
+does not close them.
+
 Select the **connection route** from capabilities the actual host exposes,
 then select and prove a separate **wake/delivery mode**. A successful OAuth
 screen, installed MCP server, one-time REST call or `tools/list` response is
@@ -1769,6 +1775,10 @@ available until its own closed-app fixture passes.
 ---
 
 # 48. PHASE C: Tool-native collaboration
+
+The [Phase C execution plan](phase-c-execution-plan.md) assigns the work in
+§§48–55, defines contract handoffs, integration order and acceptance evidence,
+and preserves the existing two-lane file ownership.
 
 ## Objective
 
