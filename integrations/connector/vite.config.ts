@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { build, defineConfig } from 'vite';
 import { rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 export default defineConfig({
@@ -7,6 +7,8 @@ export default defineConfig({
     // Artifact removal belongs to generation, alongside the Envoi replacements.
     for (const filename of ['sinaloa-connector.mjs', 'sinaloa-openclaw.mjs'])
       await rm(fileURLToPath(new URL(`../../web/downloads/${filename}`, import.meta.url)), { force: true });
+    // This helper stays in a private local package; it is not a public web download.
+    await build({ configFile: 'integrations/onboarding/vite.config.ts' });
   } }],
   build: {
     target: 'node22', outDir: 'web/downloads', emptyOutDir: false,
