@@ -2,10 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { assertNode, canonicalDirectory, optionsFrom, regularFile, verifiedArtifacts } from './artifacts.mjs';
+import { checkPrivateDirectoryBundle } from './build-private-directory.mjs';
 
 export async function preparePackage(source, output, expectedManifestSha256) {
   assertNode();
   const verified = await verifiedArtifacts(source, expectedManifestSha256);
+  await checkPrivateDirectoryBundle();
   const destination = path.resolve(output);
   await canonicalDirectory(path.dirname(destination));
   if (destination === verified.root || destination.startsWith(verified.root + path.sep)) throw new Error('Prepare outside the source directory.');
@@ -13,7 +15,7 @@ export async function preparePackage(source, output, expectedManifestSha256) {
   for (const [name, bytes] of verified.artifacts) await writeFile(path.join(destination, name), bytes, { flag: 'wx', mode: 0o600 });
   await writeFile(path.join(destination, 'private-release.json'), verified.bytes, { flag: 'wx', mode: 0o600 });
   const scripts = path.dirname(fileURLToPath(import.meta.url));
-  for (const name of ['artifacts.mjs', 'install.mjs', 'install.sh', 'install.ps1']) {
+  for (const name of ['artifacts.mjs', 'install.mjs', 'private-directory.mjs', 'install.sh', 'install.ps1']) {
     await writeFile(path.join(destination, name), await regularFile(scripts, name), { flag: 'wx', mode: name === 'install.sh' ? 0o700 : 0o600 });
   }
   return { state: 'private_package_prepared', published: false, manifestSha256: expectedManifestSha256, artifactCount: verified.artifacts.size };

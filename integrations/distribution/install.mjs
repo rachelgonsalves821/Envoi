@@ -2,6 +2,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertNode, canonicalDirectory, optionsFrom, verifiedArtifacts } from './artifacts.mjs';
+import { privateDirectory } from './private-directory.mjs';
 
 export async function installPrivatePackage(source, destination, expectedManifestSha256) {
   assertNode();
@@ -11,8 +12,10 @@ export async function installPrivatePackage(source, destination, expectedManifes
   if (target === verified.root || target.startsWith(verified.root + path.sep)) throw new Error('Install outside the package source directory.');
   if (/[\x00-\x1f]/.test(target) || parent === target) throw new Error('Choose a new installation directory.');
   await mkdir(target, { mode: 0o700 });
+  await privateDirectory(target);
   for (const [name, bytes] of verified.artifacts) await writeFile(path.join(target, name), bytes, { flag: 'wx', mode: 0o600 });
   await writeFile(path.join(target, 'private-release.json'), verified.bytes, { flag: 'wx', mode: 0o600 });
+  await verifiedArtifacts(target, expectedManifestSha256);
   const record = { version: 1, private: true, manifestSha256: expectedManifestSha256, nodeMinimum: 22, installedAt: new Date().toISOString(), serviceInstalled: false };
   await writeFile(path.join(target, 'installation.pending.json'), JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 });
   await rename(path.join(target, 'installation.pending.json'), path.join(target, 'installation.json'));

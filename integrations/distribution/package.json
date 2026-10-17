@@ -5,6 +5,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
+    "build:private-directory": "node build-private-directory.mjs",
     "test": "cd ../.. && vitest run --config integrations/vitest.config.ts integrations/distribution",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
