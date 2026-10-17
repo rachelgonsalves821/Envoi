@@ -39,3 +39,25 @@ skip tool verification and ready reports. The return value is private caller met
 not helper stdout. The caller projects only approved safe fields, then can run
 `startConnection` in the foreground using the same directory. Setup does not prove
 closed-app wake, and real host validation remains a separate human checkpoint.
+
+`operationalConnectionStatus(privateContext, options)` returns the actual authenticated
+status response to the private helper caller. Pass `{ origin, runtime, stateDirectory,
+completionId }` from its saved context. The response must match the saved agent, inbox
+and installation, including route and delivery mode. Keep the model-safe projection
+in the helper layer.
+
+When the local control listener is active, status reads the saved access token without
+writing or refreshing; if Envoi returns `ACCESS_TOKEN_EXPIRED`, it reloads once and
+retries only when the foreground owner already saved a successor. Without a live
+listener it obtains the connector lock and uses the existing connector refresh and
+lifecycle logic. A concurrent owner prevents lock acquisition. Saved revoked or
+reconnect-required state stops before either local control or Envoi HTTP requests.
+All status requests reject redirects and use a ten-second timeout.
+
+Explicit replacement after a definitive ended state carries private `_onboarding`
+fields `previousCompletionId`, `previousInstallationId`, `previousAgentId`,
+`previousInboxId` and `previousAddress` from the prior saved session. Adoption reuses
+local configuration only when the prior completion and installation match that
+binding, the origin/runtime match, and the new activation has the same agent,
+inbox and address. Missing or changed bindings fail closed. Newly saved
+`connection.json.activationSetup` also records agent and inbox identifiers.

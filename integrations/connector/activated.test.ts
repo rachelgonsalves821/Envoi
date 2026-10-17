@@ -30,6 +30,7 @@ async function fixture(runtime: 'hermes' | 'openclaw' = 'hermes', paused = false
   let failConfigure = false, remoteRevoked = false;
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input); requests.push({ url, init });
+    if (url.endsWith('/health')) return Response.json({ service: 'envoi' });
     if (url.endsWith('/api/agent/status')) {
       if (remoteRevoked) return Response.json(fixtureBody('a3-pause-auth', 'credential-revoked-claim.json'), { status: 401 });
       return Response.json(status);
@@ -68,7 +69,7 @@ describe('approved activated credentials runtime handoff', () => {
       expect(f.requests.every(value => value.init?.redirect === 'error')).toBe(true);
       expect(f.configure).toHaveBeenCalledTimes(1); expect(f.verify).toHaveBeenCalledTimes(1); expect(f.close).toHaveBeenCalledTimes(1);
       expect((await f.store.load() as any)._onboarding).toMatchObject({ completionId: f.options.completionId, installation: { id: f.activation.installation.id } });
-      expect((await readConnection(f.directory)).activationSetup).toEqual({ completionId: f.options.completionId, installationId: f.activation.installation.id });
+      expect((await readConnection(f.directory)).activationSetup).toMatchObject({ completionId: f.options.completionId, installationId: f.activation.installation.id });
       expect(JSON.stringify(result)).not.toContain('PLACEHOLDER');
       expect(JSON.stringify(f.requests)).not.toContain('private-runtime-config');
       expect((await readdir(f.directory)).some(value => value.endsWith('.tmp') || value.endsWith('.lock'))).toBe(false);
@@ -119,6 +120,47 @@ describe('approved activated credentials runtime handoff', () => {
     await expect(f.adopt()).rejects.toMatchObject({ code: 'CREDENTIAL_REVOKED' });
     await expect(startConnection(f.directory, new AbortController().signal, f.resolver, f.options)).rejects.toMatchObject({ code: 'CREDENTIAL_REVOKED' });
     expect(f.requests).toHaveLength(0); expect(f.configure).toHaveBeenCalledTimes(configurationCalls);
+  });
+
+  it('replaces a definitively revoked installation only with an explicit bound same-identity activation, then starts it', async () => {
+    const f = await fixture(); await f.adopt(); f.revoke();
+    await expect(f.adopt()).rejects.toMatchObject({ code: 'CREDENTIAL_REVOKED' });
+    const prior = await f.store.load() as any;
+    const previousInstallationId = f.activation.installation.id;
+    f.activation.installation.id = 'installation_explicit_successor';
+    const successorCompletion = 'completion_explicit_successor';
+    // This mirrors the helper's one atomic post-confirmation activation commit.
+    const successor = { ...prior, lifecycle: undefined, agentApiToken: 'successor-access', agentRefreshToken: 'successor-refresh',
+      _onboarding: { ...prior._onboarding, completionId: successorCompletion, installation: f.activation.installation,
+        previousCompletionId: f.options.completionId, previousInstallationId, previousAgentId: prior.agentId,
+        previousInboxId: prior.inboxId, previousAddress: prior.address } };
+    await privateJson(path.join(f.directory, 'session.json'), { ...successor,
+      _onboarding: { ...successor._onboarding, previousCompletionId: 'unbound-old-completion' } });
+    await expect(adoptActivatedConnection('https://envoi.example', 'hermes', f.activation, f.resolver,
+      { ...f.options, completionId: successorCompletion })).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
+    await privateJson(path.join(f.directory, 'session.json'), { ...successor,
+      _onboarding: { ...successor._onboarding, previousAgentId: 'other-identity' } });
+    await expect(adoptActivatedConnection('https://envoi.example', 'hermes', f.activation, f.resolver,
+      { ...f.options, completionId: successorCompletion })).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
+    await privateJson(path.join(f.directory, 'session.json'), successor);
+    // The replacement is newly active; the previous server revocation does not apply.
+    const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith('/api/agent/status')) {
+        const status = fixtureBody('agent-registration', 'agent-status-installation.json');
+        status.installation.id = f.activation.installation.id; return Response.json(status);
+      }
+      return await f.options.fetch(input, init);
+    }) as typeof fetch;
+    await adoptActivatedConnection('https://envoi.example', 'hermes', f.activation, f.resolver,
+      { ...f.options, fetch: fetcher, completionId: successorCompletion });
+    expect((await readConnection(f.directory)).activationSetup).toMatchObject({ completionId: successorCompletion,
+      installationId: f.activation.installation.id, agentId: prior.agentId, inboxId: prior.inboxId });
+    expect((await f.store.load())?.agentRefreshToken).toBe('successor-refresh');
+    const run = vi.spyOn(EnvoiConnector.prototype, 'run').mockImplementation(async () => {});
+    try {
+      await startConnection(f.directory, new AbortController().signal, f.resolver, { ...f.options, fetch: fetcher, control: false });
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally { run.mockRestore(); }
   });
 
   it('refuses a different completion or installation without changing saved credentials', async () => {
