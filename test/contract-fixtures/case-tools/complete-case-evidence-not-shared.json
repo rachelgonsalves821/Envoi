@@ -1,12 +1,12 @@
 {
   "contract": "case-tools",
   "version": 1,
-  "id": "complete-case-already-completed",
+  "id": "complete-case-evidence-not-shared",
   "kind": "http",
-  "description": "The case already has a receipt.",
+  "description": "Evidence the counterparty cannot see (an asset never shared) is refused, so a completion never reveals it.",
   "context": {
-    "sessionRef": "DONE",
-    "caseRef": "case-done",
+    "sessionRef": "S",
+    "caseRef": "case-s",
     "workKind": "agent_message",
     "allowedTools": [
       "envoi_case_snapshot",
@@ -25,7 +25,7 @@
     "path": "/mcp",
     "auth": "case_session",
     "headers": {
-      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_done",
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_s",
       "content-type": "application/json",
       "accept": "application/json, text/event-stream",
       "mcp-protocol-version": "2025-11-25"
@@ -33,13 +33,16 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 77,
+      "id": 76,
       "method": "tools/call",
       "params": {
         "name": "envoi_case_complete",
         "arguments": {
-          "result": "Done.",
-          "idempotencyKey": "complete-again"
+          "result": "Delivery plan agreed and shared.",
+          "evidenceRefs": [
+            "a_j4dyxngtgs5cqq2g"
+          ],
+          "idempotencyKey": "complete-private"
         }
       }
     }
@@ -54,12 +57,12 @@
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 77,
+      "id": 76,
       "result": {
         "content": [
           {
             "type": "text",
-            "text": "{\"ok\":false,\"tool\":\"envoi_case_complete\",\"code\":\"CASE_COMPLETED\",\"message\":\"This case is already complete.\",\"retryable\":false}"
+            "text": "{\"ok\":false,\"tool\":\"envoi_case_complete\",\"code\":\"EVIDENCE_NOT_SHARED\",\"message\":\"Evidence must be a file the counterparty can see.\",\"retryable\":false}"
           }
         ],
         "isError": true
@@ -72,6 +75,6 @@
     "retry": "none",
     "guidance": "none",
     "turn": "continue",
-    "next": "Nothing to do; reply if needed."
+    "next": "Share the file first, or leave it out."
   }
 }

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "list-asset-content",
   "kind": "http",
-  "description": "Single mode with content: a clean, small text asset granted to this agent is returned inline as untrusted text.",
+  "description": "Single mode with content: a clean, small text asset granted to this agent is returned inline as untrusted text; its SHA-256 equals checksumSha256.",
   "context": {
     "sessionRef": "S",
     "caseRef": "case-s",
@@ -59,7 +59,7 @@
         "content": [
           {
             "type": "text",
-            "text": "{\"ok\":true,\"tool\":\"envoi_case_list_assets\",\"result\":{\"asset\":{\"ref\":\"a_57mmi7mknpv64mlp\",\"filename\":\"dock-rules.txt\",\"size\":100,\"checksumSha256\":\"3Fw3KCO/bnIQIU6YYiu0BtHpY7jHszv78tm0Z32LB28=\",\"shared\":false,\"mimeType\":\"text/plain\",\"scan\":\"clean\",\"origin\":\"other_agent\"},\"content\":{\"encoding\":\"utf-8\",\"text\":\"Dock 3 accepts deliveries 08:00-16:00. Trucks over 12 m use the north gate. Ring the bell at door B.\"},\"contentUnavailable\":null}}"
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_list_assets\",\"result\":{\"asset\":{\"ref\":\"a_57mmi7mknpv64mlp\",\"filename\":\"dock-rules.txt\",\"size\":100,\"checksumSha256\":\"ARaGd+PMV7Q512ndOkide5zBKp1bzuWA7sluDZy9DcA=\",\"shared\":false,\"mimeType\":\"text/plain\",\"scan\":\"clean\",\"origin\":\"other_agent\"},\"content\":{\"encoding\":\"utf-8\",\"text\":\"Dock 3 accepts deliveries 08:00-16:00. Trucks over 12 m use the north gate. Ring the bell at door B.\"},\"contentUnavailable\":null}}"
           }
         ],
         "isError": false

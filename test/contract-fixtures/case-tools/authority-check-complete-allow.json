@@ -3,7 +3,7 @@
   "version": 1,
   "id": "authority-check-complete-allow",
   "kind": "http",
-  "description": "No unapproved agreement in the case, so completing needs no human decision.",
+  "description": "No accepted agreement lacks this workspace's approval, so completing needs no person.",
   "context": {
     "sessionRef": "K",
     "caseRef": "case-k",

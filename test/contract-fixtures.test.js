@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -444,8 +445,10 @@ function checkInstallationDerivation(fixture, schemas, label) {
 
 // case-session §5: the x-case-tools rows a permission set allows for one work kind, in table order.
 const readPermissions = ['send_agent_messages', 'receive_agent_messages'];
+const permits = (permissions, needs) => (Array.isArray(needs) ? needs.every((need) => permits(permissions, need))
+  : needs === 'read' ? permissions.some((permission) => readPermissions.includes(permission)) : permissions.includes(needs));
 const caseSessionTools = (schemas, permissions, workKind) => schemas['x-case-tools']
-  .filter((tool) => tool.workKinds.includes(workKind) && (tool.needs === 'read' ? permissions.some((permission) => readPermissions.includes(permission)) : permissions.includes(tool.needs)))
+  .filter((tool) => tool.workKinds.includes(workKind) && permits(permissions, tool.needs))
   .map((tool) => tool.name);
 const sessionRoute = /^\/api\/agent\/work\/[^/]+\/session(?:\/end)?$/;
 
@@ -593,7 +596,8 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
     }
     if (response.body?.code) assert.equal(client.turn, codeEntry(schemas, response.body.code, client.surface).turn, `${stepLabel}: turn for ${response.body.code}`);
     assert.equal(response.body.id ?? request.body.id, request.body.id, `${stepLabel}: the JSON-RPC id is echoed`);
-    const effective = implemented.filter((name) => context.allowedTools.includes(name));
+    const serverRevision = context.serverRevision ?? 3;
+    const effective = schemas['x-tools'].filter((tool) => tool.inputSchema && tool.revision <= serverRevision && context.allowedTools.includes(tool.name)).map((tool) => tool.name);
     if (request.body.method === 'tools/list') {
       // §1: tools/list is the implemented effective set, with input schemas verbatim.
       const listed = response.body.result.tools;
@@ -658,15 +662,16 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
       // §1, §6.2, §12.1: allowedActions is the implemented effective set, narrowed by the state rules, in x-tools order.
       const decision = result.authority.lastPolicyDecision;
       const awaiting = result.proposal !== null && result.proposal.lastActor === 'other_agent';
-      const completable = !['completed', 'failed', 'expired'].includes(result.case.status) && !result.authority.pendingHumanDecision;
-      const stateAllows = (tool) => ({
+      const closed = ['completed', 'failed', 'expired'].includes(result.case.status);
+      const completable = !closed && !result.authority.pendingHumanDecision;
+      const stateAllows = (tool) => (closed ? ['envoi_case_snapshot', 'envoi_case_list_assets'].includes(tool) : ({
         envoi_case_propose: result.proposal === null,
         envoi_authority_check: awaiting || completable,
         envoi_case_decide: awaiting,
-        envoi_case_share_asset: result.assets.some((item) => item.origin === 'you' && item.scan === 'clean' && !item.shared),
+        envoi_case_share_asset: result.assetsHasMore || result.assets.some((item) => item.origin === 'you' && item.scan === 'clean' && !item.shared),
         envoi_case_complete: completable,
         envoi_request_human: decision?.decision === 'needsHuman' && decision.humanApproval === 'pending' && !result.authority.pendingHumanDecision
-      })[tool] ?? true;
+      })[tool] ?? true);
       assert.deepEqual(result.allowedActions, effective.filter(stateAllows), `${stepLabel}: allowedActions`);
       if (decision) assert.equal(decision.humanApproval === 'not_required', decision.decision !== 'needsHuman', `${stepLabel}: humanApproval follows the decision`);
       assert.ok(bytes(JSON.stringify({ ...result, recentEvents: [] })) <= limits.fixedSectionsMaxBytes, `${stepLabel}: fixed sections within fixedSectionsMaxBytes`);
@@ -677,6 +682,7 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
         // §6.2: only the work message's own item leaves its text to requestedResponse.
         if ([...messageKinds, 'instruction', 'instruction_reply'].includes(event.kind) && event.ref !== result.requestedResponse?.ref) assert.notEqual(event.text, null, `${stepLabel}: message ${event.ref} carries its text`);
         if (event.kind === 'human_action') assert.equal(event.actor, 'your_human', `${stepLabel}: only your workspace's human actions are projected`);
+        if (event.kind === 'receipt') assert.match(event.ref, /^r_/, `${stepLabel}: a receipt keeps its r_ reference in the timeline`);
         if (event.text) checkText(event.text, event.truncated, limits.eventTextMaxBytes, `${stepLabel}: event text`);
       }
       for (const option of result.proposal?.options || []) {
@@ -706,12 +712,15 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
     if (name === 'envoi_case_list_assets') {
       if (args.assetRef) {
         assert.equal(result.asset.ref, args.assetRef, `${stepLabel}: the requested asset`);
-        assert.equal(result.asset.scan, 'clean', `${stepLabel}: only a clean asset is returned in single mode with content`);
+        if (args.includeContent) assert.equal(result.asset.scan, 'clean', `${stepLabel}: content is only ever returned for a clean asset`);
         const inline = limits.inlineContentTypes.includes(result.asset.mimeType) && result.asset.size <= limits.inlineContentMaxBytes;
         if (args.includeContent) {
           assert.equal(result.content !== null, inline, `${stepLabel}: content exactly for a small text asset`);
           assert.equal(result.contentUnavailable, inline ? null : limits.inlineContentTypes.includes(result.asset.mimeType) ? 'too_large' : 'binary', `${stepLabel}: the reason content is unavailable`);
-          if (result.content) assert.equal(bytes(result.content.text), result.asset.size, `${stepLabel}: the inline text is the whole file`);
+          if (result.content) {
+            assert.equal(bytes(result.content.text), result.asset.size, `${stepLabel}: the inline text is the whole file`);
+            assert.equal(crypto.createHash('sha256').update(result.content.text).digest('base64'), result.asset.checksumSha256, `${stepLabel}: the inline text matches checksumSha256`);
+          }
         } else assert.deepEqual([result.content, result.contentUnavailable], [null, null], `${stepLabel}: no content unless asked`);
       } else {
         assert.ok(result.assets.length <= (args.limit ?? limits.listLimitDefault), `${stepLabel}: at most limit assets`);
@@ -722,12 +731,11 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
     if (name === 'envoi_case_share_asset') {
       assert.equal(result.assetRef, args.assetRef, `${stepLabel}: the shared asset`);
       assert.equal(result.recipient.kind, 'agent', `${stepLabel}: shared with the other agent`);
-      assert.ok(!(result.alreadyShared && result.replayed), `${stepLabel}: a replay is never also an already-shared grant`);
     }
     // §14.4: completion writes a receipt and completes the case, whatever the work's settlement.
     if (name === 'envoi_case_complete') {
       assert.deepEqual(result.evidenceRefs, args.evidenceRefs ?? [], `${stepLabel}: the evidence the completion cites`);
-      assert.equal(result.humanApproval === 'approved', context.workKind === 'human_decision' && Boolean(args.authorityRef), `${stepLabel}: approved exactly when completing under a person's decision`);
+      if (args.authorityRef) assert.equal(result.humanApproval, 'approved', `${stepLabel}: completing under an approved authority records the person's decision`);
     }
     if (name === 'envoi_case_decide') {
       assert.equal(result.decision, args.decision, `${stepLabel}: the decision made`);

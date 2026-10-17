@@ -63,7 +63,7 @@
         "content": [
           {
             "type": "text",
-            "text": "{\"ok\":false,\"tool\":\"envoi_case_decide\",\"code\":\"AUTHORITY_CHANGED\",\"message\":\"The proposal or policy changed since that authority. Check authority again.\",\"retryable\":false}"
+            "text": "{\"ok\":false,\"tool\":\"envoi_case_decide\",\"code\":\"AUTHORITY_CHANGED\",\"message\":\"That authority no longer matches. Check authority again.\",\"retryable\":false}"
           }
         ],
         "isError": true

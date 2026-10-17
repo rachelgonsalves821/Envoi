@@ -365,7 +365,10 @@
     },
     {
       "name": "envoi_case_complete",
-      "needs": "execute_cases",
+      "needs": [
+        "execute_cases",
+        "send_agent_messages"
+      ],
       "workKinds": [
         "agent_message",
         "human_decision"

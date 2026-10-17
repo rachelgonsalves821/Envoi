@@ -263,7 +263,7 @@
           },
           {
             "name": "envoi_authority_check",
-            "description": "Ask the server whether this agent may accept a specific live option now: allow, deny or needs a human. Reuse the idempotency key to retry.",
+            "description": "Ask the server whether this agent may accept a specific live option, or complete the case with a given result, now: allow, deny or needs a human. Reuse the idempotency key to retry.",
             "inputSchema": {
               "type": "object",
               "additionalProperties": false,

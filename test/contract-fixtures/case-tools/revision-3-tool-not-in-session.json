@@ -1,0 +1,75 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "revision-3-tool-not-in-session",
+  "kind": "http",
+  "description": "On a server that implements revisions 1 and 2 only, a revision 3 tool is absent from the session even when permissions allow it, and there is no legacy fallback.",
+  "context": {
+    "sessionRef": "K",
+    "caseRef": "case-k",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ],
+    "serverRevision": 2
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_k",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 84,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_complete",
+        "arguments": {
+          "result": "Next week's delivery confirmed for 28 Oct, 09:00-12:00.",
+          "idempotencyKey": "complete-staged"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "jsonRpcError",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 84,
+      "error": {
+        "code": -32602,
+        "message": "Tool not available in this case session",
+        "data": {
+          "code": "TOOL_NOT_IN_SESSION"
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Use only the tools in allowedActions."
+  }
+}

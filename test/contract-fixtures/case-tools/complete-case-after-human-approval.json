@@ -3,7 +3,7 @@
   "version": 1,
   "id": "complete-case-after-human-approval",
   "kind": "http",
-  "description": "A person approved completing with this exact result (human_decision work). The completion carries that verified decision as its authority basis.",
+  "description": "Completing under the approved complete_case authority: the server maps authorityRef to the approving action, which becomes the receipt's authority basis.",
   "context": {
     "sessionRef": "DC",
     "caseRef": "case-c",
@@ -33,16 +33,13 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 74,
+      "id": 77,
       "method": "tools/call",
       "params": {
         "name": "envoi_case_complete",
         "arguments": {
           "result": "Agreed: 26 Oct, 10:00-13:00 at 4.10 per unit.",
           "authorityRef": "g_fvzwoenlym6fy3kz",
-          "evidenceRefs": [
-            "a_osqo27jxsasde5ph"
-          ],
           "idempotencyKey": "complete-approved"
         }
       }
@@ -58,12 +55,12 @@
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 74,
+      "id": 77,
       "result": {
         "content": [
           {
             "type": "text",
-            "text": "{\"ok\":true,\"tool\":\"envoi_case_complete\",\"result\":{\"receiptRef\":\"r_kyibpscqcu2ofuur\",\"messageRef\":\"m_uobundt4akokcx43\",\"humanApproval\":\"approved\",\"caseStatus\":\"completed\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"evidenceRefs\":[\"a_osqo27jxsasde5ph\"],\"replayed\":false}}"
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_complete\",\"result\":{\"receiptRef\":\"r_kq7bbgw6v2ezctry\",\"messageRef\":\"m_uobundt4akokcx43\",\"humanApproval\":\"approved\",\"caseStatus\":\"completed\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"evidenceRefs\":[],\"replayed\":false}}"
           }
         ],
         "isError": false

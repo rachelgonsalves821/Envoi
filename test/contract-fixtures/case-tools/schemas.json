@@ -385,7 +385,7 @@
         ]
       },
       "resultSchema": "authorityResult",
-      "description": "Ask the server whether this agent may accept a specific live option now: allow, deny or needs a human. Reuse the idempotency key to retry."
+      "description": "Ask the server whether this agent may accept a specific live option, or complete the case with a given result, now: allow, deny or needs a human. Reuse the idempotency key to retry."
     },
     {
       "name": "envoi_request_human",
@@ -527,7 +527,10 @@
     },
     {
       "name": "envoi_case_complete",
-      "needs": "execute_cases",
+      "needs": [
+        "execute_cases",
+        "send_agent_messages"
+      ],
       "workKinds": [
         "agent_message",
         "human_decision"
@@ -640,7 +643,7 @@
     "AUTHORITY_CHANGED": {
       "retryable": false,
       "clientRetry": "none",
-      "message": "The proposal or policy changed since that authority. Check authority again.",
+      "message": "That authority no longer matches. Check authority again.",
       "when": "§12.5: the binding no longer matches the proposal, option or policy."
     },
     "AUTHORITY_REQUIRED": {
@@ -661,11 +664,17 @@
       "message": "Only files you added to this case can be shared.",
       "when": "§14.3: created by another party or in another case."
     },
-    "CASE_COMPLETED": {
+    "CASE_CLOSED": {
       "retryable": false,
       "clientRetry": "none",
-      "message": "This case is already complete.",
-      "when": "§14.4: the case already has a receipt."
+      "message": "This case is closed.",
+      "when": "§14.1: any writing tool on a completed, failed or expired case."
+    },
+    "EVIDENCE_NOT_SHARED": {
+      "retryable": false,
+      "clientRetry": "none",
+      "message": "Evidence must be a file the counterparty can see.",
+      "when": "§14.4: an evidenceRefs entry this agent has not shared and the counterparty did not create."
     },
     "TOOL_BUSY": {
       "retryable": true,
@@ -1169,7 +1178,8 @@
             "AUTHORITY_REQUIRED",
             "ASSET_NOT_CLEAN",
             "ASSET_NOT_SHAREABLE",
-            "CASE_COMPLETED",
+            "CASE_CLOSED",
+            "EVIDENCE_NOT_SHARED",
             "TOOL_BUSY"
           ]
         },
@@ -2551,7 +2561,8 @@
       ],
       "properties": {
         "sessionRef": {
-          "type": "string"
+          "type": "string",
+          "description": "Fixture-only names. serverRevision (default 3) is the case-tools revision the server implements."
         },
         "caseRef": {
           "type": "string"
@@ -2561,6 +2572,13 @@
             "agent_message",
             "human_instruction",
             "human_decision"
+          ]
+        },
+        "serverRevision": {
+          "enum": [
+            1,
+            2,
+            3
           ]
         },
         "allowedTools": {

@@ -59,7 +59,7 @@
         "content": [
           {
             "type": "text",
-            "text": "{\"ok\":true,\"tool\":\"envoi_case_list_assets\",\"result\":{\"asset\":{\"ref\":\"a_mqjcerwqvgao2qln\",\"filename\":\"dock-photos.zip\",\"size\":5242880,\"checksumSha256\":\"AAybwMdIf7kEmJInqoK9fAYLrqRMO8cCbvG+J2r/xTE=\",\"shared\":false,\"mimeType\":\"application/zip\",\"scan\":\"clean\",\"origin\":\"other_agent\"},\"content\":null,\"contentUnavailable\":\"binary\"}}"
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_list_assets\",\"result\":{\"asset\":{\"ref\":\"a_mqjcerwqvgao2qln\",\"filename\":\"dock-photos.zip\",\"size\":5242880,\"checksumSha256\":\"vaC4SQTUe9XSfPukhaZScNmyhDYeG0rHfjUKyLpU018=\",\"shared\":false,\"mimeType\":\"application/zip\",\"scan\":\"clean\",\"origin\":\"other_agent\"},\"content\":null,\"contentUnavailable\":\"binary\"}}"
           }
         ],
         "isError": false

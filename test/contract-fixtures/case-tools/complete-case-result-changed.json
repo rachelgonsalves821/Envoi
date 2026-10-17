@@ -33,7 +33,7 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 76,
+      "id": 80,
       "method": "tools/call",
       "params": {
         "name": "envoi_case_complete",
@@ -55,12 +55,12 @@
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 76,
+      "id": 80,
       "result": {
         "content": [
           {
             "type": "text",
-            "text": "{\"ok\":false,\"tool\":\"envoi_case_complete\",\"code\":\"AUTHORITY_CHANGED\",\"message\":\"The proposal or policy changed since that authority. Check authority again.\",\"retryable\":false}"
+            "text": "{\"ok\":false,\"tool\":\"envoi_case_complete\",\"code\":\"AUTHORITY_CHANGED\",\"message\":\"That authority no longer matches. Check authority again.\",\"retryable\":false}"
           }
         ],
         "isError": true

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "request-human",
   "kind": "http",
-  "description": "The agent asks its workspace to approve a needsHuman authority. The case moves to waitingForHuman (shown only to this agent); the result says to end the turn, and the host settles the work.",
+  "description": "The agent asks its workspace to approve a needsHuman authority. The request is tracked for this agent only; the shared case state does not change, so the counterparty is neither told nor blocked. The result says to end the turn, and the host settles the work.",
   "context": {
     "sessionRef": "C",
     "caseRef": "case-c",

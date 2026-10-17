@@ -1,0 +1,77 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "complete-case-after-approved-accept",
+  "kind": "http",
+  "description": "Scenario: a person of this workspace approved the accept (decide-after-human-approval). That approval counts as the agreement's decision, so no authorityRef is needed and the receipt is human-approved (decision 14).",
+  "context": {
+    "sessionRef": "C2",
+    "caseRef": "case-c",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_c_after_accept",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 78,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_complete",
+        "arguments": {
+          "result": "Agreed: 26 Oct, 10:00-13:00 at 4.10 per unit.",
+          "idempotencyKey": "complete-after-accept"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "completeEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 78,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_complete\",\"result\":{\"receiptRef\":\"r_3zk3xrwfxyokz75a\",\"messageRef\":\"m_qcxnhv33qmj7tduk\",\"humanApproval\":\"approved\",\"caseStatus\":\"completed\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"evidenceRefs\":[],\"replayed\":false}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "End the turn and settle the work."
+  }
+}

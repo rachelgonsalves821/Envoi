@@ -3,7 +3,7 @@
   "version": 1,
   "id": "authority-check-complete-needs-human",
   "kind": "http",
-  "description": "Scenario: case C's agreement was accepted under an allow authority, so no person approved it. Completing needs a human decision bound to the exact result text.",
+  "description": "Scenario: case C's agreement was accepted under an allow authority, so no person of this workspace approved it. Completing needs a person, bound to the exact result text.",
   "context": {
     "sessionRef": "C",
     "caseRef": "case-c",
