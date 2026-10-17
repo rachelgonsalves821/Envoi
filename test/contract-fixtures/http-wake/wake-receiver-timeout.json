@@ -3,10 +3,10 @@
   "version": 1,
   "id": "wake-receiver-timeout",
   "kind": "delivery",
-  "description": "No response within deliveryTimeoutMs (§6.1). Retried after the first scheduled delay, with jitter.",
+  "description": "The receiver works inside the request and answers after deliveryTimeoutMs (§6.1, §7.3). Envoi has already given up, and retries after the first scheduled delay, with jitter.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_timeout",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -33,16 +33,56 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_930btY2ohuPL7rvzWgs9",
+        "envoi-wake-id": "wake_evt_cBcZ0QanJ5MZwlzlQwMK",
         "envoi-wake-timestamp": "1792236900",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=GytePx1AErv1J4qOkd71p8Cv8ABuXgFNEbEWlsnJ-89bNDurGtYqgdC4CyIQt4X1ZLXOXvxq9JyUwXbd_I2YAA"
+        "envoi-wake-signature": "v1=Vsu5HrbfmoK8zPIbbbmlyVKMlBBMDj8seEzYoA85PGhBqfxOF1-TWsYRM3RL_YdGAJoICB8wOxsNQ4mXiVQUAw"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_930btY2ohuPL7rvzWgs9\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":15,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:35:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_cBcZ0QanJ5MZwlzlQwMK\",\"subscriptionId\":\"wake_sub_timeout\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:35:00.000Z\"}"
     },
     "response": null,
+    "transport": {
+      "phase": "response",
+      "elapsedMs": 10000
+    },
     "failureClass": "timeout",
     "outcome": "retry_scheduled",
     "nextAttemptInSeconds": 9
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:35:11.000Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_timeout"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "respondHeaders": {},
+    "action": "claim",
+    "next": "Acknowledge first next time; the late 200 was never read."
   }
 }

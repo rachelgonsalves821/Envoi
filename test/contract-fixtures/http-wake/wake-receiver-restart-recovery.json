@@ -8,7 +8,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_receiver_restart",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -35,14 +35,18 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_Jl6ZTLv8uvxmJHDhUc6k",
+            "envoi-wake-id": "wake_evt_DZfEWTx3Qdcw6txwqJO5",
             "envoi-wake-timestamp": "1792236400",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=KYyO0sbtFee-SIxzbKd2Y58Y_eOldSGo40Poy_6aRRWvO9-s36MuKM3kvDdZEjE_TtA6WDnjhcx0kcpsdwsNBA"
+            "envoi-wake-signature": "v1=necocNlgDrNoVDRbKY6xQiaRKxh1kY1zgmu2qqge2pWgGzvT7pHhjs9JfTg_U4U4D6A1_64VXU2wkItHUhScDQ"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Jl6ZTLv8uvxmJHDhUc6k\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":11,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:26:40.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_DZfEWTx3Qdcw6txwqJO5\",\"subscriptionId\":\"wake_sub_receiver_restart\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:26:40.000Z\"}"
         },
         "response": null,
+        "transport": {
+          "phase": "response",
+          "elapsedMs": 10000
+        },
         "failureClass": "timeout",
         "outcome": "retry_scheduled",
         "nextAttemptInSeconds": 10
@@ -51,14 +55,14 @@
         "clock": "2026-10-17T11:26:40.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_receiver_restart"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -67,7 +71,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -79,6 +83,7 @@
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "claim",
         "next": "Claim once, then restart."
       }
@@ -86,7 +91,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_receiver_restart",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -113,12 +118,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_Jl6ZTLv8uvxmJHDhUc6k",
+            "envoi-wake-id": "wake_evt_DZfEWTx3Qdcw6txwqJO5",
             "envoi-wake-timestamp": "1792236420",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=8tIHg_a6uOo5U8HT-KgCSFddnzXkXmYLVFsa7DZfxYYrv2KH_wDwWYi5-GvtkydE-1Q8d-blAnESyigXBmGGAA"
+            "envoi-wake-signature": "v1=sUb-qzkXdUvsmNlvx-3qLO65LHN-8_4H67qQIhy0a6qyV4rQhZFARZTOiN3rHm6JKK7nedCdrepdpSCojQ7uBQ"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Jl6ZTLv8uvxmJHDhUc6k\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":11,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:26:40.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_DZfEWTx3Qdcw6txwqJO5\",\"subscriptionId\":\"wake_sub_receiver_restart\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:26:40.000Z\"}"
         },
         "response": {
           "status": 200
@@ -130,14 +135,14 @@
         "clock": "2026-10-17T11:27:00.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_receiver_restart"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -146,7 +151,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -158,6 +163,7 @@
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "claim",
         "next": "Claim once (the processed ids were lost)."
       }
@@ -168,9 +174,9 @@
         "path": "/api/agent/work/claim",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_receiver_restart",
           "content-type": "application/json",
-          "x-request-id": "wake_evt_Jl6ZTLv8uvxmJHDhUc6k"
+          "x-request-id": "wake_evt_DZfEWTx3Qdcw6txwqJO5"
         },
         "schema": "case-session#claimRequest",
         "body": {}

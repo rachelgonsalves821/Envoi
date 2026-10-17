@@ -1,12 +1,12 @@
 {
   "contract": "http-wake",
   "version": 1,
-  "id": "wake-lease-released",
+  "id": "wake-retry-after-http-date",
   "kind": "delivery",
-  "description": "A reconnect released leases held by replaced families (a4 §4).",
+  "description": "A 429 whose retry-after is an HTTP-date (§6.2). Only delta-seconds count, so the jittered schedule alone sets the wait.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_retry_after_date",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -33,31 +33,35 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_UcK6HZZN1MVhptsGFCxu",
-        "envoi-wake-timestamp": "1792237550",
+        "envoi-wake-id": "wake_evt_q4xuNisGPFcxxmX8IPHc",
+        "envoi-wake-timestamp": "1792236800",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=_ywXkRkA8QqrTMbPTtYXYuJSXscSeZGetbNligO85x7UwZ9c2QH_E57BLiYIDRwCvOYqUKz6NziE5cTSkkgBCg"
+        "envoi-wake-signature": "v1=X88rcXuZoYjmJb3sACSm__CqYqSnrWWtglapL93XTdXMLbhwvwquqAGiRZs6e9Ny7qz1EKeEB0tKBBfbjFd_Ag"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_UcK6HZZN1MVhptsGFCxu\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":23,\"reason\":\"lease_released\",\"createdAt\":\"2026-10-17T11:45:50.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_q4xuNisGPFcxxmX8IPHc\",\"subscriptionId\":\"wake_sub_retry_after_date\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:33:20.000Z\"}"
     },
     "response": {
-      "status": 200
+      "status": 429,
+      "headers": {
+        "retry-after": "Sat, 17 Oct 2026 13:00:00 GMT"
+      }
     },
-    "failureClass": null,
-    "outcome": "acknowledged"
+    "failureClass": "http_retryable",
+    "outcome": "retry_scheduled",
+    "nextAttemptInSeconds": 9
   },
   "receiver": {
-    "clock": "2026-10-17T11:45:50.500Z",
+    "clock": "2026-10-17T11:33:20.200Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_retry_after_date"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -66,7 +70,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -77,8 +81,11 @@
     "seenIds": [],
     "verdict": "process",
     "reason": null,
-    "respondStatus": 200,
-    "action": "claim",
-    "next": "Claim once."
+    "respondStatus": 429,
+    "respondHeaders": {
+      "retry-after": "Sat, 17 Oct 2026 13:00:00 GMT"
+    },
+    "action": "none",
+    "next": "Busy."
   }
 }

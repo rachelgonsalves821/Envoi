@@ -1,0 +1,44 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "keys-emergency",
+  "kind": "http",
+  "description": "After an emergency rotation (§5.4): the compromised key is gone at once, and a new key is active without the 24 h lead.",
+  "context": {
+    "validFrom": "2026-10-20T12:00:00.000Z",
+    "rotation": "emergency"
+  },
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/envoi-wake-keys.json",
+    "auth": "none",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "jwks",
+    "headers": {
+      "cache-control": "public, max-age=300"
+    },
+    "body": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "Ga_tNQ6lADdOiplbUlic6UWkCNtuhPgS0KPEGWnJp8o",
+          "kid": "wk_2026_10_emergency_d",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "receiver",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Replace the cached set; the removed key no longer verifies."
+  }
+}

@@ -3,10 +3,10 @@
   "version": 1,
   "id": "owner-revoke-not-found",
   "kind": "http",
-  "description": "Another agent's subscription, or an unknown id (§3.6).",
+  "description": "Another agent's subscription, or an unknown id (§3.6 row 7).",
   "request": {
     "method": "POST",
-    "path": "/api/inboxes/inbox_example/agents/agent_example/wake-subscriptions/wake_sub_other_agent/revoke",
+    "path": "/api/inboxes/inbox_revoked/agents/agent_revoked/wake-subscriptions/wake_sub_other_agent/revoke",
     "auth": "human_session",
     "headers": {
       "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
@@ -14,6 +14,7 @@
       "origin": "https://www.envoi-agents.com",
       "content-type": "application/json"
     },
+    "schema": "endRequest",
     "body": {}
   },
   "response": {

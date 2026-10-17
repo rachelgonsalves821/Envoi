@@ -10,7 +10,8 @@
       "url": "https://hooks.example.org/envoi/wake",
       "status": "pending",
       "challengeExpiresAt": "2026-10-17T12:21:40.000Z"
-    }
+    },
+    "agentStatus": "active"
   },
   "delivery": {
     "origin": "server",
@@ -33,12 +34,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_xX5k4wPnrbMHYlBe9M2S",
+        "envoi-wake-id": "wake_evt_NxTNKDUma49SmWnQOIWs",
         "envoi-wake-timestamp": "1792239102",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=5Q5AP1SqDX5NQTn7CKXn1J0OJDR6FdvjH_h9k0iHuFcK_9cMlTFSPUadDMeUggiv7GJyLL1HGrgSvo28X-k0Cg"
+        "envoi-wake-signature": "v1=Lw4LAWgtZ7GpX4oKCMHu4XLTPIpfF7iQ7WkG1vOENh_PAd-WZW_cJSjW77r-jvlxeSwnEfDX5I_n9R_tyAZhBA"
       },
-      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_xX5k4wPnrbMHYlBe9M2S\",\"subscriptionId\":\"wake_sub_slow\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:21:40.000Z\",\"createdAt\":\"2026-10-17T12:11:40.000Z\"}"
+      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_NxTNKDUma49SmWnQOIWs\",\"subscriptionId\":\"wake_sub_slow\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:21:40.000Z\",\"createdAt\":\"2026-10-17T12:11:40.000Z\"}"
     },
     "response": {
       "status": 503,
@@ -60,7 +61,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -69,7 +70,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -81,6 +82,9 @@
     "verdict": "process",
     "reason": null,
     "respondStatus": 503,
+    "respondHeaders": {
+      "retry-after": "900"
+    },
     "action": "none",
     "next": "The receiver could not record it now."
   }

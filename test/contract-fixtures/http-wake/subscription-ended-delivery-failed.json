@@ -24,7 +24,7 @@
         {
           "id": "wake_sub_failing",
           "installationId": "installation_failing",
-          "agentId": "agent_example",
+          "agentId": "agent_failing",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "ended",
           "endedReason": "delivery_failed",

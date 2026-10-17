@@ -5,7 +5,8 @@
   "kind": "http",
   "description": "The public key set (§5.2): one active signing key and one next key, published at least keyPublishLeadSeconds before it signs. In force until keys-rotated.",
   "context": {
-    "validFrom": "2026-09-17T12:00:00.000Z"
+    "validFrom": "2026-09-17T12:00:00.000Z",
+    "rotation": "routine"
   },
   "request": {
     "method": "GET",
@@ -24,7 +25,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -33,7 +34,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -47,6 +48,6 @@
     "lifecycle": "UNCHANGED",
     "retry": "none",
     "guidance": "none",
-    "next": "Cache the set for at most max-age. Verify every notification against it."
+    "next": "Cache the set for at most max-age minus Age. Verify every notification against it."
   }
 }

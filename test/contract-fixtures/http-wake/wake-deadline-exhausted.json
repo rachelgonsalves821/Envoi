@@ -1,0 +1,90 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-deadline-exhausted",
+  "kind": "delivery",
+  "description": "Attempt 4 gets a 503 asking for 900 s, 3,000 s after the notification was created. The next attempt would start after deliveryDeadlineSeconds, so the notification is exhausted although attempts remain (§6.2).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_deadline",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 4,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_OhpPVv5LyiIBQgcjZwaA",
+        "envoi-wake-timestamp": "1792238300",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=C1uEpo4eCT7I55xS7E6fBCTQOZDiYsU4C7CXCgqhEVLMxEwkHQGlAxD-zSx9MQEpQoX2WZw-Zw6wYPW7CcUjDQ"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_OhpPVv5LyiIBQgcjZwaA\",\"subscriptionId\":\"wake_sub_deadline\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:08:20.000Z\"}"
+    },
+    "response": {
+      "status": 503,
+      "headers": {
+        "retry-after": "900"
+      }
+    },
+    "failureClass": "http_retryable",
+    "outcome": "exhausted"
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:58:20.200Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_deadline"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 503,
+    "respondHeaders": {
+      "retry-after": "900"
+    },
+    "action": "none",
+    "next": "Busy."
+  }
+}

@@ -436,7 +436,7 @@
     "timeout": {
       "retryable": true,
       "challengeRetryable": false,
-      "when": "DNS, connection, or status and headers did not complete within their timeouts (dnsTimeoutMs, connectTimeoutMs, deliveryTimeoutMs)."
+      "when": "The connection did not complete within connectTimeoutMs, or status and headers did not arrive within deliveryTimeoutMs of admission. A DNS timeout is address_rejected."
     },
     "connect_failed": {
       "retryable": true,
@@ -451,7 +451,12 @@
     "address_rejected": {
       "retryable": true,
       "challengeRetryable": false,
-      "when": "At this attempt the resolution was empty, failed (anything but NXDOMAIN or NODATA counts as failed), or contained a blocked address. Nothing was sent."
+      "when": "At this attempt the resolution was empty, failed or timed out (anything but NXDOMAIN or NODATA counts as failed), or contained a blocked address. Nothing was sent."
+    },
+    "url_rejected": {
+      "retryable": false,
+      "challengeRetryable": false,
+      "when": "Before resolving, the stored URL broke a §4.1 rule, for example because its host was later added to ENVOI_WAKE_SELF_HOSTS. Nothing was sent."
     },
     "interrupted": {
       "retryable": true,
@@ -488,7 +493,6 @@
         "agent_resumed": "The owner resumed this agent (§8.1). Sent whether or not work is waiting.",
         "case_resumed": "a4 work.available reason case_resumed.",
         "counterparty_resumed": "a4 work.available reason counterparty_resumed.",
-        "lease_released": "a4 work.available reason lease_released.",
         "work_due": "A retry delay ended or a lease expired (a4 §4 \"safety timer only\"). Best effort, at most once per workDueMinIntervalSeconds.",
         "subscription_activated": "The subscription was just activated (§3.3), so the receiver claims once through it."
       }
@@ -534,11 +538,12 @@
       "check": "malformed",
       "status": 400,
       "verdict": "reject",
-      "rule": "POST; content-type application/json, optionally with a charset=utf-8 parameter; body at most requestBodyMaxBytes; all four envoi-wake-* headers present and matching their formats; a v1= entry in envoi-wake-signature."
+      "rule": "POST; content-type application/json, optionally with a charset=utf-8 parameter; body at most requestBodyMaxBytes; all four envoi-wake-* headers present and matching their formats; exactly one v1= entry in envoi-wake-signature."
     },
     {
       "check": "unknown_key",
       "status": 503,
+      "retryAfterSeconds": 60,
       "verdict": "defer",
       "rule": "envoi-wake-key-id names no key in the receiver's key set after at most one refresh per unknownKeyRefreshMinIntervalSeconds. Answer 503 with retry-after unknownKeyRetryAfterSeconds, so an emergency rotation (§5.4) loses nothing."
     },
@@ -587,6 +592,9 @@
     {
       "check": "process",
       "status": 200,
+      "alsoAllowed": [
+        204
+      ],
       "verdict": "process",
       "rule": "Acknowledge within deliveryTimeoutMs, then act on the type (x-wake-reasons) asynchronously. An unknown type is acknowledged and ignored."
     }
@@ -676,6 +684,9 @@
     }
   },
   "x-public-origin-example": "https://www.envoi-agents.com",
+  "x-self-hosts-example": [
+    "envoi-agents.com"
+  ],
   "definitions": {
     "lifecycle": {
       "enum": [
@@ -768,6 +779,7 @@
         "connect_failed",
         "tls_failed",
         "address_rejected",
+        "url_rejected",
         "interrupted",
         "http_retryable",
         "redirect_rejected",
@@ -1418,7 +1430,6 @@
             "agent_resumed",
             "case_resumed",
             "counterparty_resumed",
-            "lease_released",
             "work_due",
             "subscription_activated"
           ]
@@ -1726,8 +1737,7 @@
         "addresses": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 2
+            "$ref": "#/definitions/ipAddress"
           }
         },
         "error": {
@@ -1802,10 +1812,35 @@
           "format": "date-time",
           "description": "The instant this key set came into force (§5.4)."
         },
+        "rotation": {
+          "enum": [
+            "routine",
+            "emergency"
+          ],
+          "description": "How this key set replaced the previous one (§5.4)."
+        },
+        "selfHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "ENVOI_WAKE_SELF_HOSTS entries in force now, besides x-self-hosts-example."
+        },
         "note": {
           "type": "string"
         }
       }
+    },
+    "ipAddress": {
+      "type": "string",
+      "anyOf": [
+        {
+          "format": "ipv4"
+        },
+        {
+          "format": "ipv6"
+        }
+      ]
     },
     "connect": {
       "type": "object",
@@ -1817,7 +1852,7 @@
       ],
       "properties": {
         "address": {
-          "type": "string"
+          "$ref": "#/definitions/ipAddress"
         },
         "port": {
           "type": "integer"
@@ -1838,10 +1873,15 @@
       ],
       "properties": {
         "method": {
-          "type": "string"
+          "enum": [
+            "POST",
+            "PUT",
+            "GET"
+          ]
         },
         "url": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^https://"
         },
         "headers": {
           "type": "object"
@@ -1939,6 +1979,48 @@
             "agent_paused",
             "feature_disabled"
           ]
+        },
+        "suppressed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "wake.work_available",
+                "wake.control_changed"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "description": "The notification a not_sent outcome withheld."
+        },
+        "transport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "phase",
+            "elapsedMs"
+          ],
+          "properties": {
+            "phase": {
+              "enum": [
+                "connect",
+                "tls",
+                "response",
+                "interrupted"
+              ]
+            },
+            "elapsedMs": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "description": "Where a sent attempt that got no response stopped, in ms from admission."
         }
       },
       "allOf": [
@@ -2075,6 +2157,77 @@
         {
           "if": {
             "properties": {
+              "failureClass": {
+                "const": "url_rejected"
+              }
+            },
+            "required": [
+              "failureClass"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sent": {
+                "const": false
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "dns"
+                  ]
+                },
+                {
+                  "required": [
+                    "connect"
+                  ]
+                },
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sent": {
+                "const": true
+              },
+              "response": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "sent",
+              "response"
+            ]
+          },
+          "then": {
+            "required": [
+              "transport"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "transport"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
               "outcome": {
                 "const": "retry_scheduled"
               }
@@ -2109,8 +2262,14 @@
           },
           "then": {
             "required": [
-              "notSentReason"
+              "notSentReason",
+              "suppressed"
             ],
+            "properties": {
+              "failureClass": {
+                "const": null
+              }
+            },
             "not": {
               "anyOf": [
                 {
@@ -2138,8 +2297,17 @@
           },
           "else": {
             "not": {
-              "required": [
-                "notSentReason"
+              "anyOf": [
+                {
+                  "required": [
+                    "notSentReason"
+                  ]
+                },
+                {
+                  "required": [
+                    "suppressed"
+                  ]
+                }
               ]
             }
           }
@@ -2158,6 +2326,7 @@
         "verdict",
         "reason",
         "respondStatus",
+        "respondHeaders",
         "action",
         "next"
       ],
@@ -2182,7 +2351,7 @@
         "seenIds": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/wakeId"
           }
         },
         "verdict": {
@@ -2213,7 +2382,12 @@
           ]
         },
         "respondStatus": {
-          "type": "integer"
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "respondHeaders": {
+          "type": "object"
         },
         "action": {
           "enum": [

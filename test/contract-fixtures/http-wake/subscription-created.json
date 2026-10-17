@@ -37,7 +37,7 @@
       "subscription": {
         "id": "wake_sub_fresh",
         "installationId": "installation_fresh",
-        "agentId": "agent_example",
+        "agentId": "agent_fresh",
         "url": "https://hooks.example.org/envoi/wake",
         "status": "pending",
         "endedReason": null,

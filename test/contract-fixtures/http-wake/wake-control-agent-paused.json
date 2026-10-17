@@ -6,7 +6,7 @@
   "description": "The owner paused the agent (§8.1). Control wakes are sent while paused: the host renews every live lease now, each renewal fails with AGENT_PAUSED, and those turns are cancelled (case-session §10).",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_control_agent_paused",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_ot7YtjqCS36wIgFn2Fjm",
+        "envoi-wake-id": "wake_evt_rif4C2fhekGp6Qxp9sZv",
         "envoi-wake-timestamp": "1792237650",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=pzSegtPj-vKeP1vCtPqC3KY3tzEvllKAxPLJiiloWT_RYvwjzFcILHiGdIHr1s1HPpWZWZhLUpkzOA7PaqnJAA"
+        "envoi-wake-signature": "v1=zqsqYBpChfY5jTQQFnRE5jqQNVIYRBqGXu5eVRl09Spu274BrGjT1qf0DQdoMBF1mDiz-K5GV8u0gbSZwlIYDg"
       },
-      "bodyText": "{\"type\":\"wake.control_changed\",\"version\":1,\"id\":\"wake_evt_ot7YtjqCS36wIgFn2Fjm\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":25,\"reason\":\"agent_paused\",\"createdAt\":\"2026-10-17T11:47:30.000Z\"}"
+      "bodyText": "{\"type\":\"wake.control_changed\",\"version\":1,\"id\":\"wake_evt_rif4C2fhekGp6Qxp9sZv\",\"subscriptionId\":\"wake_sub_control_agent_paused\",\"sequence\":3,\"reason\":\"agent_paused\",\"createdAt\":\"2026-10-17T11:47:30.000Z\"}"
     },
     "response": {
       "status": 200
@@ -50,14 +50,14 @@
     "clock": "2026-10-17T11:47:30.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_control_agent_paused"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -66,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -78,6 +78,7 @@
     "verdict": "process",
     "reason": null,
     "respondStatus": 200,
+    "respondHeaders": {},
     "action": "renew_live_leases",
     "next": "Renew every live lease now; cancel the turns whose renewal fails."
   }

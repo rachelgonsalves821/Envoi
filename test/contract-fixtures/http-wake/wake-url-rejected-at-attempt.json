@@ -1,0 +1,26 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-url-rejected-at-attempt",
+  "kind": "delivery",
+  "description": "The §4.1 rules run again before every attempt (§4). The stored URL now breaks self_target, so nothing is resolved or sent, and the notification fails (url_rejected).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_self_host_later",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active",
+    "selfHosts": [
+      "example.com"
+    ],
+    "note": "An operator added example.com to ENVOI_WAKE_SELF_HOSTS after activation."
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "sent": false,
+    "failureClass": "url_rejected",
+    "outcome": "failed"
+  }
+}

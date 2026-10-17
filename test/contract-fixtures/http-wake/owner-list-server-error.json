@@ -1,0 +1,37 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "owner-list-server-error",
+  "kind": "http",
+  "description": "A server error on an owner route.",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_revoked/agents/agent_revoked/wake-subscriptions",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 500,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "INTERNAL_SERVER_ERROR",
+      "error": "INTERNAL_SERVER_ERROR",
+      "message": "Something went wrong.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "next": "Retry with backoff."
+  }
+}

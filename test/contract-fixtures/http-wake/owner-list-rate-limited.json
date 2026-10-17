@@ -1,0 +1,39 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "owner-list-rate-limited",
+  "kind": "http",
+  "description": "The a3 request limit on an owner route (§3.6 row 2).",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_revoked/agents/agent_revoked/wake-subscriptions",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store",
+      "retry-after": "5"
+    },
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Too many requests. Retry after the indicated delay.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 5
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "after_retry_after",
+    "guidance": "service_busy",
+    "next": "Retry after retry-after."
+  }
+}

@@ -6,7 +6,7 @@
   "description": "The receiver answers 302 to an internal address (§4.4). The Location is never followed, and the attempt fails permanently.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_redirect",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_CTRSI50OLkOwa51c2Kxz",
+        "envoi-wake-id": "wake_evt_oAYghXKJrsDECrDoqodN",
         "envoi-wake-timestamp": "1792237100",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=MrFN3DyuPQENhWRYMyHO_IaaMCRFLrzr0hOw023kItQLUlXUNb0nDprihkVRzyRz6fWtAlsN-y_3KjKoGoh9DQ"
+        "envoi-wake-signature": "v1=vnXJU3F9JDinnDW8NDa8hzX9UtJj_9C81IKp6vmOXV2ypek5zefPD6DYa7w7ep4Ujc3c_QsxZYv9HU_mHCpkCg"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_CTRSI50OLkOwa51c2Kxz\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":17,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:38:20.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_oAYghXKJrsDECrDoqodN\",\"subscriptionId\":\"wake_sub_redirect\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:38:20.000Z\"}"
     },
     "response": {
       "status": 302,

@@ -1,0 +1,37 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "owner-list-auth-unavailable",
+  "kind": "http",
+  "description": "Authorization could not be checked (§3.6 row 4). Never a decision.",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_revoked/agents/agent_revoked/wake-subscriptions",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 503,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AUTH_UNAVAILABLE",
+      "error": "AUTH_UNAVAILABLE",
+      "message": "Authentication is temporarily unavailable.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "next": "Retry with backoff."
+  }
+}

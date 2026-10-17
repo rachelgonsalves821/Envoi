@@ -3,14 +3,15 @@
   "version": 1,
   "id": "challenge-unreachable-not-retried",
   "kind": "delivery",
-  "description": "Nothing listens at the URL. For a challenge, a transport failure is final (x-failure-classes challengeRetryable), so a URL that is not a receiver gets one connection attempt per create (§3.2).",
+  "description": "Nothing listens at the URL. For a challenge a transport failure is final (x-failure-classes challengeRetryable), so a URL that is not a receiver gets one connection attempt per create (§3.2).",
   "context": {
     "subscription": {
       "id": "wake_sub_unreachable",
       "url": "https://hooks.example.org/envoi/wake",
       "status": "pending",
       "challengeExpiresAt": "2026-10-17T12:20:00.000Z"
-    }
+    },
+    "agentStatus": "active"
   },
   "delivery": {
     "origin": "server",
@@ -33,14 +34,18 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_wxRBNQ8nQyr6aVLP9xST",
+        "envoi-wake-id": "wake_evt_5I1ZGjLWDsWoAaH2HZr5",
         "envoi-wake-timestamp": "1792239002",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=UTWe766LvgmPNlqu7SchgJELm39Gtne4pr_2Rn_0sTFbdNAdxLCuYK6A3z9hxAGG1wD1c5OYPiP4AfMznbRuCQ"
+        "envoi-wake-signature": "v1=hJu8SErWYcXtpjQPdVjU52vjpBnXdkiZllIKwtRxVucRCpEu5XgCucaFVh8bhVDaUMD5r0cRnfLxZTd5aLCEAw"
       },
-      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_wxRBNQ8nQyr6aVLP9xST\",\"subscriptionId\":\"wake_sub_unreachable\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:20:00.000Z\",\"createdAt\":\"2026-10-17T12:10:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_5I1ZGjLWDsWoAaH2HZr5\",\"subscriptionId\":\"wake_sub_unreachable\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:20:00.000Z\",\"createdAt\":\"2026-10-17T12:10:00.000Z\"}"
     },
     "response": null,
+    "transport": {
+      "phase": "connect",
+      "elapsedMs": 40
+    },
     "failureClass": "connect_failed",
     "outcome": "failed"
   }

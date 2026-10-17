@@ -19,6 +19,10 @@
     "sent": false,
     "failureClass": null,
     "outcome": "not_sent",
-    "notSentReason": "subscription_pending"
+    "notSentReason": "subscription_pending",
+    "suppressed": {
+      "type": "wake.work_available",
+      "reason": "message_delivered"
+    }
   }
 }

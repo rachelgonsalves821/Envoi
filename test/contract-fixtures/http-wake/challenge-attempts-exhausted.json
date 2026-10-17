@@ -1,0 +1,254 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "challenge-attempts-exhausted",
+  "kind": "sequence",
+  "description": "Three 503s: a challenge has at most challengeMaxAttempts attempts (§3.2), so the third failure exhausts it.",
+  "steps": [
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_challenge_capped",
+          "url": "https://hooks.example.org/envoi/wake",
+          "status": "pending",
+          "challengeExpiresAt": "2026-10-17T12:25:00.000Z"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.43.11",
+          "port": 443,
+          "servername": "hooks.example.org"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.org/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_mmsSvGgBRYTZYwZyixDU",
+            "envoi-wake-timestamp": "1792239302",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=SGNu8d5yCRuJJoefnO6taJzLQAstM01NhJOFzfhJgYbGxUkPE8hb1-2UCMD0LcK3Ee-BTeo8XevYDQlItJRIBA"
+          },
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_mmsSvGgBRYTZYwZyixDU\",\"subscriptionId\":\"wake_sub_challenge_capped\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:25:00.000Z\",\"createdAt\":\"2026-10-17T12:15:00.000Z\"}"
+        },
+        "response": {
+          "status": 503
+        },
+        "failureClass": "http_retryable",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 10
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:15:02.200Z",
+        "registeredUrl": "https://hooks.example.org/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_challenge_capped"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 503,
+        "respondHeaders": {},
+        "action": "none",
+        "next": "Busy."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_challenge_capped",
+          "url": "https://hooks.example.org/envoi/wake",
+          "status": "pending",
+          "challengeExpiresAt": "2026-10-17T12:25:00.000Z"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 2,
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.43.11",
+          "port": 443,
+          "servername": "hooks.example.org"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.org/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_mmsSvGgBRYTZYwZyixDU",
+            "envoi-wake-timestamp": "1792239312",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=KSZ4MZJjpSxzCTuYPO2ps9nQHftrpN3fS8fbyO2Mnuw-mBHc8Qu1uLwEPO-g1g4gMXiyum_wpQ01KeqA3QsuAQ"
+          },
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_mmsSvGgBRYTZYwZyixDU\",\"subscriptionId\":\"wake_sub_challenge_capped\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:25:00.000Z\",\"createdAt\":\"2026-10-17T12:15:00.000Z\"}"
+        },
+        "response": {
+          "status": 503
+        },
+        "failureClass": "http_retryable",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 30
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:15:12.200Z",
+        "registeredUrl": "https://hooks.example.org/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_challenge_capped"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 503,
+        "respondHeaders": {},
+        "action": "none",
+        "next": "Busy."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_challenge_capped",
+          "url": "https://hooks.example.org/envoi/wake",
+          "status": "pending",
+          "challengeExpiresAt": "2026-10-17T12:25:00.000Z"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 3,
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.43.11",
+          "port": 443,
+          "servername": "hooks.example.org"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.org/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_mmsSvGgBRYTZYwZyixDU",
+            "envoi-wake-timestamp": "1792239342",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=R9QjOfuJ_uiXq2QtY6xkf6BC8p_vzaJc2VMOVuH6rg5NVC4JpPgxMlXgsAnHgM_x8-o8TP4go4XZaVfk2vW4AA"
+          },
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_mmsSvGgBRYTZYwZyixDU\",\"subscriptionId\":\"wake_sub_challenge_capped\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:25:00.000Z\",\"createdAt\":\"2026-10-17T12:15:00.000Z\"}"
+        },
+        "response": {
+          "status": 503
+        },
+        "failureClass": "http_retryable",
+        "outcome": "exhausted"
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:15:42.200Z",
+        "registeredUrl": "https://hooks.example.org/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_challenge_capped"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 503,
+        "respondHeaders": {},
+        "action": "none",
+        "next": "Busy; the challenge is now exhausted."
+      }
+    }
+  ]
+}

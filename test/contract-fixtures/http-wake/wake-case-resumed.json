@@ -6,7 +6,7 @@
   "description": "A human resumed a paused case with claimable work for this agent (a4 §4, §8.2).",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_case_resumed",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_WKReIIpvLg1Lul8dSLHm",
-        "envoi-wake-timestamp": "1792325400",
-        "envoi-wake-key-id": "wk_2026_11_b",
-        "envoi-wake-signature": "v1=9-1vgANAG8nsXMd5MzOuYHGypY0ojxKTi0SoFXcU12UrM5UFxzth8EdkmUwyn0o4ObNgPMQM99TIn-SBuzsJDg"
+        "envoi-wake-id": "wake_evt_h8YsDW6EHYRdOBgq8d6o",
+        "envoi-wake-timestamp": "1792237550",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=a7O1SNz84Mu2PDIfyP7h2H8El-F9-QLiDSv4xlYcsnhbHSVzyEtFn0fwrO96Q70_ASPKB0uP-iJRmELZShORBA"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_WKReIIpvLg1Lul8dSLHm\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":37,\"reason\":\"case_resumed\",\"createdAt\":\"2026-10-18T12:10:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_h8YsDW6EHYRdOBgq8d6o\",\"subscriptionId\":\"wake_sub_case_resumed\",\"sequence\":3,\"reason\":\"case_resumed\",\"createdAt\":\"2026-10-17T11:45:50.000Z\"}"
     },
     "response": {
       "status": 200
@@ -47,18 +47,18 @@
     "outcome": "acknowledged"
   },
   "receiver": {
-    "clock": "2026-10-18T12:10:00.500Z",
+    "clock": "2026-10-17T11:45:50.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_case_resumed"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
-          "kid": "wk_2026_11_b",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
           "status": "active"
@@ -66,12 +66,11 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
-          "kid": "wk_2026_10_a",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
-          "status": "retired",
-          "notAfter": "2026-10-19T12:00:00.000Z"
+          "status": "next"
         }
       ]
     },
@@ -79,6 +78,7 @@
     "verdict": "process",
     "reason": null,
     "respondStatus": 200,
+    "respondHeaders": {},
     "action": "claim",
     "next": "Claim once."
   }

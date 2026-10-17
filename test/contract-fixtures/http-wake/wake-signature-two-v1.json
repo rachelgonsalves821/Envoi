@@ -1,0 +1,59 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-signature-two-v1",
+  "kind": "delivery",
+  "description": "Two v1 entries (§5.1). Ambiguous, so malformed.",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_ZTCZTPQCgAkpNr8Y3IIH",
+        "envoi-wake-timestamp": "1792236470",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=J6r5BiFeMFWNmYvEWTsceV_cOxTZu51uplef4S31TF_XZVRv0Fa3c7YtFsL1KDjPuFtlqrttlWwZ-D_pE3-jAA v1=J6r5BiFeMFWNmYvEWTsceV_cOxTZu51uplef4S31TF_XZVRv0Fa3c7YtFsL1KDjPuFtlqrttlWwZ-D_pE3-jAA"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_ZTCZTPQCgAkpNr8Y3IIH\",\"subscriptionId\":\"wake_sub_compat\",\"sequence\":9,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:27:50.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:27:50.400Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_compat"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "reject",
+    "reason": "malformed",
+    "respondStatus": 400,
+    "respondHeaders": {},
+    "action": "none",
+    "next": "Reject."
+  }
+}

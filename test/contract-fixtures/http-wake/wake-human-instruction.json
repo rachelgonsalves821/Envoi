@@ -6,7 +6,7 @@
   "description": "A human instruction is waiting. The wake says only that; the text is read through the claim.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_human_instruction",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_Kg9k9Vz0e7mGShx2ysyI",
+        "envoi-wake-id": "wake_evt_4xnSF3BxSzChyLLCTTFz",
         "envoi-wake-timestamp": "1792237400",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=UdAhEAWSB6gOMp73lWw1crZ1QXyOKmVp3ofU-3CdhTJSZJN9B1Y3RJRWmPNa3XX-nY_pg85pkI6OH59r5IcmAA"
+        "envoi-wake-signature": "v1=F0rLyQTIMVx4FtURk0L8TVLYKE2Q1cdJ2ViQGu1JPoCJLx8znozb-UjNoY554sVaJGiDYqIktErrzSkI2FCIBw"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Kg9k9Vz0e7mGShx2ysyI\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":20,\"reason\":\"human_instruction\",\"createdAt\":\"2026-10-17T11:43:20.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_4xnSF3BxSzChyLLCTTFz\",\"subscriptionId\":\"wake_sub_human_instruction\",\"sequence\":3,\"reason\":\"human_instruction\",\"createdAt\":\"2026-10-17T11:43:20.000Z\"}"
     },
     "response": {
       "status": 200
@@ -50,14 +50,14 @@
     "clock": "2026-10-17T11:43:20.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_human_instruction"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -66,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -78,6 +78,7 @@
     "verdict": "process",
     "reason": null,
     "respondStatus": 200,
+    "respondHeaders": {},
     "action": "claim",
     "next": "Claim once."
   }

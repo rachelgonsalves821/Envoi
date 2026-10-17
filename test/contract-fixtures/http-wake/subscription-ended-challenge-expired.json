@@ -1,0 +1,55 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-ended-challenge-expired",
+  "kind": "http",
+  "description": "A subscription whose challenge window passed ends at challengeExpiresAt, and still reports no delivery detail, because its URL was never proved (§3.2, §9).",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_stale"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "hostSubscriptionList",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "installationId": "installation_stale",
+      "subscriptions": [
+        {
+          "id": "wake_sub_stale",
+          "installationId": "installation_stale",
+          "agentId": "agent_stale",
+          "url": "https://hooks.example.org/envoi/wake",
+          "status": "ended",
+          "endedReason": "challenge_expired",
+          "createdAt": "2026-10-17T11:40:00.000Z",
+          "activatedAt": null,
+          "expiresAt": null,
+          "endedAt": "2026-10-17T11:50:00.000Z",
+          "challengeExpiresAt": null,
+          "replacesSubscriptionId": null,
+          "delivery": {
+            "state": "unverified",
+            "lastAttemptAt": null,
+            "lastSuccessAt": null,
+            "consecutiveFailures": 0,
+            "lastFailureClass": null
+          }
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "create_subscription",
+    "guidance": "create_new_subscription",
+    "next": "Create a new subscription."
+  }
+}

@@ -3,13 +3,13 @@
   "version": 1,
   "id": "subscription-create-rate-limited",
   "kind": "http",
-  "description": "Over createPerInstallationPerHour or createPerAgentPerHour (§3.1 row 7). Checked after the URL syntax rules and before any lookup.",
+  "description": "Over createPerInstallationPerHour or createPerAgentPerHour (§3.1 row 7). Checked after the URL rules that need no lookup, and before any lookup. retry-after is the time until the oldest counted create leaves the hour.",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",
     "auth": "agent_access",
     "headers": {
-      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_errors",
       "content-type": "application/json"
     },
     "schema": "createRequest",

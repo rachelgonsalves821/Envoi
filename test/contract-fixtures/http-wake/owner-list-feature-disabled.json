@@ -3,14 +3,14 @@
   "version": 1,
   "id": "owner-list-feature-disabled",
   "kind": "http",
-  "description": "The owner list with the flag off (§1).",
+  "description": "The owner list with the flag off (§3.6 row 1).",
   "flags": {
     "ENVOI_HTTP_WAKE_V1": false,
     "ENVOI_INSTALLATIONS_V2": true
   },
   "request": {
     "method": "GET",
-    "path": "/api/inboxes/inbox_example/agents/agent_example/wake-subscriptions",
+    "path": "/api/inboxes/inbox_revoked/agents/agent_revoked/wake-subscriptions",
     "auth": "human_session",
     "headers": {
       "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",

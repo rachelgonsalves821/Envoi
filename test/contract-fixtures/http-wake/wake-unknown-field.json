@@ -1,0 +1,59 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-unknown-field",
+  "kind": "delivery",
+  "description": "An extra field this receiver does not know. Receivers ignore unknown fields (§7.1).",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_pu5PVTE6OmI1i5yaxYQr",
+        "envoi-wake-timestamp": "1792236440",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=798dLa8VXsmQfumfD3PzAOr-QrhuFMdczEoKcdgTyiOetEX-WTmRmFUAM0CZbDDn7_fJ32pCV2IUx1h3LYARAg"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_pu5PVTE6OmI1i5yaxYQr\",\"subscriptionId\":\"wake_sub_compat\",\"sequence\":6,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:27:20.000Z\",\"hint\":\"ignored\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:27:20.400Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_compat"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "respondHeaders": {},
+    "action": "claim",
+    "next": "Claim once."
+  }
+}

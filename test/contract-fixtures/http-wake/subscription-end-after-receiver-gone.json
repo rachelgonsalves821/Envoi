@@ -6,18 +6,19 @@
   "description": "Ending a subscription that already ended for another reason repeats that ending (§3.5).",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_gone",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "ended",
       "endedReason": "receiver_gone"
-    }
+    },
+    "agentStatus": "active"
   },
   "request": {
     "method": "POST",
-    "path": "/api/agent/wake-subscriptions/wake_sub_example/end",
+    "path": "/api/agent/wake-subscriptions/wake_sub_gone/end",
     "auth": "agent_access",
     "headers": {
-      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_gone",
       "content-type": "application/json"
     },
     "schema": "endRequest",
@@ -31,22 +32,22 @@
     },
     "body": {
       "subscription": {
-        "id": "wake_sub_example",
-        "installationId": "installation_example",
-        "agentId": "agent_example",
+        "id": "wake_sub_gone",
+        "installationId": "installation_gone",
+        "agentId": "agent_gone",
         "url": "https://hooks.example.com/envoi/wake",
         "status": "ended",
         "endedReason": "receiver_gone",
-        "createdAt": "2026-10-16T12:00:00.000Z",
-        "activatedAt": "2026-10-16T12:00:10.000Z",
-        "expiresAt": "2026-11-15T12:00:10.000Z",
-        "endedAt": "2026-10-17T11:55:00.000Z",
+        "createdAt": "2026-10-17T10:59:50.000Z",
+        "activatedAt": "2026-10-17T11:00:00.000Z",
+        "expiresAt": "2026-11-16T11:00:00.000Z",
+        "endedAt": "2026-10-17T11:55:00.500Z",
         "challengeExpiresAt": null,
         "replacesSubscriptionId": null,
         "delivery": {
           "state": "failing",
           "lastAttemptAt": "2026-10-17T11:55:00.000Z",
-          "lastSuccessAt": "2026-10-17T11:54:00.000Z",
+          "lastSuccessAt": "2026-10-17T11:00:05.000Z",
           "consecutiveFailures": 1,
           "lastFailureClass": "receiver_gone"
         }

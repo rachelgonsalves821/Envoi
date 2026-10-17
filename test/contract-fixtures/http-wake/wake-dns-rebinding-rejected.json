@@ -6,7 +6,7 @@
   "description": "DNS rebinding (§4.2): at this attempt the name resolves to loopback. Every attempt resolves again and checks every address, so nothing is sent; work notifications retry on the schedule.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_dns_rebinding_rejected",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },

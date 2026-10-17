@@ -18,7 +18,7 @@
     "path": "/api/agent/wake-subscriptions",
     "auth": "agent_access",
     "headers": {
-      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_errors",
       "content-type": "application/json"
     },
     "schema": "createRequest",

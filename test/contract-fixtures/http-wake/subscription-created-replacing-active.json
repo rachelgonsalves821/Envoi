@@ -18,7 +18,7 @@
     "path": "/api/agent/wake-subscriptions",
     "auth": "agent_access",
     "headers": {
-      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_moved",
       "content-type": "application/json"
     },
     "schema": "createRequest",
@@ -34,9 +34,9 @@
     },
     "body": {
       "subscription": {
-        "id": "wake_sub_replacement",
-        "installationId": "installation_example",
-        "agentId": "agent_example",
+        "id": "wake_sub_moved_new",
+        "installationId": "installation_moved",
+        "agentId": "agent_moved",
         "url": "https://wake.example.net/envoi",
         "status": "pending",
         "endedReason": null,
@@ -45,7 +45,7 @@
         "expiresAt": null,
         "endedAt": null,
         "challengeExpiresAt": "2026-10-17T12:15:00.000Z",
-        "replacesSubscriptionId": "wake_sub_example",
+        "replacesSubscriptionId": "wake_sub_moved",
         "delivery": {
           "state": "unverified",
           "lastAttemptAt": null,

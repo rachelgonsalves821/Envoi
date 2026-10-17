@@ -12,26 +12,26 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_71KZNJLsQRhevOQeAlhg",
+        "envoi-wake-id": "wake_evt_gxBe3lJkLTmlftCRkpxP",
         "envoi-wake-timestamp": "1792237350",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=VyXvHU3hezdwSCLSwaIt37UBT9289NaTOFbEMppi7VSPKhplBrlfCcQdhJjzXAvyEOAZOEAFxM6iirc0828jAQ"
+        "envoi-wake-signature": "v1=6WuBji2f5jI65qkksITq819FsgqZD9wNAViUSqUu1HRBA6cHBwwXRCrYY3aWRmRHWfirSas713eOY5WH_mPlBw"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_71KZNJLsQRhevOQeAlhg\",\"subscriptionId\":\"wake_sub_other_host\",\"sequence\":8,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:42:30.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_gxBe3lJkLTmlftCRkpxP\",\"subscriptionId\":\"wake_sub_other_host\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:42:30.000Z\"}"
     }
   },
   "receiver": {
     "clock": "2026-10-17T11:42:30.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_signed"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -40,7 +40,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -52,6 +52,7 @@
     "verdict": "reject",
     "reason": "subscription_unknown",
     "respondStatus": 400,
+    "respondHeaders": {},
     "action": "none",
     "next": "Reject."
   }

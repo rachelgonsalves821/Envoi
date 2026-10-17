@@ -3,10 +3,10 @@
   "version": 1,
   "id": "wake-not-sent-installation-ended",
   "kind": "delivery",
-  "description": "Before every attempt the server derives the installation's state (agent-registration §6.4). An ended installation means an ended subscription, even if no eager end was recorded (§8.3).",
+  "description": "Before every attempt the server derives the credential state as a3 §2.1 does (§8.3). An ended installation means an ended subscription, even if no eager end was recorded.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_installation_ended",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -20,6 +20,10 @@
     "sent": false,
     "failureClass": null,
     "outcome": "not_sent",
-    "notSentReason": "subscription_ended"
+    "notSentReason": "subscription_ended",
+    "suppressed": {
+      "type": "wake.work_available",
+      "reason": "message_delivered"
+    }
   }
 }

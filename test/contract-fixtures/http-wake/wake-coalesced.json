@@ -3,12 +3,12 @@
   "version": 1,
   "id": "wake-coalesced",
   "kind": "sequence",
-  "description": "Three more messages commit while attempt 1 of notification 27 is in flight. They only mark the subscription dirty; when that attempt is acknowledged, exactly one follow-up is created (§6.3).",
+  "description": "Three more messages commit while attempt 1 of notification 3 is in flight. They only set the lane's dirty flag; when that attempt is acknowledged, exactly one follow-up is created (§6.3).",
   "steps": [
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_coalesced",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -36,12 +36,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_DBaEsfKEvy5lUYqxkVwe",
+            "envoi-wake-id": "wake_evt_SSiilExoh9BaResBAXW7",
             "envoi-wake-timestamp": "1792237800",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=Y26MTqLePcJVvE8OHUdwPweKVX2mLKIGzoIHAE-evP0og-Hdhhqy8rtiILhzPbo5teIPGZ0FcINEL5R3bDLACw"
+            "envoi-wake-signature": "v1=Jp8wclZ1wrgQ8x_Fr89y6-Oxf2nWcPwghMsyQSLaFIe1W2SjPused0kWAlfvXcHJXT5hehit7H-ZEXu_xXgqDw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_DBaEsfKEvy5lUYqxkVwe\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":27,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:50:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_SSiilExoh9BaResBAXW7\",\"subscriptionId\":\"wake_sub_coalesced\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:50:00.000Z\"}"
         },
         "response": {
           "status": 200
@@ -53,14 +53,14 @@
         "clock": "2026-10-17T11:50:00.300Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_coalesced"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -69,7 +69,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -81,6 +81,7 @@
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "claim",
         "next": "Claim until idle."
       }
@@ -88,7 +89,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_coalesced",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -115,12 +116,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_5jqCIDfxCUlTOVAWQhwn",
+            "envoi-wake-id": "wake_evt_HoLmOxB6g3j67umKvJRT",
             "envoi-wake-timestamp": "1792237801",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=i-g79jAmpssBbdBvzyCrnke19HbJwngVOKTC0e6bb6VwgyDG_ZWBqva3wxNQX0-7TSjEYNoqloEWxgF7g6HlDw"
+            "envoi-wake-signature": "v1=xhwNK_DYEp9ife4bm1RxLTHvM8-MO9qN7QOgzlK9C4Amr5zbNDpNE6QbHZK5wTtNb7_w59vj74JiyzeUh2fVDQ"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_5jqCIDfxCUlTOVAWQhwn\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":28,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:50:00.500Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_HoLmOxB6g3j67umKvJRT\",\"subscriptionId\":\"wake_sub_coalesced\",\"sequence\":4,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:50:00.500Z\"}"
         },
         "response": {
           "status": 200
@@ -132,14 +133,14 @@
         "clock": "2026-10-17T11:50:01.300Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_coalesced"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -148,7 +149,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -157,11 +158,12 @@
           ]
         },
         "seenIds": [
-          "wake_evt_DBaEsfKEvy5lUYqxkVwe"
+          "wake_evt_SSiilExoh9BaResBAXW7"
         ],
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "claim",
         "next": "Claim until idle."
       }

@@ -8,7 +8,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_exhausted",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -35,14 +35,18 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-id": "wake_evt_9DDQ5EwxOxdm4Vf5EqTw",
             "envoi-wake-timestamp": "1792235930",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=S48E7a-KreMZbTpO06UEeCXylbvRG2FdDSEtQctzeVYPeLaVDzqT3ketuSg2IdTgNlzpmmKsB_pzaHzOt5ifCA"
+            "envoi-wake-signature": "v1=BmHSoXTM-SBXodultifyiNXy_VKQRMXn3fooeKo1Wd6dq10vx0woecsY3dS95Zriqpdq2YSVeFOhxnrysgk3Aw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_9DDQ5EwxOxdm4Vf5EqTw\",\"subscriptionId\":\"wake_sub_exhausted\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": null,
+        "transport": {
+          "phase": "response",
+          "elapsedMs": 10000
+        },
         "failureClass": "timeout",
         "outcome": "retry_scheduled",
         "nextAttemptInSeconds": 10
@@ -51,7 +55,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_exhausted",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -78,12 +82,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-id": "wake_evt_9DDQ5EwxOxdm4Vf5EqTw",
             "envoi-wake-timestamp": "1792235950",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=S41K0dlfbKOQg6Tssynly0LazjWVhJtUFSKHsxNPWrVEmOGT5R1POXtbyoPOWBYkzZpPyAOvcauY-Yf2-3ObDA"
+            "envoi-wake-signature": "v1=vmFgN4iLLjSZ5Bxk-yZ-LAja52Ioe7UbtXTJ0NGsGy_UK_I74BfPIzgTn5r_CIisYdGH4nhXPGAFl0qzFvsMCg"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_9DDQ5EwxOxdm4Vf5EqTw\",\"subscriptionId\":\"wake_sub_exhausted\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": {
           "status": 503
@@ -96,7 +100,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_exhausted",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -123,14 +127,18 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-id": "wake_evt_9DDQ5EwxOxdm4Vf5EqTw",
             "envoi-wake-timestamp": "1792235983",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=HSK4fBv-tJw3q002al868hGkjGkNZilkP3FjoJuyWE4htnzR-r2bVr1F7h_bFSiSMnaR-tE-qbdLTzddBP5nDw"
+            "envoi-wake-signature": "v1=ZFQHz4YjVQDHmW3r51Cgy5OvYi3AuqrGgytmnVpKwM0emxTwYWdo6u7A_A-lUJu6YXrz6M5Ngi7A1SEo0gb4Cw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_9DDQ5EwxOxdm4Vf5EqTw\",\"subscriptionId\":\"wake_sub_exhausted\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": null,
+        "transport": {
+          "phase": "connect",
+          "elapsedMs": 40
+        },
         "failureClass": "connect_failed",
         "outcome": "retry_scheduled",
         "nextAttemptInSeconds": 118
@@ -139,7 +147,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_exhausted",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -166,12 +174,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-id": "wake_evt_9DDQ5EwxOxdm4Vf5EqTw",
             "envoi-wake-timestamp": "1792236101",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=25qdWfo7Sdh42QOtbi0SGYqh3EjK5DBAYoJ_v40MHw_SvdhrOxO4uT6NNntRXiqt0fCCwcxXLhHF9RRYVYWfCg"
+            "envoi-wake-signature": "v1=WIuUt4Sf0K3wfVAP87WSfCWWiLUZ_FuyEOYpind45JMCBLbnNeCKnKHTo351HllGk6TKesIxn26E2IX0LqltAw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_9DDQ5EwxOxdm4Vf5EqTw\",\"subscriptionId\":\"wake_sub_exhausted\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": {
           "status": 502
@@ -184,7 +192,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_exhausted",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -211,14 +219,18 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-id": "wake_evt_9DDQ5EwxOxdm4Vf5EqTw",
             "envoi-wake-timestamp": "1792236741",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=uqXlSGrK41h8Gq2Q2BoY1PavaaNShV9ma_vJYWp1z1cr1uwuWkFkNE7pGvby6PHAX8I_BoZwZpOe1QQtRd82Cw"
+            "envoi-wake-signature": "v1=9CJrkZUjwypZLa9IlE6XXkn545CeoyOqZK-zmNqFfJ7Z6sQrYOgaTijVH4etQPbgCTQYVCng7mjQ0Y2yC5NpCQ"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_9DDQ5EwxOxdm4Vf5EqTw\",\"subscriptionId\":\"wake_sub_exhausted\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": null,
+        "transport": {
+          "phase": "tls",
+          "elapsedMs": 120
+        },
         "failureClass": "tls_failed",
         "outcome": "retry_scheduled",
         "nextAttemptInSeconds": 1700
@@ -227,7 +239,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_exhausted",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -254,12 +266,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-id": "wake_evt_9DDQ5EwxOxdm4Vf5EqTw",
             "envoi-wake-timestamp": "1792238441",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=XcGCVxiB9OD1kj9pJCrdsGnx-2DduSPX64fYK0sBXhL6qZMyolfu4bGqHKKYty9ULx8HDPju51_e34jhVKU6Dw"
+            "envoi-wake-signature": "v1=uspTdcLm7mf_UiBAzJVCcR88yCq2EswEPErWSVEfFT-IYvTb1HVh9OydAtSoMZxa_oNkaG8rBSy3J47I3cZKBg"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_9DDQ5EwxOxdm4Vf5EqTw\",\"subscriptionId\":\"wake_sub_exhausted\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": {
           "status": 504
@@ -274,7 +286,7 @@
         "path": "/api/agent/work/claim",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_exhausted",
           "content-type": "application/json"
         },
         "schema": "case-session#claimRequest",
@@ -360,7 +372,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_exhausted"
         }
       },
       "response": {
@@ -370,25 +382,25 @@
           "cache-control": "no-store"
         },
         "body": {
-          "installationId": "installation_example",
+          "installationId": "installation_exhausted",
           "subscriptions": [
             {
-              "id": "wake_sub_example",
-              "installationId": "installation_example",
-              "agentId": "agent_example",
+              "id": "wake_sub_exhausted",
+              "installationId": "installation_exhausted",
+              "agentId": "agent_exhausted",
               "url": "https://hooks.example.com/envoi/wake",
               "status": "active",
               "endedReason": null,
-              "createdAt": "2026-10-16T12:00:00.000Z",
-              "activatedAt": "2026-10-16T12:00:10.000Z",
-              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "createdAt": "2026-10-17T10:59:50.000Z",
+              "activatedAt": "2026-10-17T11:00:00.000Z",
+              "expiresAt": "2026-11-16T11:00:00.000Z",
               "endedAt": null,
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
               "delivery": {
                 "state": "failing",
                 "lastAttemptAt": "2026-10-17T12:00:41.000Z",
-                "lastSuccessAt": "2026-10-17T11:17:50.000Z",
+                "lastSuccessAt": "2026-10-17T11:00:05.000Z",
                 "consecutiveFailures": 1,
                 "lastFailureClass": "http_retryable"
               }

@@ -6,7 +6,7 @@
   "description": "The owner revokes the subscription (§3.6). The host must not recreate it on its own; to stop the host entirely the owner revokes the installation.",
   "request": {
     "method": "POST",
-    "path": "/api/inboxes/inbox_example/agents/agent_example/wake-subscriptions/wake_sub_example/revoke",
+    "path": "/api/inboxes/inbox_revoked/agents/agent_revoked/wake-subscriptions/wake_sub_revoked/revoke",
     "auth": "human_session",
     "headers": {
       "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
@@ -14,6 +14,7 @@
       "origin": "https://www.envoi-agents.com",
       "content-type": "application/json"
     },
+    "schema": "endRequest",
     "body": {}
   },
   "response": {
@@ -24,22 +25,22 @@
     },
     "body": {
       "subscription": {
-        "id": "wake_sub_example",
-        "installationId": "installation_example",
-        "agentId": "agent_example",
+        "id": "wake_sub_revoked",
+        "installationId": "installation_revoked",
+        "agentId": "agent_revoked",
         "url": "https://hooks.example.com/envoi/wake",
         "status": "ended",
         "endedReason": "revoked_by_owner",
-        "createdAt": "2026-10-16T12:00:00.000Z",
-        "activatedAt": "2026-10-16T12:00:10.000Z",
-        "expiresAt": "2026-11-15T12:00:10.000Z",
+        "createdAt": "2026-10-17T10:59:50.000Z",
+        "activatedAt": "2026-10-17T11:00:00.000Z",
+        "expiresAt": "2026-11-16T11:00:00.000Z",
         "endedAt": "2026-10-17T12:00:00.000Z",
         "challengeExpiresAt": null,
         "replacesSubscriptionId": null,
         "delivery": {
           "state": "healthy",
-          "lastAttemptAt": "2026-10-17T11:59:00.000Z",
-          "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+          "lastAttemptAt": "2026-10-17T11:00:05.000Z",
+          "lastSuccessAt": "2026-10-17T11:00:05.000Z",
           "consecutiveFailures": 0,
           "lastFailureClass": null
         }

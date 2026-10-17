@@ -1,0 +1,59 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-content-type-charset",
+  "kind": "delivery",
+  "description": "A proxy added a charset=utf-8 parameter to content-type (§7.1 check 1). Accepted.",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json; charset=utf-8",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_7yYxP64WZCA1n6qjJOK9",
+        "envoi-wake-timestamp": "1792236480",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=pyDSUUSeWCYBXO5pysgzhgYpYn4jAy1uj86a5AEB-eYIyZRtaNj9tdu4DBVmALOLdDl3d4kJzulb_nd68ofxBw"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_7yYxP64WZCA1n6qjJOK9\",\"subscriptionId\":\"wake_sub_compat\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:28:00.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:28:00.400Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_compat"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "respondHeaders": {},
+    "action": "claim",
+    "next": "Claim once."
+  }
+}

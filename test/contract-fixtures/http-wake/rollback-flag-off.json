@@ -15,7 +15,7 @@
         "path": "/api/agent/status",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_rollback"
         }
       },
       "response": {
@@ -64,7 +64,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_rollback"
         }
       },
       "response": {
@@ -91,7 +91,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_rollback",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -103,7 +103,11 @@
         "sent": false,
         "failureClass": null,
         "outcome": "not_sent",
-        "notSentReason": "feature_disabled"
+        "notSentReason": "feature_disabled",
+        "suppressed": {
+          "type": "wake.work_available",
+          "reason": "message_delivered"
+        }
       }
     }
   ]

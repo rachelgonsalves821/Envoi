@@ -6,7 +6,7 @@
   "description": "A retry delay ended (§2.3). Without SSE a webhook host would otherwise wait for its safety poll.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_work_due",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_j0KI0XPCfsfttfrBrkMz",
+        "envoi-wake-id": "wake_evt_qr68W8xH3evHssRxBHub",
         "envoi-wake-timestamp": "1792237500",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=bevP_76m4BItDnjM5x9s3ONAfd7o-2w0_X4xHTnPodw6NCfu8QsBxHjTiMXLUZQmbLAj3HOLWHGrpVr1pTrsAw"
+        "envoi-wake-signature": "v1=DHGVAZnRz7M3Sp2cEtVpgKm-eL7i-djHP5LlXP9z-fbYnUuomM4bDD8fHOs87a_2sLmz1aYBXIgBGtuDTAHzBA"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_j0KI0XPCfsfttfrBrkMz\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":22,\"reason\":\"work_due\",\"createdAt\":\"2026-10-17T11:45:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_qr68W8xH3evHssRxBHub\",\"subscriptionId\":\"wake_sub_work_due\",\"sequence\":3,\"reason\":\"work_due\",\"createdAt\":\"2026-10-17T11:45:00.000Z\"}"
     },
     "response": {
       "status": 200
@@ -50,14 +50,14 @@
     "clock": "2026-10-17T11:45:00.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_work_due"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -66,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -78,6 +78,7 @@
     "verdict": "process",
     "reason": null,
     "respondStatus": 200,
+    "respondHeaders": {},
     "action": "claim",
     "next": "Claim once."
   }

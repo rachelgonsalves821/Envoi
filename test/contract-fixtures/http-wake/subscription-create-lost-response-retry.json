@@ -38,7 +38,7 @@
           "subscription": {
             "id": "wake_sub_lost_first",
             "installationId": "installation_lost",
-            "agentId": "agent_example",
+            "agentId": "agent_lost",
             "url": "https://hooks.example.org/envoi/wake",
             "status": "pending",
             "endedReason": null,
@@ -98,7 +98,7 @@
           "subscription": {
             "id": "wake_sub_lost_retry",
             "installationId": "installation_lost",
-            "agentId": "agent_example",
+            "agentId": "agent_lost",
             "url": "https://hooks.example.org/envoi/wake",
             "status": "pending",
             "endedReason": null,
@@ -147,7 +147,7 @@
             {
               "id": "wake_sub_lost_retry",
               "installationId": "installation_lost",
-              "agentId": "agent_example",
+              "agentId": "agent_lost",
               "url": "https://hooks.example.org/envoi/wake",
               "status": "pending",
               "endedReason": null,
@@ -168,7 +168,7 @@
             {
               "id": "wake_sub_lost_first",
               "installationId": "installation_lost",
-              "agentId": "agent_example",
+              "agentId": "agent_lost",
               "url": "https://hooks.example.org/envoi/wake",
               "status": "ended",
               "endedReason": "superseded",

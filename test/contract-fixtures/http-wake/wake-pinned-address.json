@@ -6,7 +6,7 @@
   "description": "Envoi connects to an address from the resolution it checked, with SNI and certificate checks for the URL host (§4.3). It never resolves again between the check and the connection.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_pinned",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -35,12 +35,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_P6tcGBvSigm2Q5ffdq4r",
+        "envoi-wake-id": "wake_evt_c7CQ3uBhXwtFN5Ucp0Ix",
         "envoi-wake-timestamp": "1792237200",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=zyUmXkH68wZnJ9FdEbkamFuyvZhMOg6yxKca8U_P14_zNUas2pQFCnBZA9Az-VXCGyh6dWJvYIOjuq5sHMvcAQ"
+        "envoi-wake-signature": "v1=LlzEg6PjRLojtftVIiPED1MQxGonaA1-H5UEgfHaqjrYF-Gw1hpSyaTPjQKFegSJ75Rx3ZZpCmZdX8eyfTsLAw"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_P6tcGBvSigm2Q5ffdq4r\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":18,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:40:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_c7CQ3uBhXwtFN5Ucp0Ix\",\"subscriptionId\":\"wake_sub_pinned\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:40:00.000Z\"}"
     },
     "response": {
       "status": 200
@@ -52,14 +52,14 @@
     "clock": "2026-10-17T11:40:00.300Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_pinned"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -68,7 +68,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -80,6 +80,7 @@
     "verdict": "process",
     "reason": null,
     "respondStatus": 200,
+    "respondHeaders": {},
     "action": "claim",
     "next": "Claim once."
   }

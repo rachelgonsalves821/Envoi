@@ -19,7 +19,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_moved",
           "content-type": "application/json"
         },
         "schema": "createRequest",
@@ -35,9 +35,9 @@
         },
         "body": {
           "subscription": {
-            "id": "wake_sub_replacement",
-            "installationId": "installation_example",
-            "agentId": "agent_example",
+            "id": "wake_sub_moved_new",
+            "installationId": "installation_moved",
+            "agentId": "agent_moved",
             "url": "https://wake.example.net/envoi",
             "status": "pending",
             "endedReason": null,
@@ -46,7 +46,7 @@
             "expiresAt": null,
             "endedAt": null,
             "challengeExpiresAt": "2026-10-17T12:15:00.000Z",
-            "replacesSubscriptionId": "wake_sub_example",
+            "replacesSubscriptionId": "wake_sub_moved",
             "delivery": {
               "state": "unverified",
               "lastAttemptAt": null,
@@ -68,11 +68,12 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_replacement",
+          "id": "wake_sub_moved_new",
           "url": "https://wake.example.net/envoi",
           "status": "pending",
           "challengeExpiresAt": "2026-10-17T12:15:00.000Z"
-        }
+        },
+        "agentStatus": "active"
       },
       "delivery": {
         "origin": "server",
@@ -95,12 +96,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_lBybMxELDqtCXS8qQujV",
+            "envoi-wake-id": "wake_evt_yzTOVrFiP97NOEe40Mbb",
             "envoi-wake-timestamp": "1792238702",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=kbdHqYHL4Hvo7B5DGbTQbhEgQe0XlxhzKYrfFZgZPztQiYFw00FLgg0RG0qAKD1DPW27MuXkiGgV-qmSUHJpBw"
+            "envoi-wake-signature": "v1=pqYHGYYNNhR1pbvOJYRuc69_jUg9nWQDX4GZuPeUOlRpOYB0TOWxVXRiTBQz6pDrPiW8NrvpLCeYAEoLa7u4Cg"
           },
-          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_lBybMxELDqtCXS8qQujV\",\"subscriptionId\":\"wake_sub_replacement\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_replacement\",\"expiresAt\":\"2026-10-17T12:15:00.000Z\",\"createdAt\":\"2026-10-17T12:05:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_yzTOVrFiP97NOEe40Mbb\",\"subscriptionId\":\"wake_sub_moved_new\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_replacement\",\"expiresAt\":\"2026-10-17T12:15:00.000Z\",\"createdAt\":\"2026-10-17T12:05:00.000Z\"}"
         },
         "response": {
           "status": 200
@@ -112,14 +113,14 @@
         "clock": "2026-10-17T12:05:02.400Z",
         "registeredUrl": "https://wake.example.net/envoi",
         "subscriptionIds": [
-          "wake_sub_replacement"
+          "wake_sub_moved_new"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -128,7 +129,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -140,6 +141,7 @@
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "activate",
         "next": "Activate the replacement."
       }
@@ -147,10 +149,10 @@
     {
       "request": {
         "method": "POST",
-        "path": "/api/agent/wake-subscriptions/wake_sub_replacement/activate",
+        "path": "/api/agent/wake-subscriptions/wake_sub_moved_new/activate",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_moved",
           "content-type": "application/json"
         },
         "schema": "activateRequest",
@@ -166,9 +168,9 @@
         },
         "body": {
           "subscription": {
-            "id": "wake_sub_replacement",
-            "installationId": "installation_example",
-            "agentId": "agent_example",
+            "id": "wake_sub_moved_new",
+            "installationId": "installation_moved",
+            "agentId": "agent_moved",
             "url": "https://wake.example.net/envoi",
             "status": "active",
             "endedReason": null,
@@ -177,7 +179,7 @@
             "expiresAt": "2026-11-16T12:05:04.000Z",
             "endedAt": null,
             "challengeExpiresAt": null,
-            "replacesSubscriptionId": "wake_sub_example",
+            "replacesSubscriptionId": "wake_sub_moved",
             "delivery": {
               "state": "healthy",
               "lastAttemptAt": "2026-10-17T12:05:02.000Z",
@@ -202,7 +204,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_moved"
         }
       },
       "response": {
@@ -212,12 +214,12 @@
           "cache-control": "no-store"
         },
         "body": {
-          "installationId": "installation_example",
+          "installationId": "installation_moved",
           "subscriptions": [
             {
-              "id": "wake_sub_replacement",
-              "installationId": "installation_example",
-              "agentId": "agent_example",
+              "id": "wake_sub_moved_new",
+              "installationId": "installation_moved",
+              "agentId": "agent_moved",
               "url": "https://wake.example.net/envoi",
               "status": "active",
               "endedReason": null,
@@ -226,7 +228,7 @@
               "expiresAt": "2026-11-16T12:05:04.000Z",
               "endedAt": null,
               "challengeExpiresAt": null,
-              "replacesSubscriptionId": "wake_sub_example",
+              "replacesSubscriptionId": "wake_sub_moved",
               "delivery": {
                 "state": "healthy",
                 "lastAttemptAt": "2026-10-17T12:05:02.000Z",
@@ -236,22 +238,22 @@
               }
             },
             {
-              "id": "wake_sub_example",
-              "installationId": "installation_example",
-              "agentId": "agent_example",
+              "id": "wake_sub_moved",
+              "installationId": "installation_moved",
+              "agentId": "agent_moved",
               "url": "https://hooks.example.com/envoi/wake",
               "status": "ended",
               "endedReason": "replaced",
-              "createdAt": "2026-10-16T12:00:00.000Z",
-              "activatedAt": "2026-10-16T12:00:10.000Z",
-              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "createdAt": "2026-10-17T10:59:50.000Z",
+              "activatedAt": "2026-10-17T11:00:00.000Z",
+              "expiresAt": "2026-11-16T11:00:00.000Z",
               "endedAt": "2026-10-17T12:05:04.000Z",
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
               "delivery": {
                 "state": "healthy",
-                "lastAttemptAt": "2026-10-17T11:59:00.000Z",
-                "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+                "lastAttemptAt": "2026-10-17T11:00:05.000Z",
+                "lastSuccessAt": "2026-10-17T11:00:05.000Z",
                 "consecutiveFailures": 0,
                 "lastFailureClass": null
               }
@@ -270,11 +272,12 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_moved",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "ended",
           "endedReason": "replaced"
-        }
+        },
+        "agentStatus": "active"
       },
       "delivery": {
         "origin": "server",
@@ -282,16 +285,21 @@
         "sent": false,
         "failureClass": null,
         "outcome": "not_sent",
-        "notSentReason": "subscription_ended"
+        "notSentReason": "subscription_ended",
+        "suppressed": {
+          "type": "wake.work_available",
+          "reason": "message_delivered"
+        }
       }
     },
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_replacement",
+          "id": "wake_sub_moved_new",
           "url": "https://wake.example.net/envoi",
           "status": "active"
-        }
+        },
+        "agentStatus": "active"
       },
       "delivery": {
         "origin": "server",
@@ -314,12 +322,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_zYYwWKjymSlULlxvGqkW",
+            "envoi-wake-id": "wake_evt_dQzgc709JSmUrTbmFaox",
             "envoi-wake-timestamp": "1792238704",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=s4IVYbdd6jgY5hQxMFyuC30WQTKggdkancqWnLw5yDXOXuSwERTRoxuJyW5x4g4KSaPj5fVrqdkQ_YjlwFytBg"
+            "envoi-wake-signature": "v1=nZ-GdHEvOzYbh9zVaVhe9CHO-stIDgFyAaMlhNf0LBHjEoGe1ROfa8ez0sGlc7m4aUNtykA3ShktDIhaAL6tAw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_zYYwWKjymSlULlxvGqkW\",\"subscriptionId\":\"wake_sub_replacement\",\"sequence\":2,\"reason\":\"subscription_activated\",\"createdAt\":\"2026-10-17T12:05:04.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_dQzgc709JSmUrTbmFaox\",\"subscriptionId\":\"wake_sub_moved_new\",\"sequence\":2,\"reason\":\"subscription_activated\",\"createdAt\":\"2026-10-17T12:05:04.000Z\"}"
         },
         "response": {
           "status": 200
@@ -331,14 +339,14 @@
         "clock": "2026-10-17T12:05:04.300Z",
         "registeredUrl": "https://wake.example.net/envoi",
         "subscriptionIds": [
-          "wake_sub_replacement"
+          "wake_sub_moved_new"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -347,7 +355,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -356,11 +364,12 @@
           ]
         },
         "seenIds": [
-          "wake_evt_lBybMxELDqtCXS8qQujV"
+          "wake_evt_yzTOVrFiP97NOEe40Mbb"
         ],
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "claim",
         "next": "Claim once."
       }

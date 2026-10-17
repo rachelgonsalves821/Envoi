@@ -1,0 +1,55 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-end-pending",
+  "kind": "http",
+  "description": "A host may end a pending subscription (§3.5). It never activated, so it reports no delivery detail.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions/wake_sub_end_pending/end",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_end_pending",
+      "content-type": "application/json"
+    },
+    "schema": "endRequest",
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "subscriptionResponse",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "subscription": {
+        "id": "wake_sub_end_pending",
+        "installationId": "installation_end_pending",
+        "agentId": "agent_end_pending",
+        "url": "https://hooks.example.org/envoi/wake",
+        "status": "ended",
+        "endedReason": "ended_by_host",
+        "createdAt": "2026-10-17T11:58:20.000Z",
+        "activatedAt": null,
+        "expiresAt": null,
+        "endedAt": "2026-10-17T12:00:00.000Z",
+        "challengeExpiresAt": null,
+        "replacesSubscriptionId": null,
+        "delivery": {
+          "state": "unverified",
+          "lastAttemptAt": null,
+          "lastSuccessAt": null,
+          "consecutiveFailures": 0,
+          "lastFailureClass": null
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Nothing more is sent."
+  }
+}

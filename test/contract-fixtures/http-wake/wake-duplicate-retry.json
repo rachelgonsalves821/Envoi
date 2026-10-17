@@ -8,7 +8,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_duplicate",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -35,14 +35,18 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_Sj40prsmxc8PxdJNn0uK",
+            "envoi-wake-id": "wake_evt_rF4dmHFAI4jCpOjxt1XY",
             "envoi-wake-timestamp": "1792236600",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=5SXMroo6EqUFIka229vedXRkxISX0LQh_kc5IcLBJ9_7iKi8pvgo56Su0DZnl_kP0Xe2e7RkeFqMhaYaaQSHAw"
+            "envoi-wake-signature": "v1=7WJS7R6iUp6Za-2zW46PHg16pxdMNysN8BbSRJ3zq4LS6qTBqQIK6dFkGEau8DddMqxZAtjIytB7O7nXW3ZRAg"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Sj40prsmxc8PxdJNn0uK\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":13,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:30:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_rF4dmHFAI4jCpOjxt1XY\",\"subscriptionId\":\"wake_sub_duplicate\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:30:00.000Z\"}"
         },
         "response": null,
+        "transport": {
+          "phase": "response",
+          "elapsedMs": 10000
+        },
         "failureClass": "timeout",
         "outcome": "retry_scheduled",
         "nextAttemptInSeconds": 11
@@ -51,14 +55,14 @@
         "clock": "2026-10-17T11:30:00.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_duplicate"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -67,7 +71,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -79,6 +83,7 @@
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "claim",
         "next": "Claim once. The acknowledgement is lost on the way back."
       }
@@ -86,7 +91,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_duplicate",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -113,12 +118,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_Sj40prsmxc8PxdJNn0uK",
+            "envoi-wake-id": "wake_evt_rF4dmHFAI4jCpOjxt1XY",
             "envoi-wake-timestamp": "1792236621",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=BEaEPvVmP2vpurtYGoQoTFRsP_aVxMBbDvwlK078sNUyUQL3gfCEumgtDo7H-2fa7DwT56Nw-Nviz_sTG1tMDw"
+            "envoi-wake-signature": "v1=-uctoBEDzUGthipBzTfvBeuSgf5lSuZTYMUwI1dkACJ0SwjK1nWHuWQY---NH2to08NHk3fcU0U9LFtoyV6XCA"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Sj40prsmxc8PxdJNn0uK\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":13,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:30:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_rF4dmHFAI4jCpOjxt1XY\",\"subscriptionId\":\"wake_sub_duplicate\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:30:00.000Z\"}"
         },
         "response": {
           "status": 200
@@ -130,14 +135,14 @@
         "clock": "2026-10-17T11:30:21.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_duplicate"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -146,7 +151,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -155,11 +160,12 @@
           ]
         },
         "seenIds": [
-          "wake_evt_Sj40prsmxc8PxdJNn0uK"
+          "wake_evt_rF4dmHFAI4jCpOjxt1XY"
         ],
         "verdict": "duplicate",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "none",
         "next": "Acknowledge; do nothing."
       }

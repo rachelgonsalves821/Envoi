@@ -1,0 +1,59 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-signature-v2-and-v1",
+  "kind": "delivery",
+  "description": "A signature header with a v2 entry before the v1 entry (§5.1). A v1 receiver uses the v1 entry.",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_9uHsleyPC1wC1YLp9kzG",
+        "envoi-wake-timestamp": "1792236450",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v2=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA v1=oIAXQbOBKimBzbFiALeJrHUpla_dFzBRLGXDKvlfEr8RYsWf3kRx_XkdLn8IseTFP3aSuZLjYJC8VOH_J3YwAQ"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_9uHsleyPC1wC1YLp9kzG\",\"subscriptionId\":\"wake_sub_compat\",\"sequence\":7,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:27:30.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:27:30.400Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_compat"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "respondHeaders": {},
+    "action": "claim",
+    "next": "Claim once."
+  }
+}

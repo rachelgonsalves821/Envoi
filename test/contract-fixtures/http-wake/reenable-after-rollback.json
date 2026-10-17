@@ -3,7 +3,7 @@
   "version": 1,
   "id": "reenable-after-rollback",
   "kind": "rollback",
-  "description": "After a disable the wake epoch has moved (§1), so a subscription created before it never revives: it reads as ended with feature_disabled, and the host registers and proves its URL again.",
+  "description": "After a disable the wake epoch has moved (§1), so a subscription created before it that had not already ended reads as ended with feature_disabled, and the host registers and proves its URL again.",
   "flags": {
     "ENVOI_HTTP_WAKE_V1": true,
     "ENVOI_INSTALLATIONS_V2": true
@@ -15,7 +15,7 @@
         "path": "/api/agent/status",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_reenabled"
         }
       },
       "response": {
@@ -47,17 +47,17 @@
             "available": true,
             "version": 1,
             "subscription": {
-              "id": "wake_sub_example",
+              "id": "wake_sub_reenabled",
               "status": "ended",
               "endedReason": "feature_disabled",
-              "expiresAt": "2026-11-15T12:00:10.000Z"
+              "expiresAt": "2026-11-16T11:00:00.000Z"
             }
           }
         }
       },
       "client": {
         "surface": "host",
-        "lifecycle": "UNCHANGED",
+        "lifecycle": "RUNNING",
         "retry": "create_subscription",
         "guidance": "create_new_subscription",
         "next": "Create a new subscription."
@@ -69,7 +69,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_reenabled"
         }
       },
       "response": {
@@ -79,25 +79,25 @@
           "cache-control": "no-store"
         },
         "body": {
-          "installationId": "installation_example",
+          "installationId": "installation_reenabled",
           "subscriptions": [
             {
-              "id": "wake_sub_example",
-              "installationId": "installation_example",
-              "agentId": "agent_example",
+              "id": "wake_sub_reenabled",
+              "installationId": "installation_reenabled",
+              "agentId": "agent_reenabled",
               "url": "https://hooks.example.com/envoi/wake",
               "status": "ended",
               "endedReason": "feature_disabled",
-              "createdAt": "2026-10-16T12:00:00.000Z",
-              "activatedAt": "2026-10-16T12:00:10.000Z",
-              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "createdAt": "2026-10-17T10:59:50.000Z",
+              "activatedAt": "2026-10-17T11:00:00.000Z",
+              "expiresAt": "2026-11-16T11:00:00.000Z",
               "endedAt": "2026-10-17T12:00:00.000Z",
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
               "delivery": {
                 "state": "healthy",
-                "lastAttemptAt": "2026-10-17T11:59:00.000Z",
-                "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+                "lastAttemptAt": "2026-10-17T11:00:05.000Z",
+                "lastSuccessAt": "2026-10-17T11:00:05.000Z",
                 "consecutiveFailures": 0,
                 "lastFailureClass": null
               }
@@ -116,7 +116,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_reenabled",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "ended",
           "endedReason": "feature_disabled"
@@ -129,7 +129,11 @@
         "sent": false,
         "failureClass": null,
         "outcome": "not_sent",
-        "notSentReason": "subscription_ended"
+        "notSentReason": "subscription_ended",
+        "suppressed": {
+          "type": "wake.work_available",
+          "reason": "message_delivered"
+        }
       }
     },
     {
@@ -146,7 +150,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_reenabled",
           "content-type": "application/json"
         },
         "schema": "createRequest",
@@ -162,9 +166,9 @@
         },
         "body": {
           "subscription": {
-            "id": "wake_sub_after_reenable",
-            "installationId": "installation_example",
-            "agentId": "agent_example",
+            "id": "wake_sub_reenabled_new",
+            "installationId": "installation_reenabled",
+            "agentId": "agent_reenabled",
             "url": "https://hooks.example.com/envoi/wake",
             "status": "pending",
             "endedReason": null,

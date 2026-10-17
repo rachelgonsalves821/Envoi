@@ -3,12 +3,12 @@
   "version": 1,
   "id": "wake-out-of-order",
   "kind": "sequence",
-  "description": "Work notification 29 goes into backoff; control notification 30 overtakes it; then 29 arrives (§6.3). Receivers never depend on order: each verified new id is acted on.",
+  "description": "Work notification 3 goes into backoff; control notification 4 overtakes it; then 3 arrives (§6.3). Receivers never depend on order: each verified new id is acted on.",
   "steps": [
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_out_of_order",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -35,14 +35,18 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_j1kL4EcOaA22raAYktus",
+            "envoi-wake-id": "wake_evt_sB3Oh6y5MI9nGVuWr9Gs",
             "envoi-wake-timestamp": "1792237900",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=NoftfKw6qRdpIulHkdZeOffeGag9YC8Rmk-dI97w25zZkRDenB9232x8fZ7Bivp-_dQADdFH5F66gm7VjpZCAg"
+            "envoi-wake-signature": "v1=SXChk9tDvlYAhE_GlRaK1H5A8n5PGWAXRKWhfZt7jO3at1Mj8f5l7g90WEXL-wPPckFZPue5ELiI01AGC4SyDA"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_j1kL4EcOaA22raAYktus\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":29,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:51:40.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_sB3Oh6y5MI9nGVuWr9Gs\",\"subscriptionId\":\"wake_sub_out_of_order\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:51:40.000Z\"}"
         },
         "response": null,
+        "transport": {
+          "phase": "interrupted",
+          "elapsedMs": 3000
+        },
         "failureClass": "interrupted",
         "outcome": "retry_scheduled",
         "nextAttemptInSeconds": 10
@@ -51,7 +55,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_out_of_order",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -78,12 +82,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_3Ne3MLtSxWzdtEJH72bU",
+            "envoi-wake-id": "wake_evt_Oj9qZExCP77ldqvYkc91",
             "envoi-wake-timestamp": "1792237905",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=ClZL5-EDeg3BC9tdTBLHtt4UQ5hrncUfkZWLOmorZPnkbCensBvhej2P3FiyqXxcKjH0dKVeVMXMBeMe2ON7BQ"
+            "envoi-wake-signature": "v1=9ysjuBVspbSCLORd6yJGSSNffwICJ1OH3EFfMfa4T2I6w8sMKGU34YzL7WNY8_J42MKsegE-TQ4ilRQszz3ACg"
           },
-          "bodyText": "{\"type\":\"wake.control_changed\",\"version\":1,\"id\":\"wake_evt_3Ne3MLtSxWzdtEJH72bU\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":30,\"reason\":\"case_controlled\",\"createdAt\":\"2026-10-17T11:51:45.000Z\"}"
+          "bodyText": "{\"type\":\"wake.control_changed\",\"version\":1,\"id\":\"wake_evt_Oj9qZExCP77ldqvYkc91\",\"subscriptionId\":\"wake_sub_out_of_order\",\"sequence\":4,\"reason\":\"case_controlled\",\"createdAt\":\"2026-10-17T11:51:45.000Z\"}"
         },
         "response": {
           "status": 200
@@ -95,14 +99,14 @@
         "clock": "2026-10-17T11:51:45.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_out_of_order"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -111,7 +115,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -123,6 +127,7 @@
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "renew_live_leases",
         "next": "Renew every live lease now."
       }
@@ -130,7 +135,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_out_of_order",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -157,12 +162,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_j1kL4EcOaA22raAYktus",
+            "envoi-wake-id": "wake_evt_sB3Oh6y5MI9nGVuWr9Gs",
             "envoi-wake-timestamp": "1792237912",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=eE9JxxTGtE3_BhUHGPKaJLKpSF2xsL6IhIgX3oPsAmoodjwKjqAn-wmzHkkDReIAVUkR1phVQ9ShvhPINyIICw"
+            "envoi-wake-signature": "v1=F0RtPn61ZssC3vkkDW5ShpsRZjBsxsZrCcHzckaAUG8JevaxchrlVdOBG0IVzFyJV6RdDH-sRv6wWYqe7oMVBQ"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_j1kL4EcOaA22raAYktus\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":29,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:51:40.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_sB3Oh6y5MI9nGVuWr9Gs\",\"subscriptionId\":\"wake_sub_out_of_order\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:51:40.000Z\"}"
         },
         "response": {
           "status": 200
@@ -174,14 +179,14 @@
         "clock": "2026-10-17T11:51:52.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_out_of_order"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -190,7 +195,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -199,11 +204,12 @@
           ]
         },
         "seenIds": [
-          "wake_evt_3Ne3MLtSxWzdtEJH72bU"
+          "wake_evt_Oj9qZExCP77ldqvYkc91"
         ],
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "claim",
         "next": "Claim once."
       }

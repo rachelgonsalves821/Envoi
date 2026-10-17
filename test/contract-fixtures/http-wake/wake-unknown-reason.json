@@ -1,0 +1,59 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-unknown-reason",
+  "kind": "delivery",
+  "description": "A work notification with a reason this receiver does not know. It is still a claim hint (§2.3).",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_HZh2ZLzlcvAk4UtxgxGQ",
+        "envoi-wake-timestamp": "1792236430",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=t2A9y5XMdZfc6xhPg8XPozKxHXEpnA4IBKPfAclDve-w0bmve_K3iMMlAAQopn7SaicF9aA9-U6nQ1BT5wGCDA"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_HZh2ZLzlcvAk4UtxgxGQ\",\"subscriptionId\":\"wake_sub_compat\",\"sequence\":5,\"reason\":\"future_reason\",\"createdAt\":\"2026-10-17T11:27:10.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:27:10.400Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_compat"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "respondHeaders": {},
+    "action": "claim",
+    "next": "Claim once."
+  }
+}

@@ -36,7 +36,7 @@
       "subscription": {
         "id": "wake_sub_paused",
         "installationId": "installation_paused",
-        "agentId": "agent_example",
+        "agentId": "agent_paused",
         "url": "https://hooks.example.org/envoi/wake",
         "status": "pending",
         "endedReason": null,

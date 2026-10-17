@@ -3,9 +3,10 @@
   "version": 1,
   "id": "keys-rotated",
   "kind": "http",
-  "description": "After rotation (§5.4): the next key is active from validFrom, and the old key is retired with a notAfter keyRetireGraceSeconds later.",
+  "description": "After a routine rotation (§5.4): the next key is active from validFrom, and the old key is retired with a notAfter keyRetireGraceSeconds later.",
   "context": {
-    "validFrom": "2026-10-18T12:00:00.000Z"
+    "validFrom": "2026-10-18T12:00:00.000Z",
+    "rotation": "routine"
   },
   "request": {
     "method": "GET",
@@ -24,7 +25,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -33,7 +34,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",

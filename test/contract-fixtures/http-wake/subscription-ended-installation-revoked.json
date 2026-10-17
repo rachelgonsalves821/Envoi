@@ -3,12 +3,12 @@
   "version": 1,
   "id": "subscription-ended-installation-revoked",
   "kind": "sequence",
-  "description": "The owner revokes the installation (agent-registration §6.5). Its subscriptions end with credential_ended (§8.3). The host can no longer authenticate, and nothing more is sent.",
+  "description": "The owner revokes the installation (agent-registration §6.5). Its subscriptions end with credential_ended at the family's revokedAt (§8.3). The host can no longer authenticate, and nothing more is sent.",
   "steps": [
     {
       "request": {
         "method": "GET",
-        "path": "/api/inboxes/inbox_example/agents/agent_example/wake-subscriptions",
+        "path": "/api/inboxes/inbox_installation_revoked/agents/agent_installation_revoked/wake-subscriptions",
         "auth": "human_session",
         "headers": {
           "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
@@ -23,25 +23,25 @@
           "cache-control": "no-store"
         },
         "body": {
-          "agentId": "agent_example",
+          "agentId": "agent_installation_revoked",
           "subscriptions": [
             {
-              "id": "wake_sub_example",
-              "installationId": "installation_example",
-              "agentId": "agent_example",
+              "id": "wake_sub_installation_revoked",
+              "installationId": "installation_installation_revoked",
+              "agentId": "agent_installation_revoked",
               "url": "https://hooks.example.com/envoi/wake",
               "status": "ended",
               "endedReason": "credential_ended",
-              "createdAt": "2026-10-16T12:00:00.000Z",
-              "activatedAt": "2026-10-16T12:00:10.000Z",
-              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "createdAt": "2026-10-17T10:59:50.000Z",
+              "activatedAt": "2026-10-17T11:00:00.000Z",
+              "expiresAt": "2026-11-16T11:00:00.000Z",
               "endedAt": "2026-10-17T12:00:00.000Z",
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
               "delivery": {
                 "state": "healthy",
-                "lastAttemptAt": "2026-10-17T11:59:00.000Z",
-                "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+                "lastAttemptAt": "2026-10-17T11:00:05.000Z",
+                "lastSuccessAt": "2026-10-17T11:00:05.000Z",
                 "consecutiveFailures": 0,
                 "lastFailureClass": null
               }
@@ -63,7 +63,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_installation_revoked"
         }
       },
       "response": {
@@ -91,13 +91,13 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_installation_revoked",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "ended",
           "endedReason": "credential_ended"
         },
-        "credential": "ended",
-        "agentStatus": "active"
+        "agentStatus": "active",
+        "credential": "ended"
       },
       "delivery": {
         "origin": "server",
@@ -105,7 +105,11 @@
         "sent": false,
         "failureClass": null,
         "outcome": "not_sent",
-        "notSentReason": "subscription_ended"
+        "notSentReason": "subscription_ended",
+        "suppressed": {
+          "type": "wake.work_available",
+          "reason": "message_delivered"
+        }
       }
     }
   ]

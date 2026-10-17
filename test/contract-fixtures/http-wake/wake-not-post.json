@@ -1,0 +1,59 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-not-post",
+  "kind": "delivery",
+  "description": "A method other than POST (§7.1 check 1).",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "PUT",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_lx2lYo2p5xAtTfAA7POm",
+        "envoi-wake-timestamp": "1792236510",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=fFURryl2SsA-ynSnrnQW0JGqGrMy88MygF5aIob9zTCU8BZxprf3-5e2oMG2lSwureccgypau4jauFxv3tauAA"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_lx2lYo2p5xAtTfAA7POm\",\"subscriptionId\":\"wake_sub_compat\",\"sequence\":13,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:28:30.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:28:30.400Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_compat"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "reject",
+    "reason": "malformed",
+    "respondStatus": 400,
+    "respondHeaders": {},
+    "action": "none",
+    "next": "Reject."
+  }
+}

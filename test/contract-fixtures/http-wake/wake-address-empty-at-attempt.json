@@ -6,7 +6,7 @@
   "description": "At this attempt the name resolves to nothing (§4.2). Nothing is sent.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_address_empty_at_attempt",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },

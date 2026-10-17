@@ -1,0 +1,28 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-dns-timeout-at-attempt",
+  "kind": "delivery",
+  "description": "A lookup timed out (§4.2). That is address_rejected, not timeout; nothing is sent.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_dns_timeout_at_attempt",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [],
+      "error": "TIMEOUT"
+    },
+    "sent": false,
+    "failureClass": "address_rejected",
+    "outcome": "retry_scheduled",
+    "nextAttemptInSeconds": 9
+  }
+}

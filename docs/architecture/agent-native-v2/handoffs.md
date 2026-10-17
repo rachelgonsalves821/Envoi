@@ -3242,7 +3242,7 @@ Both parties then see the receipt in their timelines, and the case is closed (§
 The blanket "CONTRACT-APPROVED (for Phase C)" on board #34 predates this publication and names no version, so it does not approve this contract. Nothing here is implemented, and nothing is default-on. The server work is C-A5; the client work is C-B5.
 
 **Fixtures:** [`test/contract-fixtures/http-wake/`](../../../test/contract-fixtures/http-wake/). It holds:
-- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-url-checks`, `x-reserved-names`, `x-ipv6-global-unicast`, `x-blocked-ranges`, `x-failure-classes`, `x-wake-reasons`, `x-signing`, `x-receiver-checks`, `x-responsibility` and `x-ended-reasons`;
+- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-url-checks`, `x-reserved-names`, `x-ipv6-global-unicast`, `x-blocked-ranges`, `x-failure-classes`, `x-wake-reasons`, `x-signing`, `x-receiver-checks`, `x-responsibility`, `x-ended-reasons`, and the examples `x-public-origin-example` and `x-self-hosts-example`;
 - one JSON file per case. Every signature in them is a real Ed25519 signature by a throwaway test key whose public half is in the fixtures.
 
 **Owner:** Lane A. **Consumer:** Lane B: the trusted reference receiver and host adapter (C-B5), and the owner UI's wake status. Phase B **B-R8** consumes the same contract.
@@ -3283,7 +3283,8 @@ It builds on `a3-pause-auth` v3 (envelope, codes, pause), `a4-wake` v2 (claim tr
 ```
 
 - The field appears on every status response once C-A5 is deployed, whatever the flag. It is additive under a3 §1, so old connectors ignore it. A host never reads flags.
-- **`subscription`** summarizes the calling installation's newest subscription: its active one, else its pending one, else its most recently ended one, else `null`. It is `null` whenever the flag is off. A host reads it at startup and on every safety poll (§7.4), so a subscription that ended is never missed silently.
+- **`subscription`** summarizes the calling installation's most relevant subscription: its active one, else its pending one, else its most recently ended one, else `null`. It is `null` whenever the flag is off. A host reads it at startup and on every safety poll (§7.4), so a subscription that ended is never missed silently.
+- **The host remembers endings.** Ended records are deleted after `retainEndedDays` (§6.5), and `subscription` then reads `null`. A host therefore stores the last ended reason it saw. A `null` never licenses a new create after `revoked_by_owner`.
 - **`available: false`, or the field is absent:** the host creates no subscription and relies on SSE and the a4 safety poll.
 - **`available: true`:** a host that runs an HTTPS receiver may create one (§3.1).
 
@@ -3295,7 +3296,8 @@ It builds on `a3-pause-auth` v3 (envelope, codes, pause), `a4-wake` v2 (claim tr
 - **On startup with the flag off,** a C-A5 server sets `epoch` to now. In a mixed rollout, any instance that starts with the flag off moves the epoch for all of them; that is a disable.
 - **On startup with the flag on,** the server sets `epoch` to now if `activeUntil` has already passed. That covers a code rollback, because the reverted server never refreshed `activeUntil`.
 - **While the flag is on,** every server extends `activeUntil` to now + `epochGraceSeconds` (6 h) at least every `epochRefreshSeconds` (10 min). An outage or restart shorter than 6 h therefore keeps every subscription.
-- **A subscription created before `epoch`** reads as `ended`, with `endedReason: "feature_disabled"` and `endedAt` equal to the epoch, on every route and before every attempt. The first read or attempt that finds it records that.
+- **A subscription created before `epoch` that had not already ended** reads as `ended`, with `endedReason: "feature_disabled"` and `endedAt` equal to the epoch, on every route and before every attempt. The first read or attempt that finds it records that. A subscription that had already ended keeps its first ending, so an owner revoke is never relabelled.
+- **Every epoch move is logged and audited** (`http_wake.epoch_moved`, with its cause: flag off at startup, or `activeUntil` passed). A container restarted with a stale environment can move the epoch for everyone, and the operator must be able to see that.
 
 After a disable, the host registers again and proves its URL again (fixture `reenable-after-rollback`), because the domain may have changed hands in between. Any other drift while the code was rolled back, such as an installation revoked by a path that did not end its subscriptions, is caught by the per-attempt derivation in §8.3.
 
@@ -3334,10 +3336,10 @@ The rules:
 | --- | --- | --- |
 | `superseded` | A newer create from the same installation replaced it while it was pending (§3.1). | none / none |
 | `replaced` | A newer subscription of the same installation was activated (§3.4). | none / none |
-| `challenge_expired` | The challenge window passed without an activation (§3.2). | `create_subscription` / `create_new_subscription` |
+| `challenge_expired` | The challenge window passed without an activation (§3.2). `endedAt` is `challengeExpiresAt`. | `create_subscription` / `create_new_subscription` |
 | `ended_by_host` | The host ended it (§3.5). | none / none |
 | `revoked_by_owner` | The owner revoked it (§3.6). | none / `owner_revoked_wake` |
-| `credential_ended` | Its installation ended (§8.3). | none / `check_host_credential` |
+| `credential_ended` | Its installation ended (§8.3). `endedAt` is when the family or agent ended, not when the server noticed. | none / `check_host_credential` |
 | `receiver_gone` | The receiver answered `410 Gone` (§6.4). | none / none |
 | `delivery_failed` | Deliveries kept failing (§6.6). | `create_subscription` / `fix_receiver` |
 | `expired` | It reached `expiresAt`. | `create_subscription` / `create_new_subscription` |
@@ -3375,7 +3377,7 @@ Every notification body is compact JSON of at most `requestBodyMaxBytes` (1,024)
 | `wake.work_available` | `message_delivered` | A native message for this agent became claimable (a4 §4, trigger 6). | claim |
 | | `human_instruction` | A human instruction for this agent was created (a4 §4, trigger 6). | claim |
 | | `agent_resumed` | The owner resumed this agent (§8.1). Sent whether or not work is waiting. | claim |
-| | `case_resumed`, `counterparty_resumed`, `lease_released` | The a4 §4 `work.available` reasons of the same names. | claim |
+| | `case_resumed`, `counterparty_resumed` | The a4 §4 `work.available` reasons of the same names. | claim |
 | | `work_due` | A retry delay ended or a lease expired, so work became claimable with no event (a4 §4, "safety timer only"). | claim |
 | | `subscription_activated` | The subscription was just activated (§3.3), so the host claims once through it. | claim |
 | `wake.control_changed` | `agent_paused` | The owner paused this agent (§8.1). | renew live leases |
@@ -3387,7 +3389,9 @@ Every notification body is compact JSON of at most `requestBodyMaxBytes` (1,024)
 - **renew live leases:** renew every lease the host holds, now. Each renewal that fails cancels its turn (case-session §10). This is not a claim trigger.
 - **activate:** call §3.3 with the challenge.
 
-**`work_due`** is best effort: at most one per subscription per `workDueMinIntervalSeconds` (60), at the instant a4 §5's claim hint names. The other "safety timer only" cases of a4 §4, a contact unblocked and authority restored, send nothing; the receiver's safety poll covers them (§7.4).
+**Not sent:** a4's `lease_released`. It follows a reconnect, and a reconnect ends every earlier installation's subscriptions (§8.3); the new installation is woken by its own `subscription_activated` and its startup claim instead.
+
+**`work_due`** is best effort: at most one per subscription per `workDueMinIntervalSeconds` (60), at the instant a4 §5's claim hint names. When the timer fires, the scheduler checks again that the work is claimable, so a lease that was renewed meanwhile sends nothing. The other "safety timer only" cases of a4 §4, a contact unblocked and authority restored, send nothing; the receiver's safety poll covers them (§7.4).
 
 #### 2.4 Who checks what
 
@@ -3432,7 +3436,7 @@ The server can enforce only its own side. The receiver rules bind client code, a
 | `createdAt`, `activatedAt` | `activatedAt` is `null` until activation. |
 | `expiresAt` | `activatedAt` + `subscriptionLifetimeDays`, or `null` before activation. |
 | `challengeExpiresAt` | `createdAt` + `challengeTtlSeconds` (600) while `pending`, otherwise `null`. |
-| `replacesSubscriptionId` | The active subscription this one will replace (§3.4), or `null`. |
+| `replacesSubscriptionId` | The active subscription this one replaces or replaced (§3.4), or `null`. It stays set after activation. |
 | `delivery` | Delivery health (§9). |
 
 #### 3.1 Create
@@ -3445,13 +3449,13 @@ The server can enforce only its own side. The receiver rules bind client code, a
 | 2 | Over the a3 request limit | `429 RATE_LIMITED` |
 | 3 | No bearer, an unknown or malformed one, or one that is not an access token | `401 AUTHENTICATION_REQUIRED` |
 | 4 | a3 §2.1 steps 2–4 | `401 CREDENTIAL_REVOKED`, `CREDENTIAL_EXPIRED` or `ACCESS_TOKEN_EXPIRED` |
-| 5 | Body invalid, including a `url` longer than `createUrlFieldMaxLength` (8,192) | `400 WAKE_SUBSCRIPTION_INVALID`. Nothing changes. |
+| 5 | Body invalid, including a `url` longer than `createUrlFieldMaxLength` (8,192 characters, counted as JSON Schema counts them) | `400 WAKE_SUBSCRIPTION_INVALID`. Nothing changes. |
 | 6 | The URL breaks a §4.1 rule | `400 WAKE_URL_REJECTED` with `reason`. **No DNS lookup.** |
 | 7 | This installation made `createPerInstallationPerHour` (5), or this agent `createPerAgentPerHour` (10), creates that reached this row in the last hour | `429 RATE_LIMITED`, `reason: "wake_subscription_create_limit"`. **No DNS lookup.** |
 | 8 | The resolution breaks a §4.2 rule | `400 WAKE_URL_REJECTED`, `reason: "address_not_allowed"` |
 | 9 | Otherwise | `201`, a `pending` subscription. In the same transaction: this installation's pending subscription, if any, ends with `superseded`; `replacesSubscriptionId` names its active one, if any; the challenge is queued (§3.2). |
 
-- **Counting.** Every request that reaches row 7 counts toward those limits, including those rows 7 and 8 refuse.
+- **Counting.** Every request that reaches row 7 counts toward those limits, including those rows 7 and 8 refuse. Row 7's `retry-after` is the time until the oldest counted create leaves the hour.
 - **Why row 6 comes first.** A malformed URL is never resolved: a lookup of an attacker's name is itself a signal to that attacker.
 - **Why row 8 has one reason.** `address_not_allowed` covers an empty answer, a failed lookup and a blocked address alike. Create therefore reveals nothing about what Envoi's resolver can see; the detail goes only to server logs.
 
@@ -3472,6 +3476,9 @@ On create, Envoi queues one `wake.challenge` notification, with `sequence` 1, si
 - a transport failure (`timeout`, `connect_failed`, `tls_failed`, `address_rejected`) is final, not retried (`x-failure-classes` `challengeRetryable`). A URL that nothing answers therefore gets one connection attempt per create (fixture `challenge-unreachable-not-retried`);
 - a retry whose earliest start would fall after `expiresAt` is not scheduled: the challenge is exhausted (fixture `challenge-not-retried-after-expiry`).
 
+- a `410` only fails that challenge: the subscription stays `pending` until `challenge_expired`, and its end says nothing about the URL's answer (fixture `challenge-receiver-gone`);
+- the third attempt is the last (fixture `challenge-attempts-exhausted`).
+
 No other notification goes to a pending subscription (fixture `wake-not-sent-while-pending`). When `expiresAt` passes without an activation, the subscription ends with `challenge_expired`, recorded by the first read, attempt or cleanup that finds it.
 
 **Why this proves ownership.** Only the URL receives the challenge, and only the installation that created the subscription can activate it. So:
@@ -3491,7 +3498,7 @@ A URL that belongs to someone else receives at most `challengeMaxAttempts` attem
 | 6 | The subscription is unknown, or belongs to another installation or agent | `404 WAKE_SUBSCRIPTION_NOT_FOUND`, identical in every case |
 | 7 | The subscription has ended, including a `challenge_expired` derived now | `409 WAKE_SUBSCRIPTION_ENDED`, `reason` is its `endedReason` |
 | 8 | The challenge's SHA-256 does not match the stored one (compared in constant time) | `400 WAKE_CHALLENGE_INVALID`. Nothing changes. |
-| 9 | `pending` | `200`, now `active`. In the same transaction: this installation's active subscription, if any, ends with `replaced` and its queued notifications are cancelled; one `wake.work_available` with `subscription_activated` is queued for the new subscription. |
+| 9 | `pending` | `200`, now `active`. In the same transaction: this installation's active subscription, if any, ends with `replaced` and its queued notifications are cancelled; one `wake.work_available` with `subscription_activated` is queued for the new subscription, unless the agent is paused (§8.1): then the resume's `agent_resumed` wakes it instead. |
 | 10 | Already `active` and the challenge matches | `200` with the identical body, so a lost activation response is safe to retry. |
 
 The challenge hash is kept while the subscription is not ended.
@@ -3520,14 +3527,26 @@ There is no window in which neither subscription would be woken. A replacement t
 
 #### 3.6 Owner list and revoke
 
-Both routes take a human session of a manager of the agent's inbox, the same authority as the owner installation routes (agent-registration §6.5). Their sign-in, CSRF and permission errors keep today's shapes. The coded errors they can return are in §10's `owner` rows.
+Both routes take a human session of a manager of the agent's inbox, the same authority as the owner installation routes (agent-registration §6.5). The first matching row wins:
+
+| # | Condition | Response |
+| --- | --- | --- |
+| 1 | `ENVOI_HTTP_WAKE_V1` off | `404 FEATURE_DISABLED` |
+| 2 | Over the a3 request limit | `429 RATE_LIMITED` |
+| 3 | Sign-in, CSRF or permission failure | today's human-route errors, unchanged |
+| 4 | Authorization could not be checked | `503 AUTH_UNAVAILABLE` |
+| 5 | (revoke) Body not exactly `{}` | `400 WAKE_SUBSCRIPTION_INVALID` |
+| 6 | (revoke) The subscription is unknown, or another agent's | `404 WAKE_SUBSCRIPTION_NOT_FOUND` |
+| 7 | Otherwise | `200` |
+
+A server failure is `500 INTERNAL_SERVER_ERROR` at any point.
 
 **List.** Every subscription of this agent, across its installations: pending, then active, then at most `ownerEndedListMax` (5) ended ones, newest `endedAt` first. The owner sees each full `url`.
 
 **Revoke.** `POST …/wake-subscriptions/{id}/revoke` with `{}`:
 - `200` with the subscription `ended` and `endedReason: "revoked_by_owner"`;
 - already ended: `200` repeating the first ending (fixture `subscription-revoke-replayed`);
-- unknown, or another agent's: `404 WAKE_SUBSCRIPTION_NOT_FOUND`.
+- unknown, or another agent's: `404 WAKE_SUBSCRIPTION_NOT_FOUND` (row 6).
 
 **After an owner revoke** the host must not create a subscription again on its own (retry `none`, guidance `owner_revoked_wake`). The server does not block a deliberate new create; it shows in the owner's list and audit. To stop a host entirely, the owner revokes its installation (agent-registration §6.5), which also ends its subscriptions (§8.3). See §13.
 
@@ -3537,7 +3556,7 @@ Both routes take a human session of a manager of the agent's inbox, the same aut
 
 ### 4. Destination safety (server)
 
-These rules run **at create** (§3.1) and **again before every attempt** (§6). A URL that was accepted earlier can still be refused later.
+These rules run **at create** (§3.1) and **again before every attempt** (§6). A URL that was accepted earlier can still be refused later: before an attempt, a §4.1 failure is `url_rejected` (nothing resolved or sent, not retried; fixture `wake-url-rejected-at-attempt`), and a §4.2 failure is `address_rejected`.
 
 #### 4.1 URL rules
 
@@ -3545,26 +3564,26 @@ The server parses the URL with the WHATWG URL parser and refuses it with the fir
 
 | `reason` | Refused when |
 | --- | --- |
-| `url_too_long` | The input, or its canonical serialization, is longer than `urlMaxLength` (2,048) characters (UTF-16 code units). Percent-encoding can lengthen a URL, so both are checked (fixture `url-rejected-canonical-too-long`). |
+| `url_too_long` | The input, or its canonical serialization, is longer than `urlMaxLength` (2,048) UTF-16 code units. Percent-encoding can lengthen a URL, so both are checked (fixture `url-rejected-canonical-too-long`). |
 | `url_invalid` | The parser rejects it. |
 | `scheme_not_https` | The scheme is not `https`. |
 | `userinfo_present` | It has a user name or password. |
 | `port_not_allowed` | It names a port other than 443 (`allowedPorts`). |
-| `query_present` | It contains `?`, even with an empty query. Notifications are authenticated by signature, never by a secret in the URL. |
+| `query_present` | The input contains `?` anywhere, even with an empty query or inside a fragment. The check is on the input or `href`, never on the parser's `search`, which is empty for a bare `?`. Notifications are authenticated by signature, never by a secret in the URL. |
 | `fragment_present` | It contains `#`. |
 | `address_literal` | The host is an IP literal. That includes every IPv4 notation the parser normalizes, such as `https://0x7f.1/` for 127.0.0.1, and every IPv6 literal. |
-| `self_target` | The host is the host of `ENVOI_PUBLIC_URL`, or one of the hosts listed in the server setting `ENVOI_WAKE_SELF_HOSTS`, so Envoi never calls itself. |
-| `reserved_name` | The host ends in a dot, is a single label, or equals or ends in one of `x-reserved-names` (`localhost`, `localdomain`, `local`, `internal`, `intranet`, `lan`, `home`, `corp`, `home.arpa`, `arpa`, `test`, `example`, `invalid`, `onion`, `alt`). |
+| `self_target` | The host equals, or is a subdomain of, the host of `ENVOI_PUBLIC_URL` or any entry of the server setting `ENVOI_WAKE_SELF_HOSTS`. The setting must list the deployment's registrable domains (the example is `envoi-agents.com`, `x-self-hosts-example`) and its platform hosts, so Envoi never calls itself (fixture `url-rejected-self-subdomain`). |
+| `reserved_name` | The host ends in a dot, is a single label, or equals one of `x-reserved-names` or ends in `.` followed by one (`localhost`, `localdomain`, `local`, `internal`, `intranet`, `lan`, `home`, `corp`, `home.arpa`, `arpa`, `test`, `example`, `invalid`, `onion`, `alt`). |
 
 No DNS lookup happens for a URL that any of these rules refuses. The address rules in §4.2 remain the real defense; names are only a cheap first filter.
 
 #### 4.2 Resolution and address rules (DNS rebinding)
 
-**The resolver.** At create, and before **every** attempt, the server resolves the host's A and AAAA records **once**, through a **public recursive resolver with no private zones**. It never uses a VPC, split-horizon or local resolver, and it never reads `/etc/hosts`. DNS time counts toward the attempt's `deliveryTimeoutMs`, with at most `dnsTimeoutMs` (2,000) per lookup.
+**The resolver.** At create, and before **every** attempt, the server resolves the host's A and AAAA records **once**, in parallel, through a **public recursive resolver with no private zones**: the server setting `ENVOI_WAKE_DNS_RESOLVERS`, by default `1.1.1.1,8.8.8.8`. It never uses a VPC, split-horizon or local resolver, and it never reads `/etc/hosts`. DNS time counts toward the attempt's `deliveryTimeoutMs`, with at most `dnsTimeoutMs` (2,000) per lookup; a lookup that times out is a failed lookup.
 
 **What is refused.** The resolution fails closed: it is refused when
 - both queries return no address;
-- either query fails with anything other than NXDOMAIN or NODATA, for example SERVFAIL, REFUSED or a timeout (fixture `url-rejected-dns-error`);
+- either query fails with anything other than NXDOMAIN or NODATA, for example SERVFAIL, REFUSED or a timeout (fixtures `url-rejected-dns-error`, `wake-dns-timeout-at-attempt`). A DNS timeout is always `address_rejected`, never `timeout`;
 - **any** returned address is not allowed. One blocked address refuses the whole answer, so a resolver can never pick the private one later (fixture `url-rejected-mixed-answers`).
 
 At create this is `address_not_allowed`. Before an attempt, the attempt fails with `address_rejected`, and nothing is sent.
@@ -3572,7 +3591,7 @@ At create this is `address_not_allowed`. Before an attempt, the attempt fails wi
 **Allowed addresses:**
 - **IPv4:** any address outside `x-blocked-ranges`. That table covers this network, private, shared (CGNAT), loopback, link-local (including the `169.254.169.254` metadata service), IETF protocol, documentation, benchmarking, 6to4 relay, multicast and reserved ranges.
 - **IPv6:** only global unicast, `2000::/3` (`x-ipv6-global-unicast`), and within it nothing in `x-blocked-ranges` (IETF protocol including Teredo, documentation including `3fff::/20`, and 6to4). Everything outside `2000::/3` is refused, which covers loopback, IPv4-mapped, IPv4-compatible, IPv4-translated, NAT64, discard, SRv6, unique-local (including the `fd00:ec2::254` metadata service), link-local, site-local and multicast. Embedded IPv4 addresses are therefore never reached through IPv6 (fixtures `url-rejected-ipv4-mapped-ipv6`, `url-rejected-nat64`).
-- **Deployment additions:** the server setting `ENVOI_WAKE_EXTRA_BLOCKED_CIDRS` adds ranges for platform endpoints that sit in public space (for example a cloud provider's host service address), and the server also refuses its own public and egress addresses.
+- **Deployment additions:** the server setting `ENVOI_WAKE_EXTRA_BLOCKED_CIDRS` adds ranges that sit in public space but must never be reached: platform host-service addresses (for example Azure's `168.63.129.16`), the deployment's own NAT64 prefix if it is inside `2000::/3`, and the container platform's egress ranges. The server also refuses its own public and egress addresses.
 
 A CNAME gets no special treatment: only the final addresses count.
 
@@ -3602,7 +3621,9 @@ Never followed. Any `3xx` fails the attempt as `redirect_rejected`, which is not
 | Per resolved address, and per IPv4 /24 or IPv6 /48 | `perAddressConcurrency` (2) concurrent attempts and `perAddressRequestsPerMinute` (60); `perNetworkRequestsPerMinute` (120) per network |
 | Creates | `createPerInstallationPerHour` (5) and `createPerAgentPerHour` (10), §3.1 |
 
-An attempt over a host, address or network limit waits; it does not fail, and it still counts toward the delivery deadline (§6.2). The address and network limits apply whatever names point there, so many subscriptions cannot be aimed at one victim by changing DNS after activation.
+**Who the host, address and network limits bind.** They apply to traffic that is unproven or failing: every challenge, and every attempt for a subscription whose last result was a transport, TLS or address failure. A `healthy` subscription is bound only by its own single flight. So many subscriptions cannot be aimed at one victim by changing DNS after activation (their attempts start failing, and then the limits apply), while receivers that share a CDN address or one provider host name are not throttled by each other.
+
+**Fairness.** Inside each host, address or network bucket, attempts queue fairly per subscription, so one subscription cannot hold more than its share of a bucket's slots. An attempt over a limit waits; it does not fail, and it still counts toward the delivery deadline (§6.2). The values are server settings with these defaults.
 
 ### 5. Signing and keys
 
@@ -3638,11 +3659,15 @@ followed immediately by the raw body bytes.
 
 **Every attempt is signed again,** with the key that is active at that moment and a new timestamp. The body and `id` stay the same.
 
-**Versions.** `envoi-wake-signature` is a space-separated list of entries. A v1 receiver uses the entry that starts with `v1=` and ignores the others; a header with no `v1=` entry is malformed to it. v1 senders send exactly one entry, so a later version can add another without breaking v1 receivers.
+**Versions.** `envoi-wake-signature` is a space-separated list of entries. A v1 receiver uses the one entry that starts with `v1=` and ignores the others; a header with no `v1=` entry, or with two, is malformed to it (fixtures `wake-signature-v2-and-v1`, `wake-signature-no-v1`, `wake-signature-two-v1`). v1 senders send exactly one entry, so a later version can add another without breaking v1 receivers.
+
+**One key set per environment.** The signing bytes bind the receiver URL but not the Envoi origin. Staging and production therefore never share a signing key, so a notification signed by one cannot be accepted by a receiver registered with the other.
+
+**When an attempt starts.** An attempt starts when the §4.5 limits admit it. It is signed after that admission, with the key active at that moment, and its `deliveryTimeoutMs` and the start-to-start spacing of §6.2 are measured from it. A notification that waited for a slot is therefore never sent with a stale timestamp.
 
 #### 5.2 The key set
 
-`GET /.well-known/envoi-wake-keys.json` on `ENVOI_PUBLIC_URL`. No auth, `cache-control: public, max-age=300` (`jwksMaxAgeSeconds`). No cache in front of it may keep it longer than `max-age`.
+`GET /.well-known/envoi-wake-keys.json` on `ENVOI_PUBLIC_URL`. No auth, `cache-control: public, max-age=300, s-maxage=0` (`jwksMaxAgeSeconds`), so no shared cache in front of it keeps it at all. The deployed Worker's `no-store` wrapper must exempt this one path (§14).
 
 The body is a JWK set (RFC 7517, with RFC 8037 OKP keys). Each key has `kty: "OKP"`, `crv: "Ed25519"`, `x`, `kid`, `use: "sig"` and `alg: "EdDSA"`, plus two Envoi fields:
 - **`status`:**
@@ -3651,12 +3676,19 @@ The body is a JWK set (RFC 7517, with RFC 8037 OKP keys). Each key has `kty: "OK
   - `retired`: no longer signs, but still verifies until its `notAfter`.
 - **`notAfter`:** on retired keys only. It is at least `keyRetireGraceSeconds` (24 h) after retirement.
 
-**Private keys** live only in the server secret `ENVOI_WAKE_SIGNING_KEYS`: a JSON list of `{ kid, privateKey (PKCS#8, base64), activeFrom, notAfter }`. Every server derives each key's status from those times, so promotion happens at the same instant on every instance and does not depend on a deploy. Keys are never logged and never appear in fixtures. The fixtures use a throwaway test key set whose private halves were discarded.
+**Private keys** live only in the server secret `ENVOI_WAKE_SIGNING_KEYS`: a JSON list of `{ kid, privateKey (PKCS#8, base64), activeFrom, notAfter }`, where `notAfter` may be `null`. Every server derives each key's status from those times, so promotion happens at the same instant on every instance and does not depend on a deploy:
+- **active:** the key with the greatest `activeFrom` at or before now, among keys whose `notAfter` is after now;
+- **retired:** any other key with an earlier `activeFrom` and a `notAfter` after now;
+- **next:** a key whose `activeFrom` is after now. At most one.
+
+At startup with the flag on, the server fails closed if there is no active key, more than one next key, or a retired key whose `notAfter` is less than its successor's `activeFrom` + `keyRetireGraceSeconds`. Publishing the next key at least `keyPublishLeadSeconds` ahead is an operator obligation: the secret is updated at least 24 h before `activeFrom`, except in an emergency. Keys are never logged and never appear in fixtures. The fixtures use a throwaway test key set whose private halves were discarded.
 
 #### 5.3 How a receiver gets keys
 
 - **Only from its configured Envoi origin:** `<the origin the host was set up with>/.well-known/envoi-wake-keys.json`, over verified HTTPS. Never from a URL found in a request, a header or a body.
-- **Cache** for at most `max-age`.
+- **Cache** for at most `max-age` minus any `Age` header.
+- **A failed refresh** (network error, non-200, or a body that is not a key set) is treated like an unknown key: answer `503` and keep the old cache.
+- **Unknown members and keys.** Ignore JWK members it does not know, and keys whose `kty`, `crv` or `alg` it does not support. The closed `jwk` schema describes what Envoi publishes.
 - **Unknown `kid`:** refresh at most once per `unknownKeyRefreshMinIntervalSeconds` (60). If the key is still unknown, answer `503` with `retry-after: 60` (`unknownKeyRetryAfterSeconds`), not `401`. Envoi then retries, so a notification signed just after an emergency rotation is not lost, while forged key ids still cannot make a receiver hammer Envoi (fixture `wake-unknown-key`).
 - **Accept any listed key** whose `notAfter`, if it has one, is after the receiver's clock: active, next or retired.
 - A receiver may also pin keys out of band, but never instead of following rotation.
@@ -3668,15 +3700,15 @@ The body is a JWK set (RFC 7517, with RFC 8037 OKP keys). Each key has `kty: "OK
 2. At its `activeFrom`, it becomes `active`. The old key becomes `retired`, with `notAfter` at least 24 h later.
 3. Remove the old key after its `notAfter`.
 
-Fixtures: `keys-published`, then `keys-rotated` (each names the instant it came into force as `context.validFrom`); `wake-signed-next-key` (a receiver whose cache still lists the new key as `next` accepts it); `wake-retired-key-expired`.
+Fixtures: `keys-published`, then `keys-rotated` (each names the instant it came into force as `context.validFrom`, and how, as `context.rotation`); `wake-signed-next-key` (a receiver whose cache still lists the new key as `next` accepts it); `wake-retired-key-expired`.
 
-**Emergency removal,** after a key compromise: remove the key from the set at once, and promote a new key without the 24 h lead. Receivers stop accepting the removed key within `max-age` plus one refresh. That window is the residual risk, and a forged notification can still only cause a claim (§7.4), never an effect.
+**Emergency removal,** after a key compromise: remove the key from the set at once, and promote a new key without the 24 h lead (fixture `keys-emergency`). Receivers stop accepting the removed key within `max-age` plus one refresh, since no shared cache holds the set. A receiver that has not yet seen the new key answers `503`, and Envoi's retry succeeds after its refresh (fixture `wake-emergency-rotation`). The window is the residual risk, and a forged notification can still only cause a claim (§7.4), never an effect.
 
 ### 6. Delivery
 
 #### 6.1 Acknowledgement and timeout
 
-A notification is **acknowledged** by any `2xx` whose status and headers arrive within `deliveryTimeoutMs` (10 s) of the attempt's start. The response body is ignored. The receiver acknowledges first and works afterwards (§7.3).
+A notification is **acknowledged** by any `2xx` whose status and headers arrive within `deliveryTimeoutMs` (10 s) of the attempt's admission (§5.1). The response body is ignored. Interim `1xx` responses (`100`, `102`, `103`) are ignored, are not an acknowledgement, and leave the timeout running. The receiver acknowledges first and works afterwards (§7.3).
 
 #### 6.2 Failure classes, retries and backoff
 
@@ -3684,30 +3716,32 @@ A notification is **acknowledged** by any `2xx` whose status and headers arrive 
 
 | Class | When | Retried | Retried for a challenge |
 | --- | --- | --- | --- |
-| `timeout` | DNS, connection, or status and headers did not complete in time | yes | no |
+| `timeout` | The connection did not complete within `connectTimeoutMs`, or status and headers did not arrive within `deliveryTimeoutMs`. A DNS timeout is `address_rejected`. | yes | no |
 | `connect_failed` | Connection refused, reset or unreachable | yes | no |
 | `tls_failed` | Handshake failed, or the certificate is not valid for the URL host | yes | no |
-| `address_rejected` | The resolution failed, was empty or contained a blocked address (§4.2). Nothing was sent. | yes | no |
+| `address_rejected` | The resolution failed, timed out, was empty or contained a blocked address (§4.2). Nothing was sent. | yes | no |
+| `url_rejected` | The stored URL now breaks a §4.1 rule (§4). Nothing was resolved or sent. | no | no |
 | `interrupted` | The server stopped while the attempt was in flight, so its outcome is unknown (§6.5) | yes | yes |
 | `http_retryable` | `408`, `425`, `429` or any `5xx` | yes | yes |
 | `redirect_rejected` | Any `3xx` (§4.4) | no | no |
 | `receiver_gone` | `410 Gone` (§6.4) | no | no |
-| `http_rejected` | Any other status, including `101` (the socket is destroyed) and every other `4xx` | no | no |
+| `http_rejected` | Any other final status, including `101` (the socket is destroyed) and every other `4xx` | no | no |
 
 **Schedule.** After attempt *n* fails with a retried class, attempt *n* + 1 starts no earlier than
 
 ```text
-start(n) + max( jitter(retryScheduleSeconds[n − 1]), min(retry-after, retryAfterMaxSeconds) )
+start(n) + max( jitter(retryScheduleSeconds[n - 1]), min(retry-after, retryAfterMaxSeconds) )
 ```
 
 - `retryScheduleSeconds` is 10, 30, 120, 600, 1,800 s, and `jitter` is uniform ±20 % (`retryJitterRatio`).
 - `retry-after` counts only on a `429` or `503`, and only as delta-seconds; an HTTP-date is ignored. It is capped at `retryAfterMaxSeconds` (1,800), and the jittered schedule is never capped.
-- Times are measured from the **start** of attempt *n*, so an attempt's own duration (up to 10 s) is included.
+- Times are measured from the **admission** of attempt *n* (§5.1), so an attempt's own duration (up to 10 s) is included.
+- The server draws the jittered wait when attempt *n* fails. If that wait would start the next attempt after the deadline, no attempt is scheduled and the notification is exhausted.
 
 **Bounds.**
 - **Attempts:** at most `maxAttempts` (6); a challenge, at most `challengeMaxAttempts` (3).
-- **Deadline:** no attempt starts after `createdAt` + `deliveryDeadlineSeconds` (3,600); for a challenge, after its `expiresAt`. A retry whose earliest start would fall after the deadline is not scheduled.
-- **Typical span:** on the plain schedule the six attempts span about 43 minutes, and about 52 at most with jitter. `retry-after` and the §4.5 waits can only use up the deadline sooner, never extend it.
+- **Deadline:** no attempt starts after `createdAt` + `deliveryDeadlineSeconds` (3,600); for a challenge, after its `expiresAt` (fixtures `wake-deadline-exhausted`, `challenge-not-retried-after-expiry`).
+- **Typical span:** on the plain schedule the six attempts span about 43 minutes, and at most about 51 with jitter. `retry-after` and the §4.5 waits can only use up the deadline sooner, never extend it.
 - **When a bound is reached,** the notification is **exhausted** and dropped. A class that is not retried fails the notification at once.
 
 In every case the work itself is unchanged, and the receiver's safety poll finds it (§7.4, fixture `wake-retries-exhausted`).
@@ -3718,6 +3752,7 @@ Each subscription has two **lanes**, work (`wake.work_available`) and control (`
 - A trigger with no live notification in its lane creates one.
 - A trigger while one is live only sets the dirty flag, whether that notification is in flight or waiting to retry.
 - When the live notification is acknowledged, fails or is exhausted, a set dirty flag creates exactly one new notification and clears the flag (fixture `wake-coalesced`).
+- A pause (§8.1) clears the work lane's dirty flag along with its queue, and a `replaced` end (§3.3) clears both lanes of the old subscription.
 - So a burst produces at most one live notification plus one follow-up per lane, and nothing that arrived after a claim could have seen it is lost.
 
 **Lanes are independent.** A control notification never waits behind work in backoff, and the reverse. At most one attempt per lane is in flight, across all server instances.
@@ -3744,7 +3779,7 @@ A subscription ends with `delivery_failed` when both hold:
 - at least `endAfterFailedDeliveries` (10) consecutive notifications failed or were exhausted;
 - no notification was acknowledged for `endAfterFailingSeconds` (24 h), counted from the last acknowledgement, or from activation if there was none.
 
-An acknowledgement resets the count. A new subscription needs a new challenge, which proves the receiver works again (fixture `subscription-ended-delivery-failed`).
+An acknowledgement resets the count. A `not_sent` outcome (§8) never counts as a failure and never changes `delivery`, so a long pause or an expired credential does not end a subscription. A new subscription needs a new challenge, which proves the receiver works again (fixture `subscription-ended-delivery-failed`).
 
 ### 7. Receiver rules (client)
 
@@ -3757,7 +3792,7 @@ An acknowledgement resets the count. A new subscription needs a new challenge, w
 | # | Check | Applies when | Answer |
 | --- | --- | --- | --- |
 | 1 | `malformed` | Not a `POST`; `content-type` not `application/json` (a `charset=utf-8` parameter is allowed); a body over `requestBodyMaxBytes`; or any `envoi-wake-*` header missing or not in its format, including a signature header with no `v1=` entry | `400` |
-| 2 | `unknown_key` | The key id is not in the key set, after at most one refresh (§5.3) | `503` with `retry-after: 60` |
+| 2 | `unknown_key` | The key id is not in the key set, after at most one refresh, or the refresh failed (§5.3) | `503` with `retry-after: 60` |
 | 3 | `key_expired` | The key's `notAfter` is at or before the receiver's clock | `401` |
 | 4 | `timestamp_out_of_window` | The timestamp differs from the receiver's clock by more than `timestampToleranceSeconds` (300) | `400` |
 | 5 | `signature_invalid` | The signature does not verify over the §5.1 bytes, built with the receiver's own registered URL | `401` |
@@ -3769,7 +3804,7 @@ An acknowledgement resets the count. A new subscription needs a new challenge, w
 
 **Producer and receiver schemas.** The closed `notification` schema describes what Envoi sends. A v1 receiver requires only `notificationEnvelope`, so a later additive change does not break it.
 
-**Other answers.** A receiver that verified a notification but cannot accept it now answers `429` or a `5xx`, and Envoi retries. It answers `410` to unsubscribe (§6.4). Any other answer to a valid notification wastes it. The rejection statuses are fixed so that Envoi's classification is predictable: a rejection is not retried, and a deferral (`503`) is (§6.2).
+**Other answers.** A receiver that verified a notification but cannot accept it now answers a retryable status (`408`, `425`, `429` or a `5xx`), and Envoi retries. It answers `410` to unsubscribe (§6.4). Any other answer to a valid notification wastes it. The rejection statuses are fixed so that Envoi's classification is predictable: a rejection is not retried, and a deferral (`503`) is (§6.2).
 
 **Clocks.** Receivers keep their clocks within a few seconds, for example with NTP. A receiver whose clock is more than 300 s off rejects every notification, and its subscription eventually ends with `delivery_failed` (fixture `wake-rejected-by-receiver`).
 
@@ -3819,8 +3854,8 @@ That bounds the delay when notifications are lost, exhausted or never sent. A ho
 
 #### 8.3 Ending with the installation
 
-**Derived before every attempt and every read.** The server derives the installation's state from its credential family, exactly as agent-registration §6.4 derives installation status:
-- **Family ended** (any a3 `CREDENTIAL_REVOKED` reason: installation revoke, reconnect, refresh replay, activation replay, owner access revoke, agent revoke or removal): the installation's pending and active subscriptions are ended with `credential_ended`, and nothing is sent (fixture `wake-not-sent-installation-ended`).
+**Derived before every attempt and every read.** The server derives the credential state as a3 §2.1 steps 2–3 do, not only from the family document as agent-registration §6.4 does:
+- **Ended:** the family is revoked for any a3 `CREDENTIAL_REVOKED` reason (installation revoke, reconnect, refresh replay, activation replay, owner access revoke), or the agent is revoked or removed even when its family document is not. The installation's pending and active subscriptions are ended with `credential_ended`, and nothing is sent (fixtures `wake-not-sent-installation-ended`, `wake-not-sent-agent-removed`).
 - **Family expired** (a3 `CREDENTIAL_EXPIRED`): nothing is sent, because the host could not claim. The subscription stays active, and notifications resume if the owner reconnects. In practice a reconnect replaces the family, which ends the subscription anyway (fixture `wake-not-sent-credential-expired`).
 
 **Eager end, as an optimization.** The paths that revoke a family also end that installation's subscriptions in the same transaction, and cancel their queued notifications, like case-session §6.2's eager session ends. Correctness never depends on this, because of the derivation above.
@@ -3842,7 +3877,9 @@ Each subscription carries `delivery`, which the server updates from each notific
 | `consecutiveFailures` | Failed or exhausted notifications since the last acknowledgement. |
 | `lastFailureClass` | The class (§6.2) of the last failure while `failing`, otherwise `null`. |
 
-**While pending,** `delivery` is always `unverified` with every other field `null` or `0`. A pending subscription's URL is not proved, so how its challenge failed is not reported back; otherwise create would become a probe of arbitrary hosts from Envoi's addresses.
+**Until activation,** `delivery` is always `unverified` with every other field `null` or `0`, also after a pending subscription ends (`superseded`, `challenge_expired`, `ended_by_host`). Its URL was never proved, so how its challenge fared is not reported back; otherwise create would become a probe of arbitrary hosts from Envoi's addresses (fixture `subscription-ended-challenge-expired`).
+
+**Not-sent outcomes** (§8) never count as failures and never change `delivery`.
 
 **What it is not.** Delivery health is not presence. a5-presence v1 is unchanged, and `healthy` means only that the endpoint acknowledged notifications. It is not evidence that a runtime ran, or that it acts while its app is closed (v3 §47). A host is advertised as automatically reachable only with its own wake evidence (Phase B plan).
 
@@ -3892,6 +3929,8 @@ New codes use the a3 §1 envelope. `x-codes` gives one row per client surface (`
 - Hosts fall back to SSE or their safety poll, which they keep anyway (§7.4).
 - The flag-off startup moves the epoch (§1), so when the flag is turned on again every earlier subscription reads as ended, and hosts register again (fixtures `rollback-flag-off`, `reenable-after-rollback`).
 
+**New server settings:** `ENVOI_HTTP_WAKE_V1`, `ENVOI_WAKE_SIGNING_KEYS`, `ENVOI_WAKE_SELF_HOSTS`, `ENVOI_WAKE_EXTRA_BLOCKED_CIDRS` and `ENVOI_WAKE_DNS_RESOLVERS`. Each must be passed into the container (the Worker's `CONTAINER_ENV_KEYS`).
+
 **Rollback by code** (reverting C-A5). The earlier server knows none of the routes, sends nothing, and ignores the wake queue, because it is not part of the outbox. It also stops refreshing `activeUntil`, so redeploying C-A5 more than `epochGraceSeconds` later moves the epoch too.
 
 **Consumer changes Lane B makes (C-B5).** Informative; Lane B owns the details:
@@ -3910,13 +3949,13 @@ New codes use the a3 §1 envelope. `x-codes` gives one row per client surface (`
 - **Schemas.** A `request.schema` or `response.schema` names a definition in this contract's `schemas.json`, or `case-session#<name>` for one of case-session v1's own definitions (the claim and mint steps).
 - **`delivery`:**
   - `origin` is `server` for an attempt by Envoi, or `third_party` for a replay or forgery someone else sent. A third-party delivery has only a `request`.
-  - A server delivery gives `attempt`, `dns` (the one resolution of that attempt, with `error` when a query failed), `sent`, `connect` (address, port and SNI name), `request` (`method`, `url`, `headers` and the raw `bodyText`), `response` (`null` when none arrived), `failureClass`, `outcome` and, for a retry, `nextAttemptInSeconds`.
-  - When nothing was attempted at all, `outcome` is `not_sent` with a `notSentReason`, and there is no `dns` or `request`.
-- **`receiver`:** its `clock`, `registeredUrl`, `subscriptionIds` (its set for that URL), the key set it holds (`jwks`), the ids it has processed (`seenIds`), and its `verdict` (`process`, `duplicate`, `reject` or `defer`), `reason`, `respondStatus`, `action` and `next`.
-- **`context`:** the stored state the fixture assumes: a create's `dns` answer, the agent's status, the credential family as derived now (`credential`), the subscription's state, `triggersDuringAttempt` for coalescing, and a key set's `validFrom`.
-- **`client`:** the `surface`, `lifecycle`, `retry`, `guidance` and `next`. On a success it is `none`/`none`, except where a host reads an ended subscription as its newest one; there it is that reason's `x-ended-reasons` row.
+  - A server delivery gives `attempt`, `dns` (the one resolution of that attempt, with `error` when a query failed), `sent`, `connect` (address, port and SNI name), `request` (`method`, `url`, `headers` and the raw `bodyText`), `response` (`null` when none arrived, and then `transport` says in which phase and after how many ms of admission it stopped), `failureClass`, `outcome` and, for a retry, `nextAttemptInSeconds`.
+  - When nothing was attempted at all, `outcome` is `not_sent` with a `notSentReason` and the `suppressed` notification's type, and there is no `dns` or `request`.
+- **`receiver`:** its `clock`, `registeredUrl`, `subscriptionIds` (its set for that URL), the key set it holds (`jwks`), the ids it has processed (`seenIds`), and its `verdict` (`process`, `duplicate`, `reject` or `defer`), `reason`, `respondStatus`, `respondHeaders`, `action` and `next`.
+- **`context`:** the stored state the fixture assumes: a create's `dns` answer, the agent's status, the credential state as derived now (`credential`), the subscription's state, `triggersDuringAttempt` for coalescing, extra `selfHosts` in force, and a key set's `validFrom` and `rotation`.
+- **`client`:** the `surface`, `lifecycle`, `retry`, `guidance` and `next`. On a success, retry and guidance are `none`/`none`, except where a host reads an ended subscription as its most relevant one; there they are that reason's `x-ended-reasons` row. A success's lifecycle is `UNCHANGED` for the host (`RUNNING` or `PAUSED` on agent status), `NOT_APPLICABLE` for the owner and `UNCHANGED` for the receiver.
 
-**Timelines.** The fixtures share one timeline. Each subscription id has one url, installation and creation time everywhere, and its notifications' `sequence` follows their `createdAt`. Keys follow the rotation: every attempt before `keys-rotated`'s `validFrom` is signed by the first key, and every attempt after by the second.
+**Timelines.** Each alternative history is its own scenario, with its own subscription, installation and agent, so no subscription is ended two ways or used after its end. Across all fixtures each subscription id has one url, installation, agent, creation time and ending; no attempt follows its end; a replaced one ended when its successor activated; its notifications' `sequence` follows their `createdAt`; and per lane a notification is created only once the previous one is no longer live. Keys follow the sets in force: every attempt is signed by the key active in the latest of `keys-published`, `keys-rotated` and `keys-emergency` whose `validFrom` is not after it.
 
 **What `test/contract-fixtures.test.js` checks for this contract**, beyond the shared checks:
 - each error matches its `x-codes` row for its surface, including by-reason retry and guidance; each success's `client` follows the rule above;
@@ -3925,39 +3964,44 @@ New codes use the a3 §1 envelope. `x-codes` gives one row per client surface (`
 - a create stores the canonical url; end and revoke answer as §3.5 and §3.6 say, including repeats of an earlier ending;
 - subscription objects and lists follow §2.2, §3 and §9: status fields, challenge window, lifetime, which ended reasons follow activation, no attempt after the end, health state, a pending subscription's empty health, list order and the per-installation limits;
 - every server delivery follows §3.2, §4, §6 and §8:
-  - the not-sent reason for its state;
-  - the address checks, and a pinned connection to a checked address;
+  - the not-sent reason for its state, and what it withheld;
+  - the URL rules again before the attempt, the address checks, and a pinned connection to a checked address;
   - exactly the signed headers, in their formats, and no credentials;
   - a closed, opaque body whose id encodes nothing;
   - the challenge rules;
   - the earliest start each attempt may have;
-  - the failure class and outcome for its response, the attempt caps, the deadline, and the jittered and `retry-after` delays;
-- every receiver verdict is the one `x-receiver-checks` gives, recomputed with real signature verification, and its answer and action follow it;
+  - the failure class for its response or transport phase, the outcome, the attempt caps, the deadline for every attempt, and the jittered and `retry-after` delays;
+- every receiver verdict is the one `x-receiver-checks` gives, recomputed with real signature verification, and its answer, headers and action follow it;
+- every bearer matches its declared `auth`; every wake POST names its body schema; the wake flag never runs without installations;
+- a status summary and a host list in one fixture agree;
 - retries carry the identical body, are signed again and wait at least the scheduled delay; triggers during an attempt create exactly one follow-up, created after that attempt;
 - every challenge is a placeholder;
 - the fixtures agree with each other:
   - the tables match their enums in both directions;
-  - key rotation is consistent, and every server signature is by the key active at its timestamp;
-  - one timeline per subscription id, and sequences that follow creation order;
+  - routine and emergency rotations are consistent, and every server signature is by the key active at its timestamp;
+  - one timeline per subscription id, with one ending, no attempt after it, replacements at activation, sequences that follow creation order (including Envoi-signed third-party copies), one live notification per lane, and receivers that hold only existing ids;
+  - the host list is the owner list for its installation;
   - byte-identical replays;
   - challenge to activation, the challenge race, replacement on a new URL and on the same URL;
-  - the lost create, the canonical URL, claim and mint after a wake, restart recovery and exhausted retries;
+  - the lost create, the canonical URL, emergency rotation, claim and mint after a wake, restart recovery and exhausted retries;
 - the claim and mint steps validate against case-session v1's own schemas;
-- every URL reason, failure class, receiver check, not-sent reason, ended reason, wake reason and code has a fixture;
+- every URL reason, failure class, receiver check, not-sent reason, ended reason, wake reason, and code on each of its surfaces has a fixture;
 - this table lists exactly the registered fixtures.
 
 | Group | Fixtures |
 | --- | --- |
-| Keys and availability | `keys-published`, `keys-rotated`, `keys-feature-disabled`, `agent-status-http-wake` |
-| Registration | `subscription-created`, `subscription-created-canonical-url`, `subscription-created-while-paused`, `subscription-created-replacing-active`, `subscription-create-lost-response-retry`, `subscription-create-invalid`, `subscription-create-url-field-too-long`, `subscription-create-feature-disabled`, `subscription-create-rate-limited`, `subscription-create-with-case-session-token`, `subscription-create-with-mcp-read-token`, `subscription-create-with-bootstrap-token`, `subscription-create-credential-revoked`, `subscription-create-credential-expired`, `subscription-create-access-token-expired`, `subscription-create-auth-unavailable`, `subscription-create-server-error` |
-| URL, private-address and metadata rejection | `url-rejected-too-long`, `url-rejected-canonical-too-long`, `url-rejected-invalid`, `url-rejected-http-scheme`, `url-rejected-userinfo`, `url-rejected-port`, `url-rejected-query`, `url-rejected-fragment`, `url-rejected-ip-literal`, `url-rejected-ipv6-literal`, `url-rejected-self-target`, `url-rejected-localhost-name`, `url-rejected-single-label`, `url-rejected-trailing-dot`, `url-rejected-unresolvable`, `url-rejected-dns-error`, `url-rejected-private-address`, `url-rejected-link-local-metadata`, `url-rejected-ipv6-unique-local`, `url-rejected-ipv4-mapped-ipv6`, `url-rejected-nat64`, `url-rejected-ipv6-documentation`, `url-rejected-mixed-answers` |
-| Challenge, activation and replacement | `challenge-delivered`, `challenge-before-create-response`, `challenge-unreachable-not-retried`, `challenge-not-retried-after-expiry`, `subscription-activated`, `subscription-activate-replayed`, `subscription-activate-wrong-challenge`, `subscription-activate-active-wrong-challenge`, `subscription-activate-invalid`, `subscription-activate-challenge-expired`, `subscription-activate-not-found`, `subscription-replacement-flow`, `subscription-replacement-same-url`, `wake-not-sent-while-pending` |
-| Signed wakes, with no private content | `wake-delivered-signed`, `wake-then-claim-and-mint`, `wake-human-instruction`, `wake-agent-resumed`, `wake-work-due`, `wake-case-resumed`, `wake-lease-released`, `wake-counterparty-resumed`, `wake-control-agent-paused`, `wake-control-case-controlled` |
-| Invalid signature, expiry and replay | `wake-invalid-signature`, `wake-unknown-key`, `wake-retired-key-expired`, `wake-signed-next-key`, `wake-expired-timestamp`, `wake-replayed`, `wake-replayed-to-other-receiver`, `wake-subscription-unknown`, `wake-not-a-notification`, `wake-malformed`, `wake-rejected-by-receiver` |
-| Duplicate, delayed, out-of-order and coalesced | `wake-duplicate-retry`, `wake-delayed-retry`, `wake-out-of-order`, `wake-coalesced` |
-| Timeout, temporary failure, bounded retries and restart | `wake-receiver-timeout`, `wake-receiver-temporary-failure`, `wake-retries-exhausted`, `wake-server-restart-recovery`, `wake-receiver-restart-recovery`, `wake-receiver-gone`, `subscription-ended-delivery-failed`, `subscription-ended-expired` |
-| Redirect and DNS rebinding | `wake-redirect-rejected`, `wake-dns-rebinding-rejected`, `wake-address-empty-at-attempt`, `wake-pinned-address` |
-| Pause, revoke and replaced installations | `wake-suppressed-while-paused`, `wake-not-sent-credential-expired`, `wake-not-sent-installation-ended`, `subscription-ended-by-host`, `subscription-end-replayed`, `subscription-end-after-receiver-gone`, `wake-after-end-not-sent`, `subscription-revoked-by-owner`, `subscription-revoke-replayed`, `owner-revoke-not-found`, `owner-list-feature-disabled`, `owner-subscription-list`, `host-subscription-list`, `subscription-ended-installation-revoked`, `subscription-ended-reconnect` |
+| Keys and availability | `agent-status-http-wake`, `keys-emergency`, `keys-feature-disabled`, `keys-published`, `keys-rotated` |
+| Registration | `host-list-rate-limited`, `subscription-create-access-token-expired`, `subscription-create-auth-unavailable`, `subscription-create-credential-expired`, `subscription-create-credential-revoked`, `subscription-create-feature-disabled`, `subscription-create-invalid`, `subscription-create-lost-response-retry`, `subscription-create-rate-limited`, `subscription-create-server-error`, `subscription-create-url-field-too-long`, `subscription-create-with-bootstrap-token`, `subscription-create-with-case-session-token`, `subscription-create-with-mcp-read-token`, `subscription-created-canonical-url`, `subscription-created-replacing-active`, `subscription-created-while-paused`, `subscription-created` |
+| URL, private-address and metadata rejection | `url-rejected-canonical-too-long`, `url-rejected-dns-error`, `url-rejected-fragment`, `url-rejected-http-scheme`, `url-rejected-invalid`, `url-rejected-ip-literal`, `url-rejected-ipv4-mapped-ipv6`, `url-rejected-ipv6-documentation`, `url-rejected-ipv6-literal`, `url-rejected-ipv6-unique-local`, `url-rejected-link-local-metadata`, `url-rejected-localhost-name`, `url-rejected-mixed-answers`, `url-rejected-nat64`, `url-rejected-port`, `url-rejected-private-address`, `url-rejected-query`, `url-rejected-self-subdomain`, `url-rejected-self-target`, `url-rejected-single-label`, `url-rejected-too-long`, `url-rejected-trailing-dot`, `url-rejected-unresolvable`, `url-rejected-userinfo` |
+| Challenge, activation and replacement | `challenge-attempts-exhausted`, `challenge-before-create-response`, `challenge-delivered`, `challenge-not-retried-after-expiry`, `challenge-receiver-gone`, `challenge-unreachable-not-retried`, `subscription-activate-active-wrong-challenge`, `subscription-activate-challenge-expired`, `subscription-activate-invalid`, `subscription-activate-not-found`, `subscription-activate-replayed`, `subscription-activate-wrong-challenge`, `subscription-activated`, `subscription-ended-challenge-expired`, `subscription-replacement-flow`, `subscription-replacement-same-url`, `wake-not-sent-while-pending` |
+| Signed wakes, with no private content | `wake-agent-resumed`, `wake-case-resumed`, `wake-control-agent-paused`, `wake-control-case-controlled`, `wake-counterparty-resumed`, `wake-delivered-signed`, `wake-human-instruction`, `wake-then-claim-and-mint`, `wake-work-due` |
+| Keys at the receiver | `wake-emergency-rotation`, `wake-retired-key-expired`, `wake-signed-next-key`, `wake-unknown-key` |
+| Invalid signature, expiry and replay | `wake-expired-timestamp`, `wake-invalid-signature`, `wake-malformed`, `wake-rejected-by-receiver`, `wake-replayed-to-other-receiver`, `wake-replayed`, `wake-subscription-unknown` |
+| Forward compatibility and format rules | `wake-body-too-large`, `wake-content-type-charset`, `wake-not-a-notification`, `wake-not-post`, `wake-signature-no-v1`, `wake-signature-two-v1`, `wake-signature-v2-and-v1`, `wake-timestamp-leading-zero`, `wake-unknown-field`, `wake-unknown-reason`, `wake-unknown-type` |
+| Duplicate, delayed, out-of-order and coalesced | `wake-coalesced`, `wake-delayed-retry`, `wake-duplicate-retry`, `wake-out-of-order` |
+| Timeout, temporary failure, bounded retries, deadlines and restart | `subscription-ended-delivery-failed`, `subscription-ended-expired`, `wake-deadline-exhausted`, `wake-receiver-408`, `wake-receiver-gone`, `wake-receiver-restart-recovery`, `wake-receiver-temporary-failure`, `wake-receiver-timeout`, `wake-retries-exhausted`, `wake-retry-after-http-date`, `wake-server-restart-recovery` |
+| Redirect, DNS rebinding and URL re-checks | `wake-address-empty-at-attempt`, `wake-dns-rebinding-rejected`, `wake-dns-timeout-at-attempt`, `wake-pinned-address`, `wake-redirect-rejected`, `wake-url-rejected-at-attempt` |
+| Pause, revoke and replaced installations | `host-subscription-list`, `owner-list-auth-unavailable`, `owner-list-feature-disabled`, `owner-list-rate-limited`, `owner-list-server-error`, `owner-revoke-invalid`, `owner-revoke-not-found`, `owner-subscription-list`, `subscription-end-after-receiver-gone`, `subscription-end-pending`, `subscription-end-replayed`, `subscription-ended-by-host`, `subscription-ended-installation-revoked`, `subscription-ended-reconnect`, `subscription-revoke-after-receiver-gone`, `subscription-revoke-replayed`, `subscription-revoked-by-owner`, `wake-after-end-not-sent`, `wake-not-sent-agent-removed`, `wake-not-sent-credential-expired`, `wake-not-sent-installation-ended`, `wake-suppressed-while-paused` |
 | Rollback | `rollback-flag-off`, `reenable-after-rollback` |
 
 ### 13. Decisions for review
@@ -3975,22 +4019,23 @@ These are Lane A's proposals, except the first, which the human decided. Any of 
    - a 30-day subscription lifetime;
    - a 900 s receiver safety poll;
    - a 6 h epoch grace;
-   - the per-address and per-network limits.
+   - the host, address and network limits, which bind only unproven or failing traffic and queue fairly per subscription.
 
    Lane B's real receiver and host timings may argue for other values (§4.5, §6, §7).
 6. **One reason for refused resolutions** (`address_not_allowed`, §3.1), so create is not a DNS oracle, at the cost of a less specific error for honest hosts.
 7. **Owner revoke does not block a new create** (§3.6). The alternative is a server-side block with an owner "allow" route; revoking the installation already stops a host completely.
 8. **No notification when a subscription ends** (§8.3); the status summary (§1) tells the host instead, so an ended URL receives nothing at all.
 9. **Subscriptions do not survive a reconnect** (§8.3). A new installation may run on a different machine, so it proves its URL again.
-10. **Control notifications, `subscription_activated` and `work_due`** (§2.3, §8). They give a host without SSE what `agent.paused`, `case_session.ended` and the a4 safety timer give an `envoi_link` host, at the cost of a small server-side scheduler.
+10. **Control notifications, `subscription_activated` and `work_due`, and no `lease_released`** (§2.3, §8). They give a host without SSE what `agent.paused`, `case_session.ended` and the a4 safety timer give an `envoi_link` host, at the cost of a small server-side scheduler.
 11. **`webhook` stays undeclarable** (§11). Route availability and the a5 owner labels change only with agent-registration and a5 revisions, after a host's own wake evidence.
 12. **Approval.** This contract needs a version-specific `CONTRACT-APPROVED http-wake v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. As with case-session §15, the humans settle on board #34 who posts it.
 
 ### 14. Implementation notes for C-A5 (Lane A; informative)
 
 - **Delivery engine.** A dedicated wake queue and worker (§6.5). Claim queued records per subscription lane, release the database before any network I/O, and record the outcome in a short transaction afterwards. Do not reuse the message outbox: its claim has no kind filter, and its worker holds a transaction around delivery.
-- **Resolution.** Use a `dns.promises.Resolver` pointed at the configured public resolvers (`resolve4`, `resolve6`), never `dns.lookup`, so `/etc/hosts` and local search domains never apply. Check addresses with one `net.BlockList` per family plus the `2000::/3` allow rule: a single list matches every IPv4 address against `::ffff:0:0/96`.
+- **Resolution.** Use a `dns.promises.Resolver` pointed at `ENVOI_WAKE_DNS_RESOLVERS`, with `resolve4` and `resolve6` in parallel, never `dns.lookup`, so `/etc/hosts` and local search domains never apply. Check addresses with one `net.BlockList` per family plus the `2000::/3` allow rule: a single list matches every IPv4 address against `::ffff:0:0/96`.
 - **Pinning.** Call `https.request` with `servername` set to the URL host, `ca: tls.rootCertificates`, `agent: false`, and a `lookup` that returns only the checked addresses. That `lookup` must also handle `{ all: true }`, which Node 20+ requests when `autoSelectFamily` is on; alternatively, set `autoSelectFamily: false`. Node's `https` does not follow redirects.
 - **Signing.** `crypto.sign(null, bytes, privateKey)`, with keys parsed once from `ENVOI_WAKE_SIGNING_KEYS` and their status derived from `activeFrom` and `notAfter`.
-- **Runtime.** Wake runs in the Node server container. The Cloudflare Worker sends no notifications.
+- **Runtime.** Wake runs in the Node server container. The Cloudflare Worker sends no notifications. Its `withNoStoreHeaders` wrapper (`worker/router.js`) must pass the key set's `cache-control` through for `/.well-known/envoi-wake-keys.json`, and the new settings (§11) must be added to `CONTAINER_ENV_KEYS`. The container needs outbound UDP and TCP port 53 to the configured resolvers, because `dns.Resolver` has no DNS over HTTPS.
+- **Responses.** Listen for the request's `'upgrade'` event: Node delivers a `101` there, and it must be classified `http_rejected` and the socket destroyed. Bound the body read in time as well as size.
 - **Ending subscriptions.** Derive from the credential family on every read and attempt (§8.3). Also end eagerly on every revoking path, as an optimization.

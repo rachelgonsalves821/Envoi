@@ -34,12 +34,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_2t50Zzofxkgh9NCZz96Q",
+        "envoi-wake-id": "wake_evt_C58fUjYdV8o3pmHuAfWN",
         "envoi-wake-timestamp": "1792238402",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=iDO1w4ke0eQDrBPB-RajidpGHzGRy9mx13KM_E1-ysi9MHoQYejCk5FzTzFMJj8sDVaXTwXV8FKfHpbNSvu6Dg"
+        "envoi-wake-signature": "v1=Es8rgVXEFJPi0nipFX7oedThuoerECufe-4yjMMQlFNNWGj5qxQeRporzAsualeKIy25L3W7muUYiBdi1jH1CA"
       },
-      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_2t50Zzofxkgh9NCZz96Q\",\"subscriptionId\":\"wake_sub_fresh\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:10:00.000Z\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_C58fUjYdV8o3pmHuAfWN\",\"subscriptionId\":\"wake_sub_fresh\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:10:00.000Z\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
     },
     "response": {
       "status": 200
@@ -58,7 +58,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -67,7 +67,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -79,6 +79,7 @@
     "verdict": "process",
     "reason": null,
     "respondStatus": 200,
+    "respondHeaders": {},
     "action": "activate",
     "next": "Acknowledge, then activate with the challenge, using the host access token."
   }

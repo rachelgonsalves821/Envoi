@@ -1,0 +1,86 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "challenge-receiver-gone",
+  "kind": "delivery",
+  "description": "A 410 to a challenge only fails that challenge (§6.4). The subscription stays pending until challenge_expired, and reports nothing, because the URL was never proved (§9).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_challenge_gone",
+      "url": "https://hooks.example.org/envoi/wake",
+      "status": "pending",
+      "challengeExpiresAt": "2026-10-17T12:23:20.000Z"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.org",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.43.11",
+      "port": 443,
+      "servername": "hooks.example.org"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.org/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_peNBunr09mu0odu4zbwJ",
+        "envoi-wake-timestamp": "1792239202",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=A-abNqSK3aJhwL61E_X5bDptd_mF405qXb_gJ_6mQbmsurx5OOVt8LX0xdvn91bqjzH9Pt1jJh99cCX2MlK5AA"
+      },
+      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_peNBunr09mu0odu4zbwJ\",\"subscriptionId\":\"wake_sub_challenge_gone\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:23:20.000Z\",\"createdAt\":\"2026-10-17T12:13:20.000Z\"}"
+    },
+    "response": {
+      "status": 410
+    },
+    "failureClass": "receiver_gone",
+    "outcome": "failed"
+  },
+  "receiver": {
+    "clock": "2026-10-17T12:13:22.200Z",
+    "registeredUrl": "https://hooks.example.org/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_challenge_gone"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 410,
+    "respondHeaders": {},
+    "action": "none",
+    "next": "The receiver refused the subscription."
+  }
+}

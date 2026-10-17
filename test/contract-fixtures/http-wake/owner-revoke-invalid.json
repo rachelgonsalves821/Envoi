@@ -1,0 +1,46 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "owner-revoke-invalid",
+  "kind": "http",
+  "description": "A revoke body that is not {} (§3.6 row 6).",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_revoked/agents/agent_revoked/wake-subscriptions/wake_sub_revoked/revoke",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "invalidAgainst": "endRequest",
+    "invalidBecause": {
+      "keyword": "additionalProperties",
+      "instancePath": ""
+    },
+    "body": {
+      "reason": "x"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WAKE_SUBSCRIPTION_INVALID",
+      "error": "WAKE_SUBSCRIPTION_INVALID",
+      "message": "The wake subscription request is not valid.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "update_connector",
+    "next": "Fix the client."
+  }
+}

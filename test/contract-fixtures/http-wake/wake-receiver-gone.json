@@ -8,7 +8,7 @@
     {
       "context": {
         "subscription": {
-          "id": "wake_sub_example",
+          "id": "wake_sub_gone",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "active"
         },
@@ -35,12 +35,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_KDu53u8C5oQ6v7U476Hs",
+            "envoi-wake-id": "wake_evt_YbtEpwgoawOfLEdsERHp",
             "envoi-wake-timestamp": "1792238100",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=i0JiVOQMRym3X34s5Z8PNecYz81xOdkH-_5S_bXk38kttnXbeEaojX_DWf2ukHJIau25-bJ-jHk2N4uCKBP7AQ"
+            "envoi-wake-signature": "v1=3bqUzS6RRIs7cozcwnXD9mVYHAmYWjX4F0U8uX9jdK7TkSLR6fWrNWp7xfKWMVgiwPnztfr4sfGti-PKIfzMBg"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_KDu53u8C5oQ6v7U476Hs\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":33,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:55:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_YbtEpwgoawOfLEdsERHp\",\"subscriptionId\":\"wake_sub_gone\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:55:00.000Z\"}"
         },
         "response": {
           "status": 410
@@ -52,14 +52,14 @@
         "clock": "2026-10-17T11:55:00.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
         "subscriptionIds": [
-          "wake_sub_example"
+          "wake_sub_gone"
         ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -68,7 +68,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -80,6 +80,7 @@
         "verdict": "process",
         "reason": null,
         "respondStatus": 410,
+        "respondHeaders": {},
         "action": "none",
         "next": "The receiver no longer wants this subscription."
       }
@@ -90,7 +91,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_gone"
         }
       },
       "response": {
@@ -100,25 +101,25 @@
           "cache-control": "no-store"
         },
         "body": {
-          "installationId": "installation_example",
+          "installationId": "installation_gone",
           "subscriptions": [
             {
-              "id": "wake_sub_example",
-              "installationId": "installation_example",
-              "agentId": "agent_example",
+              "id": "wake_sub_gone",
+              "installationId": "installation_gone",
+              "agentId": "agent_gone",
               "url": "https://hooks.example.com/envoi/wake",
               "status": "ended",
               "endedReason": "receiver_gone",
-              "createdAt": "2026-10-16T12:00:00.000Z",
-              "activatedAt": "2026-10-16T12:00:10.000Z",
-              "expiresAt": "2026-11-15T12:00:10.000Z",
-              "endedAt": "2026-10-17T11:55:00.000Z",
+              "createdAt": "2026-10-17T10:59:50.000Z",
+              "activatedAt": "2026-10-17T11:00:00.000Z",
+              "expiresAt": "2026-11-16T11:00:00.000Z",
+              "endedAt": "2026-10-17T11:55:00.500Z",
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
               "delivery": {
                 "state": "failing",
                 "lastAttemptAt": "2026-10-17T11:55:00.000Z",
-                "lastSuccessAt": "2026-10-17T11:54:00.000Z",
+                "lastSuccessAt": "2026-10-17T11:00:05.000Z",
                 "consecutiveFailures": 1,
                 "lastFailureClass": "receiver_gone"
               }

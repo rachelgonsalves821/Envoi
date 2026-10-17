@@ -37,7 +37,7 @@
           "subscription": {
             "id": "wake_sub_canonical",
             "installationId": "installation_canonical",
-            "agentId": "agent_example",
+            "agentId": "agent_canonical",
             "url": "https://hooks.example.org/envoi/wake",
             "status": "pending",
             "endedReason": null,
@@ -62,7 +62,7 @@
         "lifecycle": "UNCHANGED",
         "retry": "none",
         "guidance": "none",
-        "next": "Store the returned url and use it, not the typed one, to verify."
+        "next": "Store the returned url and verify with it, not with the typed one."
       }
     },
     {
@@ -72,7 +72,8 @@
           "url": "https://hooks.example.org/envoi/wake",
           "status": "pending",
           "challengeExpiresAt": "2026-10-17T12:11:40.000Z"
-        }
+        },
+        "agentStatus": "active"
       },
       "delivery": {
         "origin": "server",
@@ -95,12 +96,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_yTxxaxR2gMVuiPFSv50E",
+            "envoi-wake-id": "wake_evt_8MKfVxPPFATsPgchkOju",
             "envoi-wake-timestamp": "1792238502",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=C3fxDP6BaNIrNjlWMMvoJYb8rU1n7GB5ahzeTgVNx8onCG211XwSdzN72erjFnQX6VN062c-QLIAp58R9PDgDA"
+            "envoi-wake-signature": "v1=M_ZBsgGZjNYDanGARXfSy2SMhGigbj9dZUBqxaOed8enBYE17Kw0or4Jfo8Vju21lh4oqvyB_wW_jCc04YHkAA"
           },
-          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_yTxxaxR2gMVuiPFSv50E\",\"subscriptionId\":\"wake_sub_canonical\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:11:40.000Z\",\"createdAt\":\"2026-10-17T12:01:40.000Z\"}"
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_8MKfVxPPFATsPgchkOju\",\"subscriptionId\":\"wake_sub_canonical\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:11:40.000Z\",\"createdAt\":\"2026-10-17T12:01:40.000Z\"}"
         },
         "response": {
           "status": 200
@@ -119,7 +120,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -128,7 +129,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -140,6 +141,7 @@
         "verdict": "process",
         "reason": null,
         "respondStatus": 200,
+        "respondHeaders": {},
         "action": "activate",
         "next": "Activate."
       }

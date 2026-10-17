@@ -1,0 +1,206 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-emergency-rotation",
+  "kind": "sequence",
+  "description": "Right after an emergency rotation (§5.4) the receiver's cache lacks the new key. It answers 503 with retry-after 60 instead of rejecting (§5.3), refreshes the key set, and accepts Envoi's retry. Nothing is lost.",
+  "steps": [
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_emergency",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_Ss0FzfQSws5svTPUpU1u",
+            "envoi-wake-timestamp": "1792497630",
+            "envoi-wake-key-id": "wk_2026_10_emergency_d",
+            "envoi-wake-signature": "v1=aF2xVNWtEl9A_GnSbbitmQRO9wH69r_tV4L6GNHjTorXPZmBY3-8B47RWzHiQ_GIalU8ORa14ISbHReB2rANBA"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Ss0FzfQSws5svTPUpU1u\",\"subscriptionId\":\"wake_sub_emergency\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-20T12:00:30.000Z\"}"
+        },
+        "response": {
+          "status": 503,
+          "headers": {
+            "retry-after": "60"
+          }
+        },
+        "failureClass": "http_retryable",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 60
+      },
+      "receiver": {
+        "clock": "2026-10-20T12:00:30.200Z",
+        "registeredUrl": "https://hooks.example.com/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_emergency"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "retired",
+              "notAfter": "2026-10-19T12:00:00.000Z"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "defer",
+        "reason": "unknown_key",
+        "respondStatus": 503,
+        "respondHeaders": {
+          "retry-after": "60"
+        },
+        "action": "none",
+        "next": "Refresh the key set."
+      }
+    },
+    {
+      "context": {
+        "validFrom": "2026-10-20T12:00:00.000Z",
+        "rotation": "emergency"
+      },
+      "request": {
+        "method": "GET",
+        "path": "/.well-known/envoi-wake-keys.json",
+        "auth": "none",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "schema": "jwks",
+        "headers": {
+          "cache-control": "public, max-age=300"
+        },
+        "body": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "Ga_tNQ6lADdOiplbUlic6UWkCNtuhPgS0KPEGWnJp8o",
+              "kid": "wk_2026_10_emergency_d",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "receiver",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Cache the new set."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_emergency",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 2,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_Ss0FzfQSws5svTPUpU1u",
+            "envoi-wake-timestamp": "1792497690",
+            "envoi-wake-key-id": "wk_2026_10_emergency_d",
+            "envoi-wake-signature": "v1=GA5r-kbHkqGcy6GFefSoxhmkCinEasnjTAD0IcyIPLRt3KrqA7FPVNRnEoj8TngULnmL_RuKee3y7uTolT9VAw"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Ss0FzfQSws5svTPUpU1u\",\"subscriptionId\":\"wake_sub_emergency\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-20T12:00:30.000Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-20T12:01:30.200Z",
+        "registeredUrl": "https://hooks.example.com/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_emergency"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "Ga_tNQ6lADdOiplbUlic6UWkCNtuhPgS0KPEGWnJp8o",
+              "kid": "wk_2026_10_emergency_d",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "respondHeaders": {},
+        "action": "claim",
+        "next": "Claim once."
+      }
+    }
+  ]
+}

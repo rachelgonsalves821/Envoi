@@ -6,7 +6,7 @@
   "description": "The receiver's clock runs 400 s fast, so it rejects a fresh notification as outside the window (§7.1). A rejection fails that notification without a retry (§6.2) and counts toward ending the subscription (§6.6).",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
+      "id": "wake_sub_clock_skew",
       "url": "https://hooks.example.com/envoi/wake",
       "status": "active"
     },
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_aKgO1bk3FC7WTcT06NLS",
+        "envoi-wake-id": "wake_evt_xrYCXYMbk1p9OSyW0IxT",
         "envoi-wake-timestamp": "1792237000",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=zMtxvDxEPcN3hayw1zVhH968PAOA49T_K925_J6RiF4wNBVsdB-ec6GKwO5TTMsy08-IrrtYaeSZmKF8Xe67Cg"
+        "envoi-wake-signature": "v1=u-tJXX1dmg_4PweUp4UIIxlzVV2Q-x-YIRHeLx8rGUhWwcESBcpzGIzS7JqKd0Lszxp4WgcomWPxBleOYj4wDA"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_aKgO1bk3FC7WTcT06NLS\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":16,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:36:40.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_xrYCXYMbk1p9OSyW0IxT\",\"subscriptionId\":\"wake_sub_clock_skew\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:36:40.000Z\"}"
     },
     "response": {
       "status": 400
@@ -50,14 +50,14 @@
     "clock": "2026-10-17T11:43:20.000Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_clock_skew"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -66,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -78,6 +78,7 @@
     "verdict": "reject",
     "reason": "timestamp_out_of_window",
     "respondStatus": 400,
+    "respondHeaders": {},
     "action": "none",
     "next": "Fix the receiver clock."
   }

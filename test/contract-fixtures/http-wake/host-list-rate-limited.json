@@ -1,0 +1,37 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "host-list-rate-limited",
+  "kind": "http",
+  "description": "The ordinary a3 request limit, with no reason (§3.1 row 2).",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_errors"
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store",
+      "retry-after": "5"
+    },
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Too many requests. Retry after the indicated delay.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 5
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "DEGRADED",
+    "retry": "after_retry_after",
+    "guidance": "service_busy",
+    "next": "Retry after retry-after."
+  }
+}

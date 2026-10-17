@@ -12,26 +12,26 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_Bmplxvxx5dNyVwEylUxP",
+        "envoi-wake-id": "wake_evt_P3SEBJypzqiqjoXf7vxV",
         "envoi-wake-timestamp": "1792411205",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=cHWmbcxpf5A162bo2_ewYaH89LQTQzv4rdTERWfck3OYCrUFmDF4Wpsop-sF2Q09346yTksKzGrl7NqQTPxIAg"
+        "envoi-wake-signature": "v1=tZqEB2NkfkJ93IU5YgpzeA1WmNfuhaxmCmYSsnCAVelEPKaXbg4noifyEpTdC-4fMSq3E6wZjBCcdkKD_m7eAg"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Bmplxvxx5dNyVwEylUxP\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-16T12:01:50.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_P3SEBJypzqiqjoXf7vxV\",\"subscriptionId\":\"wake_sub_retired_key\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:10:00.000Z\"}"
     }
   },
   "receiver": {
     "clock": "2026-10-19T12:00:10.000Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
     "subscriptionIds": [
-      "wake_sub_example"
+      "wake_sub_retired_key"
     ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "x": "prz-WXjdUt0PU1VKkO4iZ7DlHC2rKdP_em3gftoa6Bw",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -40,7 +40,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "x": "COXmcpLkHYJbFntv3dY-_H-gmf7jlHGKUSOtQP6ktZc",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -53,6 +53,7 @@
     "verdict": "reject",
     "reason": "key_expired",
     "respondStatus": 401,
+    "respondHeaders": {},
     "action": "none",
     "next": "Reject."
   }
