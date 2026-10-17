@@ -1,0 +1,43 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-create-rate-limited",
+  "kind": "http",
+  "description": "Over createPerInstallationPerHour or createPerAgentPerHour (§3.1 row 7). Checked after the URL syntax rules and before any lookup.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.com/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store",
+      "retry-after": "600"
+    },
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Too many wake subscriptions were created. Retry after the indicated delay.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 600,
+      "reason": "wake_subscription_create_limit"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "DEGRADED",
+    "retry": "after_retry_after",
+    "guidance": "service_busy",
+    "next": "Wait for retry-after; keep the current subscription."
+  }
+}

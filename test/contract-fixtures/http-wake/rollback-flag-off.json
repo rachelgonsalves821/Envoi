@@ -1,0 +1,110 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "rollback-flag-off",
+  "kind": "rollback",
+  "description": "Rollback by flag (§11): status reports wake unavailable, the routes answer 404, and nothing is sent. Work is untouched; hosts keep SSE or their safety poll.",
+  "flags": {
+    "ENVOI_HTTP_WAKE_V1": false,
+    "ENVOI_INSTALLATIONS_V2": true
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/status",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "agentStatusHttpWake",
+        "headers": {},
+        "body": {
+          "state": "active",
+          "agent": {
+            "id": "agent_example",
+            "address": "example@envoi.mail",
+            "status": "active"
+          },
+          "inboxId": "inbox_example",
+          "asOf": "2026-10-17T12:00:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-10-17T12:00:00.000Z",
+            "lastSuccessfulRefreshAt": null,
+            "lastWorkClaimAt": "2026-10-17T12:00:00.000Z",
+            "lastProcessedAt": null
+          },
+          "installation": {
+            "id": "installation_example",
+            "connectionRoute": "local_helper",
+            "deliveryMode": "envoi_link",
+            "legacy": false
+          },
+          "httpWake": {
+            "available": false,
+            "version": 1,
+            "subscription": null
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Stop relying on wakes; keep the safety poll."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 404,
+        "schema": "errorEnvelope",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "code": "FEATURE_DISABLED",
+          "error": "FEATURE_DISABLED",
+          "message": "HTTPS wake is not available.",
+          "requestId": "req_example"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "wake_unavailable",
+        "next": "Do not retry until status reports it available."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "sent": false,
+        "failureClass": null,
+        "outcome": "not_sent",
+        "notSentReason": "feature_disabled"
+      }
+    }
+  ]
+}

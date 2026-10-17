@@ -1,0 +1,24 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-not-sent-while-pending",
+  "kind": "delivery",
+  "description": "A pending subscription receives only its challenge (§3.2).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_fresh",
+      "url": "https://hooks.example.org/envoi/wake",
+      "status": "pending",
+      "challengeExpiresAt": "2026-10-17T12:10:00.000Z"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "sent": false,
+    "failureClass": null,
+    "outcome": "not_sent",
+    "notSentReason": "subscription_pending"
+  }
+}

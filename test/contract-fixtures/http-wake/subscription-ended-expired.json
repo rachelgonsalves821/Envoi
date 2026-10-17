@@ -1,0 +1,55 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-ended-expired",
+  "kind": "http",
+  "description": "A subscription that was not replaced ends at expiresAt, subscriptionLifetimeDays after activation (§2.2), so an endpoint is proved again at least that often.",
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_lifetime"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "hostSubscriptionList",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "installationId": "installation_lifetime",
+      "subscriptions": [
+        {
+          "id": "wake_sub_lifetime",
+          "installationId": "installation_lifetime",
+          "agentId": "agent_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "ended",
+          "endedReason": "expired",
+          "createdAt": "2026-09-17T11:58:15.000Z",
+          "activatedAt": "2026-09-17T11:58:20.000Z",
+          "expiresAt": "2026-10-17T11:58:20.000Z",
+          "endedAt": "2026-10-17T11:58:20.000Z",
+          "challengeExpiresAt": null,
+          "replacesSubscriptionId": null,
+          "delivery": {
+            "state": "healthy",
+            "lastAttemptAt": "2026-10-17T11:56:40.000Z",
+            "lastSuccessAt": "2026-10-17T11:56:40.000Z",
+            "consecutiveFailures": 0,
+            "lastFailureClass": null
+          }
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "create_subscription",
+    "guidance": "create_new_subscription",
+    "next": "Create a new subscription; next time replace it replaceBeforeExpiryDays ahead."
+  }
+}

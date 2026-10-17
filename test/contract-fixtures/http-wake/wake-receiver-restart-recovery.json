@@ -1,0 +1,196 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-receiver-restart-recovery",
+  "kind": "sequence",
+  "description": "The receiver processed attempt 1, the acknowledgement was lost, and the receiver restarted and forgot its processed ids (§7.2). Attempt 2 is processed again, and the extra claim is simply idle: correctness never depends on deduplication.",
+  "steps": [
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_Jl6ZTLv8uvxmJHDhUc6k",
+            "envoi-wake-timestamp": "1792236400",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=KYyO0sbtFee-SIxzbKd2Y58Y_eOldSGo40Poy_6aRRWvO9-s36MuKM3kvDdZEjE_TtA6WDnjhcx0kcpsdwsNBA"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Jl6ZTLv8uvxmJHDhUc6k\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":11,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:26:40.000Z\"}"
+        },
+        "response": null,
+        "failureClass": "timeout",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 10
+      },
+      "receiver": {
+        "clock": "2026-10-17T11:26:40.200Z",
+        "registeredUrl": "https://hooks.example.com/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "claim",
+        "next": "Claim once, then restart."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 2,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_Jl6ZTLv8uvxmJHDhUc6k",
+            "envoi-wake-timestamp": "1792236420",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=8tIHg_a6uOo5U8HT-KgCSFddnzXkXmYLVFsa7DZfxYYrv2KH_wDwWYi5-GvtkydE-1Q8d-blAnESyigXBmGGAA"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Jl6ZTLv8uvxmJHDhUc6k\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":11,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:26:40.000Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-17T11:27:00.200Z",
+        "registeredUrl": "https://hooks.example.com/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "claim",
+        "next": "Claim once (the processed ids were lost)."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/claim",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json",
+          "x-request-id": "wake_evt_Jl6ZTLv8uvxmJHDhUc6k"
+        },
+        "schema": "case-session#claimRequest",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "schema": "case-session#claimIdle",
+        "headers": {},
+        "body": {
+          "work": null,
+          "state": "idle"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Nothing to do; the earlier claim took the work."
+      }
+    }
+  ]
+}

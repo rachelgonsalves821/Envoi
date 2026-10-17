@@ -1,0 +1,40 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-activate-wrong-challenge",
+  "kind": "http",
+  "description": "A challenge that does not match a pending subscription (§3.3 row 8). Nothing changes.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions/wake_sub_fresh/activate",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_fresh",
+      "content-type": "application/json"
+    },
+    "schema": "activateRequest",
+    "body": {
+      "challenge": "envoi_wake_challenge_PLACEHOLDER_wrong"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WAKE_CHALLENGE_INVALID",
+      "error": "WAKE_CHALLENGE_INVALID",
+      "message": "The wake challenge does not match.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Use only the challenge received at the URL."
+  }
+}

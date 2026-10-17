@@ -1,0 +1,170 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-coalesced",
+  "kind": "sequence",
+  "description": "Three more messages commit while attempt 1 of notification 27 is in flight. They only mark the subscription dirty; when that attempt is acknowledged, exactly one follow-up is created (§6.3).",
+  "steps": [
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active",
+        "triggersDuringAttempt": 3
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_DBaEsfKEvy5lUYqxkVwe",
+            "envoi-wake-timestamp": "1792237800",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=Y26MTqLePcJVvE8OHUdwPweKVX2mLKIGzoIHAE-evP0og-Hdhhqy8rtiILhzPbo5teIPGZ0FcINEL5R3bDLACw"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_DBaEsfKEvy5lUYqxkVwe\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":27,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:50:00.000Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-17T11:50:00.300Z",
+        "registeredUrl": "https://hooks.example.com/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "claim",
+        "next": "Claim until idle."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_5jqCIDfxCUlTOVAWQhwn",
+            "envoi-wake-timestamp": "1792237801",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=i-g79jAmpssBbdBvzyCrnke19HbJwngVOKTC0e6bb6VwgyDG_ZWBqva3wxNQX0-7TSjEYNoqloEWxgF7g6HlDw"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_5jqCIDfxCUlTOVAWQhwn\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":28,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:50:00.500Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-17T11:50:01.300Z",
+        "registeredUrl": "https://hooks.example.com/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [
+          "wake_evt_DBaEsfKEvy5lUYqxkVwe"
+        ],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "claim",
+        "next": "Claim until idle."
+      }
+    }
+  ]
+}

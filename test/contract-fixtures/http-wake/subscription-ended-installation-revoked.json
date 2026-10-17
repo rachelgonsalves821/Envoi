@@ -1,0 +1,112 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-ended-installation-revoked",
+  "kind": "sequence",
+  "description": "The owner revokes the installation (agent-registration §6.5). Its subscriptions end with credential_ended (§8.3). The host can no longer authenticate, and nothing more is sent.",
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/inboxes/inbox_example/agents/agent_example/wake-subscriptions",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+          "x-envoi-csrf": "PLACEHOLDER_csrf",
+          "origin": "https://www.envoi-agents.com"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerSubscriptionList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "agentId": "agent_example",
+          "subscriptions": [
+            {
+              "id": "wake_sub_example",
+              "installationId": "installation_example",
+              "agentId": "agent_example",
+              "url": "https://hooks.example.com/envoi/wake",
+              "status": "ended",
+              "endedReason": "credential_ended",
+              "createdAt": "2026-10-16T12:00:00.000Z",
+              "activatedAt": "2026-10-16T12:00:10.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "endedAt": "2026-10-17T12:00:00.000Z",
+              "challengeExpiresAt": null,
+              "replacesSubscriptionId": null,
+              "delivery": {
+                "state": "healthy",
+                "lastAttemptAt": "2026-10-17T11:59:00.000Z",
+                "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+                "consecutiveFailures": 0,
+                "lastFailureClass": null
+              }
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner",
+        "lifecycle": "NOT_APPLICABLE",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Show the subscription as ended with the installation."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 401,
+        "schema": "errorEnvelope",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "code": "CREDENTIAL_REVOKED",
+          "error": "CREDENTIAL_REVOKED",
+          "message": "This agent credential has been revoked.",
+          "requestId": "req_example",
+          "reason": "revoked"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "REVOKED",
+        "retry": "none",
+        "guidance": "owner_reenroll",
+        "next": "Stop."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "ended",
+          "endedReason": "credential_ended"
+        },
+        "credential": "ended",
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "sent": false,
+        "failureClass": null,
+        "outcome": "not_sent",
+        "notSentReason": "subscription_ended"
+      }
+    }
+  ]
+}

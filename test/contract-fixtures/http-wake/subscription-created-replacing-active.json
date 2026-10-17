@@ -1,0 +1,66 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-created-replacing-active",
+  "kind": "http",
+  "description": "A create while a subscription is active starts a replacement (§3.4). The active one keeps receiving wakes until the new one activates.",
+  "context": {
+    "dns": {
+      "host": "wake.example.net",
+      "addresses": [
+        "192.0.43.10"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://wake.example.net/envoi"
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "subscriptionResponse",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "subscription": {
+        "id": "wake_sub_replacement",
+        "installationId": "installation_example",
+        "agentId": "agent_example",
+        "url": "https://wake.example.net/envoi",
+        "status": "pending",
+        "endedReason": null,
+        "createdAt": "2026-10-17T12:05:00.000Z",
+        "activatedAt": null,
+        "expiresAt": null,
+        "endedAt": null,
+        "challengeExpiresAt": "2026-10-17T12:15:00.000Z",
+        "replacesSubscriptionId": "wake_sub_example",
+        "delivery": {
+          "state": "unverified",
+          "lastAttemptAt": null,
+          "lastSuccessAt": null,
+          "consecutiveFailures": 0,
+          "lastFailureClass": null
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Activate the replacement with the challenge sent to the new URL."
+  }
+}

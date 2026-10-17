@@ -1,0 +1,227 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "challenge-before-create-response",
+  "kind": "sequence",
+  "description": "The challenge reaches the receiver before the 201 reaches the host (§3.2). The receiver does not know the subscription yet, so it answers 503 and Envoi retries; the second attempt succeeds.",
+  "steps": [
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_race",
+          "url": "https://hooks.example.org/envoi/wake",
+          "status": "pending",
+          "challengeExpiresAt": "2026-10-17T12:18:20.000Z"
+        },
+        "note": "The create committed at 12:08:20; its 201 is still on its way to the host."
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.43.11",
+          "port": 443,
+          "servername": "hooks.example.org"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.org/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_dio8x4w9hnARzw9B6x6Y",
+            "envoi-wake-timestamp": "1792238902",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=0toAQDYWYANU4HO86Eh0QdlklDOOTGcwfBLoX_cxYXM3qRjReCkUj-OMDzhZlhAFmELzIMCZNKVmB3_gsywoCw"
+          },
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_dio8x4w9hnARzw9B6x6Y\",\"subscriptionId\":\"wake_sub_race\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:18:20.000Z\",\"createdAt\":\"2026-10-17T12:08:20.000Z\"}"
+        },
+        "response": {
+          "status": 503
+        },
+        "failureClass": "http_retryable",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 10
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:08:22.200Z",
+        "registeredUrl": "https://hooks.example.org/envoi/wake",
+        "subscriptionIds": [],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "defer",
+        "reason": "challenge_for_unknown_subscription",
+        "respondStatus": 503,
+        "action": "none",
+        "next": "Answer 503; the host learns the id from the create response."
+      }
+    },
+    {
+      "context": {
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        }
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_race",
+          "content-type": "application/json"
+        },
+        "schema": "createRequest",
+        "body": {
+          "url": "https://hooks.example.org/envoi/wake"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "subscriptionResponse",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "subscription": {
+            "id": "wake_sub_race",
+            "installationId": "installation_race",
+            "agentId": "agent_example",
+            "url": "https://hooks.example.org/envoi/wake",
+            "status": "pending",
+            "endedReason": null,
+            "createdAt": "2026-10-17T12:08:20.000Z",
+            "activatedAt": null,
+            "expiresAt": null,
+            "endedAt": null,
+            "challengeExpiresAt": "2026-10-17T12:18:20.000Z",
+            "replacesSubscriptionId": null,
+            "delivery": {
+              "state": "unverified",
+              "lastAttemptAt": null,
+              "lastSuccessAt": null,
+              "consecutiveFailures": 0,
+              "lastFailureClass": null
+            }
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Record the subscription id for this URL."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_race",
+          "url": "https://hooks.example.org/envoi/wake",
+          "status": "pending",
+          "challengeExpiresAt": "2026-10-17T12:18:20.000Z"
+        }
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 2,
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.43.11",
+          "port": 443,
+          "servername": "hooks.example.org"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.org/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_dio8x4w9hnARzw9B6x6Y",
+            "envoi-wake-timestamp": "1792238912",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=cmhklqNNfuISsES_fWEH-6hq7GCbe6RiQdxbWxZNyNeEIzmgrMxNOHt58IFoyqLDVjYB_Zxicmm6gOb0UBIPBQ"
+          },
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_dio8x4w9hnARzw9B6x6Y\",\"subscriptionId\":\"wake_sub_race\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:18:20.000Z\",\"createdAt\":\"2026-10-17T12:08:20.000Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:08:32.200Z",
+        "registeredUrl": "https://hooks.example.org/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_race"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "activate",
+        "next": "Activate."
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-not-sent-installation-ended",
+  "kind": "delivery",
+  "description": "Before every attempt the server derives the installation's state (agent-registration §6.4). An ended installation means an ended subscription, even if no eager end was recorded (§8.3).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active",
+    "credential": "ended",
+    "note": "The stored subscription still says active: some revoke path skipped the eager write."
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "sent": false,
+    "failureClass": null,
+    "outcome": "not_sent",
+    "notSentReason": "subscription_ended"
+  }
+}

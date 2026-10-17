@@ -1,0 +1,84 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-agent-resumed",
+  "kind": "delivery",
+  "description": "The owner resumed the agent (§8.1). Sent whether or not work is waiting, so a webhook host leaves its paused state.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_Pz8SqJbWlAl4RAY4UkIb",
+        "envoi-wake-timestamp": "1792237450",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=XMB3B9xHY1sd8xeNnttKAxOvtzNuMOudsIHpV9zaFFLMCBLnKIfaZAH7X63HkttXS1yyCzAAfohlXQMo0PPJBw"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Pz8SqJbWlAl4RAY4UkIb\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":21,\"reason\":\"agent_resumed\",\"createdAt\":\"2026-10-17T11:44:10.000Z\"}"
+    },
+    "response": {
+      "status": 200
+    },
+    "failureClass": null,
+    "outcome": "acknowledged"
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:44:10.500Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "action": "claim",
+    "next": "Claim once."
+  }
+}

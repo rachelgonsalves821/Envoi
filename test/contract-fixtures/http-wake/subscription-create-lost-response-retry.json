@@ -1,0 +1,201 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-create-lost-response-retry",
+  "kind": "sequence",
+  "description": "A lost create response (§3.1). The retry creates a new pending subscription and the first ends as superseded. No secret was lost, so nothing needs replaying.",
+  "steps": [
+    {
+      "delivered": false,
+      "context": {
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        }
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_lost",
+          "content-type": "application/json"
+        },
+        "schema": "createRequest",
+        "body": {
+          "url": "https://hooks.example.org/envoi/wake"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "subscriptionResponse",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "subscription": {
+            "id": "wake_sub_lost_first",
+            "installationId": "installation_lost",
+            "agentId": "agent_example",
+            "url": "https://hooks.example.org/envoi/wake",
+            "status": "pending",
+            "endedReason": null,
+            "createdAt": "2026-10-17T12:06:40.000Z",
+            "activatedAt": null,
+            "expiresAt": null,
+            "endedAt": null,
+            "challengeExpiresAt": "2026-10-17T12:16:40.000Z",
+            "replacesSubscriptionId": null,
+            "delivery": {
+              "state": "unverified",
+              "lastAttemptAt": null,
+              "lastSuccessAt": null,
+              "consecutiveFailures": 0,
+              "lastFailureClass": null
+            }
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "The response never arrived. Retry the identical request."
+      }
+    },
+    {
+      "context": {
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        }
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_lost",
+          "content-type": "application/json"
+        },
+        "schema": "createRequest",
+        "body": {
+          "url": "https://hooks.example.org/envoi/wake"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "subscriptionResponse",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "subscription": {
+            "id": "wake_sub_lost_retry",
+            "installationId": "installation_lost",
+            "agentId": "agent_example",
+            "url": "https://hooks.example.org/envoi/wake",
+            "status": "pending",
+            "endedReason": null,
+            "createdAt": "2026-10-17T12:06:45.000Z",
+            "activatedAt": null,
+            "expiresAt": null,
+            "endedAt": null,
+            "challengeExpiresAt": "2026-10-17T12:16:45.000Z",
+            "replacesSubscriptionId": null,
+            "delivery": {
+              "state": "unverified",
+              "lastAttemptAt": null,
+              "lastSuccessAt": null,
+              "consecutiveFailures": 0,
+              "lastFailureClass": null
+            }
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Activate this one with its own challenge."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_lost"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "hostSubscriptionList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "installationId": "installation_lost",
+          "subscriptions": [
+            {
+              "id": "wake_sub_lost_retry",
+              "installationId": "installation_lost",
+              "agentId": "agent_example",
+              "url": "https://hooks.example.org/envoi/wake",
+              "status": "pending",
+              "endedReason": null,
+              "createdAt": "2026-10-17T12:06:45.000Z",
+              "activatedAt": null,
+              "expiresAt": null,
+              "endedAt": null,
+              "challengeExpiresAt": "2026-10-17T12:16:45.000Z",
+              "replacesSubscriptionId": null,
+              "delivery": {
+                "state": "unverified",
+                "lastAttemptAt": null,
+                "lastSuccessAt": null,
+                "consecutiveFailures": 0,
+                "lastFailureClass": null
+              }
+            },
+            {
+              "id": "wake_sub_lost_first",
+              "installationId": "installation_lost",
+              "agentId": "agent_example",
+              "url": "https://hooks.example.org/envoi/wake",
+              "status": "ended",
+              "endedReason": "superseded",
+              "createdAt": "2026-10-17T12:06:40.000Z",
+              "activatedAt": null,
+              "expiresAt": null,
+              "endedAt": "2026-10-17T12:06:45.000Z",
+              "challengeExpiresAt": null,
+              "replacesSubscriptionId": null,
+              "delivery": {
+                "state": "unverified",
+                "lastAttemptAt": null,
+                "lastSuccessAt": null,
+                "consecutiveFailures": 0,
+                "lastFailureClass": null
+              }
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Only the newest pending subscription can activate."
+      }
+    }
+  ]
+}

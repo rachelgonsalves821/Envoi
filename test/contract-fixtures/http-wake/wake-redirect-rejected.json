@@ -1,0 +1,52 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-redirect-rejected",
+  "kind": "delivery",
+  "description": "The receiver answers 302 to an internal address (§4.4). The Location is never followed, and the attempt fails permanently.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_CTRSI50OLkOwa51c2Kxz",
+        "envoi-wake-timestamp": "1792237100",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=MrFN3DyuPQENhWRYMyHO_IaaMCRFLrzr0hOw023kItQLUlXUNb0nDprihkVRzyRz6fWtAlsN-y_3KjKoGoh9DQ"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_CTRSI50OLkOwa51c2Kxz\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":17,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:38:20.000Z\"}"
+    },
+    "response": {
+      "status": 302,
+      "headers": {
+        "location": "http://169.254.169.254/latest/meta-data/"
+      }
+    },
+    "failureClass": "redirect_rejected",
+    "outcome": "failed"
+  }
+}

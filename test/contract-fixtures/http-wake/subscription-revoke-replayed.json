@@ -1,0 +1,64 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-revoke-replayed",
+  "kind": "http",
+  "description": "Revoking again repeats the first ending (§3.6).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "ended",
+      "endedReason": "revoked_by_owner"
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/wake-subscriptions/wake_sub_example/revoke",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "subscriptionResponse",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "subscription": {
+        "id": "wake_sub_example",
+        "installationId": "installation_example",
+        "agentId": "agent_example",
+        "url": "https://hooks.example.com/envoi/wake",
+        "status": "ended",
+        "endedReason": "revoked_by_owner",
+        "createdAt": "2026-10-16T12:00:00.000Z",
+        "activatedAt": "2026-10-16T12:00:10.000Z",
+        "expiresAt": "2026-11-15T12:00:10.000Z",
+        "endedAt": "2026-10-17T12:00:00.000Z",
+        "challengeExpiresAt": null,
+        "replacesSubscriptionId": null,
+        "delivery": {
+          "state": "healthy",
+          "lastAttemptAt": "2026-10-17T11:59:00.000Z",
+          "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+          "consecutiveFailures": 0,
+          "lastFailureClass": null
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Nothing changed."
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-not-a-notification",
+  "kind": "delivery",
+  "description": "A correctly signed body that is not a v1 notification, here one with version 2 (§7.1 check 6). A v1 receiver rejects it rather than guessing; a later version is introduced with a new contract version.",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_pn1fRlQlFPUtZYSTxJQF",
+        "envoi-wake-timestamp": "1792237360",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=mb1adIXA93mvwRbVwGY3_A0-9EZGMQumEa4R2X2abVKgYGk148xSH4OAV1AD6Ji38J4WcSovcV0JEhQbClAWCA"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":2,\"id\":\"wake_evt_pn1fRlQlFPUtZYSTxJQF\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":9,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:42:40.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:42:40.500Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "reject",
+    "reason": "not_a_notification",
+    "respondStatus": 400,
+    "action": "none",
+    "next": "Reject."
+  }
+}

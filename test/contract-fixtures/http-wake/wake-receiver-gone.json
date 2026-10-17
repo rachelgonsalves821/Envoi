@@ -1,0 +1,138 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-receiver-gone",
+  "kind": "sequence",
+  "description": "The receiver answers 410 Gone (§6.4). The subscription ends with receiver_gone in the same transaction; nothing more is sent.",
+  "steps": [
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_KDu53u8C5oQ6v7U476Hs",
+            "envoi-wake-timestamp": "1792238100",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=i0JiVOQMRym3X34s5Z8PNecYz81xOdkH-_5S_bXk38kttnXbeEaojX_DWf2ukHJIau25-bJ-jHk2N4uCKBP7AQ"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_KDu53u8C5oQ6v7U476Hs\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":33,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:55:00.000Z\"}"
+        },
+        "response": {
+          "status": 410
+        },
+        "failureClass": "receiver_gone",
+        "outcome": "failed"
+      },
+      "receiver": {
+        "clock": "2026-10-17T11:55:00.200Z",
+        "registeredUrl": "https://hooks.example.com/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 410,
+        "action": "none",
+        "next": "The receiver no longer wants this subscription."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "hostSubscriptionList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "installationId": "installation_example",
+          "subscriptions": [
+            {
+              "id": "wake_sub_example",
+              "installationId": "installation_example",
+              "agentId": "agent_example",
+              "url": "https://hooks.example.com/envoi/wake",
+              "status": "ended",
+              "endedReason": "receiver_gone",
+              "createdAt": "2026-10-16T12:00:00.000Z",
+              "activatedAt": "2026-10-16T12:00:10.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "endedAt": "2026-10-17T11:55:00.000Z",
+              "challengeExpiresAt": null,
+              "replacesSubscriptionId": null,
+              "delivery": {
+                "state": "failing",
+                "lastAttemptAt": "2026-10-17T11:55:00.000Z",
+                "lastSuccessAt": "2026-10-17T11:54:00.000Z",
+                "consecutiveFailures": 1,
+                "lastFailureClass": "receiver_gone"
+              }
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Do not recreate automatically."
+      }
+    }
+  ]
+}

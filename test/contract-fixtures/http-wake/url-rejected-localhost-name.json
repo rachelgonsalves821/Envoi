@@ -1,0 +1,41 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "url-rejected-localhost-name",
+  "kind": "http",
+  "description": "A name under a reserved suffix (x-reserved-names, §4.1).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://wake.localhost/envoi"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WAKE_URL_REJECTED",
+      "error": "WAKE_URL_REJECTED",
+      "message": "The wake URL is not allowed.",
+      "requestId": "req_example",
+      "reason": "reserved_name"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "fix_wake_url",
+    "next": "Fix the receiver URL and create again."
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "keys-feature-disabled",
+  "kind": "http",
+  "description": "With the flag off the key set is not served (§1), and no notification is sent.",
+  "flags": {
+    "ENVOI_HTTP_WAKE_V1": false,
+    "ENVOI_INSTALLATIONS_V2": true
+  },
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/envoi-wake-keys.json",
+    "auth": "none",
+    "headers": {}
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "HTTPS wake is not available.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "receiver",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "wake_unavailable",
+    "next": "Keep the cached set; expect no notifications."
+  }
+}

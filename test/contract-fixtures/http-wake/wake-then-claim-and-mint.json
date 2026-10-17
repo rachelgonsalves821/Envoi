@@ -1,0 +1,243 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-then-claim-and-mint",
+  "kind": "sequence",
+  "description": "The receiver authenticates back (§7.4): it claims with its own access token at its configured origin, sending the wake id as x-request-id, then mints a case session for the claimed lease (case-session §3). The wake named no work.",
+  "steps": [
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_8kv2FUOTrhbIFu2HaitG",
+            "envoi-wake-timestamp": "1792238460",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=scOoy-JVCnFovABQfErFzbe2IBxU4imoyDyWqhJiaEQpuzPbYbRFNjbQJCUNHhcXxjBBgIuRjYqG1CFp8IJkCQ"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_8kv2FUOTrhbIFu2HaitG\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":34,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:01:00.000Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:01:00.300Z",
+        "registeredUrl": "https://hooks.example.com/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "claim",
+        "next": "Claim once."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/claim",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json",
+          "x-request-id": "wake_evt_8kv2FUOTrhbIFu2HaitG"
+        },
+        "schema": "case-session#claimRequest",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "schema": "case-session#claimClaimed",
+        "headers": {},
+        "body": {
+          "work": {
+            "workId": "msg_example",
+            "message": {
+              "id": "msg_example",
+              "schemaVersion": "1.0",
+              "messageId": "msg_example",
+              "conversationId": "case_example",
+              "taskId": null,
+              "correlationId": null,
+              "causationId": null,
+              "from": {
+                "agentId": "agent_counterparty",
+                "address": "counterparty@envoi.mail"
+              },
+              "to": [
+                {
+                  "agentId": "agent_example",
+                  "address": "example@envoi.mail"
+                }
+              ],
+              "intent": "offer",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Example proposal message"
+                }
+              ],
+              "proposal": null,
+              "authority": {
+                "scope": "message.send",
+                "humanApproval": "notRequired",
+                "policyEvaluationId": null
+              },
+              "artifactRefs": [],
+              "requiresAck": true,
+              "traceparent": null,
+              "signature": null,
+              "unverifiedAuthorityClaim": null,
+              "unverifiedSignatureClaim": null,
+              "caseId": "case_example",
+              "senderInboxId": "inbox_counterparty",
+              "recipientInboxId": "inbox_example",
+              "senderType": "agent",
+              "senderAgentId": "agent_counterparty",
+              "recipientAgentId": "agent_example",
+              "recipientEmail": "example@envoi.mail",
+              "transport": "native",
+              "type": "message",
+              "text": "Example proposal message",
+              "payload": null,
+              "createdAt": "2026-10-17T11:59:50.000Z",
+              "queuedAt": "2026-10-17T11:59:50.000Z",
+              "status": "delivered",
+              "deliveredAt": "2026-10-17T11:59:51.000Z"
+            },
+            "leaseToken": "lease_PLACEHOLDER_example",
+            "leaseExpiresAt": "2026-10-17T12:02:01.000Z"
+          },
+          "state": "claimed"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Mint a case session for this lease."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/msg_example/session",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "case-session#mintRequest",
+        "body": {
+          "leaseToken": "lease_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "case-session#sessionCreated",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "session": {
+            "id": "case_session_example",
+            "token": "envoi_case_session_PLACEHOLDER_example",
+            "tokenType": "Bearer",
+            "status": "active",
+            "transport": {
+              "kind": "mcp_streamable_http",
+              "url": "https://envoi.example/mcp"
+            },
+            "agentId": "agent_example",
+            "installationId": "installation_example",
+            "workId": "msg_example",
+            "workKind": "agent_message",
+            "caseId": "case_example",
+            "fence": 2,
+            "counterparty": {
+              "kind": "agent",
+              "address": "counterparty@envoi.mail"
+            },
+            "allowedTools": [
+              "envoi_case_snapshot",
+              "envoi_case_reply",
+              "envoi_case_propose",
+              "envoi_case_decide",
+              "envoi_authority_check",
+              "envoi_request_human",
+              "envoi_case_list_assets",
+              "envoi_case_share_asset",
+              "envoi_case_complete"
+            ],
+            "createdAt": "2026-10-17T12:01:02.000Z",
+            "expiresAt": "2026-10-17T12:16:02.000Z"
+          },
+          "lease": {
+            "workId": "msg_example",
+            "leaseExpiresAt": "2026-10-17T12:02:01.000Z"
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Start the turn (case-session §7.2)."
+      }
+    }
+  ]
+}

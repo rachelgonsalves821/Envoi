@@ -1,0 +1,58 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-replayed-to-other-receiver",
+  "kind": "delivery",
+  "description": "A request signed for one receiver, replayed at another receiver's URL. The signature covers the registered URL, so it fails there (§5.1).",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://wake.example.net/envoi",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_Sjzfrm8pHI9UTa6ltykF",
+        "envoi-wake-timestamp": "1792237300",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=zebQ50Ln9n3UAc1tNuocoEyQQkTnXOMtu-EIQuUii3Ow55-m366DCrGTjdY9CsOw_IysrTJq_ALS2RA2xXp3CA"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Sjzfrm8pHI9UTa6ltykF\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":19,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:41:40.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:41:45.000Z",
+    "registeredUrl": "https://wake.example.net/envoi",
+    "subscriptionIds": [
+      "wake_sub_replacement"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "reject",
+    "reason": "signature_invalid",
+    "respondStatus": 401,
+    "action": "none",
+    "next": "Reject."
+  }
+}

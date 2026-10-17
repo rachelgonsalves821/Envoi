@@ -1,0 +1,408 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-retries-exhausted",
+  "kind": "sequence",
+  "description": "Six failed attempts (maxAttempts) on the jittered schedule, all within deliveryDeadlineSeconds (§6.2); the notification is exhausted and dropped. The work stays in the queue, and the safety poll claims it (§7.4).",
+  "steps": [
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792235930",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=S48E7a-KreMZbTpO06UEeCXylbvRG2FdDSEtQctzeVYPeLaVDzqT3ketuSg2IdTgNlzpmmKsB_pzaHzOt5ifCA"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+        },
+        "response": null,
+        "failureClass": "timeout",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 10
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 2,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792235950",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=S41K0dlfbKOQg6Tssynly0LazjWVhJtUFSKHsxNPWrVEmOGT5R1POXtbyoPOWBYkzZpPyAOvcauY-Yf2-3ObDA"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+        },
+        "response": {
+          "status": 503
+        },
+        "failureClass": "http_retryable",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 33
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 3,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792235983",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=HSK4fBv-tJw3q002al868hGkjGkNZilkP3FjoJuyWE4htnzR-r2bVr1F7h_bFSiSMnaR-tE-qbdLTzddBP5nDw"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+        },
+        "response": null,
+        "failureClass": "connect_failed",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 118
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 4,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792236101",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=25qdWfo7Sdh42QOtbi0SGYqh3EjK5DBAYoJ_v40MHw_SvdhrOxO4uT6NNntRXiqt0fCCwcxXLhHF9RRYVYWfCg"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+        },
+        "response": {
+          "status": 502
+        },
+        "failureClass": "http_retryable",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 640
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 5,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792236741",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=uqXlSGrK41h8Gq2Q2BoY1PavaaNShV9ma_vJYWp1z1cr1uwuWkFkNE7pGvby6PHAX8I_BoZwZpOe1QQtRd82Cw"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+        },
+        "response": null,
+        "failureClass": "tls_failed",
+        "outcome": "retry_scheduled",
+        "nextAttemptInSeconds": 1700
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "active"
+        },
+        "agentStatus": "active"
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 6,
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.32.10",
+          "port": 443,
+          "servername": "hooks.example.com"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.com/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792238441",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=XcGCVxiB9OD1kj9pJCrdsGnx-2DduSPX64fYK0sBXhL6qZMyolfu4bGqHKKYty9ULx8HDPju51_e34jhVKU6Dw"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
+        },
+        "response": {
+          "status": 504
+        },
+        "failureClass": "http_retryable",
+        "outcome": "exhausted"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/claim",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "case-session#claimRequest",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "schema": "case-session#claimClaimed",
+        "headers": {},
+        "body": {
+          "work": {
+            "workId": "msg_example",
+            "message": {
+              "id": "msg_example",
+              "schemaVersion": "1.0",
+              "messageId": "msg_example",
+              "conversationId": "case_example",
+              "taskId": null,
+              "correlationId": null,
+              "causationId": null,
+              "from": {
+                "agentId": "agent_counterparty",
+                "address": "counterparty@envoi.mail"
+              },
+              "to": [
+                {
+                  "agentId": "agent_example",
+                  "address": "example@envoi.mail"
+                }
+              ],
+              "intent": "offer",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Example proposal message"
+                }
+              ],
+              "proposal": null,
+              "authority": {
+                "scope": "message.send",
+                "humanApproval": "notRequired",
+                "policyEvaluationId": null
+              },
+              "artifactRefs": [],
+              "requiresAck": true,
+              "traceparent": null,
+              "signature": null,
+              "unverifiedAuthorityClaim": null,
+              "unverifiedSignatureClaim": null,
+              "caseId": "case_example",
+              "senderInboxId": "inbox_counterparty",
+              "recipientInboxId": "inbox_example",
+              "senderType": "agent",
+              "senderAgentId": "agent_counterparty",
+              "recipientAgentId": "agent_example",
+              "recipientEmail": "example@envoi.mail",
+              "transport": "native",
+              "type": "message",
+              "text": "Example proposal message",
+              "payload": null,
+              "createdAt": "2026-10-17T11:59:50.000Z",
+              "queuedAt": "2026-10-17T11:59:50.000Z",
+              "status": "delivered",
+              "deliveredAt": "2026-10-17T11:59:51.000Z"
+            },
+            "leaseToken": "lease_PLACEHOLDER_example",
+            "leaseExpiresAt": "2026-10-17T12:02:01.000Z"
+          },
+          "state": "claimed"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "next": "The safety poll found the work the wakes announced."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "hostSubscriptionList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "installationId": "installation_example",
+          "subscriptions": [
+            {
+              "id": "wake_sub_example",
+              "installationId": "installation_example",
+              "agentId": "agent_example",
+              "url": "https://hooks.example.com/envoi/wake",
+              "status": "active",
+              "endedReason": null,
+              "createdAt": "2026-10-16T12:00:00.000Z",
+              "activatedAt": "2026-10-16T12:00:10.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "endedAt": null,
+              "challengeExpiresAt": null,
+              "replacesSubscriptionId": null,
+              "delivery": {
+                "state": "failing",
+                "lastAttemptAt": "2026-10-17T12:00:41.000Z",
+                "lastSuccessAt": "2026-10-17T11:17:50.000Z",
+                "consecutiveFailures": 1,
+                "lastFailureClass": "http_retryable"
+              }
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Report the failing receiver; keep the safety poll."
+      }
+    }
+  ]
+}

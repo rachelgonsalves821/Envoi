@@ -1,0 +1,45 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-create-invalid",
+  "kind": "http",
+  "description": "An unknown field (§3). Bodies are closed objects. Nothing is created and nothing is resolved.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "invalidAgainst": "createRequest",
+    "invalidBecause": {
+      "keyword": "additionalProperties",
+      "instancePath": ""
+    },
+    "body": {
+      "url": "https://hooks.example.com/envoi/wake",
+      "secret": "shared"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WAKE_SUBSCRIPTION_INVALID",
+      "error": "WAKE_SUBSCRIPTION_INVALID",
+      "message": "The wake subscription request is not valid.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "update_connector",
+    "next": "Fix the client; do not retry the same body."
+  }
+}

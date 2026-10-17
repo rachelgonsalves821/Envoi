@@ -1,0 +1,49 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "url-rejected-nat64",
+  "kind": "http",
+  "description": "A NAT64 answer embedding 127.0.0.1; IPv6 outside 2000::/3 is never allowed (§4.2).",
+  "context": {
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "64:ff9b::7f00:1"
+      ]
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.com/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WAKE_URL_REJECTED",
+      "error": "WAKE_URL_REJECTED",
+      "message": "The wake URL is not allowed.",
+      "requestId": "req_example",
+      "reason": "address_not_allowed"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "fix_wake_url",
+    "next": "Fix the receiver URL and create again."
+  }
+}

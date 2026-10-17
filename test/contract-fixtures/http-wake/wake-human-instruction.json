@@ -1,0 +1,84 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-human-instruction",
+  "kind": "delivery",
+  "description": "A human instruction is waiting. The wake says only that; the text is read through the claim.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_Kg9k9Vz0e7mGShx2ysyI",
+        "envoi-wake-timestamp": "1792237400",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=UdAhEAWSB6gOMp73lWw1crZ1QXyOKmVp3ofU-3CdhTJSZJN9B1Y3RJRWmPNa3XX-nY_pg85pkI6OH59r5IcmAA"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Kg9k9Vz0e7mGShx2ysyI\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":20,\"reason\":\"human_instruction\",\"createdAt\":\"2026-10-17T11:43:20.000Z\"}"
+    },
+    "response": {
+      "status": 200
+    },
+    "failureClass": null,
+    "outcome": "acknowledged"
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:43:20.500Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "action": "claim",
+    "next": "Claim once."
+  }
+}

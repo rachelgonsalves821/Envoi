@@ -1,0 +1,41 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-activate-challenge-expired",
+  "kind": "http",
+  "description": "The challenge window passed (§3.2). The subscription has ended with challenge_expired.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions/wake_sub_stale/activate",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_stale",
+      "content-type": "application/json"
+    },
+    "schema": "activateRequest",
+    "body": {
+      "challenge": "envoi_wake_challenge_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WAKE_SUBSCRIPTION_ENDED",
+      "error": "WAKE_SUBSCRIPTION_ENDED",
+      "message": "This wake subscription has ended.",
+      "requestId": "req_example",
+      "reason": "challenge_expired"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "create_subscription",
+    "guidance": "create_new_subscription",
+    "next": "Create a new subscription."
+  }
+}

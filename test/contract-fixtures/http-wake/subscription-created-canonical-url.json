@@ -1,0 +1,148 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-created-canonical-url",
+  "kind": "sequence",
+  "description": "The stored url is the WHATWG serialization of the request url (§3): lowercase host, default port removed, dot segments resolved. Signatures bind the stored form, so the receiver verifies with it (§5.1).",
+  "steps": [
+    {
+      "context": {
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        }
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_canonical",
+          "content-type": "application/json"
+        },
+        "schema": "createRequest",
+        "body": {
+          "url": "https://Hooks.Example.ORG:443/Envoi/../envoi/wake"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "subscriptionResponse",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "subscription": {
+            "id": "wake_sub_canonical",
+            "installationId": "installation_canonical",
+            "agentId": "agent_example",
+            "url": "https://hooks.example.org/envoi/wake",
+            "status": "pending",
+            "endedReason": null,
+            "createdAt": "2026-10-17T12:01:40.000Z",
+            "activatedAt": null,
+            "expiresAt": null,
+            "endedAt": null,
+            "challengeExpiresAt": "2026-10-17T12:11:40.000Z",
+            "replacesSubscriptionId": null,
+            "delivery": {
+              "state": "unverified",
+              "lastAttemptAt": null,
+              "lastSuccessAt": null,
+              "consecutiveFailures": 0,
+              "lastFailureClass": null
+            }
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Store the returned url and use it, not the typed one, to verify."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_canonical",
+          "url": "https://hooks.example.org/envoi/wake",
+          "status": "pending",
+          "challengeExpiresAt": "2026-10-17T12:11:40.000Z"
+        }
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "hooks.example.org",
+          "addresses": [
+            "192.0.43.11"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.43.11",
+          "port": 443,
+          "servername": "hooks.example.org"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://hooks.example.org/envoi/wake",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_yTxxaxR2gMVuiPFSv50E",
+            "envoi-wake-timestamp": "1792238502",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=C3fxDP6BaNIrNjlWMMvoJYb8rU1n7GB5ahzeTgVNx8onCG211XwSdzN72erjFnQX6VN062c-QLIAp58R9PDgDA"
+          },
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_yTxxaxR2gMVuiPFSv50E\",\"subscriptionId\":\"wake_sub_canonical\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:11:40.000Z\",\"createdAt\":\"2026-10-17T12:01:40.000Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:01:42.300Z",
+        "registeredUrl": "https://hooks.example.org/envoi/wake",
+        "subscriptionIds": [
+          "wake_sub_canonical"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "activate",
+        "next": "Activate."
+      }
+    }
+  ]
+}

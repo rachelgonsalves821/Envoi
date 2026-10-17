@@ -1,0 +1,53 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "keys-rotated",
+  "kind": "http",
+  "description": "After rotation (§5.4): the next key is active from validFrom, and the old key is retired with a notAfter keyRetireGraceSeconds later.",
+  "context": {
+    "validFrom": "2026-10-18T12:00:00.000Z"
+  },
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/envoi-wake-keys.json",
+    "auth": "none",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "jwks",
+    "headers": {
+      "cache-control": "public, max-age=300"
+    },
+    "body": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "retired",
+          "notAfter": "2026-10-19T12:00:00.000Z"
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "receiver",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Replace the cached set. Keep accepting the retired key until its notAfter."
+  }
+}

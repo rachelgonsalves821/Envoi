@@ -1,0 +1,50 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "url-rejected-mixed-answers",
+  "kind": "http",
+  "description": "One public and one private answer: a single blocked address refuses the URL (§4.2).",
+  "context": {
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10",
+        "10.0.12.7"
+      ]
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.com/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WAKE_URL_REJECTED",
+      "error": "WAKE_URL_REJECTED",
+      "message": "The wake URL is not allowed.",
+      "requestId": "req_example",
+      "reason": "address_not_allowed"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "fix_wake_url",
+    "next": "Fix the receiver URL and create again."
+  }
+}

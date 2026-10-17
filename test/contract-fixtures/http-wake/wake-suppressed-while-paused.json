@@ -1,0 +1,23 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-suppressed-while-paused",
+  "kind": "delivery",
+  "description": "While the agent is paused no work notification is sent (§8.1), and those already queued are cancelled. The resume sends agent_resumed.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "paused"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "sent": false,
+    "failureClass": null,
+    "outcome": "not_sent",
+    "notSentReason": "agent_paused"
+  }
+}

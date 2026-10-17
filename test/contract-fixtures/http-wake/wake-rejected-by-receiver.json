@@ -1,0 +1,84 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-rejected-by-receiver",
+  "kind": "delivery",
+  "description": "The receiver's clock runs 400 s fast, so it rejects a fresh notification as outside the window (§7.1). A rejection fails that notification without a retry (§6.2) and counts toward ending the subscription (§6.6).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_aKgO1bk3FC7WTcT06NLS",
+        "envoi-wake-timestamp": "1792237000",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=zMtxvDxEPcN3hayw1zVhH968PAOA49T_K925_J6RiF4wNBVsdB-ec6GKwO5TTMsy08-IrrtYaeSZmKF8Xe67Cg"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_aKgO1bk3FC7WTcT06NLS\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":16,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:36:40.000Z\"}"
+    },
+    "response": {
+      "status": 400
+    },
+    "failureClass": "http_rejected",
+    "outcome": "failed"
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:43:20.000Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "reject",
+    "reason": "timestamp_out_of_window",
+    "respondStatus": 400,
+    "action": "none",
+    "next": "Fix the receiver clock."
+  }
+}

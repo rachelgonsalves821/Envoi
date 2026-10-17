@@ -1,0 +1,24 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-after-end-not-sent",
+  "kind": "delivery",
+  "description": "After an end commits, no attempt starts for that subscription (§8.3).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "ended",
+      "endedReason": "ended_by_host"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "sent": false,
+    "failureClass": null,
+    "outcome": "not_sent",
+    "notSentReason": "subscription_ended"
+  }
+}

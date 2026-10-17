@@ -1,0 +1,40 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-create-server-error",
+  "kind": "http",
+  "description": "a3 INTERNAL_SERVER_ERROR on create (§3.1 row 4, a3 §2).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.com/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 500,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "INTERNAL_SERVER_ERROR",
+      "error": "INTERNAL_SERVER_ERROR",
+      "message": "Something went wrong.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "next": "Retry with backoff."
+  }
+}

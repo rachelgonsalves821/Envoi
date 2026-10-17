@@ -1,0 +1,86 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-pinned-address",
+  "kind": "delivery",
+  "description": "Envoi connects to an address from the resolution it checked, with SNI and certificate checks for the URL host (§4.3). It never resolves again between the check and the connection.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10",
+        "192.0.32.11",
+        "2620:0:2d0:200::10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.11",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_P6tcGBvSigm2Q5ffdq4r",
+        "envoi-wake-timestamp": "1792237200",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=zyUmXkH68wZnJ9FdEbkamFuyvZhMOg6yxKca8U_P14_zNUas2pQFCnBZA9Az-VXCGyh6dWJvYIOjuq5sHMvcAQ"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_P6tcGBvSigm2Q5ffdq4r\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":18,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:40:00.000Z\"}"
+    },
+    "response": {
+      "status": 200
+    },
+    "failureClass": null,
+    "outcome": "acknowledged"
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:40:00.300Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "action": "claim",
+    "next": "Claim once."
+  }
+}

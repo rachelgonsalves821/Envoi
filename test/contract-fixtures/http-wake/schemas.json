@@ -1,0 +1,2506 @@
+{
+  "$id": "https://envoi.example/contracts/http-wake/v1/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "http-wake v1 (handoffs.md#http-wake-v1). Draft-07 schemas plus machine-readable tables. Claim and mint steps name case-session v1 definitions as case-session#<name>.",
+  "x-codes": {
+    "FEATURE_DISABLED": {
+      "status": 404,
+      "when": "§1: ENVOI_HTTP_WAKE_V1 is off, on a wake route or the key set.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "wake_unavailable"
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "wake_unavailable"
+        },
+        "receiver": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "wake_unavailable"
+        }
+      }
+    },
+    "WAKE_SUBSCRIPTION_INVALID": {
+      "status": 400,
+      "when": "§3: the body is not exactly its schema.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "update_connector"
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "update_connector"
+        }
+      }
+    },
+    "WAKE_URL_REJECTED": {
+      "status": 400,
+      "when": "§3.1, §4.1, §4.2: the URL breaks a rule. reason names the first rule it breaks, in x-url-checks order.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "fix_wake_url",
+          "guidanceByReason": {
+            "url_too_long": "fix_wake_url",
+            "url_invalid": "fix_wake_url",
+            "scheme_not_https": "fix_wake_url",
+            "userinfo_present": "fix_wake_url",
+            "port_not_allowed": "fix_wake_url",
+            "query_present": "fix_wake_url",
+            "fragment_present": "fix_wake_url",
+            "address_literal": "fix_wake_url",
+            "self_target": "fix_wake_url",
+            "reserved_name": "fix_wake_url",
+            "address_not_allowed": "fix_wake_url"
+          }
+        }
+      }
+    },
+    "WAKE_SUBSCRIPTION_NOT_FOUND": {
+      "status": 404,
+      "when": "§3: the subscription is unknown or belongs to another installation or agent; identical in every case.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "none"
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "none"
+        }
+      }
+    },
+    "WAKE_CHALLENGE_INVALID": {
+      "status": 400,
+      "when": "§3.3: the challenge does not match. Nothing changes.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "none"
+        }
+      }
+    },
+    "WAKE_SUBSCRIPTION_ENDED": {
+      "status": 409,
+      "when": "§3.3: activation of an ended subscription. reason is its endedReason.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "none",
+          "retryByReason": {
+            "superseded": "none",
+            "replaced": "none",
+            "challenge_expired": "create_subscription",
+            "ended_by_host": "none",
+            "revoked_by_owner": "none",
+            "credential_ended": "none",
+            "receiver_gone": "none",
+            "delivery_failed": "create_subscription",
+            "expired": "create_subscription",
+            "feature_disabled": "create_subscription"
+          },
+          "guidanceByReason": {
+            "superseded": "none",
+            "replaced": "none",
+            "challenge_expired": "create_new_subscription",
+            "ended_by_host": "none",
+            "revoked_by_owner": "owner_revoked_wake",
+            "credential_ended": "check_host_credential",
+            "receiver_gone": "none",
+            "delivery_failed": "fix_receiver",
+            "expired": "create_new_subscription",
+            "feature_disabled": "create_new_subscription"
+          }
+        }
+      }
+    },
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "when": "a3 meaning. On a host route, any bearer but an access token: a case-session, mcp_read or bootstrap token, or an unknown one.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "refresh_then_retry_once",
+          "guidance": "none"
+        }
+      }
+    },
+    "ACCESS_TOKEN_EXPIRED": {
+      "status": 401,
+      "when": "a3 meaning.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "refresh_then_retry_once",
+          "guidance": "none"
+        }
+      }
+    },
+    "CREDENTIAL_EXPIRED": {
+      "status": 401,
+      "when": "a3 meaning. Notifications are suppressed meanwhile (§8.3).",
+      "bySurface": {
+        "host": {
+          "lifecycle": "NEEDS_RECONNECT",
+          "retry": "none",
+          "guidance": "owner_reconnect"
+        }
+      }
+    },
+    "CREDENTIAL_REVOKED": {
+      "status": 401,
+      "when": "a3 meaning. The installation's subscriptions have ended with credential_ended (§8.3).",
+      "bySurface": {
+        "host": {
+          "lifecycle": "REVOKED",
+          "retry": "none",
+          "guidance": "owner_reenroll",
+          "guidanceByReason": {
+            "revoked": "owner_reenroll",
+            "replaced": "replaced_by_reconnect",
+            "refresh_replay": "owner_reenroll"
+          }
+        }
+      }
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "when": "a3 meaning, or reason wake_subscription_create_limit (§3.1).",
+      "bySurface": {
+        "host": {
+          "lifecycle": "DEGRADED",
+          "retry": "after_retry_after",
+          "guidance": "service_busy",
+          "guidanceByReason": {
+            "wake_subscription_create_limit": "service_busy"
+          }
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "after_retry_after",
+          "guidance": "service_busy"
+        }
+      }
+    },
+    "AUTH_UNAVAILABLE": {
+      "status": 503,
+      "when": "a3 meaning. Never an authorization decision.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "DEGRADED",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        }
+      }
+    },
+    "INTERNAL_SERVER_ERROR": {
+      "status": 500,
+      "when": "a3 meaning.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "DEGRADED",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
+        }
+      }
+    }
+  },
+  "x-limits": {
+    "challengeTtlSeconds": 600,
+    "challengeFirstAttemptDelaySeconds": 2,
+    "challengeMaxAttempts": 3,
+    "timestampToleranceSeconds": 300,
+    "replayCacheMinSeconds": 600,
+    "dedupeCacheRecommendedSeconds": 3900,
+    "dnsTimeoutMs": 2000,
+    "connectTimeoutMs": 5000,
+    "deliveryTimeoutMs": 10000,
+    "responseBodyReadMaxBytes": 4096,
+    "requestBodyMaxBytes": 1024,
+    "maxAttempts": 6,
+    "retryScheduleSeconds": [
+      10,
+      30,
+      120,
+      600,
+      1800
+    ],
+    "retryJitterRatio": 0.2,
+    "retryAfterMaxSeconds": 1800,
+    "deliveryDeadlineSeconds": 3600,
+    "unknownKeyRetryAfterSeconds": 60,
+    "endAfterFailedDeliveries": 10,
+    "endAfterFailingSeconds": 86400,
+    "subscriptionLifetimeDays": 30,
+    "replaceBeforeExpiryDays": 7,
+    "createPerInstallationPerHour": 5,
+    "createPerAgentPerHour": 10,
+    "perHostConcurrency": 4,
+    "perHostRequestsPerMinute": 120,
+    "perAddressConcurrency": 2,
+    "perAddressRequestsPerMinute": 60,
+    "perNetworkRequestsPerMinute": 120,
+    "urlMaxLength": 2048,
+    "createUrlFieldMaxLength": 8192,
+    "allowedPorts": [
+      443
+    ],
+    "jwksMaxAgeSeconds": 300,
+    "unknownKeyRefreshMinIntervalSeconds": 60,
+    "keyPublishLeadSeconds": 86400,
+    "keyRetireGraceSeconds": 86400,
+    "hostEndedListMax": 5,
+    "ownerEndedListMax": 5,
+    "retainEndedDays": 30,
+    "workDueMinIntervalSeconds": 60,
+    "receiverSafetyPollMaxSeconds": 900,
+    "epochGraceSeconds": 21600,
+    "epochRefreshSeconds": 600
+  },
+  "x-url-checks": [
+    "url_too_long",
+    "url_invalid",
+    "scheme_not_https",
+    "userinfo_present",
+    "port_not_allowed",
+    "query_present",
+    "fragment_present",
+    "address_literal",
+    "self_target",
+    "reserved_name",
+    "address_not_allowed"
+  ],
+  "x-reserved-names": [
+    "localhost",
+    "localdomain",
+    "local",
+    "internal",
+    "intranet",
+    "lan",
+    "home",
+    "corp",
+    "home.arpa",
+    "arpa",
+    "test",
+    "example",
+    "invalid",
+    "onion",
+    "alt"
+  ],
+  "x-ipv6-global-unicast": "2000::/3",
+  "x-blocked-ranges": [
+    {
+      "cidr": "0.0.0.0/8",
+      "label": "this network"
+    },
+    {
+      "cidr": "10.0.0.0/8",
+      "label": "private"
+    },
+    {
+      "cidr": "100.64.0.0/10",
+      "label": "shared address space (CGNAT)"
+    },
+    {
+      "cidr": "127.0.0.0/8",
+      "label": "loopback"
+    },
+    {
+      "cidr": "169.254.0.0/16",
+      "label": "link-local, including the 169.254.169.254 metadata service"
+    },
+    {
+      "cidr": "172.16.0.0/12",
+      "label": "private"
+    },
+    {
+      "cidr": "192.0.0.0/24",
+      "label": "IETF protocol assignments"
+    },
+    {
+      "cidr": "192.0.2.0/24",
+      "label": "documentation"
+    },
+    {
+      "cidr": "192.88.99.0/24",
+      "label": "6to4 relay anycast"
+    },
+    {
+      "cidr": "192.168.0.0/16",
+      "label": "private"
+    },
+    {
+      "cidr": "198.18.0.0/15",
+      "label": "benchmarking"
+    },
+    {
+      "cidr": "198.51.100.0/24",
+      "label": "documentation"
+    },
+    {
+      "cidr": "203.0.113.0/24",
+      "label": "documentation"
+    },
+    {
+      "cidr": "224.0.0.0/4",
+      "label": "multicast"
+    },
+    {
+      "cidr": "240.0.0.0/4",
+      "label": "reserved, including broadcast"
+    },
+    {
+      "cidr": "2001::/23",
+      "label": "IETF protocol assignments, including Teredo"
+    },
+    {
+      "cidr": "2001:db8::/32",
+      "label": "documentation"
+    },
+    {
+      "cidr": "2002::/16",
+      "label": "6to4"
+    },
+    {
+      "cidr": "3fff::/20",
+      "label": "documentation (RFC 9637)"
+    },
+    {
+      "cidr": "::/96",
+      "label": "unspecified, loopback and IPv4-compatible (outside 2000::/3)"
+    },
+    {
+      "cidr": "::ffff:0:0/96",
+      "label": "IPv4-mapped (outside 2000::/3)"
+    },
+    {
+      "cidr": "::ffff:0:0:0/96",
+      "label": "IPv4-translated (outside 2000::/3)"
+    },
+    {
+      "cidr": "64:ff9b::/96",
+      "label": "NAT64 (outside 2000::/3)"
+    },
+    {
+      "cidr": "64:ff9b:1::/48",
+      "label": "local NAT64 (outside 2000::/3)"
+    },
+    {
+      "cidr": "100::/64",
+      "label": "discard (outside 2000::/3)"
+    },
+    {
+      "cidr": "5f00::/16",
+      "label": "SRv6 (outside 2000::/3)"
+    },
+    {
+      "cidr": "fc00::/7",
+      "label": "unique local, including the fd00:ec2::254 metadata service (outside 2000::/3)"
+    },
+    {
+      "cidr": "fe80::/10",
+      "label": "link-local (outside 2000::/3)"
+    },
+    {
+      "cidr": "fec0::/10",
+      "label": "site-local (outside 2000::/3)"
+    },
+    {
+      "cidr": "ff00::/8",
+      "label": "multicast (outside 2000::/3)"
+    }
+  ],
+  "x-failure-classes": {
+    "timeout": {
+      "retryable": true,
+      "challengeRetryable": false,
+      "when": "DNS, connection, or status and headers did not complete within their timeouts (dnsTimeoutMs, connectTimeoutMs, deliveryTimeoutMs)."
+    },
+    "connect_failed": {
+      "retryable": true,
+      "challengeRetryable": false,
+      "when": "TCP connection refused, reset or unreachable."
+    },
+    "tls_failed": {
+      "retryable": true,
+      "challengeRetryable": false,
+      "when": "TLS handshake failed, or the certificate is not valid for the URL host."
+    },
+    "address_rejected": {
+      "retryable": true,
+      "challengeRetryable": false,
+      "when": "At this attempt the resolution was empty, failed (anything but NXDOMAIN or NODATA counts as failed), or contained a blocked address. Nothing was sent."
+    },
+    "interrupted": {
+      "retryable": true,
+      "challengeRetryable": true,
+      "when": "The server stopped while the attempt was in flight, so its outcome is unknown."
+    },
+    "http_retryable": {
+      "retryable": true,
+      "challengeRetryable": true,
+      "when": "408, 425, 429 or any 5xx."
+    },
+    "redirect_rejected": {
+      "retryable": false,
+      "challengeRetryable": false,
+      "when": "Any 3xx. The Location is never followed."
+    },
+    "receiver_gone": {
+      "retryable": false,
+      "challengeRetryable": false,
+      "when": "410 Gone. The subscription ends with receiver_gone."
+    },
+    "http_rejected": {
+      "retryable": false,
+      "challengeRetryable": false,
+      "when": "Any other status, including 101 and every other 4xx."
+    }
+  },
+  "x-wake-reasons": {
+    "wake.work_available": {
+      "action": "claim",
+      "reasons": {
+        "message_delivered": "A native message for this agent became claimable (a4 §4 trigger 6).",
+        "human_instruction": "A human instruction for this agent was created (a4 §4 trigger 6).",
+        "agent_resumed": "The owner resumed this agent (§8.1). Sent whether or not work is waiting.",
+        "case_resumed": "a4 work.available reason case_resumed.",
+        "counterparty_resumed": "a4 work.available reason counterparty_resumed.",
+        "lease_released": "a4 work.available reason lease_released.",
+        "work_due": "A retry delay ended or a lease expired (a4 §4 \"safety timer only\"). Best effort, at most once per workDueMinIntervalSeconds.",
+        "subscription_activated": "The subscription was just activated (§3.3), so the receiver claims once through it."
+      }
+    },
+    "wake.control_changed": {
+      "action": "renew_live_leases",
+      "reasons": {
+        "agent_paused": "The owner paused this agent (§8.1).",
+        "case_controlled": "A case pause or revoke released one of this agent's leases (case-session §7.4)."
+      }
+    },
+    "wake.challenge": {
+      "action": "activate",
+      "reasons": {}
+    }
+  },
+  "x-signing": {
+    "algorithm": "Ed25519",
+    "domain": "envoi-wake/1",
+    "prefixFields": [
+      "domain",
+      "envoi-wake-key-id",
+      "envoi-wake-timestamp",
+      "envoi-wake-id",
+      "url"
+    ],
+    "separator": "\n",
+    "body": "raw request body bytes, appended after the last separator",
+    "signatureHeader": "envoi-wake-signature",
+    "signatureFormat": "v1=<base64url of the 64-byte signature, no padding>; v1 receivers use the v1= entry of a space-separated list",
+    "headers": [
+      "content-type",
+      "user-agent",
+      "envoi-wake-id",
+      "envoi-wake-timestamp",
+      "envoi-wake-key-id",
+      "envoi-wake-signature"
+    ],
+    "keySetPath": "/.well-known/envoi-wake-keys.json"
+  },
+  "x-receiver-checks": [
+    {
+      "check": "malformed",
+      "status": 400,
+      "verdict": "reject",
+      "rule": "POST; content-type application/json, optionally with a charset=utf-8 parameter; body at most requestBodyMaxBytes; all four envoi-wake-* headers present and matching their formats; a v1= entry in envoi-wake-signature."
+    },
+    {
+      "check": "unknown_key",
+      "status": 503,
+      "verdict": "defer",
+      "rule": "envoi-wake-key-id names no key in the receiver's key set after at most one refresh per unknownKeyRefreshMinIntervalSeconds. Answer 503 with retry-after unknownKeyRetryAfterSeconds, so an emergency rotation (§5.4) loses nothing."
+    },
+    {
+      "check": "key_expired",
+      "status": 401,
+      "verdict": "reject",
+      "rule": "The key has a notAfter at or before the receiver's clock."
+    },
+    {
+      "check": "timestamp_out_of_window",
+      "status": 400,
+      "verdict": "reject",
+      "rule": "envoi-wake-timestamp differs from the receiver's clock by more than timestampToleranceSeconds."
+    },
+    {
+      "check": "signature_invalid",
+      "status": 401,
+      "verdict": "reject",
+      "rule": "The Ed25519 signature does not verify over the signing bytes built with the receiver's own registered URL."
+    },
+    {
+      "check": "not_a_notification",
+      "status": 400,
+      "verdict": "reject",
+      "rule": "The body is not JSON matching notificationEnvelope, or its id differs from envoi-wake-id."
+    },
+    {
+      "check": "challenge_for_unknown_subscription",
+      "status": 503,
+      "verdict": "defer",
+      "rule": "A wake.challenge for a subscriptionId this host has not learned yet: its create response may still be in flight (§3.2). Answer 503; Envoi retries."
+    },
+    {
+      "check": "subscription_unknown",
+      "status": 400,
+      "verdict": "reject",
+      "rule": "Any other notification whose subscriptionId is not one this host holds for this URL."
+    },
+    {
+      "check": "duplicate",
+      "status": 200,
+      "verdict": "duplicate",
+      "rule": "The id was already processed. Acknowledge and do nothing."
+    },
+    {
+      "check": "process",
+      "status": 200,
+      "verdict": "process",
+      "rule": "Acknowledge within deliveryTimeoutMs, then act on the type (x-wake-reasons) asynchronously. An unknown type is acknowledged and ignored."
+    }
+  ],
+  "x-responsibility": {
+    "server": [
+      "URL rules at create and before every attempt (§4.1).",
+      "Resolve A and AAAA once per attempt through a public recursive resolver; refuse empty, failed or blocked answers (§4.2).",
+      "Connect only to an address from that same resolution, with SNI and certificate checks for the URL host; no proxy (§4.3).",
+      "Never follow a redirect (§4.4).",
+      "Timeouts, read caps, per-subscription single flight, and per-host, per-address and per-network limits (§4.5, §6).",
+      "Sign every attempt with the key active at that moment; publish and rotate keys (§5).",
+      "Opaque notification bodies: no content, no identifiers beyond the notification and subscription ids, no credentials (§2.3).",
+      "Durable, bounded retries with a deadline; coalescing; suppression while paused or the credential is expired; nothing for an ended subscription, derived on every attempt (§6, §8).",
+      "Activation only with the challenge sent to the URL, by the installation that created it (§3.3)."
+    ],
+    "receiver": [
+      "Fetch keys only from its configured Envoi origin's fixed key-set URL, honoring max-age (§5.3).",
+      "Run x-receiver-checks in order, verifying the raw body with its own registered URL before parsing (§7.1).",
+      "Hold the set of subscription ids it created for each URL, including a pending replacement (§7.1).",
+      "Keep processed ids for at least replayCacheMinSeconds (§7.2).",
+      "Acknowledge within deliveryTimeoutMs; do the work afterwards (§7.3).",
+      "Treat every notification as a hint: claim with its own credentials at its configured origin, never at a URL from a request; keep a safety poll and read its subscription from status (§7.4).",
+      "Keep its access and refresh tokens and every session token away from the model (case-session §4)."
+    ]
+  },
+  "x-ended-reasons": {
+    "superseded": {
+      "meaning": "A newer create from the same installation replaced it while it was still pending (§3.1).",
+      "hostRetry": "none",
+      "hostGuidance": "none",
+      "activated": false
+    },
+    "replaced": {
+      "meaning": "A newer subscription of the same installation was activated (§3.4).",
+      "hostRetry": "none",
+      "hostGuidance": "none",
+      "activated": true
+    },
+    "challenge_expired": {
+      "meaning": "The challenge window passed without an activation (§3.2).",
+      "hostRetry": "create_subscription",
+      "hostGuidance": "create_new_subscription",
+      "activated": false
+    },
+    "ended_by_host": {
+      "meaning": "The host ended it (§3.5).",
+      "hostRetry": "none",
+      "hostGuidance": "none",
+      "activated": null
+    },
+    "revoked_by_owner": {
+      "meaning": "The owner revoked it (§3.6).",
+      "hostRetry": "none",
+      "hostGuidance": "owner_revoked_wake",
+      "activated": null
+    },
+    "credential_ended": {
+      "meaning": "Its installation ended (§8.3).",
+      "hostRetry": "none",
+      "hostGuidance": "check_host_credential",
+      "activated": null
+    },
+    "receiver_gone": {
+      "meaning": "The receiver answered 410 Gone (§6.4).",
+      "hostRetry": "none",
+      "hostGuidance": "none",
+      "activated": true
+    },
+    "delivery_failed": {
+      "meaning": "Deliveries kept failing (§6.6).",
+      "hostRetry": "create_subscription",
+      "hostGuidance": "fix_receiver",
+      "activated": true
+    },
+    "expired": {
+      "meaning": "It reached expiresAt, subscriptionLifetimeDays after activation (§2.2).",
+      "hostRetry": "create_subscription",
+      "hostGuidance": "create_new_subscription",
+      "activated": true
+    },
+    "feature_disabled": {
+      "meaning": "It predates the wake epoch (§1).",
+      "hostRetry": "create_subscription",
+      "hostGuidance": "create_new_subscription",
+      "activated": null
+    }
+  },
+  "x-public-origin-example": "https://www.envoi-agents.com",
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "retry": {
+      "enum": [
+        "none",
+        "backoff",
+        "after_retry_after",
+        "refresh_then_retry_once",
+        "create_subscription"
+      ]
+    },
+    "guidance": {
+      "enum": [
+        "none",
+        "wake_unavailable",
+        "update_connector",
+        "fix_wake_url",
+        "create_new_subscription",
+        "owner_revoked_wake",
+        "check_host_credential",
+        "fix_receiver",
+        "owner_reconnect",
+        "owner_reenroll",
+        "replaced_by_reconnect",
+        "service_busy",
+        "service_unavailable"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "FEATURE_DISABLED",
+        "WAKE_SUBSCRIPTION_INVALID",
+        "WAKE_URL_REJECTED",
+        "WAKE_SUBSCRIPTION_NOT_FOUND",
+        "WAKE_CHALLENGE_INVALID",
+        "WAKE_SUBSCRIPTION_ENDED",
+        "AUTHENTICATION_REQUIRED",
+        "ACCESS_TOKEN_EXPIRED",
+        "CREDENTIAL_EXPIRED",
+        "CREDENTIAL_REVOKED",
+        "RATE_LIMITED",
+        "AUTH_UNAVAILABLE",
+        "INTERNAL_SERVER_ERROR"
+      ]
+    },
+    "endedReason": {
+      "enum": [
+        "superseded",
+        "replaced",
+        "challenge_expired",
+        "ended_by_host",
+        "revoked_by_owner",
+        "credential_ended",
+        "receiver_gone",
+        "delivery_failed",
+        "expired",
+        "feature_disabled"
+      ]
+    },
+    "urlRejectedReason": {
+      "enum": [
+        "url_too_long",
+        "url_invalid",
+        "scheme_not_https",
+        "userinfo_present",
+        "port_not_allowed",
+        "query_present",
+        "fragment_present",
+        "address_literal",
+        "self_target",
+        "reserved_name",
+        "address_not_allowed"
+      ]
+    },
+    "failureClass": {
+      "enum": [
+        "timeout",
+        "connect_failed",
+        "tls_failed",
+        "address_rejected",
+        "interrupted",
+        "http_retryable",
+        "redirect_rejected",
+        "receiver_gone",
+        "http_rejected"
+      ]
+    },
+    "subscriptionId": {
+      "type": "string",
+      "pattern": "^wake_sub_[A-Za-z0-9_-]{3,64}$"
+    },
+    "wakeId": {
+      "type": "string",
+      "pattern": "^wake_evt_[A-Za-z0-9_-]{16,64}$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "challenge": {
+      "type": "string",
+      "pattern": "^envoi_wake_challenge_(?:[A-Za-z0-9_-]{43}|PLACEHOLDER[A-Za-z0-9_-]*)$",
+      "description": "envoi_wake_challenge_ plus 32 random bytes in base64url (43 characters). Fixtures use PLACEHOLDER values instead."
+    },
+    "wakeUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "description": "Longer than createUrlFieldMaxLength is WAKE_SUBSCRIPTION_INVALID; the URL rules (x-url-checks) then apply."
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "not": {
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|envoi_case_session_|envoi_reg_|envoi_wake_challenge_|lease_PLACEHOLDER)"
+          }
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "retryAfterSeconds"
+            ],
+            "properties": {
+              "reason": {
+                "const": "wake_subscription_create_limit"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "retryAfterSeconds"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "WAKE_URL_REJECTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "$ref": "#/definitions/urlRejectedReason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "WAKE_SUBSCRIPTION_ENDED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "$ref": "#/definitions/endedReason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "CREDENTIAL_REVOKED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "enum": [
+                  "revoked",
+                  "replaced",
+                  "refresh_replay"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "RATE_LIMITED",
+                  "WAKE_URL_REJECTED",
+                  "WAKE_SUBSCRIPTION_ENDED",
+                  "CREDENTIAL_REVOKED"
+                ]
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "createRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "$ref": "#/definitions/wakeUrl"
+        }
+      }
+    },
+    "activateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "challenge"
+      ],
+      "properties": {
+        "challenge": {
+          "$ref": "#/definitions/challenge"
+        }
+      }
+    },
+    "endRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "deliveryHealth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "lastAttemptAt",
+        "lastSuccessAt",
+        "consecutiveFailures",
+        "lastFailureClass"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "unverified",
+            "healthy",
+            "failing"
+          ]
+        },
+        "lastAttemptAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastSuccessAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "consecutiveFailures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lastFailureClass": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/failureClass"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "subscription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "installationId",
+        "agentId",
+        "url",
+        "status",
+        "endedReason",
+        "createdAt",
+        "activatedAt",
+        "expiresAt",
+        "endedAt",
+        "challengeExpiresAt",
+        "replacesSubscriptionId",
+        "delivery"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/subscriptionId"
+        },
+        "installationId": {
+          "type": "string",
+          "pattern": "^installation_[A-Za-z0-9_-]+$"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]+$"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://[^/?#@\\s]+/[^?#\\s]*$",
+          "maxLength": 2048
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "active",
+            "ended"
+          ]
+        },
+        "endedReason": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/endedReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "activatedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "endedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "challengeExpiresAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "replacesSubscriptionId": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/subscriptionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delivery": {
+          "$ref": "#/definitions/deliveryHealth"
+        }
+      }
+    },
+    "subscriptionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "endedReason",
+        "expiresAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/subscriptionId"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "active",
+            "ended"
+          ]
+        },
+        "endedReason": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/endedReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "subscriptionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscription"
+      ],
+      "properties": {
+        "subscription": {
+          "$ref": "#/definitions/subscription"
+        }
+      }
+    },
+    "hostSubscriptionList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationId",
+        "subscriptions"
+      ],
+      "properties": {
+        "installationId": {
+          "type": "string",
+          "pattern": "^installation_[A-Za-z0-9_-]+$"
+        },
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/subscription"
+          }
+        }
+      }
+    },
+    "ownerSubscriptionList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentId",
+        "subscriptions"
+      ],
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]+$"
+        },
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/subscription"
+          }
+        }
+      }
+    },
+    "jwk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kty",
+        "crv",
+        "x",
+        "kid",
+        "use",
+        "alg",
+        "status"
+      ],
+      "properties": {
+        "kty": {
+          "const": "OKP"
+        },
+        "crv": {
+          "const": "Ed25519"
+        },
+        "x": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "kid": {
+          "$ref": "#/definitions/keyId"
+        },
+        "use": {
+          "const": "sig"
+        },
+        "alg": {
+          "const": "EdDSA"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "next",
+            "retired"
+          ]
+        },
+        "notAfter": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "retired"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "notAfter"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "notAfter"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "jwks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keys"
+      ],
+      "properties": {
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/jwk"
+          }
+        }
+      }
+    },
+    "agentStatusHttpWake": {
+      "description": "a3 / a5 / agent-registration agent status, with the additive httpWake field (§1). Clients ignore unknown fields.",
+      "type": "object",
+      "required": [
+        "state",
+        "agent",
+        "inboxId",
+        "httpWake"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "active",
+            "paused"
+          ]
+        },
+        "agent": {
+          "type": "object",
+          "required": [
+            "id",
+            "address",
+            "status"
+          ]
+        },
+        "inboxId": {
+          "type": "string",
+          "pattern": "^inbox_[A-Za-z0-9_-]+$"
+        },
+        "httpWake": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "available",
+            "version",
+            "subscription"
+          ],
+          "properties": {
+            "available": {
+              "type": "boolean"
+            },
+            "version": {
+              "const": 1
+            },
+            "subscription": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/subscriptionSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "notificationWork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "version",
+        "id",
+        "subscriptionId",
+        "sequence",
+        "reason",
+        "createdAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "wake.work_available"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/definitions/wakeId"
+        },
+        "subscriptionId": {
+          "$ref": "#/definitions/subscriptionId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "enum": [
+            "message_delivered",
+            "human_instruction",
+            "agent_resumed",
+            "case_resumed",
+            "counterparty_resumed",
+            "lease_released",
+            "work_due",
+            "subscription_activated"
+          ]
+        }
+      }
+    },
+    "notificationControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "version",
+        "id",
+        "subscriptionId",
+        "sequence",
+        "reason",
+        "createdAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "wake.control_changed"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/definitions/wakeId"
+        },
+        "subscriptionId": {
+          "$ref": "#/definitions/subscriptionId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "enum": [
+            "agent_paused",
+            "case_controlled"
+          ]
+        }
+      }
+    },
+    "notificationChallenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "version",
+        "id",
+        "subscriptionId",
+        "sequence",
+        "challenge",
+        "expiresAt",
+        "createdAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "wake.challenge"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/definitions/wakeId"
+        },
+        "subscriptionId": {
+          "$ref": "#/definitions/subscriptionId"
+        },
+        "sequence": {
+          "const": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "challenge": {
+          "$ref": "#/definitions/challenge"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "notification": {
+      "description": "What Envoi sends (producer schema, closed).",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/notificationWork"
+        },
+        {
+          "$ref": "#/definitions/notificationControl"
+        },
+        {
+          "$ref": "#/definitions/notificationChallenge"
+        }
+      ]
+    },
+    "notificationEnvelope": {
+      "description": "What a v1 receiver requires (§7.1 check 6). Open: receivers ignore unknown fields, types and reasons.",
+      "type": "object",
+      "required": [
+        "type",
+        "version",
+        "id",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/definitions/wakeId"
+        },
+        "subscriptionId": {
+          "$ref": "#/definitions/subscriptionId"
+        }
+      }
+    },
+    "deliveryHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "content-type",
+        "user-agent",
+        "envoi-wake-id",
+        "envoi-wake-timestamp",
+        "envoi-wake-key-id",
+        "envoi-wake-signature"
+      ],
+      "properties": {
+        "content-type": {
+          "const": "application/json"
+        },
+        "user-agent": {
+          "const": "Envoi-Wake/1"
+        },
+        "envoi-wake-id": {
+          "$ref": "#/definitions/wakeId"
+        },
+        "envoi-wake-timestamp": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,11}$"
+        },
+        "envoi-wake-key-id": {
+          "$ref": "#/definitions/keyId"
+        },
+        "envoi-wake-signature": {
+          "type": "string",
+          "pattern": "^v1=[A-Za-z0-9_-]{86}$"
+        }
+      },
+      "description": "Exactly the headers Envoi sets on a notification. Transport headers (host, content-length, connection) are not listed."
+    },
+    "fixtureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "path",
+        "auth"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "auth": {
+          "enum": [
+            "none",
+            "agent_access",
+            "case_session",
+            "mcp_read",
+            "bootstrap",
+            "human_session"
+          ],
+          "description": "The bearer in headers.authorization, or a signed-in human."
+        },
+        "headers": {
+          "type": "object"
+        },
+        "schema": {
+          "type": "string",
+          "description": "A definition here, or case-session#<name> for a definition of case-session v1."
+        },
+        "invalidAgainst": {
+          "type": "string"
+        },
+        "invalidBecause": {
+          "type": "object",
+          "required": [
+            "keyword",
+            "instancePath"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "keyword": {
+              "type": "string"
+            },
+            "instancePath": {
+              "type": "string"
+            }
+          }
+        },
+        "body": {}
+      }
+    },
+    "fixtureResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "schema",
+        "body"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "schema": {
+          "type": "string",
+          "description": "A definition here, or case-session#<name>."
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "lifecycle",
+        "retry",
+        "guidance",
+        "next"
+      ],
+      "properties": {
+        "surface": {
+          "enum": [
+            "host",
+            "owner",
+            "receiver"
+          ]
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/lifecycle"
+        },
+        "retry": {
+          "$ref": "#/definitions/retry"
+        },
+        "guidance": {
+          "$ref": "#/definitions/guidance"
+        },
+        "next": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fixtureFlags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ENVOI_HTTP_WAKE_V1",
+        "ENVOI_INSTALLATIONS_V2"
+      ],
+      "properties": {
+        "ENVOI_HTTP_WAKE_V1": {
+          "type": "boolean"
+        },
+        "ENVOI_INSTALLATIONS_V2": {
+          "type": "boolean"
+        }
+      }
+    },
+    "dnsAnswer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "addresses"
+      ],
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 2
+          }
+        },
+        "error": {
+          "enum": [
+            "SERVFAIL",
+            "TIMEOUT",
+            "REFUSED"
+          ]
+        }
+      },
+      "description": "One resolution of A and AAAA, as the server saw it. error: a query failed other than NXDOMAIN or NODATA, which fails closed (§4.2)."
+    },
+    "fixtureContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dns": {
+          "$ref": "#/definitions/dnsAnswer"
+        },
+        "agentStatus": {
+          "enum": [
+            "active",
+            "paused"
+          ]
+        },
+        "credential": {
+          "enum": [
+            "valid",
+            "expired",
+            "ended"
+          ],
+          "description": "The installation credential family as derived now (agent-registration §6.4). Default valid."
+        },
+        "subscription": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "url",
+            "status"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/subscriptionId"
+            },
+            "url": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "active",
+                "ended"
+              ]
+            },
+            "endedReason": {
+              "$ref": "#/definitions/endedReason"
+            },
+            "challengeExpiresAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "triggersDuringAttempt": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Work triggers that committed while this attempt was in flight (§6.3)."
+        },
+        "validFrom": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The instant this key set came into force (§5.4)."
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "connect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "address",
+        "port",
+        "servername"
+      ],
+      "properties": {
+        "address": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "servername": {
+          "type": "string"
+        }
+      }
+    },
+    "deliveryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "url",
+        "headers",
+        "bodyText"
+      ],
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "bodyText": {
+          "type": "string"
+        }
+      }
+    },
+    "deliveryResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "headers": {
+          "type": "object"
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin"
+      ],
+      "properties": {
+        "origin": {
+          "enum": [
+            "server",
+            "third_party"
+          ],
+          "description": "server: an attempt by Envoi. third_party: a request someone else sent to the receiver (a replay or forgery); it has only a request."
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dns": {
+          "$ref": "#/definitions/dnsAnswer"
+        },
+        "sent": {
+          "type": "boolean"
+        },
+        "connect": {
+          "$ref": "#/definitions/connect"
+        },
+        "request": {
+          "$ref": "#/definitions/deliveryRequest"
+        },
+        "response": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/deliveryResponse"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "failureClass": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/failureClass"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "acknowledged",
+            "retry_scheduled",
+            "failed",
+            "exhausted",
+            "not_sent"
+          ]
+        },
+        "nextAttemptInSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "notSentReason": {
+          "enum": [
+            "subscription_pending",
+            "subscription_ended",
+            "credential_expired",
+            "agent_paused",
+            "feature_disabled"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "server"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "attempt",
+              "sent",
+              "outcome",
+              "failureClass"
+            ]
+          },
+          "else": {
+            "required": [
+              "request"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "attempt"
+                  ]
+                },
+                {
+                  "required": [
+                    "dns"
+                  ]
+                },
+                {
+                  "required": [
+                    "sent"
+                  ]
+                },
+                {
+                  "required": [
+                    "connect"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                },
+                {
+                  "required": [
+                    "outcome"
+                  ]
+                },
+                {
+                  "required": [
+                    "failureClass"
+                  ]
+                },
+                {
+                  "required": [
+                    "nextAttemptInSeconds"
+                  ]
+                },
+                {
+                  "required": [
+                    "notSentReason"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "server"
+              },
+              "sent": {
+                "const": true
+              }
+            },
+            "required": [
+              "origin",
+              "sent"
+            ]
+          },
+          "then": {
+            "required": [
+              "dns",
+              "connect",
+              "request",
+              "response"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sent": {
+                "const": false
+              },
+              "failureClass": {
+                "const": "address_rejected"
+              }
+            },
+            "required": [
+              "sent",
+              "failureClass"
+            ]
+          },
+          "then": {
+            "required": [
+              "dns"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "connect"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "retry_scheduled"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "required": [
+              "nextAttemptInSeconds"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "nextAttemptInSeconds"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "not_sent"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "required": [
+              "notSentReason"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "dns"
+                  ]
+                },
+                {
+                  "required": [
+                    "connect"
+                  ]
+                },
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "notSentReason"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "receiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clock",
+        "registeredUrl",
+        "subscriptionIds",
+        "jwks",
+        "seenIds",
+        "verdict",
+        "reason",
+        "respondStatus",
+        "action",
+        "next"
+      ],
+      "properties": {
+        "clock": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "registeredUrl": {
+          "type": "string"
+        },
+        "subscriptionIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/subscriptionId"
+          },
+          "description": "The subscriptions this host created for registeredUrl and has not seen end (§7.1)."
+        },
+        "jwks": {
+          "$ref": "#/definitions/jwks"
+        },
+        "seenIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verdict": {
+          "enum": [
+            "process",
+            "duplicate",
+            "reject",
+            "defer"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "malformed",
+                "unknown_key",
+                "key_expired",
+                "timestamp_out_of_window",
+                "signature_invalid",
+                "not_a_notification",
+                "challenge_for_unknown_subscription",
+                "subscription_unknown"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "respondStatus": {
+          "type": "integer"
+        },
+        "action": {
+          "enum": [
+            "claim",
+            "renew_live_leases",
+            "activate",
+            "none"
+          ]
+        },
+        "next": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fixtureStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "delivered": {
+          "type": "boolean",
+          "description": "false: the server committed this response but the client never received it."
+        },
+        "context": {
+          "$ref": "#/definitions/fixtureContext"
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        },
+        "delivery": {
+          "$ref": "#/definitions/delivery"
+        },
+        "receiver": {
+          "$ref": "#/definitions/receiver"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "request",
+            "response",
+            "client"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "delivery"
+                ]
+              },
+              {
+                "required": [
+                  "receiver"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "delivery"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "request"
+                ]
+              },
+              {
+                "required": [
+                  "response"
+                ]
+              },
+              {
+                "required": [
+                  "client"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind"
+      ],
+      "properties": {
+        "contract": {
+          "const": "http-wake"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "delivery",
+            "sequence",
+            "rollback"
+          ]
+        },
+        "flags": {
+          "$ref": "#/definitions/fixtureFlags"
+        },
+        "context": {
+          "$ref": "#/definitions/fixtureContext"
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        },
+        "delivery": {
+          "$ref": "#/definitions/delivery"
+        },
+        "receiver": {
+          "$ref": "#/definitions/receiver"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/fixtureStep"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response",
+              "client"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "steps"
+                  ]
+                },
+                {
+                  "required": [
+                    "delivery"
+                  ]
+                },
+                {
+                  "required": [
+                    "receiver"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "delivery"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "delivery"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "steps"
+                  ]
+                },
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                },
+                {
+                  "required": [
+                    "client"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "sequence",
+                  "rollback"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "steps"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                },
+                {
+                  "required": [
+                    "client"
+                  ]
+                },
+                {
+                  "required": [
+                    "delivery"
+                  ]
+                },
+                {
+                  "required": [
+                    "receiver"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "rollback"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "flags"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

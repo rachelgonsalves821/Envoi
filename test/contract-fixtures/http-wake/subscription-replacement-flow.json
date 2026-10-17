@@ -1,0 +1,369 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-replacement-flow",
+  "kind": "sequence",
+  "description": "Replacement to a new URL (§3.4): create a pending replacement, challenge the new URL, activate. The old subscription ends as replaced in that transaction, its queue is cancelled, and the new one gets subscription_activated.",
+  "steps": [
+    {
+      "context": {
+        "dns": {
+          "host": "wake.example.net",
+          "addresses": [
+            "192.0.43.10"
+          ]
+        }
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "createRequest",
+        "body": {
+          "url": "https://wake.example.net/envoi"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "subscriptionResponse",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "subscription": {
+            "id": "wake_sub_replacement",
+            "installationId": "installation_example",
+            "agentId": "agent_example",
+            "url": "https://wake.example.net/envoi",
+            "status": "pending",
+            "endedReason": null,
+            "createdAt": "2026-10-17T12:05:00.000Z",
+            "activatedAt": null,
+            "expiresAt": null,
+            "endedAt": null,
+            "challengeExpiresAt": "2026-10-17T12:15:00.000Z",
+            "replacesSubscriptionId": "wake_sub_example",
+            "delivery": {
+              "state": "unverified",
+              "lastAttemptAt": null,
+              "lastSuccessAt": null,
+              "consecutiveFailures": 0,
+              "lastFailureClass": null
+            }
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Wait for the challenge at the new URL."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_replacement",
+          "url": "https://wake.example.net/envoi",
+          "status": "pending",
+          "challengeExpiresAt": "2026-10-17T12:15:00.000Z"
+        }
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "wake.example.net",
+          "addresses": [
+            "192.0.43.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.43.10",
+          "port": 443,
+          "servername": "wake.example.net"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://wake.example.net/envoi",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_lBybMxELDqtCXS8qQujV",
+            "envoi-wake-timestamp": "1792238702",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=kbdHqYHL4Hvo7B5DGbTQbhEgQe0XlxhzKYrfFZgZPztQiYFw00FLgg0RG0qAKD1DPW27MuXkiGgV-qmSUHJpBw"
+          },
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_lBybMxELDqtCXS8qQujV\",\"subscriptionId\":\"wake_sub_replacement\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_replacement\",\"expiresAt\":\"2026-10-17T12:15:00.000Z\",\"createdAt\":\"2026-10-17T12:05:00.000Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:05:02.400Z",
+        "registeredUrl": "https://wake.example.net/envoi",
+        "subscriptionIds": [
+          "wake_sub_replacement"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "activate",
+        "next": "Activate the replacement."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/wake-subscriptions/wake_sub_replacement/activate",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "activateRequest",
+        "body": {
+          "challenge": "envoi_wake_challenge_PLACEHOLDER_replacement"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "subscriptionResponse",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "subscription": {
+            "id": "wake_sub_replacement",
+            "installationId": "installation_example",
+            "agentId": "agent_example",
+            "url": "https://wake.example.net/envoi",
+            "status": "active",
+            "endedReason": null,
+            "createdAt": "2026-10-17T12:05:00.000Z",
+            "activatedAt": "2026-10-17T12:05:04.000Z",
+            "expiresAt": "2026-11-16T12:05:04.000Z",
+            "endedAt": null,
+            "challengeExpiresAt": null,
+            "replacesSubscriptionId": "wake_sub_example",
+            "delivery": {
+              "state": "healthy",
+              "lastAttemptAt": "2026-10-17T12:05:02.000Z",
+              "lastSuccessAt": "2026-10-17T12:05:02.000Z",
+              "consecutiveFailures": 0,
+              "lastFailureClass": null
+            }
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "The old subscription has ended."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "hostSubscriptionList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "installationId": "installation_example",
+          "subscriptions": [
+            {
+              "id": "wake_sub_replacement",
+              "installationId": "installation_example",
+              "agentId": "agent_example",
+              "url": "https://wake.example.net/envoi",
+              "status": "active",
+              "endedReason": null,
+              "createdAt": "2026-10-17T12:05:00.000Z",
+              "activatedAt": "2026-10-17T12:05:04.000Z",
+              "expiresAt": "2026-11-16T12:05:04.000Z",
+              "endedAt": null,
+              "challengeExpiresAt": null,
+              "replacesSubscriptionId": "wake_sub_example",
+              "delivery": {
+                "state": "healthy",
+                "lastAttemptAt": "2026-10-17T12:05:02.000Z",
+                "lastSuccessAt": "2026-10-17T12:05:02.000Z",
+                "consecutiveFailures": 0,
+                "lastFailureClass": null
+              }
+            },
+            {
+              "id": "wake_sub_example",
+              "installationId": "installation_example",
+              "agentId": "agent_example",
+              "url": "https://hooks.example.com/envoi/wake",
+              "status": "ended",
+              "endedReason": "replaced",
+              "createdAt": "2026-10-16T12:00:00.000Z",
+              "activatedAt": "2026-10-16T12:00:10.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "endedAt": "2026-10-17T12:05:04.000Z",
+              "challengeExpiresAt": null,
+              "replacesSubscriptionId": null,
+              "delivery": {
+                "state": "healthy",
+                "lastAttemptAt": "2026-10-17T11:59:00.000Z",
+                "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+                "consecutiveFailures": 0,
+                "lastFailureClass": null
+              }
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "One active subscription, on the new URL."
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_example",
+          "url": "https://hooks.example.com/envoi/wake",
+          "status": "ended",
+          "endedReason": "replaced"
+        }
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "sent": false,
+        "failureClass": null,
+        "outcome": "not_sent",
+        "notSentReason": "subscription_ended"
+      }
+    },
+    {
+      "context": {
+        "subscription": {
+          "id": "wake_sub_replacement",
+          "url": "https://wake.example.net/envoi",
+          "status": "active"
+        }
+      },
+      "delivery": {
+        "origin": "server",
+        "attempt": 1,
+        "dns": {
+          "host": "wake.example.net",
+          "addresses": [
+            "192.0.43.10"
+          ]
+        },
+        "sent": true,
+        "connect": {
+          "address": "192.0.43.10",
+          "port": 443,
+          "servername": "wake.example.net"
+        },
+        "request": {
+          "method": "POST",
+          "url": "https://wake.example.net/envoi",
+          "headers": {
+            "content-type": "application/json",
+            "user-agent": "Envoi-Wake/1",
+            "envoi-wake-id": "wake_evt_zYYwWKjymSlULlxvGqkW",
+            "envoi-wake-timestamp": "1792238704",
+            "envoi-wake-key-id": "wk_2026_10_a",
+            "envoi-wake-signature": "v1=s4IVYbdd6jgY5hQxMFyuC30WQTKggdkancqWnLw5yDXOXuSwERTRoxuJyW5x4g4KSaPj5fVrqdkQ_YjlwFytBg"
+          },
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_zYYwWKjymSlULlxvGqkW\",\"subscriptionId\":\"wake_sub_replacement\",\"sequence\":2,\"reason\":\"subscription_activated\",\"createdAt\":\"2026-10-17T12:05:04.000Z\"}"
+        },
+        "response": {
+          "status": 200
+        },
+        "failureClass": null,
+        "outcome": "acknowledged"
+      },
+      "receiver": {
+        "clock": "2026-10-17T12:05:04.300Z",
+        "registeredUrl": "https://wake.example.net/envoi",
+        "subscriptionIds": [
+          "wake_sub_replacement"
+        ],
+        "jwks": {
+          "keys": [
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+              "kid": "wk_2026_10_a",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "active"
+            },
+            {
+              "kty": "OKP",
+              "crv": "Ed25519",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+              "kid": "wk_2026_11_b",
+              "use": "sig",
+              "alg": "EdDSA",
+              "status": "next"
+            }
+          ]
+        },
+        "seenIds": [
+          "wake_evt_lBybMxELDqtCXS8qQujV"
+        ],
+        "verdict": "process",
+        "reason": null,
+        "respondStatus": 200,
+        "action": "claim",
+        "next": "Claim once."
+      }
+    }
+  ]
+}

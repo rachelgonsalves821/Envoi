@@ -1,0 +1,149 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-ended-reconnect",
+  "kind": "sequence",
+  "description": "A reconnect replaces every earlier family (a3 §4), so the old installation's subscription ends with credential_ended. Subscriptions never carry over: the new installation registers and proves its URL again (§8.3).",
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/inboxes/inbox_example/agents/agent_example/wake-subscriptions",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+          "x-envoi-csrf": "PLACEHOLDER_csrf",
+          "origin": "https://www.envoi-agents.com"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerSubscriptionList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "agentId": "agent_example",
+          "subscriptions": [
+            {
+              "id": "wake_sub_example",
+              "installationId": "installation_example",
+              "agentId": "agent_example",
+              "url": "https://hooks.example.com/envoi/wake",
+              "status": "ended",
+              "endedReason": "credential_ended",
+              "createdAt": "2026-10-16T12:00:00.000Z",
+              "activatedAt": "2026-10-16T12:00:10.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "endedAt": "2026-10-17T12:00:00.000Z",
+              "challengeExpiresAt": null,
+              "replacesSubscriptionId": null,
+              "delivery": {
+                "state": "healthy",
+                "lastAttemptAt": "2026-10-17T11:59:00.000Z",
+                "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+                "consecutiveFailures": 0,
+                "lastFailureClass": null
+              }
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner",
+        "lifecycle": "NOT_APPLICABLE",
+        "retry": "none",
+        "guidance": "none",
+        "next": "The old installation's subscription has ended."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_new"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "hostSubscriptionList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "installationId": "installation_new",
+          "subscriptions": []
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Register the receiver again."
+      }
+    },
+    {
+      "context": {
+        "dns": {
+          "host": "hooks.example.com",
+          "addresses": [
+            "192.0.32.10"
+          ]
+        }
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/wake-subscriptions",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_new",
+          "content-type": "application/json"
+        },
+        "schema": "createRequest",
+        "body": {
+          "url": "https://hooks.example.com/envoi/wake"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "subscriptionResponse",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "subscription": {
+            "id": "wake_sub_after_reconnect",
+            "installationId": "installation_new",
+            "agentId": "agent_example",
+            "url": "https://hooks.example.com/envoi/wake",
+            "status": "pending",
+            "endedReason": null,
+            "createdAt": "2026-10-17T12:00:30.000Z",
+            "activatedAt": null,
+            "expiresAt": null,
+            "endedAt": null,
+            "challengeExpiresAt": "2026-10-17T12:10:30.000Z",
+            "replacesSubscriptionId": null,
+            "delivery": {
+              "state": "unverified",
+              "lastAttemptAt": null,
+              "lastSuccessAt": null,
+              "consecutiveFailures": 0,
+              "lastFailureClass": null
+            }
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "next": "Activate with the new challenge."
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-dns-rebinding-rejected",
+  "kind": "delivery",
+  "description": "DNS rebinding (§4.2): at this attempt the name resolves to loopback. Every attempt resolves again and checks every address, so nothing is sent; work notifications retry on the schedule.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active",
+    "note": "At registration the name resolved to a public address."
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "127.0.0.1"
+      ]
+    },
+    "sent": false,
+    "failureClass": "address_rejected",
+    "outcome": "retry_scheduled",
+    "nextAttemptInSeconds": 10
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-created",
+  "kind": "http",
+  "description": "A host registers its receiver URL (§3.1). Every resolved address is public. The subscription is pending, and one signed wake.challenge is queued.",
+  "context": {
+    "dns": {
+      "host": "hooks.example.org",
+      "addresses": [
+        "192.0.43.11",
+        "2620:0:2d0:200::10"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_fresh",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.org/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "subscriptionResponse",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "subscription": {
+        "id": "wake_sub_fresh",
+        "installationId": "installation_fresh",
+        "agentId": "agent_example",
+        "url": "https://hooks.example.org/envoi/wake",
+        "status": "pending",
+        "endedReason": null,
+        "createdAt": "2026-10-17T12:00:00.000Z",
+        "activatedAt": null,
+        "expiresAt": null,
+        "endedAt": null,
+        "challengeExpiresAt": "2026-10-17T12:10:00.000Z",
+        "replacesSubscriptionId": null,
+        "delivery": {
+          "state": "unverified",
+          "lastAttemptAt": null,
+          "lastSuccessAt": null,
+          "consecutiveFailures": 0,
+          "lastFailureClass": null
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Wait for the wake.challenge at the URL, then activate with it."
+  }
+}

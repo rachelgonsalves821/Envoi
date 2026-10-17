@@ -1,0 +1,86 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-delayed-retry",
+  "kind": "delivery",
+  "description": "Attempt 3 of work notification 31 arrives after control notification 32 was processed: control notifications have their own lane and never wait behind work in backoff (§6.3). Re-signed, so its timestamp is fresh. A late wake is still a valid hint.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 3,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_w2URVpkxkO9mCcRk3LLi",
+        "envoi-wake-timestamp": "1792238060",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=Ek7f2bNnTY_lmR693DtRvaCQkXTFmvkxBSdoo4ZvSCrFJIZVxEYSa_0-YDFOJ_m2ry4aJ2nq585avTsBIAvRCw"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_w2URVpkxkO9mCcRk3LLi\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":31,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:53:20.000Z\"}"
+    },
+    "response": {
+      "status": 200
+    },
+    "failureClass": null,
+    "outcome": "acknowledged"
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:54:20.300Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [
+      "wake_evt_6I3xoxTOxRwHdNxxHDOp"
+    ],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "action": "claim",
+    "next": "Claim once; the claim decides whether work exists."
+  }
+}

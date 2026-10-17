@@ -1,0 +1,63 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-end-after-receiver-gone",
+  "kind": "http",
+  "description": "Ending a subscription that already ended for another reason repeats that ending (§3.5).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "ended",
+      "endedReason": "receiver_gone"
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions/wake_sub_example/end",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "endRequest",
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "schema": "subscriptionResponse",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "subscription": {
+        "id": "wake_sub_example",
+        "installationId": "installation_example",
+        "agentId": "agent_example",
+        "url": "https://hooks.example.com/envoi/wake",
+        "status": "ended",
+        "endedReason": "receiver_gone",
+        "createdAt": "2026-10-16T12:00:00.000Z",
+        "activatedAt": "2026-10-16T12:00:10.000Z",
+        "expiresAt": "2026-11-15T12:00:10.000Z",
+        "endedAt": "2026-10-17T11:55:00.000Z",
+        "challengeExpiresAt": null,
+        "replacesSubscriptionId": null,
+        "delivery": {
+          "state": "failing",
+          "lastAttemptAt": "2026-10-17T11:55:00.000Z",
+          "lastSuccessAt": "2026-10-17T11:54:00.000Z",
+          "consecutiveFailures": 1,
+          "lastFailureClass": "receiver_gone"
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Nothing changed."
+  }
+}

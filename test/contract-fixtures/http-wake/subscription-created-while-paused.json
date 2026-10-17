@@ -1,0 +1,66 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-created-while-paused",
+  "kind": "http",
+  "description": "A paused agent may still register and activate (§3, §8.1): like refresh and status, it maintains connectivity and acts on nothing.",
+  "context": {
+    "dns": {
+      "host": "hooks.example.org",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "agentStatus": "paused"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_paused",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.org/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "subscriptionResponse",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "subscription": {
+        "id": "wake_sub_paused",
+        "installationId": "installation_paused",
+        "agentId": "agent_example",
+        "url": "https://hooks.example.org/envoi/wake",
+        "status": "pending",
+        "endedReason": null,
+        "createdAt": "2026-10-17T12:03:20.000Z",
+        "activatedAt": null,
+        "expiresAt": null,
+        "endedAt": null,
+        "challengeExpiresAt": "2026-10-17T12:13:20.000Z",
+        "replacesSubscriptionId": null,
+        "delivery": {
+          "state": "unverified",
+          "lastAttemptAt": null,
+          "lastSuccessAt": null,
+          "consecutiveFailures": 0,
+          "lastFailureClass": null
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Activate as usual. Work wakes start after the resume."
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-activate-not-found",
+  "kind": "http",
+  "description": "Another installation's subscription, or an unknown id: identical answers (§3.3 row 6). A host cannot activate a URL another installation registered, even with its challenge.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions/wake_sub_fresh/activate",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_other",
+      "content-type": "application/json"
+    },
+    "schema": "activateRequest",
+    "body": {
+      "challenge": "envoi_wake_challenge_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WAKE_SUBSCRIPTION_NOT_FOUND",
+      "error": "WAKE_SUBSCRIPTION_NOT_FOUND",
+      "message": "The wake subscription was not found.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "Do not retry."
+  }
+}

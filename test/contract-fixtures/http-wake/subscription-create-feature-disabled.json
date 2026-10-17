@@ -1,0 +1,44 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-create-feature-disabled",
+  "kind": "http",
+  "description": "The flag is off (§1).",
+  "flags": {
+    "ENVOI_HTTP_WAKE_V1": false,
+    "ENVOI_INSTALLATIONS_V2": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.com/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "HTTPS wake is not available.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "wake_unavailable",
+    "next": "Use SSE and the a4 safety poll instead."
+  }
+}
