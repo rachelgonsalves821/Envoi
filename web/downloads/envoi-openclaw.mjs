@@ -1328,34 +1328,66 @@ async function ve(t) {
 	return i;
 }
 async function ye(e, t) {
-	let n = `${e}.${g()}.tmp`, r = await i(n, "wx", 384);
+	let n = `${e}.${g()}.tmp`;
 	try {
-		await r.writeFile(JSON.stringify(t, null, 2));
-	} finally {
-		await r.close();
-	}
-	try {
-		await c(n, e);
+		let r = await i(n, "wx", 384);
+		try {
+			await r.writeFile(JSON.stringify(t, null, 2)), await r.sync();
+		} finally {
+			await r.close();
+		}
+		if (await c(n, e), process.platform !== "win32") {
+			let t = await i(f.dirname(e), "r");
+			try {
+				await t.sync();
+			} finally {
+				await t.close();
+			}
+		}
 	} finally {
 		await l(n, { force: !0 });
 	}
 }
 async function V(e, t = () => e) {
-	let n = f.join(e, "connector.lock"), r = {
+	let r = f.join(e, "connector.lock"), o = {
 		pid: process.pid,
 		nonce: g()
 	};
-	for (let e = 0; e < 3; e++) try {
-		let e = await i(n, "wx", 384);
-		return await e.writeFile(JSON.stringify(r)), await e.close(), async () => {
+	for (let s = 0; s < 3; s++) try {
+		let s = await i(r, "wx", 384);
+		await s.writeFile(JSON.stringify(o)), await s.close();
+		try {
+			let t = f.join(e, "helper.lock"), r = await n(t).catch((e) => {
+				if (e.code === "ENOENT") return null;
+				throw e;
+			});
+			if (r) {
+				if (!r.isFile() || r.isSymbolicLink() || r.size > 2048) throw new S("A private helper setup owns this connection");
+				let e = JSON.parse(await a(t, "utf8"));
+				if (!Number.isSafeInteger(e.pid) || e.pid <= 0) throw new S("A private helper setup owns this connection");
+				if (e.pid !== process.pid) {
+					let t = !0;
+					try {
+						process.kill(e.pid, 0);
+					} catch (e) {
+						if (e.code === "ESRCH") t = !1;
+						else throw e;
+					}
+					if (t) throw new S("A private helper setup owns this connection");
+				}
+			}
+		} catch (e) {
+			throw await l(r, { force: !0 }), e;
+		}
+		return async () => {
 			let e = f.join(t(), "connector.lock");
-			JSON.parse(await a(e, "utf8")).nonce === r.nonce && await l(e);
+			JSON.parse(await a(e, "utf8")).nonce === o.nonce && await l(e);
 		};
 	} catch (e) {
 		if (e.code !== "EEXIST") throw e;
 		let t;
 		try {
-			t = JSON.parse(await a(n, "utf8"));
+			t = JSON.parse(await a(r, "utf8"));
 		} catch {
 			throw new S("The connector lock is incomplete. Check for a running setup before removing connector.lock");
 		}
@@ -1364,8 +1396,8 @@ async function V(e, t = () => e) {
 			process.kill(t.pid, 0);
 		} catch (e) {
 			if (e.code === "ESRCH") {
-				let e = `${n}.recovery`, o = await i(e, "wx", 384).catch(() => null);
-				if (!o) {
+				let e = `${r}.recovery`, n = await i(e, "wx", 384).catch(() => null);
+				if (!n) {
 					let t;
 					try {
 						t = JSON.parse(await a(e, "utf8"));
@@ -1375,15 +1407,15 @@ async function V(e, t = () => e) {
 					if (!Number.isSafeInteger(t.pid) || t.pid <= 0 || !t.nonce) throw new S("Invalid recovery lock; inspect the state directory");
 					try {
 						process.kill(t.pid, 0);
-					} catch (n) {
-						n.code === "ESRCH" && (JSON.parse(await a(e, "utf8")).nonce === t.nonce && await l(e), o = await i(e, "wx", 384).catch(() => null));
+					} catch (r) {
+						r.code === "ESRCH" && (JSON.parse(await a(e, "utf8")).nonce === t.nonce && await l(e), n = await i(e, "wx", 384).catch(() => null));
 					}
 				}
-				if (!o) throw new S("Another setup is recovering this connector. Try again shortly");
+				if (!n) throw new S("Another setup is recovering this connector. Try again shortly");
 				try {
-					await o.writeFile(JSON.stringify(r)), JSON.parse(await a(n, "utf8")).nonce === t.nonce && await l(n);
+					await n.writeFile(JSON.stringify(o)), JSON.parse(await a(r, "utf8")).nonce === t.nonce && await l(r);
 				} finally {
-					await o.close(), await l(e, { force: !0 });
+					await n.close(), await l(e, { force: !0 });
 				}
 				continue;
 			}
@@ -1569,10 +1601,24 @@ var U = (e) => {
 	}
 	async replaceJson(e, t) {
 		let n = `${e}.${g()}.tmp`;
-		await u(n, JSON.stringify(t), {
-			flag: "wx",
-			mode: 384
-		}), await c(n, e);
+		try {
+			let r = await i(n, "wx", 384);
+			try {
+				await r.writeFile(JSON.stringify(t)), await r.sync();
+			} finally {
+				await r.close();
+			}
+			if (await c(n, e), process.platform !== "win32") {
+				let t = await i(f.dirname(e), "r");
+				try {
+					await t.sync();
+				} finally {
+					await t.close();
+				}
+			}
+		} finally {
+			await l(n, { force: !0 });
+		}
 	}
 	load() {
 		return this.readJson(f.join(this.directory, "session.json"));

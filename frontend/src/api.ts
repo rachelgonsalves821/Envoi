@@ -24,14 +24,19 @@ export function setCsrfCookieName(name?: string) {
 }
 
 export class ApiError extends Error {
+  readonly reason?: string;
+  readonly requestId?: string;
+  readonly retryAfterSeconds?: number;
   constructor(
     message: string,
     public status: number,
     public code?: string,
-    public details?: Record<string, unknown>
+    public details?: Record<string, unknown>,
+    public metadata: { reason?: string; requestId?: string; retryAfterSeconds?: number } = {}
   ) {
     super(message);
     this.name = 'ApiError';
+    this.reason = metadata.reason; this.requestId = metadata.requestId; this.retryAfterSeconds = metadata.retryAfterSeconds;
   }
 }
 
@@ -82,7 +87,7 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
     });
     const sentCsrfToken = csrfToken();
     let response = await send();
-    let payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown> };
+    let payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; details?: Record<string, unknown>; reason?: string; requestId?: string; retryAfterSeconds?: number };
     session.check();
     options.signal?.throwIfAborted();
     if (response.status === 403 && payload.error === 'CSRF validation failed'
@@ -115,7 +120,15 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
         window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
       }
       if (response.status === 409 && payload.code === 'ACCOUNT_CHANGED' && typeof window !== 'undefined') window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
-      throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
+      const headerValue = response.headers.get('retry-after');
+      const headerDelay = headerValue === null ? undefined : Number(headerValue);
+      const bodyDelay = payload.retryAfterSeconds;
+      const delays = [headerDelay, bodyDelay].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+      throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details, {
+        ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}),
+        ...(typeof payload.requestId === 'string' ? { requestId: payload.requestId } : {}),
+        ...(delays.length ? { retryAfterSeconds: Math.max(...delays) } : {})
+      });
     }
     return payload as T;
   } finally { session.release(); }

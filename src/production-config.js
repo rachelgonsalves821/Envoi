@@ -2,6 +2,7 @@ import { scannerHealthUrl } from './dependency-readiness.js';
 import { createPostgresOptions } from './postgres-options.js';
 import { applyLegacyEnvironmentFallbacks, retiredEnvironmentNames } from './envoi-environment.js';
 import { isDeploymentName } from './deployment-identity.js';
+import { onboardingFlagErrors } from './onboarding-flags.js';
 
 const required = (env, name, errors, minimumLength = 1) => {
   const value = String(env[name] || '').trim();
@@ -135,6 +136,8 @@ export function validateProductionConfiguration(env = process.env) {
       }
     }
   }
+
+  errors.push(...onboardingFlagErrors(env));
 
   const positiveIntegerVariables = [
     'ENVOI_PORT', 'ENVOI_MAX_BODY_BYTES', 'ENVOI_DB_POOL_SIZE', 'ENVOI_DB_CONNECT_TIMEOUT_MS',
