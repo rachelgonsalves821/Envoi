@@ -63,6 +63,9 @@ import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenc
 import { createAgentSlots, legacyApprovalPermissions } from './agent-approval.js';
 import { createInstallationReader, installationSummary, ownerInstallationList, publicInstallation } from './agent-installations.js';
 import { readOnboardingFlags, routeAvailability } from './onboarding-flags.js';
+import { createAgentRegistrations, registrationBodyMaxBytes } from './agent-registration.js';
+import { verificationCodeKey } from './agent-registration-codes.js';
+import { createPollLimiter, createRegistrationLimits } from './agent-registration-limits.js';
 
 const productionConfig = validateProductionConfiguration();
 // agent-registration v1 §1: fails closed in every mode, before anything starts.
@@ -304,10 +307,14 @@ const invitationPath = (inboxId, invitationId) => path.join('inboxes', inboxId, 
 const externalAddressDirectoryPath = address => path.join('directory', 'email-addresses', `${identityKey(address)}.json`);
 const nativeAddressDirectoryPath = address => path.join('directory', 'native-addresses', `${identityKey(address)}.json`);
 const replyAddressDirectoryPath = address => path.join('directory', 'email-replies', `${identityKey(address)}.json`);
-const reserveIdentity = async (address, value) => {
+// agent-registration v1 §9: a live address hold counts as taken everywhere except the holding
+// registration's own activation.
+const reserveIdentity = async (address, value, { holdRegistrationId = null } = {}) => {
+  if (await registrations.liveHold(address, holdRegistrationId)) return false;
   const relative = path.join('identities', `${identityKey(address)}.json`);
   return store.putJsonIfAbsent(relative, value);
 };
+const identityTaken = async address => Boolean(await store.getJson(path.join('identities', `${identityKey(address)}.json`)));
 const canAct = (agent, permission) => agent.status === 'active' && agent.onboardingStatus === 'approved' && agent.permissions?.includes(permission);
 // A paused agent stays addressable: it may receive and observe, but not act.
 const canReceive = agent => ['active', 'paused'].includes(agent?.status) && agent.onboardingStatus === 'approved' && agent.permissions?.includes('receive_agent_messages');
@@ -614,6 +621,9 @@ async function checkAgentCredential(req, url, res) {
   if (inboxRoute) {
     // Human bearer sessions and legacy untyped development tokens keep their per-route handling.
     // Pre-cutover sinaloa_* credentials fall through to resolveAgentCredential, which refuses them.
+    // agent-registration v1 §2: a bootstrap token is an unrecognized bearer on every other
+    // authenticated route.
+    if (raw.startsWith('envoi_reg_')) throw credentialError('AUTHENTICATION_REQUIRED');
     if (!/^(?:envoi|sinaloa)_(?:agent_access|mcp_read)_/.test(raw)) return;
     const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
     if (index && !index.tokenType) return;
@@ -811,6 +821,13 @@ const humanAgentLimitKey = humanId => `human:${humanId}:active-agents`;
 const agentSlots = createAgentSlots({ store });
 const assertActiveAgentSlot = (humanId, excludingAgentId = null) => agentSlots.assertActiveAgentSlot(humanId, { excludingAgentId });
 const installations = createInstallationReader({ store, agentCredentialFamilyPath });
+const registrations = createAgentRegistrations({
+  store, flags: onboardingFlags,
+  codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')),
+  limits: createRegistrationLimits({ store }), pollLimiter: createPollLimiter(), agentSlots, installations, withInboxMutation,
+  canManageLive: (human, inbox) => canManageInbox(human, inbox, { maxAgeMs: 0 }),
+  normalizeLocalPart: normalizeAgentLocalPart, addressForLocalPart: agentAddressForLocalPart, identityTaken, semanticDigest
+});
 async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = [], allowRemoved = false) {
   const committedEvents = [];
   const run = async () => {
@@ -2038,6 +2055,50 @@ const inboxPreferencesHttp = createInboxPreferencesHttp({
   }
 });
 
+// Reads a JSON body up to the server's general limit (413 beyond it). An unparseable body comes
+// back as `invalid`, so each route answers with its own contract code.
+async function readJsonBody(req) {
+  let raw = '';
+  for await (const chunk of req) {
+    raw += chunk;
+    if (Buffer.byteLength(raw) > maxBodyBytes) throw Object.assign(new Error(`Request body exceeds ${maxBodyBytes} bytes`), { statusCode: 413 });
+  }
+  if (!raw) return { bytes: 0, value: {}, invalid: false };
+  try { return { bytes: Buffer.byteLength(raw), value: JSON.parse(raw), invalid: false }; }
+  catch { return { bytes: Buffer.byteLength(raw), value: null, invalid: true }; }
+}
+
+async function handleAgentRegistration(req, res, registrationRoute, claimRoute) {
+  const featureDisabled = message => codedError(404, 'FEATURE_DISABLED', message);
+  if (registrationRoute && !registrationRoute[1]) {
+    if (req.method !== 'POST') return fail(res, 405, 'Method not allowed');
+    if (!onboardingFlags.registration) throw featureDisabled('Agent-led setup is not available yet.');
+    const input = await readJsonBody(req);
+    // §2: a registration body over 4,096 bytes is over a creation limit.
+    if (input.bytes > registrationBodyMaxBytes) throw codedError(429, 'RATE_LIMITED', 'Too many setup attempts. Try again later.', { retryAfterSeconds: 3600, reason: 'registration_limit' });
+    return json(res, 201, await registrations.create(input.invalid ? null : input.value, { ip: clientIp(req), claimUrl: `${publicBaseUrl(req)}/claim` }));
+  }
+  if (registrationRoute && !registrationRoute[2]) {
+    if (req.method !== 'GET') return fail(res, 405, 'Method not allowed');
+    if (!onboardingFlags.registration) throw featureDisabled('Agent-led setup is not available yet.');
+    return json(res, 200, await registrations.status(bearerToken(req), registrationRoute[1]));
+  }
+  // §5.1: the claim routes need a current human session; getHuman re-checks the allowlist and the
+  // assurance rule. CSRF and ACCOUNT_CHANGED were checked before any handler.
+  if (!onboardingFlags.registration) throw featureDisabled('This feature is not available.');
+  const listing = Boolean(claimRoute) && !claimRoute[1] && !claimRoute[3];
+  if (listing ? req.method !== 'GET' : req.method !== 'POST') return fail(res, 405, 'Method not allowed');
+  const human = await auth.getHuman(req);
+  if (!human) throw codedError(401, 'AUTHENTICATION_REQUIRED', 'Please sign in again.');
+  if (listing) return json(res, 200, await registrations.listClaims(human));
+  if (claimRoute?.[3] === 'withdraw') return json(res, 200, await registrations.withdraw(human, claimRoute[2]));
+  const input = await readJsonBody(req);
+  const value = input.invalid ? null : input.value;
+  if (claimRoute?.[1] === 'lookup') return json(res, 200, await registrations.lookup(human, value));
+  if (registrationRoute[2] === 'approve') return json(res, 200, await registrations.approve(human, registrationRoute[1], value));
+  return json(res, 200, await registrations.reject(human, registrationRoute[1], value));
+}
+
 async function route(req, res) {
   installSessionCookieResponse(req, res, auth);
   const responseNonce = crypto.randomBytes(18).toString('base64');
@@ -2095,8 +2156,9 @@ async function route(req, res) {
     };
     return handleAgentMcp(req, res, { identity, callRest });
   }
-  if (['GET', 'HEAD'].includes(req.method) && (url.pathname === '/' || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
-    const relative = url.pathname === '/' ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
+  // agent-registration v1 §3: claim.url is ${ENVOI_PUBLIC_URL}/claim, served by the web app.
+  if (['GET', 'HEAD'].includes(req.method) && (url.pathname === '/' || url.pathname === '/claim' || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
+    const relative = url.pathname === '/' || url.pathname === '/claim' ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
     let filePath;
     try { filePath = resolvePathWithin(path.resolve('web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
@@ -2667,6 +2729,17 @@ async function route(req, res) {
     return res.end(JSON.stringify(routeAvailability(onboardingFlags, store.now())));
   }
 
+  // agent-registration v1 §3–§5: registration, status polling and the human claim.
+  const registrationRoute = url.pathname.match(/^\/api\/agent-registrations(?:\/([^/]+)(?:\/(approve|reject))?)?$/);
+  const claimRoute = url.pathname.match(/^\/api\/agent-claims(?:\/(lookup)|\/([^/]+)\/(withdraw))?$/);
+  if (registrationRoute || claimRoute) {
+    try { return await handleAgentRegistration(req, res, registrationRoute, claimRoute); }
+    catch (error) {
+      if (error?.publicFields?.retryAfterSeconds && !res.headersSent) res.setHeader('retry-after', String(error.publicFields.retryAfterSeconds));
+      throw error;
+    }
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/agent-enroll') {
     const input = await body(req);
     if (!input.enrollmentToken) return fail(res, 400, 'enrollmentToken is required');
@@ -2924,7 +2997,7 @@ async function route(req, res) {
     if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
     const localPart = normalizeAgentLocalPart(url.searchParams.get('localPart'));
     const address = agentAddressForLocalPart(localPart);
-    const available = !await store.getJson(path.join('identities', `${identityKey(address)}.json`));
+    const available = !await registrations.addressTaken(address);
     return json(res, 200, { localPart, address, available });
   }
 
@@ -2955,7 +3028,7 @@ async function route(req, res) {
     if (productionConfig.mode === 'production' && !requestedLocalPart) return fail(res, 400, 'Choose an agent address before creating an enrollment token');
     const localPart = requestedLocalPart ? normalizeAgentLocalPart(requestedLocalPart) : null;
     if (localPart && !profileName) return fail(res, 400, 'Agent name is required with a chosen address');
-    if (localPart && await store.getJson(path.join('identities', `${identityKey(agentAddressForLocalPart(localPart))}.json`))) return fail(res, 409, 'That agent address is already taken');
+    if (localPart && await registrations.addressTaken(agentAddressForLocalPart(localPart))) return fail(res, 409, 'That agent address is already taken');
     const agentProfile = profileName ? { name: profileName, slug: localPart || slugify(input.agentProfile?.slug || profileName), ...(localPart ? { localPart } : {}), capabilities: Array.isArray(input.agentProfile?.capabilities) ? input.agentProfile.capabilities.slice(0, 20) : [] } : null;
     const rawToken = crypto.randomBytes(32).toString('base64url');
     const record = { id: store.id('enrollment'), runtime, tokenHash: hashSecret(rawToken), inboxId, organizationId: inbox.organizationId, humanId: human.id, permissions, agentProfile, createdAt: store.now(), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), usedAt: null };
