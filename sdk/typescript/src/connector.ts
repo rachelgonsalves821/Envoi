@@ -3,6 +3,7 @@ import { lifecyclePolicy, retryDelay, guidanceText, type ConnectorLifecycle, typ
 export type { ConnectorLifecycle, ConnectorState } from './lifecycle';
 import { CONNECTOR_RUNTIMES, type ConnectorRuntime } from './quick-connect';
 import { eventFrames } from './sse';
+import { CaseSessionChannel, caseSessionResponse, retryableCaseSessionError } from './case-session';
 
 /** Persist the whole record atomically, including each replacement refresh token. */
 export interface ConnectorSession extends AgentTokens {
@@ -125,6 +126,11 @@ export interface WorkHandler {
   process(message: WorkMessage, context: WorkContext): Promise<void>;
 }
 
+export interface CaseSessionWorkHandler {
+  admit(message: WorkMessage): Promise<void>;
+  process(channel: CaseSessionChannel, context: { signal: AbortSignal }): Promise<void>;
+}
+
 export interface ConnectorOptions extends ClientOptions {
   pageSize?: number;
   /** @deprecated Wake safety intervals are fixed by a4-wake; this value is ignored. */
@@ -134,6 +140,7 @@ export interface ConnectorOptions extends ClientOptions {
   onEvent?: (event: InboxEvent) => Promise<void> | void;
   /** Enables fenced work processing when the server work routes are available. */
   handler?: WorkHandler;
+  caseSessionHandler?: CaseSessionWorkHandler;
   onState?: (lifecycle: ConnectorLifecycle) => void;
 }
 
@@ -275,8 +282,12 @@ export class EnvoiConnector {
   private nextClaimAt = Infinity;
   private wakeTrigger?: () => void;
   private readonly activeStreams = new Set<AbortController>();
+  private readonly activeCaseSessions = new Set<CaseSessionChannel>();
+  private caseSessionsAvailable = false;
+  private readonly mintingCaseWork = new Set<string>();
 
   constructor(baseUrl: string, private readonly store: ConnectorStore, private readonly options: ConnectorOptions = {}) {
+    if (options.handler && options.caseSessionHandler) throw new TypeError('Choose one work handler; a scoped turn cannot fall back to a legacy handler');
     this.origin = apiOrigin(baseUrl);
     this.pageSize = options.pageSize ?? 100;
     this.refreshSkewMs = options.refreshSkewMs ?? 60_000;
@@ -335,6 +346,9 @@ export class EnvoiConnector {
       if (lifecycle.paused || ['REVOKED', 'NEEDS_RECONNECT', 'STOPPED'].includes(state)) {
         this.actionEpoch++;
         for (const controller of [...this.activeActions, ...this.activeWork]) controller.abort();
+        for (const channel of this.activeCaseSessions) channel.invalidate(new EnvoiError('Case session ended', 401, 'CASE_SESSION_ENDED', {
+          reason: lifecycle.paused ? 'agent_paused' : state === 'STOPPED' ? 'ended_by_host' : 'credential_ended'
+        }));
       }
       return { ...current, lifecycle };
     });
@@ -361,6 +375,12 @@ export class EnvoiConnector {
 
   /** Accept delta/SSE lifecycle events; credential.ended has no observation cursor. */
   async observeEvent(event: Record<string, unknown>, type = String(event.type ?? '')): Promise<void> {
+    if (type === 'case_session.ended') {
+      let matched = false;
+      for (const channel of this.activeCaseSessions) matched = channel.observeEvent({ ...event, type }) || matched;
+      if (matched && event.reason === 'agent_paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'));
+      return;
+    }
     if (type === 'credential.ended') {
       if (typeof event.code === 'string') await this.observeError(new EnvoiError('Credential ended', undefined, event.code,
         { reason: typeof event.reason === 'string' ? event.reason : undefined }));
@@ -468,6 +488,7 @@ export class EnvoiConnector {
 
   /** Trusted bridge code may pass only this short-lived access token to a remote MCP provider. */
   async currentAccessToken(minValidityMs = this.refreshSkewMs): Promise<string> {
+    if (this.options.caseSessionHandler) throw new EnvoiError('Scoped runtimes cannot expose installation access credentials', undefined, 'LEGACY_MODEL_ACCESS_DISABLED');
     if (!Number.isSafeInteger(minValidityMs) || minValidityMs < 0 || minValidityMs > 300_000) {
       throw new RangeError('minValidityMs must be an integer from 0 to 300000');
     }
@@ -481,6 +502,7 @@ export class EnvoiConnector {
 
   /** Mint a short-lived MCP read credential for a single provider turn. Never send refresh credentials to a provider. */
   mintMcpReadToken(caseId: string | null = null): Promise<McpReadToken> {
+    if (this.options.caseSessionHandler) throw new EnvoiError('Scoped runtimes cannot mint legacy model credentials', undefined, 'LEGACY_MODEL_ACCESS_DISABLED');
     if (caseId !== null && (typeof caseId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(caseId))) {
       throw new TypeError('A safe case ID is required for an MCP read token');
     }
@@ -509,6 +531,7 @@ export class EnvoiConnector {
 
   /** Trusted host only: forwards MCP JSON-RPC without exposing the rotating refresh token. */
   forwardMcpRequest(body: string, { protocolVersion, signal }: { protocolVersion?: string; signal?: AbortSignal } = {}): Promise<Response> {
+    if (this.options.caseSessionHandler) throw new EnvoiError('Scoped runtimes cannot use privileged legacy MCP', undefined, 'LEGACY_MODEL_ACCESS_DISABLED');
     if (protocolVersion && !/^\d{4}-\d{2}-\d{2}$/.test(protocolVersion)) throw new TypeError('Invalid MCP protocol version');
     return this.withFreshSession(async (session, actionSignal) => {
       const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
@@ -586,7 +609,7 @@ export class EnvoiConnector {
     return this.withFreshClient((client, session) => client.getCleanAssetDownload(session.inboxId, assetId), false);
   }
 
-  private async postWork<T>(path: string, body: Record<string, unknown>, idempotencyKey?: string, signal?: AbortSignal): Promise<T> {
+  private async postWork<T>(path: string, body: Record<string, unknown>, idempotencyKey?: string, signal?: AbortSignal, scopedResponse = false): Promise<T> {
     return this.withFreshSession(async (session, actionSignal) => {
       signal?.throwIfAborted();
       const timeout = AbortSignal.timeout(this.options.timeoutMs ?? 30_000);
@@ -598,8 +621,49 @@ export class EnvoiConnector {
           body: JSON.stringify(body), signal: AbortSignal.any([timeout, actionSignal!, ...(signal ? [signal] : [])])
         });
       } catch { throw new EnvoiError(timeout.aborted ? 'Envoi request timed out' : 'Envoi could not be reached', undefined, actionSignal?.aborted ? 'REQUEST_CANCELLED' : timeout.aborted ? 'TIMEOUT' : 'NETWORK_ERROR'); }
-      return responsePayload<T>(response, 'Envoi work request failed');
+      signal?.throwIfAborted();
+      const result = await (scopedResponse ? caseSessionResponse<T>(response) : responsePayload<T>(response, 'Envoi work request failed'));
+      signal?.throwIfAborted();
+      return result;
     }, true);
+  }
+
+  async mintCaseSession(work: WorkLease, options: { signal?: AbortSignal; installationId?: string; onInvalidated?: (error: EnvoiError) => void } = {}): Promise<CaseSessionChannel> {
+    if (this.mintingCaseWork.has(work.workId)) throw new TypeError('A case session mint is already in flight for this work');
+    this.mintingCaseWork.add(work.workId);
+    try { return await this.createCaseSession(work, options); }
+    finally { this.mintingCaseWork.delete(work.workId); }
+  }
+
+  private async createCaseSession(work: WorkLease, options: { signal?: AbortSignal; installationId?: string; onInvalidated?: (error: EnvoiError) => void }): Promise<CaseSessionChannel> {
+    options.signal?.throwIfAborted();
+    if (!/^msg_[A-Za-z0-9_-]+$/.test(work.workId) || typeof work.leaseToken !== 'string' || work.leaseToken.length < 1 || work.leaseToken.length > 256
+      || !work.message.caseId || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || Date.parse(work.leaseExpiresAt) <= Date.now()) throw new TypeError('A live case-bound work lease is required');
+    await this.checkStatus();
+    options.signal?.throwIfAborted();
+    if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable; update the server before processing', 404, 'FEATURE_DISABLED');
+    const identity = validSession(await this.store.load());
+    if (work.message.recipientAgentId !== identity.agentId) throw new EnvoiError('Work belongs to another agent', undefined, 'CASE_SESSION_RESPONSE_INVALID');
+    const path = `/api/agent/work/${encodeURIComponent(work.workId)}/session`;
+    const payload = await this.postWork<unknown>(path, { leaseToken: work.leaseToken }, undefined, options.signal, true);
+    options.signal?.throwIfAborted();
+    let channel: CaseSessionChannel;
+    channel = new CaseSessionChannel(payload, {
+      agentId: identity.agentId, installationId: options.installationId,
+      workId: work.workId, caseId: work.message.caseId,
+      workKind: isHumanInstructionMessage(work.message) ? 'human_instruction' : 'agent_message',
+      counterpartyAddress: work.message.from.address, agentAddress: identity.address
+    }, {
+      origin: this.origin, fetch: this.options.fetch, timeoutMs: this.options.timeoutMs,
+      signal: options.signal, assertActive: () => this.guard(true),
+      onInvalidated: error => { this.activeCaseSessions.delete(channel); options.onInvalidated?.(error); },
+      end: async sessionId => {
+        const ended = await this.postWork<{ session: { id: string; status: string } }>(`${path}/end`, { leaseToken: work.leaseToken, sessionId }, undefined, undefined, true);
+        if (ended.session?.id !== sessionId || ended.session.status !== 'ended') throw new EnvoiError('Envoi returned an invalid case session end', undefined, 'CASE_SESSION_RESPONSE_INVALID');
+      }
+    });
+    if (!channel.signal.aborted) this.activeCaseSessions.add(channel);
+    return channel;
   }
 
   private async reply(message: WorkMessage, text: string, idempotencyKey: string, extra: Omit<NativeMessageInput, 'senderAgentId' | 'recipientEmail' | 'text' | 'caseId'> = {}, leaseToken?: string): Promise<unknown> {
@@ -641,11 +705,17 @@ export class EnvoiConnector {
   }
 
   private async processWorkAttempt(signal?: AbortSignal): Promise<boolean> {
-    const handler = this.options.handler;
+    const scoped = this.options.caseSessionHandler;
+    const handler = scoped ?? this.options.handler;
     if (!handler) throw new TypeError('A durable work handler is required');
     if (signal?.aborted) return false;
     await this.guard();
     if ((await this.lifecycle()).paused) return false;
+    if (scoped) {
+      await this.checkStatus();
+      if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable', 404, 'FEATURE_DISABLED');
+      if ((await this.lifecycle()).paused) return false;
+    }
     let claimed: { work: WorkLease | null; state?: string; nextAvailableInMs?: number };
     try { claimed = await this.postWork<{ work: WorkLease | null; state?: string }>('/api/agent/work/claim', { acceptHumanInstructions: true }); }
     catch (error) {
@@ -700,10 +770,10 @@ export class EnvoiConnector {
       while (!workAbort.signal.aborted) {
         const remaining = Date.parse(leaseExpiresAt) - Date.now();
         await delay(failures ? Math.min(1_000, Math.max(1, Math.floor(remaining / 3)))
-          : Math.max(100, Math.min(30_000, Math.floor(remaining / 3))), workAbort.signal);
+          : Math.max(100, Math.min(scoped ? 20_000 : 30_000, Math.floor(remaining / 3))), workAbort.signal);
         if (workAbort.signal.aborted) break;
         try {
-          const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken }, undefined, workAbort.signal);
+          const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken }, undefined, workAbort.signal, !!scoped);
           if (workAbort.signal.aborted) break;
           if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new EnvoiError('Envoi returned an invalid lease renewal');
           if (Date.parse(renewed.leaseExpiresAt) <= Date.now()) throw new EnvoiError('Envoi returned an expired lease renewal');
@@ -714,7 +784,7 @@ export class EnvoiConnector {
           if (workAbort.signal.aborted) break;
           const transient = error instanceof EnvoiError && (['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? '')
             || (!error.code && [502, 503, 504].includes(error.status ?? 0)) || error.code === 'INTERNAL_SERVER_ERROR');
-          if (transient && ++failures <= 2 && Date.parse(leaseExpiresAt) > Date.now()) continue;
+          if (!scoped && transient && ++failures <= 2 && Date.parse(leaseExpiresAt) > Date.now()) continue;
           renewalError = error;
           workAbort.abort();
           break;
@@ -729,12 +799,13 @@ export class EnvoiConnector {
       await this.guard(true);
       await handler.admit(work.message);
       if (workAbort.signal.aborted) throw new EnvoiError('Work lease was interrupted before acknowledgement');
-      const acknowledged = await this.postWork<WorkSettlement>(`${workPath}/acknowledge`, { leaseToken: work.leaseToken }, acknowledgeKey);
+      const acknowledged = await this.postWork<WorkSettlement>(`${workPath}/acknowledge`, { leaseToken: work.leaseToken }, acknowledgeKey, workAbort.signal, !!scoped);
       if (acknowledged.workId !== work.workId || acknowledged.status !== 'acknowledged' || acknowledged.receipt?.state !== 'acknowledged' || acknowledged.receipt.messageId !== work.message.id) {
         throw new EnvoiError('Envoi returned an invalid acknowledgement');
       }
       if (workAbort.signal.aborted) throw new EnvoiError('Work lease was interrupted before processing');
-      await handler.process(work.message, {
+      if (scoped) await this.processCaseSessionWork(work, scoped, workAbort.signal, () => leaseExpiresAt);
+      else await this.options.handler!.process(work.message, {
         signal: workAbort.signal,
         reply: async (text, key, extra) => {
           if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) {
@@ -753,7 +824,7 @@ export class EnvoiConnector {
       if (humanReplyError) throw humanReplyError;
       if (renewalError) throw renewalError;
       if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new EnvoiError('Work lease expired before completion');
-      const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey);
+      const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey, workAbort.signal, !!scoped);
       if (completed.workId !== work.workId || completed.status !== 'processed' || completed.receipt?.state !== 'processed' || completed.receipt.messageId !== work.message.id) {
         throw new EnvoiError('Envoi returned an invalid completion');
       }
@@ -765,8 +836,10 @@ export class EnvoiConnector {
       await stopRenewal();
       if (!interrupted && !renewalError && !settled && !signal?.aborted && !(await this.lifecycle()).paused
         && !['REVOKED', 'NEEDS_RECONNECT', 'STOPPED'].includes((await this.lifecycle()).state)
-        && !(error instanceof EnvoiError && error.code === 'CASE_CONTROLLED') && Date.parse(leaseExpiresAt) > Date.now()) {
-        await this.postWork(`${workPath}/fail`, { leaseToken: work.leaseToken, retryable: true, reasonCode: 'HANDLER_FAILED' }).catch(() => {});
+        && !(error instanceof EnvoiError && (error.code === 'CASE_CONTROLLED'
+          || scoped && ['CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED', 'WORK_LEASE_STALE', 'WORK_NOT_ELIGIBLE', 'WORK_NOT_FOUND', 'FEATURE_DISABLED', 'AUTHENTICATION_REQUIRED'].includes(error.code ?? '')))
+        && Date.parse(leaseExpiresAt) > Date.now()) {
+        await this.postWork(`${workPath}/fail`, { leaseToken: work.leaseToken, retryable: true, reasonCode: 'HANDLER_FAILED' }, undefined, undefined, !!scoped).catch(() => {});
       }
       if (interrupted && !renewalError && error instanceof EnvoiError && !error.code)
         throw new EnvoiError(error.message, error.status, 'REQUEST_CANCELLED');
@@ -777,6 +850,54 @@ export class EnvoiConnector {
       signal?.removeEventListener('abort', onAbort);
       await stopRenewal();
     }
+  }
+
+  private async processCaseSessionWork(work: WorkLease, handler: CaseSessionWorkHandler, signal: AbortSignal, leaseExpiresAt: () => string): Promise<void> {
+    let reminted = false;
+    while (!signal.aborted) {
+      let channel: CaseSessionChannel | undefined;
+      let mintFailures = 0;
+      while (!channel) {
+        signal.throwIfAborted();
+        try { channel = await this.mintCaseSession({ ...work, leaseExpiresAt: leaseExpiresAt() }, { signal }); }
+        catch (error) {
+          if (!retryableCaseSessionError(error) || ++mintFailures > 3) throw error;
+          const wait = retryDelay(mintFailures, Math.random(), error.retryAfterSeconds);
+          if (Date.now() + wait >= Date.parse(leaseExpiresAt())) throw error;
+          await delay(wait, signal);
+        }
+      }
+      try {
+        await abortableTurn(() => handler.process(channel!, { signal: channel!.signal }), channel.signal);
+        signal.throwIfAborted();
+        let endFailures = 0;
+        while (true) {
+          signal.throwIfAborted();
+          try { await channel.end(); break; }
+          catch (error) {
+            if (!retryableCaseSessionError(error) || ++endFailures > 3) throw error;
+            const wait = retryDelay(endFailures, Math.random(), error.retryAfterSeconds);
+            if (Date.now() + wait >= Date.parse(leaseExpiresAt())) throw error;
+            await delay(wait, signal);
+          }
+        }
+        signal.throwIfAborted();
+        return;
+      } catch (error) {
+        const failure = channel.signal.aborted && !(channel.signal.reason instanceof EnvoiError && channel.signal.reason.reason === 'ended_by_host') ? channel.signal.reason : error;
+        await channel.end().catch(() => {});
+        if (failure instanceof EnvoiError && failure.code === 'CASE_SESSION_ENDED' && failure.reason === 'agent_paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'));
+        const retry = failure instanceof EnvoiError && (failure.code === 'CASE_SESSION_EXPIRED'
+          || failure.code === 'AUTHENTICATION_REQUIRED'
+          || failure.code === 'CASE_SESSION_ENDED' && failure.reason === 'superseded');
+        if (!reminted && retry && !signal.aborted && Date.parse(leaseExpiresAt()) > Date.now()) {
+          reminted = true;
+          continue;
+        }
+        throw failure;
+      } finally { channel.invalidate(); }
+    }
+    signal.throwIfAborted();
   }
 
   /** Reads one durable delta page. The callback must complete before its cursor is committed. */
@@ -824,11 +945,12 @@ export class EnvoiConnector {
         headers: { authorization: `Bearer ${session.agentApiToken}` }, credentials: 'omit', redirect: 'error',
         signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000)
       }); } catch { throw new EnvoiError('Envoi status could not be reached', undefined, 'NETWORK_ERROR'); }
-      const status = await responsePayload<{ state: string; inboxId: string; agent: { id: string } }>(response, 'Envoi status failed');
+      const status = await responsePayload<{ state: string; inboxId: string; agent: { id: string }; caseSessions?: { available: boolean; version: number } }>(response, 'Envoi status failed');
       if (!['active', 'paused'].includes(status.state) || status.inboxId !== session.inboxId || status.agent?.id !== session.agentId)
         throw new EnvoiError('Envoi returned an invalid agent status');
       return status;
     });
+    this.caseSessionsAvailable = result.caseSessions?.available === true && result.caseSessions.version === 1;
     if (result.state === 'paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'));
     else if ((await this.lifecycle()).paused) {
       await this.transition('RUNNING', { paused: false, code: undefined, reason: undefined, guidance: undefined, failures: 0, retryAt: undefined });
@@ -841,11 +963,12 @@ export class EnvoiConnector {
     await this.start();
     const stop = new AbortController();
     const stopped = AbortSignal.any([signal, stop.signal]);
-    let pending = !!this.options.handler, flight: Promise<void> | null = null, fatal: unknown;
+    const hasHandler = !!(this.options.handler || this.options.caseSessionHandler);
+    let pending = hasHandler, flight: Promise<void> | null = null, fatal: unknown;
     let connected = false, safetyAt = Date.now() + 12_000 + Math.random() * 6000;
     let statusAt = Date.now() + 30_000 + Math.random() * 30_000;
     const notify = () => this.wake.abort();
-    const trigger = () => { if (this.options.handler) pending = true; notify(); };
+    const trigger = () => { if (hasHandler) pending = true; notify(); };
     const safetyDelay = (state?: ConnectorLifecycle) => connected && state?.state !== 'DEGRADED' ? 30_000 + Math.random() * 30_000 : 12_000 + Math.random() * 6000;
     const failure = async (error: unknown, independentStream = false) => {
       if (stopped.aborted) return;
@@ -855,11 +978,16 @@ export class EnvoiConnector {
         return;
       }
       await this.observeError(error);
+      if (this.options.caseSessionHandler && error instanceof EnvoiError && error.code === 'CASE_SESSION_ENDED' && error.reason === 'credential_ended') {
+        try { await this.checkStatus(); }
+        catch (statusError) { error = statusError; await this.observeError(error); }
+      }
       const state = await this.lifecycle();
       if (state.state === 'DEGRADED') safetyAt = Math.min(safetyAt, Date.now() + 12_000 + Math.random() * 6000);
       if (error instanceof ConnectorPersistenceError || error instanceof ConnectorContractError || ['REVOKED', 'NEEDS_RECONNECT'].includes(state.state)
         || !(error instanceof EnvoiError) && state.state !== 'DEGRADED'
-        || error instanceof EnvoiError && !(lifecyclePolicy(error).lifecycle === 'DEGRADED' || ['REQUEST_CANCELLED', 'AGENT_PAUSED', 'CASE_CONTROLLED'].includes(error.code ?? ''))) {
+        || error instanceof EnvoiError && !(lifecyclePolicy(error).lifecycle === 'DEGRADED' || ['REQUEST_CANCELLED', 'AGENT_PAUSED', 'CASE_CONTROLLED'].includes(error.code ?? '')
+          || this.options.caseSessionHandler && ['CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED', 'WORK_LEASE_STALE', 'WORK_NOT_ELIGIBLE', 'WORK_NOT_FOUND'].includes(error.code ?? ''))) {
         fatal = error; stop.abort();
       }
       notify();
@@ -967,7 +1095,7 @@ export class EnvoiConnector {
         if (state.paused) {
           pending = false; this.nextClaimAt = Infinity;
           if (now >= statusAt) { statusAt = now + 30_000 + Math.random() * 30_000; try { await this.checkStatus(); } catch (error) { await failure(error); } }
-        } else if (this.options.handler) {
+        } else if (hasHandler) {
           if (now >= Math.min(safetyAt, this.nextClaimAt)) { pending = true; safetyAt = now + safetyDelay(state); this.nextClaimAt = Infinity; }
           if (pending && !flight && now >= retryAt) {
             pending = false;
@@ -978,7 +1106,7 @@ export class EnvoiConnector {
               .finally(() => { flight = null; notify(); });
           }
         }
-        const deadline = state.paused ? statusAt : pending && !flight ? retryAt : this.options.handler ? Math.max(retryAt, Math.min(safetyAt, this.nextClaimAt)) : Infinity;
+        const deadline = state.paused ? statusAt : pending && !flight ? retryAt : hasHandler ? Math.max(retryAt, Math.min(safetyAt, this.nextClaimAt)) : Infinity;
         if (pending && !flight && !state.paused && Date.now() >= retryAt) continue;
         await delay(Math.min(60_000, Math.max(1, deadline - Date.now())), AbortSignal.any([stopped, this.wake.signal]));
       }
@@ -993,6 +1121,18 @@ export class EnvoiConnector {
       if (!['REVOKED', 'NEEDS_RECONNECT'].includes(current.state)) await this.transition('STOPPED');
     }
   }
+}
+
+function abortableTurn(run: () => Promise<void>, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    Promise.resolve().then(() => { signal.throwIfAborted(); return run(); }).then(
+      () => { signal.removeEventListener('abort', abort); if (signal.aborted) reject(signal.reason); else resolve(); },
+      error => { signal.removeEventListener('abort', abort); reject(signal.aborted ? signal.reason : error); }
+    );
+  });
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
