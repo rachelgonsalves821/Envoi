@@ -2,6 +2,11 @@
 
 **Status:** Invite-only beta contract; implementation and hosted acceptance in progress
 **Product owner:** Rachel
+**Onboarding requirements updated:** 2026-10-17, aligned with the agent-native v3 plan at integration `7442248`
+
+This document defines product requirements, not a claim that every route is implemented or accepted. The [agent-native build plan](architecture/agent-native-v2/build-plan-v3.md), especially §§31–47, defines the multi-route onboarding design. Approved contracts and the [execution plan](architecture/agent-native-v2/claude-codex-build-plan.md) govern implementation. Hosted acceptance must cite an exact release and real-host evidence; merged code or mock-runtime tests alone do not establish support.
+
+Remaining work is assigned in the [Phase B completion plan](architecture/agent-native-v2/phase-b-completion-plan.md) and [Phase C execution plan](architecture/agent-native-v2/phase-c-execution-plan.md). These plans distinguish the complete multi-host objective from a limited beta for independently verified routes.
 
 ## Product definition
 
@@ -11,12 +16,12 @@ The inbox is the system of record for agent collaboration. It should feel famili
 
 ## Beta release boundary
 
-- Two independently owned, externally hosted agents can connect through Envoi's hosted remote MCP endpoint or native API. OpenClaw and Grok/xAI integrations must complete a real exchange, including reconnection after token expiry.
+- Two independently owned, externally hosted agents can discover `/connect`, initiate onboarding through a supported connection route, receive owner approval and collaborate without a source checkout or operational credentials in chat. Hermes, OpenClaw, Grok/xAI, Muse, Instinct and ChatGPT Dots are named onboarding targets, not interchangeable proof fixtures. Full multi-host onboarding requires a verified route and wake outcome for each; individual proven routes may enter a limited beta while other targets remain explicitly blocked or unverified.
 - A sender with the recipient's exact active Envoi address can send immediately. No first-contact request or recipient approval gates delivery. Recipient blocking remains enforceable.
 - Agents can maintain multiple distinct cases with the same counterparty and collaborate over multiple turns using typed requests, proposals, decisions, status updates, and completion receipts. A single structured exchange does not satisfy this requirement.
 - Every agent message, case event, delivery/processing receipt, and shared file is visible in the human web interface. Humans can review decisions and use only controls that the backend actually enforces; pause/resume, revocation, and block/unblock are beta requirements to be proved end to end before release.
 - Agent-created files use private object storage and a fail-closed malware scan. An explicit case-scoped grant lets the authorized counterparty and both supervisors discover and download a verified clean shared file; unrelated agents cannot. Humans can find files by case, creator, type, and time.
-- External SMTP, calendar execution, human takeover, arbitrary human conversation messages, managed hosting of customer agent runtimes, consequential external actions, A2A, and mobile clients are later work. They are not beta navigation or setup requirements.
+- General-purpose external SMTP, calendar execution, human takeover, arbitrary human conversation messages, managed hosting of customer agent runtimes, consequential external actions, A2A, and mobile clients remain outside the core beta. A constrained email interoperability route for a host such as Instinct is a candidate dependency of the full multi-host goal if no supported native integration exists; it requires a separately approved contract and security/hosted gate, not silent reuse of the human-email adapter.
 
 ## Product boundaries
 
@@ -56,9 +61,55 @@ An inbox belongs to an owner agent and contains registered agents, cases, messag
 
 ### Agent onboarding and identity
 
-An agent must complete onboarding before communicating externally. Onboarding creates a stable agent ID, human-readable slug, internal email-shaped address such as `agentname@envoi.mail`, capability profile, principal association, and identity status. Because `.mail` is not a delegated public top-level domain, this address is always a native Envoi identity. When the Resend transport and a verified registrable domain are configured, the same slug receives a separate public address such as `agentname@agents.example.com`.
+An agent must complete owner-approved onboarding before it can access work. The stable agent identity, owner, address, permissions and history are distinct from an installation (a particular authorized runtime connection). Display the actual server-assigned address, for example `agentname@agents.envoi-agents.com` in beta, rather than inventing a domain. An email-shaped native identity is not proof of public SMTP delivery.
 
-Human-created enrollment tokens carry scoped permissions such as `send_agent_messages`, `receive_agent_messages`, `create_assets`, and `execute_cases`. Redeeming a valid one-time token creates the approved agent and returns its credential once; no second approval step is required. An agent without valid enrollment and permissions cannot send messages, receive work, create assets, or execute cases. `use_email_transport` is outside the beta path.
+The primary journey is agent-led, with human consent:
+
+1. The human gives the agent the canonical `/connect` URL. The agent reads the published skill/manifest and checks its actual host capabilities and existing Envoi installation.
+2. Reuse or reconnect the existing identity where authorized. Otherwise initiate one bounded, idempotent pending registration through an available route. Pending registration grants no inbox, case, file or messaging access.
+3. The signed-in, admitted human claims the registration, selects the workspace and address, and approves permissions and policy. The server determines the effective grant; agent-requested capabilities are not self-granted permissions.
+4. Complete activation through the trusted helper, provider authorization or private client boundary. Local helpers require host confirmation; the OAuth route combines owner claim and consent. A provider-specific two-step exception requires separate review.
+5. Verify authenticated identity, work access and a real exchange. Independently prove and display the installation's wake capability. An approval screen or successful tool listing is not connection acceptance.
+
+Operational access/refresh credentials stay out of model context, URLs, command arguments and logs. The preferred routes keep them out of the human browser too. A reviewed provider-secure-field fallback may transfer only a short-lived, single-use bootstrap code bound to the pending registration, never an operational credential. Activation retries and lost responses must not duplicate identities or expand grants. Reconnection must preserve the authorized identity and history; revocation must never trigger silent re-enrollment.
+
+Legacy human-issued enrollment tokens remain a compatibility/test path where enabled, not the default product journey. No documentation or UI should require token copying when the supported agent-led route is available.
+
+### Connection routes and named host requirements
+
+All routes reuse the same registration, owner claim, installation, permissions and durable-work model. A route is available only when the server publishes it as enabled after its contract and hosted gate pass. Local-helper completion does not complete the other routes.
+
+| Route | Intended fit | Required boundary |
+| --- | --- | --- |
+| Local `envoi-link` helper | Hermes, OpenClaw and hosts with trusted commands and a persistent runtime | Helper privately owns credentials, cursor, lifecycle and wake; no repository checkout required. |
+| Hosted remote MCP with OAuth | Hosts that actually support authenticated remote MCP, including eligible cloud assistants | Owner consent, installation-scoped/resource-bound grants, approved redirects, refresh and revoke outside model context. |
+| Reviewed provider connector | Muse and other hosts with an approved custom connector interface | Provider-approved tool definitions and private authorization; respect sensitive-write approval requirements. |
+| Authenticated REST | Hosts with outbound HTTPS, secure credential storage and durable execution | Documented typed operations, bounded retries, idempotency and safe credential custody. |
+
+| Required host | Route to establish | Acceptance limitation to resolve |
+| --- | --- | --- |
+| Hermes | Local helper and runtime adapter | Real-host onboarding, restart, refresh, work processing and closed-app reachability. |
+| OpenClaw | Local helper and runtime adapter | Prove the flow on OpenClaw itself, not a Hermes or stand-in runtime. |
+| Grok/xAI | Supported MCP or trusted API/runtime adapter, selected from actual host capabilities | An xAI API integration does not prove the consumer Grok application can install or wake an Envoi connection. Record the exact product/runtime tested. |
+| Muse | Reviewed provider connector; remote MCP only if that host actually supports it | Provider approval, private authorization, real identity/inbox/send/reply calls, write-consent behavior and a separately verified background invocation mechanism. |
+| Instinct | Establish a provider-supported connector, MCP or REST contract; investigate a constrained email bridge if these are unavailable | No working native route is established by naming Instinct in the plan. Verify the actual account's integration interface. A mailbox receiving email is not proof of an authenticated Envoi installation or canonical reply. |
+| ChatGPT Dots | Supported remote MCP/OAuth integration and a separately implemented supported event/wake mechanism | Prove the actual authorized dot can act while closed; general background capability is not Envoi subscription evidence. |
+
+Muse and Instinct are required targets of the full onboarding plan, not optional omissions after the Hermes/OpenClaw gate. If a provider blocks integration, record the concrete blocker, evidence and next provider/product action. Do not advertise unsupported setup instructions or mark the full multi-host goal complete. A provider blocker need not stop a clearly scoped beta for other verified hosts.
+
+For an Instinct email bridge, the design must establish mailbox ownership and agent identity, authenticated inbound handling and spoof/loop defenses, case/thread correlation, deduplication, permission enforcement, pause/revoke behavior, receipts and safe file handling. Preserve canonical Envoi cases and audit records. This is a proposed route extension requiring contract approval; it is not an already supported fifth registration mode or permission to bypass provider restrictions.
+
+### Wake and background availability
+
+Authentication and wake are separate requirements. Evaluate verified provider invocation, verified HTTPS callbacks, helper SSE with safety polling, supported scheduled polling, then on-demand access. Wake events contain opaque references; authorized runtimes fetch canonical work from the durable queue. A disconnected or paused runtime must not lose work.
+
+- For every host advertised as automatic, close its app/chat and deliver two work items at different times. Prove independent wake, authenticated fetch, processing and one canonical reply per item.
+- Test wake-channel outage, polling fallback where supported, process restart, offline delivery, credential refresh/recovery, duplicate notifications, pause/resume and revocation. Pause holds work while permitting authorized credential maintenance; revocation prevents further work and late settlement.
+- Record the actual host/version, release SHA, connection route, credential custody, approval requirements, wake mechanism and evidence. Delivery, acknowledgement and processing remain distinct.
+- If the host requires a human to reopen the chat or approve each write, say so. Do not call it automatically reachable. On-demand enrollment needs its own approved contract and truthful UI status; the current registration v1 contract does not enable that mode.
+- Never infer wake from OAuth success, an installed connector, `tools/list`, one manual message or an open browser.
+
+The [runtime compatibility matrix](../integrations/onboarding/skill/COMPATIBILITY.md) records capability evidence; unverified entries are not implementation or provider-support claims.
 
 ### Agent
 
@@ -98,7 +149,7 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 
 - Create an inbox and owner agent.
 - Onboard an agent with a stable email-shaped identity and capability profile.
-- Support one-step agent account creation that automatically creates the inbox, owner agent, identity, and native connection details.
+- Support agent-initiated registration, explicit owner claim and secure activation into an installation; create or reuse the agent's identity and inbox only through the authorized lifecycle.
 - Support idempotent onboarding retries so network retries cannot create duplicate identities.
 - Distinguish native identity readiness from external email transport readiness.
 - Register agents with stable IDs and capabilities.
@@ -120,7 +171,7 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Retry transient delivery failures with bounded exponential backoff and permit an authorized human operator to replay dead-lettered messages.
 - Require recipient agents to issue idempotent acknowledgement or processing receipts; never equate API acceptance with recipient processing.
 - Bound inbox and case reads to 200 records and support cursor-style `before` pagination.
-- Expose the same case, message, receipt, and clean-file capabilities through the hosted MCP endpoint and native API; an MCP connector must process unsolicited inbox work and recover from interruption.
+- Expose consistent authorized case, message, receipt and clean-file capabilities through enabled MCP and native API routes. Prove unsolicited work processing and interruption recovery separately for each host advertised as automatically reachable.
 
 ### Human authentication
 
@@ -132,8 +183,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Production authentication must use WorkOS; development OTP behavior must never be enabled in production.
 - API routes must derive the human principal from the authenticated session rather than trusting a request-body `humanId`.
 - The authenticated human session becomes the root of the agent's identity and permissions.
-- After authentication, the human creates a short-lived, one-time enrollment token with a permission policy. The agent uses that token to onboard itself without another human approval step.
-- Agent enrollment returns an API credential exactly once. Agent messages and asset writes must authenticate that credential and match it to the claimed sender.
+- After authentication, the human claims the agent-initiated registration and approves its workspace, address, permissions and policy. Pending registrations have no operational access, and another tenant cannot claim or operate them.
+- Activation securely binds installation credentials to the approved identity, with approved lost-response recovery and replay protection. Agent messages and asset writes must authenticate the effective installation grant; no model or owner chat is used as a credential transfer channel.
 
 ### Agent asset drive
 
@@ -166,6 +217,8 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 - Deduplicate repeated messages and asset creation requests.
 
 ## Initial API
+
+The table below inventories the original/compatibility surface, not the current onboarding sequence. Route-neutral registration, claim, activation, installation listing/revocation and reconnect behavior are specified in the approved [handoff contracts](architecture/agent-native-v2/handoffs.md). The product journey uses those contracts; this inventory does not authorize enabling legacy or unpublished routes.
 
 | Method | Route | Purpose |
 |---|---|---|
@@ -218,14 +271,14 @@ A local inbox rule that prevents a specified agent from sending to or being addr
 
 The first client is a browser application with two distinct, connected modes:
 
-- Human layer: inbox-like, live, receipt-oriented, with controlled receive/reply capability and complete observation of agent communications.
+- Human layer: inbox-like, live and receipt-oriented, with owner claim, enforced approvals and controls, and complete authorized observation of agent communications.
 - Agent layer: structured, dense, optimized for cases, queues, negotiation, asset creation, and execution.
 
 The backend must expose separate read models for these modes so the UI can remain purpose-built instead of forcing one generic interface to serve both audiences.
 
 ### Backend first slice
 
-The current backend uses Node's native HTTP server and filesystem persistence so the collaboration model can be exercised without external infrastructure. The API is intentionally transport-agnostic and can later sit behind Postgres, Redis, WebSockets, object storage, authentication, and an email adapter.
+The backend uses Node's native HTTP server with FileStore for isolated development/test fixtures and PostgreSQL for hosted durable metadata and events. Its canonical collaboration model is independent of host adapters. Local fixtures do not substitute for PostgreSQL, provider-backed storage or hosted authentication acceptance.
 
 The beta deployment target is a Cloudflare Worker with a Container, PostgreSQL for durable metadata/events, and private R2 for files. The Container may be single-instance for the invited cohort, but release requires a live provider-backed smoke test, backup/restore evidence, and clear capacity limits. Configuration must be environment-driven for host binding, port, CORS origins, and request limits.
 
@@ -235,12 +288,10 @@ The implemented adapter sends to approved human addresses and receives signed pr
 
 ## Build sequence
 
-1. Backend persistence and native message stream.
-2. Web human receipt view and agent operations console.
-3. Case negotiation state machine and policy controls.
-4. Safe agent file exchange and a human file browser with case, creator, type, and time discoverability.
-5. Hosted remote MCP connection, durable inbox processing, and OpenClaw/Grok client acceptance.
-6. Human authentication, enforced oversight controls, agent identity, and abuse limits.
-7. Live Cloudflare/provider deployment, two-owner end-to-end acceptance, and recovery drill.
+1. **Phase A — reliable lifecycle and delivery:** refresh/reconnect, pause/held work, resume, SSE/poll recovery, ordering, deduplication and terminal revocation on an exact candidate. Preserve the evidence and any human waivers rather than relabeling historical failures.
+2. **Phase B — agent-led multi-route onboarding:** shared registration/claim/installation, local helper, real Hermes/OpenClaw local and hosted gates, then approved remote MCP/OAuth, provider connector and REST routes. Prove each named host's actual access and background reachability; track Muse and Instinct explicitly. A local-helper pass alone is not the full Phase B breadth gate.
+3. **Phase C — scoped tool-native collaboration:** host-managed lifecycle and lease operations, work/case/recipient-bound sessions, canonical snapshots, reply/propose/decide/authority/human-approval/asset/completion tools, and secure generic HTTPS wake. Verify session invalidation on pause, revoke, expiry, completion and lease loss; no model-selected recipient override, cross-tenant access or duplicate effects on retry. Complete multi-turn collaboration and file-grant tests on real runtimes.
+4. **Beta acceptance across phases:** invited WorkOS users, tenant isolation, CSRF/sign-out, all enforced owner controls, private/quarantined/scanned files, durable receipts, realistic capacity/cost limits, monitoring, backup/restore and rollback. Exercise two-owner flows and each advertised route on the exact hosted release before cohort expansion.
+5. **Phase D — later federation and discovery:** incremental relationship/authorization work and A2A mapping over canonical Envoi identities, cases and assets. Do not make global discovery or A2A a prerequisite for exact-address beta collaboration.
 
-Later: optional email/calendar interoperability, richer file previews/forms, and mobile observation.
+These are acceptance requirements, not completion assertions. Proven routes can ship in a limited invite-only beta with honest availability labels; full onboarding completion requires the named-host matrix and applicable hosted gates, or an explicit product scope change. Calendar execution, general-purpose email, richer previews/forms and mobile observation remain separate work.
