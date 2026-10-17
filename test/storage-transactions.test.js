@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, open, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FileStore } from '../src/storage.js';
@@ -52,4 +52,15 @@ test('file reads see committed transaction contents and stable compound pages', 
   assert.deepEqual(older.map(item => item.id), ['one']);
   const forward = await store.queryJson('test/history', { limit: 1, after: { value: older[0].createdAt, id: older[0].id }, order: 'asc' });
   assert.deepEqual(forward.map(item => item.id), ['two']);
+});
+
+// Another process reading a document (a test fixture, an antivirus or indexer scan) holds it open.
+// Windows then refuses the atomic replace, which once left a delivery stuck until its lease expired.
+test('a document held open by a reader is still replaced', { skip: process.platform !== 'win32' && 'Windows-only file locking' }, async t => {
+  const store = await createStore(t);
+  await store.putJson('test/held.json', { version: 1 });
+  const reader = await open(store.file('test/held.json'), 'r');
+  setTimeout(() => { void reader.close(); }, 100);
+  await store.putJson('test/held.json', { version: 2 });
+  assert.deepEqual(await store.getJson('test/held.json'), { version: 2 });
 });
