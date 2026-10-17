@@ -3,6 +3,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 export const artifactNames = ['envoi-link.mjs', 'envoi-connector.mjs'];
+export const launcherNames = ['envoi-link', 'envoi-link.ps1', 'launch.mjs', 'artifacts.mjs'];
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
 export function assertNode(version = process.versions.node) {
@@ -58,6 +59,18 @@ export async function verifiedArtifacts(directory, expectedManifestSha256) {
     artifacts.set(name, content);
   }
   return { root, manifest, bytes, artifacts };
+}
+
+export async function verifyLauncherFiles(directory, metadata) {
+  if (!metadata || Object.keys(metadata).sort().join(',') !== 'files,version' || metadata.version !== 1
+    || !metadata.files || Object.keys(metadata.files).sort().join(',') !== [...launcherNames].sort().join(',')) throw new Error('Invalid local launcher record.');
+  for (const name of launcherNames) {
+    const record = metadata.files[name];
+    if (!record || Object.keys(record).sort().join(',') !== 'sha256,size' || !/^[0-9a-f]{64}$/.test(record.sha256)
+      || !Number.isSafeInteger(record.size) || record.size < 1 || record.size > 1024 * 1024) throw new Error('Invalid launcher integrity record.');
+    const content = await regularFile(directory, name, 1024 * 1024);
+    if (content.length !== record.size || sha256(content) !== record.sha256) throw new Error('Local launcher checksum or size does not match.');
+  }
 }
 
 export function optionsFrom(args, allowed) {

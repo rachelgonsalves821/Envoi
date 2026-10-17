@@ -8,6 +8,8 @@ Follow-up task B-4-install-hardening carries PR #111 unchanged as a dependency o
 
 ## Prepare a private package
 
+Follow-up B-4-local-launchers carries #111 and #117 as unchanged draft prerequisites on integration base `984051f`. Its incremental scope is explicit-path foreground launchers and their local integrity/argument tests. It does not change Je's Gate B-local candidate or claim real-host acceptance.
+
 Build the repository using its existing `npm run build`. The reviewed build emits `integrations/onboarding/dist/envoi-link.mjs`, its sibling `envoi-connector.mjs`, and `private-release.json`. The normal root build is owned by Lane A; no root build changes are required here.
 
 Record the SHA-256 of `private-release.json` from that trusted local build independently. This pin authenticates the selected manifest against the operator's expected value; it is not a publisher signature. Before public distribution, Lane A must decide how a release manifest is authenticated and attach its source SHA and acceptance evidence. Downloading a file and its checksum from one untrusted location does not establish publisher identity.
@@ -40,7 +42,7 @@ Windows PowerShell:
 
 Node.js 22 or newer must already exist. No administrator elevation, shell-profile edit, PATH edit, automatic prerequisite download or runtime/provider modification is performed. The installer verifies the pinned manifest and both complete artifacts in memory before creating the destination. It refuses an existing directory BEFORE applying permissions. Only the newly-created empty directory is passed to the existing account-only protection helper: Windows replaces inherited/explicit grants with the current account SID, while POSIX uses mode 0700. If protection fails, no artifacts or completion record are written. Source, parent, existing installations and private agent state are never permission targets.
 
-After protection, the installer writes the two artifacts and manifest, re-verifies persisted checksums, and writes `installation.pending.json` before committing `installation.json` by rename. Protection, partial-write, persisted-integrity or rename failures reject rather than return success. A partial new directory (possibly containing pending metadata) is preserved without a completed marker. Retry only with another NEW destination; the installer never repairs, removes or changes permissions on existing installations or credential stores. This is logical interruption detection, not a guarantee against power-loss/filesystem corruption; no automatic rollback or upgrade is implemented.
+After protection, the installer writes the two artifacts, manifest and reviewed launcher files, re-verifies persisted checksums, and writes `installation.pending.json` before committing `installation.json` by rename. Protection, partial-write, persisted-integrity or rename failures reject rather than return success. A partial new directory (possibly containing pending metadata) is preserved without a completed marker. Retry only with another NEW destination; the installer never repairs, removes or changes permissions on existing installations or credential stores. This is logical interruption detection, not a guarantee against power-loss/filesystem corruption; no automatic rollback or upgrade is implemented.
 
 The installer result explicitly reports `connected:false` and `serviceInstalled:false`. It does not run the helper. Once real-host acceptance is separately authorized, use the installed Node entry point for the existing interactive Phase B flow. The established helper still owns native approval confirmation, credentials, activation recovery and foreground operation.
 
@@ -64,7 +66,29 @@ The running connector also acquires the existing lock, which is the final owners
 
 All lifecycle operations preserve session, helper activation journal, cursor, work receipts and connector executable. Uninstall removes the startup definition only. Credential revocation remains an owner action in Envoi. Starting a supervisor does not prove runtime readiness or message processing. Services run under the existing user, at user login; operation after logout, sleep or machine shutdown is not promised. The runtime/Gateway itself must also remain available.
 
+## Explicit-path foreground launchers
+
+These remove the need to find the bundled `.mjs` entry point or construct a Node command manually. They are not new onboarding routes: they pass arguments to the unchanged helper and retain its owner claim, host confirmation, credential storage, lock and reconnect behavior. Enrollment still does not imply a running agent. No global `envoi-link` command or background persistence is installed.
+
+After a reviewed private installation to a NEW account-owned directory, invoke its explicit path from your normal filesystem working directory:
+
+```powershell
+& 'C:\trusted\new-envoi-version\envoi-link.ps1' connect https://your-approved-envoi-origin.example --runtime hermes
+```
+
+```sh
+'/trusted/new-envoi-version/envoi-link' connect https://your-approved-envoi-origin.example --runtime hermes
+```
+
+The origin above is a placeholder, not a download URL or a request to change Gate B-local. Existing Node.js 22+ must already be discoverable. Windows uses PowerShell's existing execution policy, without bypass flags. POSIX replaces the shell with Node; Windows starts a foreground Node process in the current console. Node imports the fixed installed helper in the same process, leaving its signal handlers in charge. Arguments, stdin, stdout/stderr, caller working directory and helper exit status are preserved. No PATH/profile/environment edits, Node download, service registration or second connector/credential owner is added.
+
+Installation now copies four reviewed launcher/support files (`envoi-link`, `envoi-link.ps1`, `launch.mjs`, `artifacts.mjs`), verifies their persisted bytes, and records their hashes in private `installation.json` only after all writes succeed. The approved two-artifact `private-release.json` and API contracts are unchanged. Launch rejects missing/pending/old completion records, changed helper/launcher files and unexpected launcher paths before importing the helper. Installs without launcher metadata require a separately reviewed fresh installation, not an in-place rewrite of old state.
+
+These hashes detect corruption within the account-protected trusted installation; they are not publisher signatures or a sandbox against its owner. The launcher's own code must already be trusted before it runs. Authenticated public distribution, upgrades, background handoff, terminal closure and real-host acceptance remain separate work. Tests run only inert fake helpers in disposable directories; POSIX fixtures on Linux do not establish macOS real-host acceptance.
+
 ## Tests
+
+The focused suite also exercises native PowerShell quoting on Windows and native shell execution on POSIX, including empty arguments, quotes, backslashes, Unicode, shell metacharacters, stdin/output and nonzero helper exit status. Missing-Node fixtures do not change PATH. Integrity and interrupted-write tests cover every new installed file. No real agent is invoked.
 
 Run from PowerShell at the repository root:
 
@@ -87,7 +111,7 @@ Hardening coverage injects protection failures, partial writes at every file sta
 3. Bind the prepared executor to the existing credential/control/lock and service-manager implementations in a separately assigned helper/connector change. Avoid editing those shared files concurrently with acceptance work. Add bounded supervisor checks and idempotent handling of an already-stopped or absent service.
 4. Design the foreground-to-background handoff. Complete human confirmation and activation, stop the foreground owner cleanly, retain its state, and start the same installation under supervision. No second refresh/claim owner may run during handoff. Test cancel/failure and restart around this boundary.
 5. New Windows install directories now reuse the existing account-only helper and fail closed on protection errors, with a standalone-source drift guard and disposable-directory ACL evidence. Existing installations are deliberately not migrated or permission-modified; upgrades and real-host service acceptance remain separate work.
-6. Add platform launchers and authenticated, versioned release manifests with acceptance/source evidence. Review artifact provenance, downgrade/rollback policy, interrupted installation, upgrade of a running connector and uninstall behavior before public distribution. Automatic updates are outside this preparation.
+6. Local platform launchers are prepared, not publicly released or real-host accepted. Authenticated, versioned release manifests with acceptance/source evidence remain open. Review artifact provenance, downgrade/rollback policy, interrupted installation, upgrade of a running connector and uninstall behavior before public distribution. Automatic updates are outside this preparation.
 7. Lane A owns any download routes, root build/config, production-origin configuration and release wiring. No speculative public installer URL should be shown as working.
 8. Obtain separate authorization for service installation on disposable real hosts, then prove terminal closure, login/restart, offline catch-up, pause and revoke for each platform advertised. Label unsupported persistence honestly.
 9. Update `/connect` and the skill only after the corresponding installer/route is accepted. Continue one registration/claim/activation flow. Remote MCP/OAuth remains a separate Phase B task; Phase C is not changed.

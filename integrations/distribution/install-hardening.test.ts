@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { windowsExecutable, windowsAccountSid } from '../connector/windows';
-import { artifactNames, sha256 } from './artifacts.mjs';
+import { artifactNames, launcherNames, sha256 } from './artifacts.mjs';
 import { installPrivatePackage } from './install.mjs';
 import { preparePackage } from './prepare.mjs';
 import { checkPrivateDirectoryBundle } from './build-private-directory.mjs';
@@ -126,7 +126,7 @@ describe('installation protection and interruption recovery', () => {
   it('protects only the newly-created empty directory before any artifact or completion record is written', async () => {
     const value = await fixture();
     expect(await installPrivatePackage(value.source, value.destination, value.digest)).toMatchObject({ connected: false, serviceInstalled: false });
-    expect(fault.events).toEqual(['protect', 'write:envoi-link.mjs', 'write:envoi-connector.mjs', 'write:private-release.json', 'write:installation.pending.json', 'commit']);
+    expect(fault.events).toEqual(['protect', 'write:envoi-link.mjs', 'write:envoi-connector.mjs', 'write:private-release.json', ...launcherNames.map(name => `write:${name}`), 'write:installation.pending.json', 'commit']);
     expect(JSON.parse(await readFile(path.join(value.destination, 'installation.json'), 'utf8')).manifestSha256).toBe(value.digest);
     await preserved(value);
   });
@@ -141,7 +141,7 @@ describe('installation protection and interruption recovery', () => {
     await preserved(value);
   });
 
-  it.each(['envoi-link.mjs', 'envoi-connector.mjs', 'private-release.json', 'installation.pending.json'])('never commits after an interrupted %s write', async filename => {
+  it.each([...artifactNames, 'private-release.json', ...launcherNames, 'installation.pending.json'])('never commits after an interrupted %s write', async filename => {
     const value = await fixture();
     fault.write = filename;
     await expect(installPrivatePackage(value.source, value.destination, value.digest)).rejects.toMatchObject({ code: 'EIO' });
@@ -160,9 +160,9 @@ describe('installation protection and interruption recovery', () => {
     await preserved(value);
   });
 
-  it('rechecks persisted bytes before producing any completion record', async () => {
+  it.each(['envoi-link.mjs', ...launcherNames])('rechecks persisted %s bytes before producing any completion record', async filename => {
     const value = await fixture();
-    fault.corrupt = 'envoi-link.mjs';
+    fault.corrupt = filename;
     await expect(installPrivatePackage(value.source, value.destination, value.digest)).rejects.toThrow(/checksum/);
     expect(fault.events).not.toContain('write:installation.pending.json');
     await noCompletion(value.destination);
@@ -217,7 +217,8 @@ describe('installation protection and interruption recovery', () => {
     const value = await fixture();
     await installPrivatePackage(value.source, value.destination, value.digest);
     expect((await stat(value.destination)).mode & 0o777).toBe(0o700);
-    for (const name of [...artifactNames, 'private-release.json', 'installation.json']) expect((await stat(path.join(value.destination, name))).mode & 0o777).toBe(0o600);
+    expect((await stat(path.join(value.destination, 'envoi-link'))).mode & 0o777).toBe(0o700);
+    for (const name of [...artifactNames, ...launcherNames.filter(name => name !== 'envoi-link'), 'private-release.json', 'installation.json']) expect((await stat(path.join(value.destination, name))).mode & 0o777).toBe(0o600);
   });
 
   it.runIf(process.platform === 'win32')('uses the existing helper to restrict real disposable Windows install ACLs to the current SID', async () => {
@@ -231,7 +232,7 @@ describe('installation protection and interruption recovery', () => {
     await installPrivatePackage(value.source, value.destination, value.digest);
     const protectedDirectory = acl(value.destination, true);
     expect(protectedDirectory.protected).toBe(true);
-    for (const record of [protectedDirectory, ...[...artifactNames, 'installation.json'].map(name => acl(path.join(value.destination, name), false))]) {
+    for (const record of [protectedDirectory, ...[...artifactNames, ...launcherNames, 'installation.json'].map(name => acl(path.join(value.destination, name), false))]) {
       expect(record.owner).toBe(sid);
       expect(record.rules).toEqual([{ sid, rights: 'FullControl', type: 'Allow' }]);
     }
