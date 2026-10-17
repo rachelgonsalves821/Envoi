@@ -555,6 +555,130 @@ function checkCaseSession(fixture, schemas, check, validator, label) {
   }
 }
 
+// case-tools §2, §4: what a tool result may never carry, and how every reference looks.
+const internalIdPattern = /\b(?:case|msg|agent|inbox|installation|case_session|session|credential_family|asset|evt|event|policy_eval|policy_exec|option|proposal|work|human|org|receipt|action|conversation|registration|enrollment)_(?!action\b)[A-Za-z0-9-]{4,}/; // human_action is an event kind, not an id
+const toolTokenPattern = /envoi_(?:agent_|mcp_read_|case_session_|reg_)|lease_PLACEHOLDER/;
+const emailPattern = /[^\s"<>@]+@[^\s"<>@]+\.[^\s"<>@]+/g;
+function collectRefs(value, found = []) {
+  if (Array.isArray(value)) value.forEach((item) => collectRefs(item, found));
+  else if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) {
+      if ((key === 'ref' || key.endsWith('Ref') || key === 'inReplyTo') && typeof item === 'string') found.push(item);
+      collectRefs(item, found);
+    }
+  }
+  return found;
+}
+const parseToolText = (response) => JSON.parse(response.body.result.content[0].text);
+
+// case-tools v1 rules a schema cannot express. Applied to each exchange of a fixture.
+const messageKinds = ['message', 'proposal', 'counterproposal', 'decision', 'completion'];
+function checkCaseTools(fixture, schemas, check, validator, label) {
+  const limits = schemas['x-limits'];
+  const implemented = schemas['x-tools'].filter((tool) => tool.inputSchema).map((tool) => tool.name);
+  const untrustedFields = new Set(schemas['x-untrusted-fields']);
+  const bytes = (value) => Buffer.byteLength(value, 'utf8');
+  // §6.4: a text within its limit; a truncated text was cut on a code-point boundary at most 3 bytes short of it.
+  const checkText = (value, truncated, max, what) => {
+    assert.ok(bytes(value) <= max, `${what} within ${max} bytes`);
+    if (truncated) assert.ok(bytes(value) > max - 4, `${what} was cut at its limit`);
+  };
+  const exchanges = fixture.steps ? fixture.steps.map((step, index) => ({ ...step, context: step.context || fixture.context, label: `${label} step ${index}` }))
+    : fixture.request ? [{ request: fixture.request, response: fixture.response, client: fixture.client, context: fixture.context, label }] : [];
+  for (const { request, response, client, context, label: stepLabel } of exchanges) {
+    check(validator(request.schema), request.body, `${stepLabel} request`);
+    if (fixture.steps) {
+      check(validator(response.schema), response.body, `${stepLabel} response`);
+      checkCodedError(response, client, schemas, stepLabel);
+    }
+    if (response.body?.code) assert.equal(client.turn, codeEntry(schemas, response.body.code, client.surface).turn, `${stepLabel}: turn for ${response.body.code}`);
+    assert.equal(response.body.id ?? request.body.id, request.body.id, `${stepLabel}: the JSON-RPC id is echoed`);
+    const effective = implemented.filter((name) => context.allowedTools.includes(name));
+    if (request.body.method === 'tools/list') {
+      // §1: tools/list is the implemented effective set, with input schemas verbatim.
+      const listed = response.body.result.tools;
+      assert.deepEqual(listed.map((tool) => tool.name), effective, `${stepLabel}: tools/list is the implemented effective set`);
+      for (const tool of listed) assert.deepEqual(tool.inputSchema, schemas['x-tools'].find((entry) => entry.name === tool.name).inputSchema, `${stepLabel}: ${tool.name} inputSchema is verbatim`);
+      continue;
+    }
+    const { name, arguments: args = {} } = request.body.params;
+    const tool = schemas['x-tools'].find((entry) => entry.name === name);
+    assert.ok(tool, `${stepLabel}: x-tools lists ${name}`);
+    const inSession = effective.includes(name);
+    if (response.schema === 'jsonRpcError') {
+      // §1: a tool outside the session (or not implemented) is TOOL_NOT_IN_SESSION; otherwise arguments that fail its
+      // inputSchema are TOOL_ARGUMENTS_INVALID. Either way nothing runs and the turn continues.
+      const dataCode = response.body.error.data.code;
+      assert.equal(dataCode === 'TOOL_NOT_IN_SESSION', !inSession, `${stepLabel}: TOOL_NOT_IN_SESSION exactly outside the session`);
+      if (dataCode === 'TOOL_ARGUMENTS_INVALID') assert.equal(new Ajv({ allErrors: true, strict: false }).validate(tool.inputSchema, args), false, `${stepLabel}: TOOL_ARGUMENTS_INVALID means the arguments fail ${name}'s inputSchema`);
+      assert.equal(client.turn, 'continue', `${stepLabel}: the turn continues`);
+      continue;
+    }
+    if (response.schema !== 'mcpToolCallResult') continue;
+    assert.ok(inSession, `${stepLabel}: the session carries ${name}`);
+    assert.equal(new Ajv({ allErrors: true, strict: false }).validate(tool.inputSchema, args), true, `${stepLabel}: a tool that ran had valid arguments`);
+    const text = response.body.result.content[0].text;
+    assert.ok(bytes(text) <= limits.resultMaxBytes, `${stepLabel}: result within resultMaxBytes`);
+    const document = parseToolText(response);
+    check(validator(response.toolResult), document, `${stepLabel} tool result`);
+    assert.equal(document.ok, !response.body.result.isError, `${stepLabel}: ok mirrors isError`);
+    assert.equal(document.tool, name, `${stepLabel}: the result names its tool`);
+    // §2, §4: model context carries no token anywhere, and no internal id, URL or other email outside the untrusted
+    // fields (§5), whose content other parties wrote and the server never rewrites.
+    assert.doesNotMatch(text, toolTokenPattern, `${stepLabel}: no token in a tool result`);
+    const serverWritten = JSON.stringify(document, (key, value) => (untrustedFields.has(key) ? undefined : value));
+    assert.doesNotMatch(serverWritten, internalIdPattern, `${stepLabel}: no internal id in a tool result`);
+    assert.doesNotMatch(serverWritten, /https?:\/\//, `${stepLabel}: no URL in a tool result`);
+    const known = [document.result?.you?.address, document.result?.counterparty?.address, document.result?.recipient?.address].filter(Boolean);
+    for (const email of serverWritten.match(emailPattern) || []) assert.ok(known.includes(email), `${stepLabel}: no email but the agent addresses (${email})`);
+    if (!document.ok) {
+      const entry = schemas['x-tool-errors'][document.code];
+      assert.equal(document.retryable, entry.retryable, `${stepLabel}: retryable for ${document.code}`);
+      assert.equal(document.message, entry.message, `${stepLabel}: the fixed message for ${document.code}`);
+      assert.equal(client.retry, entry.clientRetry, `${stepLabel}: client retry for ${document.code}`);
+      continue;
+    }
+    for (const value of collectRefs(document.result)) assert.match(value, /^[mpoae]_[a-z2-7]{16}$/, `${stepLabel}: ${value} is a reference`);
+    const { result } = document;
+    if (name === 'envoi_case_snapshot') {
+      const limit = args.eventLimit ?? limits.eventLimitDefault;
+      assert.ok(result.recentEvents.length <= limit, `${stepLabel}: at most eventLimit events`);
+      assert.ok(result.recentEvents.every((event, index, list) => index === 0 || list[index - 1].at <= event.at), `${stepLabel}: events oldest first`);
+      assert.equal(result.page.hasOlder, result.page.olderCursor !== null, `${stepLabel}: olderCursor exactly when hasOlder`);
+      assert.equal('requestedResponse' in result, !args.eventsBefore, `${stepLabel}: requestedResponse only on a first page`);
+      assert.equal(result.counterparty.kind === 'agent', context.workKind === 'agent_message', `${stepLabel}: counterparty kind follows the work kind`);
+      if (result.requestedResponse) {
+        assert.equal(result.requestedResponse.from === 'your_human', context.workKind === 'human_instruction', `${stepLabel}: the work comes from your workspace exactly for an instruction`);
+        checkText(result.requestedResponse.text, result.requestedResponse.truncated, limits.requestedTextMaxBytes, `${stepLabel}: requested text`);
+        // §6.2: when the work message is in the page it shares requestedResponse's reference and carries no text.
+        const workItem = result.recentEvents.find((event) => event.ref === result.requestedResponse.ref);
+        if (workItem) assert.equal(workItem.text, null, `${stepLabel}: the work message's timeline item carries no text`);
+      }
+      // §1, §6.2: allowedActions is the effective set limited to the implemented tools, in x-tools order.
+      assert.deepEqual(result.allowedActions, effective, `${stepLabel}: allowedActions`);
+      assert.ok(bytes(JSON.stringify({ ...result, recentEvents: [] })) <= limits.fixedSectionsMaxBytes, `${stepLabel}: fixed sections within fixedSectionsMaxBytes`);
+      for (const event of result.recentEvents) {
+        // §6.3: your own messages carry a delivery status and nothing else does; instructions and receipts carry no intent.
+        assert.equal(event.deliveryStatus !== null, event.actor === 'you' && messageKinds.includes(event.kind), `${stepLabel}: deliveryStatus exactly on your own messages`);
+        if (['instruction', 'instruction_reply', 'receipt'].includes(event.kind)) assert.equal(event.intent, null, `${stepLabel}: ${event.kind} carries no intent`);
+        if (event.kind === 'human_action') assert.equal(event.actor, 'your_human', `${stepLabel}: only your workspace's human actions are projected`);
+        if (event.text) checkText(event.text, event.truncated, limits.eventTextMaxBytes, `${stepLabel}: event text`);
+      }
+      for (const option of result.proposal?.options || []) {
+        assert.equal(option.value === null, option.truncated, `${stepLabel}: a dropped option value is marked truncated`);
+        if (option.value) assert.ok(bytes(JSON.stringify(option.value)) <= limits.optionValueMaxBytes, `${stepLabel}: option value within its byte limit`);
+      }
+      for (const asset of result.assets) {
+        assert.ok(bytes(asset.filename) <= limits.filenameMaxBytes && bytes(asset.mimeType) <= limits.mimeTypeMaxBytes, `${stepLabel}: asset names within their byte limits`);
+      }
+    }
+    if (name === 'envoi_case_reply') {
+      assert.equal(result.recipient.kind === 'agent', context.workKind === 'agent_message', `${stepLabel}: the recipient is the session counterparty`);
+      assert.equal(result.status, context.workKind === 'agent_message' ? 'queued' : 'delivered', `${stepLabel}: queued for agent work, delivered for an instruction`);
+    }
+  }
+}
+
 test('contract fixture registry has a versioned shape', async () => {
   const index = await readJson(path.join(root, 'index.json'));
   assert.equal(Number.isInteger(index.version) && index.version >= 1, true);
@@ -657,6 +781,7 @@ test('every fixture matches its declared schema', async () => {
       if (fixture.response?.schema === 'agentStatusWithPresence') checkPresence(fixture.response.body.presence, fixture.response.body.asOf, label);
       if (contract.id === 'agent-registration') checkAgentRegistration(fixture, schemas, check, validator, label);
       if (contract.id === 'case-session') checkCaseSession(fixture, schemas, check, validator, label);
+      if (contract.id === 'case-tools') checkCaseTools(fixture, schemas, check, validator, label);
       assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_|envoi_case_session_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }
@@ -764,4 +889,62 @@ test('case-session fixtures agree across cases', async () => {
   const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
   const index = await readJson(path.join(root, 'index.json'));
   assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'case-session').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
+});
+
+// case-tools §3, §8 and §10: replays return the original, conflicts write nothing, cases never share a
+// reference, and the handoff's fixture table lists exactly the registered fixtures.
+test('case-tools fixtures agree across cases', async () => {
+  const dir = path.join(root, 'case-tools');
+  const load = (name) => readJson(path.join(dir, `${name}.json`));
+  const result = (exchange) => parseToolText(exchange.response).result;
+  const args = (exchange) => exchange.request.body.params.arguments;
+  const [first, replayed, reclaimed, conflict, snapshot, paged] = await Promise.all(['reply-agent-work', 'reply-replayed', 'reply-replayed-after-reclaim', 'reply-idempotency-conflict', 'snapshot-agent-work', 'snapshot-older-page'].map(load));
+  // §1, §5: the tool list is case-session's x-case-tools, and no input property names a scope.
+  const [schemas, sessionSchemas] = await Promise.all([load('schemas'), readJson(path.join(root, 'case-session', 'schemas.json'))]);
+  const toolShape = (tool) => ({ name: tool.name, needs: tool.needs, workKinds: tool.workKinds });
+  assert.deepEqual(schemas['x-tools'].map(toolShape), sessionSchemas['x-case-tools'].map(toolShape), 'x-tools names, order, needs and work kinds equal case-session x-case-tools');
+  for (const tool of schemas['x-tools'].filter((entry) => entry.inputSchema)) {
+    for (const property of Object.keys(tool.inputSchema.properties || {})) assert.ok(!sessionSchemas['x-scope-fields'].includes(property), `${tool.name}: ${property} names a scope`);
+  }
+  assert.ok(!('inReplyTo' in args(first)), 'the first reply relies on the default inReplyTo');
+  assert.equal(result(first).inReplyTo, result(snapshot).requestedResponse.ref, 'the default inReplyTo is the snapshot\'s requestedResponse');
+  assert.deepEqual(args(replayed), args(first), 'the replay is the identical call');
+  assert.deepEqual(result(replayed), { ...result(first), replayed: true }, 'a replay returns the original result');
+  assert.notEqual(reclaimed.request.headers.authorization, first.request.headers.authorization, 'the reclaimed turn uses a new session');
+  assert.deepEqual(result(reclaimed), { ...result(first), replayed: true }, 'a replay under a later session for the same work returns the original');
+  const [conflicting, original] = conflict.steps;
+  assert.equal(args(conflicting).idempotencyKey, args(first).idempotencyKey, 'the conflict reuses the key');
+  assert.notEqual(args(conflicting).text, args(first).text, 'with different arguments');
+  assert.deepEqual(args(original), args(first), 'the original call after the conflict');
+  assert.deepEqual(result(original), { ...result(first), replayed: true }, 'still replays unchanged: the conflict wrote nothing');
+  const lost = await load('reply-lost-response');
+  assert.equal(lost.steps[0].delivered, false, 'the first response was lost');
+  assert.deepEqual(args(lost.steps[1]), args(lost.steps[0]), 'the retry is the identical call');
+  assert.deepEqual(result(lost.steps[1]), { ...result(lost.steps[0]), replayed: true }, 'the retry returns the committed message');
+  assert.deepEqual(schemas['x-status-projection'].delivery.held, 'queued', 'a held message reads as queued');
+  const [firstPage, olderPage] = paged.steps.map(result);
+  const firstRefs = new Set(firstPage.recentEvents.map((event) => event.ref));
+  assert.ok(olderPage.recentEvents.every((event) => !firstRefs.has(event.ref) && event.at <= firstPage.recentEvents[0].at), 'pages never overlap, and the older page is older');
+  assert.equal(args(paged.steps[1]).eventsBefore, firstPage.page.olderCursor, 'the older page uses the first page\'s cursor');
+
+  const iso = await load('two-cases-same-counterparty');
+  const [snapA, snapB, replyB, replyA] = iso.steps;
+  assert.notEqual(snapA.request.headers.authorization, snapB.request.headers.authorization, 'two sessions');
+  const refsA = new Set(collectRefs(result(snapA)).concat(collectRefs(result(replyA))));
+  const refsB = collectRefs(result(snapB)).concat(collectRefs(result(replyB)));
+  assert.ok(refsB.every((value) => !refsA.has(value)), 'the two cases share no reference');
+  assert.equal(args(replyA).idempotencyKey, args(replyB).idempotencyKey, 'the same key in both cases');
+  assert.notEqual(result(replyA).messageRef, result(replyB).messageRef, 'is two different messages');
+  assert.equal(result(replyA).replayed, false, 'and neither is a replay');
+  const foreign = await load('reply-ref-not-found');
+  assert.ok(refsB.includes(args(foreign).inReplyTo), 'the unresolved reference belongs to the other case');
+
+  const handoff = await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8');
+  const start = handoff.indexOf('\n## case-tools v1');
+  const next = handoff.indexOf('\n## ', start + 1);
+  const section = handoff.slice(start, next === -1 ? undefined : next);
+  const table = section.slice(section.indexOf('| Group | Fixtures |'), section.indexOf('### 11.'));
+  const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
+  const index = await readJson(path.join(root, 'index.json'));
+  assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'case-tools').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
 });

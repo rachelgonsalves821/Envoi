@@ -1,0 +1,70 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "reply-session-ended-in-write",
+  "kind": "http",
+  "description": "The owner paused the agent while the reply waited for its locks. The in-transaction check rejects it at the HTTP level; nothing is written (case-session §6.3).",
+  "context": {
+    "sessionRef": "A",
+    "caseRef": "case-a",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_a",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 26,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_reply",
+        "arguments": {
+          "text": "No liftgate needed; the dock has a ramp.",
+          "idempotencyKey": "reply-5"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store",
+      "www-authenticate": "Bearer realm=\"Envoi agent MCP\", error=\"invalid_token\""
+    },
+    "body": {
+      "code": "CASE_SESSION_ENDED",
+      "error": "CASE_SESSION_ENDED",
+      "message": "This case session has ended.",
+      "requestId": "req_example",
+      "reason": "agent_paused"
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "turn": "cancel",
+    "next": "Cancel the turn; the next turn reads the snapshot first."
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "reply-agent-work",
+  "kind": "http",
+  "description": "A reply to the counterparty in this case. Recipient and case come from the session; inReplyTo defaults to the work message; the message is queued for delivery.",
+  "context": {
+    "sessionRef": "A",
+    "caseRef": "case-a",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_a",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_reply",
+        "arguments": {
+          "text": "No liftgate needed; the dock has a ramp.",
+          "idempotencyKey": "reply-1"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "replyEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_reply\",\"result\":{\"messageRef\":\"m_p2uox3fu6eyoyffc\",\"status\":\"queued\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"inReplyTo\":\"m_b5xaexm7svnedlw7\",\"createdAt\":\"2026-10-17T12:00:05.000Z\",\"replayed\":false}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Continue or end the turn; the host still settles the work."
+  }
+}

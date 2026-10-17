@@ -320,6 +320,42 @@
         "session-unknown-method.json",
         "session-unknown-token.json"
       ]
+    },
+    {
+      "id": "case-tools",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#case-tools-v1",
+      "dir": "case-tools",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "event-case-tool-used.json",
+        "reply-agent-work.json",
+        "reply-clarify.json",
+        "reply-human-instruction.json",
+        "reply-idempotency-conflict.json",
+        "reply-in-reply-to-instruction-refused.json",
+        "reply-instruction-intent-not-supported.json",
+        "reply-intent-not-allowed.json",
+        "reply-lost-response.json",
+        "reply-not-in-session.json",
+        "reply-recipient-override-rejected.json",
+        "reply-ref-not-found.json",
+        "reply-replayed-after-reclaim.json",
+        "reply-replayed.json",
+        "reply-session-ended-in-write.json",
+        "reply-tool-busy.json",
+        "revision-2-tool-not-in-session.json",
+        "snapshot-agent-work.json",
+        "snapshot-cursor-invalid.json",
+        "snapshot-human-instruction.json",
+        "snapshot-older-page.json",
+        "snapshot-truncated.json",
+        "snapshot-unknown-argument.json",
+        "snapshot-untrusted-content.json",
+        "tools-list-revision-1.json",
+        "two-cases-same-counterparty.json"
+      ]
     }
   ]
 }

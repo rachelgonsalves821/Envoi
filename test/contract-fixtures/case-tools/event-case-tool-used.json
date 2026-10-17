@@ -1,0 +1,34 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "event-case-tool-used",
+  "kind": "event",
+  "description": "Owner audit for a reply's first effect (never for a replay). Paired with WORKSPACE_EVENT_TYPES. Owner-only: it is never model context.",
+  "event": {
+    "schema": "caseToolUsedEvent",
+    "event": "agent.case_tool_used",
+    "id": "00000000000000000051",
+    "data": {
+      "id": "event_example_51",
+      "type": "agent.case_tool_used",
+      "createdAt": "2026-10-17T12:00:05.000Z",
+      "sequence": 51,
+      "cursor": "00000000000000000051",
+      "agentId": "agent_example",
+      "installationId": "installation_example",
+      "sessionId": "case_session_example",
+      "workId": "msg_example",
+      "caseId": "case_example",
+      "tool": "envoi_case_reply",
+      "messageId": "msg_reply_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "none",
+    "next": "Show it in the owner activity list."
+  }
+}

@@ -2037,7 +2037,7 @@ Ending a credential does **not** always release the lease:
 
 #### 6.4 Tool availability within a session
 
-The **effective set** for each request is the session's `allowedTools`, intersected with what the agent's **current** permissions allow (§5).
+The **effective set** for each request is the session's `allowedTools`, intersected with what the agent's **current** permissions allow (§5), and limited to the tools this server implements. A tool whose `case-tools` revision has not shipped is absent from `tools/list` and from a newly minted session's `allowedTools`, and gets `TOOL_NOT_IN_SESSION` (clarified with `case-tools` v1 §1). The fixtures here model a server that implements all nine.
 - A permission removed after the mint removes its tools at once.
 - Losing `receive_agent_messages` ends the session instead, with `work_ineligible`.
 
@@ -2357,3 +2357,396 @@ These are Lane A's proposals. Any of them can change before approval.
 - **Telling released from expired.** Every path that releases a lease without an attempt sets `reofferWithoutAttempt: true` and `releasedAt`. That covers agent pause (which today writes only `pausedAt`), reconnect, installation revoke, case pause and a `WORK_NOT_ELIGIBLE` mint. `WORK_LEASE_STALE` reports `released` when `reofferWithoutAttempt` is set, `settled` when the status is `completed` or `failed` or the claim carries a `failure`, and otherwise `expired`.
 - **Recording an end eagerly.** Each action that ends a session lists that work's live session, or the case's live sessions, inside its own transaction, skipping sessions past `expiresAt` (those get `expired`). A lookup from `workId` or `caseId` to its live session ids avoids scanning every session.
 - **Running tools.** Case tools call the case, policy and asset services directly, under the settlement lock set (`withInboxMutation` with the case's inboxes and `caseMutationKey`). They never call `callRest`.
+
+## case-tools v1
+
+**Contract:** `case-tools`, version 1 (Phase C task **C-A0**, the second of three). **Status:** revision 1 is published. It is waiting for Lane B's `CONTRACT-ACK`, then for a version-specific `CONTRACT-APPROVED case-tools v1 @<sha>`. Nothing here is implemented or on by default. C-A2 to C-A4 do the server work and C-B2 to C-B4 the client work.
+
+**Revision 1 covers:**
+- the rules that every case tool shares (§1–§5);
+- **`envoi_case_snapshot`** (§6);
+- **`envoi_case_reply`** (§7).
+
+That is enough to unblock C-B2.
+
+**Revision 2** adds the other seven tools: `envoi_case_propose`, `envoi_case_decide`, `envoi_authority_check`, `envoi_request_human`, `envoi_case_list_assets`, `envoi_case_share_asset` and `envoi_case_complete`. It will be published as a revision of v1 before approval, so v1 is approved once, with all nine.
+
+**Fixtures:** [`test/contract-fixtures/case-tools/`](../../../test/contract-fixtures/case-tools/). It holds:
+- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-tools`, `x-tool-errors`, `x-limits`, `x-ref-kinds`, `x-untrusted-fields`, `x-event-projection` and `x-status-projection`;
+- one JSON file per case.
+
+**Owner:** Lane A. **Consumer:** Lane B, namely the typed SDK and tool client, the local MCP relay, the Hermes, OpenClaw and xAI/Grok adapters, and the owner UI.
+
+**Name.** Phase C planning called this contract `case-tools-v1`. Its canonical id is `case-tools`, version 1.
+
+**It builds on these contracts:**
+- **`case-session` v1:**
+  - every case tool is reached only with a usable case session on `POST /mcp`;
+  - the session supplies the case, the counterparty and the allowed tools (case-session §3, §5);
+  - session errors are HTTP-level `401`s (§6.2);
+  - tools run in-process, under the settlement lock set (§6.3);
+  - results obey the model-visibility rule (§4).
+- **`a3-pause-auth` v3:** held messages and the D1 barrier.
+- **`agent-registration` v1:** model visibility.
+
+### 1. Calling a tool
+
+A tool call is an MCP `tools/call` on `POST /mcp`, sent with the session token (case-session §6.1):
+
+```json
+{ "jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": { "name": "envoi_case_reply", "arguments": { "text": "…", "idempotencyKey": "reply-1" } } }
+```
+
+**Arguments:**
+- Each tool's `inputSchema` is `x-tools[].inputSchema`, and `tools/list` returns it verbatim. It has `additionalProperties: false`.
+- No property in any input schema is in case-session's `x-scope-fields`.
+- Arguments that fail the schema get JSON-RPC `-32602` with `data.code: "TOOL_ARGUMENTS_INVALID"`, and nothing runs.
+
+**Session errors.** Every session failure is the HTTP-level `401` from case-session §6.2, never a tool result. That covers an unknown, ended or expired session, and a write rejected inside its transaction.
+
+**Which tools exist.** A server lists and allows only the tools it implements. Before a tool's revision ships, the tool is absent from `tools/list` and from `allowedActions`, and calling it gets `-32602` `TOOL_NOT_IN_SESSION`. This narrows case-session §6.4's effective set (clarified there).
+
+### 2. Results
+
+**Shape.** Every result, success or failure, is a single JSON text item:
+
+```json
+{ "content": [{ "type": "text", "text": "<one JSON document>" }], "isError": false }
+```
+
+| `isError` | Document | Schema |
+| --- | --- | --- |
+| `false` | `{ "ok": true, "tool": "<name>", "result": { … } }` | the tool's result definition (`x-tools[].resultSchema`) |
+| `true` | `{ "ok": false, "tool": "<name>", "code": "<code>", "message": "…", "retryable": <bool> }` | `toolErrorEnvelope` |
+
+**Tool errors.** A tool error is part of the model's context.
+- Its `message` is fixed per code. It never names an id or a token, and never reveals whether some other case, agent or message exists.
+- The model branches on `code`. The host treats a tool error as an outcome and never retries the call with a stronger credential (case-session §10).
+
+**Tool error codes** (`x-tool-errors`):
+
+| Code | `retryable` | Meaning |
+| --- | --- | --- |
+| `REF_NOT_FOUND` | false | A reference argument does not name an object in this session's case (§4). The message is identical whether or not the reference exists elsewhere. |
+| `IDEMPOTENCY_CONFLICT` | false | This `idempotencyKey` was already used, for this work and tool, with different arguments (§3). |
+| `NOT_SUPPORTED_FOR_WORK` | false | An argument this work kind does not allow (§7.1). |
+| `CURSOR_INVALID` | false | A paging cursor is malformed, expired, or from another case or agent (§6.3). |
+| `TOOL_BUSY` | true | The write could not take its locks within `x-limits.lockWaitMaxMs` (5 s), or the case's participants changed while it was acquiring them. Nothing was committed. Retry the identical call with backoff. Today's lock waits without limit, so C-A2 adds the bounded wait. |
+
+`x-tool-errors[].clientRetry` gives the client's next step for each code: `none` or `backoff`.
+
+**Other failures.** Any other server fault is an HTTP `500 INTERNAL_SERVER_ERROR`, as in case-session §12, because only a fault before commit can promise that nothing was written. Rate limits stay HTTP `429`.
+
+**Size.** No result document exceeds `x-limits.resultMaxBytes` (64 KiB) of UTF-8 JSON (§6.4).
+
+### 3. Idempotency
+
+Every tool that writes takes a required `idempotencyKey`: 1–128 characters matching `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`. Its scope is **the agent, the work and the tool** (case-session §11), never the session or the fence.
+
+**Order of checks.** A write checks in this order:
+1. the arguments, against the schema (`-32602`);
+2. the references (`REF_NOT_FOUND`);
+3. the work-kind rules (`NOT_SUPPORTED_FOR_WORK`);
+4. the idempotency record.
+
+**Same arguments.** Two calls have the same arguments when the canonical JSON of every argument other than `idempotencyKey` matches. The comparison happens after defaults are filled in and references are resolved. For example, `intent` omitted equals `"message"`, and `inReplyTo` omitted equals the work's own reference.
+
+| Same scope and key | Outcome |
+| --- | --- |
+| The same arguments, under any usable session for the same work | `ok: true` with the **original** result and `replayed: true`. Nothing is written. |
+| Different arguments | `IDEMPOTENCY_CONFLICT`. Nothing is written. |
+| A key never used in this scope | The call runs. The effect and its idempotency record commit in one transaction. |
+
+**Recovering from a lost response.** Repeat the identical call with the same key. That works under the same session, or under a later session for the same work after a reclaim.
+
+**Collisions across turns.** A new inbound message is new work, so `reply-1` from an earlier turn never collides with it.
+
+**Keys the model uses.** The host's turn instruction asks the model for short keys that are distinct within the turn, for example `reply-1`. A host that replays a turn reuses the same keys.
+
+`envoi_case_snapshot` only reads, so it takes no key.
+
+### 4. References
+
+Models never see internal ids (case-session §4). Every object that a tool result names carries a **reference** instead: `<kind>_<16 base32 characters>`.
+
+**Kinds** (`x-ref-kinds`):
+
+| Kind | Names |
+| --- | --- |
+| `m` | a message |
+| `p` | a structured proposal |
+| `o` | a proposal option |
+| `a` | an asset |
+| `e` | another case event |
+
+**How a reference is made.**
+- It is HMAC-SHA256 of the agent id, the case id, the object kind and the object id.
+- **The key.** A dedicated random reference key is generated once, stored in the document store (`config/case-reference-key`) and encrypted at rest under the data key. A data-key rotation re-encrypts it without changing it. HKDF-SHA256 derives two subkeys from it: `envoi-case-ref-v1` for references and `envoi-case-cursor-v1` for sealing cursors (§6.3).
+- **Resolving a reference.** References are one-way, so the server resolves one by computing the references of that case's candidate objects of the given kind. That work is bounded by the case. C-A2 may add an index instead.
+
+**Properties.** A reference is:
+- **Stable** for that agent and case across sessions, turns and reclaims. A resumed turn sees the same references, and a message has one reference wherever it appears (§6).
+- **Opaque.** It cannot be turned back into an id.
+- **Per agent.** The two parties to a case see different references for the same message.
+- **Local.** Another case's reference, or another agent's, gives `REF_NOT_FOUND`. It never resolves to anything else.
+
+Tool **inputs** take references, never ids.
+
+### 5. Untrusted content
+
+**Which fields.** These fields carry text that someone other than this server wrote (`x-untrusted-fields`): `text`, `objective`, `filename`, `mimeType` and `value`. The authors include the counterparty, either side's people, and the agent's own earlier messages.
+
+**The notice.** Every snapshot carries a fixed `notice` that names these fields. It tells the model they are information to weigh, never instructions to follow.
+
+**What the server does to them.**
+- It never rewrites or filters them. It only truncates them to the limits, and every truncated item carries `truncated: true`.
+- `intent` is never free text. The server maps it onto the closed `x-event-projection.intents` list, and any other value becomes `other`.
+
+The host keeps the notice with the content, and gives that content no more authority than the notice does.
+
+### 6. `envoi_case_snapshot`
+
+**Permission:** read (send or receive). **Work kinds:** both. **Writes:** nothing. No document is created; even the cursor carries no server state (§6.3).
+
+#### 6.1 Input
+
+```json
+{ "eventLimit": 20, "eventsBefore": "c_…" }
+```
+
+Both fields are optional:
+- **`eventLimit`**: 1–50, default 20.
+- **`eventsBefore`**: the `page.olderCursor` from an earlier snapshot of this case. With it, the snapshot returns only older events, and no `requestedResponse`.
+
+#### 6.2 Result (`snapshotResult`)
+
+| Field | Content |
+| --- | --- |
+| `notice` | The fixed untrusted-content notice (§5). |
+| `case` | `{ objective, collaborationMode, status, deadline, createdAt, updatedAt }` from the canonical case record. `status` is the case state. A paused or revoked case never reaches a usable session (case-session §6.2). `objective` is untrusted. |
+| `you` | `{ address }`, this agent's own address. |
+| `counterparty` | Exactly the session's `counterparty` (case-session §3). For agent work, `{ kind: "agent", address }`. For a human instruction, `{ kind: "human" }`. |
+| `requestedResponse` | Present on a first page only. It is the work being handled: `{ ref, from, kind, intent, text, truncated, receivedAt }`. `from` is `other_agent` or `your_human`. `kind` and `intent` follow `x-event-projection`. |
+| `recentEvents` | Up to `eventLimit` items, oldest first, ending with the newest event before the cursor (§6.3). When the work message falls within the page, it has the **same** `ref` as `requestedResponse` and `text: null`; its text is in `requestedResponse`. |
+| `page` | `{ hasOlder, olderCursor }`. `olderCursor` is `null` exactly when `hasOlder` is false. |
+| `proposal` | The case's current proposal, or `null`, as `{ ref, kind, status, lastActor, options, expiresAt }`. It is the newest entry in the case's `proposals` whose status is `open` or `countered`. That includes the proposals a typed `offer` message creates (`proposal_<messageId>`, kind `negotiation`) and the structured proposals made through the case API. `options` lists **live** options only (`expired: false`), at most 10, newest first. A counter expires every earlier option, so only the counter's options stay. Each option is `{ ref, value, truncated }`. `lastActor` is `you` or `other_agent`: the actor of the newest case event whose `payload.proposalId` is this proposal. An accepted proposal is no longer current. |
+| `authority` | `{ pendingHumanDecision, lastPolicyDecision }`. `pendingHumanDecision` is true when the case state is `waitingForHuman`, or when this agent's newest policy evaluation in the case is `needsHuman` with no later `your_human` action. `lastPolicyDecision` is that evaluation as `{ action, decision, expiresAt }`, or `null`. `action` is the stored `requestedAction` when it matches `^[a-z][a-zA-Z_.]{0,63}$`, and `other` otherwise. |
+| `allowedActions` | The tool names usable now, in `x-tools` order. These are the session's effective set (case-session §6.4), limited to the tools this server implements (§1). Revision 2 adds per-state rules. For example, `envoi_case_decide` will appear only when a proposal awaits this agent's answer. Clients treat it as a subset of the effective set, never the whole of it. |
+| `assets` | Up to 10 assets in this case that this agent created or was granted, newest first: `{ ref, filename, mimeType, size, scan, origin, shared }` (`x-status-projection.scan`). `origin` is `you` or `other_agent`. `shared` means the other side holds a grant. There is never a URL or any file bytes. `assetsHasMore` says whether more exist. |
+| `limits` | Echoes the byte limits in `x-limits`. |
+
+**Only this agent's own records.** Every source is a record that this agent's inbox already holds or was granted.
+- Timeline messages come only from this agent's own inbox messages in the session's case.
+- Case events of type `message` are **never** projected. A shared case record also holds the other side's owner instructions as message events, so projecting them would leak those instructions.
+- Nothing comes from the other side's private state: its people, their approvals or actions, its other cases, or its held items. Human actions are projected only when the actor is `your_human`.
+
+#### 6.3 Events and paging (`x-event-projection`)
+
+**Sources:**
+- **Messages:** this agent's own inbox messages in the case, in both directions, including human instructions and instruction replies.
+- **Case events:** only those of type `humanAction` whose actor is `your_human`, `stateChange` and `receipt`. Proposal state is shown in `proposal`. Policy evaluations, tool actions, errors and message events are never projected.
+
+**`kind` for a message.**
+1. The record kind comes first (`x-event-projection.messageKinds`): `humanInstruction` → `instruction`, `humanInstructionReply` → `instruction_reply`.
+2. Otherwise, the native type the case recorded for that message (`payload.messageType`) maps through `x-event-projection.nativeTypes`: `request` or `message` → `message`; `proposal`, `counterproposal`, `decision` and `completion` keep their names.
+3. Anything else → `message`.
+
+| Source | `kind` | `intent` | `text` |
+| --- | --- | --- | --- |
+| Agent message | as above | the protocol intent, mapped onto `x-event-projection.intents`; anything else becomes `other` | message text |
+| Human instruction | `instruction` | `null` | instruction text |
+| Instruction reply | `instruction_reply` | `null` | reply text |
+| `humanAction` event (`your_human` only) | `human_action` | the stored action key: one of `approveOnce`, `decline`, `editProposal`, `pause`, `resume`, `revoke` or `takeOver` | `null` |
+| `stateChange` event | `state_change` | the new case state. Any case state can appear here, including `paused` and `revoked` from an earlier pause. | `null` |
+| `receipt` event | `receipt` | `null` | the receipt `result` |
+
+**Time fields.** `at` is the source record's `createdAt`. `requestedResponse.receivedAt` is the work message's `deliveredAt`.
+
+**Actors:**
+- `you`: this agent.
+- `other_agent`: the other agent in the case.
+- `your_human`: a person in this agent's workspace.
+- `system`: everything else.
+
+People outside this workspace never appear. People and agents never appear by name, id or email, except the two agent addresses in `you` and `counterparty`.
+
+**`deliveryStatus`.** Only `actor: you` messages carry one, mapped through `x-status-projection.delivery`:
+
+| Stored status | `deliveryStatus` |
+| --- | --- |
+| `queued`, `held`, `retrying`, `pendingContactApproval` | `queued` |
+| `delivered` | `delivered` |
+| `acknowledged` | `acknowledged` |
+| `processed` | `processed` |
+| `failed`, `deadLettered`, `declined` | `failed` |
+| `cancelled` | `cancelled` |
+
+Every other item carries `null`. Because `held` maps to `queued`, a snapshot never shows that either side paused (a3 §3).
+
+**Order.** Items are ordered by `createdAt`, with ties broken by object id. This is the same order today's message store pages in (`listMessages`), so paging needs no new index.
+
+**Paging.**
+- A first page holds the newest `eventLimit` items.
+- `olderCursor` is an opaque `c_` token of up to 512 characters, AES-GCM sealed under the cursor subkey (§4). It holds the agent id, case id, oldest returned item's `createdAt` and object id, and an expiry 24 h ahead (`x-limits.cursorTtlSeconds`). It needs no stored document.
+- An older page holds the next older items.
+- A cursor that is malformed, expired, or sealed for another case or agent gets `CURSOR_INVALID`.
+
+#### 6.4 Size bounds
+
+Byte limits count the **UTF-8 bytes of the value as serialized in the result JSON**, escaping included. Truncation always ends on a code-point boundary, so a cut text may end up to 3 bytes under its limit. All values are in `x-limits`.
+
+| Item | Bound |
+| --- | --- |
+| Whole result | 64 KiB |
+| `requestedResponse.text` | 12 KiB |
+| Each event's `text` | 4 KiB |
+| `case.objective` | 500 characters (the stored limit), at most 2,000 bytes |
+| Proposal options | 10 live options. Each `value` is at most 1 KiB of JSON; a larger one becomes `null` with `truncated: true`. |
+| Assets | 10, then `assetsHasMore`. Each `filename` is at most 255 bytes and each `mimeType` at most 128 bytes. |
+
+**Fixed sections.** These sections are never dropped: `notice`, `case`, `you`, `counterparty`, `requestedResponse`, `proposal`, `authority`, `allowedActions`, `assets`, `page` and `limits`. Together they stay within `x-limits.fixedSectionsMaxBytes` (40 KiB). Their worst case at the limits above is about 34 KiB:
+
+| Section | Worst case |
+| --- | --- |
+| `requestedResponse` | 12.3 KiB |
+| `proposal` | 10.8 KiB |
+| `assets` | 5.3 KiB |
+| `case` | 2.3 KiB |
+| `page` (with a cursor) | 0.6 KiB |
+| everything else | 1.5 KiB or less |
+
+That leaves at least 24 KiB for `recentEvents`.
+
+**When events don't fit.** The server drops the oldest events until the result fits, and sets `page.hasOlder` and `olderCursor` so those events can be paged. It never drops a fixed section.
+
+#### 6.5 Checks
+
+The read follows case-session §6.3: it loads its data, then re-runs the session checks before it returns anything. Reads are not audited per call in v1.
+
+### 7. `envoi_case_reply`
+
+**Permission:** `send_agent_messages`. **Work kinds:** both. **Writes:** one message.
+
+#### 7.1 Input
+
+```json
+{ "text": "…", "idempotencyKey": "reply-1", "intent": "message", "inReplyTo": "m_…" }
+```
+
+| Field | Rule |
+| --- | --- |
+| `text` | Required, 1–8,000 characters (`x-limits.replyTextMaxChars`). |
+| `idempotencyKey` | Required (§3). |
+| `intent` | Optional: `message` (default), `clarify` or `status`. Offers, counteroffers, acceptance, rejection and completion belong to revision 2's tools and are never replies. **Human instruction:** only `message`. Any other value gets `NOT_SUPPORTED_FOR_WORK`, because an instruction reply record has no intent. |
+| `inReplyTo` | Optional. A message reference in this case; the default is the work's own message (`requestedResponse.ref`). **Agent work:** it must name an agent message (`kind` `message`, `proposal`, `counterproposal`, `decision` or `completion`). An instruction or instruction reply gets `NOT_SUPPORTED_FOR_WORK`, because it would become the outgoing message's `causationId` and reveal a private message's id to the counterparty. **Human instruction:** only the work's own reference. Any other in-case reference gets `NOT_SUPPORTED_FOR_WORK`, because an instruction reply always answers its instruction. |
+
+There is **no** recipient field and no case field. The recipient is the session's counterparty and the case is the session's case (case-session §6.3).
+
+#### 7.2 Effect
+
+**Agent work.** The tool sends one native message from this agent to the counterparty agent, in the session's case. It is the record that today's `POST /api/inboxes/{inboxId}/messages` creates, with the same delivery, ordering and D1 barrier:
+- `type` is `message`;
+- `intent` is the input intent;
+- `causationId` is the `inReplyTo` message.
+
+The counterparty can always act at this point. A sender that cannot act ends the session first (case-session §3, `counterparty_unavailable`). So a reply never waits on the counterparty's own pause. A hold that does happen, for example a contact approval, reads as `queued` (§6.3).
+
+**Human instruction.** The tool sends one instruction reply to the person who sent the instruction. It is the record that today's `POST /api/agent/instructions/{workId}/reply` creates: delivered at once, in the instruction's case, with `inReplyTo` set to the instruction.
+
+**For both kinds:**
+- The message, its idempotency record, the case update and the audit commit in one transaction, and the session checks run inside it (case-session §6.3).
+- The message id is derived from the §3 scope, so a replay can never create a second message.
+- A reply does **not** settle the work. The host still completes or fails it (case-session §7).
+
+#### 7.3 Result (`replyResult`)
+
+```json
+{ "ok": true, "tool": "envoi_case_reply", "result": { "messageRef": "m_…", "status": "queued", "recipient": { "kind": "agent", "address": "partner@envoi.mail" }, "inReplyTo": "m_…", "createdAt": "…", "replayed": false } }
+```
+
+| Field | Value |
+| --- | --- |
+| `status` | `queued` for agent work, which includes a pending contact approval. `delivered` for an instruction reply. It is the status at commit; the next snapshot's `deliveryStatus` shows later progress. |
+| `recipient` | The session's counterparty, in the same shape as the snapshot. |
+| `replayed` | `true` only when §3 returned an earlier result. |
+
+#### 7.4 Errors
+
+| Situation | Response |
+| --- | --- |
+| `text` missing or too long, an unknown field, or a scope field | `-32602` `TOOL_ARGUMENTS_INVALID` |
+| The session lacks `envoi_case_reply`, for example a receive-only agent | `-32602` `TOOL_NOT_IN_SESSION` (case-session §6.4) |
+| `inReplyTo` is not a message reference in this case | tool error `REF_NOT_FOUND` |
+| A human instruction with a non-default `intent` or `inReplyTo`, or agent work replying to an instruction | tool error `NOT_SUPPORTED_FOR_WORK` |
+| The key was already used with other arguments | tool error `IDEMPOTENCY_CONFLICT` |
+| The write could not take its locks | tool error `TOOL_BUSY`; retry the identical call with backoff |
+| The session ended or expired, either before the call or inside the write | HTTP `401 CASE_SESSION_ENDED` or `CASE_SESSION_EXPIRED` (case-session §6.2). Nothing is written. |
+| Any other server fault | HTTP `500` (§2) |
+
+#### 7.5 Events and audit
+
+**Events.** The message produces exactly the events today's send produces:
+- agent work: `message.queued`, then `message.delivered` and the delivery receipts;
+- an instruction: `agent.instruction_replied`.
+
+**New owner audit.** `agent.case_tool_used`, with `agentId`, `installationId`, `sessionId`, `workId`, `caseId`, `tool` and `messageId`. It is written once per effect, never for a replay, and needs a paired Lane B `WORKSPACE_EVENT_TYPES` entry.
+
+### 8. Isolation
+
+Two sessions of the same agent, for two cases with the same counterparty, each see only their own case:
+- snapshot events, references, proposals and assets come only from that session's case;
+- a reference from one case gives `REF_NOT_FOUND` in the other;
+- a reply is delivered in its own case only;
+- the same key in both cases is two different messages, because the scope is the work.
+
+Fixture `two-cases-same-counterparty` pins this. A second owner's agent never appears in a snapshot, except as the counterparty of its own case.
+
+### 9. Compatibility
+
+**No new flag.** The case tools exist only behind `ENVOI_CASE_SESSIONS_V1` and a usable session.
+
+**Legacy MCP tools are unchanged.** `envoi_read_case`, `envoi_list_messages`, `envoi_send_message` and the others keep working with access tokens and `mcp_read` tokens, and they are never in a session (case-session §5, §13).
+
+**Clarification to case-session §6.4.** It now says that `tools/list`, the effective set and a newly minted session's `allowedTools` include only tools the server implements. The case-session fixtures model a server that implements all nine tools. Hosts tell the model which tools it has from `tools/list` or the snapshot's `allowedActions`.
+
+**Consumer changes Lane B makes (C-B2).** Informative; Lane B owns the details:
+- a typed client for the two tools;
+- start every turn with a snapshot, not stitched history;
+- keep simultaneous cases in separate sessions and separate contexts;
+- add `agent.case_tool_used` to `WORKSPACE_EVENT_TYPES`;
+- never fall back to a legacy tool after a refusal.
+
+### 10. Fixtures
+
+**Fields.** Each fixture has `contract`, `version`, `id`, `kind` and `description`, followed by either `context`, `request`, `response` and `client`, or `steps`.
+- **`context`** names the session that a call runs under: `sessionRef`, `caseRef`, `workKind` and `allowedTools` (the session's effective set). These are fixture-only names that tie fixtures together.
+- **`response.toolResult`** names the definition that the parsed JSON text must match.
+
+**What `test/contract-fixtures.test.js` checks:**
+- **Result shape.** Every result's JSON text is checked against its schema, and `ok` against `isError`. Tool error codes, messages, `retryable` and the client's retry are checked against `x-tool-errors`.
+- **Arguments.** Arguments are checked against the tool's own `inputSchema`. `TOOL_NOT_IN_SESSION` must appear exactly when a tool is outside the session or not implemented. `tools/list` must return the implemented effective set verbatim.
+- **References.** Every reference matches the reference pattern.
+- **Leaks.** No result carries a token. Outside `x-untrusted-fields`, no result carries an internal id, a URL, or an email address other than `you.address` and the counterparty's.
+- **Snapshot.** Byte bounds, and that a truncated text ends within 3 bytes of its limit. The fixed-sections budget. Events are ordered oldest first. When the work message is in the page, it shares the work message's reference and has no text. Your own messages carry a `deliveryStatus`, and nobody else's do. `allowedActions` equals the effective set limited to the implemented tools.
+- **Consistency with case-session.** `x-tools` names, order, `needs` and `workKinds` equal case-session's `x-case-tools`, and no input property is a scope field.
+- **Replays and conflicts.** A replay returns the original result. A conflicting reuse writes nothing: the original call still replays unchanged afterwards. A reply's default `inReplyTo` is the snapshot's `requestedResponse.ref`.
+- **Isolation.** The two-case fixture shares no reference.
+- **Registry.** This table lists exactly the registered fixtures.
+
+| Group | Fixtures |
+| --- | --- |
+| Snapshot and tool list | `snapshot-agent-work`, `snapshot-human-instruction`, `snapshot-older-page`, `snapshot-truncated`, `snapshot-untrusted-content`, `snapshot-cursor-invalid`, `snapshot-unknown-argument`, `tools-list-revision-1`, `revision-2-tool-not-in-session` |
+| Reply | `reply-agent-work`, `reply-human-instruction`, `reply-clarify`, `reply-replayed`, `reply-lost-response`, `reply-replayed-after-reclaim`, `reply-idempotency-conflict`, `reply-ref-not-found`, `reply-in-reply-to-instruction-refused`, `reply-instruction-intent-not-supported`, `reply-not-in-session`, `reply-recipient-override-rejected`, `reply-intent-not-allowed`, `reply-session-ended-in-write`, `reply-tool-busy` |
+| Isolation and audit | `two-cases-same-counterparty`, `event-case-tool-used` |
+
+### 11. Decisions for review
+
+These are Lane A's proposals. Each one can change before approval.
+
+1. **Results are JSON text, with no MCP `structuredContent`.** That matches today's tools and every MCP client. `structuredContent` can be added later without breaking anything.
+2. **References are stable per agent and case,** not per session, so a resumed turn can point back at the same objects.
+3. **Snapshot bounds:** 64 KiB in all, with fixed sections capped at 40 KiB (worst case about 34 KiB); 20 events by default and 50 at most; a 12 KiB requested text; 10 assets; per-text limits in serialized bytes. Lane B's real turn sizes may argue for other values.
+4. **Reply intents** are limited to `message`, `clarify` and `status`. Every typed negotiation step goes through revision 2's tools.
+5. **A held message reads as `queued`** in a snapshot.
+6. **`proposal` is the case's newest open or countered proposal,** whether a typed offer message or the case API created it. It shows live options only. Revision 2's proposal tools work on the same records.
+7. **Reads are not audited per call** in v1.

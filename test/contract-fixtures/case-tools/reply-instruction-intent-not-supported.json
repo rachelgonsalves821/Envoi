@@ -1,0 +1,72 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "reply-instruction-intent-not-supported",
+  "kind": "http",
+  "description": "An instruction reply carries no intent, so a non-default intent on a human instruction is refused.",
+  "context": {
+    "sessionRef": "H",
+    "caseRef": "case-h",
+    "workKind": "human_instruction",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_list_assets"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_instruction",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 22,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_reply",
+        "arguments": {
+          "text": "Status: two cases open.",
+          "idempotencyKey": "reply-2",
+          "intent": "status"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "toolErrorEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 22,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":false,\"tool\":\"envoi_case_reply\",\"code\":\"NOT_SUPPORTED_FOR_WORK\",\"message\":\"That option is not available for this kind of work.\",\"retryable\":false}"
+          }
+        ],
+        "isError": true
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Reply without intent."
+  }
+}

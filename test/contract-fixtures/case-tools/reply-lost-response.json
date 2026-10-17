@@ -1,0 +1,146 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "reply-lost-response",
+  "kind": "sequence",
+  "description": "The first response is lost after commit. Repeating the identical call returns the original message.",
+  "context": {
+    "sessionRef": "A",
+    "caseRef": "case-a",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "steps": [
+    {
+      "delivered": false,
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "auth": "case_session",
+        "headers": {
+          "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_a",
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-11-25"
+        },
+        "schema": "jsonRpcRequest",
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 15,
+          "method": "tools/call",
+          "params": {
+            "name": "envoi_case_reply",
+            "arguments": {
+              "text": "No liftgate needed; the dock has a ramp.",
+              "idempotencyKey": "reply-lost"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "mcpToolCallResult",
+        "toolResult": "replyEnvelope",
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 15,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"ok\":true,\"tool\":\"envoi_case_reply\",\"result\":{\"messageRef\":\"m_gnmg4mxzdb6icp5x\",\"status\":\"queued\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"inReplyTo\":\"m_b5xaexm7svnedlw7\",\"createdAt\":\"2026-10-17T12:00:05.000Z\",\"replayed\":false}}"
+              }
+            ],
+            "isError": false
+          }
+        }
+      },
+      "client": {
+        "surface": "tool_channel",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "continue",
+        "next": "The response never arrived; repeat the identical call."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "auth": "case_session",
+        "headers": {
+          "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_a",
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-11-25"
+        },
+        "schema": "jsonRpcRequest",
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 16,
+          "method": "tools/call",
+          "params": {
+            "name": "envoi_case_reply",
+            "arguments": {
+              "text": "No liftgate needed; the dock has a ramp.",
+              "idempotencyKey": "reply-lost"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "mcpToolCallResult",
+        "toolResult": "replyEnvelope",
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 16,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"ok\":true,\"tool\":\"envoi_case_reply\",\"result\":{\"messageRef\":\"m_gnmg4mxzdb6icp5x\",\"status\":\"queued\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"inReplyTo\":\"m_b5xaexm7svnedlw7\",\"createdAt\":\"2026-10-17T12:00:05.000Z\",\"replayed\":true}}"
+              }
+            ],
+            "isError": false
+          }
+        }
+      },
+      "client": {
+        "surface": "tool_channel",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "continue",
+        "next": "Same message, replayed."
+      }
+    }
+  ],
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Exactly one message."
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "reply-in-reply-to-instruction-refused",
+  "kind": "http",
+  "description": "In agent work, inReplyTo must name an agent message. Naming an instruction from your workspace in the same case is refused, so its private id never reaches the counterparty as a causation id.",
+  "context": {
+    "sessionRef": "A",
+    "caseRef": "case-a",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_a",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 21,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_reply",
+        "arguments": {
+          "text": "No liftgate needed; the dock has a ramp.",
+          "idempotencyKey": "reply-7",
+          "inReplyTo": "m_oft6qs33wieaagvv"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "toolErrorEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 21,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":false,\"tool\":\"envoi_case_reply\",\"code\":\"NOT_SUPPORTED_FOR_WORK\",\"message\":\"That option is not available for this kind of work.\",\"retryable\":false}"
+          }
+        ],
+        "isError": true
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Reply to an agent message instead."
+  }
+}

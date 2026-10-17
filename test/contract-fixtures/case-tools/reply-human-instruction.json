@@ -1,0 +1,71 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "reply-human-instruction",
+  "kind": "http",
+  "description": "A reply to the person who sent the instruction, delivered at once.",
+  "context": {
+    "sessionRef": "H",
+    "caseRef": "case-h",
+    "workKind": "human_instruction",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_list_assets"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_instruction",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 12,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_reply",
+        "arguments": {
+          "text": "Three supplier cases are open: two waiting on delivery dates, one on a quote.",
+          "idempotencyKey": "reply-1"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "replyEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 12,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_reply\",\"result\":{\"messageRef\":\"m_azur6f23ymr6u4ft\",\"status\":\"delivered\",\"recipient\":{\"kind\":\"human\"},\"inReplyTo\":\"m_kedhcjtn47tfdhed\",\"createdAt\":\"2026-10-17T12:00:40.000Z\",\"replayed\":false}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "The person sees the reply now."
+  }
+}
