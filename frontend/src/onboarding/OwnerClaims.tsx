@@ -4,7 +4,7 @@ import { OwnerClaimsController } from './claim-state';
 import { ClaimProblemNotice, useClaimClock } from './ClaimPage';
 import { permissionLabel, type OnboardingApi } from './types';
 
-export interface OwnerClaimsProps { humanId: string; onSelectAgent?: (agentId: string) => void; client?: OnboardingApi; controller?: OwnerClaimsController }
+export interface OwnerClaimsProps { humanId: string; onSelectAgent?: (agentId: string, address?: string) => void; client?: OnboardingApi; controller?: OwnerClaimsController }
 export function OwnerClaims(props: OwnerClaimsProps) { return <OwnerClaimsSession key={props.humanId} {...props} />; }
 function OwnerClaimsSession({ humanId, onSelectAgent, client = onboardingApi, controller: supplied }: OwnerClaimsProps) {
   const controller = useMemo(() => supplied ?? new OwnerClaimsController(client), [humanId, client, supplied]);
@@ -24,7 +24,7 @@ function OwnerClaimsSession({ humanId, onSelectAgent, client = onboardingApi, co
         <p>Effective permissions: {claim.effectivePermissions.map(permissionLabel).join(', ')}.</p>
         {status === 'approved' && !deadlinePassed && <><p>Activate before <time dateTime={claim.activationExpiresAt}>{new Date(claim.activationExpiresAt).toLocaleString()}</time>.</p><button type="button" className="button secondary compact" disabled={locked} onClick={() => void controller.withdraw(claim.registrationId)} aria-label={`Withdraw approval for ${claim.agent.name}`}>Withdraw approval</button></>}
         {deadlinePassed && <p>The activation deadline passed. Refresh approvals to check whether it activated or expired.</p>}
-        {status === 'activated' && claim.agent.id && onSelectAgent && <button type="button" className="button secondary compact" disabled={state.blocked} onClick={() => onSelectAgent(claim.agent.id!)}>View agent</button>}
+        {status === 'activated' && onSelectAgent && <button type="button" className="button secondary compact" disabled={state.blocked} onClick={() => onSelectAgent(claim.agent.id ?? '', claim.agent.address)}>View agent</button>}
         {status === 'withdrawn' && <p>This approval is no longer valid. A manager withdrew it or an activation check ended it.</p>}
       </article>;
     })}</div>

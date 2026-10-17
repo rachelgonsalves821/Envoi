@@ -54,6 +54,21 @@ export async function acquireConnectorLock(directory: string, releaseDirectory =
       const handle = await open(filename, 'wx', 0o600);
       await handle.writeFile(JSON.stringify(owner));
       await handle.close();
+      try {
+        const helperPath = path.join(directory, 'helper.lock');
+        const helperStat = await lstat(helperPath).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+        if (helperStat) {
+          if (!helperStat.isFile() || helperStat.isSymbolicLink() || helperStat.size > 2048) throw new QuickConnectError('A private helper setup owns this connection');
+          const helper = JSON.parse(await readFile(helperPath, 'utf8')) as { pid: number };
+          if (!Number.isSafeInteger(helper.pid) || helper.pid <= 0) throw new QuickConnectError('A private helper setup owns this connection');
+          if (helper.pid !== process.pid) {
+            let alive = true;
+            try { process.kill(helper.pid, 0); }
+            catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') alive = false; else throw error; }
+            if (alive) throw new QuickConnectError('A private helper setup owns this connection');
+          }
+        }
+      } catch (error) { await rm(filename, { force: true }); throw error; }
       return async () => {
         const releasePath = path.join(releaseDirectory(), 'connector.lock');
         const current = JSON.parse(await readFile(releasePath, 'utf8'));
