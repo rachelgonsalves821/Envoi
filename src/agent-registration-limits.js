@@ -123,7 +123,31 @@ export function createRegistrationLimits({ store, now = () => new Date() }) {
     });
   }
 
-  return { consumeCreation, claimLockRetryAfter, recordClaimFailure };
+  // Check and count in one transaction, so concurrent attempts cannot all slip under the limit:
+  // each attempt reserves a slot that counts as a failure unless released. The caller releases it
+  // for every outcome other than a wrong code (a match, a replay, any other error, a 5xx).
+  async function reserveClaimAttempt(humanId) {
+    const target = claimPath(humanId);
+    return store.withTransaction([`rate:agent-claims:${sha256(humanId)}`], async () => {
+      const at = nowMs();
+      const failures = recent((await store.getJson(target, null))?.failures, at, claimFailureLimit.windowMs);
+      const wait = retryAfter(failures, at, claimFailureLimit);
+      if (wait > 0) return { retryAfterSeconds: wait };
+      await store.putJson(target, { failures: toIso([...failures, at]) });
+      return { reserved: new Date(at).toISOString() };
+    });
+  }
+  async function releaseClaimAttempt(humanId, reserved) {
+    const target = claimPath(humanId);
+    await store.withTransaction([`rate:agent-claims:${sha256(humanId)}`], async () => {
+      const failures = (await store.getJson(target, null))?.failures;
+      const index = Array.isArray(failures) ? failures.indexOf(reserved) : -1;
+      if (index < 0) return;
+      await store.putJson(target, { failures: failures.filter((_, position) => position !== index) });
+    });
+  }
+
+  return { consumeCreation, claimLockRetryAfter, recordClaimFailure, reserveClaimAttempt, releaseClaimAttempt };
 }
 
 // §2 "Polling": a poll less than 4 s after the previous recorded one gets retry-after 5 s and is not
