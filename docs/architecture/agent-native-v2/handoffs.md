@@ -1042,13 +1042,13 @@ The five `event-*` fixtures are already clean.
 
 ## agent-registration v1
 
-**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** published, third revision (§13). The human's first `CONTRACT-APPROVED` preceded Lane B's review, which found a `MISMATCH`. By the human's decision the corrected contract stays v1, and it needs Lane B `CONTRACT-ACK` and a fresh `CONTRACT-APPROVED`. Design only: no server code exists, and nothing here is default-on.
+**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** approved, third revision (§13). The human's first `CONTRACT-APPROVED` preceded Lane B's review, which found a `MISMATCH`. By the human's decision the corrected contract stayed v1. Lane B posted [`CONTRACT-ACK` @4da219e](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134589212) and the human posted a [fresh `CONTRACT-APPROVED`](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134778271) on 2026-10-12, before #76 was integrated. The wire contract is unchanged since then. Server code is A-4.x; nothing here is default-on.
 
 **Fixtures:** [`test/contract-fixtures/agent-registration/`](../../../test/contract-fixtures/agent-registration/). It holds:
 - `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-model-visible`, `x-permission-labels`, `x-route-availability`, `x-delivery-availability`, `x-operations`, `x-legacy-projection` and `x-installation-derivation`;
 - one JSON file per case, including migration, rollback and re-enable fixtures (§9).
 
-**Owner:** Lane A. **Consumer:** Lane B. That covers `envoi-link connect`, the `/connect` skill and manifest, the claim UI, and the host planner in PR #72. **Implemented by:** A-4.x. It waits for this contract's approval **and** the hosted Phase A gate (two-owner plan A5).
+**Owner:** Lane A. **Consumer:** Lane B. That covers `envoi-link connect`, the `/connect` skill and manifest, the claim UI, and the host planner in PR #72. **Implemented by:** A-4.x. It needed this contract's approval (given above) **and** needs the hosted Phase A gate (two-owner plan A5).
 
 **What it covers.** This is the route-neutral Phase B core from v3 §30–§45, as amended by PR #75:
 - one registration, human claim, activation and installation state machine;
