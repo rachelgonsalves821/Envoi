@@ -1,0 +1,41 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-token-on-end",
+  "kind": "http",
+  "description": "A session token cannot end a session; only the host can.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session/end",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example",
+      "sessionId": "case_session_example"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Only /mcp accepts a session token."
+  }
+}

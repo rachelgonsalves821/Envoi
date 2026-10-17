@@ -1,0 +1,40 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-token-on-renew",
+  "kind": "http",
+  "description": "A session token cannot renew the lease, so the model cannot keep work alive.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/renew",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Only /mcp accepts a session token."
+  }
+}

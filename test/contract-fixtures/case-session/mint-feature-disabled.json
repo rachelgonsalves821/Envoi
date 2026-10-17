@@ -1,0 +1,45 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-feature-disabled",
+  "kind": "http",
+  "description": "The flag is off.",
+  "flags": {
+    "ENVOI_CASE_SESSIONS_V1": false,
+    "ENVOI_INSTALLATIONS_V2": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "Case sessions are not available on this server.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "sessions_unavailable",
+    "turn": "none",
+    "next": "Do not start a model turn with any other credential unless this client is listed for the pre-Phase-C flow."
+  }
+}

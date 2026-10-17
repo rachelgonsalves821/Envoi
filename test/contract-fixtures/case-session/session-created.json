@@ -1,0 +1,101 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-created",
+  "kind": "http",
+  "description": "The host mints a session for its live lease. The token goes only to the tool channel; only the x-model-visible keys reach the model.",
+  "context": {
+    "workKind": "agent_message",
+    "permissions": [
+      "send_agent_messages",
+      "receive_agent_messages",
+      "create_assets",
+      "execute_cases"
+    ],
+    "turnStartedAt": "2026-10-17T12:00:06.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "sessionCreated",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "session": {
+        "id": "case_session_example",
+        "token": "envoi_case_session_PLACEHOLDER_example",
+        "tokenType": "Bearer",
+        "status": "active",
+        "transport": {
+          "kind": "mcp_streamable_http",
+          "url": "https://envoi.example/mcp"
+        },
+        "agentId": "agent_example",
+        "installationId": "installation_example",
+        "workId": "msg_example",
+        "workKind": "agent_message",
+        "caseId": "case_example",
+        "fence": 1,
+        "counterparty": {
+          "kind": "agent",
+          "address": "counterparty@envoi.mail"
+        },
+        "allowedTools": [
+          "envoi_case_snapshot",
+          "envoi_case_reply",
+          "envoi_case_propose",
+          "envoi_case_decide",
+          "envoi_authority_check",
+          "envoi_request_human",
+          "envoi_case_list_assets",
+          "envoi_case_share_asset",
+          "envoi_case_complete"
+        ],
+        "createdAt": "2026-10-17T12:00:05.000Z",
+        "expiresAt": "2026-10-17T12:15:05.000Z"
+      },
+      "lease": {
+        "workId": "msg_example",
+        "leaseExpiresAt": "2026-10-17T12:01:00.000Z"
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "start",
+    "next": "Keep the lease token and session token private. Give the token to the tool channel for this turn only, put only the model-visible keys in the model context, start the turn and renew the lease at least every 20 s.",
+    "modelVisible": {
+      "counterpartyKind": "agent",
+      "counterpartyAddress": "counterparty@envoi.mail",
+      "allowedTools": [
+        "envoi_case_snapshot",
+        "envoi_case_reply",
+        "envoi_case_propose",
+        "envoi_case_decide",
+        "envoi_authority_check",
+        "envoi_request_human",
+        "envoi_case_list_assets",
+        "envoi_case_share_asset",
+        "envoi_case_complete"
+      ],
+      "sessionExpiresInSeconds": 899,
+      "agentAddress": "example@envoi.mail"
+    }
+  }
+}

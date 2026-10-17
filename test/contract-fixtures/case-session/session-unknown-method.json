@@ -1,0 +1,79 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-unknown-method",
+  "kind": "http",
+  "description": "An unknown MCP method.",
+  "context": {
+    "workKind": "agent_message",
+    "permissions": [
+      "send_agent_messages",
+      "receive_agent_messages",
+      "create_assets",
+      "execute_cases"
+    ],
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ],
+    "ended": {
+      "credential_ended": false,
+      "agent_paused": false,
+      "case_controlled": false,
+      "work_ineligible": false,
+      "work_settled": false,
+      "ended_by_host": false,
+      "superseded": false,
+      "lease_lost": false
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_example",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 33,
+      "method": "resources/list",
+      "params": {}
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "jsonRpcError",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 33,
+      "error": {
+        "code": -32601,
+        "message": "Method not found"
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Nothing changed."
+  }
+}

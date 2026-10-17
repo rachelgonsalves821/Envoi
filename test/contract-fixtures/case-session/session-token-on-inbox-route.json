@@ -1,0 +1,42 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-token-on-inbox-route",
+  "kind": "http",
+  "description": "A session token cannot reach the REST inbox routes, so it cannot post a message outside the case tools.",
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/messages",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "body": {
+      "recipientEmail": "counterparty@envoi.mail",
+      "text": "Example",
+      "caseId": "case_example"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Model content reaches Envoi only through the case tools."
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-other-agent-work",
+  "kind": "http",
+  "description": "Another agent's or another tenant's work is identical to unknown work.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_other_tenant/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WORK_NOT_FOUND",
+      "error": "WORK_NOT_FOUND",
+      "message": "Work was not found for this agent.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "none",
+    "next": "Drop the work id and do not settle it."
+  }
+}

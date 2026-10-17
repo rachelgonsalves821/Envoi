@@ -1,0 +1,44 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-end-replayed",
+  "kind": "http",
+  "description": "Ending twice repeats the first ending exactly.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session/end",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "endRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example",
+      "sessionId": "case_session_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "sessionEnded",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "session": {
+        "id": "case_session_example",
+        "status": "ended",
+        "endedReason": "ended_by_host",
+        "endedAt": "2026-10-17T12:02:00.000Z"
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "none",
+    "next": "Nothing more to do."
+  }
+}

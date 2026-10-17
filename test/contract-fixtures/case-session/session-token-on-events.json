@@ -1,0 +1,36 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-token-on-events",
+  "kind": "http",
+  "description": "A session token cannot open the event stream.",
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/events?from=latest",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Only /mcp accepts a session token."
+  }
+}

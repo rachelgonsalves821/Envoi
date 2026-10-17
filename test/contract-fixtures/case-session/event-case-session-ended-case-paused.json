@@ -1,0 +1,32 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "event-case-session-ended-case-paused",
+  "kind": "event",
+  "description": "A usable session ended because of a case pause (§9).",
+  "event": {
+    "schema": "caseSessionEndedEvent",
+    "event": "case_session.ended",
+    "id": "00000000000000000042",
+    "data": {
+      "id": "event_example_42",
+      "type": "case_session.ended",
+      "createdAt": "2026-10-17T12:00:30.000Z",
+      "sequence": 42,
+      "cursor": "00000000000000000042",
+      "agentId": "agent_example",
+      "workId": "msg_example",
+      "caseId": "case_example",
+      "sessionId": "case_session_example",
+      "reason": "case_controlled"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Cancel the turn now, end the session and discard later model output. This is not a claim trigger."
+  }
+}

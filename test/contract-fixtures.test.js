@@ -144,6 +144,8 @@ function codeEntry(schemas, code, surface) {
 // agent-registration §2, §8: guidance may depend on the helper's own state, then on the reason.
 const expectedGuidance = (entry, value, client) => client.helperState ? entry.guidanceByHelperState?.[client.helperState]
   : value.reason ? entry.guidanceByReason?.[value.reason] : entry.guidance;
+// case-session §12: a row may also give retry per reason.
+const expectedRetry = (entry, value) => value.reason && entry.retryByReason ? entry.retryByReason[value.reason] : entry.retry;
 
 // agent-registration §8: an error body follows its x-codes row for status, lifecycle, retry and guidance.
 function checkCodedError(response, client, schemas, label) {
@@ -157,7 +159,7 @@ function checkCodedError(response, client, schemas, label) {
   assert.equal(value.error, value.code, `${label}: error must equal code`);
   assert.equal(response.status, entry.status, `${label}: HTTP status for ${value.code}`);
   assert.equal(client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
-  assert.equal(client.retry, entry.retry, `${label}: retry for ${value.code}`);
+  assert.equal(client.retry, expectedRetry(entry, value), `${label}: retry for ${value.code}`);
   assert.equal(client.guidance, expectedGuidance(entry, value, client), `${label}: guidance for ${value.code}`);
   if (response.status === 429) assert.equal(response.headers?.['retry-after'], String(value.retryAfterSeconds), `${label}: retry-after`);
 }
@@ -440,6 +442,119 @@ function checkInstallationDerivation(fixture, schemas, label) {
   }
 }
 
+// case-session §5: the x-case-tools rows a permission set allows for one work kind, in table order.
+const readPermissions = ['send_agent_messages', 'receive_agent_messages'];
+const caseSessionTools = (schemas, permissions, workKind) => schemas['x-case-tools']
+  .filter((tool) => tool.workKinds.includes(workKind) && (tool.needs === 'read' ? permissions.some((permission) => readPermissions.includes(permission)) : permissions.includes(tool.needs)))
+  .map((tool) => tool.name);
+const sessionRoute = /^\/api\/agent\/work\/[^/]+\/session(?:\/end)?$/;
+
+// case-session v1 rules a schema cannot express. Applied to each exchange of a fixture.
+function checkCaseSession(fixture, schemas, check, validator, label) {
+  const flags = { ENVOI_CASE_SESSIONS_V1: true, ENVOI_INSTALLATIONS_V2: true, ...fixture.flags };
+  const exchanges = fixture.steps ? fixture.steps.map((step, index) => ({ ...step, context: step.context || fixture.context, label: `${label} step ${index}` }))
+    : fixture.request ? [{ request: fixture.request, response: fixture.response, client: fixture.client, context: fixture.context, label }] : [];
+  const limits = schemas['x-limits'];
+  for (const { request, response, client, context, label: stepLabel } of exchanges) {
+    const body = response.body;
+    const code = body && typeof body === 'object' ? body.code : undefined;
+    const pathname = request.path.split('?')[0];
+    if (request.schema) check(validator(request.schema), request.body, `${stepLabel} request`);
+    if (request.invalidAgainst) {
+      const validate = validator(request.invalidAgainst);
+      assert.equal(validate(request.body), false, `${stepLabel}: the negative request must fail ${request.invalidAgainst}`);
+      assert.ok(validate.errors.some((error) => error.keyword === request.invalidBecause?.keyword && error.instancePath === request.invalidBecause?.instancePath), `${stepLabel}: fails for the named reason`);
+    }
+    if (fixture.steps) {
+      check(validator(response.schema), body, `${stepLabel} response`);
+      // §7.3, §13: today's settlement body appears only with the flag off.
+      if (response.schema === 'legacyRequestFailed') assert.equal(flags.ENVOI_CASE_SESSIONS_V1, false, `${stepLabel}: legacy settlement bodies only with the flag off`);
+      else checkCodedError(response, client, schemas, stepLabel);
+    }
+    if (code) assert.equal(client.turn, codeEntry(schemas, code, client.surface).turn, `${stepLabel}: turn for ${code}`);
+    // §1: the flag decides FEATURE_DISABLED on the session routes, and nothing else returns it.
+    assert.equal(code === 'FEATURE_DISABLED', sessionRoute.test(pathname) && !flags.ENVOI_CASE_SESSIONS_V1, `${stepLabel}: FEATURE_DISABLED exactly on a session route with the flag off`);
+    // §6.1: a session token works only on /mcp, and only with the flag on. §3 row 3: only an access token mints or ends.
+    if (request.auth === 'case_session' && (pathname !== '/mcp' || !flags.ENVOI_CASE_SESSIONS_V1)) assert.equal(code, 'AUTHENTICATION_REQUIRED', `${stepLabel}: a session token outside /mcp is an unrecognized bearer`);
+    if (sessionRoute.test(pathname) && flags.ENVOI_CASE_SESSIONS_V1 && request.auth !== 'agent_access') assert.equal(code, 'AUTHENTICATION_REQUIRED', `${stepLabel}: only an access token reaches the session routes`);
+    if (pathname === '/mcp' && response.status === 401) {
+      const expected = ['CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED'].includes(code) ? 'Bearer realm="Envoi agent MCP", error="invalid_token"' : 'Bearer realm="Envoi agent MCP"';
+      assert.equal(response.headers?.['www-authenticate'], expected, `${stepLabel}: www-authenticate`);
+    }
+    // §6.2: x-implied-conditions hold in every context.
+    if (context?.ended) {
+      for (const [reason, implied] of Object.entries(schemas['x-implied-conditions'])) {
+        if (context.ended[reason]) for (const other of implied) assert.ok(context.ended[other], `${stepLabel}: ${reason} implies ${other}`);
+      }
+    }
+    // §6.2 steps 2–4: the outcome a session request gets from its context. Rate limiting (step 1) may come first.
+    if (pathname === '/mcp' && request.auth === 'case_session' && code !== 'RATE_LIMITED') {
+      if (!flags.ENVOI_CASE_SESSIONS_V1 || context?.createdBeforeEpoch || !context) {
+        assert.equal(code, 'AUTHENTICATION_REQUIRED', `${stepLabel}: flag off, a session older than the epoch, or an unknown token is an unrecognized bearer (§1, §6.2 step 2)`);
+      } else {
+        assert.ok(context.ended, `${stepLabel}: a session request names its conditions`);
+        const derived = schemas['x-ended-precedence'].find((reason) => context.ended[reason]);
+        const recorded = context.recordedReason;
+        // Steps 3–5: the recorded reason, else expiry, else the first holding condition.
+        const expected = recorded === 'expired' ? { code: 'CASE_SESSION_EXPIRED' }
+          : recorded ? { code: 'CASE_SESSION_ENDED', reason: recorded }
+            : context.expired ? { code: 'CASE_SESSION_EXPIRED' }
+              : derived ? { code: 'CASE_SESSION_ENDED', reason: derived } : { code: undefined };
+        assert.equal(code, expected.code, `${stepLabel}: §6.2 outcome for this context`);
+        if (expected.reason) assert.equal(body.reason, expected.reason, `${stepLabel}: the recorded reason, else the first holding condition in x-ended-precedence`);
+        if (!code) assert.equal(body.id, request.body.id, `${stepLabel}: the JSON-RPC id is echoed`);
+      }
+    }
+    if (code === 'CASE_SESSION_ENDED') assert.ok(!schemas['x-recorded-only-reasons'].includes(body.reason), `${stepLabel}: expired is reported as CASE_SESSION_EXPIRED`);
+    // §3: what a minted session carries.
+    if (response.schema === 'sessionCreated') {
+      const { session, lease } = body;
+      assert.ok(context?.permissions && context.workKind, `${stepLabel}: a mint names its permissions and work kind`);
+      assert.equal(pathname, `/api/agent/work/${session.workId}/session`, `${stepLabel}: the session is for the requested work`);
+      assert.equal(lease.workId, session.workId, `${stepLabel}: the lease is the session's work`);
+      assert.equal(session.workKind, context.workKind, `${stepLabel}: work kind`);
+      assert.equal(Date.parse(session.expiresAt) - Date.parse(session.createdAt), limits.sessionTtlSeconds * 1000, `${stepLabel}: expiresAt is createdAt + sessionTtlSeconds`);
+      assert.ok(Date.parse(lease.leaseExpiresAt) > Date.parse(session.createdAt), `${stepLabel}: minted under a live lease`);
+      assert.deepEqual(session.allowedTools, caseSessionTools(schemas, context.permissions, session.workKind), `${stepLabel}: allowedTools follows x-case-tools`);
+      assert.equal(session.counterparty.kind === 'agent', session.workKind === 'agent_message', `${stepLabel}: counterparty kind follows the work kind`);
+    }
+    if (['sessionCreated', 'sessionEnded'].includes(response.schema) || code) assert.equal(response.headers?.['cache-control'], 'no-store', `${stepLabel}: no-store`);
+    // §6.4: tools/list is the effective set; tools/call outside it, or with a scope field, fails before anything runs.
+    if (pathname === '/mcp' && response.status === 200 && !['initialize', 'ping', 'tools/list', 'tools/call'].includes(request.body.method)) {
+      assert.equal(body.error?.code, -32601, `${stepLabel}: an unknown method is -32601`);
+      assert.equal(client.turn, 'continue', `${stepLabel}: the turn continues`);
+    }
+    if (pathname === '/mcp' && response.status === 200 && ['tools/list', 'tools/call'].includes(request.body.method)) {
+      assert.ok(context?.allowedTools, `${stepLabel}: an MCP tool fixture names its session's allowedTools`);
+      const effective = context.allowedTools.filter((name) => caseSessionTools(schemas, context.permissions, context.workKind).includes(name));
+      if (request.body.method === 'tools/list') assert.deepEqual(body.result.tools.map((tool) => tool.name), effective, `${stepLabel}: tools/list is the effective set`);
+      else {
+        const { name, arguments: args = {} } = request.body.params;
+        const dataCode = body.error?.data?.code;
+        assert.equal(dataCode === 'TOOL_NOT_IN_SESSION', !effective.includes(name), `${stepLabel}: TOOL_NOT_IN_SESSION exactly outside the effective set`);
+        if (effective.includes(name) && Object.keys(args).some((key) => schemas['x-scope-fields'].includes(key))) assert.equal(dataCode, 'TOOL_ARGUMENTS_INVALID', `${stepLabel}: a scope field is refused (§6.3)`);
+        if (body.error) assert.equal(client.turn, 'continue', `${stepLabel}: a JSON-RPC refusal leaves the turn running`);
+      }
+    }
+    // §4: model-visible keys are allowlisted, equal their source, and carry no token or id.
+    if (client.modelVisible) {
+      assert.equal(response.schema, 'sessionCreated', `${stepLabel}: model-visible keys come from a minted session`);
+      const { session } = body;
+      const { serverDerived, fromStatus } = schemas['x-model-visible'];
+      for (const key of Object.keys(client.modelVisible)) assert.ok(key in serverDerived || key in fromStatus, `${stepLabel}: ${key} is not model-visible`);
+      if ('agentAddress' in client.modelVisible) assert.match(client.modelVisible.agentAddress, /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/, `${stepLabel}: agentAddress is an address`);
+      assert.ok(context.turnStartedAt >= session.createdAt && context.turnStartedAt < session.expiresAt, `${stepLabel}: the turn starts inside the session`);
+      const sources = { counterpartyKind: session.counterparty.kind, counterpartyAddress: session.counterparty.address, allowedTools: session.allowedTools, sessionExpiresInSeconds: (Date.parse(session.expiresAt) - Date.parse(context.turnStartedAt)) / 1000 };
+      for (const [key, value] of Object.entries(client.modelVisible)) {
+        if (key in serverDerived) assert.deepEqual(value, sources[key], `${stepLabel}: model-visible ${key} equals its source`);
+      }
+      const shown = JSON.stringify(client.modelVisible);
+      for (const secret of [session.token, session.id, session.agentId, session.installationId, session.workId, session.caseId, request.body?.leaseToken]) assert.ok(!shown.includes(secret), `${stepLabel}: model-visible values never include ${secret}`);
+      assert.doesNotMatch(shown, /envoi_(?:agent_|mcp_read_|case_session_|reg_)|PLACEHOLDER/, `${stepLabel}: model-visible values carry no token`);
+    }
+  }
+}
+
 test('contract fixture registry has a versioned shape', async () => {
   const index = await readJson(path.join(root, 'index.json'));
   assert.equal(Number.isInteger(index.version) && index.version >= 1, true);
@@ -500,7 +615,7 @@ test('every fixture matches its declared schema', async () => {
           assert.ok(entry, `${label}: ${value.code} is not in x-codes`);
           assert.equal(fixture.response.status, entry.status, `${label}: HTTP status for ${value.code}`);
           assert.equal(fixture.client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
-          assert.equal(fixture.client.retry, entry.retry, `${label}: retry for ${value.code}`);
+          assert.equal(fixture.client.retry, expectedRetry(entry, value), `${label}: retry for ${value.code}`);
           assert.equal(fixture.client.guidance, expectedGuidance(entry, value, fixture.client), `${label}: guidance for ${value.code}`);
         } else if (fixture.response.status >= 400 && schemas['x-codes']) {
           assert.equal(fixture.response.schema, 'edgeText', `${label}: error responses must use the error envelope`);
@@ -540,8 +655,9 @@ test('every fixture matches its declared schema', async () => {
       }
       if (['ownerAgentList', 'ownerAgent'].includes(fixture.response?.schema)) checkOwnerConnection(fixture, schemas, label);
       if (fixture.response?.schema === 'agentStatusWithPresence') checkPresence(fixture.response.body.presence, fixture.response.body.asOf, label);
-      if (schemas['x-model-visible']) checkAgentRegistration(fixture, schemas, check, validator, label);
-      assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
+      if (contract.id === 'agent-registration') checkAgentRegistration(fixture, schemas, check, validator, label);
+      if (contract.id === 'case-session') checkCaseSession(fixture, schemas, check, validator, label);
+      assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_|envoi_case_session_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }
 });
@@ -587,4 +703,65 @@ test('agent-registration fixtures agree across cases', async () => {
   assert.ok(limits.deleteRecordsByHours > limits.deleteRecordsAfterHours, 'records are deleted after they are kept');
   const create = limits.registrationCreate;
   assert.ok(create.perSourcePerHour <= create.perNetworkPerHour && create.perNetworkPerHour <= create.perWideNetworkPerHour, 'creation limits widen with the network');
+});
+
+// case-session §11 and §14: replays repeat the original, retries and reclaims keep one live session, and the
+// handoff's fixture table lists exactly the registered fixtures.
+test('case-session fixtures agree across cases', async () => {
+  const dir = path.join(root, 'case-session');
+  const load = (name) => readJson(path.join(dir, `${name}.json`));
+  const bearer = (request) => request.headers.authorization;
+  const [created, list, receiveOnly, end, endReplayed] = await Promise.all(['session-created', 'session-tools-list', 'session-created-receive-only', 'session-end', 'session-end-replayed'].map(load));
+  const session = created.response.body.session;
+  assert.deepEqual(list.response.body.result.tools.map((tool) => tool.name), session.allowedTools, 'tools/list shows the minted session\'s tools');
+  assert.ok(receiveOnly.response.body.session.allowedTools.every((name) => session.allowedTools.includes(name)), 'fewer permissions only narrow the tools');
+  assert.deepEqual([endReplayed.request, endReplayed.response], [end.request, end.response], 'ending twice repeats the first ending');
+  assert.equal(end.request.body.sessionId, session.id, 'the host ends the session it minted');
+
+  const lost = await load('mint-lost-response-retry');
+  const [firstMint, retryMint, oldUse, newUse] = lost.steps;
+  assert.equal(firstMint.delivered, false, 'the first mint response was lost');
+  assert.deepEqual(retryMint.request, firstMint.request, 'the retry is the identical request');
+  assert.notEqual(retryMint.response.body.session.token, firstMint.response.body.session.token, 'each mint returns a new token');
+  assert.equal(bearer(oldUse.request), `Bearer ${firstMint.response.body.session.token}`, 'the superseded token is the lost one');
+  assert.equal(oldUse.response.body.reason, 'superseded', 'the lost session is superseded');
+  assert.equal(bearer(newUse.request), `Bearer ${retryMint.response.body.session.token}`, 'the live token is the retried one');
+
+  const claimLost = await load('claim-lost-response');
+  const [lostClaim, idle, reclaimed, minted] = claimLost.steps;
+  assert.equal(idle.response.body.nextAvailableAt, lostClaim.response.body.work.leaseExpiresAt, 'the idle hint is the lost lease\'s expiry');
+  assert.equal(reclaimed.response.body.work.workId, lostClaim.response.body.work.workId, 'the same work comes back');
+  assert.notEqual(reclaimed.response.body.work.leaseToken, lostClaim.response.body.work.leaseToken, 'under a new lease');
+  assert.equal(minted.request.body.leaseToken, reclaimed.response.body.work.leaseToken, 'the session is minted for the new lease');
+  assert.ok(minted.response.body.session.fence > session.fence, 'with a higher fence');
+
+  for (const name of ['reclaim-after-agent-resume', 'reclaim-after-case-resume', 'reclaim-after-reconnect']) {
+    const fixture = await load(name);
+    const [oldEnded, claim, mint, oldAgain] = fixture.steps;
+    const next = mint.response.body.session;
+    assert.equal(bearer(oldEnded.request), `Bearer ${session.token}`, `${name}: the old session is session-created's`);
+    assert.equal(bearer(oldAgain.request), bearer(oldEnded.request), `${name}: the old token is tried again`);
+    assert.equal(oldAgain.response.body.reason, oldEnded.response.body.reason, `${name}: the old session keeps its recorded reason`);
+    assert.equal(mint.request.body.leaseToken, claim.response.body.work.leaseToken, `${name}: minted for the reclaimed lease`);
+    assert.equal(bearer(mint.request), bearer(claim.request), `${name}: by the host that claimed`);
+    assert.equal(next.workId, session.workId, `${name}: the same work`);
+    assert.equal(next.agentId, session.agentId, `${name}: the same agent identity`);
+    assert.ok(next.fence > session.fence, `${name}: a higher fence`);
+    assert.notEqual(next.token, session.token, `${name}: a new token`);
+    assert.equal(next.installationId !== session.installationId, name === 'reclaim-after-reconnect', `${name}: only a reconnect changes the installation`);
+  }
+
+  const late = await load('late-write-after-pause');
+  assert.deepEqual(late.steps[1].request.body.params, late.steps[0].request.body.params, 'the late write is the identical call');
+  const [status, rollback] = await Promise.all([load('agent-status-case-sessions'), load('rollback-flag-off')]);
+  assert.equal(status.response.body.caseSessions.available, status.flags.ENVOI_CASE_SESSIONS_V1, 'caseSessions.available is the flag');
+  assert.equal(rollback.steps.at(-1).response.body.caseSessions.available, rollback.flags.ENVOI_CASE_SESSIONS_V1, 'caseSessions.available is the flag after rollback');
+
+  const handoff = await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8');
+  const sectionStart = handoff.indexOf('\n## case-session v1');
+  const section = handoff.slice(sectionStart, handoff.indexOf('\n## ', sectionStart + 1) === -1 ? undefined : handoff.indexOf('\n## ', sectionStart + 1));
+  const table = section.slice(section.indexOf('| Group | Fixtures |'), section.indexOf('### 15.'));
+  const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
+  const index = await readJson(path.join(root, 'index.json'));
+  assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'case-session').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
 });

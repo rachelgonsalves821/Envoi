@@ -1,0 +1,82 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-ended-agent-revoked",
+  "kind": "http",
+  "description": "The owner revoked the agent mid-turn.",
+  "context": {
+    "workKind": "agent_message",
+    "permissions": [
+      "send_agent_messages",
+      "receive_agent_messages",
+      "create_assets",
+      "execute_cases"
+    ],
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ],
+    "ended": {
+      "credential_ended": true,
+      "agent_paused": false,
+      "case_controlled": false,
+      "work_ineligible": false,
+      "work_settled": false,
+      "ended_by_host": false,
+      "superseded": false,
+      "lease_lost": false
+    },
+    "recordedReason": "credential_ended"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_example",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 17,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_snapshot",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store",
+      "www-authenticate": "Bearer realm=\"Envoi agent MCP\", error=\"invalid_token\""
+    },
+    "body": {
+      "code": "CASE_SESSION_ENDED",
+      "error": "CASE_SESSION_ENDED",
+      "message": "This case session has ended.",
+      "requestId": "req_example",
+      "reason": "credential_ended"
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "check_host_credential",
+    "turn": "cancel",
+    "next": "Cancel the turn and discard any later model output (§10)."
+  }
+}

@@ -1744,3 +1744,616 @@ The web client is the exception to "ignore unknown types". It subscribes to a fi
 **Never in these events:** a token, a lease token, a `rotationId` or message text.
 
 **Evidence capture** for the gate uses `scripts/ga-evidence.mjs` and `docs/architecture/agent-native-v2/evidence/phase-a-TEMPLATE.md`.
+
+## case-session v1
+
+**Contract:** `case-session`, version 1 (Phase C task **C-A0**, first of three). **Status:** published, awaiting Lane B `CONTRACT-ACK`, then a version-specific `CONTRACT-APPROVED case-session v1 @<sha>`.
+
+The blanket "CONTRACT-APPROVED (for Phase C)" posted on board #34 at 17:01Z on 2026-10-17 predates this publication and names no version, so it does not approve this contract. Nothing here is implemented, and nothing is default-on. The server work is C-A1; the client work is C-B1.
+
+**Fixtures:** [`test/contract-fixtures/case-session/`](../../../test/contract-fixtures/case-session/). It holds:
+- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-rpc-codes`, `x-limits`, `x-case-tools`, `x-scope-fields`, `x-ended-precedence`, `x-implied-conditions`, `x-model-visible` and `x-operations`;
+- one JSON file per case, including retry, reclaim, cancellation and rollback fixtures.
+
+**Owner:** Lane A. **Consumer:** Lane B: the TypeScript connector's work loop, the local MCP relay, the Hermes, OpenClaw and xAI/Grok adapters, and the owner UI's audit list.
+
+**Name.** Phase C planning called this `case-session-v1`. The registry convention keeps the version out of the id, so the canonical id is `case-session`, version 1, like `a3-pause-auth` and `agent-registration`. Lane B's C-B0 readiness check (PR #114) looks for the planning id and needs a one-line update.
+
+**What it covers.** How a trusted host turns a claimed piece of work into a short-lived, server-bound scope for one model turn. This is the [Phase C plan](phase-c-execution-plan.md)'s "contract details" items 1, 2, 3, 5 and 7:
+- minting a **case session** after a fenced claim, and what the session is bound to;
+- how the session's bearer token is held, carried and used;
+- the checks the server repeats on every use, and when and why a session ends;
+- how claim, renew, acknowledge, complete and fail relate to the session (they all stay host-only);
+- cancelling the model turn, and handling late writes and late settlement;
+- retries, lost responses, reclaim and resume;
+- flags, compatibility and rollback.
+
+**Not in this contract.**
+- **The tools themselves.** Their names, inputs, outputs, effects, idempotency and receipts belong to **`case-tools` v1**, published separately. This contract fixes only which tool **names** a session can carry (§5), the scope and result rules every tool must follow (§6.3), and how tools must be executed (§6.3). Tool fixtures here use only the MCP envelope, never a tool's own result shape.
+- **HTTPS wake** (`http-wake` v1). A session starts only from a claim, however the host learned that work was waiting.
+- **Starting a new case.** A session exists only for claimed inbound work. Starting a case stays a host operation in v1 (§15).
+
+It builds on `a3-pause-auth` v3 (envelope, codes, pause, lease invalidation), `a4-wake` v2 (claim triggers and hints) and `agent-registration` v1 (installations, model visibility).
+
+### 1. Flags and availability
+
+| Flag (server-only, default off) | Turns on |
+| --- | --- |
+| `ENVOI_CASE_SESSIONS_V1` | The mint and end routes (§3, §8), session tokens on `/mcp` (§6), the `case_session.ended` event (§9), coded settlement errors (§7.3), and lease release on case pause and on `WORK_NOT_ELIGIBLE` (§3, §7.4). It requires `ENVOI_INSTALLATIONS_V2`, because a session binds an installation. If this flag is on and that one is off, startup fails closed. |
+
+**How a host learns availability.** `GET /api/agent/status` gains `caseSessions: { "available": <flag>, "version": 1 }`. The field appears on every status response once C-A1 is deployed, whatever the flag. It is additive under a3 §1, so old connectors ignore it. A host never reads flags.
+- **`available: false`, or the field is absent:** the host does not mint. A client released before Phase C keeps its pre-Phase-C flow (§13). Any other client stops and reports that sessions are unavailable.
+- **`available: true`:** the host mints a session for every model turn and gives the model nothing else (§4).
+
+With the flag off:
+- the mint and end routes return `404 FEATURE_DISABLED`;
+- a session token anywhere is an unrecognized bearer, `401 AUTHENTICATION_REQUIRED`.
+
+**Sessions epoch.** No session outlives a disable. The server keeps one stored document, `config/case-sessions-epoch`, which holds `epoch` and `activeUntil`.
+- **On startup with the flag off,** a C-A1 server sets `epoch` to now.
+- **On startup with the flag on,** the server sets `epoch` to now if `activeUntil` has already passed. That covers a code rollback: the reverted server never refreshed `activeUntil`.
+- **While the flag is on,** every server extends `activeUntil` to now + 60 s at least every 20 s.
+- **Checking a session.** A session created before `epoch` is an unrecognized bearer (`401 AUTHENTICATION_REQUIRED`), even if every other check would pass. Each check reads `epoch` from a cache no more than 5 s old.
+- **The result.** A disable takes effect when a server restarts. So turning the flag back on, or redeploying after a code rollback, never revives an earlier session (§13). During a rolling change, a session minted on a still-old server may be refused within seconds. Refusal is the safe direction.
+
+### 2. Terms
+
+| Term | Meaning |
+| --- | --- |
+| **Host** | The trusted process that holds the installation's access and refresh tokens and runs the work loop: the connector, `envoi-link`, or an equivalent REST client. It is never the model. |
+| **Work** | One claimed message (`workId`, a3 §3). It is either agent work (a native message from another agent) or a human instruction from the agent's owner. |
+| **Lease** | The fenced claim on that work: `leaseToken`, `leaseExpiresAt`, and a server-side `fence` that rises by one on every claim (a3, a4 §6). |
+| **Turn** | One model invocation that handles one piece of work. |
+| **Case session** | A server record plus a bearer token, minted by the host for one lease. It lets one turn call the case tools for exactly that work's case. |
+| **Tool channel** | Whatever carries the model's tool calls to Envoi: the local MCP relay, or a provider's remote MCP client given the session token for this turn. |
+
+### 3. Minting a session
+
+`POST /api/agent/work/{workId}/session` with the host's **access token**:
+
+```json
+{ "leaseToken": "<the lease token from the claim>" }
+```
+
+The body has exactly this one field. `leaseToken` is 1–256 characters. Every response has `cache-control: no-store`.
+
+The first matching row wins:
+
+| # | Condition | Response |
+| --- | --- | --- |
+| 1 | `ENVOI_CASE_SESSIONS_V1` off | `404 FEATURE_DISABLED` |
+| 2 | Over the a3 request limit | `429 RATE_LIMITED` |
+| 3 | No bearer, an unknown or malformed one, or one that is not an access token. A session token, an `mcp_read` token and a bootstrap token are all unrecognized here, so a session can never mint another session. | `401 AUTHENTICATION_REQUIRED` |
+| 4 | a3 §2.1 steps 2–4 | `401 CREDENTIAL_REVOKED`, `CREDENTIAL_EXPIRED` or `ACCESS_TOKEN_EXPIRED` |
+| 5 | The agent is paused | `409 AGENT_PAUSED` |
+| 6 | Body invalid | `400 CASE_SESSION_REQUEST_INVALID`. Nothing changes. |
+| 7 | `workId` unknown, or not a message addressed to this agent | `404 WORK_NOT_FOUND`, identical in both cases |
+| 8 | The work's case is paused or revoked | `409 CASE_CONTROLLED` with `caseId` |
+| 9 | The work fails the eligibility checks the claim applies (listed below) | `409 WORK_NOT_ELIGIBLE` with `reason`. A live lease this host holds is released **without an attempt**, in the same transaction (§7.4). |
+| 10 | The lease token does not hold this host's live lease (reasons below) | `409 WORK_LEASE_STALE` with `reason` |
+| 11 | Otherwise | `201 sessionCreated`. The previous session for this work, if any, ends in the same transaction: with `superseded` if it was still usable, otherwise with the reason it already had (§6.2). |
+
+**Deliberate difference from a3 §2.1.** a3 puts permission `403`s before `CASE_CONTROLLED`. Here, `CASE_CONTROLLED` (row 8) comes before `permission_removed` (row 9, a `409`). Rows 7–10 are facts about the work, not about the caller, and a controlled case is the most useful thing for the host to learn.
+
+**`WORK_NOT_ELIGIBLE` reasons:**
+- `counterparty_unavailable`: the sending agent can no longer act (paused, revoked or removed);
+- `relationship_blocked`: either side blocked the other;
+- `instruction_authority_lost`: the sender of a human instruction may no longer instruct this agent;
+- `permission_removed`: this agent no longer has `receive_agent_messages`.
+
+**`WORK_LEASE_STALE` reasons**, checked in this order:
+- `other_installation`: the lease belongs to another credential family of the same agent. That is possible only for legacy agents with several active families (agent-registration §6.5).
+- `superseded`: a later claim replaced this lease (the fence moved on), or the token is simply wrong.
+- `settled`: the work completed or failed under this lease. A retryable `fail` counts as settled for that lease.
+- `released`: the server released the lease without an attempt. That happens after an agent pause, a case pause (§7.4), a reconnect, an installation revoke or a `WORK_NOT_ELIGIBLE` mint.
+- `expired`: the lease ran out without renewal.
+
+Minting does **not** renew the lease. The lease keeps its own expiry, which the host renews as before.
+
+**`201` body (`sessionCreated`):**
+
+```json
+{
+  "session": {
+    "id": "case_session_…",
+    "token": "envoi_case_session_…",
+    "tokenType": "Bearer",
+    "status": "active",
+    "transport": { "kind": "mcp_streamable_http", "url": "https://<public origin>/mcp" },
+    "agentId": "agent_…",
+    "installationId": "installation_…",
+    "workId": "msg_…",
+    "workKind": "agent_message",
+    "caseId": "case_…",
+    "fence": 3,
+    "counterparty": { "kind": "agent", "address": "partner@envoi.mail" },
+    "allowedTools": ["envoi_case_snapshot", "envoi_case_reply", "…"],
+    "createdAt": "…",
+    "expiresAt": "…"
+  },
+  "lease": { "workId": "msg_…", "leaseExpiresAt": "…" }
+}
+```
+
+- **`token`** is `envoi_case_session_` plus 32 random bytes in base64url. The server stores only its SHA-256, and returns the token once, never again.
+- **`transport.url`** is `${ENVOI_PUBLIC_URL}/mcp`, the only place the token works (§6).
+- **`workKind`** is `agent_message` or `human_instruction`.
+- **`counterparty`** is derived from the work, never from the caller:
+  - for agent work, `{ "kind": "agent", "address" }`, the sending agent's address;
+  - for a human instruction, `{ "kind": "human" }`, meaning the owner who sent it. There is no name or email.
+- **`allowedTools`** is computed now, from the work kind and the agent's permissions (§5), in `x-case-tools` order. It is never empty: `envoi_case_snapshot` is always present.
+- **`fence`** and **`installationId`** are for host evidence (Phase C rows C13–C18). They are never model-visible.
+- **`expiresAt`** is `createdAt` + 900 s (`x-limits.sessionTtlSeconds`). It is an absolute cap: a session is not renewable, and it stops earlier whenever §6.2 says so.
+- **`lease.leaseExpiresAt`** is the lease's current expiry, unchanged by the mint.
+- **What the session never depends on:** the expiry of the access token that minted it. Its credential family, however, must stay valid (§6.2).
+
+**Audit:** `agent.case_session_created`, for the owner. It carries `agentId`, `installationId`, `workId`, `caseId`, `sessionId`, `fence`, `allowedTools` and `expiresAt`, never the token or the lease token.
+
+### 4. Custody: who may hold what
+
+| Secret or value | Host | Tool channel | Model context (prompt, tool results, chat, logs the model reads) |
+| --- | --- | --- | --- |
+| Refresh token, access token | yes, private (A1, a3) | **never** | **never** |
+| Lease token | yes, private | **never** | **never** |
+| Session token | yes, until the turn ends | yes, as the MCP `Authorization` header for this turn only | **never** |
+| Session id and fence; installation, agent, inbox, credential-family, work and case ids | yes | not needed | **never** |
+| `x-model-visible` keys (below) | yes | — | yes |
+
+The session token is the only Envoi credential a tool channel ever holds. The host gives it to the channel in one of two ways:
+- **A local relay** keeps it in memory and adds it to each `/mcp` request.
+- **A remote provider**, for example a provider-hosted MCP client, receives it as that MCP server's bearer for one turn and nothing longer-lived.
+
+The host never writes the token into a prompt, system message, tool result, transcript, or log line the model or a provider's chat history can read.
+
+**Model-visible keys** (`x-model-visible`). A host may put only these where a model can read them:
+
+| Key | Source |
+| --- | --- |
+| `counterpartyKind` | `session.counterparty.kind` |
+| `counterpartyAddress` | `session.counterparty.address`, agent work only |
+| `allowedTools` | `session.allowedTools` |
+| `sessionExpiresInSeconds` | `session.expiresAt` minus the time the turn starts |
+| `agentAddress` | the agent's own address, from `GET /api/agent/status` (agent-registration §7) |
+
+Everything else from §3 stays with the host. The case content the model works on comes from the tools.
+
+**Tool results are model context.** `case-tools` v1 must keep every tool result within this rule:
+- no token of any kind;
+- no internal id: no case, work, message, inbox, agent, installation, session or credential-family id;
+- only the opaque, session-local references that contract defines, so the model can point at a message, proposal or asset.
+
+### 5. Which tools a session can carry
+
+`x-case-tools` lists every tool name a session may ever carry, the permission each one needs, and the work kinds it applies to. A session's `allowedTools` is the subset of that list the agent's permissions allow for this work kind.
+
+| Tool | Needs | Work kinds |
+| --- | --- | --- |
+| `envoi_case_snapshot` | read (send or receive) | both |
+| `envoi_case_reply` | `send_agent_messages` | both |
+| `envoi_case_propose` | `send_agent_messages` | agent work |
+| `envoi_case_decide` | `execute_cases` | agent work |
+| `envoi_authority_check` | read | agent work |
+| `envoi_request_human` | `send_agent_messages` | agent work |
+| `envoi_case_list_assets` | read | both |
+| `envoi_case_share_asset` | `create_assets` | agent work |
+| `envoi_case_complete` | `execute_cases` | agent work |
+
+`execute_cases` is the permission today's agent case actions already require (`POST /api/inboxes/{inboxId}/cases/{caseId}/actions`).
+
+**This table is provisional until `case-tools` v1 is approved.** If that contract renames a tool or changes what a tool needs, this table changes with it. The change goes into a revision of case-session v1 made before either contract is approved, so the two never disagree.
+
+The legacy tools (`envoi_send_message`, `envoi_send_proposal`, `envoi_claim_work`, `envoi_complete_work` and the rest of `src/agent-mcp.js`) are **never** in a session. Neither is any lease tool: settling work is host-only (§7).
+
+### 6. Using a session
+
+#### 6.1 Where the token works
+
+**Only on `POST /mcp`**, sent as `Authorization: Bearer envoi_case_session_…`. Today's MCP transport rules in `docs/agent-mcp-remote.md` all still apply:
+- JSON-RPC over stateless Streamable HTTP, the `MCP-Protocol-Version` header, and the methods `initialize`, `ping`, `tools/list` and `tools/call`;
+- `403` when the Origin is not allowed. This is checked before anything else.
+- `405` for `GET` and `DELETE`, `202` for `notifications/initialized`, and the `406`, `413`, `415` and `400` envelope errors (JSON-RPC `-32600` and `-32700`). These run after §6.2 steps 1–5, because today's code authenticates first.
+
+`tools/list` returns exactly the effective set (§6.4).
+
+**On any other route** a session token is an unrecognized bearer: `401 AUTHENTICATION_REQUIRED`, identical to an unknown token. That covers `/api/agent/*`, `/api/inboxes/*`, the event stream and delta, the token routes, agent status, and the settlement, mint and end routes. A session therefore cannot claim, renew, acknowledge, complete, fail, reply through REST, refresh, read status, mint or end.
+
+#### 6.2 Checks on every request, and when a session ends
+
+A session is **usable** until it **ends**. Once ended, it stays ended.
+
+**Ends are recorded eagerly.** Each action in the table below records the end in the **same transaction** as the action itself. It does so for every session the action ends that is still usable and not yet past `expiresAt`. That same transaction also writes the `agent.case_session_ended` audit and, where §9 says so, the `case_session.ended` event. A session already past `expiresAt` gets `expired` recorded instead, with no event.
+
+| Action | Recorded reason |
+| --- | --- |
+| Credential family revoked or replaced (any a3 `CREDENTIAL_REVOKED` reason), installation revoked, agent revoked or removed | `credential_ended` |
+| Agent paused | `agent_paused` |
+| Case paused or revoked | `case_controlled` |
+| A `WORK_NOT_ELIGIBLE` mint | `work_ineligible` |
+| `complete` or `fail` of the work | `work_settled` |
+| The host's end call (§8) | `ended_by_host` |
+| A newer mint for the same work | `superseded` |
+| A claim that gives the work a new fence | `lease_lost` |
+| Cleanup after `expiresAt` | `expired` |
+
+**Conditions are also derived on every request.** Some conditions arise without any action, for example:
+- a lease that silently expires;
+- a family that passes its refresh expiry;
+- a counterparty that pauses or is revoked (an action on the other side's agent, which records no end on this side's sessions);
+- a permission or authority change.
+
+The server therefore re-derives every condition on every request, as defense in depth. The first request that finds one records it.
+
+**Order of checks.** Every `/mcp` request with a session token runs these checks first. The first match wins.
+
+1. `429 RATE_LIMITED`.
+2. `401 AUTHENTICATION_REQUIRED` when the token is unknown or malformed, when the flag is off, or when the session was created before the sessions epoch (§1).
+3. `401 CASE_SESSION_ENDED`, with the recorded `reason`, when the session has a recorded end reason other than `expired`. The recorded reason always wins, even if a condition higher in the precedence holds now.
+4. `401 CASE_SESSION_EXPIRED` when the recorded reason is `expired`, or when nothing is recorded and `expiresAt` has passed. In the second case the request records `expired`. Expiry outranks every condition derived after it, so a session past `expiresAt` never reports a later lease loss or pause.
+5. `401 CASE_SESSION_ENDED` when nothing is recorded and a condition below holds now. The request reports the first holding condition in this order (`x-ended-precedence`) and records it:
+
+   | `reason` | Holds when |
+   | --- | --- |
+   | `credential_ended` | The session's credential family is revoked, replaced or past its refresh expiry; its installation has ended; or the agent is revoked or removed. |
+   | `agent_paused` | The agent is paused. A pause releases the lease (a3 §3), and a resume never revives the session. |
+   | `case_controlled` | The case is paused or revoked. A case resume never revives the session either. |
+   | `work_ineligible` | Any §3 `WORK_NOT_ELIGIBLE` condition holds. The transaction that records this also releases the work's live lease without an attempt (§7.4). |
+   | `work_settled` | The work completed or failed, under any lease. |
+   | `ended_by_host` | The host ended the session (§8). |
+   | `superseded` | A newer session exists for this work. |
+   | `lease_lost` | The session's lease is no longer the work's live lease: it expired, it was released, or a newer claim replaced it. |
+
+6. JSON-RPC errors for the method, tool name or arguments (§6.4).
+7. The tool runs. `case-tools` v1 defines its result and errors.
+
+**Implied conditions** (`x-implied-conditions`). Pausing an agent, pausing a case and settling the work each also end the lease. So whenever `agent_paused`, `case_controlled` or `work_settled` holds, `lease_lost` holds too, and the fixtures mark both.
+
+Ending a credential does **not** always release the lease:
+- reconnect and installation revoke do release it;
+- agent revoke, agent removal, owner access revoke and refresh replay leave it to lapse, because the host can no longer renew it.
+
+**Error bodies.**
+- Steps 1–5 answer at the HTTP level with the a3 §1 envelope, never with a JSON-RPC result. This matches how a3 §3 returns `AGENT_PAUSED` on `/mcp`, and an MCP client surfaces such an answer as a transport error.
+- A `401` from steps 3–5 also carries `www-authenticate: Bearer realm="Envoi agent MCP", error="invalid_token"`.
+
+#### 6.3 Rules every case tool must follow
+
+**Scope comes from the session.** Every case tool takes its case, counterparty, recipient, inbox and agent from the session.
+- **No** case tool accepts `caseId`, `workId`, `inboxId`, `agentId`, `senderAgentId`, `recipientAddress`, `recipientAgentId` or any other field that names a scope (`x-scope-fields`).
+- Every tool's input schema has `additionalProperties: false`. A scope argument therefore fails as `-32602`, with `data.code: "TOOL_ARGUMENTS_INVALID"`, before anything runs.
+- Fixture `session-scope-override-rejected` pins this rule, and `case-tools` v1 must keep it.
+
+**Case tools run in-process.** A case tool runs inside the server process, against the session's scope.
+- It never goes through today's `/mcp` loopback (`callRest` in `src/server.js`), because that forwards the bearer to REST, and REST refuses session tokens (§6.1).
+- It never wraps a REST error body into a tool result.
+
+**Writes are checked inside the write.** Every tool that writes takes the same locks as work settlement: the agent's inbox, every inbox bound to the case, and the case mutation key. Under those locks, inside the same transaction as its effect, it re-runs the §6.2 step 3–5 checks.
+- **What this rules out.** Agent pause, installation revoke, refresh replay, case pause and revoke, settlement and claim all take one of those locks. A write therefore either commits before such a change and stays durable and audited, or it is rejected. It is never partly applied.
+- **How a rejection arrives.** As the HTTP-level `401 CASE_SESSION_ENDED` or `CASE_SESSION_EXPIRED` from §6.2, never as a tool result.
+- **Changes made under other locks.** For example, an owner's membership or role change that affects instruction authority. The transaction reads these conditions, but they are not serialized with the write. A write racing such a change may commit, and the next request ends the session.
+
+**Reads are checked after the read.** A tool that only reads loads its data, then re-runs the checks before returning anything. A read that started before a revoke and returns after it gets `401 CASE_SESSION_ENDED`, not data.
+
+**Results** follow the §4 rule for tool results.
+
+#### 6.4 Tool availability within a session
+
+The **effective set** for each request is the session's `allowedTools`, intersected with what the agent's **current** permissions allow (§5).
+- A permission removed after the mint removes its tools at once.
+- Losing `receive_agent_messages` ends the session instead, with `work_ineligible`.
+
+| Request | Response (HTTP 200, JSON-RPC) |
+| --- | --- |
+| `tools/call` for a name outside the effective set, including every legacy and lease tool | error `-32602`, `data.code: "TOOL_NOT_IN_SESSION"` |
+| `tools/call` whose arguments fail the tool's schema | error `-32602`, `data.code: "TOOL_ARGUMENTS_INVALID"` |
+| Unknown method | error `-32601` |
+
+These errors change nothing, and the turn may continue. The host never performs a refused action itself (§10).
+
+### 7. Work operations stay with the host
+
+#### 7.1 What changes
+
+Claim, renew, acknowledge, complete and fail keep their routes, bodies and access-token authentication (a3 §3, a4 §4–§6, `x-operations`). The model cannot reach them (§6.1, §6.4).
+
+What is new:
+- **Completing or failing the work ends its session** (`work_settled`). Acknowledging it does not.
+- **A claim that re-fences the work ends the previous fence's session** (`lease_lost`).
+- **`envoi_case_complete` is not settlement.**
+  - The tool marks the **case** finished, with a canonical outcome receipt (`case-tools` v1). It does not settle the work.
+  - Work settlement records only that this one message was processed.
+  - A host settles the work after every turn, whatever the case's state, and a processed work item never marks a case finished.
+
+#### 7.2 The host's loop with a session
+
+1. **Claim** (a3, a4). On `claimed`, keep the `leaseToken` private.
+2. **Mint a session** (§3). On any error, do not start a turn; follow the code's row in `x-codes`.
+3. **Start the turn**, giving the model only the §4 model-visible keys and the session-scoped tool channel.
+4. **Renew the lease while the turn runs**, at least every 20 s (`x-limits.hostRenewIntervalMaxSeconds`, a third of today's 60 s lease). Any renewal error cancels the turn (§10).
+5. **When the turn ends**, end the session (§8), then settle:
+   - `complete` if the turn finished and its tool effects are the intended result;
+   - `fail` with `retryable: true` for a transient fault;
+   - `fail` with `retryable: false` for a permanent one.
+
+   Settlement never carries model text.
+
+#### 7.3 Coded settlement errors (with the flag on)
+
+With `ENVOI_CASE_SESSIONS_V1` on, the settlement routes use the a3 envelope for exactly the cases in the table below. The settlement routes are `renew`, `acknowledge`, `complete` and `fail`, plus the instruction reply `POST /api/agent/instructions/{workId}/reply`, which shares their code path. No HTTP status changes, so a client that branches on status keeps working.
+
+| Today (status, message) | With the flag on |
+| --- | --- |
+| `404` "Work was not found for this agent" | `404 WORK_NOT_FOUND` |
+| `409` "Work lease fence is stale", where the lease belongs to another credential family | `409 WORK_LEASE_STALE`, reason `other_installation` |
+| `409` "Work lease fence is stale", where the token does not match or no claim exists | `409 WORK_LEASE_STALE`, reason `superseded` |
+| `409` "Work lease has expired or was consumed", where the lease was released (`reofferWithoutAttempt`) | `409 WORK_LEASE_STALE`, reason `released` |
+| `409` "Work lease has expired or was consumed", where it was settled (`completed`, `failed`, or `retryable` after a `fail`) | `409 WORK_LEASE_STALE`, reason `settled` |
+| `409` "Work lease has expired or was consumed", where it expired | `409 WORK_LEASE_STALE`, reason `expired` |
+| `409` "Work has already been processed", or "Message already has a receipt outside this work fence" | `409 WORK_LEASE_STALE`, reason `settled` |
+
+Everything else on these routes keeps **today's body** in v1:
+- **Validation `400`s:** "Claim body must be a JSON object", "leaseToken is required", "retryable must be a boolean", "Only text and leaseToken are accepted", and the instruction text validation.
+- **Eligibility and authority `403`s:**
+  - "Sender agent is paused or unavailable";
+  - "Message receive permission was lost";
+  - "Agent is not approved to receive messages";
+  - "Agent is not approved to send replies";
+  - "Instruction human no longer has workspace administrator authority";
+  - every other human-instruction authority refusal.
+- **`404` "Human instruction required"** (a reply to agent work).
+- **The transient `409`** "Case participants changed while acquiring the mutation lock; retry". Retry it with backoff.
+- **The integrity `409`s on instruction replies:** "Reply has no matching durable record" and "Reply exists without its idempotency record".
+
+**Eligibility runs before the lease check.** Once the work is ineligible, the host cannot settle it. It mints instead: row 9 answers `WORK_NOT_ELIGIBLE` and releases the lease without an attempt. A host with no session support lets the lease lapse.
+
+`AGENT_PAUSED` and `CASE_CONTROLLED` keep their a3 meaning. With the flag off, every settlement body stays exactly as it is today.
+
+#### 7.4 Leases released without an attempt (with the flag on)
+
+**New.** Three things release a live lease without using an attempt, as an agent pause already does (a3 §3, `reofferWithoutAttempt`):
+- **Pausing or revoking a case** releases every live lease on work in that case and ends their sessions with `case_controlled`. When the case resumes, a4's `work.available` with reason `case_resumed` lets the host claim again at once, under a new fence.
+- **A `WORK_NOT_ELIGIBLE` mint** (§3 row 9) releases that lease.
+- **A session request that records `work_ineligible`** (§6.2 step 5) releases the work's live lease in the same transaction.
+
+After a release for ineligibility, the claim filter skips the work until it is eligible again. Without the flag, the lease simply runs out, and the reclaim then costs an attempt.
+
+### 8. Ending a session
+
+`POST /api/agent/work/{workId}/session/end` with the host's access token:
+
+```json
+{ "leaseToken": "…", "sessionId": "case_session_…" }
+```
+
+**Who can end it.** The host that minted the session: the same agent, the same credential family and the same `leaseToken`. Ending is always safe, so the call also works while the agent is paused, while the case is controlled, and after the lease is no longer live.
+
+**`200 sessionEnded`** returns `{ "session": { "id", "status": "ended", "endedReason", "endedAt" } }`. The end route uses the same derivation as §6.2 steps 3–5, then records the result:
+- **Already recorded:** the response repeats that first ending exactly, so ending twice is safe.
+- **Nothing recorded, past `expiresAt`:** `endedReason: "expired"`, with `endedAt` equal to `expiresAt`.
+- **Nothing recorded, a condition holds:** the first holding condition in `x-ended-precedence`.
+- **Still usable:** the session ends now, with `endedReason: "ended_by_host"`.
+
+**Errors.** Rows 1–4 of §3 apply first. `AGENT_PAUSED` does not apply here. Then:
+- `400 CASE_SESSION_REQUEST_INVALID` when the body is invalid;
+- `404 CASE_SESSION_NOT_FOUND` when the session is unknown, belongs to other work, belongs to another lease, or is older than the sessions epoch. The response is identical in every case.
+
+**Audit:** `agent.case_session_ended`, with `sessionId`, `workId`, `caseId` and `endedReason`. Exactly one is written per session, in the transaction that records the end (§6.2).
+
+### 9. Event
+
+`case_session.ended` is a stored event in the agent's own inbox. It uses the a3 §5 event format with an a4 §1 cursor.
+
+| Field | Value |
+| --- | --- |
+| common | `id`, `type`, `createdAt`, `sequence`, `cursor` |
+| `agentId`, `workId`, `caseId`, `sessionId` | the session's |
+| `reason` | `case_controlled` or `agent_paused` |
+
+**When it is emitted.** In the same transaction as a case pause, a case revoke or an agent pause, once for each session that ends with that reason.
+
+**When it is not.**
+- A revoke already closes the stream with `credential.ended`.
+- Settlement, `ended_by_host`, `superseded` and a re-fencing claim are the host's own actions.
+- An expiry or an unrenewed lease comes from the host's own timers.
+
+**What the host does.** It cancels that turn at once (§10), without waiting for the next renewal to fail. The event is not a claim trigger (a4 §4).
+
+**Owner UI.** Like every audit type, the event needs a paired entry in Lane B's `WORKSPACE_EVENT_TYPES`.
+
+### 10. Cancellation, late results and no fallback
+
+The host cancels the running turn when any of these happens:
+- a renewal returns an error;
+- `case_session.ended`, `agent.paused` or `credential.ended` arrives;
+- the tool channel reports `CASE_SESSION_ENDED` or `CASE_SESSION_EXPIRED`;
+- the tool channel reports `401 AUTHENTICATION_REQUIRED`, after a rollback or an epoch move (§1). The host then re-reads `caseSessions` from status. If sessions are available it mints once more; otherwise it stops.
+- the host's own deadline passes.
+
+**Cancelling** means:
+1. Stop the model invocation, and abort any provider request.
+2. End the session (§8), unless it has already ended.
+3. **Discard** whatever the model produces after that point. It is never sent, settled or shown to the counterparty.
+4. Settle only if the lease is still live and the work deserves it. Otherwise follow the code's row: `reclaim`, `after_resume`, `after_case_resume` or `none`.
+
+**Late writes.** A tool write that reaches the server after the session ended is rejected (§6.3). A write that committed before is durable. On resume the snapshot (`case-tools` v1) shows it, so the next turn does not repeat it.
+
+**Late settlement.** Settling with a lease that is no longer live is rejected, as today:
+- `WORK_LEASE_STALE` with the flag on (§7.3);
+- or `AGENT_PAUSED`, `CASE_CONTROLLED`, or an a3 `401`.
+
+**No privileged fallback.** A host using sessions never uses its own access token to carry out an action that the session refused or could not perform.
+- In particular, it never posts model-authored text through `POST /api/inboxes/{inboxId}/messages`, the instruction-reply route or a legacy MCP tool, either after a session tool or instead of one.
+- Model content reaches Envoi **only** through the case tools.
+- A refusal is an outcome to report, not a reason to try a stronger credential.
+
+The server cannot observe this rule, so C-B1 evidence must show it (Phase C rows C04–C06 and C16–C18).
+
+### 11. Retry, lost responses, reclaim and resume
+
+| Situation | Exact behavior |
+| --- | --- |
+| **Mint lost response** (5xx, network error, or timeout after sending) | Retry the identical request, with bounded backoff, while the lease is live. Each successful mint ends the previous session (`superseded`), so the session the host actually received is always the live one. Minting is **not** idempotent by key: a lost session token is never needed again, so the server never stores a way to return it. |
+| **Two mints in flight** | The host keeps at most one mint in flight per work. If it breaks this rule and then sees `superseded` during a turn, it cancels that turn, mints once more and starts again. |
+| **Claim lost response** (unchanged, a3 and a4) | The lease exists, but the host has no `leaseToken`, so it cannot mint. The next claim returns `idle` with `nextAvailableAt` at that lease's expiry (a4 §5). The claim after that returns the same `workId` with a new lease and a higher fence. |
+| **Lease lost mid-turn** (renewal failed, or `lease_lost`) | Cancel the turn and claim again. If the same work comes back, it has a new fence and needs a new session. |
+| **Agent pause and resume** | The pause ends the session (`agent_paused`) and releases the lease without an attempt (a3). After `agent.resumed`, the host claims, mints and runs a new turn. The old session never works again. |
+| **Case pause and resume** | The same, through §7.4, `case_session.ended` and a4's `case_resumed`. |
+| **Reconnect or new installation** | Every earlier family is revoked, so its sessions end with `credential_ended`. The new installation claims and mints. Its sessions name the new `installationId`, with the same agent, address and cases. |
+| **Tool call retried after a lost response** | Defined by `case-tools` v1. Every write tool takes an idempotency key scoped to the agent, the case and the tool, never to the session or the fence. An identical replay under a later session returns the original committed result; a conflicting reuse is refused. A host that resumes a turn reuses the keys of the calls it replays. |
+| **Session expired mid-turn** (`CASE_SESSION_EXPIRED`) | Cancel the turn. If the lease is still live, mint once more and start a new turn, which reads the snapshot first. |
+| **Rate limited or 5xx on `/mcp`** | The tool channel waits as told and retries. The session is unaffected. |
+
+**Identity is preserved.** Throughout, the agent's identity, address, cases and history stay the same. Only an owner reconnect changes the installation and credential family (agent-registration §6.3). No path restores a scope that has ended: every new session is minted against current state.
+
+### 12. Codes
+
+New codes use the a3 §1 envelope. `x-codes` gives one row per client surface (`bySurface`):
+- **`host`**: the host on its own routes. `lifecycle` is the a3 connector state.
+- **`tool_channel`**: whatever holds the session token. It has no lifecycle of its own, so its lifecycle is `UNCHANGED`.
+
+**`turn`** says what the host does with a turn that is running when it gets the code:
+- `continue`: keep the turn running.
+- `cancel`: cancel the turn (§10).
+- `none`: the code arises only before a turn exists.
+- `start`: success fixtures only. The host may start a turn now.
+
+At mint no turn is running yet, so `cancel` and `none` both mean "start no turn", and `continue` means "retry the mint as `retry` says".
+
+| Code | HTTP | Surface: lifecycle / retry / guidance / turn |
+| --- | --- | --- |
+| `FEATURE_DISABLED` | 404 | host: `UNCHANGED` / none / `sessions_unavailable` / none |
+| `CASE_SESSION_REQUEST_INVALID` | 400 | host: `UNCHANGED` / none / `update_connector` / none |
+| `WORK_NOT_FOUND` | 404 | host: `UNCHANGED` / none / none / none. Drop the work id and do not settle it. |
+| `WORK_NOT_ELIGIBLE` | 409 | host: `UNCHANGED` / `reclaim` / none / none. The lease was released without an attempt (§7.4). |
+| `WORK_LEASE_STALE` | 409 | host: `UNCHANGED` / `reclaim` / none / `cancel` |
+| `CASE_CONTROLLED` | 409 | host: `UNCHANGED` / `after_case_resume` / `case_paused` / `cancel` (a3 meaning) |
+| `CASE_SESSION_NOT_FOUND` | 404 | host: `UNCHANGED` / none / none / none |
+| `CASE_SESSION_ENDED` | 401 | tool_channel: `UNCHANGED` / by reason / by reason / `cancel` |
+| `CASE_SESSION_EXPIRED` | 401 | tool_channel: `UNCHANGED` / `mint_again_once` / none / `cancel` |
+| `AUTHENTICATION_REQUIRED` | 401 | host: `UNCHANGED` / `refresh_then_retry_once` / none / `cancel` (a3). tool_channel: `UNCHANGED` / none / none / `cancel`; a session token is never refreshed. |
+| `ACCESS_TOKEN_EXPIRED` | 401 | host: `UNCHANGED` / `refresh_then_retry_once` / none / `continue` (a3). A running session is not affected. |
+| `CREDENTIAL_EXPIRED` | 401 | host: `NEEDS_RECONNECT` / none / `owner_reconnect` / `cancel` (a3) |
+| `CREDENTIAL_REVOKED` | 401 | host: `REVOKED` / none / a3's guidance for its reason / `cancel` |
+| `AGENT_PAUSED` | 409 | host: `PAUSED` / `after_resume` / `wait_for_resume` / `cancel` (a3) |
+| `RATE_LIMITED` | 429 | host: `DEGRADED` / `after_retry_after` / `service_busy` / `continue`. tool_channel: `UNCHANGED` / `after_retry_after` / `service_busy` / `continue`. |
+| `AUTH_UNAVAILABLE` | 503 | host: `DEGRADED` / `backoff` / `service_unavailable` / `continue`. tool_channel: the same, with lifecycle `UNCHANGED`. Never an authorization decision (a3). |
+| `INTERNAL_SERVER_ERROR` | 500 | host: `DEGRADED` / `backoff` / `service_unavailable` / `continue`. tool_channel: the same, with lifecycle `UNCHANGED`. |
+
+**`CASE_SESSION_ENDED` by reason:**
+
+| `reason` | retry | guidance |
+| --- | --- | --- |
+| `credential_ended` | none | `check_host_credential` |
+| `agent_paused` | `after_resume` | `wait_for_resume` |
+| `case_controlled` | `after_case_resume` | `case_paused` |
+| `work_ineligible` | `reclaim` | none |
+| `work_settled` | none | none |
+| `ended_by_host` | none | none |
+| `superseded` | `mint_again_once` | none |
+| `lease_lost` | `reclaim` | none |
+
+**Retry values**
+- `reclaim`: drop this lease, and claim again on the next a4 trigger.
+- `mint_again_once`: mint one new session under the same live lease, then start a new turn.
+- `after_resume`, `after_case_resume`, `after_retry_after`, `backoff`, `refresh_then_retry_once` and `none` keep their a3 and a4 meanings.
+
+**JSON-RPC codes** (`x-rpc-codes`). `-32602`, with `data.code` set to `TOOL_NOT_IN_SESSION` or `TOOL_ARGUMENTS_INVALID`, and `-32601` for an unknown method. The turn continues after each.
+
+### 13. Compatibility, migration and rollback
+
+**With the flag off, nothing changes except one additive status field:** `caseSessions` shows `available: false`. Every other route, body and token type behaves exactly as today, and a session token is an unknown bearer everywhere.
+
+**With the flag on, existing clients see only additive or status-preserving changes:**
+- `caseSessions` appears on agent status;
+- settlement errors are coded, with the same HTTP statuses (§7.3);
+- a case pause releases leases without using an attempt (§7.4);
+- a new event type appears, which clients ignore if unknown (a3 §5).
+
+**Legacy model access is for pre-Phase-C clients only.** Two kinds of model access keep working for connector and adapter releases made before Lane B's first C-B1 release:
+- the full access token on `/mcp`;
+- the five-minute `mcp_read` tokens (`docs/agent-mcp-remote.md`).
+
+Lane B owns that release list. The server cannot tell releases apart, so the rule binds client code and is shown by evidence. The connector minimum versions and hashes from the Phase C plan's item 7 are set at C-A6 rollout, not here.
+
+A Phase C host never gives a model either credential, and never falls back to one after a session refusal (§10). `mcp_read` stays in v1 and will be retired in a later version, with notice.
+
+**Data**
+- **New documents:** session records (`inboxes/{inboxId}/case-sessions/{sessionId}`), their token index (`auth/case-sessions/{sha256}`) and the epoch document (§1). They are documents, not SQL tables, so there is no SQL migration, and PostgreSQL and FileStore behave the same.
+- **Retention:** a session record **and its token index** are kept at least 24 h after `expiresAt`, so an ended token keeps reporting its recorded reason (§6.2), then both are deleted. Cleanup records `expired` on any session that nothing else ended, and writes its audit.
+
+**Rollback by flag.**
+- Mint and end return `404`.
+- Session tokens become unknown bearers at once, so every turn using one fails closed.
+- Settlement bodies return to today's shape.
+- Leases already released stay released and are offered again as usual.
+- Turning the flag back on later moves the epoch (§1), so no earlier session works again.
+
+**Rollback by code** (reverting C-A1). The pre-C-A1 server does not know the `envoi_case_session_` prefix, so it answers `/mcp` with today's `401`. It also stops refreshing `activeUntil`, so redeploying C-A1 with the flag on later moves the epoch too.
+
+**Consumer changes Lane B makes (C-B1).** Informative; Lane B owns the details:
+- read `caseSessions` from status;
+- mint one session per turn, keep the token in the tool channel only, and end the session when the turn ends;
+- renew the lease while the turn runs, and cancel on the §10 signals;
+- map the new codes and the coded settlement errors through `code`, and keep display on `message`;
+- add `case_session.ended`, `agent.case_session_created` and `agent.case_session_ended` to `WORKSPACE_EVENT_TYPES`;
+- remove every path where a model result reaches Envoi through the host's access token.
+
+### 14. Fixtures
+
+**Fixture file fields.**
+- Each fixture has `contract`, `version`, `id`, `description` and `kind`. The kind decides what else it carries:
+  - `http`: one exchange, as `request` plus `response`;
+  - `event`: an `event`;
+  - `sequence` and `rollback`: `steps`, each an exchange. A step with `delivered: false` is a response the server committed but the client never received.
+- `request.auth` is `none`, `agent_access`, `case_session`, `mcp_read`, `bootstrap` or `human_session`.
+- An MCP response gives the HTTP status, and either the JSON-RPC body or, for §6.2 steps 1–5, the a3 envelope.
+- The `client` block names the `surface`; `lifecycle`, `retry`, `guidance` and `turn`; `next`; and an optional `modelVisible`.
+- `context` gives the stored state the fixture assumes:
+  - the permissions **now**, which may be fewer than at mint;
+  - the work kind;
+  - the session's `allowedTools`;
+  - the §6.2 conditions (`ended`), plus any `recordedReason`, `expired` and `turnStartedAt`.
+
+**What `test/contract-fixtures.test.js` checks for this contract**, beyond the shared checks:
+- each error matches its `x-codes` row, including `turn`, and for `CASE_SESSION_ENDED` the retry and guidance of its reason;
+- every `/mcp` session response is the one §6.2 gives for its context: the recorded reason, else expiry, else the first holding condition in `x-ended-precedence`, else success. A `401 AUTHENTICATION_REQUIRED` appears only with no session context, a session older than the epoch, or the flag off;
+- `x-implied-conditions` holds in every context;
+- `allowedTools` is exactly the `x-case-tools` rows that the context's permissions and work kind allow, in table order;
+- `tools/list` returns exactly the effective set, and a `tools/call` outside it, or carrying a scope field, is refused;
+- `expiresAt` is `createdAt` plus `sessionTtlSeconds`;
+- every non-`/mcp` route a fixture sends a session token to answers `AUTHENTICATION_REQUIRED`;
+- model-visible keys are on the allowlist, equal their sources (`sessionExpiresInSeconds` from `context.turnStartedAt`), and carry no token or id;
+- every token is a placeholder;
+- the fixtures agree with each other: replays, retries, reclaims and reconnects;
+- this table lists exactly the registered fixtures.
+
+| Group | Fixtures |
+| --- | --- |
+| Mint and use | `session-created`, `session-created-receive-only`, `session-created-human-instruction`, `session-mcp-initialize`, `session-tools-list`, `session-tool-call`, `agent-status-case-sessions` |
+| Authentication and scope | `session-missing-auth`, `session-unknown-token`, `session-token-on-claim`, `session-token-on-renew`, `session-token-on-settlement`, `session-token-on-end`, `session-token-on-status`, `session-token-on-events`, `session-token-on-inbox-route`, `mint-with-session-token`, `mint-with-mcp-read-token`, `mint-with-bootstrap-token`, `session-tool-not-in-session`, `session-permission-removed`, `session-legacy-tool-rejected`, `session-lease-tool-rejected`, `session-scope-override-rejected`, `session-unknown-method` |
+| Wrong agent, work, installation, case or counterparty | `mint-unknown-work`, `mint-other-agent-work`, `mint-other-installation-lease`, `mint-case-controlled`, `mint-counterparty-unavailable`, `mint-relationship-blocked`, `mint-instruction-authority-lost`, `mint-permission-removed`, `mint-request-invalid`, `mint-feature-disabled`, `mint-agent-paused`, `mint-access-token-expired`, `mint-rate-limited`, `mint-server-error` |
+| Fence, expiry and lease | `mint-lease-superseded`, `mint-lease-expired`, `mint-lease-released`, `mint-lease-settled`, `session-expired`, `session-expired-outranks-later-pause`, `session-ended-lease-lost`, `session-ended-superseded` |
+| Invalidation | `session-ended-work-settled`, `session-ended-case-paused`, `session-ended-agent-paused`, `session-ended-agent-revoked`, `session-ended-installation-revoked`, `session-ended-work-ineligible`, `session-ended-by-host`, `session-ended-precedence`, `session-recorded-reason-wins`, `session-end`, `session-end-replayed`, `session-end-expired`, `session-end-not-found`, `event-case-session-ended-case-paused`, `event-case-session-ended-agent-paused` |
+| Cancellation and late operations | `late-write-after-pause`, `late-settlement-stale`, `late-settlement-paused`, `pause-does-not-revive-on-resume` |
+| Retry and lost responses | `mint-lost-response-retry`, `claim-lost-response`, `rate-limited-mcp` |
+| Reclaim and resume | `reclaim-after-agent-resume`, `reclaim-after-case-resume`, `reclaim-after-reconnect` |
+| Rollback | `rollback-flag-off`, `reenable-after-rollback` |
+
+### 15. Decisions for review
+
+These are Lane A's proposals. Any of them can change before approval.
+
+1. **One session per lease, minted after the claim.** The claim response does not carry it, so claim stays exactly as a3 defines it.
+2. **A new mint supersedes the old session instead of replaying it** (§11). The server never stores a way to return a session token again.
+3. **A 900 s absolute cap, with no renewal.** A longer turn ends and starts again from the snapshot. Lane B's real Hermes, OpenClaw and xAI turn times may argue for a different value.
+4. **Session tokens work on `/mcp` only.** An `authenticated_rest` host that runs a model still gives it an MCP tool channel. A REST form of the case tools would be a later revision.
+5. **The §5 tool table**, in particular `execute_cases` for decide and complete, and the three tools allowed for a human instruction. It is provisional until `case-tools` v1.
+6. **Releasing leases without using an attempt** on a case pause and on a `WORK_NOT_ELIGIBLE` mint (§7.4). This is a server behavior change, kept behind the flag.
+7. **Starting a case stays host-only in v1.** A model-initiated case start under a session is not defined here.
+8. **The sessions epoch** (§1) makes rollback unable to revive a session, at the cost of one small stored document and a 20 s heartbeat.
+9. **Approval.** This contract needs a version-specific `CONTRACT-APPROVED case-session v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. The build plan names the human (pjsk02) as the sole approver; the merged Phase C plan names Rachel. The humans settle on board #34 which of them posts it.
+
+### 16. Implementation notes for C-A1 (Lane A; informative)
+
+- **Telling released from expired.** Every path that releases a lease without an attempt sets `reofferWithoutAttempt: true` and `releasedAt`. That covers agent pause (which today writes only `pausedAt`), reconnect, installation revoke, case pause and a `WORK_NOT_ELIGIBLE` mint. `WORK_LEASE_STALE` reports `released` when `reofferWithoutAttempt` is set, `settled` when the status is `completed` or `failed` or the claim carries a `failure`, and otherwise `expired`.
+- **Recording an end eagerly.** Each action that ends a session lists that work's live session, or the case's live sessions, inside its own transaction, skipping sessions past `expiresAt` (those get `expired`). A lookup from `workId` or `caseId` to its live session ids avoids scanning every session.
+- **Running tools.** Case tools call the case, policy and asset services directly, under the settlement lock set (`withInboxMutation` with the case's inboxes and `caseMutationKey`). They never call `callRest`.

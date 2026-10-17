@@ -1,0 +1,46 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-missing-auth",
+  "kind": "http",
+  "description": "/mcp with no bearer.",
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "none",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "tools/list",
+      "params": {}
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store",
+      "www-authenticate": "Bearer realm=\"Envoi agent MCP\""
+    },
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Stop. A tool channel never refreshes; the host decides what to do."
+  }
+}

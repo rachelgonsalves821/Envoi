@@ -1,0 +1,302 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "claim-lost-response",
+  "kind": "sequence",
+  "description": "Unchanged a3/a4 behavior: a lost claim response leaves a lease the host cannot use. The next claim is idle with the hint; the claim after expiry returns the same work under a new fence, and a session can then be minted.",
+  "steps": [
+    {
+      "delivered": false,
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/claim",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "claimRequest",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "schema": "claimClaimed",
+        "headers": {},
+        "body": {
+          "work": {
+            "workId": "msg_example",
+            "message": {
+              "id": "msg_example",
+              "schemaVersion": "1.0",
+              "messageId": "msg_example",
+              "conversationId": "case_example",
+              "taskId": null,
+              "correlationId": null,
+              "causationId": null,
+              "from": {
+                "agentId": "agent_counterparty",
+                "address": "counterparty@envoi.mail"
+              },
+              "to": [
+                {
+                  "agentId": "agent_example",
+                  "address": "example@envoi.mail"
+                }
+              ],
+              "intent": "offer",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Example proposal message"
+                }
+              ],
+              "proposal": null,
+              "authority": {
+                "scope": "message.send",
+                "humanApproval": "notRequired",
+                "policyEvaluationId": null
+              },
+              "artifactRefs": [],
+              "requiresAck": true,
+              "traceparent": null,
+              "signature": null,
+              "unverifiedAuthorityClaim": null,
+              "unverifiedSignatureClaim": null,
+              "caseId": "case_example",
+              "senderInboxId": "inbox_counterparty",
+              "recipientInboxId": "inbox_example",
+              "senderType": "agent",
+              "senderAgentId": "agent_counterparty",
+              "recipientAgentId": "agent_example",
+              "recipientEmail": "example@envoi.mail",
+              "transport": "native",
+              "type": "message",
+              "text": "Example proposal message",
+              "payload": null,
+              "createdAt": "2026-10-17T11:59:50.000Z",
+              "queuedAt": "2026-10-17T11:59:50.000Z",
+              "status": "delivered",
+              "deliveredAt": "2026-10-17T11:59:51.000Z"
+            },
+            "leaseToken": "lease_PLACEHOLDER_superseded",
+            "leaseExpiresAt": "2026-10-17T12:01:00.000Z"
+          },
+          "state": "claimed"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "none",
+        "next": "The response never arrived; no session can be minted."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/claim",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "claimRequest",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "schema": "claimIdle",
+        "headers": {},
+        "body": {
+          "work": null,
+          "state": "idle",
+          "nextAvailableAt": "2026-10-17T12:01:00.000Z",
+          "nextAvailableInMs": 58000
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "none",
+        "next": "Claim again at nextAvailableInMs."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/claim",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "claimRequest",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "schema": "claimClaimed",
+        "headers": {},
+        "body": {
+          "work": {
+            "workId": "msg_example",
+            "message": {
+              "id": "msg_example",
+              "schemaVersion": "1.0",
+              "messageId": "msg_example",
+              "conversationId": "case_example",
+              "taskId": null,
+              "correlationId": null,
+              "causationId": null,
+              "from": {
+                "agentId": "agent_counterparty",
+                "address": "counterparty@envoi.mail"
+              },
+              "to": [
+                {
+                  "agentId": "agent_example",
+                  "address": "example@envoi.mail"
+                }
+              ],
+              "intent": "offer",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Example proposal message"
+                }
+              ],
+              "proposal": null,
+              "authority": {
+                "scope": "message.send",
+                "humanApproval": "notRequired",
+                "policyEvaluationId": null
+              },
+              "artifactRefs": [],
+              "requiresAck": true,
+              "traceparent": null,
+              "signature": null,
+              "unverifiedAuthorityClaim": null,
+              "unverifiedSignatureClaim": null,
+              "caseId": "case_example",
+              "senderInboxId": "inbox_counterparty",
+              "recipientInboxId": "inbox_example",
+              "senderType": "agent",
+              "senderAgentId": "agent_counterparty",
+              "recipientAgentId": "agent_example",
+              "recipientEmail": "example@envoi.mail",
+              "transport": "native",
+              "type": "message",
+              "text": "Example proposal message",
+              "payload": null,
+              "createdAt": "2026-10-17T11:59:50.000Z",
+              "queuedAt": "2026-10-17T11:59:50.000Z",
+              "status": "delivered",
+              "deliveredAt": "2026-10-17T11:59:51.000Z"
+            },
+            "leaseToken": "lease_PLACEHOLDER_second",
+            "leaseExpiresAt": "2026-10-17T12:02:01.000Z"
+          },
+          "state": "claimed"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "none",
+        "next": "Mint a session for this lease."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/msg_example/session",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "mintRequest",
+        "body": {
+          "leaseToken": "lease_PLACEHOLDER_second"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "sessionCreated",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "session": {
+            "id": "case_session_reclaimed",
+            "token": "envoi_case_session_PLACEHOLDER_third",
+            "tokenType": "Bearer",
+            "status": "active",
+            "transport": {
+              "kind": "mcp_streamable_http",
+              "url": "https://envoi.example/mcp"
+            },
+            "agentId": "agent_example",
+            "installationId": "installation_example",
+            "workId": "msg_example",
+            "workKind": "agent_message",
+            "caseId": "case_example",
+            "fence": 2,
+            "counterparty": {
+              "kind": "agent",
+              "address": "counterparty@envoi.mail"
+            },
+            "allowedTools": [
+              "envoi_case_snapshot",
+              "envoi_case_reply",
+              "envoi_case_propose",
+              "envoi_case_decide",
+              "envoi_authority_check",
+              "envoi_request_human",
+              "envoi_case_list_assets",
+              "envoi_case_share_asset",
+              "envoi_case_complete"
+            ],
+            "createdAt": "2026-10-17T12:01:02.000Z",
+            "expiresAt": "2026-10-17T12:16:02.000Z"
+          },
+          "lease": {
+            "workId": "msg_example",
+            "leaseExpiresAt": "2026-10-17T12:02:01.000Z"
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "start",
+        "next": "Start the turn."
+      }
+    }
+  ],
+  "context": {
+    "workKind": "agent_message",
+    "permissions": [
+      "send_agent_messages",
+      "receive_agent_messages",
+      "create_assets",
+      "execute_cases"
+    ]
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "start",
+    "next": "One session, under the live fence."
+  }
+}

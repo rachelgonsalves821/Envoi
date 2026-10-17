@@ -1,0 +1,43 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-rate-limited",
+  "kind": "http",
+  "description": "Rate limited.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store",
+      "retry-after": "5"
+    },
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Too many requests. Retry after the indicated delay.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 5
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "DEGRADED",
+    "retry": "after_retry_after",
+    "guidance": "service_busy",
+    "turn": "continue",
+    "next": "Retry after retry-after while the lease is live."
+  }
+}

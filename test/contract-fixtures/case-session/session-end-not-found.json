@@ -1,0 +1,42 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-end-not-found",
+  "kind": "http",
+  "description": "An unknown session, or one for other work or another lease.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session/end",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "endRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example",
+      "sessionId": "case_session_unknown"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "CASE_SESSION_NOT_FOUND",
+      "error": "CASE_SESSION_NOT_FOUND",
+      "message": "Case session was not found.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "none",
+    "next": "Nothing to end."
+  }
+}

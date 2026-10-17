@@ -1,0 +1,42 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-lease-superseded",
+  "kind": "http",
+  "description": "A later claim moved the fence on; the old lease token is stale.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_superseded"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WORK_LEASE_STALE",
+      "error": "WORK_LEASE_STALE",
+      "message": "This work lease is no longer live for this host.",
+      "requestId": "req_example",
+      "reason": "superseded"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "reclaim",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Drop the lease and claim again on the next trigger."
+  }
+}

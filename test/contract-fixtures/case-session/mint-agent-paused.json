@@ -1,0 +1,41 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-agent-paused",
+  "kind": "http",
+  "description": "A paused agent cannot mint.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AGENT_PAUSED",
+      "error": "AGENT_PAUSED",
+      "message": "This agent is paused by its owner.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "turn": "cancel",
+    "next": "Wait for agent.resumed."
+  }
+}

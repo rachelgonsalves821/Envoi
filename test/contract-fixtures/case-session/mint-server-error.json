@@ -1,0 +1,41 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-server-error",
+  "kind": "http",
+  "description": "A 5xx is never an authorization decision.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 500,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "INTERNAL_SERVER_ERROR",
+      "error": "INTERNAL_SERVER_ERROR",
+      "message": "The server could not complete the request.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "turn": "continue",
+    "next": "Retry the identical request with backoff while the lease is live (§11)."
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "late-settlement-stale",
+  "kind": "http",
+  "description": "With the flag on, a completion under a superseded lease uses the coded envelope (§7.3).",
+  "flags": {
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_INSTALLATIONS_V2": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/complete",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json",
+      "idempotency-key": "complete-late"
+    },
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_superseded"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WORK_LEASE_STALE",
+      "error": "WORK_LEASE_STALE",
+      "message": "This work lease is no longer live for this host.",
+      "requestId": "req_example",
+      "reason": "superseded"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "reclaim",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Do not settle; another lease owns the work."
+  }
+}

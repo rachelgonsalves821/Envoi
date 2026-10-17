@@ -1,0 +1,42 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-counterparty-unavailable",
+  "kind": "http",
+  "description": "The sending agent can no longer act.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WORK_NOT_ELIGIBLE",
+      "error": "WORK_NOT_ELIGIBLE",
+      "message": "This work can no longer be handled.",
+      "requestId": "req_example",
+      "reason": "counterparty_unavailable"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "reclaim",
+    "guidance": "none",
+    "turn": "none",
+    "next": "Start no turn; the lease was released without an attempt."
+  }
+}

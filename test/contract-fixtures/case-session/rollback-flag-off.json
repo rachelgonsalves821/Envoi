@@ -1,0 +1,184 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "rollback-flag-off",
+  "kind": "rollback",
+  "description": "Turning the flag off: mint returns 404, session tokens are unknown bearers, settlement bodies return to today's shape, and status reports sessions unavailable.",
+  "flags": {
+    "ENVOI_CASE_SESSIONS_V1": false,
+    "ENVOI_INSTALLATIONS_V2": true
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/msg_example/session",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "mintRequest",
+        "body": {
+          "leaseToken": "lease_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 404,
+        "schema": "errorEnvelope",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "code": "FEATURE_DISABLED",
+          "error": "FEATURE_DISABLED",
+          "message": "Case sessions are not available on this server.",
+          "requestId": "req_example"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "sessions_unavailable",
+        "turn": "none",
+        "next": "Start no session turn."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "auth": "case_session",
+        "headers": {
+          "authorization": "Bearer envoi_case_session_PLACEHOLDER_example",
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-11-25"
+        },
+        "schema": "jsonRpcRequest",
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 37,
+          "method": "tools/call",
+          "params": {
+            "name": "envoi_case_snapshot",
+            "arguments": {}
+          }
+        }
+      },
+      "response": {
+        "status": 401,
+        "schema": "errorEnvelope",
+        "headers": {
+          "cache-control": "no-store",
+          "www-authenticate": "Bearer realm=\"Envoi agent MCP\""
+        },
+        "body": {
+          "code": "AUTHENTICATION_REQUIRED",
+          "error": "AUTHENTICATION_REQUIRED",
+          "message": "Authentication is required.",
+          "requestId": "req_example"
+        }
+      },
+      "client": {
+        "surface": "tool_channel",
+        "lifecycle": "UNCHANGED",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "cancel",
+        "next": "Every turn using a session fails closed."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/msg_example/complete",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json",
+          "idempotency-key": "complete-rollback"
+        },
+        "body": {
+          "leaseToken": "lease_PLACEHOLDER_superseded"
+        }
+      },
+      "response": {
+        "status": 409,
+        "schema": "legacyRequestFailed",
+        "headers": {},
+        "body": {
+          "error": "REQUEST_FAILED",
+          "message": "Work lease fence is stale",
+          "requestId": "req_example"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "reclaim",
+        "guidance": "none",
+        "turn": "cancel",
+        "next": "Today's shape: branch on the 409 status."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/status",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "agentStatusCaseSessions",
+        "headers": {},
+        "body": {
+          "state": "active",
+          "agent": {
+            "id": "agent_example",
+            "address": "example@envoi.mail",
+            "status": "active"
+          },
+          "inboxId": "inbox_example",
+          "asOf": "2026-10-17T12:00:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-10-17T12:00:00.000Z",
+            "lastSuccessfulRefreshAt": null,
+            "lastWorkClaimAt": "2026-10-17T12:00:00.000Z",
+            "lastProcessedAt": null
+          },
+          "installation": {
+            "id": "installation_example",
+            "connectionRoute": "local_helper",
+            "deliveryMode": "envoi_link",
+            "legacy": false
+          },
+          "caseSessions": {
+            "available": false,
+            "version": 1
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "none",
+        "next": "Do not mint."
+      }
+    }
+  ],
+  "client": {
+    "surface": "host",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "none",
+    "next": "Re-enabling restores no session that §6.2 would refuse."
+  }
+}

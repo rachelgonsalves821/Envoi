@@ -1,0 +1,41 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "late-settlement-paused",
+  "kind": "http",
+  "description": "A completion after the agent was paused (a3).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/complete",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json",
+      "idempotency-key": "complete-paused"
+    },
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AGENT_PAUSED",
+      "error": "AGENT_PAUSED",
+      "message": "This agent is paused by its owner.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "turn": "cancel",
+    "next": "Do not settle; the work is re-offered after resume."
+  }
+}

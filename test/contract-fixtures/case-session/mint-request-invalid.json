@@ -1,0 +1,46 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-request-invalid",
+  "kind": "http",
+  "description": "An extra field in the mint body (a caller cannot choose a case).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example",
+      "caseId": "case_other"
+    },
+    "invalidAgainst": "mintRequest",
+    "invalidBecause": {
+      "keyword": "additionalProperties",
+      "instancePath": ""
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "CASE_SESSION_REQUEST_INVALID",
+      "error": "CASE_SESSION_REQUEST_INVALID",
+      "message": "The request body is not valid for this route.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "update_connector",
+    "turn": "none",
+    "next": "Fix the client."
+  }
+}

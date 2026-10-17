@@ -1,0 +1,42 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "mint-other-installation-lease",
+  "kind": "http",
+  "description": "A second active legacy family of the same agent presents a lease held by another family.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_other_family",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "WORK_LEASE_STALE",
+      "error": "WORK_LEASE_STALE",
+      "message": "This work lease is no longer live for this host.",
+      "requestId": "req_example",
+      "reason": "other_installation"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "reclaim",
+    "guidance": "none",
+    "turn": "cancel",
+    "next": "Do not start a turn; this lease belongs to another installation."
+  }
+}

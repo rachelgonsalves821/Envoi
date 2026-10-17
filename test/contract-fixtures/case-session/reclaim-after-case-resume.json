@@ -1,0 +1,336 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "reclaim-after-case-resume",
+  "kind": "sequence",
+  "description": "After the case resumes, a4 case_resumed lets the host claim at once; the case pause had released the lease without an attempt (§7.4).",
+  "context": {
+    "workKind": "agent_message",
+    "permissions": [
+      "send_agent_messages",
+      "receive_agent_messages",
+      "create_assets",
+      "execute_cases"
+    ]
+  },
+  "steps": [
+    {
+      "context": {
+        "workKind": "agent_message",
+        "permissions": [
+          "send_agent_messages",
+          "receive_agent_messages",
+          "create_assets",
+          "execute_cases"
+        ],
+        "allowedTools": [
+          "envoi_case_snapshot",
+          "envoi_case_reply",
+          "envoi_case_propose",
+          "envoi_case_decide",
+          "envoi_authority_check",
+          "envoi_request_human",
+          "envoi_case_list_assets",
+          "envoi_case_share_asset",
+          "envoi_case_complete"
+        ],
+        "ended": {
+          "credential_ended": false,
+          "agent_paused": false,
+          "case_controlled": true,
+          "work_ineligible": false,
+          "work_settled": false,
+          "ended_by_host": false,
+          "superseded": false,
+          "lease_lost": true
+        },
+        "recordedReason": "case_controlled"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "auth": "case_session",
+        "headers": {
+          "authorization": "Bearer envoi_case_session_PLACEHOLDER_example",
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-11-25"
+        },
+        "schema": "jsonRpcRequest",
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 28,
+          "method": "tools/call",
+          "params": {
+            "name": "envoi_case_snapshot",
+            "arguments": {}
+          }
+        }
+      },
+      "response": {
+        "status": 401,
+        "schema": "errorEnvelope",
+        "headers": {
+          "cache-control": "no-store",
+          "www-authenticate": "Bearer realm=\"Envoi agent MCP\", error=\"invalid_token\""
+        },
+        "body": {
+          "code": "CASE_SESSION_ENDED",
+          "error": "CASE_SESSION_ENDED",
+          "message": "This case session has ended.",
+          "requestId": "req_example",
+          "reason": "case_controlled"
+        }
+      },
+      "client": {
+        "surface": "tool_channel",
+        "lifecycle": "UNCHANGED",
+        "retry": "after_case_resume",
+        "guidance": "case_paused",
+        "turn": "cancel",
+        "next": "Cancel the turn."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/claim",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "claimRequest",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "schema": "claimClaimed",
+        "headers": {},
+        "body": {
+          "work": {
+            "workId": "msg_example",
+            "message": {
+              "id": "msg_example",
+              "schemaVersion": "1.0",
+              "messageId": "msg_example",
+              "conversationId": "case_example",
+              "taskId": null,
+              "correlationId": null,
+              "causationId": null,
+              "from": {
+                "agentId": "agent_counterparty",
+                "address": "counterparty@envoi.mail"
+              },
+              "to": [
+                {
+                  "agentId": "agent_example",
+                  "address": "example@envoi.mail"
+                }
+              ],
+              "intent": "offer",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Example proposal message"
+                }
+              ],
+              "proposal": null,
+              "authority": {
+                "scope": "message.send",
+                "humanApproval": "notRequired",
+                "policyEvaluationId": null
+              },
+              "artifactRefs": [],
+              "requiresAck": true,
+              "traceparent": null,
+              "signature": null,
+              "unverifiedAuthorityClaim": null,
+              "unverifiedSignatureClaim": null,
+              "caseId": "case_example",
+              "senderInboxId": "inbox_counterparty",
+              "recipientInboxId": "inbox_example",
+              "senderType": "agent",
+              "senderAgentId": "agent_counterparty",
+              "recipientAgentId": "agent_example",
+              "recipientEmail": "example@envoi.mail",
+              "transport": "native",
+              "type": "message",
+              "text": "Example proposal message",
+              "payload": null,
+              "createdAt": "2026-10-17T11:59:50.000Z",
+              "queuedAt": "2026-10-17T11:59:50.000Z",
+              "status": "delivered",
+              "deliveredAt": "2026-10-17T11:59:51.000Z"
+            },
+            "leaseToken": "lease_PLACEHOLDER_second",
+            "leaseExpiresAt": "2026-10-17T12:06:40.000Z"
+          },
+          "state": "claimed"
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "none",
+        "next": "Claimed again after work.available case_resumed."
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/agent/work/msg_example/session",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "content-type": "application/json"
+        },
+        "schema": "mintRequest",
+        "body": {
+          "leaseToken": "lease_PLACEHOLDER_second"
+        }
+      },
+      "response": {
+        "status": 201,
+        "schema": "sessionCreated",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "session": {
+            "id": "case_session_reclaimed",
+            "token": "envoi_case_session_PLACEHOLDER_third",
+            "tokenType": "Bearer",
+            "status": "active",
+            "transport": {
+              "kind": "mcp_streamable_http",
+              "url": "https://envoi.example/mcp"
+            },
+            "agentId": "agent_example",
+            "installationId": "installation_example",
+            "workId": "msg_example",
+            "workKind": "agent_message",
+            "caseId": "case_example",
+            "fence": 2,
+            "counterparty": {
+              "kind": "agent",
+              "address": "counterparty@envoi.mail"
+            },
+            "allowedTools": [
+              "envoi_case_snapshot",
+              "envoi_case_reply",
+              "envoi_case_propose",
+              "envoi_case_decide",
+              "envoi_authority_check",
+              "envoi_request_human",
+              "envoi_case_list_assets",
+              "envoi_case_share_asset",
+              "envoi_case_complete"
+            ],
+            "createdAt": "2026-10-17T12:05:41.000Z",
+            "expiresAt": "2026-10-17T12:20:41.000Z"
+          },
+          "lease": {
+            "workId": "msg_example",
+            "leaseExpiresAt": "2026-10-17T12:06:40.000Z"
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "RUNNING",
+        "retry": "none",
+        "guidance": "none",
+        "turn": "start",
+        "next": "Start a new turn from the snapshot; reuse idempotency keys of replayed calls."
+      }
+    },
+    {
+      "context": {
+        "workKind": "agent_message",
+        "permissions": [
+          "send_agent_messages",
+          "receive_agent_messages",
+          "create_assets",
+          "execute_cases"
+        ],
+        "allowedTools": [
+          "envoi_case_snapshot",
+          "envoi_case_reply",
+          "envoi_case_propose",
+          "envoi_case_decide",
+          "envoi_authority_check",
+          "envoi_request_human",
+          "envoi_case_list_assets",
+          "envoi_case_share_asset",
+          "envoi_case_complete"
+        ],
+        "ended": {
+          "credential_ended": false,
+          "agent_paused": false,
+          "case_controlled": false,
+          "work_ineligible": false,
+          "work_settled": false,
+          "ended_by_host": false,
+          "superseded": true,
+          "lease_lost": true
+        },
+        "recordedReason": "case_controlled"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "auth": "case_session",
+        "headers": {
+          "authorization": "Bearer envoi_case_session_PLACEHOLDER_example",
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-11-25"
+        },
+        "schema": "jsonRpcRequest",
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 29,
+          "method": "tools/call",
+          "params": {
+            "name": "envoi_case_snapshot",
+            "arguments": {}
+          }
+        }
+      },
+      "response": {
+        "status": 401,
+        "schema": "errorEnvelope",
+        "headers": {
+          "cache-control": "no-store",
+          "www-authenticate": "Bearer realm=\"Envoi agent MCP\", error=\"invalid_token\""
+        },
+        "body": {
+          "code": "CASE_SESSION_ENDED",
+          "error": "CASE_SESSION_ENDED",
+          "message": "This case session has ended.",
+          "requestId": "req_example",
+          "reason": "case_controlled"
+        }
+      },
+      "client": {
+        "surface": "tool_channel",
+        "lifecycle": "UNCHANGED",
+        "retry": "after_case_resume",
+        "guidance": "case_paused",
+        "turn": "cancel",
+        "next": "The old session never revives."
+      }
+    }
+  ],
+  "client": {
+    "surface": "host",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "start",
+    "next": "Same agent, new fence, new session."
+  }
+}

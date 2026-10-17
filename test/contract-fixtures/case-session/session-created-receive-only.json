@@ -1,0 +1,86 @@
+{
+  "contract": "case-session",
+  "version": 1,
+  "id": "session-created-receive-only",
+  "kind": "http",
+  "description": "An agent with receive_agent_messages only gets the read tools: insufficient permission narrows allowedTools, it never fails the mint.",
+  "context": {
+    "workKind": "agent_message",
+    "permissions": [
+      "receive_agent_messages"
+    ],
+    "turnStartedAt": "2026-10-17T12:00:06.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/work/msg_example/session",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "mintRequest",
+    "body": {
+      "leaseToken": "lease_PLACEHOLDER_example"
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "sessionCreated",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "session": {
+        "id": "case_session_example",
+        "token": "envoi_case_session_PLACEHOLDER_example",
+        "tokenType": "Bearer",
+        "status": "active",
+        "transport": {
+          "kind": "mcp_streamable_http",
+          "url": "https://envoi.example/mcp"
+        },
+        "agentId": "agent_example",
+        "installationId": "installation_example",
+        "workId": "msg_example",
+        "workKind": "agent_message",
+        "caseId": "case_example",
+        "fence": 1,
+        "counterparty": {
+          "kind": "agent",
+          "address": "counterparty@envoi.mail"
+        },
+        "allowedTools": [
+          "envoi_case_snapshot",
+          "envoi_authority_check",
+          "envoi_case_list_assets"
+        ],
+        "createdAt": "2026-10-17T12:00:05.000Z",
+        "expiresAt": "2026-10-17T12:15:05.000Z"
+      },
+      "lease": {
+        "workId": "msg_example",
+        "leaseExpiresAt": "2026-10-17T12:01:00.000Z"
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "start",
+    "next": "Start the turn with only the read tools.",
+    "modelVisible": {
+      "counterpartyKind": "agent",
+      "counterpartyAddress": "counterparty@envoi.mail",
+      "allowedTools": [
+        "envoi_case_snapshot",
+        "envoi_authority_check",
+        "envoi_case_list_assets"
+      ],
+      "sessionExpiresInSeconds": 899,
+      "agentAddress": "example@envoi.mail"
+    }
+  }
+}
