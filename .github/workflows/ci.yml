@@ -8,23 +8,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        # Same official image via the AWS public mirror: shared runners hit Docker Hub's anonymous pull limit.
-        image: public.ecr.aws/docker/library/postgres:16-alpine
-        env:
-          POSTGRES_USER: sinaloa
-          POSTGRES_PASSWORD: sinaloa_test
-          POSTGRES_DB: sinaloa_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U sinaloa -d sinaloa_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      # A step, not a job service: services are pulled before any step, so a throttled registry
+      # there fails the job with no retry. Mirror, then Docker Hub, bounded; fails visibly.
+      - name: Start PostgreSQL
+        run: bash scripts/ci-start-postgres.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -78,3 +67,6 @@ jobs:
           DATABASE_URL: postgresql://sinaloa:sinaloa_test@127.0.0.1:5432/sinaloa_test
       - run: npm audit --omit=dev
       - run: npm audit --audit-level=high
+      - name: Stop PostgreSQL
+        if: always()
+        run: docker rm -f envoi-ci-postgres || true
