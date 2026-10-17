@@ -6,7 +6,7 @@ import path from 'node:path';
 import { agentPermissions, approvalSlotIndexPath, approverIndexDir, approverIndexPath, effectivePermissions, liveApproval, organizationMaximumPermissions, registrationPath } from './agent-approval.js';
 import { newestActiveInstallation } from './agent-installations.js';
 import { routeAvailable } from './onboarding-flags.js';
-import { approverEmailHint, displayName, displayVerificationCode, generateBootstrapToken, generateVerificationCode, hashToken, isBootstrapToken, normalizeVerificationCode, tokenLikePattern, unsafeNameCharacters, validRequestedName, verificationCodeHmac } from './agent-registration-codes.js';
+import { approverEmailHint, displayName, displayVerificationCode, generateBootstrapToken, generateVerificationCode, hashToken, isBootstrapToken, normalizeVerificationCode, sourceHmac, sourceKey, tokenLikePattern, unsafeNameCharacters, validRequestedName, verificationCodeHmac } from './agent-registration-codes.js';
 
 export const registrationTtlSeconds = 600;
 export const activationWindowSeconds = 600;
@@ -118,19 +118,26 @@ export function statusView(registration, now = new Date()) {
 }
 
 // §4: first character of the verified email local part, ***, the full domain. Local development
-// auth has phone-only humans and is refused in production, so it gets a fixed hint there.
-export function hintForHuman(human) {
-  return approverEmailHint(human?.email) || 'd***@development.invalid';
+// auth has phone-only humans, so outside production a human with no email gets a fixed hint.
+// null otherwise (an email the schema pattern cannot express, e.g. a punycode TLD, or no email in
+// production): approve then refuses rather than show the helper a hint that misstates the approver.
+export function hintForHuman(human, { production = false } = {}) {
+  const hint = approverEmailHint(human?.email);
+  if (hint) return hint;
+  return !production && !human?.email ? 'd***@development.invalid' : null;
 }
 
 export function createAgentRegistrations({
   store, flags, codeKey, limits, pollLimiter, agentSlots, installations, withInboxMutation, canManageLive,
-  normalizeLocalPart, addressForLocalPart, identityTaken, semanticDigest, memberOf = async () => true, log = event => console.log(JSON.stringify(event))
+  normalizeLocalPart, addressForLocalPart, identityTaken, semanticDigest, memberOf = async () => true, log = event => console.log(JSON.stringify(event)),
+  production = process.env.ENVOI_AUTH_MODE === 'production'
 }) {
   const now = () => new Date();
   const nowIso = () => store.now();
   const getRegistration = id => registrationIdPattern.test(String(id)) ? store.getJson(registrationPath(id)) : Promise.resolve(null);
-  const sourceHash = ip => hashToken(`agent-registration-source:${ip}`).slice(0, 32);
+  // Keyed, so a stored or logged sourceHash cannot be reversed by enumerating IPv4 addresses.
+  const sourceKeyBuffer = sourceKey(codeKey);
+  const sourceHash = ip => sourceHmac(ip, sourceKeyBuffer).slice(0, 32);
 
   function assertRegistrationEnabled(message = 'Agent-led setup is not available yet.') {
     if (!flags.registration) throw coded(404, 'FEATURE_DISABLED', message);
@@ -322,6 +329,11 @@ export function createAgentRegistrations({
     const normalized = normalizeVerificationCode(input?.verificationCode);
     const found = await decisionTarget(human, await getRegistration(registrationId), normalized, 'approve', input || {});
     if (found.replay) return found.replay;
+    // After the code and state checks, so it reveals nothing about a registration the caller
+    // cannot name, and before the body and target checks, so every target gets the same answer.
+    // Not a claim failure: claimAttempt releases the slot.
+    const approverHint = hintForHuman(human, { production });
+    if (!approverHint) throw coded(403, 'CLAIM_FORBIDDEN', 'Your account cannot approve agents: its sign-in email cannot be shown to the agent\'s host.');
     if (!validApproveBody(input)) {
       throw coded(400, 'CLAIM_INVALID', Array.isArray(input?.grantedPermissions) && !input.grantedPermissions.length ? 'Choose at least one permission.' : 'The approval request is not valid.');
     }
@@ -358,7 +370,7 @@ export function createAgentRegistrations({
       const effective = effectivePermissions(registration.requested.permissions, input.grantedPermissions);
       const approved = {
         ...registration, status: 'approved', target: { kind: target.kind, ...agentFields }, workspaceName: await workspaceNameOf(resolved.inbox),
-        approverHumanId: human.id, principalHumanId, approverEmailHint: hintForHuman(human), effectivePermissions: effective, policyProfile: 'default',
+        approverHumanId: human.id, principalHumanId, approverEmailHint: approverHint, effectivePermissions: effective, policyProfile: 'default',
         approvedAt: at, activationExpiresAt
       };
       const response = {

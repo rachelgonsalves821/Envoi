@@ -35,6 +35,12 @@ export const displayVerificationCode = normalized => `${normalized.slice(0, 4)}-
 export const verificationCodeKey = dataKeyBuffer => Buffer.from(crypto.hkdfSync('sha256', dataKeyBuffer, Buffer.alloc(0), Buffer.from('envoi-agent-registration-code-v1'), 32));
 export const verificationCodeHmac = (normalized, key) => crypto.createHmac('sha256', key).update(normalized).digest('hex');
 
+// Source keys (the registration's sourceHash, its log lines and the durable rate-limit document
+// names) are HMAC-SHA256 under their own HKDF-derived key, so a database or log read cannot
+// recover an IPv4 address by hashing all 2^32 of them.
+export const sourceKey = keyMaterial => Buffer.from(crypto.hkdfSync('sha256', keyMaterial, Buffer.alloc(0), Buffer.from('envoi-agent-registration-source-v1'), 32));
+export const sourceHmac = (value, key) => crypto.createHmac('sha256', key).update(String(value)).digest('hex');
+
 // §2 bootstrap token: envoi_reg_ + 32 random bytes, base64url (43 characters); stored as SHA-256.
 export const generateBootstrapToken = () => `envoi_reg_${crypto.randomBytes(32).toString('base64url')}`;
 export const isBootstrapToken = raw => typeof raw === 'string' && /^envoi_reg_[A-Za-z0-9_-]{43}$/.test(raw);

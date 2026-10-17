@@ -10,8 +10,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FileStore } from '../src/storage.js';
 import { createPollLimiter, createRegistrationLimits, networkKeys } from '../src/agent-registration-limits.js';
+import { sourceHmac, sourceKey } from '../src/agent-registration-codes.js';
 
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
+// Document names are keyed: HMAC-SHA256 under the key the module derives by default.
+const defaultKey = sourceKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only'));
+const keyed = value => sourceHmac(value, defaultKey);
 const creationPath = name => path.join('rate-limits', 'agent-registrations', `${name}.json`);
 const minute = 60_000;
 const hour = 3_600_000;
@@ -96,7 +100,7 @@ test('[FileStore] 10 per source per hour, refusal writes nothing, the window sli
     assert.ok(!file.includes('203.0.113') && !content.includes('203.0.113'), file);
     assert.match(path.basename(file), /^(?:(?:source|network)-[a-f0-9]{64}|global)\.json$/);
   }
-  const source = await store.getJson(creationPath(`source-${sha256('v4:203.0.113.5')}`));
+  const source = await store.getJson(creationPath(`source-${keyed('v4:203.0.113.5')}`));
   assert.equal(source.times.length, 10);
 
   // Durable: a new store object on the same directory sees the same counts.
@@ -110,7 +114,7 @@ test('[FileStore] 10 per source per hour, refusal writes nothing, the window sli
   const refused = await again.consumeCreation('203.0.113.5');
   assert.equal(refused.allowed, false);
   assert.equal(refused.retryAfterSeconds, 60, 'the second-oldest leaves one minute after the first');
-  const pruned = await reopened.getJson(creationPath(`source-${sha256('v4:203.0.113.5')}`));
+  const pruned = await reopened.getJson(creationPath(`source-${keyed('v4:203.0.113.5')}`));
   assert.equal(pruned.times.length, 10, 'stored times are pruned to the window');
   assert.ok(pruned.times.every(value => Date.parse(value) > time.ms - hour));
 });
@@ -170,10 +174,10 @@ test('[FileStore] malformed stored times count as absent', async t => {
   const { store } = await fileStore(t);
   const time = clock();
   const limits = createRegistrationLimits({ store, now: time.now });
-  await store.putJson(creationPath(`source-${sha256('v4:192.0.2.9')}`), { times: [...Array(20).fill('not a time'), 42, null] });
+  await store.putJson(creationPath(`source-${keyed('v4:192.0.2.9')}`), { times: [...Array(20).fill('not a time'), 42, null] });
   await store.putJson(creationPath('global'), { times: 'nope' });
   assert.deepEqual(await limits.consumeCreation('192.0.2.9'), { allowed: true });
-  assert.equal((await store.getJson(creationPath(`source-${sha256('v4:192.0.2.9')}`))).times.length, 1);
+  assert.equal((await store.getJson(creationPath(`source-${keyed('v4:192.0.2.9')}`))).times.length, 1);
 });
 
 test('[FileStore] concurrent creations from one source never exceed the limit', async t => {
@@ -206,7 +210,7 @@ async function claimFailures(t, store, humanId, time) {
   assert.equal(await limits.claimLockRetryAfter(humanId), 0, 'unlocked after 900 s');
   time.set(start + 2_000_000);
   await limits.recordClaimFailure(humanId);
-  const stored = await store.getJson(path.join('rate-limits', 'agent-claims', `${sha256(humanId)}.json`));
+  const stored = await store.getJson(path.join('rate-limits', 'agent-claims', `${keyed(humanId)}.json`));
   assert.equal(stored.failures.length, 1, 'pruned to the window on write');
   assert.ok(!JSON.stringify(stored).includes(humanId));
 }
@@ -216,7 +220,7 @@ test('[FileStore] claim failures: 5 per human per 15 minutes, durable', async t 
   const time = clock();
   await claimFailures(t, store, 'human_alice', time);
   const files = await readdir(path.join(root, 'rate-limits', 'agent-claims'));
-  assert.deepEqual(files, [`${sha256('human_alice')}.json`]);
+  assert.deepEqual(files, [`${keyed('human_alice')}.json`]);
   // Durable across a new store object.
   const limits = createRegistrationLimits({ store, now: time.now });
   for (let index = 0; index < 4; index += 1) await limits.recordClaimFailure('human_bob');
@@ -224,6 +228,30 @@ test('[FileStore] claim failures: 5 per human per 15 minutes, durable', async t 
   const again = createRegistrationLimits({ store: reopened, now: time.now });
   await again.recordClaimFailure('human_bob');
   assert.equal(await again.claimLockRetryAfter('human_bob'), 900);
+});
+
+test('[FileStore] document names are keyed: never the plain SHA-256 of a source, network or human', async t => {
+  const { store, root } = await fileStore(t);
+  const time = clock();
+  const limits = createRegistrationLimits({ store, now: time.now });
+  const ips = ['203.0.113.77', '2001:db8:1234:5678::9'];
+  for (const ip of ips) assert.deepEqual(await limits.consumeCreation(ip), { allowed: true });
+  await limits.recordClaimFailure('human_carol');
+  const names = Object.keys(await snapshot(root)).map(file => path.basename(file, '.json'));
+  const raw = ['human_carol', ...ips.flatMap(ip => Object.values(networkKeys(ip)).filter(Boolean))];
+  assert.ok(names.length >= 6, names.join(','));
+  for (const value of raw) {
+    for (const name of names) assert.ok(!name.endsWith(sha256(value)), `${name} is the plain SHA-256 of ${value}`);
+  }
+  assert.ok(names.includes(`source-${keyed('v4:203.0.113.77')}`), 'the default key is derived from ENVOI_DATA_ENCRYPTION_KEY');
+
+  // Another key, other names: the same source starts its own count.
+  const { store: other, root: otherRoot } = await fileStore(t);
+  const otherLimits = createRegistrationLimits({ store: other, now: time.now, key: sourceKey(crypto.randomBytes(32)) });
+  await otherLimits.consumeCreation('203.0.113.77');
+  const otherNames = Object.keys(await snapshot(otherRoot));
+  assert.ok(otherNames.length >= 3);
+  assert.ok(!otherNames.some(file => file.includes(keyed('v4:203.0.113.77'))));
 });
 
 test('poll limiter: one recorded poll per 4 s per registration', () => {
@@ -269,7 +297,7 @@ if (process.env.DATABASE_URL) {
       assert.deepEqual(await limits.consumeCreation(ip), { allowed: true }, `creation ${index + 1}`);
       time.advance(1000);
     }
-    const sourcePath = creationPath(`source-${sha256(networkKeys(ip).source)}`);
+    const sourcePath = creationPath(`source-${keyed(networkKeys(ip).source)}`);
     const before = await store.getJson(sourcePath);
     assert.deepEqual(await limits.consumeCreation(`${prefix}:1:ffff::2`), { allowed: false, retryAfterSeconds: 3590 });
     assert.deepEqual(await store.getJson(sourcePath), before, 'a refusal writes nothing');

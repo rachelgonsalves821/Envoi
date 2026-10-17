@@ -1,6 +1,6 @@
-import crypto from 'node:crypto';
 import net from 'node:net';
 import path from 'node:path';
+import { sourceHmac, sourceKey } from './agent-registration-codes.js';
 
 // agent-registration v1 (task A-4.2): durable creation and claim-failure limits, and the in-memory
 // poll interval (handoffs.md "## agent-registration v1" §2; schemas.json x-limits).
@@ -15,13 +15,12 @@ const globalLimit = { max: 1000, windowMs: registrationTtlMs };
 // x-limits.claimFailures.
 const claimFailureLimit = { max: 5, windowMs: 900_000 };
 
-const sha256 = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 const creationDirectory = path.join('rate-limits', 'agent-registrations');
 const claimDirectory = path.join('rate-limits', 'agent-claims');
 
 // §2 keys, from clientIp: source = IPv4 address or IPv6 /64, network = IPv4 /24 or IPv6 /48,
 // wide = IPv6 /32 (null for IPv4). An IPv4-mapped IPv6 address counts as IPv4. A value that is not
-// an IP address is its own source and network. Keys are hashed before they reach storage.
+// an IP address is its own source and network. Keys are keyed-hashed before they reach storage.
 export function networkKeys(ip) {
   const raw = { source: `raw:${ip}`, network: `raw:${ip}`, wide: null };
   if (typeof ip !== 'string') return raw;
@@ -78,8 +77,14 @@ const toIso = times => times.map(time => new Date(time).toISOString());
 // Each method runs its own store.withTransaction. They must NOT be called inside another
 // transaction: a nested transaction cannot take these lock keys, and the counters must commit
 // even when the caller's transaction later fails.
-export function createRegistrationLimits({ store, now = () => new Date() }) {
+//
+// Document names and lock keys are HMAC-SHA256 under key (default: derived from
+// ENVOI_DATA_ENCRYPTION_KEY, as src/server.js derives the code key), so the IPv4 space cannot be
+// enumerated back from them. They were plain SHA-256 before; counters written under those names
+// are not carried over. The flags were off everywhere, so no deployed counters existed.
+export function createRegistrationLimits({ store, now = () => new Date(), key = sourceKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')) }) {
   const nowMs = () => now().getTime();
+  const hash = value => sourceHmac(value, key);
 
   // §2 "Registration creation". All four counts are read and written in one transaction. When any
   // limit is already reached nothing is written, so a refused request never extends its own wait.
@@ -87,7 +92,7 @@ export function createRegistrationLimits({ store, now = () => new Date() }) {
     const keys = networkKeys(ip);
     const counters = [];
     for (const kind of ['source', 'network', 'wide']) {
-      if (keys[kind] !== null) counters.push({ name: `${kind}-${sha256(keys[kind])}`, limit: creationLimits[kind] });
+      if (keys[kind] !== null) counters.push({ name: `${kind}-${hash(keys[kind])}`, limit: creationLimits[kind] });
     }
     counters.push({ name: 'global', limit: globalLimit });
     for (const counter of counters) counter.path = path.join(creationDirectory, `${counter.name}.json`);
@@ -106,7 +111,7 @@ export function createRegistrationLimits({ store, now = () => new Date() }) {
   }
 
   // §2 "Claim failures": at most 5 per human per 15 minutes. Read-only.
-  const claimPath = humanId => path.join(claimDirectory, `${sha256(humanId)}.json`);
+  const claimPath = humanId => path.join(claimDirectory, `${hash(humanId)}.json`);
   async function claimLockRetryAfter(humanId) {
     const document = await store.getJson(claimPath(humanId), null);
     const at = nowMs();
@@ -114,9 +119,9 @@ export function createRegistrationLimits({ store, now = () => new Date() }) {
   }
 
   async function recordClaimFailure(humanId) {
-    const hash = sha256(humanId);
-    const target = path.join(claimDirectory, `${hash}.json`);
-    await store.withTransaction([`rate:agent-claims:${hash}`], async () => {
+    const name = hash(humanId);
+    const target = path.join(claimDirectory, `${name}.json`);
+    await store.withTransaction([`rate:agent-claims:${name}`], async () => {
       const at = nowMs();
       const document = await store.getJson(target, null);
       await store.putJson(target, { failures: toIso([...recent(document?.failures, at, claimFailureLimit.windowMs), at]) });
@@ -128,7 +133,7 @@ export function createRegistrationLimits({ store, now = () => new Date() }) {
   // for every outcome other than a wrong code (a match, a replay, any other error, a 5xx).
   async function reserveClaimAttempt(humanId) {
     const target = claimPath(humanId);
-    return store.withTransaction([`rate:agent-claims:${sha256(humanId)}`], async () => {
+    return store.withTransaction([`rate:agent-claims:${hash(humanId)}`], async () => {
       const at = nowMs();
       const failures = recent((await store.getJson(target, null))?.failures, at, claimFailureLimit.windowMs);
       const wait = retryAfter(failures, at, claimFailureLimit);
@@ -139,7 +144,7 @@ export function createRegistrationLimits({ store, now = () => new Date() }) {
   }
   async function releaseClaimAttempt(humanId, reserved) {
     const target = claimPath(humanId);
-    await store.withTransaction([`rate:agent-claims:${sha256(humanId)}`], async () => {
+    await store.withTransaction([`rate:agent-claims:${hash(humanId)}`], async () => {
       const failures = (await store.getJson(target, null))?.failures;
       const index = Array.isArray(failures) ? failures.indexOf(reserved) : -1;
       if (index < 0) return;

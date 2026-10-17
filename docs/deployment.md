@@ -107,3 +107,16 @@ Agents request a signed upload at `POST /api/inboxes/:id/asset-uploads`. The ser
 Organizations are first-class Envoi records. In WorkOS mode, creation also provisions the WorkOS organization and owner membership; the local Envoi organization ID remains the stable application reference. Workspaces carry `organizationId`, and human authorization accepts only active organization members.
 
 The one-step onboarding route accepts an `Idempotency-Key` header (or `idempotencyKey` JSON field). Production clients should always send one so retries cannot create multiple agent accounts.
+
+## Phase B agent-registration code rollback
+
+With `ENVOI_INSTALLATIONS_V2` (and `ENVOI_AGENT_REGISTRATION_V2`) on, owners can end a single installation of an agent without freezing the agent. That leaves an active or paused agent whose credential families have all ended, each ended by an installation revoke, a refresh or activation replay, or a replacement by a later attach, and each carrying a `revokedReason` (for example `revoked`, `refresh_replay` or `replaced`).
+
+Reverting the A-4.x server code also removes the narrowed startup reconciliation in `src/server.js` (`reconcileLegacyAgentRevocations`, A-4.1): the run-once marker `system/agent-revocations-reconciled-v1.json` and the rule that skips any family with a `revokedReason`. The older job runs on every boot and freezes (status `revoked`, permissions cleared) every active or paused agent whose families are all revoked. On the first boot after a revert it would therefore freeze every agent whose families were all ended by an installation revoke, a replay or a replacement, although the owner only ended an installation.
+
+Before reverting the code, do one of the following:
+
+1. Turn both flags off, then confirm that no installation-only revokes exist: no active or paused agent in `directory/agents` whose families under `auth/agent-credential-families/{inboxId}/{agentId}/` all have `revokedAt` set. Reconnect any such agent first (Quick Connect gives it a live family), or accept that it will be frozen.
+2. Purge the agent-registration state as in handoffs.md agent-registration v1 §9 "Code rollback": the `auth/agent-registration*` prefixes, `auth/agent-address-holds`, `rate-limits/agent-registrations` and `rate-limits/agent-claims`, and accept that reconnect-by-registration ends. Families keep working after the purge, because `installationId` is an ignored extra field. The purge does not stop the older job from freezing the agents described above.
+
+Flags off alone (handoffs.md §9 "Rollback: both flags off") deletes nothing and needs no purge; this section applies only when the code itself is reverted.
