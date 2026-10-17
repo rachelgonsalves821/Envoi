@@ -19,11 +19,11 @@ Implementation began at integration2b18170; the PR is rebased to the latest inte
 
 ## Verification and limits
 
-Lead PowerShell checks: typecheck, frontend344, TypeScript SDK199, Python SDK6, Node/download413 pass /15 existing skips, integration suite259 pass /1 existing skip before the final assembled-helper test (8/8 focused); full final counts/CI are recorded in the PR and #34. Helper confirmation/recovery uses canonical fixtures and injected transports, clocks, stores, crash points and stub runtime adapters. The actual helper engine-to-adoption-to-foreground path is fixture-tested. Build and private package hashes are checked before publication of the draft PR.
+Lead PowerShell checks: typecheck, frontend344, TypeScript SDK199, Python SDK6, Node/download413 pass /15 existing skips, integration suite260 pass /1 existing skip, assembled-helper CLI8/8 and private-store recovery10/10 focused; full final counts/CI are recorded in the PR and #34. Helper confirmation/recovery uses canonical fixtures and injected transports, clocks, stores, crash points and stub runtime adapters. The actual helper engine-to-adoption-to-foreground path is fixture-tested. Build and private package hashes are checked before publication of the draft PR.
 
 File replacement uses exclusive temporary files, file sync and atomic rename, plus POSIX directory sync. Windows protects the whole state directory using account-only ACLs and absolute system-helper paths; Node cannot establish directory-flush power-loss guarantees for every Windows filesystem.
 
-These are client/fixture results. Lane A owns real server behavior, contracts/fixtures and public route binding. Server work is in stacked drafts #99/#101/#102; integration has the CI infrastructure repair at383a5bc. A separate minimal Lane B audit-events draft responds to board6228344065 so those server PRs can run their frontend audit checks.
+These are client/fixture results. Lane A owns real server behavior, contracts/fixtures and public route binding. Server work is in stacked drafts #99/#101/#102; integration has the CI infrastructure repair at383a5bc. A separate minimal Lane B audit-events draft #103 at845605c28124206dcbbeb457e02d1f78a77f90fc responds to board6228344065 so those server PRs can run their frontend audit checks.
 
 ## Next actions and human checkpoint
 

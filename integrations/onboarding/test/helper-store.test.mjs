@@ -89,3 +89,29 @@ test('Windows privacy uses absolute system helpers, account SID and terminating 
   } }), /ACL denied/);
   assert.throws(() => windowsExecutable('whoami.exe', { SystemRoot: 'unsafe-root' }));
 }));
+
+test('dead recovery owner is reclaimed and incomplete or live recovery stays closed', async () => fixtureDirectory(async directory => {
+  const store = await new PrivateStore(directory, { secureDirectory: localSecurity }).init();
+  const stale = JSON.stringify({ pid: 2147483647, nonce: 'dead' });
+  await writeFile(path.join(directory, 'helper.lock'), stale);
+  await writeFile(path.join(directory, 'helper.lock.recovery'), stale);
+  await store.lock(async () => {});
+  assert.equal(await store.read('helper.lock.recovery'), null);
+  for (const record of ['', JSON.stringify({ pid: process.pid, nonce: 'live' })]) {
+    await writeFile(path.join(directory, 'helper.lock'), stale);
+    await writeFile(path.join(directory, 'helper.lock.recovery'), record);
+    await assert.rejects(store.lock(async () => assert.fail('must not acquire')));
+    assert.equal(await readFile(path.join(directory, 'helper.lock.recovery'), 'utf8'), record);
+  }
+}));
+
+test('dead connector permits resume without removing its lock; invalid connector fails closed', async () => fixtureDirectory(async directory => {
+  const store = await new PrivateStore(directory, { secureDirectory: localSecurity }).init();
+  const filename = path.join(directory, 'connector.lock');
+  const stale = JSON.stringify({ pid: 2147483647, nonce: 'dead-runtime' });
+  await writeFile(filename, stale);
+  await store.lock(async () => assert.equal(await readFile(filename, 'utf8'), stale));
+  await writeFile(filename, '{}');
+  await assert.rejects(store.lock(async () => assert.fail('must not run')), /STATE_LOCK_INVALID/);
+  assert.equal(await readFile(filename, 'utf8'), '{}');
+}));

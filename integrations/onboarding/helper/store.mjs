@@ -41,7 +41,7 @@ export class PrivateStore {
   constructor(directory, options = {}) { this.directory = path.resolve(directory); this.options = options; }
   async init() { await (this.options.secureDirectory ?? secureDirectory)(this.directory); return this; }
   filename(name) {
-    if (!['helper-state.json', 'session.json', 'helper.lock'].includes(name)) throw new Error('STATE_INVALID');
+    if (!['helper-state.json', 'session.json', 'helper.lock', 'helper.lock.recovery', 'connector.lock'].includes(name)) throw new Error('STATE_INVALID');
     return path.join(this.directory, name);
   }
   async read(name) {
@@ -83,15 +83,33 @@ export class PrivateStore {
         try { process.kill(owner.pid, 0); throw new Error('STATE_BUSY'); }
         catch (probe) {
           if (probe.code !== 'ESRCH') throw probe;
-          // Atomic rename claims exactly this stale lock. A competing contender
-          // must never delete a newly acquired successor's lock.
+          // Serialize dead-owner recovery separately, including recovery after
+          // a crash of the process that held this recovery lock.
           const recovery = `${filename}.recovery`;
-          const recoveryHandle = await open(recovery, 'wx', 0o600).catch(() => null);
+          let recoveryHandle = await open(recovery, 'wx', 0o600).catch(() => null);
+          if (!recoveryHandle) {
+            const prior = await this.read('helper.lock.recovery');
+            if (!Number.isSafeInteger(prior?.pid) || prior.pid <= 0 || typeof prior.nonce !== 'string' || !prior.nonce) throw new Error('STATE_LOCK_INVALID');
+            try { process.kill(prior.pid, 0); }
+            catch (probe) {
+              if (probe.code === 'ESRCH') {
+                const latest = await this.read('helper.lock.recovery');
+                if (latest?.nonce === prior.nonce) await rm(recovery);
+                recoveryHandle = await open(recovery, 'wx', 0o600).catch(() => null);
+              }
+            }
+          }
           if (!recoveryHandle) throw new Error('STATE_BUSY');
           try {
+            await recoveryHandle.writeFile(JSON.stringify({ pid: process.pid, nonce }));
+            await recoveryHandle.sync();
             const latest = await this.read('helper.lock');
             if (latest?.nonce === owner.nonce) await rm(filename);
-          } finally { await recoveryHandle.close(); await rm(recovery, { force: true }); }
+          } finally {
+            await recoveryHandle.close();
+            const latest = await this.read('helper.lock.recovery');
+            if (latest?.nonce === nonce) await rm(recovery, { force: true });
+          }
         }
       }
     }
@@ -99,8 +117,15 @@ export class PrivateStore {
     try {
       await handle.writeFile(JSON.stringify({ pid: process.pid, nonce })); await handle.sync();
       // A running legacy connector must never share the credential writer.
-      const connector = await lstat(path.join(this.directory, 'connector.lock')).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
-      if (connector && !allowConnector) throw new Error('STATE_BUSY');
+      if (!allowConnector) {
+        const connector = await this.read('connector.lock');
+        if (connector) {
+          if (!Number.isSafeInteger(connector.pid) || connector.pid <= 0 || typeof connector.nonce !== 'string' || !connector.nonce) throw new Error('STATE_LOCK_INVALID');
+          try { process.kill(connector.pid, 0); throw new Error('STATE_BUSY'); }
+          catch (probe) { if (probe.code !== 'ESRCH') throw probe; }
+          // Core owns reclamation of the dead connector's lock during adoption.
+        }
+      }
       return await operation();
     } finally {
       await handle.close();
