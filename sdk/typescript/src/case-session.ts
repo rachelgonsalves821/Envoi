@@ -68,7 +68,7 @@ export interface CaseSessionBinding {
   installationId?: string;
   workId: string;
   caseId: string;
-  workKind: 'agent_message' | 'human_instruction';
+  workKind: 'agent_message' | 'human_instruction' | 'human_decision';
   counterpartyAddress?: string;
   agentAddress: string;
 }
@@ -90,7 +90,7 @@ interface SessionRecord {
   workId: string;
   caseId: string;
   fence: number;
-  workKind: 'agent_message' | 'human_instruction';
+  workKind: 'agent_message' | 'human_instruction' | 'human_decision';
   counterparty: { kind: 'agent'; address: string } | { kind: 'human' };
   allowedTools: string[];
   createdAt: string;
@@ -126,7 +126,7 @@ function parseSession(payload: unknown, binding: CaseSessionBinding, origin: str
     || new Set(session.allowedTools).size !== session.allowedTools.length || session.allowedTools.some(tool => typeof tool !== 'string' || !caseTools.has(tool))
     || !object(session.counterparty) || !exact(payload.lease, ['workId', 'leaseExpiresAt'])
     || payload.lease.workId !== binding.workId || !timestamp(payload.lease.leaseExpiresAt) || Date.parse(payload.lease.leaseExpiresAt) <= Date.now()) throw invalid();
-  if (binding.workKind === 'agent_message') {
+  if (binding.workKind === 'agent_message' || binding.workKind === 'human_decision') {
     if (!exact(session.counterparty, ['kind', 'address']) || session.counterparty.kind !== 'agent'
       || typeof session.counterparty.address !== 'string' || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(session.counterparty.address)
       || session.counterparty.address !== binding.counterpartyAddress) throw invalid();

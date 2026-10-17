@@ -66,7 +66,34 @@ export interface HumanInstructionWorkMessage extends Record<string, unknown> {
   text: string;
 }
 
-export type WorkMessage = NativeWorkMessage | HumanInstructionWorkMessage;
+export interface HumanDecisionWorkMessage extends Record<string, unknown> {
+  id: string;
+  kind: 'humanDecision';
+  type: 'humanDecision';
+  inboxId: string;
+  caseId: string;
+  senderType: 'human' | 'system';
+  senderHumanId?: string;
+  from?: { humanId: string };
+  senderAgentId?: never;
+  senderInboxId?: never;
+  recipientInboxId: string;
+  recipientAgentId: string;
+  counterpartyAgentId: string;
+  counterpartyInboxId: string;
+  counterpartyAddress: string;
+  requestId: string;
+  policyEvaluationId: string;
+  action: 'proposal.accept' | 'case.complete';
+  outcome: 'approved' | 'declined' | 'expired';
+  text: string;
+  status: 'delivered';
+  createdAt: string;
+  deliveredAt: string;
+  updatedAt: string;
+}
+
+export type WorkMessage = NativeWorkMessage | HumanInstructionWorkMessage | HumanDecisionWorkMessage;
 
 export interface HumanInstructionReply extends Record<string, unknown> {
   id: string;
@@ -87,6 +114,32 @@ export interface HumanInstructionReply extends Record<string, unknown> {
 
 export function isHumanInstructionMessage(message: WorkMessage): message is HumanInstructionWorkMessage {
   return message.kind === 'humanInstruction';
+}
+
+export function isHumanDecisionMessage(message: WorkMessage): message is HumanDecisionWorkMessage {
+  return message.kind === 'humanDecision';
+}
+
+export function assertHumanDecisionMessage(message: HumanDecisionWorkMessage) {
+  const invalid = () => new EnvoiError('Envoi returned an invalid human decision');
+  const id = (value: unknown, prefix: string) => typeof value === 'string' && new RegExp(`^${prefix}[A-Za-z0-9_-]+$`).test(value);
+  const required = ['id', 'kind', 'type', 'inboxId', 'caseId', 'senderType', 'recipientInboxId', 'recipientAgentId', 'counterpartyAgentId',
+    'counterpartyInboxId', 'counterpartyAddress', 'requestId', 'policyEvaluationId', 'action', 'outcome', 'text', 'status', 'createdAt', 'deliveredAt', 'updatedAt'];
+  if (required.some(key => !Object.hasOwn(message, key)) || Object.keys(message).some(key => ![...required, 'senderHumanId', 'from'].includes(key))
+    || message.kind !== 'humanDecision' || message.type !== 'humanDecision' || !id(message.id, 'msg_') || !id(message.caseId, 'case_')
+    || !id(message.inboxId, 'inbox_') || message.inboxId !== message.recipientInboxId || !id(message.recipientAgentId, 'agent_')
+    || !id(message.counterpartyAgentId, 'agent_') || !id(message.counterpartyInboxId, 'inbox_')
+    || message.counterpartyAgentId === message.recipientAgentId || message.counterpartyInboxId === message.recipientInboxId
+    || typeof message.counterpartyAddress !== 'string' || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(message.counterpartyAddress)
+    || typeof message.requestId !== 'string' || !message.requestId || !id(message.policyEvaluationId, 'policy_eval_')
+    || !['proposal.accept', 'case.complete'].includes(message.action) || !['approved', 'declined', 'expired'].includes(message.outcome)
+    || typeof message.text !== 'string' || !message.text || [...message.text].length > 500 || message.status !== 'delivered'
+    || ['createdAt', 'deliveredAt', 'updatedAt'].some(key => typeof message[key] !== 'string' || !Number.isFinite(Date.parse(message[key] as string)))) throw invalid();
+  if (message.outcome === 'expired') {
+    if (message.senderType !== 'system' || 'senderHumanId' in message || 'from' in message) throw invalid();
+  } else if (message.senderType !== 'human' || !id(message.senderHumanId, 'human_') || !message.from
+    || typeof message.from !== 'object' || Array.isArray(message.from) || Object.keys(message.from).length !== 1
+    || message.from.humanId !== message.senderHumanId) throw invalid();
 }
 
 function assertHumanInstructionMessage(message: HumanInstructionWorkMessage) {
@@ -637,6 +690,7 @@ export class EnvoiConnector {
 
   private async createCaseSession(work: WorkLease, options: { signal?: AbortSignal; installationId?: string; onInvalidated?: (error: EnvoiError) => void }): Promise<CaseSessionChannel> {
     options.signal?.throwIfAborted();
+    if (isHumanDecisionMessage(work.message)) assertHumanDecisionMessage(work.message);
     if (!/^msg_[A-Za-z0-9_-]+$/.test(work.workId) || typeof work.leaseToken !== 'string' || work.leaseToken.length < 1 || work.leaseToken.length > 256
       || !work.message.caseId || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || Date.parse(work.leaseExpiresAt) <= Date.now()) throw new TypeError('A live case-bound work lease is required');
     await this.checkStatus();
@@ -644,6 +698,7 @@ export class EnvoiConnector {
     if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable; update the server before processing', 404, 'FEATURE_DISABLED');
     const identity = validSession(await this.store.load());
     if (work.message.recipientAgentId !== identity.agentId) throw new EnvoiError('Work belongs to another agent', undefined, 'CASE_SESSION_RESPONSE_INVALID');
+    if (isHumanDecisionMessage(work.message) && work.message.recipientInboxId !== identity.inboxId) throw new EnvoiError('Work belongs to another inbox', undefined, 'CASE_SESSION_RESPONSE_INVALID');
     const path = `/api/agent/work/${encodeURIComponent(work.workId)}/session`;
     const payload = await this.postWork<unknown>(path, { leaseToken: work.leaseToken }, undefined, options.signal, true);
     options.signal?.throwIfAborted();
@@ -651,8 +706,8 @@ export class EnvoiConnector {
     channel = new CaseSessionChannel(payload, {
       agentId: identity.agentId, installationId: options.installationId,
       workId: work.workId, caseId: work.message.caseId,
-      workKind: isHumanInstructionMessage(work.message) ? 'human_instruction' : 'agent_message',
-      counterpartyAddress: work.message.from.address, agentAddress: identity.address
+      workKind: isHumanInstructionMessage(work.message) ? 'human_instruction' : isHumanDecisionMessage(work.message) ? 'human_decision' : 'agent_message',
+      counterpartyAddress: isHumanDecisionMessage(work.message) ? work.message.counterpartyAddress : work.message.from.address, agentAddress: identity.address
     }, {
       origin: this.origin, fetch: this.options.fetch, timeoutMs: this.options.timeoutMs,
       signal: options.signal, assertActive: () => this.guard(true),
@@ -667,6 +722,7 @@ export class EnvoiConnector {
   }
 
   private async reply(message: WorkMessage, text: string, idempotencyKey: string, extra: Omit<NativeMessageInput, 'senderAgentId' | 'recipientEmail' | 'text' | 'caseId'> = {}, leaseToken?: string): Promise<unknown> {
+    if (isHumanDecisionMessage(message)) throw new EnvoiError('Human decisions require the scoped tool channel', undefined, 'LEGACY_MODEL_ACCESS_DISABLED');
     if (isHumanInstructionMessage(message)) {
       assertHumanInstructionMessage(message);
       if (!idempotencyKey || idempotencyKey.length > 200 || /[\x00-\x1f\x7f]/.test(idempotencyKey)) throw new TypeError('A stable reply idempotency key is required');
@@ -734,7 +790,11 @@ export class EnvoiConnector {
       throw new EnvoiError('Envoi returned an invalid work claim');
     }
     const session = validSession(await this.store.load());
-    if (isHumanInstructionMessage(work.message)) {
+    if (isHumanDecisionMessage(work.message)) {
+      if (!scoped) throw new EnvoiError('Human decisions require a scoped runtime', undefined, 'FEATURE_DISABLED');
+      assertHumanDecisionMessage(work.message);
+      if (work.message.recipientInboxId !== session.inboxId || work.message.id !== work.workId) throw new EnvoiError('Envoi returned work for the wrong inbox');
+    } else if (isHumanInstructionMessage(work.message)) {
       assertHumanInstructionMessage(work.message);
       if (work.message.recipientInboxId !== session.inboxId) throw new EnvoiError('Envoi returned work for the wrong inbox');
     } else if (work.message.senderType === 'human' || 'senderHumanId' in work.message || (work.message.from && 'humanId' in work.message.from) || !work.message.from?.address) {
