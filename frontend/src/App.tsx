@@ -11,6 +11,11 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl, setExpectedHuman } from './api';
 import LandingPage from './LandingPage';
+import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
+import { ClaimPage } from './onboarding/ClaimPage';
+import { OwnerClaims } from './onboarding/OwnerClaims';
+import { AgentInstallations } from './onboarding/AgentInstallations';
+import { claimSignInPath } from './onboarding/connect-state';
 import { CsrfReloadBoundary, createHumanStreamRecovery } from './browser-session-recovery';
 import { AgentRemovalDialogContent } from './AgentRemovalDialog';
 import { CreateInboxFolderContent, MoveInboxCaseContent } from './InboxFolderDialogs';
@@ -108,7 +113,7 @@ previewView.caseQueue = previewView.cases.map(workCase => {
 return { ...workCase, inboxPreference, collaborationMode, stateLabel: STATE_META[state].label, stateTone: STATE_META[state].tone, bucket, needsAttention: bucket === 'needsMe', nextActor: STATE_META[state].description, contextualDetail: STATE_META[state].description, decision: bucket === 'needsMe' ? { question: policy ? `${humanize(policy.requestedAction)} needs your approval.` : 'Your agents need your judgment before they continue.', policyEvaluationId: policy?.id || null, requestedAction: policy?.requestedAction || null, grantType: policy?.grantType || null, expiresAt: policy?.expiresAt || null, availableActions: state === 'waitingForHuman' || state === 'tentativeHold' ? ['approveOnce', 'editProposal', 'decline', 'takeOver'] : ['takeOver', 'pause'] } : null };
 });
 export default function App() {
-  return <CsrfReloadBoundary><WorkspaceApp /></CsrfReloadBoundary>;
+  return <CsrfReloadBoundary>{typeof window !== 'undefined' && window.location.pathname === '/connect' ? <ConnectPage /> : <WorkspaceApp />}</CsrfReloadBoundary>;
 }
 
 function WorkspaceApp() {
@@ -539,7 +544,7 @@ function WorkspaceApp() {
   if (isPreview) return <AppShell config={{ provider: 'local', hosted: false }} human={previewHuman} organizations={[]} workspaces={[previewWorkspace]} workspace={previewWorkspace} view={previewView} onSelectWorkspace={async () => undefined} onRefresh={async () => previewView} onLogout={async () => undefined} syncNotice="" />;
   if (boot === 'loading') return <LoadingScreen checking={hadAuthenticatedSession.current || signingOut.current} onLogout={hadAuthenticatedSession.current && !signingOut.current ? () => { void logout(); } : undefined} />;
   if (boot === 'signedOut' && config) return config.provider === 'workos'
-    ? <LandingPage signInPath={config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
+    ? <LandingPage signInPath={window.location.pathname === '/claim' ? claimSignInPath(config.signInPath || '/api/auth/workos/sign-in') : config.signInPath || '/api/auth/workos/sign-in'} notice={authNotice} />
     : <AuthScreen config={config} notice={authNotice} resumePhoneSession={human?.auth?.assurance === 'phone' ? human.mfaSetupRequired : undefined} onAuthenticated={async () => { endedElsewhere.current = false; await loadAccount(); }} />;
   if (boot === 'setup' && human) return <><SignOutControl onLogout={() => { void logout(); }} /><WorkspaceSetup human={human} onCreate={async name => { checkRenderedSession(); await createWorkspace(name); }} /></>;
   if (boot === 'error') return <FailureScreen message={error} title={signingOut.current ? 'Sign out incomplete' : undefined} retryLabel={signingOut.current ? 'Retry sign out' : undefined} onRetry={signingOut.current ? logout : loadAccount} onLogout={signingOut.current || hadAuthenticatedSession.current ? () => { void logout(); } : undefined} />;
@@ -558,6 +563,7 @@ function WorkspaceApp() {
       syncNotice={syncNotice}
       onLoadOlder={async () => { checkRenderedSession(); await loadOlder(); }}
       historyBusy={historyBusy}
+      claimRoute={window.location.pathname === '/claim'}
       initialSection={requestedSection}
       onSelectWorkspace={async (next, nextSection = 'inbox') => { checkRenderedSession(); setRequestedSection(nextSection); await selectWorkspace(next); }}
       onPreferenceUpdated={(inboxId, caseId, preference) => {
@@ -732,6 +738,7 @@ interface ShellProps {
   config: AuthConfig; human: Human; organizations: Organization[]; workspaces: Workspace[];
   workspace: Workspace; view: HumanView; onSelectWorkspace: (workspace: Workspace, section?: NavSection) => Promise<void>;
   initialSection?: NavSection;
+  claimRoute?: boolean;
   onPreferenceUpdated?: (inboxId: string, caseId: string, preference: InboxPreference) => void;
   onRefresh: () => Promise<unknown>; onLogout: () => Promise<void>; syncNotice: string;
   onLoadOlder?: () => Promise<void>; historyBusy?: boolean;
@@ -923,10 +930,10 @@ export function AppShell(props: ShellProps) {
         </div>
       </aside>
 
-      <section className={`application ${utilitySection ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
+      <section className={`application ${utilitySection || props.claimRoute ? 'utility-layout' : ''} ${syncNotice ? 'has-sync-notice' : ''}`}>
         {syncNotice && <div className="sync-notice" role="status"><AlertCircle size={16} /><span>{syncNotice}</span></div>}
 
-        {utilitySection ? (
+        {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} workspaces={workspaces.filter(item => item.kind !== 'agent')} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/'); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
 {section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} />}
@@ -948,6 +955,11 @@ export function AppShell(props: ShellProps) {
       {folderDialogOpen && <Modal title="Create folder" dismissible={!folderBusy} onClose={() => setFolderDialogOpen(false)}><CreateInboxFolderContent busy={folderBusy} error={folderError} onClose={() => setFolderDialogOpen(false)} onCreate={name => void createFolder(name)} /></Modal>}
     </div>
   );
+}
+
+function ClaimWorkspace({ humanId, workspaces, entries, onRefresh, onSelectAgent }: { humanId: string; workspaces: Workspace[]; entries: AgentEntry[]; onRefresh: () => Promise<unknown>; onSelectAgent: (agentId: string, address?: string) => Promise<void> }) {
+  const [revision, setRevision] = useState(0);
+  return <><ClaimPage humanId={humanId} workspaces={workspaces} agents={entries.filter(entry => entry.inbox.kind === 'agent').map(entry => ({ ...entry.agent, inboxId: entry.inbox.id }))} onComplete={async () => { setRevision(value => value + 1); await onRefresh(); }} onBack={() => window.location.assign('/')} /><OwnerClaims key={`${humanId}:${revision}`} humanId={humanId} onSelectAgent={(agentId, address) => { void onSelectAgent(agentId, address); }} /></>;
 }
 
 const AGENT_COLORS = ['var(--accent)', 'var(--agent-purple)', 'var(--green)', 'var(--orange)', 'var(--agent-teal)', 'var(--red)', 'var(--ink2)'];
@@ -1429,8 +1441,10 @@ function PoliciesPage({ entries }: { entries: AgentEntry[] }) {
 function IntegrationsPage({ view, workspace, entries, humanId, canManageInbox, onSelectWorkspace, onPermissions, onRefresh, onRefreshAgent, notify }: { view: HumanView; workspace: Workspace; entries: AgentEntry[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onPermissions: () => void; onRefresh: () => Promise<unknown>; onRefreshAgent: (inboxId: string) => Promise<void>; notify: (message: string) => void }) {
   const [enrollment, setEnrollment] = useState<EnrollmentResult | null>(null);
   const [open, setOpen] = useState(false);
-  return <div className="agents-page"><div className="agents-heading"><div><h1>Agents</h1><p>Your agents and their inboxes.</p></div>{canManageInbox && <button className="button primary" onClick={() => setOpen(true)}><Plus size={16} />Add agent</button>}</div>
-{entries.length ? <div className="integration-grid">{entries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}{canManageInbox && <button className="add-agent-tile" onClick={() => setOpen(true)}><Plus size={22} /><span>Add an agent</span></button>}</div> : <PageEmpty icon={<Bot />} title="No agents yet" body="Add an agent to get started." action={canManageInbox ? <button className="button primary" onClick={() => setOpen(true)}>Add agent</button> : undefined} />}
+  return <div className="agents-page"><div className="agents-heading"><div><h1>Agents</h1><p>Your agents and their inboxes.</p></div>{canManageInbox && <ConnectionActions />}</div>
+    {canManageInbox && <><OwnerClaims key={humanId} humanId={humanId} onSelectAgent={(agentId, address) => { const entry = entries.find(item => item.inbox.kind === 'agent' && (item.agent.id === agentId || item.agent.address === address)); if (entry) void onSelectWorkspace(entry.inbox); }} /></>}
+    {canManageInbox && <details className="onboarding-advanced"><summary>Advanced · Quick Connect</summary><p>Legacy setup and frozen-agent re-onboarding.</p><button className="button secondary" onClick={() => setOpen(true)}>Add agent with Quick Connect</button></details>}
+{entries.length ? <div className="integration-grid">{entries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <PageEmpty icon={<Bot />} title="No agents yet" body="Connect your agent from its trusted runtime host." action={canManageInbox ? <a className="button primary" href="/connect">Connect an agent</a> : undefined} />}
     {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </div>;
 }
@@ -1497,7 +1511,7 @@ function ApprovedContacts({ emailTransport, error, workspace, canManageInbox, on
 
 export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTransport, onRefresh, notify, color = 'var(--accent)', cases = [], onOpenInbox, onPermissions }: { agent: Agent; workspace: Workspace; humanId: string; canManageInbox: boolean; emailTransport: EmailTransportStatus | null; onRefresh: () => Promise<unknown>; notify: (message: string) => void; color?: string; cases?: WorkCase[]; onOpenInbox?: () => void; onPermissions?: () => void }) {
   const pending = agent.onboardingStatus === 'pending_approval';
-  const frozen = agent.status === 'revoked' || agent.credentialRevoked === true;
+  const frozen = agent.status === 'revoked' || agent.onboardingStatus === 'revoked';
   const canApproveAgent = canManageInbox || (agent.principalHumanId || workspace.ownerHumanId) === humanId;
   const [credential, setCredential] = useState('');
   const [approvalOpen, setApprovalOpen] = useState(false);
@@ -1575,12 +1589,12 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
   }
   return <article className="integration-card">
     <div className="integration-heading"><span className="agent-card-avatar" style={{ background: color }}>{initials(agent.name)}</span><div><h2>{agent.name}</h2><span className="verified-address" title={platformAddress}>{platformAddress}<CopyButton value={platformAddress} label={`Copy ${agent.name} address`} /></span></div><span className="agent-presence">{agentLabel(agent)} · {connectionLabel(agent.connection)}</span></div>
-    {approvedAccess ? <><div className="agent-stats"><div><strong>{agentCases.filter(item => caseState(item) !== 'completed').length}</strong><span>Open cases</span></div><div><strong>{agentCases.filter(item => item.needsAttention).length}</strong><span>Need you</span></div></div><div className="capability-list">{agent.permissions.slice(0,4).map(item => <span key={item}>{humanize(item)}</span>)}</div></> : <div className="agent-setup"><strong>Step {Math.min(7,completedSteps + 1)} of 7: {setupSteps[Math.min(6, completedSteps)][0]}</strong>{frozen && <span>No permissions active</span>}<div className="agent-progress" role="progressbar" aria-valuenow={completedSteps} aria-valuemin={0} aria-valuemax={7}><span style={{ width: `${completedSteps / 7 * 100}%` }} /></div><button className="button secondary" onClick={() => pending ? setApprovalOpen(true) : setReconnectOpen(true)} disabled={pending ? !canApproveAgent : !canManageInbox}>{frozen ? 'Re-onboard' : pending && canApproveAgent ? 'Review agent access' : 'Continue'}</button><button className="agent-steps-toggle" aria-expanded={showSteps} onClick={() => setShowSteps(value => !value)}>{showSteps ? 'Hide steps' : 'Show all steps'}</button>{showSteps && <ol className="agent-steps">{setupSteps.map(([name, complete]) => <li key={name}>{complete ? <Check size={13} /> : <span className="step-empty" />}{name}</li>)}</ol>}</div>}
+    {approvedAccess ? <><div className="agent-stats"><div><strong>{agentCases.filter(item => caseState(item) !== 'completed').length}</strong><span>Open cases</span></div><div><strong>{agentCases.filter(item => item.needsAttention).length}</strong><span>Need you</span></div></div><div className="capability-list">{agent.permissions.slice(0,4).map(item => <span key={item}>{humanize(item)}</span>)}</div></> : <div className="agent-setup"><strong>Step {Math.min(7,completedSteps + 1)} of 7: {setupSteps[Math.min(6, completedSteps)][0]}</strong>{frozen && <span>No permissions active</span>}<div className="agent-progress" role="progressbar" aria-valuenow={completedSteps} aria-valuemin={0} aria-valuemax={7}><span style={{ width: `${completedSteps / 7 * 100}%` }} /></div>{pending && canApproveAgent ? <button className="button secondary" onClick={() => setApprovalOpen(true)}>Review agent access</button> : !pending && agent.status !== 'revoked' && canManageInbox ? <a className="button secondary" href="/connect">Connect runtime</a> : null}<button className="agent-steps-toggle" aria-expanded={showSteps} onClick={() => setShowSteps(value => !value)}>{showSteps ? 'Hide steps' : 'Show all steps'}</button>{showSteps && <ol className="agent-steps">{setupSteps.map(([name, complete]) => <li key={name}>{complete ? <Check size={13} /> : <span className="step-empty" />}{name}</li>)}</ol>}</div>}
     <div className="agent-card-actions"><button className="button secondary" onClick={onOpenInbox} disabled={!onOpenInbox}>Open inbox</button><button className="button secondary" onClick={onPermissions} disabled={!onPermissions}>Permissions</button></div>
     {revokeResult && frozen && <InlineNotice title="Agent frozen" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. Re-onboarding requires a new human-approved token. The agent identity and conversation history remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
     {pauseError && <InlineNotice title="Agent control failed" body={pauseError} tone="unknown" />}
-    {canManageInbox && <details className="agent-more"><summary>More</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status) && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.paused)}>{agent.paused ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}<button className="danger" onClick={() => { setRemovalError(''); setRemovalOpen(true); }}>Remove agent</button>{publicEmailAddress && <span>{publicEmailAddress}</span>}</div></details>}
+    {canManageInbox && <details className="agent-more"><summary>Advanced</summary><div>{pending && canApproveAgent && <button onClick={() => setApprovalOpen(true)}>Approve access</button>}{!frozen && agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status) && <button disabled={pauseBusy} onClick={() => void setPaused(!agent.paused)}>{agent.paused ? 'Resume agent' : 'Pause agent'}</button>}{!frozen && agent.onboardingStatus === 'approved' && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Reconnect runtime</button>}{frozen && <button onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Re-onboard agent</button>}{!frozen && agent.onboardingStatus === 'approved' && <button className="danger" onClick={() => { setRevokeError(''); setRevokeOpen(true); }}>Revoke agent access</button>}<button className="danger" onClick={() => { setRemovalError(''); setRemovalOpen(true); }}>Remove agent</button>{publicEmailAddress && <span>{publicEmailAddress}</span>}</div></details>}
     {removalOpen && canManageInbox && <Modal title={`Remove ${agent.name}?`} onClose={() => setRemovalOpen(false)} dismissible={!removalBusy}>
       <AgentRemovalDialogContent agentName={agent.name} busy={removalBusy} error={removalError} onClose={() => setRemovalOpen(false)} onConfirm={(deleteHistory, confirmation) => void removeAgent(deleteHistory, confirmation)} />
     </Modal>}
@@ -1595,6 +1609,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       <FormError message={revokeError} />
       <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep access</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Freezing…' : 'Freeze agent'}</button></div>
     </Modal>}
+    {workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && (agent.onboardingStatus === 'approved' || frozen) && <AgentInstallations key={`${humanId}:${agent.id}`} humanId={humanId} inboxId={workspace.id} agent={agent} canManage={canManageInbox} onReconnect={() => window.location.assign('/connect')} onRefresh={async () => { await onRefresh(); }} />}
     {reconnectOpen && canManageInbox && <EnrollmentDialog workspace={workspace} reconnectAgent={agent} result={reconnectResult} setResult={setReconnectResult} onRefresh={onRefresh} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} />}
   </article>;
 }

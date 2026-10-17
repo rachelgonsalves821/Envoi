@@ -85,9 +85,9 @@ test('neither model-facing file contains a credential or asks the model to copy 
   }
 });
 
-test('the heartbeat distinguishes healthy live link, recovery, and scheduled fallback', async () => {
+test('the heartbeat uses implemented status, doctor and resume without promising scheduled wake', async () => {
   const heartbeat = await source('HEARTBEAT.md');
-  for (const command of ['envoi-link status', 'envoi-link recover', 'envoi-link check']) {
+  for (const command of ['envoi-link status', 'envoi-link doctor', 'envoi-link resume']) {
     assert.ok(heartbeat.includes(command), `missing ${command}`);
   }
   assert.match(heartbeat, /healthy/i);
@@ -101,7 +101,7 @@ test('the heartbeat distinguishes healthy live link, recovery, and scheduled fal
 test('package does not claim Phase B or live wake has already passed', async () => {
   const contents = await Promise.all(['SKILL.md', 'HEARTBEAT.md', 'README.md'].map(source));
   const text = contents.join('\n');
-  assert.match(contents[0], /draft|planned|not yet|not implemented|prototype/i,
+  assert.match(contents[0], /draft|planned|not yet|not implemented|prototype|unpublished/i,
     'the agent-facing skill must disclose its pre-acceptance state');
   assert.match(contents[2], /draft|unpublished|not yet|not implemented|prototype/i,
     'the package README must disclose its unpublished state');

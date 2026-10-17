@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { lifecyclePolicy } from '../../sdk/typescript/src/lifecycle';
-import { EnvoiError } from '../../sdk/typescript/src/index';
+import { EnvoiError, responsePayload } from '../../sdk/typescript/src/index';
 import { enrollConnector, EnvoiConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
 import { CONNECTOR_RUNTIMES, quickConnectOrigin, validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { FileBridgeStore } from '../agent-bridges/file-store';
@@ -24,6 +24,7 @@ export interface InstalledConnection {
   agentName: string;
   configuration: unknown;
   lastReconnectId?: string;
+  activationSetup?: { completionId: string; installationId: string; agentId?: string; inboxId?: string };
 }
 export interface SetupOptions extends AdapterOptions {
   stateDir?: string;
@@ -178,6 +179,198 @@ export async function setupConnection(input: unknown, resolveAdapter: AdapterRes
       error instanceof ConnectorSetupError ? error.code : 'CONNECTION_TEST_FAILED').catch(() => {});
     throw error;
   } finally { try { await bridge?.close(); } finally { await unlock(); } }
+}
+
+/** Private activation handoff. Never accepts a bootstrap token or calls legacy enrollment. */
+export interface ActivatedConnection {
+  installation: { id: string; agentId: string; connectionRoute: string; deliveryMode: string;
+    runtime: { type: string; version: string | null }; status: string; legacy: boolean };
+  agent: { id: string; name: string; address: string; status: string };
+  inboxId: string;
+  effectivePermissions: string[];
+  agentApiToken: string;
+  agentRefreshToken: string;
+  agentTokenExpiresAt: string;
+  agentRefreshTokenExpiresAt: string;
+  tokenType: 'Bearer';
+}
+
+export interface ActivatedSetupOptions extends SetupOptions { completionId: string }
+
+export async function adoptActivatedConnection(apiUrl: string, runtime: ConnectorRuntime, activation: ActivatedConnection,
+  resolveAdapter: AdapterResolver, options: ActivatedSetupOptions) {
+  const origin = quickConnectOrigin(apiUrl);
+  const validText = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
+  if (!['hermes', 'openclaw'].includes(runtime) || !activation || !validText(options.completionId)
+    || !activation.installation || activation.installation.runtime?.type !== runtime
+    || activation.installation.connectionRoute !== 'local_helper' || activation.installation.deliveryMode !== 'envoi_link'
+    || activation.installation.status !== 'active' || activation.installation.legacy !== false
+    || !validText(activation.installation.id) || !activation.agent || activation.installation.agentId !== activation.agent.id
+    || !['active', 'paused'].includes(activation.agent.status)
+    || !['id', 'name', 'address'].every(key => validText(activation.agent[key as keyof ActivatedConnection['agent']]))
+    || !validText(activation.inboxId) || !validText(activation.agentApiToken) || !validText(activation.agentRefreshToken)
+    || !Number.isFinite(Date.parse(activation.agentTokenExpiresAt)) || !Number.isFinite(Date.parse(activation.agentRefreshTokenExpiresAt))
+    || activation.tokenType !== 'Bearer' || !Array.isArray(activation.effectivePermissions)
+    || activation.effectivePermissions.some(permission => !validText(permission))) {
+    throw new ConnectorSetupError('ACTIVATION_INVALID', 'The private activation handoff is invalid; preserve saved state for recovery');
+  }
+  const directory = await (options.secureDirectory ?? privateDirectory)(options.stateDir ?? connectionDirectory(origin, activation.agent.address, runtime, options));
+  const unlock = await acquireConnectorLock(directory);
+  let bridge: RuntimeBridge | undefined;
+  try {
+    const store = new FileBridgeStore(directory); await store.init();
+    const session = await savedSession(directory) as (ConnectorSession & {
+      _onboarding?: { completionId: string; origin: string; runtime: { type: string }; installation: { id: string };
+        previousCompletionId?: string; previousInstallationId?: string; previousAgentId?: string; previousInboxId?: string; previousAddress?: string }
+    }) | null;
+    const prior = await readConnection(directory).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    });
+    const previous = session?._onboarding;
+    const replacingPrior = !!prior?.activationSetup && !!previous
+      && previous.previousCompletionId === prior.activationSetup.completionId
+      && previous.previousInstallationId === prior.activationSetup.installationId
+      && previous.previousCompletionId !== options.completionId && previous.previousInstallationId !== activation.installation.id
+      && previous.previousAgentId === activation.agent.id && previous.previousInboxId === activation.inboxId
+      && previous.previousAddress === activation.agent.address && previous.previousAddress === prior.address
+      && (!prior.activationSetup.agentId || prior.activationSetup.agentId === activation.agent.id)
+      && (!prior.activationSetup.inboxId || prior.activationSetup.inboxId === activation.inboxId);
+    if (prior && (prior.apiUrl !== origin || prior.runtime !== runtime || prior.address !== activation.agent.address
+        || !replacingPrior && (prior.activationSetup?.installationId !== activation.installation.id || prior.activationSetup?.completionId !== options.completionId))
+      || session && (session.agentId !== activation.agent.id || session.inboxId !== activation.inboxId || session.address !== activation.agent.address
+        || session._onboarding?.completionId !== options.completionId || session._onboarding?.installation?.id !== activation.installation.id
+        || session._onboarding?.origin !== origin || session._onboarding?.runtime?.type !== runtime)) {
+      throw new ConnectorSetupError('STATE_MISMATCH', 'This directory belongs to another installation; preserve it and use its original private handoff');
+    }
+    if (prior && !session) throw new ConnectorSetupError('STATE_INVALID', 'Saved configuration has lost its credentials; preserve this directory for recovery');
+    if (!session) {
+      // The completion identity and operational credentials become durable together.
+      // Retries preserve later rotations, pendingRotation, cursors and terminal state.
+      await privateJson(path.join(directory, 'session.json'), {
+        agentId: activation.agent.id, inboxId: activation.inboxId, address: activation.agent.address, cursor: null,
+        agentApiToken: activation.agentApiToken, agentRefreshToken: activation.agentRefreshToken,
+        agentTokenExpiresAt: activation.agentTokenExpiresAt, agentRefreshTokenExpiresAt: activation.agentRefreshTokenExpiresAt,
+        tokenType: activation.tokenType,
+        ...(activation.agent.status === 'paused' ? { lifecycle: { state: 'PAUSED', paused: true, failures: 0, changedAt: new Date().toISOString() } } : {}),
+        _onboarding: { completionId: options.completionId, origin, runtime: activation.installation.runtime, agent: activation.agent, installation: activation.installation,
+          effectivePermissions: activation.effectivePermissions }
+      });
+    }
+    const fetcher = noRedirectFetch(options.fetch);
+    const startup = new EnvoiConnector(origin, store, { fetch: fetcher });
+    // A saved revocation/reconnect requirement stops before any service or runtime call.
+    await startup.start();
+    await startup.checkStatus();
+    if (options.installService) await checkServiceManager();
+    const adapter = resolveAdapter(runtime);
+    const context = { ...options, apiUrl: origin, stateDir: directory, fetch: fetcher };
+    options.onProgress?.(`Preparing ${runtime}`);
+    const configuration = await adapter.discover(context, prior?.configuration);
+    await adapter.preflight(configuration, context);
+    const saved: InstalledConnection = { version: 1, runtime, apiUrl: origin, address: activation.agent.address,
+      agentName: activation.agent.name, configuration,
+      activationSetup: { completionId: options.completionId, installationId: activation.installation.id,
+        agentId: activation.agent.id, inboxId: activation.inboxId } };
+    // A crash during adapter configuration resumes using this same installation.
+    await privateJson(path.join(directory, 'connection.json'), saved);
+    await saveExecutable(directory, options.executableFile);
+    await adapter.configure?.(configuration, context);
+    await privateJson(path.join(directory, 'connection.json'), saved);
+    bridge = await adapter.createBridge(configuration, context);
+    await bridge.connector.start();
+    await bridge.connector.checkStatus();
+    const paused = (await bridge.connector.lifecycle()).paused;
+    if (!paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
+    const checks = paused ? 'deferred_while_paused' as const : 'passed' as const;
+    await privateJson(path.join(directory, 'setup-check.json'), { runtime, checkedAt: new Date().toISOString(), checks });
+    return { stateDir: directory, runtime, address: activation.agent.address, agentId: activation.agent.id, checks };
+  } finally { try { await bridge?.close(); } finally { await unlock(); } }
+}
+
+export interface OperationalStatusContext {
+  origin: string;
+  runtime: { type: string; version?: string | null };
+  stateDirectory: string;
+  completionId: string;
+}
+export interface OperationalAgentStatus extends Record<string, unknown> {
+  state: 'active' | 'paused';
+  agent: { id: string; address?: string; status?: string };
+  inboxId: string;
+  installation: { id: string; connectionRoute: string; deliveryMode: string; legacy: boolean };
+}
+
+/** Private authenticated status: never starts a runtime or competes with its refresh. */
+export async function operationalConnectionStatus(context: OperationalStatusContext,
+  options: { fetch?: typeof fetch; queryControl?: typeof queryControl } = {}): Promise<OperationalAgentStatus> {
+  const origin = quickConnectOrigin(context.origin);
+  const directory = path.resolve(context.stateDirectory);
+  const store = new FileBridgeStore(directory);
+  type MarkedSession = ConnectorSession & { _onboarding?: { completionId: string; origin: string; runtime: { type: string };
+    agent: { id: string; address: string }; installation: { id: string; agentId: string; connectionRoute: string; deliveryMode: string; legacy: boolean } } };
+  const sessionForStatus = async () => {
+    const session = await savedSession(directory) as MarkedSession | null;
+    const marker = session?._onboarding;
+    if (!session || !marker || marker.completionId !== context.completionId || marker.origin !== origin
+      || marker.runtime?.type !== context.runtime.type || !['hermes', 'openclaw'].includes(context.runtime.type)
+      || marker.agent?.id !== session.agentId || marker.agent?.address !== session.address
+      || marker.installation?.agentId !== session.agentId || typeof marker.installation?.id !== 'string' || !marker.installation.id) {
+      throw new ConnectorSetupError('STATE_MISMATCH', 'Saved credentials do not match this private installation');
+    }
+    return session;
+  };
+  const validateStatus = (value: unknown, session: MarkedSession): OperationalAgentStatus => {
+    const status = value as OperationalAgentStatus | null;
+    const installation = session._onboarding!.installation;
+    if (!status || !['active', 'paused'].includes(status.state) || status.agent?.id !== session.agentId
+      || status.inboxId !== session.inboxId || status.agent.address !== session.address
+      || status.installation?.id !== installation.id || status.installation.connectionRoute !== installation.connectionRoute
+      || status.installation.deliveryMode !== installation.deliveryMode || status.installation.legacy !== installation.legacy) {
+      throw new ConnectorSetupError('STATE_MISMATCH', 'Envoi status does not match this private installation');
+    }
+    return status;
+  };
+  await sessionForStatus();
+  const fetcher = noRedirectFetch(options.fetch);
+  const guard = new EnvoiConnector(origin, store, { fetch: fetcher, timeoutMs: 10_000 });
+  // Terminal state is checked even before querying the local control listener.
+  await guard.assertActive();
+  let live: Record<string, unknown> | null = null;
+  try { live = await (options.queryControl ?? queryControl)(directory, 'status'); }
+  catch (error) { if (error instanceof ConnectorSetupError && error.code === 'CONTROL_INVALID') throw error; }
+  if (live) {
+    const request = async (session: MarkedSession) => {
+      await guard.assertActive();
+      let response: Response;
+      try { response = await fetcher(`${origin}/api/agent/status`, { credentials: 'omit', redirect: 'error',
+        headers: { authorization: `Bearer ${session.agentApiToken}` }, signal: AbortSignal.timeout(10_000) }); }
+      catch { throw new EnvoiError('Envoi status could not be reached', undefined, 'NETWORK_ERROR'); }
+      return validateStatus(await responsePayload<unknown>(response, 'Envoi status failed'), session);
+    };
+    const session = await sessionForStatus();
+    try { return await request(session); }
+    catch (error) {
+      if (!(error instanceof EnvoiError) || error.code !== 'ACCESS_TOKEN_EXPIRED') throw error;
+      const replacement = await sessionForStatus();
+      if (replacement.agentApiToken === session.agentApiToken) throw error;
+      // Only the foreground owner can rotate. Read its successor once, without writes.
+      return await request(replacement);
+    }
+  }
+  const unlock = await acquireConnectorLock(directory);
+  try {
+    await sessionForStatus();
+    let actualStatus: unknown;
+    const connector = new EnvoiConnector(origin, store, { timeoutMs: 10_000, fetch: async (input, init) => {
+      const response = await fetcher(input, init);
+      if (String(input) === `${origin}/api/agent/status` && response.ok) actualStatus = await response.clone().json();
+      return response;
+    } });
+    await connector.start();
+    await connector.checkStatus();
+    return validateStatus(actualStatus, await sessionForStatus());
+  } finally { await unlock(); }
 }
 
 export async function startConnection(stateDir: string, signal: AbortSignal, resolveAdapter: AdapterResolver,

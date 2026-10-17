@@ -3,9 +3,9 @@
   "version": "0.0.0-draft",
   "private": true,
   "type": "module",
-  "description": "Unpublished, contract-blocked Envoi agent onboarding helper skeleton",
+  "description": "Private Envoi registration, confirmation and activation helper",
   "bin": {
-    "envoi-link": "./envoi-link.mjs"
+    "envoi-link": "./dist/envoi-link.mjs"
   },
   "files": [
     "README.md",
@@ -13,6 +13,9 @@
     "host-plan.mjs",
     "skill/*.md",
     "skill/skill.json",
-    "profiles/unverified-host.json"
+    "profiles/unverified-host.json",
+    "helper/*.mjs",
+    "dist/*.mjs",
+    "dist/private-release.json"
   ]
 }

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isHumanInstructionMessage, type ConnectorSession, type ConnectorStore, type WorkMessage } from '../../sdk/typescript/src/connector';
@@ -22,8 +22,16 @@ export class FileBridgeStore implements ConnectorStore, BridgeLedger {
 
   private async replaceJson(filename: string, value: unknown) {
     const temporary = `${filename}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
-    await rename(temporary, filename);
+    try {
+      const handle = await open(temporary, 'wx', 0o600);
+      try { await handle.writeFile(JSON.stringify(value)); await handle.sync(); }
+      finally { await handle.close(); }
+      await rename(temporary, filename);
+      if (process.platform !== 'win32') {
+        const parent = await open(path.dirname(filename), 'r');
+        try { await parent.sync(); } finally { await parent.close(); }
+      }
+    } finally { await rm(temporary, { force: true }); }
   }
 
   load() { return this.readJson<ConnectorSession>(path.join(this.directory, 'session.json')); }

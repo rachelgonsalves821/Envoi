@@ -11,6 +11,8 @@ import './styles/tokens.css';
 import './styles/app.css';
 import './styles/envoi-app.css';
 import './styles/landing.css';
+import './onboarding/connect.css';
+import './onboarding/claim.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode><App /></React.StrictMode>
