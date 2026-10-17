@@ -1,0 +1,40 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-create-auth-unavailable",
+  "kind": "http",
+  "description": "a3 AUTH_UNAVAILABLE on create (§3.1 row 4, a3 §2).",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "agent_access",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.com/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 503,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AUTH_UNAVAILABLE",
+      "error": "AUTH_UNAVAILABLE",
+      "message": "Authentication is temporarily unavailable.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "service_unavailable",
+    "next": "Retry with backoff."
+  }
+}

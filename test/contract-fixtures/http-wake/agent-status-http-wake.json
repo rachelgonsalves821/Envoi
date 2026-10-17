@@ -3,7 +3,7 @@
   "version": 1,
   "id": "agent-status-http-wake",
   "kind": "http",
-  "description": "Agent status reports HTTPS wake availability additively (§1).",
+  "description": "Agent status reports wake availability and this installation's subscription additively (§1, §9). The host reads it at startup and on every safety poll (§7.4).",
   "flags": {
     "ENVOI_HTTP_WAKE_V1": true,
     "ENVOI_INSTALLATIONS_V2": true
@@ -43,7 +43,13 @@
       },
       "httpWake": {
         "available": true,
-        "version": 1
+        "version": 1,
+        "subscription": {
+          "id": "wake_sub_example",
+          "status": "active",
+          "endedReason": null,
+          "expiresAt": "2026-11-15T12:00:10.000Z"
+        }
       }
     }
   },
@@ -52,6 +58,6 @@
     "lifecycle": "RUNNING",
     "retry": "none",
     "guidance": "none",
-    "next": "Create a wake subscription if this host runs a receiver."
+    "next": "Wake is working; replace the subscription before expiresAt (§3.4)."
   }
 }

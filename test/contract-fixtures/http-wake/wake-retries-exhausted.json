@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-retries-exhausted",
   "kind": "sequence",
-  "description": "Six failed attempts (maxAttempts) on the jittered schedule (§6.2); the notification is exhausted and dropped. The work stays in the queue, and the safety poll claims it (§7.4).",
+  "description": "Six failed attempts (maxAttempts) on the jittered schedule, all within deliveryDeadlineSeconds (§6.2); the notification is exhausted and dropped. The work stays in the queue, and the safety poll claims it (§7.4).",
   "steps": [
     {
       "context": {
@@ -35,12 +35,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0080",
-            "envoi-wake-timestamp": "1792238400",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792235930",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=ivWBGv5wpDaKtL_Gz4nnwSQM-pg13sxLyRO82XfBfMVkSkSp_lUMG5w9iiR-zkFH0nXZr-obH5sACxsc8jFICQ"
+            "envoi-wake-signature": "v1=S48E7a-KreMZbTpO06UEeCXylbvRG2FdDSEtQctzeVYPeLaVDzqT3ketuSg2IdTgNlzpmmKsB_pzaHzOt5ifCA"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0080\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":80,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": null,
         "failureClass": "timeout",
@@ -78,12 +78,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0080",
-            "envoi-wake-timestamp": "1792238420",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792235950",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=GSaR_SnSkTDDJteE7bC9ZFYNOHsYz-OOB3SODEthuBnClpqrMv6G-dYRqNkHSKaxul8L3b7tPhrL-wQRoHgXBA"
+            "envoi-wake-signature": "v1=S41K0dlfbKOQg6Tssynly0LazjWVhJtUFSKHsxNPWrVEmOGT5R1POXtbyoPOWBYkzZpPyAOvcauY-Yf2-3ObDA"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0080\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":80,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": {
           "status": 503
@@ -123,12 +123,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0080",
-            "envoi-wake-timestamp": "1792238453",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792235983",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=kCSf7qsE4KM7OcLnAb5EhtC7LqCzB57VoTwvfND-9zUG3MqVFgnuugiLrZ12va4aAIoIJhOJ2iqh185HLGiHDw"
+            "envoi-wake-signature": "v1=HSK4fBv-tJw3q002al868hGkjGkNZilkP3FjoJuyWE4htnzR-r2bVr1F7h_bFSiSMnaR-tE-qbdLTzddBP5nDw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0080\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":80,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": null,
         "failureClass": "connect_failed",
@@ -166,12 +166,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0080",
-            "envoi-wake-timestamp": "1792238571",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792236101",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=Kw6sP6lKtadjSRJlJslG4iQyI1lnfvdvB7vY9YJBn-JfiNXPdPjdLV1IkJCO3oa2Ed5If02rjeveBAiH-8s6Aw"
+            "envoi-wake-signature": "v1=25qdWfo7Sdh42QOtbi0SGYqh3EjK5DBAYoJ_v40MHw_SvdhrOxO4uT6NNntRXiqt0fCCwcxXLhHF9RRYVYWfCg"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0080\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":80,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": {
           "status": 502
@@ -211,12 +211,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0080",
-            "envoi-wake-timestamp": "1792239211",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792236741",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=xD95vxZFNSfHpy5-KeNjaVodbzvaSTde_X6d2PuqL9y2sshWBkcKGDny9aGG9WC2-fSrHZnG_zjrCIc3Wa7dAA"
+            "envoi-wake-signature": "v1=uqXlSGrK41h8Gq2Q2BoY1PavaaNShV9ma_vJYWp1z1cr1uwuWkFkNE7pGvby6PHAX8I_BoZwZpOe1QQtRd82Cw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0080\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":80,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": null,
         "failureClass": "tls_failed",
@@ -254,12 +254,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0080",
-            "envoi-wake-timestamp": "1792240911",
+            "envoi-wake-id": "wake_evt_6kxVyh9DxJPxDMTC9wPl",
+            "envoi-wake-timestamp": "1792238441",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=kvg1iXF1z8qHEGOFefk6H1jtr79UP22ZpiVGnp817da5esoarAFf9BxLBU-zjHOZniUbZnbAFiRWAsr8N9dMAA"
+            "envoi-wake-signature": "v1=XcGCVxiB9OD1kj9pJCrdsGnx-2DduSPX64fYK0sBXhL6qZMyolfu4bGqHKKYty9ULx8HDPju51_e34jhVKU6Dw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0080\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":80,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_6kxVyh9DxJPxDMTC9wPl\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":10,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:18:50.000Z\"}"
         },
         "response": {
           "status": 504
@@ -277,12 +277,12 @@
           "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
           "content-type": "application/json"
         },
-        "schema": "claimRequest",
+        "schema": "case-session#claimRequest",
         "body": {}
       },
       "response": {
         "status": 200,
-        "schema": "claimClaimed",
+        "schema": "case-session#claimClaimed",
         "headers": {},
         "body": {
           "work": {
@@ -340,7 +340,7 @@
               "status": "delivered",
               "deliveredAt": "2026-10-17T11:59:51.000Z"
             },
-            "leaseToken": "lease_PLACEHOLDER_second",
+            "leaseToken": "lease_PLACEHOLDER_example",
             "leaseExpiresAt": "2026-10-17T12:02:01.000Z"
           },
           "state": "claimed"
@@ -351,7 +351,7 @@
         "lifecycle": "RUNNING",
         "retry": "none",
         "guidance": "none",
-        "next": "The a4 safety poll found the work the wakes announced."
+        "next": "The safety poll found the work the wakes announced."
       }
     },
     {
@@ -381,13 +381,14 @@
               "endedReason": null,
               "createdAt": "2026-10-16T12:00:00.000Z",
               "activatedAt": "2026-10-16T12:00:10.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
               "endedAt": null,
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
               "delivery": {
                 "state": "failing",
-                "lastAttemptAt": "2026-10-17T12:41:51.000Z",
-                "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+                "lastAttemptAt": "2026-10-17T12:00:41.000Z",
+                "lastSuccessAt": "2026-10-17T11:17:50.000Z",
                 "consecutiveFailures": 1,
                 "lastFailureClass": "http_retryable"
               }

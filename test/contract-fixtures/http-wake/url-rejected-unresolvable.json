@@ -3,7 +3,7 @@
   "version": 1,
   "id": "url-rejected-unresolvable",
   "kind": "http",
-  "description": "Neither A nor AAAA resolves (§4.2).",
+  "description": "Neither A nor AAAA resolves (§4.2). The reason does not say why, so create is not a DNS oracle.",
   "context": {
     "dns": {
       "host": "hooks.example.com",
@@ -34,7 +34,7 @@
       "error": "WAKE_URL_REJECTED",
       "message": "The wake URL is not allowed.",
       "requestId": "req_example",
-      "reason": "dns_unresolvable"
+      "reason": "address_not_allowed"
     }
   },
   "client": {

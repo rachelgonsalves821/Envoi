@@ -3,12 +3,66 @@
   "version": 1,
   "id": "reenable-after-rollback",
   "kind": "rollback",
-  "description": "Re-enabling moves the wake epoch (§1), so a subscription created before it never revives: it reads as ended with feature_disabled, and the host registers and proves its URL again.",
+  "description": "After a disable the wake epoch has moved (§1), so a subscription created before it never revives: it reads as ended with feature_disabled, and the host registers and proves its URL again.",
   "flags": {
     "ENVOI_HTTP_WAKE_V1": true,
     "ENVOI_INSTALLATIONS_V2": true
   },
   "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent/status",
+        "auth": "agent_access",
+        "headers": {
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "agentStatusHttpWake",
+        "headers": {},
+        "body": {
+          "state": "active",
+          "agent": {
+            "id": "agent_example",
+            "address": "example@envoi.mail",
+            "status": "active"
+          },
+          "inboxId": "inbox_example",
+          "asOf": "2026-10-17T12:00:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-10-17T12:00:00.000Z",
+            "lastSuccessfulRefreshAt": null,
+            "lastWorkClaimAt": "2026-10-17T12:00:00.000Z",
+            "lastProcessedAt": null
+          },
+          "installation": {
+            "id": "installation_example",
+            "connectionRoute": "local_helper",
+            "deliveryMode": "envoi_link",
+            "legacy": false
+          },
+          "httpWake": {
+            "available": true,
+            "version": 1,
+            "subscription": {
+              "id": "wake_sub_example",
+              "status": "ended",
+              "endedReason": "feature_disabled",
+              "expiresAt": "2026-11-15T12:00:10.000Z"
+            }
+          }
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "UNCHANGED",
+        "retry": "create_subscription",
+        "guidance": "create_new_subscription",
+        "next": "Create a new subscription."
+      }
+    },
     {
       "request": {
         "method": "GET",
@@ -36,6 +90,7 @@
               "endedReason": "feature_disabled",
               "createdAt": "2026-10-16T12:00:00.000Z",
               "activatedAt": "2026-10-16T12:00:10.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
               "endedAt": "2026-10-17T12:00:00.000Z",
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
@@ -53,8 +108,8 @@
       "client": {
         "surface": "host",
         "lifecycle": "UNCHANGED",
-        "retry": "none",
-        "guidance": "none",
+        "retry": "create_subscription",
+        "guidance": "create_new_subscription",
         "next": "Create a new subscription."
       }
     },
@@ -115,6 +170,7 @@
             "endedReason": null,
             "createdAt": "2026-10-17T12:01:00.000Z",
             "activatedAt": null,
+            "expiresAt": null,
             "endedAt": null,
             "challengeExpiresAt": "2026-10-17T12:11:00.000Z",
             "replacesSubscriptionId": null,

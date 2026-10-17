@@ -1,0 +1,87 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "challenge-not-retried-after-expiry",
+  "kind": "delivery",
+  "description": "A 503 asking for 900 s: the next attempt would start after the challenge expires, so the challenge is exhausted now (§6.2). The subscription ends with challenge_expired when its window passes.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_slow",
+      "url": "https://hooks.example.org/envoi/wake",
+      "status": "pending",
+      "challengeExpiresAt": "2026-10-17T12:21:40.000Z"
+    }
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.org",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.43.11",
+      "port": 443,
+      "servername": "hooks.example.org"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.org/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_xX5k4wPnrbMHYlBe9M2S",
+        "envoi-wake-timestamp": "1792239102",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=5Q5AP1SqDX5NQTn7CKXn1J0OJDR6FdvjH_h9k0iHuFcK_9cMlTFSPUadDMeUggiv7GJyLL1HGrgSvo28X-k0Cg"
+      },
+      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_xX5k4wPnrbMHYlBe9M2S\",\"subscriptionId\":\"wake_sub_slow\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:21:40.000Z\",\"createdAt\":\"2026-10-17T12:11:40.000Z\"}"
+    },
+    "response": {
+      "status": 503,
+      "headers": {
+        "retry-after": "900"
+      }
+    },
+    "failureClass": "http_retryable",
+    "outcome": "exhausted"
+  },
+  "receiver": {
+    "clock": "2026-10-17T12:11:42.200Z",
+    "registeredUrl": "https://hooks.example.org/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_slow"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 503,
+    "action": "none",
+    "next": "The receiver could not record it now."
+  }
+}

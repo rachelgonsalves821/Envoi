@@ -3,7 +3,7 @@
   "version": 1,
   "id": "subscription-create-invalid",
   "kind": "http",
-  "description": "An unknown field (§3.1). Bodies are closed objects. Nothing is created and no DNS lookup happens.",
+  "description": "An unknown field (§3). Bodies are closed objects. Nothing is created and nothing is resolved.",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

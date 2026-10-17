@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-pinned-address",
   "kind": "delivery",
-  "description": "The server connects to an address from the resolution it checked, with SNI and certificate checks for the URL host (§4.3). It never resolves again between the check and the connection, so a short-TTL rebinding answer cannot slip in.",
+  "description": "Envoi connects to an address from the resolution it checked, with SNI and certificate checks for the URL host (§4.3). It never resolves again between the check and the connection.",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -35,12 +35,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_0130",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_P6tcGBvSigm2Q5ffdq4r",
+        "envoi-wake-timestamp": "1792237200",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=7zdCXWD0Phb8_h3FXynZ-uloejAb7sOxDJ2PIq_Og8x3kQbhqaTvphDjf4edmRnBfM5FrY5EhjZ7IsdttKlGCA"
+        "envoi-wake-signature": "v1=zyUmXkH68wZnJ9FdEbkamFuyvZhMOg6yxKca8U_P14_zNUas2pQFCnBZA9Az-VXCGyh6dWJvYIOjuq5sHMvcAQ"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0130\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":130,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_P6tcGBvSigm2Q5ffdq4r\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":18,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:40:00.000Z\"}"
     },
     "response": {
       "status": 200
@@ -49,15 +49,17 @@
     "outcome": "acknowledged"
   },
   "receiver": {
-    "clock": "2026-10-17T12:00:00.300Z",
+    "clock": "2026-10-17T11:40:00.300Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -66,7 +68,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",

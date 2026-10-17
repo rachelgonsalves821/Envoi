@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-lease-released",
   "kind": "delivery",
-  "description": "A reconnect released leases held by replaced families (a4 §4), so the new installation can claim now.",
+  "description": "A reconnect released leases held by replaced families (a4 §4).",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_wake_lease_released",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_UcK6HZZN1MVhptsGFCxu",
+        "envoi-wake-timestamp": "1792237550",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=tLYwjF9UTcWhb0zD6iC61_c3sx-jsef4tRRh59HslNR2VcqoQRyhc5L2GcwTIdRehsg-OaeVvZFTzjCbdmM2Aw"
+        "envoi-wake-signature": "v1=_ywXkRkA8QqrTMbPTtYXYuJSXscSeZGetbNligO85x7UwZ9c2QH_E57BLiYIDRwCvOYqUKz6NziE5cTSkkgBCg"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_wake_lease_released\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":16,\"reason\":\"lease_released\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_UcK6HZZN1MVhptsGFCxu\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":23,\"reason\":\"lease_released\",\"createdAt\":\"2026-10-17T11:45:50.000Z\"}"
     },
     "response": {
       "status": 200
@@ -47,15 +47,17 @@
     "outcome": "acknowledged"
   },
   "receiver": {
-    "clock": "2026-10-17T12:00:00.600Z",
+    "clock": "2026-10-17T11:45:50.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -64,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",

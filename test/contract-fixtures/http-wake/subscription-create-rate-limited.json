@@ -3,7 +3,7 @@
   "version": 1,
   "id": "subscription-create-rate-limited",
   "kind": "http",
-  "description": "More than createPerInstallationPerHour creates (§3.1). Checked after the URL syntax rules and before any DNS lookup.",
+  "description": "Over createPerInstallationPerHour or createPerAgentPerHour (§3.1 row 7). Checked after the URL syntax rules and before any lookup.",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

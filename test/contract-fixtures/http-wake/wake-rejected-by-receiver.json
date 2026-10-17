@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-rejected-by-receiver",
   "kind": "delivery",
-  "description": "The receiver's clock runs 400 s fast, so it rejects a fresh notification as outside the window (§7.1). Any 4xx other than 408, 410, 425 and 429 fails that notification without a retry (§6.2), and counts toward ending the subscription (§6.6).",
+  "description": "The receiver's clock runs 400 s fast, so it rejects a fresh notification as outside the window (§7.1). A rejection fails that notification without a retry (§6.2) and counts toward ending the subscription (§6.6).",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_0065",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_aKgO1bk3FC7WTcT06NLS",
+        "envoi-wake-timestamp": "1792237000",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=qbodcTQXWgthGJUFsE7eQtyV0azBeZEVxqzVYtdCG7mDGJyK8EOEhgQa2uDCA1fxYRPHjzF0r_rrJ_LyKX8NAQ"
+        "envoi-wake-signature": "v1=zMtxvDxEPcN3hayw1zVhH968PAOA49T_K925_J6RiF4wNBVsdB-ec6GKwO5TTMsy08-IrrtYaeSZmKF8Xe67Cg"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0065\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":65,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_aKgO1bk3FC7WTcT06NLS\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":16,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:36:40.000Z\"}"
     },
     "response": {
       "status": 400
@@ -47,15 +47,17 @@
     "outcome": "failed"
   },
   "receiver": {
-    "clock": "2026-10-17T12:06:40.000Z",
+    "clock": "2026-10-17T11:43:20.000Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -64,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",

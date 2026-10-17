@@ -3,7 +3,7 @@
   "version": 1,
   "id": "url-rejected-localhost-name",
   "kind": "http",
-  "description": "A reserved name (x-reserved-names) is refused without a lookup (§4.1).",
+  "description": "A name under a reserved suffix (x-reserved-names, §4.1).",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

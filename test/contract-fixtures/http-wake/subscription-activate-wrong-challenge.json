@@ -3,13 +3,13 @@
   "version": 1,
   "id": "subscription-activate-wrong-challenge",
   "kind": "http",
-  "description": "A challenge that does not match (§3.3). Nothing changes, and the subscription stays pending.",
+  "description": "A challenge that does not match a pending subscription (§3.3 row 8). Nothing changes.",
   "request": {
     "method": "POST",
-    "path": "/api/agent/wake-subscriptions/wake_sub_example/activate",
+    "path": "/api/agent/wake-subscriptions/wake_sub_fresh/activate",
     "auth": "agent_access",
     "headers": {
-      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_fresh",
       "content-type": "application/json"
     },
     "schema": "activateRequest",

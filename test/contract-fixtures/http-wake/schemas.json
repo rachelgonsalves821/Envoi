@@ -1,7 +1,7 @@
 {
   "$id": "https://envoi.example/contracts/http-wake/v1/schemas.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "http-wake v1 (handoffs.md#http-wake-v1). Draft-07 schemas plus machine-readable tables. claimRequest, claimClaimed, claimIdle, mintRequest, sessionCreated, session, sessionToken, workKind and caseToolName are verbatim copies from case-session v1, and the fixture test keeps them equal.",
+  "description": "http-wake v1 (handoffs.md#http-wake-v1). Draft-07 schemas plus machine-readable tables. Claim and mint steps name case-session v1 definitions as case-session#<name>.",
   "x-codes": {
     "FEATURE_DISABLED": {
       "status": 404,
@@ -32,6 +32,11 @@
           "lifecycle": "UNCHANGED",
           "retry": "none",
           "guidance": "update_connector"
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "update_connector"
         }
       }
     },
@@ -54,8 +59,7 @@
             "address_literal": "fix_wake_url",
             "self_target": "fix_wake_url",
             "reserved_name": "fix_wake_url",
-            "dns_unresolvable": "fix_wake_url",
-            "address_not_public": "fix_wake_url"
+            "address_not_allowed": "fix_wake_url"
           }
         }
       }
@@ -104,6 +108,7 @@
             "credential_ended": "none",
             "receiver_gone": "none",
             "delivery_failed": "create_subscription",
+            "expired": "create_subscription",
             "feature_disabled": "create_subscription"
           },
           "guidanceByReason": {
@@ -115,6 +120,7 @@
             "credential_ended": "check_host_credential",
             "receiver_gone": "none",
             "delivery_failed": "fix_receiver",
+            "expired": "create_new_subscription",
             "feature_disabled": "create_new_subscription"
           }
         }
@@ -122,7 +128,7 @@
     },
     "AUTHENTICATION_REQUIRED": {
       "status": 401,
-      "when": "a3 meaning. Any bearer but an access token on a host route: a case-session, mcp_read or bootstrap token, or an unknown one.",
+      "when": "a3 meaning. On a host route, any bearer but an access token: a case-session, mcp_read or bootstrap token, or an unknown one.",
       "bySurface": {
         "host": {
           "lifecycle": "UNCHANGED",
@@ -144,7 +150,7 @@
     },
     "CREDENTIAL_EXPIRED": {
       "status": 401,
-      "when": "a3 meaning.",
+      "when": "a3 meaning. Notifications are suppressed meanwhile (§8.3).",
       "bySurface": {
         "host": {
           "lifecycle": "NEEDS_RECONNECT",
@@ -155,7 +161,7 @@
     },
     "CREDENTIAL_REVOKED": {
       "status": 401,
-      "when": "a3 meaning. The installation's subscriptions ended with credential_ended in the same transaction (§8.3).",
+      "when": "a3 meaning. The installation's subscriptions have ended with credential_ended (§8.3).",
       "bySurface": {
         "host": {
           "lifecycle": "REVOKED",
@@ -196,6 +202,11 @@
           "lifecycle": "DEGRADED",
           "retry": "backoff",
           "guidance": "service_unavailable"
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
         }
       }
     },
@@ -207,15 +218,23 @@
           "lifecycle": "DEGRADED",
           "retry": "backoff",
           "guidance": "service_unavailable"
+        },
+        "owner": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "backoff",
+          "guidance": "service_unavailable"
         }
       }
     }
   },
   "x-limits": {
     "challengeTtlSeconds": 600,
+    "challengeFirstAttemptDelaySeconds": 2,
+    "challengeMaxAttempts": 3,
     "timestampToleranceSeconds": 300,
     "replayCacheMinSeconds": 600,
     "dedupeCacheRecommendedSeconds": 3900,
+    "dnsTimeoutMs": 2000,
     "connectTimeoutMs": 5000,
     "deliveryTimeoutMs": 10000,
     "responseBodyReadMaxBytes": 4096,
@@ -230,11 +249,19 @@
     ],
     "retryJitterRatio": 0.2,
     "retryAfterMaxSeconds": 1800,
+    "deliveryDeadlineSeconds": 3600,
+    "unknownKeyRetryAfterSeconds": 60,
     "endAfterFailedDeliveries": 10,
     "endAfterFailingSeconds": 86400,
+    "subscriptionLifetimeDays": 30,
+    "replaceBeforeExpiryDays": 7,
     "createPerInstallationPerHour": 5,
+    "createPerAgentPerHour": 10,
     "perHostConcurrency": 4,
     "perHostRequestsPerMinute": 120,
+    "perAddressConcurrency": 2,
+    "perAddressRequestsPerMinute": 60,
+    "perNetworkRequestsPerMinute": 120,
     "urlMaxLength": 2048,
     "createUrlFieldMaxLength": 8192,
     "allowedPorts": [
@@ -248,7 +275,9 @@
     "ownerEndedListMax": 5,
     "retainEndedDays": 30,
     "workDueMinIntervalSeconds": 60,
-    "receiverSafetyPollMaxSeconds": 900
+    "receiverSafetyPollMaxSeconds": 900,
+    "epochGraceSeconds": 21600,
+    "epochRefreshSeconds": 600
   },
   "x-url-checks": [
     "url_too_long",
@@ -261,8 +290,7 @@
     "address_literal",
     "self_target",
     "reserved_name",
-    "dns_unresolvable",
-    "address_not_public"
+    "address_not_allowed"
   ],
   "x-reserved-names": [
     "localhost",
@@ -271,13 +299,17 @@
     "internal",
     "intranet",
     "lan",
+    "home",
+    "corp",
     "home.arpa",
+    "arpa",
     "test",
     "example",
     "invalid",
     "onion",
     "alt"
   ],
+  "x-ipv6-global-unicast": "2000::/3",
   "x-blocked-ranges": [
     {
       "cidr": "0.0.0.0/8",
@@ -340,30 +372,6 @@
       "label": "reserved, including broadcast"
     },
     {
-      "cidr": "::/128",
-      "label": "unspecified"
-    },
-    {
-      "cidr": "::1/128",
-      "label": "loopback"
-    },
-    {
-      "cidr": "::ffff:0:0/96",
-      "label": "IPv4-mapped"
-    },
-    {
-      "cidr": "64:ff9b::/96",
-      "label": "NAT64"
-    },
-    {
-      "cidr": "64:ff9b:1::/48",
-      "label": "local NAT64"
-    },
-    {
-      "cidr": "100::/64",
-      "label": "discard"
-    },
-    {
       "cidr": "2001::/23",
       "label": "IETF protocol assignments, including Teredo"
     },
@@ -376,58 +384,99 @@
       "label": "6to4"
     },
     {
+      "cidr": "3fff::/20",
+      "label": "documentation (RFC 9637)"
+    },
+    {
+      "cidr": "::/96",
+      "label": "unspecified, loopback and IPv4-compatible (outside 2000::/3)"
+    },
+    {
+      "cidr": "::ffff:0:0/96",
+      "label": "IPv4-mapped (outside 2000::/3)"
+    },
+    {
+      "cidr": "::ffff:0:0:0/96",
+      "label": "IPv4-translated (outside 2000::/3)"
+    },
+    {
+      "cidr": "64:ff9b::/96",
+      "label": "NAT64 (outside 2000::/3)"
+    },
+    {
+      "cidr": "64:ff9b:1::/48",
+      "label": "local NAT64 (outside 2000::/3)"
+    },
+    {
+      "cidr": "100::/64",
+      "label": "discard (outside 2000::/3)"
+    },
+    {
+      "cidr": "5f00::/16",
+      "label": "SRv6 (outside 2000::/3)"
+    },
+    {
       "cidr": "fc00::/7",
-      "label": "unique local, including the fd00:ec2::254 metadata service"
+      "label": "unique local, including the fd00:ec2::254 metadata service (outside 2000::/3)"
     },
     {
       "cidr": "fe80::/10",
-      "label": "link-local"
+      "label": "link-local (outside 2000::/3)"
     },
     {
       "cidr": "fec0::/10",
-      "label": "site-local (deprecated)"
+      "label": "site-local (outside 2000::/3)"
     },
     {
       "cidr": "ff00::/8",
-      "label": "multicast"
+      "label": "multicast (outside 2000::/3)"
     }
   ],
   "x-failure-classes": {
     "timeout": {
       "retryable": true,
-      "when": "No complete response headers within deliveryTimeoutMs, or no connection within connectTimeoutMs."
+      "challengeRetryable": false,
+      "when": "DNS, connection, or status and headers did not complete within their timeouts (dnsTimeoutMs, connectTimeoutMs, deliveryTimeoutMs)."
     },
     "connect_failed": {
       "retryable": true,
+      "challengeRetryable": false,
       "when": "TCP connection refused, reset or unreachable."
     },
     "tls_failed": {
       "retryable": true,
-      "when": "TLS handshake failed or the certificate is not valid for the URL host."
+      "challengeRetryable": false,
+      "when": "TLS handshake failed, or the certificate is not valid for the URL host."
     },
     "address_rejected": {
       "retryable": true,
-      "when": "At this attempt the host resolved to no address, or to at least one address in x-blocked-ranges. Nothing was sent."
+      "challengeRetryable": false,
+      "when": "At this attempt the resolution was empty, failed (anything but NXDOMAIN or NODATA counts as failed), or contained a blocked address. Nothing was sent."
     },
     "interrupted": {
       "retryable": true,
+      "challengeRetryable": true,
       "when": "The server stopped while the attempt was in flight, so its outcome is unknown."
     },
     "http_retryable": {
       "retryable": true,
+      "challengeRetryable": true,
       "when": "408, 425, 429 or any 5xx."
     },
     "redirect_rejected": {
       "retryable": false,
+      "challengeRetryable": false,
       "when": "Any 3xx. The Location is never followed."
     },
     "receiver_gone": {
       "retryable": false,
+      "challengeRetryable": false,
       "when": "410 Gone. The subscription ends with receiver_gone."
     },
     "http_rejected": {
       "retryable": false,
-      "when": "Any other 1xx or 4xx status."
+      "challengeRetryable": false,
+      "when": "Any other status, including 101 and every other 4xx."
     }
   },
   "x-wake-reasons": {
@@ -436,18 +485,19 @@
       "reasons": {
         "message_delivered": "A native message for this agent became claimable (a4 §4 trigger 6).",
         "human_instruction": "A human instruction for this agent was created (a4 §4 trigger 6).",
-        "agent_resumed": "The owner resumed this agent (a3 §5, a4 §4 trigger 5). Sent whether or not work is waiting.",
+        "agent_resumed": "The owner resumed this agent (§8.1). Sent whether or not work is waiting.",
         "case_resumed": "a4 work.available reason case_resumed.",
         "counterparty_resumed": "a4 work.available reason counterparty_resumed.",
         "lease_released": "a4 work.available reason lease_released.",
-        "work_due": "A retry delay ended or a lease expired, so work is claimable with no event (a4 §4 \"safety timer only\"). Best effort, at most once per workDueMinIntervalSeconds."
+        "work_due": "A retry delay ended or a lease expired (a4 §4 \"safety timer only\"). Best effort, at most once per workDueMinIntervalSeconds.",
+        "subscription_activated": "The subscription was just activated (§3.3), so the receiver claims once through it."
       }
     },
     "wake.control_changed": {
       "action": "renew_live_leases",
       "reasons": {
-        "agent_paused": "The owner paused this agent (a3 §5 agent.paused).",
-        "case_controlled": "A case pause or revoke released one of this agent's leases (case-session §7.4, §9)."
+        "agent_paused": "The owner paused this agent (§8.1).",
+        "case_controlled": "A case pause or revoke released one of this agent's leases (case-session §7.4)."
       }
     },
     "wake.challenge": {
@@ -468,7 +518,7 @@
     "separator": "\n",
     "body": "raw request body bytes, appended after the last separator",
     "signatureHeader": "envoi-wake-signature",
-    "signatureFormat": "v1=<base64url of the 64-byte signature, no padding>",
+    "signatureFormat": "v1=<base64url of the 64-byte signature, no padding>; v1 receivers use the v1= entry of a space-separated list",
     "headers": [
       "content-type",
       "user-agent",
@@ -484,19 +534,19 @@
       "check": "malformed",
       "status": 400,
       "verdict": "reject",
-      "rule": "POST, content-type application/json, body at most requestBodyMaxBytes, and all four envoi-wake-* headers present and well formed."
+      "rule": "POST; content-type application/json, optionally with a charset=utf-8 parameter; body at most requestBodyMaxBytes; all four envoi-wake-* headers present and matching their formats; a v1= entry in envoi-wake-signature."
     },
     {
       "check": "unknown_key",
-      "status": 401,
-      "verdict": "reject",
-      "rule": "envoi-wake-key-id names no key in the receiver's key set, after at most one refresh per unknownKeyRefreshMinIntervalSeconds."
+      "status": 503,
+      "verdict": "defer",
+      "rule": "envoi-wake-key-id names no key in the receiver's key set after at most one refresh per unknownKeyRefreshMinIntervalSeconds. Answer 503 with retry-after unknownKeyRetryAfterSeconds, so an emergency rotation (§5.4) loses nothing."
     },
     {
       "check": "key_expired",
       "status": 401,
       "verdict": "reject",
-      "rule": "The key has a notAfter that has passed on the receiver's clock."
+      "rule": "The key has a notAfter at or before the receiver's clock."
     },
     {
       "check": "timestamp_out_of_window",
@@ -511,10 +561,22 @@
       "rule": "The Ed25519 signature does not verify over the signing bytes built with the receiver's own registered URL."
     },
     {
-      "check": "binding_mismatch",
+      "check": "not_a_notification",
       "status": 400,
       "verdict": "reject",
-      "rule": "The body is not a notification, its id differs from envoi-wake-id, or its subscriptionId is not the subscription registered for this URL."
+      "rule": "The body is not JSON matching notificationEnvelope, or its id differs from envoi-wake-id."
+    },
+    {
+      "check": "challenge_for_unknown_subscription",
+      "status": 503,
+      "verdict": "defer",
+      "rule": "A wake.challenge for a subscriptionId this host has not learned yet: its create response may still be in flight (§3.2). Answer 503; Envoi retries."
+    },
+    {
+      "check": "subscription_unknown",
+      "status": 400,
+      "verdict": "reject",
+      "rule": "Any other notification whose subscriptionId is not one this host holds for this URL."
     },
     {
       "check": "duplicate",
@@ -526,76 +588,91 @@
       "check": "process",
       "status": 200,
       "verdict": "process",
-      "rule": "Acknowledge within deliveryTimeoutMs, then act on the type (x-wake-reasons) asynchronously."
+      "rule": "Acknowledge within deliveryTimeoutMs, then act on the type (x-wake-reasons) asynchronously. An unknown type is acknowledged and ignored."
     }
   ],
   "x-responsibility": {
     "server": [
-      "URL rules at create and before every attempt (§4.1): https, port 443, no userinfo, query or fragment, no address literal, not the server's own host, no reserved name.",
-      "Resolve A and AAAA once per attempt; refuse if any address is in x-blocked-ranges or none resolves (§4.2).",
-      "Connect only to an address from that same resolution, with SNI and certificate checks against the URL host; no proxy (§4.3).",
+      "URL rules at create and before every attempt (§4.1).",
+      "Resolve A and AAAA once per attempt through a public recursive resolver; refuse empty, failed or blocked answers (§4.2).",
+      "Connect only to an address from that same resolution, with SNI and certificate checks for the URL host; no proxy (§4.3).",
       "Never follow a redirect (§4.4).",
-      "Timeouts, response read cap, per-subscription single flight, per-host concurrency and rate (§4.5, §6).",
-      "Sign every attempt with the active key; publish and rotate keys (§5).",
-      "Opaque notification bodies with no private content and no credentials (§2.3).",
-      "Durable, bounded retries; coalescing; suppression while paused; no request for an ended subscription (§6, §8).",
-      "Ownership: activation only with the challenge sent to the URL, by the installation that created it (§3.3)."
+      "Timeouts, read caps, per-subscription single flight, and per-host, per-address and per-network limits (§4.5, §6).",
+      "Sign every attempt with the key active at that moment; publish and rotate keys (§5).",
+      "Opaque notification bodies: no content, no identifiers beyond the notification and subscription ids, no credentials (§2.3).",
+      "Durable, bounded retries with a deadline; coalescing; suppression while paused or the credential is expired; nothing for an ended subscription, derived on every attempt (§6, §8).",
+      "Activation only with the challenge sent to the URL, by the installation that created it (§3.3)."
     ],
     "receiver": [
       "Fetch keys only from its configured Envoi origin's fixed key-set URL, honoring max-age (§5.3).",
-      "Check, in order, x-receiver-checks: format, key, key expiry, timestamp, signature over the raw body and its own registered URL, binding, duplicate (§7.1).",
-      "Verify before parsing; never re-serialize the body.",
+      "Run x-receiver-checks in order, verifying the raw body with its own registered URL before parsing (§7.1).",
+      "Hold the set of subscription ids it created for each URL, including a pending replacement (§7.1).",
       "Keep processed ids for at least replayCacheMinSeconds (§7.2).",
       "Acknowledge within deliveryTimeoutMs; do the work afterwards (§7.3).",
-      "Treat every notification as a hint: claim with its own credentials at its configured origin, never at a URL from a request; keep a safety poll (§7.4).",
+      "Treat every notification as a hint: claim with its own credentials at its configured origin, never at a URL from a request; keep a safety poll and read its subscription from status (§7.4).",
       "Keep its access and refresh tokens and every session token away from the model (case-session §4)."
     ]
   },
   "x-ended-reasons": {
     "superseded": {
-      "meaning": "A newer create from the same installation replaced this subscription while it was still pending.",
+      "meaning": "A newer create from the same installation replaced it while it was still pending (§3.1).",
       "hostRetry": "none",
-      "hostGuidance": "none"
+      "hostGuidance": "none",
+      "activated": false
     },
     "replaced": {
-      "meaning": "A newer subscription of the same installation was activated; this one was active until then.",
+      "meaning": "A newer subscription of the same installation was activated (§3.4).",
       "hostRetry": "none",
-      "hostGuidance": "none"
+      "hostGuidance": "none",
+      "activated": true
     },
     "challenge_expired": {
-      "meaning": "The challenge window (challengeTtlSeconds) passed without an activation.",
+      "meaning": "The challenge window passed without an activation (§3.2).",
       "hostRetry": "create_subscription",
-      "hostGuidance": "create_new_subscription"
+      "hostGuidance": "create_new_subscription",
+      "activated": false
     },
     "ended_by_host": {
       "meaning": "The host ended it (§3.5).",
       "hostRetry": "none",
-      "hostGuidance": "none"
+      "hostGuidance": "none",
+      "activated": null
     },
     "revoked_by_owner": {
       "meaning": "The owner revoked it (§3.6).",
       "hostRetry": "none",
-      "hostGuidance": "owner_revoked_wake"
+      "hostGuidance": "owner_revoked_wake",
+      "activated": null
     },
     "credential_ended": {
-      "meaning": "Its installation ended: installation revoke, reconnect (replaced), refresh replay, activation replay, or agent revoke or removal.",
+      "meaning": "Its installation ended (§8.3).",
       "hostRetry": "none",
-      "hostGuidance": "check_host_credential"
+      "hostGuidance": "check_host_credential",
+      "activated": null
     },
     "receiver_gone": {
       "meaning": "The receiver answered 410 Gone (§6.4).",
       "hostRetry": "none",
-      "hostGuidance": "none"
+      "hostGuidance": "none",
+      "activated": true
     },
     "delivery_failed": {
-      "meaning": "Deliveries kept failing: at least endAfterFailedDeliveries consecutive failed notifications and no acknowledgement for endAfterFailingSeconds (§6.6).",
+      "meaning": "Deliveries kept failing (§6.6).",
       "hostRetry": "create_subscription",
-      "hostGuidance": "fix_receiver"
+      "hostGuidance": "fix_receiver",
+      "activated": true
+    },
+    "expired": {
+      "meaning": "It reached expiresAt, subscriptionLifetimeDays after activation (§2.2).",
+      "hostRetry": "create_subscription",
+      "hostGuidance": "create_new_subscription",
+      "activated": true
     },
     "feature_disabled": {
-      "meaning": "It was created before the wake epoch (§1): the flag was off, or the code was rolled back, after it was created.",
+      "meaning": "It predates the wake epoch (§1).",
       "hostRetry": "create_subscription",
-      "hostGuidance": "create_new_subscription"
+      "hostGuidance": "create_new_subscription",
+      "activated": null
     }
   },
   "x-public-origin-example": "https://www.envoi-agents.com",
@@ -666,6 +743,7 @@
         "credential_ended",
         "receiver_gone",
         "delivery_failed",
+        "expired",
         "feature_disabled"
       ]
     },
@@ -681,8 +759,7 @@
         "address_literal",
         "self_target",
         "reserved_name",
-        "dns_unresolvable",
-        "address_not_public"
+        "address_not_allowed"
       ]
     },
     "failureClass": {
@@ -704,7 +781,7 @@
     },
     "wakeId": {
       "type": "string",
-      "pattern": "^wake_evt_[A-Za-z0-9_-]{3,64}$"
+      "pattern": "^wake_evt_[A-Za-z0-9_-]{16,64}$"
     },
     "keyId": {
       "type": "string",
@@ -712,13 +789,14 @@
     },
     "challenge": {
       "type": "string",
-      "pattern": "^envoi_wake_challenge_[A-Za-z0-9_-]{8,64}$"
+      "pattern": "^envoi_wake_challenge_(?:[A-Za-z0-9_-]{43}|PLACEHOLDER[A-Za-z0-9_-]*)$",
+      "description": "envoi_wake_challenge_ plus 32 random bytes in base64url (43 characters). Fixtures use PLACEHOLDER values instead."
     },
     "wakeUrl": {
       "type": "string",
       "minLength": 1,
       "maxLength": 8192,
-      "description": "The url field. Longer than createUrlFieldMaxLength is WAKE_SUBSCRIPTION_INVALID; the URL rules (x-url-checks) then apply, starting with urlMaxLength."
+      "description": "Longer than createUrlFieldMaxLength is WAKE_SUBSCRIPTION_INVALID; the URL rules (x-url-checks) then apply."
     },
     "errorEnvelope": {
       "type": "object",
@@ -961,6 +1039,7 @@
         "endedReason",
         "createdAt",
         "activatedAt",
+        "expiresAt",
         "endedAt",
         "challengeExpiresAt",
         "replacesSubscriptionId",
@@ -1015,6 +1094,17 @@
             }
           ]
         },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "endedAt": {
           "anyOf": [
             {
@@ -1049,6 +1139,49 @@
         },
         "delivery": {
           "$ref": "#/definitions/deliveryHealth"
+        }
+      }
+    },
+    "subscriptionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "endedReason",
+        "expiresAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/subscriptionId"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "active",
+            "ended"
+          ]
+        },
+        "endedReason": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/endedReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -1221,7 +1354,8 @@
           "additionalProperties": false,
           "required": [
             "available",
-            "version"
+            "version",
+            "subscription"
           ],
           "properties": {
             "available": {
@@ -1229,6 +1363,16 @@
             },
             "version": {
               "const": 1
+            },
+            "subscription": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/subscriptionSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         }
@@ -1275,7 +1419,8 @@
             "case_resumed",
             "counterparty_resumed",
             "lease_released",
-            "work_due"
+            "work_due",
+            "subscription_activated"
           ]
         }
       }
@@ -1348,8 +1493,7 @@
           "$ref": "#/definitions/subscriptionId"
         },
         "sequence": {
-          "type": "integer",
-          "minimum": 1
+          "const": 1
         },
         "createdAt": {
           "type": "string",
@@ -1365,6 +1509,7 @@
       }
     },
     "notification": {
+      "description": "What Envoi sends (producer schema, closed).",
       "oneOf": [
         {
           "$ref": "#/definitions/notificationWork"
@@ -1376,6 +1521,31 @@
           "$ref": "#/definitions/notificationChallenge"
         }
       ]
+    },
+    "notificationEnvelope": {
+      "description": "What a v1 receiver requires (§7.1 check 6). Open: receivers ignore unknown fields, types and reasons.",
+      "type": "object",
+      "required": [
+        "type",
+        "version",
+        "id",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/definitions/wakeId"
+        },
+        "subscriptionId": {
+          "$ref": "#/definitions/subscriptionId"
+        }
+      }
     },
     "deliveryHeaders": {
       "type": "object",
@@ -1396,298 +1566,21 @@
           "const": "Envoi-Wake/1"
         },
         "envoi-wake-id": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/definitions/wakeId"
         },
         "envoi-wake-timestamp": {
           "type": "string",
-          "minLength": 1
+          "pattern": "^[1-9][0-9]{0,11}$"
         },
         "envoi-wake-key-id": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/definitions/keyId"
         },
         "envoi-wake-signature": {
           "type": "string",
-          "minLength": 1
+          "pattern": "^v1=[A-Za-z0-9_-]{86}$"
         }
       },
-      "description": "Exactly the headers Envoi sets on a notification. Transport headers (host, content-length, connection) are not listed. A third-party fixture may carry malformed values; the receiver checks them (x-receiver-checks)."
-    },
-    "claimRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "acceptHumanInstructions": {
-          "type": "boolean"
-        }
-      }
-    },
-    "claimClaimed": {
-      "description": "a3 §3 claimClaimed, unchanged.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work",
-        "state"
-      ],
-      "properties": {
-        "state": {
-          "const": "claimed"
-        },
-        "work": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "workId",
-            "message",
-            "leaseToken",
-            "leaseExpiresAt"
-          ],
-          "properties": {
-            "workId": {
-              "type": "string",
-              "pattern": "^msg_[A-Za-z0-9_-]+$"
-            },
-            "message": {
-              "type": "object",
-              "required": [
-                "id",
-                "caseId"
-              ]
-            },
-            "leaseToken": {
-              "type": "string",
-              "minLength": 1
-            },
-            "leaseExpiresAt": {
-              "type": "string",
-              "format": "date-time"
-            }
-          }
-        }
-      }
-    },
-    "claimIdle": {
-      "description": "a3 §3 / a4 §5 idle claim, unchanged.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work",
-        "state"
-      ],
-      "properties": {
-        "work": {
-          "type": "null"
-        },
-        "state": {
-          "const": "idle"
-        },
-        "nextAvailableAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "nextAvailableInMs": {
-          "type": "integer",
-          "minimum": 0
-        }
-      }
-    },
-    "mintRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "leaseToken"
-      ],
-      "properties": {
-        "leaseToken": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        }
-      }
-    },
-    "sessionCreated": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "session",
-        "lease"
-      ],
-      "properties": {
-        "session": {
-          "$ref": "#/definitions/session"
-        },
-        "lease": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "workId",
-            "leaseExpiresAt"
-          ],
-          "properties": {
-            "workId": {
-              "type": "string",
-              "pattern": "^msg_[A-Za-z0-9_-]+$"
-            },
-            "leaseExpiresAt": {
-              "type": "string",
-              "format": "date-time"
-            }
-          }
-        }
-      }
-    },
-    "session": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "token",
-        "tokenType",
-        "status",
-        "transport",
-        "agentId",
-        "installationId",
-        "workId",
-        "workKind",
-        "caseId",
-        "fence",
-        "counterparty",
-        "allowedTools",
-        "createdAt",
-        "expiresAt"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^case_session_[A-Za-z0-9_-]+$"
-        },
-        "token": {
-          "$ref": "#/definitions/sessionToken"
-        },
-        "tokenType": {
-          "const": "Bearer"
-        },
-        "status": {
-          "const": "active"
-        },
-        "transport": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "url"
-          ],
-          "properties": {
-            "kind": {
-              "const": "mcp_streamable_http"
-            },
-            "url": {
-              "type": "string",
-              "pattern": "^https://.+/mcp$"
-            }
-          }
-        },
-        "agentId": {
-          "type": "string",
-          "pattern": "^agent_[A-Za-z0-9_-]+$"
-        },
-        "installationId": {
-          "type": "string",
-          "pattern": "^installation_[A-Za-z0-9_-]+$"
-        },
-        "workId": {
-          "type": "string",
-          "pattern": "^msg_[A-Za-z0-9_-]+$"
-        },
-        "workKind": {
-          "$ref": "#/definitions/workKind"
-        },
-        "caseId": {
-          "type": "string",
-          "pattern": "^case_[A-Za-z0-9_-]+$"
-        },
-        "fence": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "counterparty": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind",
-                "address"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "agent"
-                },
-                "address": {
-                  "type": "string",
-                  "pattern": "^[^\\s<>@]+@[^\\s<>@]+\\.[^\\s<>@]+$"
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "human"
-                }
-              }
-            }
-          ]
-        },
-        "allowedTools": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/caseToolName"
-          },
-          "minItems": 1,
-          "uniqueItems": true,
-          "contains": {
-            "const": "envoi_case_snapshot"
-          }
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "expiresAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      }
-    },
-    "sessionToken": {
-      "type": "string",
-      "pattern": "^envoi_case_session_[A-Za-z0-9_-]+$"
-    },
-    "workKind": {
-      "enum": [
-        "agent_message",
-        "human_instruction"
-      ]
-    },
-    "caseToolName": {
-      "enum": [
-        "envoi_case_snapshot",
-        "envoi_case_reply",
-        "envoi_case_propose",
-        "envoi_case_decide",
-        "envoi_authority_check",
-        "envoi_request_human",
-        "envoi_case_list_assets",
-        "envoi_case_share_asset",
-        "envoi_case_complete"
-      ]
+      "description": "Exactly the headers Envoi sets on a notification. Transport headers (host, content-length, connection) are not listed."
     },
     "fixtureRequest": {
       "type": "object",
@@ -1723,7 +1616,8 @@
           "type": "object"
         },
         "schema": {
-          "type": "string"
+          "type": "string",
+          "description": "A definition here, or case-session#<name> for a definition of case-session v1."
         },
         "invalidAgainst": {
           "type": "string"
@@ -1760,7 +1654,8 @@
           "type": "integer"
         },
         "schema": {
-          "type": "string"
+          "type": "string",
+          "description": "A definition here, or case-session#<name>."
         },
         "headers": {
           "type": "object"
@@ -1834,9 +1729,16 @@
             "type": "string",
             "minLength": 2
           }
+        },
+        "error": {
+          "enum": [
+            "SERVFAIL",
+            "TIMEOUT",
+            "REFUSED"
+          ]
         }
       },
-      "description": "One resolution of A and AAAA, as the server saw it at that moment."
+      "description": "One resolution of A and AAAA, as the server saw it. error: a query failed other than NXDOMAIN or NODATA, which fails closed (§4.2)."
     },
     "fixtureContext": {
       "type": "object",
@@ -1850,6 +1752,14 @@
             "active",
             "paused"
           ]
+        },
+        "credential": {
+          "enum": [
+            "valid",
+            "expired",
+            "ended"
+          ],
+          "description": "The installation credential family as derived now (agent-registration §6.4). Default valid."
         },
         "subscription": {
           "type": "object",
@@ -1885,7 +1795,12 @@
         "triggersDuringAttempt": {
           "type": "integer",
           "minimum": 0,
-          "description": "Work triggers that committed after this attempt was sent (§6.3)."
+          "description": "Work triggers that committed while this attempt was in flight (§6.3)."
+        },
+        "validFrom": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The instant this key set came into force (§5.4)."
         },
         "note": {
           "type": "string"
@@ -1965,7 +1880,7 @@
             "server",
             "third_party"
           ],
-          "description": "server: an attempt by Envoi. third_party: a request someone else sent to the receiver (a replay or forgery); it has no server fields."
+          "description": "server: an attempt by Envoi. third_party: a request someone else sent to the receiver (a replay or forgery); it has only a request."
         },
         "attempt": {
           "type": "integer",
@@ -2020,6 +1935,7 @@
           "enum": [
             "subscription_pending",
             "subscription_ended",
+            "credential_expired",
             "agent_paused",
             "feature_disabled"
           ]
@@ -2124,6 +2040,41 @@
         {
           "if": {
             "properties": {
+              "sent": {
+                "const": false
+              },
+              "failureClass": {
+                "const": "address_rejected"
+              }
+            },
+            "required": [
+              "sent",
+              "failureClass"
+            ]
+          },
+          "then": {
+            "required": [
+              "dns"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "connect"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
               "outcome": {
                 "const": "retry_scheduled"
               }
@@ -2159,7 +2110,31 @@
           "then": {
             "required": [
               "notSentReason"
-            ]
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "dns"
+                  ]
+                },
+                {
+                  "required": [
+                    "connect"
+                  ]
+                },
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                }
+              ]
+            }
           },
           "else": {
             "not": {
@@ -2177,7 +2152,7 @@
       "required": [
         "clock",
         "registeredUrl",
-        "subscriptionId",
+        "subscriptionIds",
         "jwks",
         "seenIds",
         "verdict",
@@ -2194,8 +2169,12 @@
         "registeredUrl": {
           "type": "string"
         },
-        "subscriptionId": {
-          "$ref": "#/definitions/subscriptionId"
+        "subscriptionIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/subscriptionId"
+          },
+          "description": "The subscriptions this host created for registeredUrl and has not seen end (§7.1)."
         },
         "jwks": {
           "$ref": "#/definitions/jwks"
@@ -2210,7 +2189,8 @@
           "enum": [
             "process",
             "duplicate",
-            "reject"
+            "reject",
+            "defer"
           ]
         },
         "reason": {
@@ -2222,7 +2202,9 @@
                 "key_expired",
                 "timestamp_out_of_window",
                 "signature_invalid",
-                "binding_mismatch"
+                "not_a_notification",
+                "challenge_for_unknown_subscription",
+                "subscription_unknown"
               ]
             },
             {

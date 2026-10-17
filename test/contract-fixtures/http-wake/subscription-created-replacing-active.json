@@ -40,10 +40,11 @@
         "url": "https://wake.example.net/envoi",
         "status": "pending",
         "endedReason": null,
-        "createdAt": "2026-10-17T12:00:00.000Z",
+        "createdAt": "2026-10-17T12:05:00.000Z",
         "activatedAt": null,
+        "expiresAt": null,
         "endedAt": null,
-        "challengeExpiresAt": "2026-10-17T12:10:00.000Z",
+        "challengeExpiresAt": "2026-10-17T12:15:00.000Z",
         "replacesSubscriptionId": "wake_sub_example",
         "delivery": {
           "state": "unverified",

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "url-rejected-ipv6-literal",
   "kind": "http",
-  "description": "An IPv6 literal is refused (§4.1).",
+  "description": "An IPv6 literal (§4.1).",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

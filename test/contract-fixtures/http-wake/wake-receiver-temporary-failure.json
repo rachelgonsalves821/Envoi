@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-receiver-temporary-failure",
   "kind": "sequence",
-  "description": "A 503 with retry-after 120 on attempt 2 (§6.2). The next delay is the larger of the schedule (30 s ±20 %) and retry-after, capped at retryAfterMaxSeconds. Attempt 3 succeeds.",
+  "description": "A 500, then a 503 with retry-after 120 (§6.2). The wait is the larger of the jittered schedule and retry-after (capped at retryAfterMaxSeconds), measured from the start of the attempt. Attempt 3 succeeds.",
   "steps": [
     {
       "context": {
@@ -35,12 +35,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0071",
-            "envoi-wake-timestamp": "1792238400",
+            "envoi-wake-id": "wake_evt_jQjJPyxvruqxZWMtp5Sb",
+            "envoi-wake-timestamp": "1792236700",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=sSVtQ2OCVujEbM0dSr08DDdnrao-joB_mxYlg6E0f7JSPorgVNtwZe4xYfYtnaPc747zZLgJUvqNp4deVzwLAw"
+            "envoi-wake-signature": "v1=BhIj7GG059bbMPdSNf8VqgY6q34LSq86dedTSsT4xtvbNMBAi_FHjdlTN1nQ5mIiugB5s9gvjwAH_HtaO-UfBg"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0071\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":71,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_jQjJPyxvruqxZWMtp5Sb\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":14,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:31:40.000Z\"}"
         },
         "response": {
           "status": 500
@@ -50,15 +50,17 @@
         "nextAttemptInSeconds": 12
       },
       "receiver": {
-        "clock": "2026-10-17T12:00:00.200Z",
+        "clock": "2026-10-17T11:31:40.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
-        "subscriptionId": "wake_sub_example",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -67,7 +69,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -80,7 +82,7 @@
         "reason": null,
         "respondStatus": 500,
         "action": "none",
-        "next": "The receiver could not record the wake; it answers 500."
+        "next": "The receiver could not record the wake."
       }
     },
     {
@@ -113,12 +115,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0071",
-            "envoi-wake-timestamp": "1792238412",
+            "envoi-wake-id": "wake_evt_jQjJPyxvruqxZWMtp5Sb",
+            "envoi-wake-timestamp": "1792236712",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=8Kyl8JlanolVi4Mw-FJhm4NhsMqPXYAJIDz_BchswcgWuAHWG4vuG-df9P5PY5LTQrMlrlWGPNQtWLEBWHBGBg"
+            "envoi-wake-signature": "v1=s2AaJdR8bZViwM_OtcpgYKQzM-bkDGNTqESSlwU5_ohEDj_zcFAW735UUxZd0GHdT2lXgxWfnMTt6ijQstuwCw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0071\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":71,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_jQjJPyxvruqxZWMtp5Sb\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":14,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:31:40.000Z\"}"
         },
         "response": {
           "status": 503,
@@ -131,15 +133,17 @@
         "nextAttemptInSeconds": 120
       },
       "receiver": {
-        "clock": "2026-10-17T12:00:12.200Z",
+        "clock": "2026-10-17T11:31:52.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
-        "subscriptionId": "wake_sub_example",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -148,7 +152,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -194,12 +198,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0071",
-            "envoi-wake-timestamp": "1792238532",
+            "envoi-wake-id": "wake_evt_jQjJPyxvruqxZWMtp5Sb",
+            "envoi-wake-timestamp": "1792236832",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=bIwf_PjR7MfTfP_mLIIYPnCdB2cRewl5KYpUvdoWSShah1L3EXLz7iBJI1hkx4dyI8csL1SHaJOupUqbgkl_CQ"
+            "envoi-wake-signature": "v1=1JerSjMWYfApHncaG3OF1v3T9sqCtqiFtSKI1YQOJI8X9GQA-9CITEoeK93XrEB11sVvQegqiwRnIKpV2TLoDw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0071\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":71,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_jQjJPyxvruqxZWMtp5Sb\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":14,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:31:40.000Z\"}"
         },
         "response": {
           "status": 200
@@ -208,15 +212,17 @@
         "outcome": "acknowledged"
       },
       "receiver": {
-        "clock": "2026-10-17T12:02:12.200Z",
+        "clock": "2026-10-17T11:33:52.200Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
-        "subscriptionId": "wake_sub_example",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -225,7 +231,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",

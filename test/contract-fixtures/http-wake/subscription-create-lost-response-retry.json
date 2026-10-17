@@ -3,15 +3,15 @@
   "version": 1,
   "id": "subscription-create-lost-response-retry",
   "kind": "sequence",
-  "description": "A lost create response (§3.1). The retry creates a new pending subscription, and the first one ends as superseded. No secret was lost, so nothing needs replaying.",
+  "description": "A lost create response (§3.1). The retry creates a new pending subscription and the first ends as superseded. No secret was lost, so nothing needs replaying.",
   "steps": [
     {
       "delivered": false,
       "context": {
         "dns": {
-          "host": "hooks.example.com",
+          "host": "hooks.example.org",
           "addresses": [
-            "192.0.32.10"
+            "192.0.43.11"
           ]
         }
       },
@@ -20,12 +20,12 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_lost",
           "content-type": "application/json"
         },
         "schema": "createRequest",
         "body": {
-          "url": "https://hooks.example.com/envoi/wake"
+          "url": "https://hooks.example.org/envoi/wake"
         }
       },
       "response": {
@@ -36,16 +36,17 @@
         },
         "body": {
           "subscription": {
-            "id": "wake_sub_lost",
-            "installationId": "installation_example",
+            "id": "wake_sub_lost_first",
+            "installationId": "installation_lost",
             "agentId": "agent_example",
-            "url": "https://hooks.example.com/envoi/wake",
+            "url": "https://hooks.example.org/envoi/wake",
             "status": "pending",
             "endedReason": null,
-            "createdAt": "2026-10-17T12:00:00.000Z",
+            "createdAt": "2026-10-17T12:06:40.000Z",
             "activatedAt": null,
+            "expiresAt": null,
             "endedAt": null,
-            "challengeExpiresAt": "2026-10-17T12:10:00.000Z",
+            "challengeExpiresAt": "2026-10-17T12:16:40.000Z",
             "replacesSubscriptionId": null,
             "delivery": {
               "state": "unverified",
@@ -68,9 +69,9 @@
     {
       "context": {
         "dns": {
-          "host": "hooks.example.com",
+          "host": "hooks.example.org",
           "addresses": [
-            "192.0.32.10"
+            "192.0.43.11"
           ]
         }
       },
@@ -79,12 +80,12 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_lost",
           "content-type": "application/json"
         },
         "schema": "createRequest",
         "body": {
-          "url": "https://hooks.example.com/envoi/wake"
+          "url": "https://hooks.example.org/envoi/wake"
         }
       },
       "response": {
@@ -95,16 +96,17 @@
         },
         "body": {
           "subscription": {
-            "id": "wake_sub_example",
-            "installationId": "installation_example",
+            "id": "wake_sub_lost_retry",
+            "installationId": "installation_lost",
             "agentId": "agent_example",
-            "url": "https://hooks.example.com/envoi/wake",
+            "url": "https://hooks.example.org/envoi/wake",
             "status": "pending",
             "endedReason": null,
-            "createdAt": "2026-10-17T12:00:05.000Z",
+            "createdAt": "2026-10-17T12:06:45.000Z",
             "activatedAt": null,
+            "expiresAt": null,
             "endedAt": null,
-            "challengeExpiresAt": "2026-10-17T12:10:05.000Z",
+            "challengeExpiresAt": "2026-10-17T12:16:45.000Z",
             "replacesSubscriptionId": null,
             "delivery": {
               "state": "unverified",
@@ -130,7 +132,7 @@
         "path": "/api/agent/wake-subscriptions",
         "auth": "agent_access",
         "headers": {
-          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_lost"
         }
       },
       "response": {
@@ -140,19 +142,20 @@
           "cache-control": "no-store"
         },
         "body": {
-          "installationId": "installation_example",
+          "installationId": "installation_lost",
           "subscriptions": [
             {
-              "id": "wake_sub_example",
-              "installationId": "installation_example",
+              "id": "wake_sub_lost_retry",
+              "installationId": "installation_lost",
               "agentId": "agent_example",
-              "url": "https://hooks.example.com/envoi/wake",
+              "url": "https://hooks.example.org/envoi/wake",
               "status": "pending",
               "endedReason": null,
-              "createdAt": "2026-10-17T12:00:05.000Z",
+              "createdAt": "2026-10-17T12:06:45.000Z",
               "activatedAt": null,
+              "expiresAt": null,
               "endedAt": null,
-              "challengeExpiresAt": "2026-10-17T12:10:05.000Z",
+              "challengeExpiresAt": "2026-10-17T12:16:45.000Z",
               "replacesSubscriptionId": null,
               "delivery": {
                 "state": "unverified",
@@ -163,15 +166,16 @@
               }
             },
             {
-              "id": "wake_sub_lost",
-              "installationId": "installation_example",
+              "id": "wake_sub_lost_first",
+              "installationId": "installation_lost",
               "agentId": "agent_example",
-              "url": "https://hooks.example.com/envoi/wake",
+              "url": "https://hooks.example.org/envoi/wake",
               "status": "ended",
               "endedReason": "superseded",
-              "createdAt": "2026-10-17T12:00:00.000Z",
+              "createdAt": "2026-10-17T12:06:40.000Z",
               "activatedAt": null,
-              "endedAt": "2026-10-17T12:00:05.000Z",
+              "expiresAt": null,
+              "endedAt": "2026-10-17T12:06:45.000Z",
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
               "delivery": {

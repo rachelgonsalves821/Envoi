@@ -12,24 +12,26 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_0007",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_Sjzfrm8pHI9UTa6ltykF",
+        "envoi-wake-timestamp": "1792237300",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=W5Yyvn6QaBN8kf72hfGpjVZ-dQuvPGWRY5QIk2kJcA8NhWmTNGuARONuSJajUk89bK_Flne2izYa4ABxq96WAg"
+        "envoi-wake-signature": "v1=zebQ50Ln9n3UAc1tNuocoEyQQkTnXOMtu-EIQuUii3Ow55-m366DCrGTjdY9CsOw_IysrTJq_ALS2RA2xXp3CA"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0007\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":7,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Sjzfrm8pHI9UTa6ltykF\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":19,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:41:40.000Z\"}"
     }
   },
   "receiver": {
-    "clock": "2026-10-17T12:02:00.000Z",
+    "clock": "2026-10-17T11:43:40.000Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -38,7 +40,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -47,8 +49,8 @@
       ]
     },
     "seenIds": [
-      "wake_evt_0006",
-      "wake_evt_0007"
+      "wake_evt_KlHTVHwjqN5Q8xIyhaDf",
+      "wake_evt_Sjzfrm8pHI9UTa6ltykF"
     ],
     "verdict": "duplicate",
     "reason": null,

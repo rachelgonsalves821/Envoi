@@ -3,13 +3,13 @@
   "version": 1,
   "id": "subscription-ended-delivery-failed",
   "kind": "http",
-  "description": "At least endAfterFailedDeliveries consecutive failed notifications and no acknowledgement for endAfterFailingSeconds end the subscription (§6.6). A new subscription needs a new challenge.",
+  "description": "At least endAfterFailedDeliveries consecutive failed notifications and no acknowledgement for endAfterFailingSeconds end the subscription (§6.6). A new one needs a new challenge.",
   "request": {
     "method": "GET",
     "path": "/api/agent/wake-subscriptions",
     "auth": "agent_access",
     "headers": {
-      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example"
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_failing"
     }
   },
   "response": {
@@ -19,17 +19,18 @@
       "cache-control": "no-store"
     },
     "body": {
-      "installationId": "installation_example",
+      "installationId": "installation_failing",
       "subscriptions": [
         {
-          "id": "wake_sub_example",
-          "installationId": "installation_example",
+          "id": "wake_sub_failing",
+          "installationId": "installation_failing",
           "agentId": "agent_example",
           "url": "https://hooks.example.com/envoi/wake",
           "status": "ended",
           "endedReason": "delivery_failed",
           "createdAt": "2026-10-14T11:59:50.000Z",
           "activatedAt": "2026-10-14T12:00:00.000Z",
+          "expiresAt": "2026-11-13T12:00:00.000Z",
           "endedAt": "2026-10-17T12:00:00.000Z",
           "challengeExpiresAt": null,
           "replacesSubscriptionId": null,
@@ -47,8 +48,8 @@
   "client": {
     "surface": "host",
     "lifecycle": "UNCHANGED",
-    "retry": "none",
-    "guidance": "none",
+    "retry": "create_subscription",
+    "guidance": "fix_receiver",
     "next": "Fix the receiver, then create a new subscription."
   }
 }

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-coalesced",
   "kind": "sequence",
-  "description": "Three more messages arrive while attempt 1 of sequence 60 is in flight. They create exactly one follow-up wake, sent after that attempt ends (§6.3).",
+  "description": "Three more messages commit while attempt 1 of notification 27 is in flight. They only mark the subscription dirty; when that attempt is acknowledged, exactly one follow-up is created (§6.3).",
   "steps": [
     {
       "context": {
@@ -36,12 +36,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0060",
-            "envoi-wake-timestamp": "1792238400",
+            "envoi-wake-id": "wake_evt_DBaEsfKEvy5lUYqxkVwe",
+            "envoi-wake-timestamp": "1792237800",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=4WOnwipfL4Vh0NnzrkiPPHU_gQM5SEdV9namCcOJKNMuKnQs-yzi6syQ9oUFTOdabX6j4TjwCCT6MkfzgK-AAg"
+            "envoi-wake-signature": "v1=Y26MTqLePcJVvE8OHUdwPweKVX2mLKIGzoIHAE-evP0og-Hdhhqy8rtiILhzPbo5teIPGZ0FcINEL5R3bDLACw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0060\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":60,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_DBaEsfKEvy5lUYqxkVwe\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":27,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:50:00.000Z\"}"
         },
         "response": {
           "status": 200
@@ -50,15 +50,17 @@
         "outcome": "acknowledged"
       },
       "receiver": {
-        "clock": "2026-10-17T12:00:00.300Z",
+        "clock": "2026-10-17T11:50:00.300Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
-        "subscriptionId": "wake_sub_example",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -67,7 +69,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -113,12 +115,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0061",
-            "envoi-wake-timestamp": "1792238404",
+            "envoi-wake-id": "wake_evt_5jqCIDfxCUlTOVAWQhwn",
+            "envoi-wake-timestamp": "1792237801",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=JCSUDNgXAtffTdG30kBX15WLTmj57bH6fhXnl9Zzrbv30g_CbgZbBh5B7t_7ioFpu5OnhG-1_up5TTbNzJPSBQ"
+            "envoi-wake-signature": "v1=i-g79jAmpssBbdBvzyCrnke19HbJwngVOKTC0e6bb6VwgyDG_ZWBqva3wxNQX0-7TSjEYNoqloEWxgF7g6HlDw"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0061\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":61,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:03.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_5jqCIDfxCUlTOVAWQhwn\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":28,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:50:00.500Z\"}"
         },
         "response": {
           "status": 200
@@ -127,15 +129,17 @@
         "outcome": "acknowledged"
       },
       "receiver": {
-        "clock": "2026-10-17T12:00:04.300Z",
+        "clock": "2026-10-17T11:50:01.300Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
-        "subscriptionId": "wake_sub_example",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -144,7 +148,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -153,7 +157,7 @@
           ]
         },
         "seenIds": [
-          "wake_evt_0060"
+          "wake_evt_DBaEsfKEvy5lUYqxkVwe"
         ],
         "verdict": "process",
         "reason": null,

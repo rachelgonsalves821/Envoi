@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-then-claim-and-mint",
   "kind": "sequence",
-  "description": "The receiver authenticates back (§7.4): it claims with its own access token at its configured origin, sending the wake id as x-request-id for correlation, then mints a case session for the claimed lease (case-session §3). The wake itself named no work.",
+  "description": "The receiver authenticates back (§7.4): it claims with its own access token at its configured origin, sending the wake id as x-request-id, then mints a case session for the claimed lease (case-session §3). The wake named no work.",
   "steps": [
     {
       "context": {
@@ -35,12 +35,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_0011",
+            "envoi-wake-id": "wake_evt_8kv2FUOTrhbIFu2HaitG",
             "envoi-wake-timestamp": "1792238460",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=neDxRHQKbHHcGSRY8AdAb5LYDmPuVJrdVypMPD_N9Hnu0hokN-KeAJvzM_WmYqmMRNEOvz12IFL6SzwxX1cZDg"
+            "envoi-wake-signature": "v1=scOoy-JVCnFovABQfErFzbe2IBxU4imoyDyWqhJiaEQpuzPbYbRFNjbQJCUNHhcXxjBBgIuRjYqG1CFp8IJkCQ"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0011\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":11,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:01:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_8kv2FUOTrhbIFu2HaitG\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":34,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:01:00.000Z\"}"
         },
         "response": {
           "status": 200
@@ -51,13 +51,15 @@
       "receiver": {
         "clock": "2026-10-17T12:01:00.300Z",
         "registeredUrl": "https://hooks.example.com/envoi/wake",
-        "subscriptionId": "wake_sub_example",
+        "subscriptionIds": [
+          "wake_sub_example"
+        ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -66,7 +68,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -90,14 +92,14 @@
         "headers": {
           "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
           "content-type": "application/json",
-          "x-request-id": "wake_evt_0011"
+          "x-request-id": "wake_evt_8kv2FUOTrhbIFu2HaitG"
         },
-        "schema": "claimRequest",
+        "schema": "case-session#claimRequest",
         "body": {}
       },
       "response": {
         "status": 200,
-        "schema": "claimClaimed",
+        "schema": "case-session#claimClaimed",
         "headers": {},
         "body": {
           "work": {
@@ -155,7 +157,7 @@
               "status": "delivered",
               "deliveredAt": "2026-10-17T11:59:51.000Z"
             },
-            "leaseToken": "lease_PLACEHOLDER_second",
+            "leaseToken": "lease_PLACEHOLDER_example",
             "leaseExpiresAt": "2026-10-17T12:02:01.000Z"
           },
           "state": "claimed"
@@ -178,21 +180,21 @@
           "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
           "content-type": "application/json"
         },
-        "schema": "mintRequest",
+        "schema": "case-session#mintRequest",
         "body": {
-          "leaseToken": "lease_PLACEHOLDER_second"
+          "leaseToken": "lease_PLACEHOLDER_example"
         }
       },
       "response": {
         "status": 201,
-        "schema": "sessionCreated",
+        "schema": "case-session#sessionCreated",
         "headers": {
           "cache-control": "no-store"
         },
         "body": {
           "session": {
-            "id": "case_session_reclaimed",
-            "token": "envoi_case_session_PLACEHOLDER_third",
+            "id": "case_session_example",
+            "token": "envoi_case_session_PLACEHOLDER_example",
             "tokenType": "Bearer",
             "status": "active",
             "transport": {

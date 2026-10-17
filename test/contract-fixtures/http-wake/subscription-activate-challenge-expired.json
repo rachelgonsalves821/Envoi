@@ -6,10 +6,10 @@
   "description": "The challenge window passed (§3.2). The subscription has ended with challenge_expired.",
   "request": {
     "method": "POST",
-    "path": "/api/agent/wake-subscriptions/wake_sub_example/activate",
+    "path": "/api/agent/wake-subscriptions/wake_sub_stale/activate",
     "auth": "agent_access",
     "headers": {
-      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_stale",
       "content-type": "application/json"
     },
     "schema": "activateRequest",

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-human-instruction",
   "kind": "delivery",
-  "description": "A human instruction is waiting. The wake says only that; the instruction text is read through the claim.",
+  "description": "A human instruction is waiting. The wake says only that; the text is read through the claim.",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_wake_human_instruction",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_Kg9k9Vz0e7mGShx2ysyI",
+        "envoi-wake-timestamp": "1792237400",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=3cdQM6JJNlGZCkIhBIt3qfJiAJRc-dNEI5jNRArJzSeymSrDSJePhM3VIIKOTjKvltAQ8tiagSfKt-h2pijXBg"
+        "envoi-wake-signature": "v1=UdAhEAWSB6gOMp73lWw1crZ1QXyOKmVp3ofU-3CdhTJSZJN9B1Y3RJRWmPNa3XX-nY_pg85pkI6OH59r5IcmAA"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_wake_human_instruction\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":12,\"reason\":\"human_instruction\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Kg9k9Vz0e7mGShx2ysyI\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":20,\"reason\":\"human_instruction\",\"createdAt\":\"2026-10-17T11:43:20.000Z\"}"
     },
     "response": {
       "status": 200
@@ -47,15 +47,17 @@
     "outcome": "acknowledged"
   },
   "receiver": {
-    "clock": "2026-10-17T12:00:00.600Z",
+    "clock": "2026-10-17T11:43:20.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -64,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",

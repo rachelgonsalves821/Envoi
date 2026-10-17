@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-delayed-retry",
   "kind": "delivery",
-  "description": "Attempt 3 of sequence 41 arrives after sequence 42 was processed. It is re-signed, so its timestamp is fresh. A late wake is still a valid hint: one more claim, which the claim queue makes harmless (§6.3).",
+  "description": "Attempt 3 of work notification 31 arrives after control notification 32 was processed: control notifications have their own lane and never wait behind work in backoff (§6.3). Re-signed, so its timestamp is fresh. A late wake is still a valid hint.",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_0041",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_w2URVpkxkO9mCcRk3LLi",
+        "envoi-wake-timestamp": "1792238060",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=ro3smxxcxieP-R3k6Z422l8bUIuPS9QYT3ZDoeoR-uEHIZkswMVYmE__6QME6WtybPUDhqps_ra1y5n1twXtCQ"
+        "envoi-wake-signature": "v1=Ek7f2bNnTY_lmR693DtRvaCQkXTFmvkxBSdoo4ZvSCrFJIZVxEYSa_0-YDFOJ_m2ry4aJ2nq585avTsBIAvRCw"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0041\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":41,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:57:30.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_w2URVpkxkO9mCcRk3LLi\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":31,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:53:20.000Z\"}"
     },
     "response": {
       "status": 200
@@ -47,15 +47,17 @@
     "outcome": "acknowledged"
   },
   "receiver": {
-    "clock": "2026-10-17T12:00:00.300Z",
+    "clock": "2026-10-17T11:54:20.300Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -64,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -73,7 +75,7 @@
       ]
     },
     "seenIds": [
-      "wake_evt_0042"
+      "wake_evt_6I3xoxTOxRwHdNxxHDOp"
     ],
     "verdict": "process",
     "reason": null,

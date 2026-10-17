@@ -3,7 +3,7 @@
   "version": 1,
   "id": "url-rejected-userinfo",
   "kind": "http",
-  "description": "No user information in the URL (§4.1).",
+  "description": "No user information (§4.1).",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

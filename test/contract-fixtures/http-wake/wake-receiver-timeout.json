@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-receiver-timeout",
   "kind": "delivery",
-  "description": "No response within deliveryTimeoutMs (§6.1). The attempt is retried after the first scheduled delay, with jitter.",
+  "description": "No response within deliveryTimeoutMs (§6.1). Retried after the first scheduled delay, with jitter.",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_0070",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_930btY2ohuPL7rvzWgs9",
+        "envoi-wake-timestamp": "1792236900",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=xGPj19LvxsPtJzJIBGgeC5tWyrSw6rqU_Cf9g5R49pxmL12oXRw4Lsmu_Zh-WhTApmJE4rZHhJyTH9DsiCVZDw"
+        "envoi-wake-signature": "v1=GytePx1AErv1J4qOkd71p8Cv8ABuXgFNEbEWlsnJ-89bNDurGtYqgdC4CyIQt4X1ZLXOXvxq9JyUwXbd_I2YAA"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0070\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":70,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_930btY2ohuPL7rvzWgs9\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":15,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:35:00.000Z\"}"
     },
     "response": null,
     "failureClass": "timeout",

@@ -1,0 +1,58 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-subscription-unknown",
+  "kind": "delivery",
+  "description": "Another host registered the same URL. A third party re-sends a notification Envoi signed for that other subscription; the signature is valid for the URL, but this receiver holds no such subscription id (§7.1).",
+  "delivery": {
+    "origin": "third_party",
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_71KZNJLsQRhevOQeAlhg",
+        "envoi-wake-timestamp": "1792237350",
+        "envoi-wake-key-id": "wk_2026_10_a",
+        "envoi-wake-signature": "v1=VyXvHU3hezdwSCLSwaIt37UBT9289NaTOFbEMppi7VSPKhplBrlfCcQdhJjzXAvyEOAZOEAFxM6iirc0828jAQ"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_71KZNJLsQRhevOQeAlhg\",\"subscriptionId\":\"wake_sub_other_host\",\"sequence\":8,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:42:30.000Z\"}"
+    }
+  },
+  "receiver": {
+    "clock": "2026-10-17T11:42:30.500Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "next"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "reject",
+    "reason": "subscription_unknown",
+    "respondStatus": 400,
+    "action": "none",
+    "next": "Reject."
+  }
+}

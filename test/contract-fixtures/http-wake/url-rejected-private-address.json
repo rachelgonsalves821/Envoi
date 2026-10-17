@@ -36,7 +36,7 @@
       "error": "WAKE_URL_REJECTED",
       "message": "The wake URL is not allowed.",
       "requestId": "req_example",
-      "reason": "address_not_public"
+      "reason": "address_not_allowed"
     }
   },
   "client": {

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "rollback-flag-off",
   "kind": "rollback",
-  "description": "Rollback by flag (§11): status reports httpWake unavailable, the routes answer 404, and no notification is sent. Work is untouched; hosts fall back to SSE and the a4 safety poll.",
+  "description": "Rollback by flag (§11): status reports wake unavailable, the routes answer 404, and nothing is sent. Work is untouched; hosts keep SSE or their safety poll.",
   "flags": {
     "ENVOI_HTTP_WAKE_V1": false,
     "ENVOI_INSTALLATIONS_V2": true
@@ -45,7 +45,8 @@
           },
           "httpWake": {
             "available": false,
-            "version": 1
+            "version": 1,
+            "subscription": null
           }
         }
       },
@@ -54,7 +55,7 @@
         "lifecycle": "RUNNING",
         "retry": "none",
         "guidance": "none",
-        "next": "Stop relying on wakes; keep SSE and the safety poll."
+        "next": "Stop relying on wakes; keep the safety poll."
       }
     },
     {

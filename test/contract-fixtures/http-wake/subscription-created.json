@@ -3,12 +3,12 @@
   "version": 1,
   "id": "subscription-created",
   "kind": "http",
-  "description": "The host registers its receiver URL (§3.1). Every resolved address is public. The subscription is pending, and one signed wake.challenge is queued for the URL.",
+  "description": "A host registers its receiver URL (§3.1). Every resolved address is public. The subscription is pending, and one signed wake.challenge is queued.",
   "context": {
     "dns": {
-      "host": "hooks.example.com",
+      "host": "hooks.example.org",
       "addresses": [
-        "192.0.32.10",
+        "192.0.43.11",
         "2620:0:2d0:200::10"
       ]
     },
@@ -19,12 +19,12 @@
     "path": "/api/agent/wake-subscriptions",
     "auth": "agent_access",
     "headers": {
-      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_example",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_fresh",
       "content-type": "application/json"
     },
     "schema": "createRequest",
     "body": {
-      "url": "https://hooks.example.com/envoi/wake"
+      "url": "https://hooks.example.org/envoi/wake"
     }
   },
   "response": {
@@ -35,14 +35,15 @@
     },
     "body": {
       "subscription": {
-        "id": "wake_sub_example",
-        "installationId": "installation_example",
+        "id": "wake_sub_fresh",
+        "installationId": "installation_fresh",
         "agentId": "agent_example",
-        "url": "https://hooks.example.com/envoi/wake",
+        "url": "https://hooks.example.org/envoi/wake",
         "status": "pending",
         "endedReason": null,
         "createdAt": "2026-10-17T12:00:00.000Z",
         "activatedAt": null,
+        "expiresAt": null,
         "endedAt": null,
         "challengeExpiresAt": "2026-10-17T12:10:00.000Z",
         "replacesSubscriptionId": null,

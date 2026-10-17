@@ -3,7 +3,7 @@
   "version": 1,
   "id": "url-rejected-query",
   "kind": "http",
-  "description": "No query string (§4.1): a receiver authenticates notifications by signature, not by a URL secret.",
+  "description": "No query string (§4.1).",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "subscription-replacement-flow",
   "kind": "sequence",
-  "description": "Replacement (§3.4): create a pending replacement, challenge the new URL, activate. In the activation's transaction the old subscription ends as replaced. Later wakes go only to the new URL.",
+  "description": "Replacement to a new URL (§3.4): create a pending replacement, challenge the new URL, activate. The old subscription ends as replaced in that transaction, its queue is cancelled, and the new one gets subscription_activated.",
   "steps": [
     {
       "context": {
@@ -41,10 +41,11 @@
             "url": "https://wake.example.net/envoi",
             "status": "pending",
             "endedReason": null,
-            "createdAt": "2026-10-17T12:00:00.000Z",
+            "createdAt": "2026-10-17T12:05:00.000Z",
             "activatedAt": null,
+            "expiresAt": null,
             "endedAt": null,
-            "challengeExpiresAt": "2026-10-17T12:10:00.000Z",
+            "challengeExpiresAt": "2026-10-17T12:15:00.000Z",
             "replacesSubscriptionId": "wake_sub_example",
             "delivery": {
               "state": "unverified",
@@ -70,7 +71,7 @@
           "id": "wake_sub_replacement",
           "url": "https://wake.example.net/envoi",
           "status": "pending",
-          "challengeExpiresAt": "2026-10-17T12:10:00.000Z"
+          "challengeExpiresAt": "2026-10-17T12:15:00.000Z"
         }
       },
       "delivery": {
@@ -94,12 +95,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_challenge_new",
-            "envoi-wake-timestamp": "1792238402",
+            "envoi-wake-id": "wake_evt_lBybMxELDqtCXS8qQujV",
+            "envoi-wake-timestamp": "1792238702",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=QPkl4ZnC3HJsjIFG87i7DKMfieFSCHyPA6tM7I2Smb3lzqJSzuVQ3ZY7t_NqdyTnj0KCDnqLNoywd3wQYVZRDA"
+            "envoi-wake-signature": "v1=kbdHqYHL4Hvo7B5DGbTQbhEgQe0XlxhzKYrfFZgZPztQiYFw00FLgg0RG0qAKD1DPW27MuXkiGgV-qmSUHJpBw"
           },
-          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_challenge_new\",\"subscriptionId\":\"wake_sub_replacement\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_replacement\",\"expiresAt\":\"2026-10-17T12:10:00.000Z\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+          "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_lBybMxELDqtCXS8qQujV\",\"subscriptionId\":\"wake_sub_replacement\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_replacement\",\"expiresAt\":\"2026-10-17T12:15:00.000Z\",\"createdAt\":\"2026-10-17T12:05:00.000Z\"}"
         },
         "response": {
           "status": 200
@@ -108,15 +109,17 @@
         "outcome": "acknowledged"
       },
       "receiver": {
-        "clock": "2026-10-17T12:00:02.400Z",
+        "clock": "2026-10-17T12:05:02.400Z",
         "registeredUrl": "https://wake.example.net/envoi",
-        "subscriptionId": "wake_sub_replacement",
+        "subscriptionIds": [
+          "wake_sub_replacement"
+        ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -125,7 +128,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -169,15 +172,16 @@
             "url": "https://wake.example.net/envoi",
             "status": "active",
             "endedReason": null,
-            "createdAt": "2026-10-17T12:00:00.000Z",
-            "activatedAt": "2026-10-17T12:00:04.000Z",
+            "createdAt": "2026-10-17T12:05:00.000Z",
+            "activatedAt": "2026-10-17T12:05:04.000Z",
+            "expiresAt": "2026-11-16T12:05:04.000Z",
             "endedAt": null,
             "challengeExpiresAt": null,
             "replacesSubscriptionId": "wake_sub_example",
             "delivery": {
               "state": "healthy",
-              "lastAttemptAt": "2026-10-17T12:00:02.000Z",
-              "lastSuccessAt": "2026-10-17T12:00:02.000Z",
+              "lastAttemptAt": "2026-10-17T12:05:02.000Z",
+              "lastSuccessAt": "2026-10-17T12:05:02.000Z",
               "consecutiveFailures": 0,
               "lastFailureClass": null
             }
@@ -217,15 +221,16 @@
               "url": "https://wake.example.net/envoi",
               "status": "active",
               "endedReason": null,
-              "createdAt": "2026-10-17T12:00:00.000Z",
-              "activatedAt": "2026-10-17T12:00:04.000Z",
+              "createdAt": "2026-10-17T12:05:00.000Z",
+              "activatedAt": "2026-10-17T12:05:04.000Z",
+              "expiresAt": "2026-11-16T12:05:04.000Z",
               "endedAt": null,
               "challengeExpiresAt": null,
               "replacesSubscriptionId": "wake_sub_example",
               "delivery": {
                 "state": "healthy",
-                "lastAttemptAt": "2026-10-17T12:00:02.000Z",
-                "lastSuccessAt": "2026-10-17T12:00:02.000Z",
+                "lastAttemptAt": "2026-10-17T12:05:02.000Z",
+                "lastSuccessAt": "2026-10-17T12:05:02.000Z",
                 "consecutiveFailures": 0,
                 "lastFailureClass": null
               }
@@ -239,7 +244,8 @@
               "endedReason": "replaced",
               "createdAt": "2026-10-16T12:00:00.000Z",
               "activatedAt": "2026-10-16T12:00:10.000Z",
-              "endedAt": "2026-10-17T12:00:04.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
+              "endedAt": "2026-10-17T12:05:04.000Z",
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
               "delivery": {
@@ -308,12 +314,12 @@
           "headers": {
             "content-type": "application/json",
             "user-agent": "Envoi-Wake/1",
-            "envoi-wake-id": "wake_evt_after_replace",
-            "envoi-wake-timestamp": "1792238410",
+            "envoi-wake-id": "wake_evt_zYYwWKjymSlULlxvGqkW",
+            "envoi-wake-timestamp": "1792238704",
             "envoi-wake-key-id": "wk_2026_10_a",
-            "envoi-wake-signature": "v1=gC3a6QBDlQ3vggHxWq-Nqp0xD4kaPr2DTQTutbgDbTTx_oMhCp4YoyC3zfsHGUg7LTeV3U3s9ohwHOcGprYACg"
+            "envoi-wake-signature": "v1=s4IVYbdd6jgY5hQxMFyuC30WQTKggdkancqWnLw5yDXOXuSwERTRoxuJyW5x4g4KSaPj5fVrqdkQ_YjlwFytBg"
           },
-          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_after_replace\",\"subscriptionId\":\"wake_sub_replacement\",\"sequence\":2,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:10.000Z\"}"
+          "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_zYYwWKjymSlULlxvGqkW\",\"subscriptionId\":\"wake_sub_replacement\",\"sequence\":2,\"reason\":\"subscription_activated\",\"createdAt\":\"2026-10-17T12:05:04.000Z\"}"
         },
         "response": {
           "status": 200
@@ -322,15 +328,17 @@
         "outcome": "acknowledged"
       },
       "receiver": {
-        "clock": "2026-10-17T12:00:10.300Z",
+        "clock": "2026-10-17T12:05:04.300Z",
         "registeredUrl": "https://wake.example.net/envoi",
-        "subscriptionId": "wake_sub_replacement",
+        "subscriptionIds": [
+          "wake_sub_replacement"
+        ],
         "jwks": {
           "keys": [
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+              "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
               "kid": "wk_2026_10_a",
               "use": "sig",
               "alg": "EdDSA",
@@ -339,7 +347,7 @@
             {
               "kty": "OKP",
               "crv": "Ed25519",
-              "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+              "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
               "kid": "wk_2026_11_b",
               "use": "sig",
               "alg": "EdDSA",
@@ -348,7 +356,7 @@
           ]
         },
         "seenIds": [
-          "wake_evt_challenge_new"
+          "wake_evt_lBybMxELDqtCXS8qQujV"
         ],
         "verdict": "process",
         "reason": null,

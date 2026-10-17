@@ -6,8 +6,8 @@
   "description": "A pending subscription receives only its challenge (§3.2).",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
-      "url": "https://hooks.example.com/envoi/wake",
+      "id": "wake_sub_fresh",
+      "url": "https://hooks.example.org/envoi/wake",
       "status": "pending",
       "challengeExpiresAt": "2026-10-17T12:10:00.000Z"
     },

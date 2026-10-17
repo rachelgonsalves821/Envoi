@@ -28,10 +28,11 @@
           "url": "https://wake.example.net/envoi",
           "status": "pending",
           "endedReason": null,
-          "createdAt": "2026-10-17T12:00:00.000Z",
+          "createdAt": "2026-10-17T12:05:00.000Z",
           "activatedAt": null,
+          "expiresAt": null,
           "endedAt": null,
-          "challengeExpiresAt": "2026-10-17T12:10:00.000Z",
+          "challengeExpiresAt": "2026-10-17T12:15:00.000Z",
           "replacesSubscriptionId": "wake_sub_example",
           "delivery": {
             "state": "unverified",
@@ -50,6 +51,7 @@
           "endedReason": null,
           "createdAt": "2026-10-16T12:00:00.000Z",
           "activatedAt": "2026-10-16T12:00:10.000Z",
+          "expiresAt": "2026-11-15T12:00:10.000Z",
           "endedAt": null,
           "challengeExpiresAt": null,
           "replacesSubscriptionId": null,
@@ -70,13 +72,14 @@
           "endedReason": "replaced",
           "createdAt": "2026-10-06T12:00:00.000Z",
           "activatedAt": "2026-10-06T12:00:05.000Z",
+          "expiresAt": "2026-11-05T12:00:05.000Z",
           "endedAt": "2026-10-07T12:00:00.000Z",
           "challengeExpiresAt": null,
           "replacesSubscriptionId": null,
           "delivery": {
             "state": "healthy",
-            "lastAttemptAt": "2026-10-17T11:59:00.000Z",
-            "lastSuccessAt": "2026-10-17T11:59:00.000Z",
+            "lastAttemptAt": "2026-10-07T11:59:00.000Z",
+            "lastSuccessAt": "2026-10-07T11:59:00.000Z",
             "consecutiveFailures": 0,
             "lastFailureClass": null
           }

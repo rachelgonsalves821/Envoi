@@ -3,7 +3,7 @@
   "version": 1,
   "id": "url-rejected-ip-literal",
   "kind": "http",
-  "description": "An IPv4 literal in any notation (here hexadecimal for 127.0.0.1, which the URL parser normalizes) is refused before any lookup (§4.1).",
+  "description": "An IPv4 literal in any notation the parser normalizes, here hexadecimal for 127.0.0.1 (§4.1).",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

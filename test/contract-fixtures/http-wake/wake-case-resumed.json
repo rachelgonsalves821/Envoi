@@ -1,0 +1,85 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-case-resumed",
+  "kind": "delivery",
+  "description": "A human resumed a paused case with claimable work for this agent (a4 §4, §8.2).",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": [
+        "192.0.32.10"
+      ]
+    },
+    "sent": true,
+    "connect": {
+      "address": "192.0.32.10",
+      "port": 443,
+      "servername": "hooks.example.com"
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://hooks.example.com/envoi/wake",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "envoi-wake-id": "wake_evt_WKReIIpvLg1Lul8dSLHm",
+        "envoi-wake-timestamp": "1792325400",
+        "envoi-wake-key-id": "wk_2026_11_b",
+        "envoi-wake-signature": "v1=9-1vgANAG8nsXMd5MzOuYHGypY0ojxKTi0SoFXcU12UrM5UFxzth8EdkmUwyn0o4ObNgPMQM99TIn-SBuzsJDg"
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_WKReIIpvLg1Lul8dSLHm\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":37,\"reason\":\"case_resumed\",\"createdAt\":\"2026-10-18T12:10:00.000Z\"}"
+    },
+    "response": {
+      "status": 200
+    },
+    "failureClass": null,
+    "outcome": "acknowledged"
+  },
+  "receiver": {
+    "clock": "2026-10-18T12:10:00.500Z",
+    "registeredUrl": "https://hooks.example.com/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
+          "kid": "wk_2026_11_b",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "active"
+        },
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
+          "kid": "wk_2026_10_a",
+          "use": "sig",
+          "alg": "EdDSA",
+          "status": "retired",
+          "notAfter": "2026-10-19T12:00:00.000Z"
+        }
+      ]
+    },
+    "seenIds": [],
+    "verdict": "process",
+    "reason": null,
+    "respondStatus": 200,
+    "action": "claim",
+    "next": "Claim once."
+  }
+}

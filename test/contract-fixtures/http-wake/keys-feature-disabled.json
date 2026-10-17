@@ -3,7 +3,7 @@
   "version": 1,
   "id": "keys-feature-disabled",
   "kind": "http",
-  "description": "With the flag off the key set is not served (§1). No notification is sent either.",
+  "description": "With the flag off the key set is not served (§1), and no notification is sent.",
   "flags": {
     "ENVOI_HTTP_WAKE_V1": false,
     "ENVOI_INSTALLATIONS_V2": true

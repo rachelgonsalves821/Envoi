@@ -1,0 +1,27 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "wake-address-empty-at-attempt",
+  "kind": "delivery",
+  "description": "At this attempt the name resolves to nothing (§4.2). Nothing is sent.",
+  "context": {
+    "subscription": {
+      "id": "wake_sub_example",
+      "url": "https://hooks.example.com/envoi/wake",
+      "status": "active"
+    },
+    "agentStatus": "active"
+  },
+  "delivery": {
+    "origin": "server",
+    "attempt": 1,
+    "dns": {
+      "host": "hooks.example.com",
+      "addresses": []
+    },
+    "sent": false,
+    "failureClass": "address_rejected",
+    "outcome": "retry_scheduled",
+    "nextAttemptInSeconds": 11
+  }
+}

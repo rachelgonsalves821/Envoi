@@ -3,7 +3,7 @@
   "version": 1,
   "id": "url-rejected-self-target",
   "kind": "http",
-  "description": "The server's own host is refused, so Envoi never calls itself (§4.1).",
+  "description": "The server's own host (§4.1).",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

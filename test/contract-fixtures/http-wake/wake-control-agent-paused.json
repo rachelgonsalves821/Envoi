@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-control-agent-paused",
   "kind": "delivery",
-  "description": "The owner paused the agent (§8.1). A control wake asks the host to renew every live lease now; each renewal fails with AGENT_PAUSED and the host cancels those turns (case-session §10).",
+  "description": "The owner paused the agent (§8.1). Control wakes are sent while paused: the host renews every live lease now, each renewal fails with AGENT_PAUSED, and those turns are cancelled (case-session §10).",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_wake_control_agent_paused",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_ot7YtjqCS36wIgFn2Fjm",
+        "envoi-wake-timestamp": "1792237650",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=eC2fJokZ5qYkW6sh6B6L6KPdIQEyZU_IFKrmAg0069Txx2BDrw9QSGmzGSWo2UaW0JoDRDPMO7eBszUGwAkLCg"
+        "envoi-wake-signature": "v1=pzSegtPj-vKeP1vCtPqC3KY3tzEvllKAxPLJiiloWT_RYvwjzFcILHiGdIHr1s1HPpWZWZhLUpkzOA7PaqnJAA"
       },
-      "bodyText": "{\"type\":\"wake.control_changed\",\"version\":1,\"id\":\"wake_evt_wake_control_agent_paused\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":15,\"reason\":\"agent_paused\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.control_changed\",\"version\":1,\"id\":\"wake_evt_ot7YtjqCS36wIgFn2Fjm\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":25,\"reason\":\"agent_paused\",\"createdAt\":\"2026-10-17T11:47:30.000Z\"}"
     },
     "response": {
       "status": 200
@@ -47,15 +47,17 @@
     "outcome": "acknowledged"
   },
   "receiver": {
-    "clock": "2026-10-17T12:00:00.600Z",
+    "clock": "2026-10-17T11:47:30.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -64,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",

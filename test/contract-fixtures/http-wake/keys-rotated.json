@@ -3,7 +3,10 @@
   "version": 1,
   "id": "keys-rotated",
   "kind": "http",
-  "description": "After rotation (§5.4): the next key is active, and the old key is retired with a notAfter at least keyRetireGraceSeconds away.",
+  "description": "After rotation (§5.4): the next key is active from validFrom, and the old key is retired with a notAfter keyRetireGraceSeconds later.",
+  "context": {
+    "validFrom": "2026-10-18T12:00:00.000Z"
+  },
   "request": {
     "method": "GET",
     "path": "/.well-known/envoi-wake-keys.json",
@@ -21,7 +24,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -30,7 +33,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",

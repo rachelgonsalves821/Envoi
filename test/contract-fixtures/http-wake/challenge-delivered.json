@@ -3,11 +3,11 @@
   "version": 1,
   "id": "challenge-delivered",
   "kind": "delivery",
-  "description": "The signed wake.challenge (§3.2). The receiver verifies it like any notification, acknowledges, and its host activates with the challenge.",
+  "description": "The signed wake.challenge, first attempted challengeFirstAttemptDelaySeconds after the create (§3.2). The receiver verifies it like any notification and acknowledges; its host activates.",
   "context": {
     "subscription": {
-      "id": "wake_sub_example",
-      "url": "https://hooks.example.com/envoi/wake",
+      "id": "wake_sub_fresh",
+      "url": "https://hooks.example.org/envoi/wake",
       "status": "pending",
       "challengeExpiresAt": "2026-10-17T12:10:00.000Z"
     },
@@ -17,29 +17,29 @@
     "origin": "server",
     "attempt": 1,
     "dns": {
-      "host": "hooks.example.com",
+      "host": "hooks.example.org",
       "addresses": [
-        "192.0.32.10"
+        "192.0.43.11"
       ]
     },
     "sent": true,
     "connect": {
-      "address": "192.0.32.10",
+      "address": "192.0.43.11",
       "port": 443,
-      "servername": "hooks.example.com"
+      "servername": "hooks.example.org"
     },
     "request": {
       "method": "POST",
-      "url": "https://hooks.example.com/envoi/wake",
+      "url": "https://hooks.example.org/envoi/wake",
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_challenge",
-        "envoi-wake-timestamp": "1792238401",
+        "envoi-wake-id": "wake_evt_2t50Zzofxkgh9NCZz96Q",
+        "envoi-wake-timestamp": "1792238402",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=Vm1CrMGiOKWHKCO3E2Oi3O24HbWELLSePkDnWnGu6_hcAy629SpGAoIOAM86Dh9-aHayaKzi1cWgf04W0IASCQ"
+        "envoi-wake-signature": "v1=iDO1w4ke0eQDrBPB-RajidpGHzGRy9mx13KM_E1-ysi9MHoQYejCk5FzTzFMJj8sDVaXTwXV8FKfHpbNSvu6Dg"
       },
-      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_challenge\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:10:00.000Z\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.challenge\",\"version\":1,\"id\":\"wake_evt_2t50Zzofxkgh9NCZz96Q\",\"subscriptionId\":\"wake_sub_fresh\",\"sequence\":1,\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\",\"expiresAt\":\"2026-10-17T12:10:00.000Z\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
     },
     "response": {
       "status": 200
@@ -48,15 +48,17 @@
     "outcome": "acknowledged"
   },
   "receiver": {
-    "clock": "2026-10-17T12:00:01.500Z",
-    "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "clock": "2026-10-17T12:00:02.400Z",
+    "registeredUrl": "https://hooks.example.org/envoi/wake",
+    "subscriptionIds": [
+      "wake_sub_fresh"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -65,7 +67,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -78,6 +80,6 @@
     "reason": null,
     "respondStatus": 200,
     "action": "activate",
-    "next": "Acknowledge, then POST the challenge to activate with the host access token."
+    "next": "Acknowledge, then activate with the challenge, using the host access token."
   }
 }

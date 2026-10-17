@@ -3,7 +3,7 @@
   "version": 1,
   "id": "subscription-ended-installation-revoked",
   "kind": "sequence",
-  "description": "The owner revokes the installation (agent-registration §6.5). In that transaction its subscriptions end with credential_ended (§8.3). The host can no longer authenticate, and nothing more is sent.",
+  "description": "The owner revokes the installation (agent-registration §6.5). Its subscriptions end with credential_ended (§8.3). The host can no longer authenticate, and nothing more is sent.",
   "steps": [
     {
       "request": {
@@ -34,6 +34,7 @@
               "endedReason": "credential_ended",
               "createdAt": "2026-10-16T12:00:00.000Z",
               "activatedAt": "2026-10-16T12:00:10.000Z",
+              "expiresAt": "2026-11-15T12:00:10.000Z",
               "endedAt": "2026-10-17T12:00:00.000Z",
               "challengeExpiresAt": null,
               "replacesSubscriptionId": null,
@@ -95,6 +96,7 @@
           "status": "ended",
           "endedReason": "credential_ended"
         },
+        "credential": "ended",
         "agentStatus": "active"
       },
       "delivery": {

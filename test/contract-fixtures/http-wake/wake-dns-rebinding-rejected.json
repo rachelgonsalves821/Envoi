@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-dns-rebinding-rejected",
   "kind": "delivery",
-  "description": "DNS rebinding (§4.2): at this attempt the name resolves to loopback. Every attempt resolves again and checks every address, so nothing is sent; the attempt is retried on the schedule.",
+  "description": "DNS rebinding (§4.2): at this attempt the name resolves to loopback. Every attempt resolves again and checks every address, so nothing is sent; work notifications retry on the schedule.",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -11,7 +11,7 @@
       "status": "active"
     },
     "agentStatus": "active",
-    "note": "At registration the name resolved to a public address (subscription-created)."
+    "note": "At registration the name resolved to a public address."
   },
   "delivery": {
     "origin": "server",

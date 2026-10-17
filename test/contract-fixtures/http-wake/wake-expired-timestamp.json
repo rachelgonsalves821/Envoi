@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-expired-timestamp",
   "kind": "delivery",
-  "description": "A captured request replayed 900 s later. The signature is valid, but the timestamp is outside timestampToleranceSeconds (§7.1).",
+  "description": "A captured request replayed long after it was signed. The signature is valid, but the timestamp is outside timestampToleranceSeconds (§7.1).",
   "delivery": {
     "origin": "third_party",
     "request": {
@@ -12,24 +12,26 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_0004",
-        "envoi-wake-timestamp": "1792237500",
+        "envoi-wake-id": "wake_evt_tzeBX1ypaX9oXf4rXxH3",
+        "envoi-wake-timestamp": "1792152210",
         "envoi-wake-key-id": "wk_2026_10_a",
-        "envoi-wake-signature": "v1=T7omE-m8NNuOgxoP6P3ky6BG16s8E5i9wfqhvlceLPFyMENcskvfzM71LiUSVwSQIX8g4tIwenfxGLiOtx77CA"
+        "envoi-wake-signature": "v1=HIR1yagpTblsCyA8asnbnRz7yeGYcRqsM_8YUvycIuwGMtgu9qflRqMKkM2umw3hoF0LBK4-0rUpqpnLmri8DQ"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0004\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":4,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:45:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_tzeBX1ypaX9oXf4rXxH3\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":4,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-16T12:03:30.000Z\"}"
     }
   },
   "receiver": {
     "clock": "2026-10-17T12:00:00.000Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -38,7 +40,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",

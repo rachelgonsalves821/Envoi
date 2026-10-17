@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-unknown-key",
   "kind": "delivery",
-  "description": "Signed by a key the key set does not list, even after one refresh (§5.3). Forged.",
+  "description": "Signed by a key the key set does not list, even after one refresh (§5.3). The receiver answers 503 rather than 401, so that after an emergency rotation Envoi's own retry succeeds; a forgery gains nothing either way.",
   "delivery": {
     "origin": "third_party",
     "request": {
@@ -12,24 +12,26 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_0007",
-        "envoi-wake-timestamp": "1792238400",
+        "envoi-wake-id": "wake_evt_Sjzfrm8pHI9UTa6ltykF",
+        "envoi-wake-timestamp": "1792237301",
         "envoi-wake-key-id": "wk_unpublished_c",
-        "envoi-wake-signature": "v1=7bG_ZCndjBXz1wuKRnBm97QHuxtijjDkKSLMyY-60GQWLhJ2X1E9VpOhoZjzmppAcLegCS10JcKnGYwB-XGXBw"
+        "envoi-wake-signature": "v1=Z97V3OppLzdR_HkeXQj9-TQJa7E0PVeMbNz_34vUM4tp1Mj5drzI73-hnqazASstmoVZJrM6jegeoTwrJil4AA"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0007\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":7,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:00.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Sjzfrm8pHI9UTa6ltykF\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":19,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T11:41:40.000Z\"}"
     }
   },
   "receiver": {
-    "clock": "2026-10-17T12:00:01.000Z",
+    "clock": "2026-10-17T11:41:41.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -38,7 +40,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",
@@ -47,10 +49,10 @@
       ]
     },
     "seenIds": [],
-    "verdict": "reject",
+    "verdict": "defer",
     "reason": "unknown_key",
-    "respondStatus": 401,
+    "respondStatus": 503,
     "action": "none",
-    "next": "Reject. Refresh the key set at most once per unknownKeyRefreshMinIntervalSeconds."
+    "next": "Answer 503 with retry-after 60; refresh the key set no more than once a minute."
   }
 }

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "url-rejected-too-long",
   "kind": "http",
-  "description": "Longer than urlMaxLength (§4.1). Nothing is parsed or resolved.",
+  "description": "Longer than urlMaxLength (§4.1). Nothing is resolved.",
   "request": {
     "method": "POST",
     "path": "/api/agent/wake-subscriptions",

@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-after-end-not-sent",
   "kind": "delivery",
-  "description": "After an end commits, no request for that subscription starts (§8.3).",
+  "description": "After an end commits, no attempt starts for that subscription (§8.3).",
   "context": {
     "subscription": {
       "id": "wake_sub_example",

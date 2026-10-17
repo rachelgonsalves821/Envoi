@@ -3,7 +3,7 @@
   "version": 1,
   "id": "wake-signed-next-key",
   "kind": "delivery",
-  "description": "Just after rotation the server signs with the new key while this receiver's cached set still lists it as next (§5.4). Any listed key verifies.",
+  "description": "Just after rotation (keys-rotated validFrom) the server signs with the new active key while this receiver's cache still holds keys-published, which lists it as next (§5.4). Any listed key verifies.",
   "context": {
     "subscription": {
       "id": "wake_sub_example",
@@ -33,12 +33,12 @@
       "headers": {
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
-        "envoi-wake-id": "wake_evt_0020",
-        "envoi-wake-timestamp": "1792238430",
+        "envoi-wake-id": "wake_evt_B62nNnQOshM0Rp3iAEhC",
+        "envoi-wake-timestamp": "1792324830",
         "envoi-wake-key-id": "wk_2026_11_b",
-        "envoi-wake-signature": "v1=XLk4-b9T0jEQ0T-ZTrBzTHh5i1uV6-6TmqoiGEmyOdhx6Uo_IBs4zys_kPUMLgeCONUzd6mEMaYODnKZwof4CA"
+        "envoi-wake-signature": "v1=UbK4WoI7SD89cRabplx9AxiwmtTCZQrOWJ3j7yjE4hOSXuP8keg60ZNE3IGO5QzlOMxF49ltgCCQRDKhmuiGAA"
       },
-      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_0020\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":20,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-17T12:00:30.000Z\"}"
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_B62nNnQOshM0Rp3iAEhC\",\"subscriptionId\":\"wake_sub_example\",\"sequence\":35,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-18T12:00:30.000Z\"}"
     },
     "response": {
       "status": 200
@@ -47,15 +47,17 @@
     "outcome": "acknowledged"
   },
   "receiver": {
-    "clock": "2026-10-17T12:00:30.500Z",
+    "clock": "2026-10-18T12:00:30.500Z",
     "registeredUrl": "https://hooks.example.com/envoi/wake",
-    "subscriptionId": "wake_sub_example",
+    "subscriptionIds": [
+      "wake_sub_example"
+    ],
     "jwks": {
       "keys": [
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "wyNXtCfV33zjooUuACUx8BmM0ZfBVH5zoDZHnjRuL5M",
+          "x": "rWwLQ5C8wMFBQLKu86CS9t1t5hwmQmeCx8aNCYO4pFA",
           "kid": "wk_2026_10_a",
           "use": "sig",
           "alg": "EdDSA",
@@ -64,7 +66,7 @@
         {
           "kty": "OKP",
           "crv": "Ed25519",
-          "x": "JKGNUEHVi6ZRBU6zLRrnFZSkXnnrIOwdUIld7AAzgQM",
+          "x": "PQZIvibCJT9Y3KN5IZYUNNgRCHJpA0IwVxHvsZcLqLg",
           "kid": "wk_2026_11_b",
           "use": "sig",
           "alg": "EdDSA",

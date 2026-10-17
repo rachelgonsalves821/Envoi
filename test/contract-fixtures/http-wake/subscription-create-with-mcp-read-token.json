@@ -1,0 +1,40 @@
+{
+  "contract": "http-wake",
+  "version": 1,
+  "id": "subscription-create-with-mcp-read-token",
+  "kind": "http",
+  "description": "A mcp-read token is an unrecognized bearer on every host wake route (§3). Only the host's access token manages wake, so a model never can.",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "mcp_read",
+    "headers": {
+      "authorization": "Bearer envoi_mcp_read_PLACEHOLDER_example",
+      "content-type": "application/json"
+    },
+    "schema": "createRequest",
+    "body": {
+      "url": "https://hooks.example.com/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "refresh_then_retry_once",
+    "guidance": "none",
+    "next": "Use the host access token."
+  }
+}
