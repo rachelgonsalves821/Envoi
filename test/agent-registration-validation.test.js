@@ -237,10 +237,10 @@ function nameValues() {
     'é'.repeat(40), 'é'.repeat(40) + 'e', // combining marks count as code points
     '中文'.repeat(40), '中文'.repeat(40) + '中',
     '\uD800', '\uDC00', '\uDC00\uD800', 'a\uD83Db', 'x'.repeat(79) + '\uD800', 'x'.repeat(80) + '\uD800', 'x'.repeat(79) + '\uDE00\uD83D',
-    '👨‍👩', // ZWJ sequence: U+200D is refused
+    '👨\u200D👩', // ZWJ sequence: U+200D is refused
     '🇺🇸', '󠀁', '󠁿', '􏿿', '𐀀',
     ' ', '­', ' ', ' ', '　', '�', '￾', '￿', '͏', '឴', 'ᅟ', 'ㅤ',
-    'Example\nagent', 'Example\tagent', 'Example\ragent', '\u0000', 'Example\u0000', 'Example‮tnega'
+    'Example\nagent', 'Example\tagent', 'Example\ragent', '\u0000', 'Example\u0000', 'Example\u202Etnega'
   ];
   for (const [low, high] of unsafeRanges) {
     for (let cp = low - 1; cp <= high + 1; cp += 1) {
@@ -251,7 +251,7 @@ function nameValues() {
   }
   for (const prefix of tokenPrefixes) {
     values.push(prefix, `${prefix}abc123`, `My ${prefix}abc agent`, `x${prefix}`, `${prefix}`.repeat(2), prefix.toUpperCase(), `${prefix[0].toUpperCase()}${prefix.slice(1)}`,
-      prefix.slice(0, -1), `${prefix.slice(0, -1)}-`, prefix.replaceAll('_', '-'), prefix.replaceAll('_', ' '), `${prefix.slice(0, 3)}​${prefix.slice(3)}`,
+      prefix.slice(0, -1), `${prefix.slice(0, -1)}-`, prefix.replaceAll('_', '-'), prefix.replaceAll('_', ' '), `${prefix.slice(0, 3)}\u200B${prefix.slice(3)}`,
       `${prefix.slice(0, 3)}­${prefix.slice(3)}`, 'x'.repeat(80 - prefix.length) + prefix, 'x'.repeat(81 - prefix.length) + prefix);
   }
   values.push('envoi_agent_', 'envoi_agent_token_', 'sinaloa_reg_', 'envoi_mcp_', 'envoi_mcp_write_', 'envoi__reg_', 'envoireg_', 'envoi_regx', 'envoi_agent_access', 'sinaloa_enroll', 'envoi_enroll-');
@@ -261,13 +261,13 @@ function nameValues() {
 const localPartValues = [
   undefined, 'abc', 'ab', 'a', '', 'a'.repeat(32), 'a'.repeat(33), 'a'.repeat(31) + '1', `a${'.b'.repeat(15)}c`, `a${'.b'.repeat(15)}cd`, '1abc', '9', 'abc-', 'abc.', '-abc', '.abc',
   'a..b', 'a--b', 'a.-b', 'a-.b', 'a.b', 'a-b', 'a-1', 'a.1', 'a1-2.b3', 'Abc', 'aBc', 'ABC', 'ab_c', 'a b', 'abc ', ' abc', 'abc\n', '\nabc', 'abc\u0000',
-  'аbc', 'abé', 'abc​', 'example', 'example-agent', 'example.agent', 'x1', 'x12', 'a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p', 'a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q',
+  'аbc', 'abé', 'abc\u200B', 'example', 'example-agent', 'example.agent', 'x1', 'x12', 'a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p', 'a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q',
   null, 0, true, ['abc'], { abc: 1 }
 ];
 const shortIdValues = ['', 'a', 'a'.repeat(32), 'a'.repeat(33), '0', '9a', '_a', '-a', 'a_b-c', 'a.b', 'a b', 'A', 'aB', 'a\n', 'aé', 'abc+1'];
 const runtimeVersionValues = [
   undefined, null, '', '1', '0.9.0', 'x'.repeat(32), 'x'.repeat(33), '1'.repeat(31) + '.', '.1', '-1', '+1', '_1', '1._+-', '1.0+build_x-7', 'v1.2.3-rc.1',
-  '1.0 beta', '1.0\n', '1/2', '1:2', '1@2', 'é1', '1​', 'V', 'Z9', 0, 1.5, true, [], ['1'], {}
+  '1.0 beta', '1.0\n', '1/2', '1:2', '1@2', 'é1', '1\u200B', 'V', 'Z9', 0, 1.5, true, [], ['1'], {}
 ];
 const helperVersionValues = [...runtimeVersionValues.filter(value => value !== undefined && value !== null), undefined, null];
 const routeValues = [...definitions.connectionRoute.enum, 'LOCAL_HELPER', 'local-helper', 'local_helper ', '', 'unknown', 'webhook', 'envoi_link', null, 0, ['local_helper'], {}];
@@ -281,7 +281,7 @@ const policyValues = [undefined, 'default', 'Default', 'DEFAULT', 'default ', ''
 function idValues(prefix) {
   return [
     `${prefix}x`, prefix, `${prefix}${'a'.repeat(80)}`, `${prefix}${'a'.repeat(81)}`, `${prefix}a-b_C9`, `${prefix}__`, `${prefix}-`, `${prefix}a.b`, `${prefix}a b`, `${prefix}a/b`,
-    `${prefix}a\n`, `\n${prefix}a`, `${prefix.toUpperCase()}a`, `x${prefix}a`, `${prefix}é`, `${prefix}a​`, prefix.slice(0, -1), `${prefix.slice(0, -1)}-a`,
+    `${prefix}a\n`, `\n${prefix}a`, `${prefix.toUpperCase()}a`, `x${prefix}a`, `${prefix}é`, `${prefix}a\u200B`, prefix.slice(0, -1), `${prefix.slice(0, -1)}-a`,
     'inbox_x', 'agent_x', 'installation_x', 'installation_legacy_0b6f8f9e-1c2d-4e5f-8a9b-0c1d2e3f4a5b', '', null, 0, ['x'], {}
   ];
 }
@@ -360,7 +360,7 @@ test('validRequestedName agrees with the requestedName subschema on every BMP co
   // Non-vacuous: code points, not UTF-16 units, are counted, and each refusal rule fires.
   assert.equal(validRequestedName(emoji.repeat(80)), true);
   assert.equal(validRequestedName(emoji.repeat(81)), false);
-  assert.equal(validRequestedName('؜'), false);
+  assert.equal(validRequestedName('\u061C'), false);
   assert.equal(validRequestedName('envoi_reg_'), false);
 });
 
@@ -482,7 +482,7 @@ test('the body validators accept any verificationCode, and every code the routes
   const codes = [
     undefined, null, 0, 12345678, true, [], [validCode], {}, '', ' ', '-', 'x', 'x'.repeat(32), 'x'.repeat(33), validCode, 'F7KQPM4D', 'f7kq pm4d', ' F7KQ PM4D ', 'F7KQ--PM4D',
     '-F7KQ-PM4D-', `F7KQ${' '.repeat(23)}PM4D`, `F7KQ${' '.repeat(24)}PM4D`, `F7KQ${' '.repeat(25)}PM4D`, 'FIKQ-PM4D', 'FLKQ-PM4D', 'O0O0-1111', 'F7KQ_PM4D', 'F7KQ\tPM4D',
-    'F7KQ\nPM4D', 'F7KQ PM4D', 'F7KQ‐PM4D', 'F7KQ-PM4\u0000', 'F7KQPM4D​', 'F7KQ-PM4U', 'F7KQ-PM4', 'F7KQ-PM4DX', 'Ｆ７KQ-PM4D', 'ß7KQ-PM4D',
+    'F7KQ\nPM4D', 'F7KQ PM4D', 'F7KQ‐PM4D', 'F7KQ-PM4\u0000', 'F7KQPM4D\u200B', 'F7KQ-PM4U', 'F7KQ-PM4', 'F7KQ-PM4DX', 'Ｆ７KQ-PM4D', 'ß7KQ-PM4D',
     'ı7KQ-PM4D', emoji.repeat(8), emoji.repeat(16), emoji.repeat(17)
   ];
   for (const code of codes) {
