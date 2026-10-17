@@ -2273,6 +2273,32 @@ async function activatedAgain(rawToken, registrationId, activationIdHash) {
   return { status: 200, body: outcome.body };
 }
 
+// The reviewed agent-facing skill content (Lane B, integrations/onboarding/skill). It stays
+// unpublished until the local-helper route is offered: with the route off it is FEATURE_DISABLED.
+// skill.json lists as offered only what GET /api/onboarding/routes marks available.
+const connectContentDir = path.resolve('integrations', 'onboarding', 'skill');
+const connectContent = {
+  '/connect/SKILL.md': { file: 'SKILL.md', type: 'text/markdown; charset=utf-8' },
+  '/connect/HEARTBEAT.md': { file: 'HEARTBEAT.md', type: 'text/markdown; charset=utf-8' },
+  '/connect/skill.json': { file: 'skill.json', type: 'application/json; charset=utf-8' }
+};
+async function serveConnectContent(req, res, url) {
+  const entry = connectContent[url.pathname];
+  if (!entry) return fail(res, 404, 'Not found');
+  if (!routeAvailable(onboardingFlags, 'local_helper')) throw codedError(404, 'FEATURE_DISABLED', 'Agent-led setup is not available yet.');
+  let content = await readFile(path.join(connectContentDir, entry.file));
+  if (entry.file === 'skill.json') {
+    const manifest = JSON.parse(content.toString('utf8'));
+    const availability = routeAvailability(onboardingFlags, store.now());
+    manifest.offeredConnectionRoutes = availability.routes.filter(item => item.available).map(item => item.connectionRoute);
+    manifest.offeredDeliveryModes = availability.deliveryModes.filter(item => item.available).map(item => item.deliveryMode);
+    content = Buffer.from(`${JSON.stringify(manifest, null, 2)}
+`);
+  }
+  res.writeHead(200, { 'content-type': entry.type, 'content-length': content.byteLength, 'cache-control': 'public, max-age=60', 'x-content-type-options': 'nosniff' });
+  return res.end(req.method === 'HEAD' ? undefined : content);
+}
+
 async function handleAgentRegistration(req, res, registrationRoute, claimRoute) {
   const featureDisabled = message => codedError(404, 'FEATURE_DISABLED', message);
   if (registrationRoute && !registrationRoute[1]) {
@@ -2361,9 +2387,12 @@ async function route(req, res) {
     };
     return handleAgentMcp(req, res, { identity, callRest });
   }
-  // agent-registration v1 §3: claim.url is ${ENVOI_PUBLIC_URL}/claim, served by the web app.
-  if (['GET', 'HEAD'].includes(req.method) && (url.pathname === '/' || url.pathname === '/claim' || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
-    const relative = url.pathname === '/' || url.pathname === '/claim' ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
+  // agent-registration v1 §3 and §7: claim.url is ${ENVOI_PUBLIC_URL}/claim; /connect is the
+  // agent-facing page. Both are the web app, which reads availability from the routes endpoint.
+  const appShell = ['/', '/claim', '/connect'].includes(url.pathname);
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname.startsWith('/connect/')) return serveConnectContent(req, res, url);
+  if (['GET', 'HEAD'].includes(req.method) && (appShell || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
+    const relative = appShell ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
     let filePath;
     try { filePath = resolvePathWithin(path.resolve('web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
