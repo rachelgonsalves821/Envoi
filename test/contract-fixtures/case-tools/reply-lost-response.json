@@ -36,7 +36,7 @@
         "schema": "jsonRpcRequest",
         "body": {
           "jsonrpc": "2.0",
-          "id": 15,
+          "id": 14,
           "method": "tools/call",
           "params": {
             "name": "envoi_case_reply",
@@ -57,7 +57,7 @@
         },
         "body": {
           "jsonrpc": "2.0",
-          "id": 15,
+          "id": 14,
           "result": {
             "content": [
               {
@@ -92,7 +92,7 @@
         "schema": "jsonRpcRequest",
         "body": {
           "jsonrpc": "2.0",
-          "id": 16,
+          "id": 15,
           "method": "tools/call",
           "params": {
             "name": "envoi_case_reply",
@@ -113,7 +113,7 @@
         },
         "body": {
           "jsonrpc": "2.0",
-          "id": 16,
+          "id": 15,
           "result": {
             "content": [
               {

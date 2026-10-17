@@ -33,7 +33,7 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 35,
+      "id": 34,
       "method": "tools/call",
       "params": {
         "name": "envoi_authority_check",
@@ -56,12 +56,12 @@
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 35,
+      "id": 34,
       "result": {
         "content": [
           {
             "type": "text",
-            "text": "{\"ok\":true,\"tool\":\"envoi_authority_check\",\"result\":{\"authorityRef\":\"g_2j5ixm6yf4qr33k7\",\"decision\":\"deny\",\"humanApproval\":\"not_required\",\"expiresAt\":\"2026-10-17T12:10:00.000Z\",\"proposalRef\":\"p_c5cqycxdceumfgik\",\"optionRef\":\"o_ddhakwnrje33ixoh\",\"replayed\":false}}"
+            "text": "{\"ok\":true,\"tool\":\"envoi_authority_check\",\"result\":{\"action\":\"accept_proposal\",\"authorityRef\":\"g_2j5ixm6yf4qr33k7\",\"decision\":\"deny\",\"humanApproval\":\"not_required\",\"expiresAt\":\"2026-10-17T12:10:00.000Z\",\"proposalRef\":\"p_c5cqycxdceumfgik\",\"optionRef\":\"o_ddhakwnrje33ixoh\",\"replayed\":false}}"
           }
         ],
         "isError": false

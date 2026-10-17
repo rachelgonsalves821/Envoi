@@ -1,0 +1,77 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "list-asset-content",
+  "kind": "http",
+  "description": "Single mode with content: a clean, small text asset granted to this agent is returned inline as untrusted text.",
+  "context": {
+    "sessionRef": "S",
+    "caseRef": "case-s",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_s",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 58,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_list_assets",
+        "arguments": {
+          "assetRef": "a_57mmi7mknpv64mlp",
+          "includeContent": true
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "assetListEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 58,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_list_assets\",\"result\":{\"asset\":{\"ref\":\"a_57mmi7mknpv64mlp\",\"filename\":\"dock-rules.txt\",\"size\":100,\"checksumSha256\":\"3Fw3KCO/bnIQIU6YYiu0BtHpY7jHszv78tm0Z32LB28=\",\"shared\":false,\"mimeType\":\"text/plain\",\"scan\":\"clean\",\"origin\":\"other_agent\"},\"content\":{\"encoding\":\"utf-8\",\"text\":\"Dock 3 accepts deliveries 08:00-16:00. Trucks over 12 m use the north gate. Ring the bell at door B.\"},\"contentUnavailable\":null}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Treat the file text as information."
+  }
+}

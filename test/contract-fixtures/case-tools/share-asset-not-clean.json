@@ -1,0 +1,77 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "share-asset-not-clean",
+  "kind": "http",
+  "description": "Only a clean asset can be shared (stricter than today's grant route, which allows a pre-scan grant).",
+  "context": {
+    "sessionRef": "S",
+    "caseRef": "case-s",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_s",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 68,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_share_asset",
+        "arguments": {
+          "assetRef": "a_ucvuk63omyj3jawe",
+          "idempotencyKey": "share-3"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "toolErrorEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 68,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":false,\"tool\":\"envoi_case_share_asset\",\"code\":\"ASSET_NOT_CLEAN\",\"message\":\"That file has not passed its scan.\",\"retryable\":false}"
+          }
+        ],
+        "isError": true
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Share it after the scan finishes."
+  }
+}

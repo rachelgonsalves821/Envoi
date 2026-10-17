@@ -1,12 +1,12 @@
 {
   "contract": "case-tools",
   "version": 1,
-  "id": "revision-3-tool-not-in-session",
+  "id": "list-asset-content-binary",
   "kind": "http",
-  "description": "A revision 3 tool on a server that implements revisions 1 and 2 is absent from the session, even when permissions would allow it.",
+  "description": "A clean binary asset is not inlined; bytes stay a host operation.",
   "context": {
-    "sessionRef": "A",
-    "caseRef": "case-a",
+    "sessionRef": "S",
+    "caseRef": "case-s",
     "workKind": "agent_message",
     "allowedTools": [
       "envoi_case_snapshot",
@@ -25,7 +25,7 @@
     "path": "/mcp",
     "auth": "case_session",
     "headers": {
-      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_a",
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_s",
       "content-type": "application/json",
       "accept": "application/json, text/event-stream",
       "mcp-protocol-version": "2025-11-25"
@@ -33,32 +33,36 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 10,
+      "id": 59,
       "method": "tools/call",
       "params": {
-        "name": "envoi_case_complete",
+        "name": "envoi_case_list_assets",
         "arguments": {
-          "idempotencyKey": "complete-1"
+          "assetRef": "a_mqjcerwqvgao2qln",
+          "includeContent": true
         }
       }
     }
   },
   "response": {
     "status": 200,
-    "schema": "jsonRpcError",
+    "schema": "mcpToolCallResult",
+    "toolResult": "assetListEnvelope",
     "headers": {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store"
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 10,
-      "error": {
-        "code": -32602,
-        "message": "Tool not available in this case session",
-        "data": {
-          "code": "TOOL_NOT_IN_SESSION"
-        }
+      "id": 59,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_list_assets\",\"result\":{\"asset\":{\"ref\":\"a_mqjcerwqvgao2qln\",\"filename\":\"dock-photos.zip\",\"size\":5242880,\"checksumSha256\":\"AAybwMdIf7kEmJInqoK9fAYLrqRMO8cCbvG+J2r/xTE=\",\"shared\":false,\"mimeType\":\"application/zip\",\"scan\":\"clean\",\"origin\":\"other_agent\"},\"content\":null,\"contentUnavailable\":\"binary\"}}"
+          }
+        ],
+        "isError": false
       }
     }
   },
@@ -68,6 +72,6 @@
     "retry": "none",
     "guidance": "none",
     "turn": "continue",
-    "next": "Use only the tools in allowedActions."
+    "next": "Describe what you need; the host can fetch bytes outside the model."
   }
 }

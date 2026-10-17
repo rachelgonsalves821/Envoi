@@ -27,7 +27,7 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 12,
+      "id": 11,
       "method": "tools/call",
       "params": {
         "name": "envoi_case_reply",
@@ -48,7 +48,7 @@
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 12,
+      "id": 11,
       "result": {
         "content": [
           {

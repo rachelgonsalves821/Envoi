@@ -1,0 +1,74 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "list-assets",
+  "kind": "http",
+  "description": "List mode: every asset in this case that this agent created or was granted, newest first, with checksums. No URL, no bytes.",
+  "context": {
+    "sessionRef": "S",
+    "caseRef": "case-s",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_s",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 57,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_list_assets",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "assetListEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 57,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_list_assets\",\"result\":{\"assets\":[{\"ref\":\"a_j4dyxngtgs5cqq2g\",\"filename\":\"delivery-plan.pdf\",\"size\":88213,\"checksumSha256\":\"qxS981R8uDr+Z1M4bkEJiu6/+O1IhEw0/SeOdOzGQ6o=\",\"shared\":false,\"mimeType\":\"application/pdf\",\"scan\":\"clean\",\"origin\":\"you\"},{\"ref\":\"a_ucvuk63omyj3jawe\",\"filename\":\"draft-notes.txt\",\"size\":1200,\"checksumSha256\":\"+RLkIQKt5pSYGdV3VYmbfr5t6yQwb9dM2bFqEtfGws4=\",\"shared\":false,\"mimeType\":\"text/plain\",\"scan\":\"pending\",\"origin\":\"you\"},{\"ref\":\"a_57mmi7mknpv64mlp\",\"filename\":\"dock-rules.txt\",\"size\":1200,\"checksumSha256\":\"3Fw3KCO/bnIQIU6YYiu0BtHpY7jHszv78tm0Z32LB28=\",\"shared\":false,\"mimeType\":\"text/plain\",\"scan\":\"clean\",\"origin\":\"other_agent\"},{\"ref\":\"a_mqjcerwqvgao2qln\",\"filename\":\"dock-photos.zip\",\"size\":5242880,\"checksumSha256\":\"AAybwMdIf7kEmJInqoK9fAYLrqRMO8cCbvG+J2r/xTE=\",\"shared\":false,\"mimeType\":\"application/zip\",\"scan\":\"clean\",\"origin\":\"other_agent\"},{\"ref\":\"a_xn5qaskix24e6hv4\",\"filename\":\"manifest.csv\",\"size\":400000,\"checksumSha256\":\"2A292CxHlR0Yu6Vol0et6PnN+nqnqSyhS/1wtHlB0Z4=\",\"shared\":false,\"mimeType\":\"text/csv\",\"scan\":\"clean\",\"origin\":\"other_agent\"},{\"ref\":\"a_fl6l73te37rnvfax\",\"filename\":\"pallet-scan.zip\",\"size\":9000,\"checksumSha256\":\"fyOIahd1BfAkdN4YYYE4tjTlwRYrZ6T2Pk8eHwrQ5G8=\",\"shared\":false,\"mimeType\":\"application/zip\",\"scan\":\"blocked\",\"origin\":\"you\"},{\"ref\":\"a_nfia74lqyjmyit3j\",\"filename\":\"invoice-1042.pdf\",\"size\":51234,\"checksumSha256\":\"0AyjwilurOCYZYqFdtr+yKlZ9dpTalHI+dBgwA5CclI=\",\"shared\":true,\"mimeType\":\"application/pdf\",\"scan\":\"clean\",\"origin\":\"you\"}],\"hasMore\":false,\"nextCursor\":null}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Read a clean text asset with includeContent, or share one of yours."
+  }
+}

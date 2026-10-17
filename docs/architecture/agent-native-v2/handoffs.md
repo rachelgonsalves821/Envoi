@@ -2385,7 +2385,11 @@ These are Lane A's proposals. Any of them can change before approval.
 
 ## case-tools v1
 
-**Contract:** `case-tools`, version 1 (Phase C task **C-A0**, the second of three). **Status:** revision 1 was published on 2026-10-17 at `cb5f6fe` (board #34). Revision 2 is published in the same PR. Both wait for Lane B's `CONTRACT-ACK`. Revision 3 follows, and then a single version-specific `CONTRACT-APPROVED case-tools v1 @<sha>` covers all nine tools. Nothing here is implemented or on by default. C-A2 to C-A4 do the server work and C-B2 to C-B4 the client work.
+**Contract:** `case-tools`, version 1 (Phase C task **C-A0**, the second of three). **Status:**
+- **Revision 1:** published on 2026-10-17 at `cb5f6fe` (board #34), with Lane B's ACK limited to that SHA.
+- **Revision 2:** published in the same PR. Lane B's ACK is withheld until the `human_decision` host fixtures are reviewed (case-session §3.1).
+- **Revision 3:** published in the same PR.
+- **Approval:** one version-specific `CONTRACT-APPROVED case-tools v1 @<sha>` will cover all nine tools and the case-session amendment. Nothing here is implemented or on by default. C-A2 to C-A4 do the server work and C-B2 to C-B4 the client work.
 
 **Revision 1 covers:**
 - the rules that every case tool shares (§1–§5);
@@ -2762,7 +2766,7 @@ Fixture `two-cases-same-counterparty` pins this. A second owner's agent never ap
 
 | Group | Fixtures |
 | --- | --- |
-| Snapshot and tool list | `snapshot-agent-work`, `snapshot-human-instruction`, `snapshot-older-page`, `snapshot-truncated`, `snapshot-untrusted-content`, `snapshot-cursor-invalid`, `snapshot-unknown-argument`, `tools-list`, `revision-3-tool-not-in-session` |
+| Snapshot and tool list | `snapshot-agent-work`, `snapshot-human-instruction`, `snapshot-older-page`, `snapshot-truncated`, `snapshot-untrusted-content`, `snapshot-cursor-invalid`, `snapshot-unknown-argument`, `tools-list` |
 | Reply | `reply-agent-work`, `reply-human-instruction`, `reply-clarify`, `reply-replayed`, `reply-lost-response`, `reply-replayed-after-reclaim`, `reply-idempotency-conflict`, `reply-ref-not-found`, `reply-in-reply-to-instruction-refused`, `reply-instruction-intent-not-supported`, `reply-not-in-session`, `reply-recipient-override-rejected`, `reply-intent-not-allowed`, `reply-session-ended-in-write`, `reply-tool-busy` |
 | Isolation and audit | `two-cases-same-counterparty`, `event-case-tool-used` |
 
@@ -2771,8 +2775,8 @@ Fixture `two-cases-same-counterparty` pins this. A second owner's agent never ap
 | Revision | Tools | Unblocks | Status |
 | --- | --- | --- | --- |
 | 1 | `envoi_case_snapshot`, `envoi_case_reply` (§6, §7) | C-B2 | published @`cb5f6fe` |
-| 2 | `envoi_authority_check`, `envoi_request_human`, `envoi_case_propose`, `envoi_case_decide` (§12) | C-B3 | published in this PR |
-| 3 | `envoi_case_list_assets`, `envoi_case_share_asset`, `envoi_case_complete` | C-B4 | next |
+| 2 | `envoi_authority_check`, `envoi_request_human`, `envoi_case_propose`, `envoi_case_decide` (§12) | C-B3 | published; host fixtures added at `99cde94` |
+| 3 | `envoi_case_list_assets`, `envoi_case_share_asset`, `envoi_case_complete` (§14) | C-B4 | published in this PR |
 
 Each revision is additive within v1 and is published before approval, so a client built against one revision keeps working on the next. `tools/list` and `allowedActions` show only the tools a server implements (§1).
 
@@ -3052,3 +3056,159 @@ These are Lane A's proposals. Each one can change before approval.
 10. **Agreements need human approval by default.** C-A3 makes `proposal.accept` policy-controlled, with `agreements.requireHumanApproval` defaulting to true (§12.2). That is a product decision for Rachel. If false is chosen instead, accepts are `allow` unless the workspace opts in.
 11. **A `needsHuman` authority lives 24 h,** not today's 10 minutes, so a person has time to decide.
 12. **A decline returns the case to `inProgress`** rather than revoking it, because the case record is shared with the counterparty (§12.3).
+13. **No model upload in v1.** Files enter a case only through the host's upload routes, under the owner's control (§14.3). A model-authored artifact tool would come in a later revision.
+14. **An approved accept counts as the agreement's human decision** when completing (§14.4), so a person approves once rather than twice.
+15. **Inline reads are limited** to clean text assets of at most 32 KiB, returned as untrusted text (§14.2). Bytes and anything larger stay a host operation.
+
+### 14. Revision 3: assets and completion
+
+**Scope.** Revision 3 adds `envoi_case_list_assets`, `envoi_case_share_asset` and `envoi_case_complete`, and unblocks C-B4. With it, all nine case tools are defined, and v1 can be approved once.
+
+**Common rules.**
+- Each tool follows §1–§5.
+- The two writing tools take an `idempotencyKey` (§3).
+- All three run in-process under the settlement lock set (case-session §6.3).
+- They add one reference kind, `r`, for a case receipt (`x-ref-kinds`).
+
+**Existing services.** Each tool uses an existing service:
+
+| Need | Service |
+| --- | --- |
+| Asset visibility | `assetReadAccess` |
+| Grants | today's `POST …/assets/{assetId}/grants` |
+| Completion | today's native completion path (`advanceNativeCase`), which writes the canonical receipt |
+
+#### 14.1 State rules added to §12.1
+
+| Tool | Appears when |
+| --- | --- |
+| `envoi_case_list_assets` | always |
+| `envoi_case_share_asset` | `assets` contains at least one item with `origin: "you"`, `scan: "clean"` and `shared: false` |
+| `envoi_case_complete` | `case.status` is not `completed`, `failed` or `expired`, and `authority.pendingHumanDecision` is false |
+| `envoi_authority_check` | awaiting proposal (§12.1), **or** the `envoi_case_complete` rule above holds. This lets the agent check whether it may complete the case. |
+
+#### 14.2 `envoi_case_list_assets`
+
+**Permission:** read. **Work kinds:** all three. **Writes:** nothing.
+
+The tool works in one of two modes.
+
+**List mode:** `{ "limit": 20, "before": "c_…" }`, both optional.
+- Returns up to `limit` assets (1–50, default 20), newest first.
+- Lists only assets in this session's case that this agent created or was granted.
+- Each item has the snapshot's fields plus `checksumSha256`.
+- Pages with `{ hasMore, nextCursor }`, using the same sealed cursor rules as §6.3.
+
+**Single mode:** `{ "assetRef": "a_…", "includeContent": true }`.
+- Returns that one asset, under the same visibility.
+- With `includeContent`, it may also return the content inline:
+
+| Asset | `content` |
+| --- | --- |
+| `scan: "clean"`, a text type (`x-limits.inlineContentTypes`: `text/plain`, `text/csv`, `text/markdown`, `application/json`) and size at most `x-limits.inlineContentMaxBytes` (32 KiB) | `{ encoding: "utf-8", text }`. `text` is untrusted (§5). |
+| Clean but binary, or larger than the limit | `null`, with `contentUnavailable: "binary"` or `"too_large"`. Bytes stay a host operation through today's download route. |
+| Not clean (`pending` or `blocked`) | tool error `ASSET_NOT_CLEAN` |
+
+**Never returned.** Neither mode ever returns a URL, a signed link or an internal id.
+
+**Errors.**
+- `REF_NOT_FOUND` when `assetRef` does not name an asset this agent may see in this case. The response is identical for an asset that does not exist, one that was never granted, one in another case and one in another tenant.
+- `CURSOR_INVALID` for a bad cursor.
+- A blocked relationship ends the session first (`work_ineligible`, case-session §6.2).
+
+**Result (`assetListResult`).**
+- List mode: `{ assets, hasMore, nextCursor }`.
+- Single mode: `{ asset, content, contentUnavailable }`.
+
+#### 14.3 `envoi_case_share_asset`
+
+**Permission:** `create_assets`. **Work kinds:** agent work and `human_decision`.
+
+```json
+{ "assetRef": "a_…", "idempotencyKey": "share-1" }
+```
+
+**Effect.** Grants the asset to the session's counterparty, using today's grant record (`grant_…`) and audit `asset.granted`. There is no recipient argument: the recipient is always the counterparty.
+
+**Preconditions,** checked in this order:
+1. `assetRef` resolves; otherwise `REF_NOT_FOUND`.
+2. This agent created the asset **in this case**; otherwise `ASSET_NOT_SHAREABLE`. A granted asset can't be re-shared.
+3. The asset's scan is `clean`; otherwise `ASSET_NOT_CLEAN`. **New in C-A4:** today a grant may be made before the scan and only becomes active once the asset is clean.
+
+**Result (`shareResult`):** `{ assetRef, recipient, alreadyShared, replayed }`.
+- `alreadyShared` is true when a grant to this counterparty already existed under a different key. Nothing new is written.
+- A grant sends no message. A reply (§7) is the usual way to tell the counterparty, and its snapshot shows the asset with `origin: "other_agent"`.
+
+**How files enter a case.** v1 has no model upload. Files enter a case through the host's existing upload routes (begin upload with `caseId`, then complete), under the owner's control. A host never uploads model-authored content that way (case-session §10). Decision 13 asks whether that is right.
+
+#### 14.4 `envoi_case_complete`
+
+**Permission:** `execute_cases`. **Work kinds:** agent work and `human_decision`.
+
+```json
+{ "result": "Delivery agreed for 26 Oct, 10:00–13:00 at 4.10/unit.", "authorityRef": "g_…", "evidenceRefs": ["a_…"], "idempotencyKey": "complete-1" }
+```
+
+**Input.**
+- `result`: 1–2,000 characters, the outcome in the agent's words.
+- `evidenceRefs`: up to 32 references to assets in this case that this agent may see.
+- `authorityRef`: optional. It is required exactly when the case needs a human decision (below).
+
+**When a human decision is needed.** In either of these cases:
+- the case has an accepted agreement that no person approved;
+- this agent's own request is open.
+
+The flow then reuses §12:
+1. `envoi_authority_check` with `{ "action": "complete_case", "result": "<the same text>" }`. This is `requestedAction` `case.complete`, bound to the exact result text.
+2. On `needsHuman`, `envoi_request_human`.
+3. The person's `approveOnce` records today's verified case decision: `externalRefs.requestedAction: "case.complete"` and the `result`.
+4. The agent gets `human_decision` work and then completes the case with that `authorityRef`.
+
+For `complete_case`, an approval moves the case to `authorized`, as today. A decline or an expiry returns the case to `inProgress` (§12.3).
+
+**Accepts already approved count.** An accept already approved by a person in §12 counts as that agreement's human decision. **New in C-A4:** completing then needs no second approval. Today, any accept decision event demands one.
+
+**Effect.**
+- **One native message.** It goes to the counterparty: type `completion`, intent `receipt`. Its payload is `payload.completion = { result, authorityBasis, evidenceRefs }`. `authorityBasis` is either the approved decision's action id or `nativeAgentCompletion`, and is filled in by the server.
+- **What follows.** Today's `advanceNativeCase` then writes the case's canonical receipt (`receipt_<messageId>`) and moves the shared case to `completed`. Both parties then see `case.status: "completed"` and a `receipt` timeline item.
+- **Separate from work settlement.** The host still completes or fails the work (case-session §7). A completed case never settles work, and settled work never completes a case.
+
+**Result (`completeResult`):** `{ receiptRef, messageRef, result, humanApproval, caseStatus: "completed", recipient, evidenceRefs, replayed }`. `humanApproval` is `approved` or `not_required`.
+
+**Errors.**
+- `AUTHORITY_REQUIRED`: a human decision is needed and there is no `authorityRef`.
+- `AUTHORITY_PENDING`, `AUTHORITY_EXPIRED`, `AUTHORITY_DENIED` and `AUTHORITY_CHANGED`: as in §12.5. `AUTHORITY_CHANGED` also covers a `result` that differs from the bound text.
+- `CASE_COMPLETED`: the case already has a receipt.
+- `REF_NOT_FOUND`: an `evidenceRefs` entry does not resolve.
+- `IDEMPOTENCY_CONFLICT` and `TOOL_BUSY`: as in §2.
+
+#### 14.5 `envoi_authority_check` gains `complete_case`
+
+| `action` | Required | Not allowed |
+| --- | --- | --- |
+| `accept_proposal` | `proposalRef`, `optionRef` | `result` |
+| `complete_case` | `result` | `proposalRef`, `optionRef` |
+
+**The `complete_case` decision (new in C-A4):**
+
+| Situation | Decision |
+| --- | --- |
+| The case has an accepted agreement that no person approved | `needsHuman` |
+| Otherwise | `allow` |
+| The agent lacks `execute_cases` | `deny` |
+
+In `authorityResult`, `proposalRef` and `optionRef` are `null` for `complete_case`, and a new field `action` names the checked action. `lastPolicyDecision` reports the same `action` (`case.complete`).
+
+#### 14.6 Events and audit
+
+- **Grants:** audit `asset.granted`, as today.
+- **Completion:** today's completion events: the native message's events, and the case's `receipt` and `case.completed`.
+- **Every first effect:** also writes `agent.case_tool_used` (§7.5).
+
+#### 14.7 Fixtures added by revision 3
+
+| Group | Fixtures |
+| --- | --- |
+| List assets | `list-assets`, `list-asset-content`, `list-asset-content-binary`, `list-asset-content-too-large`, `list-asset-content-not-clean`, `list-asset-content-infected`, `list-asset-ungranted`, `list-asset-other-tenant` |
+| Share asset | `share-asset`, `share-asset-replayed`, `share-asset-already-shared`, `share-asset-not-clean`, `share-asset-not-yours` |
+| Complete | `authority-check-complete-allow`, `authority-check-complete-needs-human`, `complete-case`, `complete-case-after-human-approval`, `complete-case-authority-required`, `complete-case-result-changed`, `complete-case-already-completed`, `complete-case-replayed`, `snapshot-completed` |

@@ -1,0 +1,77 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "complete-case",
+  "kind": "http",
+  "description": "Completing a case that needs no human decision: one native completion message; today's completion path writes the canonical receipt and completes the shared case. The host still settles the work separately.",
+  "context": {
+    "sessionRef": "K",
+    "caseRef": "case-k",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_k",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 72,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_complete",
+        "arguments": {
+          "result": "Next week's delivery confirmed for 28 Oct, 09:00-12:00.",
+          "idempotencyKey": "complete-1"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "completeEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 72,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_complete\",\"result\":{\"receiptRef\":\"r_hnmxuojs6a7c6g7i\",\"messageRef\":\"m_dowcfjouolz5m5kz\",\"humanApproval\":\"not_required\",\"caseStatus\":\"completed\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"evidenceRefs\":[],\"replayed\":false}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "End the turn and settle the work; completing the case did not settle it."
+  }
+}

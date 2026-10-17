@@ -33,7 +33,7 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 48,
+      "id": 47,
       "method": "tools/call",
       "params": {
         "name": "envoi_case_decide",
@@ -61,7 +61,7 @@
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 48,
+      "id": 47,
       "result": {
         "content": [
           {

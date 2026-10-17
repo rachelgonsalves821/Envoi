@@ -638,7 +638,7 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
       assert.equal(client.retry, entry.clientRetry, `${stepLabel}: client retry for ${document.code}`);
       continue;
     }
-    for (const value of collectRefs(document.result)) assert.match(value, /^[mpoaegq]_[a-z2-7]{16}$/, `${stepLabel}: ${value} is a reference`);
+    for (const value of collectRefs(document.result)) assert.match(value, /^[mpoaegqr]_[a-z2-7]{16}$/, `${stepLabel}: ${value} is a reference`);
     const { result } = document;
     if (name === 'envoi_case_snapshot') {
       const limit = args.eventLimit ?? limits.eventLimitDefault;
@@ -657,10 +657,14 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
       }
       // §1, §6.2, §12.1: allowedActions is the implemented effective set, narrowed by the state rules, in x-tools order.
       const decision = result.authority.lastPolicyDecision;
+      const awaiting = result.proposal !== null && result.proposal.lastActor === 'other_agent';
+      const completable = !['completed', 'failed', 'expired'].includes(result.case.status) && !result.authority.pendingHumanDecision;
       const stateAllows = (tool) => ({
         envoi_case_propose: result.proposal === null,
-        envoi_authority_check: result.proposal !== null && result.proposal.lastActor === 'other_agent',
-        envoi_case_decide: result.proposal !== null && result.proposal.lastActor === 'other_agent',
+        envoi_authority_check: awaiting || completable,
+        envoi_case_decide: awaiting,
+        envoi_case_share_asset: result.assets.some((item) => item.origin === 'you' && item.scan === 'clean' && !item.shared),
+        envoi_case_complete: completable,
         envoi_request_human: decision?.decision === 'needsHuman' && decision.humanApproval === 'pending' && !result.authority.pendingHumanDecision
       })[tool] ?? true;
       assert.deepEqual(result.allowedActions, effective.filter(stateAllows), `${stepLabel}: allowedActions`);
@@ -689,7 +693,8 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
     }
     // §12.2–§12.5: revision 2 results agree with their arguments.
     if (name === 'envoi_authority_check') {
-      assert.deepEqual([result.proposalRef, result.optionRef], [args.proposalRef, args.optionRef], `${stepLabel}: the authority is bound to the requested option`);
+      assert.equal(result.action, args.action, `${stepLabel}: the checked action`);
+      assert.deepEqual([result.proposalRef, result.optionRef], [args.proposalRef ?? null, args.optionRef ?? null], `${stepLabel}: the authority is bound to the requested option, or to none for complete_case`);
       assert.equal(result.humanApproval === 'not_required', result.decision !== 'needsHuman', `${stepLabel}: humanApproval follows the decision`);
     }
     if (name === 'envoi_request_human') {
@@ -697,6 +702,33 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
       assert.equal(client.turn, 'end', `${stepLabel}: endTurn means the host ends the turn now`);
     }
     if (name === 'envoi_case_propose') assert.equal(result.recipient.kind, 'agent', `${stepLabel}: an offer goes to the other agent`);
+    // §14.2: list mode and single mode; inline content only for a clean, small text asset.
+    if (name === 'envoi_case_list_assets') {
+      if (args.assetRef) {
+        assert.equal(result.asset.ref, args.assetRef, `${stepLabel}: the requested asset`);
+        assert.equal(result.asset.scan, 'clean', `${stepLabel}: only a clean asset is returned in single mode with content`);
+        const inline = limits.inlineContentTypes.includes(result.asset.mimeType) && result.asset.size <= limits.inlineContentMaxBytes;
+        if (args.includeContent) {
+          assert.equal(result.content !== null, inline, `${stepLabel}: content exactly for a small text asset`);
+          assert.equal(result.contentUnavailable, inline ? null : limits.inlineContentTypes.includes(result.asset.mimeType) ? 'too_large' : 'binary', `${stepLabel}: the reason content is unavailable`);
+          if (result.content) assert.equal(bytes(result.content.text), result.asset.size, `${stepLabel}: the inline text is the whole file`);
+        } else assert.deepEqual([result.content, result.contentUnavailable], [null, null], `${stepLabel}: no content unless asked`);
+      } else {
+        assert.ok(result.assets.length <= (args.limit ?? limits.listLimitDefault), `${stepLabel}: at most limit assets`);
+        assert.equal(result.hasMore, result.nextCursor !== null, `${stepLabel}: nextCursor exactly when hasMore`);
+      }
+    }
+    // §14.3: shared with the session counterparty only.
+    if (name === 'envoi_case_share_asset') {
+      assert.equal(result.assetRef, args.assetRef, `${stepLabel}: the shared asset`);
+      assert.equal(result.recipient.kind, 'agent', `${stepLabel}: shared with the other agent`);
+      assert.ok(!(result.alreadyShared && result.replayed), `${stepLabel}: a replay is never also an already-shared grant`);
+    }
+    // §14.4: completion writes a receipt and completes the case, whatever the work's settlement.
+    if (name === 'envoi_case_complete') {
+      assert.deepEqual(result.evidenceRefs, args.evidenceRefs ?? [], `${stepLabel}: the evidence the completion cites`);
+      assert.equal(result.humanApproval === 'approved', context.workKind === 'human_decision' && Boolean(args.authorityRef), `${stepLabel}: approved exactly when completing under a person's decision`);
+    }
     if (name === 'envoi_case_decide') {
       assert.equal(result.decision, args.decision, `${stepLabel}: the decision made`);
       assert.equal(result.proposalRef, args.proposalRef, `${stepLabel}: the decided proposal`);
@@ -975,6 +1007,14 @@ test('case-tools fixtures agree across cases', async () => {
   assert.equal(args(approvedAccept).optionRef, result(decisionSnapshot).authority.lastPolicyDecision.optionRef, 'and the approved option');
   assert.equal(result(decisionSnapshot).counterparty.kind, 'agent', 'the approving person is never the counterparty');
   assert.equal(result(awaiting).proposal.ref, args(approvedAccept).proposalRef, 'the same proposal throughout');
+  // §14: replays, and a completed case leaves complete out of allowedActions.
+  const [shareFirst, shareReplay, completeFirst, completeReplay, completed] = await Promise.all(['share-asset', 'share-asset-replayed', 'complete-case', 'complete-case-replayed', 'snapshot-completed'].map(load));
+  assert.deepEqual(args(shareReplay), args(shareFirst), 'the share replay is the identical call');
+  assert.deepEqual(result(shareReplay), { ...result(shareFirst), replayed: true }, 'a share replay returns the original grant');
+  assert.deepEqual(args(completeReplay), args(completeFirst), 'the completion replay is the identical call');
+  assert.deepEqual(result(completeReplay), { ...result(completeFirst), replayed: true }, 'a completion replay returns the original receipt');
+  assert.ok(!result(completed).allowedActions.includes('envoi_case_complete'), 'a completed case cannot be completed again');
+  assert.ok(result(completed).recentEvents.some((event) => event.kind === 'receipt'), 'the receipt is in the timeline');
   const iso = await load('two-cases-same-counterparty');
   const [snapA, snapB, replyB, replyA] = iso.steps;
   assert.notEqual(snapA.request.headers.authorization, snapB.request.headers.authorization, 'two sessions');

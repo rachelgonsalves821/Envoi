@@ -269,14 +269,13 @@
               "additionalProperties": false,
               "required": [
                 "action",
-                "proposalRef",
-                "optionRef",
                 "idempotencyKey"
               ],
               "properties": {
                 "action": {
                   "enum": [
-                    "accept_proposal"
+                    "accept_proposal",
+                    "complete_case"
                   ]
                 },
                 "proposalRef": {
@@ -287,11 +286,66 @@
                   "type": "string",
                   "pattern": "^[o]_[a-z2-7]{16}$"
                 },
+                "result": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
                 "idempotencyKey": {
                   "type": "string",
                   "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "action": {
+                        "const": "accept_proposal"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "proposalRef",
+                      "optionRef"
+                    ],
+                    "not": {
+                      "required": [
+                        "result"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "action": {
+                        "const": "complete_case"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "result"
+                    ],
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "proposalRef"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "optionRef"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
             }
           },
           {
@@ -314,6 +368,127 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 2000
+                },
+                "idempotencyKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                }
+              }
+            }
+          },
+          {
+            "name": "envoi_case_list_assets",
+            "description": "List the assets in this case that you created or were granted, or read one; a clean, small text asset can be read inline. Never returns links or bytes.",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 50
+                },
+                "before": {
+                  "type": "string",
+                  "pattern": "^c_[A-Za-z0-9_-]{16,510}$"
+                },
+                "assetRef": {
+                  "type": "string",
+                  "pattern": "^[a]_[a-z2-7]{16}$"
+                },
+                "includeContent": {
+                  "type": "boolean"
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "includeContent"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "assetRef"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "assetRef"
+                    ]
+                  },
+                  "then": {
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "limit"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "before"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "envoi_case_share_asset",
+            "description": "Share a clean asset you added to this case with the counterparty. Reuse the idempotency key to retry.",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "assetRef",
+                "idempotencyKey"
+              ],
+              "properties": {
+                "assetRef": {
+                  "type": "string",
+                  "pattern": "^[a]_[a-z2-7]{16}$"
+                },
+                "idempotencyKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                }
+              }
+            }
+          },
+          {
+            "name": "envoi_case_complete",
+            "description": "Complete the case with its outcome and a canonical receipt. This does not settle your work; the host still does. Reuse the idempotency key to retry.",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "result",
+                "idempotencyKey"
+              ],
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "authorityRef": {
+                  "type": "string",
+                  "pattern": "^[g]_[a-z2-7]{16}$"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a]_[a-z2-7]{16}$"
+                  }
                 },
                 "idempotencyKey": {
                   "type": "string",

@@ -33,7 +33,7 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 38,
+      "id": 37,
       "method": "tools/call",
       "params": {
         "name": "envoi_authority_check",
@@ -56,7 +56,7 @@
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 38,
+      "id": 37,
       "result": {
         "content": [
           {

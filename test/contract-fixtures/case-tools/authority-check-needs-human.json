@@ -33,7 +33,7 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 34,
+      "id": 33,
       "method": "tools/call",
       "params": {
         "name": "envoi_authority_check",
@@ -56,12 +56,12 @@
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 34,
+      "id": 33,
       "result": {
         "content": [
           {
             "type": "text",
-            "text": "{\"ok\":true,\"tool\":\"envoi_authority_check\",\"result\":{\"authorityRef\":\"g_6u6ixkipiv7kzbq2\",\"decision\":\"needsHuman\",\"humanApproval\":\"pending\",\"expiresAt\":\"2026-10-18T12:00:00.000Z\",\"proposalRef\":\"p_c5cqycxdceumfgik\",\"optionRef\":\"o_ddhakwnrje33ixoh\",\"replayed\":false}}"
+            "text": "{\"ok\":true,\"tool\":\"envoi_authority_check\",\"result\":{\"action\":\"accept_proposal\",\"authorityRef\":\"g_6u6ixkipiv7kzbq2\",\"decision\":\"needsHuman\",\"humanApproval\":\"pending\",\"expiresAt\":\"2026-10-18T12:00:00.000Z\",\"proposalRef\":\"p_c5cqycxdceumfgik\",\"optionRef\":\"o_ddhakwnrje33ixoh\",\"replayed\":false}}"
           }
         ],
         "isError": false
