@@ -27,6 +27,10 @@ export const createdBucketPath = (createdAt, registrationId) => path.join('auth'
 export const createdBucketDir = bucket => path.join('auth', 'agent-registration-created', bucket);
 export const decidedBucketPath = (createdAt, registrationId) => path.join('auth', 'agent-registration-approvals', 'by-hour', hourBucket(createdAt), `${registrationId}.json`);
 export const decidedBucketDir = bucket => path.join('auth', 'agent-registration-approvals', 'by-hour', bucket);
+export const activationRecoveryPath = tokenHash => path.join('auth', 'agent-registration-recovery', `${tokenHash}.json`);
+export const activationRecoveryDir = path.join('auth', 'agent-registration-recovery');
+export const cleanupCursorPath = path.join('auth', 'agent-registration-cleanup', 'cursor.json');
+export const retainRecordsMs = 24 * 3_600_000;
 export const registrationLockKey = registrationId => `registration:${registrationId}`;
 export const addressHoldLockKey = address => `address-hold:${addressKey(address)}`;
 
@@ -441,7 +445,54 @@ export function createAgentRegistrations({
     }, [], [registrationLockKey(registrationId), ...(address ? [addressHoldLockKey(address)] : [])]);
   }
 
-  return { create, status, lookup, approve, reject, listClaims, withdraw, registrationForToken, liveHold, addressTaken, getRegistration, recoveryExpired };
+  // §2 cleanup: each registration and everything indexed by it is kept at least 24 h after
+  // creation and deleted by 25 h, whatever its state; a hold goes only if it still names this
+  // registration. Recovery envelopes go when their 300 s window ends. Run every few minutes.
+  async function deleteRegistration(registrationId, createdAt) {
+    await store.withTransaction([registrationLockKey(registrationId)], async () => {
+      const registration = await store.getJson(registrationPath(registrationId));
+      if (registration) {
+        const codeIndex = registration.codeHmac ? await store.getJson(codeIndexPath(registration.codeHmac)) : null;
+        if (codeIndex?.registrationId === registrationId) await store.deleteJson(codeIndexPath(registration.codeHmac));
+        await store.deleteJson(tokenIndexPath(registration.tokenHash));
+        await store.deleteJson(activationRecoveryPath(registration.tokenHash));
+        const address = registration.target?.kind === 'new_agent' ? registration.target.address : null;
+        if (address && (await store.getJson(addressHoldPath(address)))?.registrationId === registrationId) await store.deleteJson(addressHoldPath(address));
+        if (registration.principalHumanId) await store.deleteJson(approvalSlotIndexPath(registration.principalHumanId, registrationId));
+        if (registration.approverHumanId) await store.deleteJson(approverIndexPath(registration.approverHumanId, registrationId));
+        await store.deleteJson(decidedBucketPath(registration.createdAt, registrationId));
+        await store.deleteJson(registrationPath(registrationId));
+      }
+      await store.deleteJson(createdBucketPath(createdAt, registrationId));
+    });
+  }
+
+  async function cleanup(current = now()) {
+    let deleted = 0;
+    for (const envelope of await store.listJson(activationRecoveryDir)) {
+      if (envelope?.tokenHash && new Date(envelope.expiresAt) <= current) await store.deleteJson(activationRecoveryPath(envelope.tokenHash));
+    }
+    const cutoff = current.getTime() - retainRecordsMs;
+    const cursor = await store.getJson(cleanupCursorPath);
+    // Hour buckets by creation time, from the cursor (or 26 h before the cutoff) to the newest
+    // hour holding a record past 24 h. A bucket is finished once its whole hour is past 24 h.
+    let hour = Math.floor((cursor?.nextBucketStartMs ?? cutoff - 26 * 3_600_000) / 3_600_000) * 3_600_000;
+    let nextBucketStartMs = hour;
+    for (; hour <= cutoff; hour += 3_600_000) {
+      const bucket = hourBucket(new Date(hour).toISOString());
+      for (const index of await store.listJson(createdBucketDir(bucket))) {
+        if (index?.registrationId && new Date(index.createdAt).getTime() <= cutoff) {
+          await deleteRegistration(index.registrationId, index.createdAt);
+          deleted += 1;
+        }
+      }
+      if (hour + 3_600_000 <= cutoff) nextBucketStartMs = hour + 3_600_000;
+    }
+    await store.putJson(cleanupCursorPath, { nextBucketStartMs, ranAt: current.toISOString() });
+    return deleted;
+  }
+
+  return { create, status, lookup, approve, reject, listClaims, withdraw, cleanup, registrationForToken, liveHold, addressTaken, getRegistration, recoveryExpired };
 }
 
 export { tokenLikePattern, unsafeNameCharacters };

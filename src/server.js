@@ -63,8 +63,11 @@ import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenc
 import { createAgentSlots, legacyApprovalPermissions } from './agent-approval.js';
 import { createInstallationReader, installationSummary, ownerInstallationList, publicInstallation } from './agent-installations.js';
 import { readOnboardingFlags, routeAvailability } from './onboarding-flags.js';
-import { createAgentRegistrations, registrationBodyMaxBytes } from './agent-registration.js';
-import { verificationCodeKey } from './agent-registration-codes.js';
+import { activationRecoveryPath, activationRecoverySeconds, addressHoldLockKey, addressHoldPath, createAgentRegistrations, derivedStatus, recoveryWindowOver, registrationBodyMaxBytes, registrationLockKey } from './agent-registration.js';
+import { decryptActivation, displayName, encryptActivation, validActivationId, verificationCodeKey } from './agent-registration-codes.js';
+import { registrationPath } from './agent-approval.js';
+import { installationPath } from './agent-installations.js';
+import { deliveryModeAvailable, routeAvailable } from './onboarding-flags.js';
 import { createPollLimiter, createRegistrationLimits } from './agent-registration-limits.js';
 
 const productionConfig = validateProductionConfiguration();
@@ -409,7 +412,7 @@ function scopedMcpReadRequest(req, inboxId, caseId) {
     && [...url.searchParams.keys()].every(key => ['caseId', 'limit', 'before'].includes(key));
 }
 
-async function issueAgentCredentials(agentId, inboxId, familyId = store.id('credential_family'), rollRefreshExpiry = false) {
+async function issueAgentCredentials(agentId, inboxId, familyId = store.id('credential_family'), rollRefreshExpiry = false, newFamilyFields = {}) {
   const issuedAt = store.now();
   const familyPath = agentCredentialFamilyPath(inboxId, agentId, familyId);
   const existingFamily = await store.getJson(familyPath);
@@ -421,7 +424,8 @@ async function issueAgentCredentials(agentId, inboxId, familyId = store.id('cred
     createdAt: issuedAt,
     refreshExpiresAt: expiresAfter(agentRefreshTokenTtlDays * 86_400_000),
     rotationCounter: 0,
-    revokedAt: null
+    revokedAt: null,
+    ...newFamilyFields
   };
   if (new Date(family.refreshExpiresAt) <= new Date()) throw Object.assign(new Error('Agent credential family is expired'), { statusCode: 401 });
   if (rollRefreshExpiry) family.refreshExpiresAt = expiresAfter(agentRefreshTokenTtlDays * 86_400_000);
@@ -2068,6 +2072,201 @@ async function readJsonBody(req) {
   catch { return { bytes: Buffer.byteLength(raw), value: null, invalid: true }; }
 }
 
+// agent-registration v1 §6.1–§6.3 (task A-4.3): one-time private activation with a bootstrap
+// token, recovery of a lost response by activationId, and replay detection. The first matching
+// row of the §6.1 table wins.
+const activationDeliveryModes = ['envoi_link', 'webhook', 'provider', 'poll', 'on_demand', 'a2a'];
+const validActivationBody = value => value && typeof value === 'object' && !Array.isArray(value)
+  && Object.keys(value).every(key => ['registrationId', 'activationId', 'deliveryMode'].includes(key))
+  && typeof value.registrationId === 'string' && /^registration_[A-Za-z0-9_-]{1,80}$/.test(value.registrationId)
+  && validActivationId(value.activationId) && activationDeliveryModes.includes(value.deliveryMode);
+const connectorRuntimeOf = type => { try { return validateConnectorRuntime(type); } catch { return null; } };
+const registrationEnded = reason => codedError(409, 'REGISTRATION_ENDED', {
+  rejected: 'The owner rejected this agent.', expired: 'This setup expired.', withdrawn: 'The owner withdrew this approval.'
+}[reason] || 'This setup ended.', { reason });
+
+async function activateRegistration(rawToken, input) {
+  if (!onboardingFlags.registration) throw codedError(404, 'FEATURE_DISABLED', 'Agent-led setup is not available yet.');
+  const body = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  // Row 2, checked before the token: nothing is consumed.
+  if (!validActivationId(body.activationId)) throw codedError(400, 'ACTIVATION_ID_REQUIRED', 'This helper must be updated.');
+  const registration = await registrations.registrationForToken(rawToken, body.registrationId);
+  if (recoveryWindowOver(registration, new Date())) throw registrations.recoveryExpired();
+  if (!validActivationBody(body)) throw codedError(400, 'ACTIVATION_INVALID', 'This activation request is not valid.');
+  const activationIdHash = hashSecret(body.activationId);
+  if (registration.status === 'activated') return activatedAgain(rawToken, registration.id, activationIdHash);
+  if (!deliveryModeAvailable(onboardingFlags, body.deliveryMode)) throw codedError(400, 'DELIVERY_MODE_NOT_AVAILABLE', 'That delivery mode is not available.');
+  const status = derivedStatus(registration, new Date());
+  if (status === 'pending_claim') throw codedError(409, 'REGISTRATION_PENDING', 'Waiting for the owner to approve.');
+  if (status !== 'approved') throw registrationEnded(status);
+  const { target } = registration;
+  const isNew = target.kind === 'new_agent';
+  const plannedInboxId = isNew ? store.id('inbox') : null;
+  const outcome = await withInboxMutation(isNew ? target.workspaceInboxId : target.agentInboxId, async writeAudit => {
+    const current = await store.getJson(registrationPath(registration.id));
+    if (current?.status === 'activated') return { again: true };
+    const currentStatus = current ? derivedStatus(current, new Date()) : 'expired';
+    if (currentStatus !== 'approved') return { ended: currentStatus };
+    if (!await activationRechecksPass(current)) {
+      // Row 11: the decision no longer holds. The registration becomes withdrawn, which ends its
+      // hold and slot; committed before the error is returned.
+      const at = store.now();
+      await store.putJson(registrationPath(current.id), { ...current, status: 'withdrawn', withdrawnAt: at, withdrawnBy: 'recheck' });
+      if (isNew && (await store.getJson(addressHoldPath(target.address)))?.registrationId === current.id) await store.deleteJson(addressHoldPath(target.address));
+      await writeAudit('agent.registration_withdrawn', { registrationId: current.id, target: target.kind, reason: 'recheck' }, at);
+      return { ended: 'withdrawn', recheck: true };
+    }
+    return { activated: await commitActivation(rawToken, current, body, activationIdHash, plannedInboxId, writeAudit) };
+  }, isNew ? [plannedInboxId] : [], [
+    registrationLockKey(registration.id), humanAgentLimitKey(registration.principalHumanId),
+    ...(isNew ? [addressHoldLockKey(target.address)] : [])
+  ]);
+  if (outcome.again) return activatedAgain(rawToken, registration.id, activationIdHash);
+  if (outcome.ended) throw outcome.recheck ? codedError(409, 'REGISTRATION_ENDED', 'This approval no longer holds. Ask the owner.', { reason: 'withdrawn' }) : registrationEnded(outcome.ended);
+  const { response, agent, inboxId, existing } = outcome.activated;
+  if (existing) {
+    // Every earlier installation was replaced: end their streams, then, as a3 §4 reconnect does,
+    // release held sends of an active agent.
+    closeAgentStreams(inboxId, agent.id, { code: 'CREDENTIAL_REVOKED', reason: 'replaced' });
+    if (agent.status === 'active' && await withInboxMutation(inboxId, () => releaseHeldSends(inboxId))) deliveryWorker.kick();
+  }
+  return { status: 201, body: response };
+}
+
+// §6.1 row 11 re-checks, inside the activation's lock. False means the approval no longer holds.
+async function activationRechecksPass(registration) {
+  const { target } = registration;
+  const approver = await store.getJson(path.join('humans', `${registration.approverHumanId}.json`));
+  if (!approver || (auth.provider === 'workos' && typeof auth.admitted === 'function' && !auth.admitted(approver))) return false;
+  if (!routeAvailable(onboardingFlags, registration.connectionRoute)) return false;
+  const inbox = await store.getJson(path.join('inboxes', target.kind === 'new_agent' ? target.workspaceInboxId : target.agentInboxId, 'inbox.json'));
+  if (!inbox || !await canManageInbox(approver, inbox, { maxAgeMs: 0 })) return false;
+  const slotFree = async options => {
+    try { await agentSlots.assertActiveAgentSlot(registration.principalHumanId, { ...options, excludingRegistrationId: registration.id }); return true; }
+    catch (error) { if (error.code === 'ACTIVE_AGENT_LIMIT') return false; throw error; }
+  };
+  if (target.kind === 'new_agent') {
+    if ((await store.getJson(addressHoldPath(target.address)))?.registrationId !== registration.id) return false;
+    if (await identityTaken(target.address)) return false;
+    return slotFree({});
+  }
+  const agent = await store.getJson(path.join('inboxes', target.agentInboxId, 'agents', `${target.agentId}.json`));
+  if (!agent || inbox.ownerAgentId !== agent.id || agent.onboardingStatus !== 'approved' || !['active', 'paused'].includes(agent.status)) return false;
+  if ((agent.accessGeneration || 0) !== (target.accessGeneration || 0)) return false;
+  const newest = (await installations.list(target.agentInboxId, agent)).find(item => item.status === 'active') || null;
+  if ((newest?.id ?? null) !== target.replacesInstallationId) return false;
+  if (!await agentSlots.agentHasLiveFamily(target.agentInboxId, agent.id, new Date())) return slotFree({ excludingAgentId: agent.id });
+  return true;
+}
+
+// §6.3: the installation and its credential family together; for new_agent also the agent.
+async function commitActivation(rawToken, registration, body, activationIdHash, plannedInboxId, writeAudit) {
+  const { target } = registration;
+  const activatedAt = store.now();
+  const familyId = store.id('credential_family');
+  const installationId = store.id('installation');
+  const runtime = connectorRuntimeOf(registration.runtime.type);
+  let agent;
+  let inbox;
+  let replaced = 0;
+  if (target.kind === 'new_agent') {
+    const workspace = await store.getJson(path.join('inboxes', target.workspaceInboxId, 'inbox.json'));
+    if (!await reserveIdentity(target.address, { status: 'reserved' }, { holdRegistrationId: registration.id })) throw new Error('The held address could not be reserved');
+    agent = {
+      id: store.id('agent'), organizationId: workspace.organizationId, name: target.name, slug: target.localPart, address: target.address, identity: publicIdentity(target.localPart),
+      principalHumanId: registration.principalHumanId, capabilities: [], permissions: registration.effectivePermissions, ...(runtime ? { runtime } : {}),
+      createdAt: activatedAt, status: 'active', onboardingStatus: 'approved', approvedAt: activatedAt, approvedByHumanId: registration.approverHumanId
+    };
+    inbox = await createDedicatedAgentInbox({ sourceInbox: workspace, organizationId: workspace.organizationId, ownerHumanId: registration.principalHumanId, agent, status: 'active', inboxId: plannedInboxId });
+    await store.putJsonBatch([
+      document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId: inbox.id, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: agent.status, verified: true }),
+      document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId: inbox.id, address: agent.address, status: agent.status, verified: true })
+    ]);
+    if (externalEmailEnabled && publicEmailAddressForAgent(agent)) await store.putJson(externalAddressDirectoryPath(publicEmailAddressForAgent(agent)), { agentId: agent.id, inboxId: inbox.id, address: publicEmailAddressForAgent(agent), status: agent.status });
+    await store.deleteJson(addressHoldPath(target.address));
+    await writeAudit('agent.inbox_created', { agentId: agent.id, inboxId: inbox.id, humanId: registration.approverHumanId }, activatedAt, workspace.id);
+  } else {
+    inbox = await store.getJson(path.join('inboxes', target.agentInboxId, 'inbox.json'));
+    const current = await store.getJson(path.join('inboxes', inbox.id, 'agents', `${target.agentId}.json`));
+    // Permissions are decided again; a paused agent stays paused (a3 §4).
+    agent = { ...current, permissions: registration.effectivePermissions, updatedAt: activatedAt };
+    replaced = await revokeAgentCredentialFamilies(inbox.id, agent.id, registration.approverHumanId, activatedAt, 'replaced');
+    const heldLeases = (await store.listJson(path.join('inboxes', inbox.id, 'work-claims')))
+      .filter(claim => claim.agentId === agent.id && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(activatedAt));
+    await store.putJsonBatch([
+      document(path.join('inboxes', inbox.id, 'agents', `${agent.id}.json`), agent),
+      ...heldLeases.map(claim => document(workClaimPath(inbox.id, claim.workId), { ...claim, status: 'retryable', retryAt: activatedAt, leaseExpiresAt: null, reofferWithoutAttempt: true, releasedAt: activatedAt, updatedAt: activatedAt }))
+    ]);
+    if (heldLeases.length) await writeAudit('work.available', { agentId: agent.id, reason: 'lease_released' }, activatedAt, inbox.id);
+  }
+  const credentials = await issueAgentCredentials(agent.id, inbox.id, familyId, false, { installationId, ...(runtime ? { runtime } : {}) });
+  await store.putJson(installationPath(inbox.id, agent.id, installationId), {
+    id: installationId, agentId: agent.id, credentialFamilyId: familyId, registrationId: registration.id,
+    connectionRoute: registration.connectionRoute, deliveryMode: body.deliveryMode, runtime: { type: registration.runtime.type, version: registration.runtime.version },
+    createdAt: activatedAt, activatedAt, replayDetectedAt: null
+  });
+  const installation = await installations.forFamily(inbox.id, agent, familyId);
+  const response = {
+    installation: publicInstallation(installation),
+    agent: { id: agent.id, name: displayName(agent.name, String(agent.address).split('@')[0]), address: agent.address, status: agent.status },
+    inboxId: inbox.id, effectivePermissions: registration.effectivePermissions,
+    agentApiToken: credentials.agentApiToken, agentRefreshToken: credentials.agentRefreshToken,
+    agentTokenExpiresAt: credentials.agentTokenExpiresAt, agentRefreshTokenExpiresAt: credentials.agentRefreshTokenExpiresAt, tokenType: credentials.tokenType
+  };
+  // §6.2: the lost-response envelope, under a key only the raw bootstrap token derives.
+  await store.putJson(activationRecoveryPath(registration.tokenHash), {
+    tokenHash: registration.tokenHash, registrationId: registration.id, activationIdHash,
+    expiresAt: new Date(new Date(activatedAt).getTime() + activationRecoverySeconds * 1000).toISOString(),
+    encrypted: encryptActivation(rawToken, connectorEncryptionKey(), registration.id, activationIdHash, response)
+  });
+  await store.putJson(registrationPath(registration.id), {
+    ...registration, status: 'activated', activatedAt, activationIdHash, installationId, agentId: agent.id, agentInboxId: inbox.id, credentialFamilyId: familyId
+  });
+  await writeAudit('agent.installation_activated', {
+    agentId: agent.id, installationId, credentialFamilyId: familyId, registrationId: registration.id, target: target.kind,
+    connectionRoute: registration.connectionRoute, deliveryMode: body.deliveryMode, permissions: registration.effectivePermissions, humanId: registration.approverHumanId,
+    ...(replaced ? { replacedFamilyCount: replaced } : {})
+  }, activatedAt, inbox.id);
+  return { response, agent, inboxId: inbox.id, existing: target.kind === 'existing_agent' };
+}
+
+// §6.1 rows 6, 7 and 7a: a registration that already activated.
+async function activatedAgain(rawToken, registrationId, activationIdHash) {
+  const registration = await store.getJson(registrationPath(registrationId));
+  const outcome = await withInboxMutation(registration.agentInboxId, async writeAudit => {
+    const current = await store.getJson(registrationPath(registrationId));
+    const agent = await store.getJson(path.join('inboxes', current.agentInboxId, 'agents', `${current.agentId}.json`));
+    const installation = agent ? await installations.forFamily(current.agentInboxId, agent, current.credentialFamilyId) : null;
+    // Row 6: an ended installation's history is never rewritten.
+    if (!installation || installation.status !== 'active') return { recoveryExpired: true };
+    if (current.activationIdHash === activationIdHash) {
+      const envelope = await store.getJson(activationRecoveryPath(current.tokenHash));
+      const body = envelope?.registrationId === current.id && envelope.activationIdHash === activationIdHash
+        ? decryptActivation(rawToken, connectorEncryptionKey(), current.id, activationIdHash, envelope.encrypted) : null;
+      return body ? { body } : { recoveryExpired: true };
+    }
+    // Row 7a: two holders of one bootstrap token. The installation this activation created ends;
+    // the identity is not frozen. Committed before the error is returned.
+    const at = store.now();
+    await revokeCredentialFamily(current.agentInboxId, current.agentId, current.credentialFamilyId, null, at, 'revoked');
+    const stored = await store.getJson(installationPath(current.agentInboxId, current.agentId, current.installationId));
+    await store.putJson(installationPath(current.agentInboxId, current.agentId, current.installationId), { ...stored, replayDetectedAt: at });
+    await store.deleteJson(activationRecoveryPath(current.tokenHash));
+    const heldLeases = (await store.listJson(path.join('inboxes', current.agentInboxId, 'work-claims')))
+      .filter(claim => claim.agentId === current.agentId && claim.credentialFamilyId === current.credentialFamilyId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(at));
+    await store.putJsonBatch(heldLeases.map(claim => document(workClaimPath(current.agentInboxId, claim.workId), { ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, releasedAt: at, updatedAt: at })));
+    await writeAudit('agent.activation_replay_detected', { agentId: current.agentId, installationId: current.installationId, credentialFamilyId: current.credentialFamilyId, registrationId: current.id }, at);
+    if (heldLeases.length) await writeAudit('work.available', { agentId: current.agentId, reason: 'lease_released' }, at);
+    return { replayed: current };
+  }, [], [registrationLockKey(registrationId)]);
+  if (outcome.recoveryExpired) throw registrations.recoveryExpired();
+  if (outcome.replayed) {
+    closeAgentStreams(outcome.replayed.agentInboxId, outcome.replayed.agentId, { code: 'CREDENTIAL_REVOKED', reason: 'revoked' }, outcome.replayed.credentialFamilyId);
+    throw codedError(401, 'ACTIVATION_REPLAY', 'This setup was already used. Ask the owner to reconnect.');
+  }
+  return { status: 200, body: outcome.body };
+}
+
 async function handleAgentRegistration(req, res, registrationRoute, claimRoute) {
   const featureDisabled = message => codedError(404, 'FEATURE_DISABLED', message);
   if (registrationRoute && !registrationRoute[1]) {
@@ -2732,6 +2931,11 @@ async function route(req, res) {
   // agent-registration v1 §3–§5: registration, status polling and the human claim.
   const registrationRoute = url.pathname.match(/^\/api\/agent-registrations(?:\/([^/]+)(?:\/(approve|reject))?)?$/);
   const claimRoute = url.pathname.match(/^\/api\/agent-claims(?:\/(lookup)|\/([^/]+)\/(withdraw))?$/);
+  if (req.method === 'POST' && url.pathname === '/api/agent-installations/activate') {
+    const input = await readJsonBody(req);
+    const activation = await activateRegistration(bearerToken(req), input.invalid ? null : input.value);
+    return json(res, activation.status, activation.body);
+  }
   if (registrationRoute || claimRoute) {
     try { return await handleAgentRegistration(req, res, registrationRoute, claimRoute); }
     catch (error) {
@@ -4400,6 +4604,12 @@ void logOperationalBacklog();
 const objectQuotaReaper = setInterval(() => objectStorage.reapExpiredUploads({ limit: 25 }).catch(error => console.error('Object upload cleanup failed', { name: error?.name || 'Error', code: error?.code || 'UPLOAD_CLEANUP_FAILED' })), Number(process.env.ENVOI_OBJECT_QUOTA_REAPER_INTERVAL_MS || 300_000));
 objectQuotaReaper.unref?.();
 const agentRotationReaper = setInterval(() => { void reapAgentRotationRecovery(store).catch(() => console.error('Agent rotation recovery cleanup failed')); }, agentRotationRecoveryMs);
+// agent-registration v1 §2: registration records go by 25 h, recovery envelopes after 300 s.
+const registrationCleanupMs = Number(process.env.ENVOI_REGISTRATION_CLEANUP_INTERVAL_MS || 5 * 60_000);
+const runRegistrationCleanup = () => registrations.cleanup().catch(() => console.error(JSON.stringify({ event: 'envoi.agent_registration_cleanup_failed' })));
+const registrationCleanup = setInterval(() => { void runRegistrationCleanup(); }, registrationCleanupMs);
+registrationCleanup.unref?.();
+void runRegistrationCleanup();
 agentRotationReaper.unref?.();
 const objectScanWorker = scanJobStore ? setInterval(() => { void runObjectScans(); }, objectScanWorkerIntervalMs) : null;
 const objectScanRetentionWorker = scanJobStore ? setInterval(() => { void runObjectScanRetention(); }, objectScanRetentionIntervalMs) : null;
@@ -4427,6 +4637,7 @@ const shutdown = () => {
   scanLifecycleStopping = true;
   clearInterval(objectQuotaReaper);
   clearInterval(agentRotationReaper);
+  clearInterval(registrationCleanup);
   clearInterval(operationalBacklogLogger);
   if (waitlistSheetInterval) clearInterval(waitlistSheetInterval);
   if (objectScanWorker) clearInterval(objectScanWorker);
