@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
-    "test": "vitest run --config ../vitest.config.ts distribution",
+    "test": "cd ../.. && vitest run --config integrations/vitest.config.ts integrations/distribution",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }
