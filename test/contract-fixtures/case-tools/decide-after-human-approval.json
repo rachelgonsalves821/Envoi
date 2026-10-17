@@ -1,0 +1,81 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "decide-after-human-approval",
+  "kind": "http",
+  "description": "Accepting under the approved authority: the policy re-check passes, acceptProposal moves the case from inProgress to authorized, the proposal is accepted, and the counterparty is told.",
+  "context": {
+    "sessionRef": "D",
+    "caseRef": "case-c",
+    "workKind": "human_decision",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_c_decision",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 44,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_decide",
+        "arguments": {
+          "proposalRef": "p_c5cqycxdceumfgik",
+          "decision": "accept",
+          "optionRef": "o_ddhakwnrje33ixoh",
+          "authorityRef": "g_6u6ixkipiv7kzbq2",
+          "text": "Agreed: 26 Oct, 10:00-13:00 at 4.10 per unit.",
+          "idempotencyKey": "decide-approved"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "decideEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 44,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_decide\",\"result\":{\"decision\":\"accept\",\"messageRef\":\"m_3x2x22iqmo2opjiq\",\"proposalRef\":\"p_c5cqycxdceumfgik\",\"optionRef\":\"o_ddhakwnrje33ixoh\",\"proposalStatus\":\"accepted\",\"caseStatus\":\"authorized\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"replayed\":false}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "The agreement is recorded; complete the case later (revision 3)."
+  }
+}

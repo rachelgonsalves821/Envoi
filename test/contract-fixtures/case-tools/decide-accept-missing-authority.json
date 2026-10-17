@@ -1,0 +1,77 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "decide-accept-missing-authority",
+  "kind": "http",
+  "description": "An accept without authorityRef fails the input schema before anything runs.",
+  "context": {
+    "sessionRef": "C",
+    "caseRef": "case-c",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_c",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 57,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_decide",
+        "arguments": {
+          "proposalRef": "p_c5cqycxdceumfgik",
+          "decision": "accept",
+          "optionRef": "o_ddhakwnrje33ixoh",
+          "text": "Agreed.",
+          "idempotencyKey": "decide-missing"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "jsonRpcError",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 57,
+      "error": {
+        "code": -32602,
+        "message": "Invalid tool arguments",
+        "data": {
+          "code": "TOOL_ARGUMENTS_INVALID"
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Check authority first."
+  }
+}

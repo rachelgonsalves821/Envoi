@@ -1801,7 +1801,7 @@ With the flag off:
 | Term | Meaning |
 | --- | --- |
 | **Host** | The trusted process that holds the installation's access and refresh tokens and runs the work loop: the connector, `envoi-link`, or an equivalent REST client. It is never the model. |
-| **Work** | One claimed message (`workId`, a3 §3). It is either agent work (a native message from another agent) or a human instruction from the agent's owner. |
+| **Work** | One claimed message (`workId`, a3 §3). It is one of three kinds: agent work (a native message from another agent), a human instruction from the agent's owner, or a human decision (a person's approval of the agent's own request, case-tools v1 §12.6). |
 | **Lease** | The fenced claim on that work: `leaseToken`, `leaseExpiresAt`, and a server-side `fence` that rises by one on every claim (a3, a4 §6). |
 | **Turn** | One model invocation that handles one piece of work. |
 | **Case session** | A server record plus a bearer token, minted by the host for one lease. It lets one turn call the case tools for exactly that work's case. |
@@ -1877,10 +1877,11 @@ Minting does **not** renew the lease. The lease keeps its own expiry, which the 
 
 - **`token`** is `envoi_case_session_` plus 32 random bytes in base64url. The server stores only its SHA-256, and returns the token once, never again.
 - **`transport.url`** is `${ENVOI_PUBLIC_URL}/mcp`, the only place the token works (§6).
-- **`workKind`** is `agent_message` or `human_instruction`.
+- **`workKind`** is `agent_message`, `human_instruction` or `human_decision`. The last one was added with case-tools v1 revision 2 (§12.6).
 - **`counterparty`** is derived from the work, never from the caller:
   - for agent work, `{ "kind": "agent", "address" }`, the sending agent's address;
-  - for a human instruction, `{ "kind": "human" }`, meaning the owner who sent it. There is no name or email.
+  - for a human instruction, `{ "kind": "human" }`, meaning the owner who sent it, with no name or email;
+  - for a human decision, the case's other agent, `{ "kind": "agent", "address" }`. The next step goes to that agent; the person who approved is never the counterparty.
 - **`allowedTools`** is computed now, from the work kind and the agent's permissions (§5), in `x-case-tools` order. It is never empty: `envoi_case_snapshot` is always present.
 - **`fence`** and **`installationId`** are for host evidence (Phase C rows C13–C18). They are never model-visible.
 - **`expiresAt`** is `createdAt` + 900 s (`x-limits.sessionTtlSeconds`). It is an absolute cap: a session is not renewable, and it stops earlier whenever §6.2 says so.
@@ -1924,7 +1925,7 @@ Everything else from §3 stays with the host. The case content the model works o
 
 ### 5. Which tools a session can carry
 
-`x-case-tools` lists every tool name a session may ever carry, the permission each one needs, and the work kinds it applies to. A session's `allowedTools` is the subset of that list the agent's permissions allow for this work kind.
+`x-case-tools` lists every tool name a session may ever carry, the permission each one needs, and the work kinds it applies to. Every row that applies to agent work also applies to `human_decision` work. A session's `allowedTools` is the subset of that list the agent's permissions allow for this work kind.
 
 | Tool | Needs | Work kinds |
 | --- | --- | --- |
@@ -1932,8 +1933,8 @@ Everything else from §3 stays with the host. The case content the model works o
 | `envoi_case_reply` | `send_agent_messages` | both |
 | `envoi_case_propose` | `send_agent_messages` | agent work |
 | `envoi_case_decide` | `execute_cases` | agent work |
-| `envoi_authority_check` | read | agent work |
-| `envoi_request_human` | `send_agent_messages` | agent work |
+| `envoi_authority_check` | `execute_cases` | agent work |
+| `envoi_request_human` | `execute_cases` | agent work |
 | `envoi_case_list_assets` | read | both |
 | `envoi_case_share_asset` | `create_assets` | agent work |
 | `envoi_case_complete` | `execute_cases` | agent work |
@@ -2360,7 +2361,7 @@ These are Lane A's proposals. Any of them can change before approval.
 
 ## case-tools v1
 
-**Contract:** `case-tools`, version 1 (Phase C task **C-A0**, the second of three). **Status:** revision 1 is published. It is waiting for Lane B's `CONTRACT-ACK`, then for a version-specific `CONTRACT-APPROVED case-tools v1 @<sha>`. Nothing here is implemented or on by default. C-A2 to C-A4 do the server work and C-B2 to C-B4 the client work.
+**Contract:** `case-tools`, version 1 (Phase C task **C-A0**, the second of three). **Status:** revision 1 was published on 2026-10-17 at `cb5f6fe` (board #34). Revision 2 is published in the same PR. Both wait for Lane B's `CONTRACT-ACK`. Revision 3 follows, and then a single version-specific `CONTRACT-APPROVED case-tools v1 @<sha>` covers all nine tools. Nothing here is implemented or on by default. C-A2 to C-A4 do the server work and C-B2 to C-B4 the client work.
 
 **Revision 1 covers:**
 - the rules that every case tool shares (§1–§5);
@@ -2369,7 +2370,7 @@ These are Lane A's proposals. Any of them can change before approval.
 
 That is enough to unblock C-B2.
 
-**Revision 2** adds the other seven tools: `envoi_case_propose`, `envoi_case_decide`, `envoi_authority_check`, `envoi_request_human`, `envoi_case_list_assets`, `envoi_case_share_asset` and `envoi_case_complete`. It will be published as a revision of v1 before approval, so v1 is approved once, with all nine.
+**Revision 2 (§12)** adds negotiation and authority: `envoi_authority_check`, `envoi_request_human`, `envoi_case_propose` and `envoi_case_decide`. That unblocks C-B3. **Revision 3** will add `envoi_case_list_assets`, `envoi_case_share_asset` and `envoi_case_complete`, which unblock C-B4. Both are revisions of v1 before approval, so v1 is approved once, with all nine tools.
 
 **Fixtures:** [`test/contract-fixtures/case-tools/`](../../../test/contract-fixtures/case-tools/). It holds:
 - `schemas.json`: draft-07 schemas plus the machine-readable tables `x-tools`, `x-tool-errors`, `x-limits`, `x-ref-kinds`, `x-untrusted-fields`, `x-event-projection` and `x-status-projection`;
@@ -2523,15 +2524,15 @@ Both fields are optional:
 | Field | Content |
 | --- | --- |
 | `notice` | The fixed untrusted-content notice (§5). |
-| `case` | `{ objective, collaborationMode, status, deadline, createdAt, updatedAt }` from the canonical case record. `status` is the case state. A paused or revoked case never reaches a usable session (case-session §6.2). `objective` is untrusted. |
+| `case` | `{ objective, collaborationMode, status, deadline, createdAt, updatedAt }`, taken from the canonical case record. `status` is the case state, with one exception: `waitingForHuman` shows only while **this agent** has an open request (§12.3); otherwise it shows `inProgress`. A paused or revoked case never reaches a usable session (case-session §6.2). `objective` is untrusted text. |
 | `you` | `{ address }`, this agent's own address. |
 | `counterparty` | Exactly the session's `counterparty` (case-session §3). For agent work, `{ kind: "agent", address }`. For a human instruction, `{ kind: "human" }`. |
-| `requestedResponse` | Present on a first page only. It is the work being handled: `{ ref, from, kind, intent, text, truncated, receivedAt }`. `from` is `other_agent` or `your_human`. `kind` and `intent` follow `x-event-projection`. |
+| `requestedResponse` | Present on a first page only. It is the work being handled: `{ ref, from, kind, intent, text, truncated, receivedAt }`. `from` is `other_agent` or `your_human`. `kind` and `intent` follow `x-event-projection`. For `human_decision` work it follows §12.6. |
 | `recentEvents` | Up to `eventLimit` items, oldest first, ending with the newest event before the cursor (§6.3). When the work message falls within the page, it has the **same** `ref` as `requestedResponse` and `text: null`; its text is in `requestedResponse`. |
 | `page` | `{ hasOlder, olderCursor }`. `olderCursor` is `null` exactly when `hasOlder` is false. |
-| `proposal` | The case's current proposal, or `null`, as `{ ref, kind, status, lastActor, options, expiresAt }`. It is the newest entry in the case's `proposals` whose status is `open` or `countered`. That includes the proposals a typed `offer` message creates (`proposal_<messageId>`, kind `negotiation`) and the structured proposals made through the case API. `options` lists **live** options only (`expired: false`), at most 10, newest first. A counter expires every earlier option, so only the counter's options stay. Each option is `{ ref, value, truncated }`. `lastActor` is `you` or `other_agent`: the actor of the newest case event whose `payload.proposalId` is this proposal. An accepted proposal is no longer current. |
-| `authority` | `{ pendingHumanDecision, lastPolicyDecision }`. `pendingHumanDecision` is true when the case state is `waitingForHuman`, or when this agent's newest policy evaluation in the case is `needsHuman` with no later `your_human` action. `lastPolicyDecision` is that evaluation as `{ action, decision, expiresAt }`, or `null`. `action` is the stored `requestedAction` when it matches `^[a-z][a-zA-Z_.]{0,63}$`, and `other` otherwise. |
-| `allowedActions` | The tool names usable now, in `x-tools` order. These are the session's effective set (case-session §6.4), limited to the tools this server implements (§1). Revision 2 adds per-state rules. For example, `envoi_case_decide` will appear only when a proposal awaits this agent's answer. Clients treat it as a subset of the effective set, never the whole of it. |
+| `proposal` | The case's current proposal, or `null`, as `{ ref, kind, status, lastActor, options, expiresAt }`. It is the newest proposal that a typed `offer` message created (`proposal_<messageId>`, kind `negotiation`) whose status is `open` or `countered`. Proposals made through the case API are not shown in v1 (§12.1). `options` lists **live** options only (`expired: false`), at most 10, newest first. A counter expires every earlier option, so only the counter's options stay. Each option is `{ ref, value, truncated }`. `lastActor` is `you` or `other_agent`: the actor of the newest case event whose `payload.proposalId` is this proposal. An accepted proposal is no longer current. |
+| `authority` | `{ pendingHumanDecision, lastPolicyDecision }`. `pendingHumanDecision` is true exactly while this agent has an open `envoi_request_human` request (§12.3). `lastPolicyDecision` is that evaluation, or `null`, as `{ authorityRef, action, decision, humanApproval, optionRef, expiresAt }`. `action` is the stored `requestedAction` when it matches `^[a-z][a-zA-Z_.]{0,63}$`, and `other` otherwise. `humanApproval` is `not_required`, `pending` or `approved` (§12.2). `optionRef` is the bound option, or `null`. A resumed turn uses `authorityRef` to accept (§12.6). |
+| `allowedActions` | The tool names usable now, in `x-tools` order: the session's effective set (case-session §6.4), limited to the tools this server implements (§1) and then by the state rules in §12.1 (`x-state-rules`). Clients treat it as a subset of the effective set, never the whole of it. |
 | `assets` | Up to 10 assets in this case that this agent created or was granted, newest first: `{ ref, filename, mimeType, size, scan, origin, shared }` (`x-status-projection.scan`). `origin` is `you` or `other_agent`. `shared` means the other side holds a grant. There is never a URL or any file bytes. `assetsHasMore` says whether more exist. |
 | `limits` | Echoes the byte limits in `x-limits`. |
 
@@ -2709,6 +2710,8 @@ Fixture `two-cases-same-counterparty` pins this. A second owner's agent never ap
 
 **Clarification to case-session §6.4.** It now says that `tools/list`, the effective set and a newly minted session's `allowedTools` include only tools the server implements. The case-session fixtures model a server that implements all nine tools. Hosts tell the model which tools it has from `tools/list` or the snapshot's `allowedActions`.
 
+**Case-session addition (§12.6).** case-session v1 gains the work kind `human_decision`; see its §2, §3 and §5.
+
 **Consumer changes Lane B makes (C-B2).** Informative; Lane B owns the details:
 - a typed client for the two tools;
 - start every turn with a snapshot, not stitched history;
@@ -2735,11 +2738,281 @@ Fixture `two-cases-same-counterparty` pins this. A second owner's agent never ap
 
 | Group | Fixtures |
 | --- | --- |
-| Snapshot and tool list | `snapshot-agent-work`, `snapshot-human-instruction`, `snapshot-older-page`, `snapshot-truncated`, `snapshot-untrusted-content`, `snapshot-cursor-invalid`, `snapshot-unknown-argument`, `tools-list-revision-1`, `revision-2-tool-not-in-session` |
+| Snapshot and tool list | `snapshot-agent-work`, `snapshot-human-instruction`, `snapshot-older-page`, `snapshot-truncated`, `snapshot-untrusted-content`, `snapshot-cursor-invalid`, `snapshot-unknown-argument`, `tools-list`, `revision-3-tool-not-in-session` |
 | Reply | `reply-agent-work`, `reply-human-instruction`, `reply-clarify`, `reply-replayed`, `reply-lost-response`, `reply-replayed-after-reclaim`, `reply-idempotency-conflict`, `reply-ref-not-found`, `reply-in-reply-to-instruction-refused`, `reply-instruction-intent-not-supported`, `reply-not-in-session`, `reply-recipient-override-rejected`, `reply-intent-not-allowed`, `reply-session-ended-in-write`, `reply-tool-busy` |
 | Isolation and audit | `two-cases-same-counterparty`, `event-case-tool-used` |
 
-### 11. Decisions for review
+### 11. Revision plan
+
+| Revision | Tools | Unblocks | Status |
+| --- | --- | --- | --- |
+| 1 | `envoi_case_snapshot`, `envoi_case_reply` (§6, §7) | C-B2 | published @`cb5f6fe` |
+| 2 | `envoi_authority_check`, `envoi_request_human`, `envoi_case_propose`, `envoi_case_decide` (§12) | C-B3 | published in this PR |
+| 3 | `envoi_case_list_assets`, `envoi_case_share_asset`, `envoi_case_complete` | C-B4 | next |
+
+Each revision is additive within v1 and is published before approval, so a client built against one revision keeps working on the next. `tools/list` and `allowedActions` show only the tools a server implements (§1).
+
+### 12. Revision 2: negotiation and authority
+
+**Scope.** Revision 2 adds four tools: `envoi_authority_check`, `envoi_request_human`, `envoi_case_propose` and `envoi_case_decide`. Together they unblock C-B3. Revision 3 will add `envoi_case_list_assets`, `envoi_case_share_asset` and `envoi_case_complete` for C-B4.
+
+Each revision 2 tool:
+- follows §1–§5;
+- writes, so takes an `idempotencyKey` (§3);
+- applies to agent work and to `human_decision` work (§12.6), never to a human instruction.
+
+**New references** (`x-ref-kinds`):
+
+| Kind | Names |
+| --- | --- |
+| `g` | a server-issued authority (a policy evaluation) |
+| `q` | a request for a human decision |
+
+**What already exists.** Each tool runs today's services in-process, under the settlement lock set (case-session §6.3):
+
+| Area | Today's service |
+| --- | --- |
+| Authority | `evaluateServerPolicy`, `validatedPolicyBinding` |
+| Accept | `acceptProposal` |
+| Counter | `counterProposal` |
+| Native messages | today's native send and `advanceNativeCase` |
+| Human request and approval | `applyAgentAction`, `approveOnce` |
+
+**What is new in C-A3:**
+- the accept policy rule (§12.2);
+- the case-state changes (§12.3);
+- request expiry (§12.3);
+- the `human_decision` work kind (§12.6);
+- rejection withdrawing a proposal (§12.5);
+- the accept-message rule (§12.5).
+
+#### 12.1 When each tool appears in `allowedActions`
+
+Revision 2 narrows `allowedActions` (§6.2) by case state (`x-state-rules`). A tool appears only when it is in the effective set and its rule holds now. The test derives `allowedActions` from the snapshot fields with exactly these rules.
+
+| Tool | Appears when |
+| --- | --- |
+| `envoi_case_snapshot`, `envoi_case_reply` | always |
+| `envoi_case_propose` | `proposal` is `null` |
+| `envoi_authority_check`, `envoi_case_decide` | `proposal` is not `null` and `proposal.lastActor` is `other_agent` (it awaits this agent's answer) |
+| `envoi_request_human` | `authority.lastPolicyDecision.decision` is `needsHuman`, its `humanApproval` is `pending`, and `authority.pendingHumanDecision` is false (nothing is requested yet) |
+
+A tool in the session whose rule does not hold answers with a tool error that names the reason: `PROPOSAL_EXISTS`, `PROPOSAL_NOT_AWAITING` or `AUTHORITY_NOT_PENDING`. It never answers `TOOL_NOT_IN_SESSION`.
+
+**Which proposals.** The proposal tools act only on proposals that a native message created (`proposal_<messageId>`). That is also the only kind §6.2's `proposal` shows. Proposals made through the case API stay out of v1's tools.
+
+#### 12.2 `envoi_authority_check`
+
+**Permission:** `execute_cases`. **What it does:** asks the server whether this agent may accept a specific live option now. It writes one policy evaluation.
+
+```json
+{ "action": "accept_proposal", "proposalRef": "p_…", "optionRef": "o_…", "idempotencyKey": "authority-1" }
+```
+
+**Input**
+- **`action`:** `accept_proposal` is the only value in v1. Later actions are additive enum values.
+- **`optionRef`:** must be a live option of the current proposal. Otherwise the result is `OPTION_NOT_LIVE`. A reference that resolves to nothing gives `REF_NOT_FOUND`.
+
+**Effect.** One policy evaluation, as today's `POST …/cases/{caseId}/policy-evaluations` creates it:
+- `requestedAction` is **`proposal.accept`**;
+- `actionPayload` is `{ proposalId, optionId }`;
+- the binding covers the digest of all the case's proposals, the option, the agent and the case.
+
+The tool skips that route's own permission and acting-agent checks, which the session and §12.1 replace.
+
+**New in C-A3: the accept rule.** Today `proposal.accept` is a safe internal action and always returns `allow`. C-A3 makes it policy-controlled:
+
+| Situation | Decision |
+| --- | --- |
+| The workspace policy's `agreements.requireHumanApproval` is true. **This is the proposed default**, and decision 10 asks whether it is right. | `needsHuman` |
+| That setting is false | `allow` |
+| The agent lacks `execute_cases` | `deny` |
+
+**TTLs.** A `needsHuman` evaluation lives `x-limits.humanDecisionTtlSeconds` (24 h). Any other evaluation keeps today's TTL.
+
+**Result (`authorityResult`)**
+- `authorityRef` (`g_…`).
+- `decision`: `allow`, `deny` or `needsHuman`.
+- `humanApproval`: `not_required` for `allow` or `deny`. For `needsHuman` it starts `pending` and becomes `approved` once a person approves.
+- `expiresAt`.
+- `proposalRef` and `optionRef`: the binding.
+- `replayed`.
+
+**Lifetime of an authority**
+- **One-time:** a successful accept consumes it (§12.5).
+- **When it stops applying:**
+  - **any change to the case's proposals**, such as a counter, a reject or a new offer, because the digest covers all of them;
+  - the option is no longer live;
+  - the workspace policy changes after the approval, which `validatedPolicyBinding` detects.
+- **A new key** gives a fresh evaluation. **The same key** replays the original (§3).
+
+#### 12.3 `envoi_request_human`
+
+**Permission:** `execute_cases`. **What it does:** asks a person in this agent's workspace to approve a `needsHuman` authority.
+
+```json
+{ "authorityRef": "g_…", "question": "Accept 26 Oct 10:00–13:00 at 4.10/unit?", "idempotencyKey": "ask-1" }
+```
+
+**Input**
+- `question`: 1–2,000 characters. It is shown to the person as the agent's own words.
+- The authority must be `needsHuman`, undecided and unexpired:
+  - otherwise `AUTHORITY_NOT_PENDING`;
+  - if it is expired, `AUTHORITY_EXPIRED`.
+
+**Effect.** One transaction does all of the following:
+- records the agent action `requestHumanDecision` (outcome `needsApproval`, with the evaluation's id). The tool skips the actions route's acting-agent check;
+- moves the case to `waitingForHuman`;
+- writes owner audit `case.human_decision_requested`, with `caseId`, `agentId`, `requestId`, `policyEvaluationId` and the question.
+
+The owner UI shows the request and the question. The counterparty never sees them.
+
+**Result (`humanRequestResult`):** `{ requestRef: "q_…", status: "pending", authorityRef, endTurn: true, replayed }`.
+- `endTurn: true` with client `turn: end` means: end the turn now, then settle the work (case-session §7).
+- The agent never waits for a person inside a turn.
+
+**How the request resolves** (new in C-A3). Each outcome moves the case back to `inProgress` and writes `human_decision` work for the agent (§12.6). Today's `approveOnce` instead moves the case to `authorized`, and `decline` revokes it. For accept evaluations, both change as below.
+
+| Outcome | Person's action | Authority | `human_decision` intent |
+| --- | --- | --- | --- |
+| Approve | `approveOnce` with `externalRefs.policyEvaluationId` | `approved` | `approveOnce` |
+| Decline | `decline` naming the same evaluation | stays unapproved | `decline` |
+| Expire | none: the request passes the evaluation's `expiresAt` | ends with the request | `expired` |
+
+- A decline no longer revokes the case: the case is shared, so revoking would end the counterparty's work too.
+- C-A3's cleanup handles expiry.
+
+**Visibility.** `pendingHumanDecision` (§6.2) is true only while **this agent** has an open request. While it is open, this agent's snapshot shows `case.status: "waitingForHuman"`. The counterparty's snapshot shows `inProgress`, so it never learns that the other side is waiting for its people.
+
+#### 12.4 `envoi_case_propose`
+
+**Permission:** `send_agent_messages`. **When:** only with no current proposal (§12.1).
+
+```json
+{ "text": "We can deliver on 26 Oct, 10:00–13:00.", "terms": { "date": "2026-10-26", "window": "10:00-13:00" }, "idempotencyKey": "offer-1" }
+```
+
+**Input**
+- `text`: 1–8,000 characters.
+- `terms`: a JSON object with 1–32 properties, at most 1 KiB serialized. It becomes the proposal's single option.
+
+**Effect.** One native message to the counterparty: type `proposal`, intent `offer`, `payload.proposal = terms`. It is sent like today's send (§7.2), including the D1 barrier. Today's `advanceNativeCase` then creates `proposal_<messageId>`: kind `negotiation`, status `open`, one option.
+
+**Result (`proposeResult`):** `{ messageRef, proposalRef, optionRef, status: "queued", recipient, replayed }`.
+
+**Errors**
+- `PROPOSAL_EXISTS` when a proposal is current, whoever made it. v1 has no withdraw tool. To replace your own offer, reply and wait for the counterparty's answer.
+
+#### 12.5 `envoi_case_decide`
+
+**Permission:** `execute_cases`. **When:** only while the current proposal awaits this agent's answer (§12.1).
+
+```json
+{ "proposalRef": "p_…", "decision": "accept", "optionRef": "o_…", "authorityRef": "g_…", "text": "Agreed: 26 Oct, 10:00–13:00.", "idempotencyKey": "decide-1" }
+```
+
+**Input**
+
+| `decision` | Required | Not allowed |
+| --- | --- | --- |
+| `accept` | `optionRef`, `authorityRef` | `terms` |
+| `counter` | `terms` (as in §12.4) | `optionRef`, `authorityRef` |
+| `reject` | — | `optionRef`, `authorityRef`, `terms` |
+
+Every decision also takes `text` (1–8,000 characters) and `idempotencyKey`. A missing required field fails the schema (`TOOL_ARGUMENTS_INVALID`).
+
+**Effects**
+- **`counter`:** one native message, type `counterproposal`, intent `counteroffer`.
+  - `payload.counterproposal = terms` exactly, so the option value holds only the terms.
+  - `payload.decision = { kind: "counteroffer", proposalMessageId }`. `advanceNativeCase` reads the reference from there.
+  - Today's `counterProposal` then expires every earlier option and adds the counter's option. The proposal is `countered`, and `lastActor` becomes `you`.
+- **`reject`:** one native message, type `decision`, intent `reject`, `payload.decision = { kind: "reject", proposalMessageId }`.
+  - **New in C-A3:** the proposal becomes `withdrawn`, so it is no longer current. Today it stays `open`.
+- **`accept`:** one transaction:
+  1. `validatedPolicyBinding` is called with `requestedAction: "proposal.accept"` and `actionPayload: { proposalId, optionId }`, passed explicitly so the binding digest matches. It writes its execution record and `policy.re_evaluated` audit **inside this transaction**. A refused accept therefore consumes nothing (new in C-A3; today those writes happen before the checks that can refuse).
+  2. Today's `acceptProposal` runs: the proposal becomes `accepted`, the case moves to `authorized`, and the authority is consumed.
+  3. One native message goes to the counterparty: type `decision`, intent `accept`, `payload.decision = { kind: "accept", proposalMessageId }`.
+
+  **New in C-A3: the accept message.** `advanceNativeCase` must not try to move an `authorized` case to `waitingForHuman` for this server-sent accept. Today that transition is not allowed, so it would throw. The counterparty still receives the accept message. Any review its own workspace wants happens when it completes the case (revision 3), which already requires a verified human decision after an accept.
+
+**Result (`decideResult`):** `{ decision, messageRef, proposalRef, optionRef, proposalStatus, caseStatus, recipient, replayed }`.
+- `proposalStatus` is `countered`, `withdrawn` or `accepted`.
+- `optionRef` is the accepted option, the counter's new option, or `null` for a reject.
+- `caseStatus` is the case state after commit.
+
+**Errors** (`x-tool-errors`). All are non-retryable except `TOOL_BUSY`.
+
+| Code | When |
+| --- | --- |
+| `PROPOSAL_NOT_AWAITING` | `proposalRef` is not the current proposal, or its `lastActor` is `you`. That includes a second accept after a successful one, because the accepted proposal is no longer current. |
+| `OPTION_NOT_LIVE` | `optionRef` is not a live option of that proposal. |
+| `AUTHORITY_CHANGED` | The binding no longer matches the case's proposals or the option. |
+| `AUTHORITY_EXPIRED` | The authority is past `expiresAt`. |
+| `AUTHORITY_DENIED` | The stored decision is `deny`, or the re-check at execution says `deny`. |
+| `AUTHORITY_PENDING` | `needsHuman` with no approval yet. If nothing is requested yet, call `envoi_request_human`. Otherwise end the turn and wait for `human_decision` work. |
+| `REF_NOT_FOUND`, `IDEMPOTENCY_CONFLICT`, `TOOL_BUSY` | §2 |
+
+**Order of checks**
+1. References.
+2. Whether the proposal awaits this agent.
+3. Whether the option is live.
+4. The authority, in the order `validatedPolicyBinding` uses:
+   1. binding changed;
+   2. expired;
+   3. stored deny;
+   4. pending;
+   5. deny at execution;
+   6. policy changed after the approval (`AUTHORITY_CHANGED`).
+
+A refused decide writes nothing.
+
+#### 12.6 `human_decision` work
+
+**What creates it.** When a request resolves (§12.3), the server writes a `humanDecision` message into this agent's inbox for that case. It emits `work.available` with reason `human_decision`, which is a new a4 reason; consumers already accept any reason. The claim offers this work like agent work, without `acceptHumanInstructions`.
+
+**Session.** The work kind is `human_decision`, added to case-session v1 (its §2, §3, §5).
+- **Counterparty:** the case's **other agent**. The person who decided is never the counterparty.
+- **Eligibility:** the §3 checks apply to that other agent. If it is paused, the claim skips the work until a4's `counterparty_resumed`. `instruction_authority_lost` does not apply.
+
+**Snapshot.**
+- **`requestedResponse`** is `{ ref, from: "your_human", kind: "human_decision", intent, text, receivedAt }`.
+  - `intent` is `approveOnce`, `decline` or `expired`.
+  - `text` is a server-written summary, for example "Approved: accept option <optionRef>."
+- **`authority.lastPolicyDecision`** shows the evaluation, with its `humanApproval`.
+- **Timeline:** the decision appears as a timeline item of kind `human_decision`, with the same `intent`.
+
+**Tools and replies.**
+- The tools are the same as for agent work.
+- A reply's default `inReplyTo` is the newest message from `other_agent` in the case. The agent-work reply rules apply (§7.1).
+- The usual next step after an approval: `envoi_case_decide` with `accept`, the approved option and the same `authorityRef`.
+
+**When the approval no longer applies.** Any of these makes the accept fail, and the agent checks authority again:
+- the case's proposals changed (`AUTHORITY_CHANGED`);
+- the authority expired (`AUTHORITY_EXPIRED`);
+- the policy changed (`AUTHORITY_CHANGED`).
+
+#### 12.7 Events and audit
+
+- **Native messages** from these tools produce today's events (§7.5).
+- **Authority:** policy evaluations audit `policy.evaluated`, and `policy.re_evaluated` at execution.
+- **Accepts** audit `proposal.accept_attempted`.
+- **New owner audit types:**
+  - `case.human_decision_requested`;
+  - `case.human_decision_resolved`, with `requestId` and outcome `approved`, `declined` or `expired`.
+- **New a4 reason:** `work.available` with `human_decision`.
+- **Every first effect** also writes `agent.case_tool_used` (§7.5).
+- **Lane B:** each new audit type needs a paired `WORKSPACE_EVENT_TYPES` entry.
+
+#### 12.8 Fixtures added by revision 2
+
+| Group | Fixtures |
+| --- | --- |
+| Authority | `authority-check-allow`, `authority-check-needs-human`, `authority-check-deny`, `authority-check-replayed`, `authority-check-option-not-live`, `authority-check-not-awaiting` |
+| Human request | `request-human`, `request-human-not-pending`, `request-human-expired`, `snapshot-human-decision`, `snapshot-human-decision-declined` |
+| Propose | `propose-new`, `propose-proposal-exists`, `snapshot-no-proposal` |
+| Decide | `snapshot-awaiting-decision`, `decide-counter`, `decide-reject`, `decide-accept`, `decide-accept-authority-pending`, `decide-accept-authority-expired`, `decide-accept-authority-changed`, `decide-accept-authority-denied`, `decide-not-awaiting`, `decide-option-not-live`, `decide-accept-missing-authority`, `decide-after-human-approval` |
+
+### 13. Decisions for review
 
 These are Lane A's proposals. Each one can change before approval.
 
@@ -2748,5 +3021,10 @@ These are Lane A's proposals. Each one can change before approval.
 3. **Snapshot bounds:** 64 KiB in all, with fixed sections capped at 40 KiB (worst case about 34 KiB); 20 events by default and 50 at most; a 12 KiB requested text; 10 assets; per-text limits in serialized bytes. Lane B's real turn sizes may argue for other values.
 4. **Reply intents** are limited to `message`, `clarify` and `status`. Every typed negotiation step goes through revision 2's tools.
 5. **A held message reads as `queued`** in a snapshot.
-6. **`proposal` is the case's newest open or countered proposal,** whether a typed offer message or the case API created it. It shows live options only. Revision 2's proposal tools work on the same records.
+6. **`proposal` is the newest open or countered proposal that a typed offer message created.** It shows live options only. Proposals made through the case API are left out of v1's tools.
 7. **Reads are not audited per call** in v1.
+8. **Every human outcome resumes the agent through `human_decision` work** (§12.6), not by reopening settled work. That covers approve, decline and expire. The approving person never becomes the session counterparty.
+9. **A reject withdraws the proposal** (new in C-A3), so a rejected offer is never current again.
+10. **Agreements need human approval by default.** C-A3 makes `proposal.accept` policy-controlled, with `agreements.requireHumanApproval` defaulting to true (§12.2). That is a product decision for Rachel. If false is chosen instead, accepts are `allow` unless the workspace opts in.
+11. **A `needsHuman` authority lives 24 h,** not today's 10 minutes, so a person has time to decide.
+12. **A decline returns the case to `inProgress`** rather than revoking it, because the case record is shared with the counterparty (§12.3).

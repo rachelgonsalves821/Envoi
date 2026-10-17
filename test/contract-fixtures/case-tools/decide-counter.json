@@ -1,0 +1,84 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "decide-counter",
+  "kind": "http",
+  "description": "A counter expires the earlier option and adds the counter option; the proposal is countered and now awaits the counterparty.",
+  "context": {
+    "sessionRef": "C",
+    "caseRef": "case-c",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_c",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 48,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_decide",
+        "arguments": {
+          "proposalRef": "p_c5cqycxdceumfgik",
+          "decision": "counter",
+          "terms": {
+            "date": "2026-10-26",
+            "window": "10:00-13:00",
+            "unitPrice": "3.90"
+          },
+          "text": "Could you do 3.90 per unit?",
+          "idempotencyKey": "decide-counter"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "decideEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 48,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_decide\",\"result\":{\"decision\":\"counter\",\"messageRef\":\"m_hoaogdfxd6y62pw7\",\"proposalRef\":\"p_c5cqycxdceumfgik\",\"optionRef\":\"o_a7kx75haq6gtanl4\",\"proposalStatus\":\"countered\",\"caseStatus\":\"inProgress\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"replayed\":false}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Wait for the counterparty."
+  }
+}

@@ -556,7 +556,7 @@ function checkCaseSession(fixture, schemas, check, validator, label) {
 }
 
 // case-tools §2, §4: what a tool result may never carry, and how every reference looks.
-const internalIdPattern = /\b(?:case|msg|agent|inbox|installation|case_session|session|credential_family|asset|evt|event|policy_eval|policy_exec|option|proposal|work|human|org|receipt|action|conversation|registration|enrollment)_(?!action\b)[A-Za-z0-9-]{4,}/; // human_action is an event kind, not an id
+const internalIdPattern = /\b(?:case|msg|agent|inbox|installation|case_session|session|credential_family|asset|evt|event|policy_eval|policy_exec|option|proposal|work|human|org|receipt|action|conversation|registration|enrollment)_(?!(?:action|decision)\b)[A-Za-z0-9-]{4,}/; // human_action is an event kind, not an id
 const toolTokenPattern = /envoi_(?:agent_|mcp_read_|case_session_|reg_)|lease_PLACEHOLDER/;
 const emailPattern = /[^\s"<>@]+@[^\s"<>@]+\.[^\s"<>@]+/g;
 function collectRefs(value, found = []) {
@@ -638,7 +638,7 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
       assert.equal(client.retry, entry.clientRetry, `${stepLabel}: client retry for ${document.code}`);
       continue;
     }
-    for (const value of collectRefs(document.result)) assert.match(value, /^[mpoae]_[a-z2-7]{16}$/, `${stepLabel}: ${value} is a reference`);
+    for (const value of collectRefs(document.result)) assert.match(value, /^[mpoaegq]_[a-z2-7]{16}$/, `${stepLabel}: ${value} is a reference`);
     const { result } = document;
     if (name === 'envoi_case_snapshot') {
       const limit = args.eventLimit ?? limits.eventLimitDefault;
@@ -646,21 +646,32 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
       assert.ok(result.recentEvents.every((event, index, list) => index === 0 || list[index - 1].at <= event.at), `${stepLabel}: events oldest first`);
       assert.equal(result.page.hasOlder, result.page.olderCursor !== null, `${stepLabel}: olderCursor exactly when hasOlder`);
       assert.equal('requestedResponse' in result, !args.eventsBefore, `${stepLabel}: requestedResponse only on a first page`);
-      assert.equal(result.counterparty.kind === 'agent', context.workKind === 'agent_message', `${stepLabel}: counterparty kind follows the work kind`);
+      assert.equal(result.counterparty.kind === 'agent', context.workKind !== 'human_instruction', `${stepLabel}: counterparty kind follows the work kind (a human decision's counterparty is the other agent)`);
       if (result.requestedResponse) {
-        assert.equal(result.requestedResponse.from === 'your_human', context.workKind === 'human_instruction', `${stepLabel}: the work comes from your workspace exactly for an instruction`);
+        assert.equal(result.requestedResponse.from === 'your_human', context.workKind !== 'agent_message', `${stepLabel}: the work comes from your workspace exactly for an instruction or a human decision`);
+        assert.equal(result.requestedResponse.kind === 'human_decision', context.workKind === 'human_decision', `${stepLabel}: human_decision work is answered as such`);
         checkText(result.requestedResponse.text, result.requestedResponse.truncated, limits.requestedTextMaxBytes, `${stepLabel}: requested text`);
         // §6.2: when the work message is in the page it shares requestedResponse's reference and carries no text.
         const workItem = result.recentEvents.find((event) => event.ref === result.requestedResponse.ref);
         if (workItem) assert.equal(workItem.text, null, `${stepLabel}: the work message's timeline item carries no text`);
       }
-      // §1, §6.2: allowedActions is the effective set limited to the implemented tools, in x-tools order.
-      assert.deepEqual(result.allowedActions, effective, `${stepLabel}: allowedActions`);
+      // §1, §6.2, §12.1: allowedActions is the implemented effective set, narrowed by the state rules, in x-tools order.
+      const decision = result.authority.lastPolicyDecision;
+      const stateAllows = (tool) => ({
+        envoi_case_propose: result.proposal === null,
+        envoi_authority_check: result.proposal !== null && result.proposal.lastActor === 'other_agent',
+        envoi_case_decide: result.proposal !== null && result.proposal.lastActor === 'other_agent',
+        envoi_request_human: decision?.decision === 'needsHuman' && decision.humanApproval === 'pending' && !result.authority.pendingHumanDecision
+      })[tool] ?? true;
+      assert.deepEqual(result.allowedActions, effective.filter(stateAllows), `${stepLabel}: allowedActions`);
+      if (decision) assert.equal(decision.humanApproval === 'not_required', decision.decision !== 'needsHuman', `${stepLabel}: humanApproval follows the decision`);
       assert.ok(bytes(JSON.stringify({ ...result, recentEvents: [] })) <= limits.fixedSectionsMaxBytes, `${stepLabel}: fixed sections within fixedSectionsMaxBytes`);
       for (const event of result.recentEvents) {
         // §6.3: your own messages carry a delivery status and nothing else does; instructions and receipts carry no intent.
         assert.equal(event.deliveryStatus !== null, event.actor === 'you' && messageKinds.includes(event.kind), `${stepLabel}: deliveryStatus exactly on your own messages`);
         if (['instruction', 'instruction_reply', 'receipt'].includes(event.kind)) assert.equal(event.intent, null, `${stepLabel}: ${event.kind} carries no intent`);
+        // §6.2: only the work message's own item leaves its text to requestedResponse.
+        if ([...messageKinds, 'instruction', 'instruction_reply'].includes(event.kind) && event.ref !== result.requestedResponse?.ref) assert.notEqual(event.text, null, `${stepLabel}: message ${event.ref} carries its text`);
         if (event.kind === 'human_action') assert.equal(event.actor, 'your_human', `${stepLabel}: only your workspace's human actions are projected`);
         if (event.text) checkText(event.text, event.truncated, limits.eventTextMaxBytes, `${stepLabel}: event text`);
       }
@@ -673,8 +684,26 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
       }
     }
     if (name === 'envoi_case_reply') {
-      assert.equal(result.recipient.kind === 'agent', context.workKind === 'agent_message', `${stepLabel}: the recipient is the session counterparty`);
-      assert.equal(result.status, context.workKind === 'agent_message' ? 'queued' : 'delivered', `${stepLabel}: queued for agent work, delivered for an instruction`);
+      assert.equal(result.recipient.kind === 'agent', context.workKind !== 'human_instruction', `${stepLabel}: the recipient is the session counterparty`);
+      assert.equal(result.status, context.workKind === 'human_instruction' ? 'delivered' : 'queued', `${stepLabel}: delivered for an instruction, queued otherwise`);
+    }
+    // §12.2–§12.5: revision 2 results agree with their arguments.
+    if (name === 'envoi_authority_check') {
+      assert.deepEqual([result.proposalRef, result.optionRef], [args.proposalRef, args.optionRef], `${stepLabel}: the authority is bound to the requested option`);
+      assert.equal(result.humanApproval === 'not_required', result.decision !== 'needsHuman', `${stepLabel}: humanApproval follows the decision`);
+    }
+    if (name === 'envoi_request_human') {
+      assert.equal(result.authorityRef, args.authorityRef, `${stepLabel}: the request names its authority`);
+      assert.equal(client.turn, 'end', `${stepLabel}: endTurn means the host ends the turn now`);
+    }
+    if (name === 'envoi_case_propose') assert.equal(result.recipient.kind, 'agent', `${stepLabel}: an offer goes to the other agent`);
+    if (name === 'envoi_case_decide') {
+      assert.equal(result.decision, args.decision, `${stepLabel}: the decision made`);
+      assert.equal(result.proposalRef, args.proposalRef, `${stepLabel}: the decided proposal`);
+      assert.equal(result.proposalStatus, { accept: 'accepted', counter: 'countered', reject: 'withdrawn' }[args.decision], `${stepLabel}: proposal status`);
+      if (args.decision === 'accept') assert.deepEqual([result.optionRef, result.caseStatus], [args.optionRef, 'authorized'], `${stepLabel}: an accept authorizes the case with the accepted option`);
+      if (args.decision === 'reject') assert.equal(result.optionRef, null, `${stepLabel}: a reject names no option`);
+      if (args.decision === 'counter') assert.notEqual(result.optionRef, null, `${stepLabel}: a counter names its new option`);
     }
   }
 }
@@ -882,7 +911,7 @@ test('case-session fixtures agree across cases', async () => {
   assert.equal(status.response.body.caseSessions.available, status.flags.ENVOI_CASE_SESSIONS_V1, 'caseSessions.available is the flag');
   assert.equal(rollback.steps.at(-1).response.body.caseSessions.available, rollback.flags.ENVOI_CASE_SESSIONS_V1, 'caseSessions.available is the flag after rollback');
 
-  const handoff = await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8');
+  const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
   const sectionStart = handoff.indexOf('\n## case-session v1');
   const section = handoff.slice(sectionStart, handoff.indexOf('\n## ', sectionStart + 1) === -1 ? undefined : handoff.indexOf('\n## ', sectionStart + 1));
   const table = section.slice(section.indexOf('| Group | Fixtures |'), section.indexOf('### 15.'));
@@ -927,6 +956,14 @@ test('case-tools fixtures agree across cases', async () => {
   assert.ok(olderPage.recentEvents.every((event) => !firstRefs.has(event.ref) && event.at <= firstPage.recentEvents[0].at), 'pages never overlap, and the older page is older');
   assert.equal(args(paged.steps[1]).eventsBefore, firstPage.page.olderCursor, 'the older page uses the first page\'s cursor');
 
+  const [needsHuman, ask, decisionSnapshot, approvedAccept, awaiting] = await Promise.all(['authority-check-needs-human', 'request-human', 'snapshot-human-decision', 'decide-after-human-approval', 'snapshot-awaiting-decision'].map(load));
+  const humanAuthority = result(needsHuman).authorityRef;
+  assert.equal(args(ask).authorityRef, humanAuthority, 'the request names the needsHuman authority');
+  assert.deepEqual([result(decisionSnapshot).authority.lastPolicyDecision.authorityRef, result(decisionSnapshot).authority.lastPolicyDecision.humanApproval], [humanAuthority, 'approved'], 'the decision work shows the approved authority');
+  assert.equal(args(approvedAccept).authorityRef, humanAuthority, 'the resumed turn accepts under the approved authority');
+  assert.equal(args(approvedAccept).optionRef, result(decisionSnapshot).authority.lastPolicyDecision.optionRef, 'and the approved option');
+  assert.equal(result(decisionSnapshot).counterparty.kind, 'agent', 'the approving person is never the counterparty');
+  assert.equal(result(awaiting).proposal.ref, args(approvedAccept).proposalRef, 'the same proposal throughout');
   const iso = await load('two-cases-same-counterparty');
   const [snapA, snapB, replyB, replyA] = iso.steps;
   assert.notEqual(snapA.request.headers.authorization, snapB.request.headers.authorization, 'two sessions');
@@ -939,12 +976,12 @@ test('case-tools fixtures agree across cases', async () => {
   const foreign = await load('reply-ref-not-found');
   assert.ok(refsB.includes(args(foreign).inReplyTo), 'the unresolved reference belongs to the other case');
 
-  const handoff = await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8');
+  const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
   const start = handoff.indexOf('\n## case-tools v1');
   const next = handoff.indexOf('\n## ', start + 1);
   const section = handoff.slice(start, next === -1 ? undefined : next);
-  const table = section.slice(section.indexOf('| Group | Fixtures |'), section.indexOf('### 11.'));
-  const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
+  const tables = section.split('| Group | Fixtures |').slice(1).map((rest) => rest.split('\n\n')[0]);
+  const listed = tables.flatMap((table) => [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`)).sort();
   const index = await readJson(path.join(root, 'index.json'));
   assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'case-tools').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
 });

@@ -10,7 +10,6 @@
     "workKind": "agent_message",
     "allowedTools": [
       "envoi_case_snapshot",
-      "envoi_authority_check",
       "envoi_case_list_assets"
     ]
   },

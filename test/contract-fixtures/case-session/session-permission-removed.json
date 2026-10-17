@@ -87,22 +87,6 @@
             }
           },
           {
-            "name": "envoi_authority_check",
-            "description": "Defined by case-tools v1.",
-            "inputSchema": {
-              "type": "object",
-              "additionalProperties": false
-            }
-          },
-          {
-            "name": "envoi_request_human",
-            "description": "Defined by case-tools v1.",
-            "inputSchema": {
-              "type": "object",
-              "additionalProperties": false
-            }
-          },
-          {
             "name": "envoi_case_list_assets",
             "description": "Defined by case-tools v1.",
             "inputSchema": {

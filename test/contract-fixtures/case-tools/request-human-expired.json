@@ -1,0 +1,78 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "request-human-expired",
+  "kind": "http",
+  "description": "An expired authority cannot be put to a person.",
+  "context": {
+    "sessionRef": "C",
+    "caseRef": "case-c",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_c",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 40,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_request_human",
+        "arguments": {
+          "authorityRef": "g_l43v2ipu3hr25k2e",
+          "question": "Accept?",
+          "idempotencyKey": "ask-3"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "toolErrorEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 40,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":false,\"tool\":\"envoi_request_human\",\"code\":\"AUTHORITY_EXPIRED\",\"message\":\"That authority has expired. Check authority again.\",\"retryable\":false}"
+          }
+        ],
+        "isError": true
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Check authority again."
+  }
+}

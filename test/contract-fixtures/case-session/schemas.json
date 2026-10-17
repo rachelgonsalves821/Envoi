@@ -301,7 +301,8 @@
       "needs": "read",
       "workKinds": [
         "agent_message",
-        "human_instruction"
+        "human_instruction",
+        "human_decision"
       ]
     },
     {
@@ -309,35 +310,40 @@
       "needs": "send_agent_messages",
       "workKinds": [
         "agent_message",
-        "human_instruction"
+        "human_instruction",
+        "human_decision"
       ]
     },
     {
       "name": "envoi_case_propose",
       "needs": "send_agent_messages",
       "workKinds": [
-        "agent_message"
+        "agent_message",
+        "human_decision"
       ]
     },
     {
       "name": "envoi_case_decide",
       "needs": "execute_cases",
       "workKinds": [
-        "agent_message"
+        "agent_message",
+        "human_decision"
       ]
     },
     {
       "name": "envoi_authority_check",
-      "needs": "read",
+      "needs": "execute_cases",
       "workKinds": [
-        "agent_message"
+        "agent_message",
+        "human_decision"
       ]
     },
     {
       "name": "envoi_request_human",
-      "needs": "send_agent_messages",
+      "needs": "execute_cases",
       "workKinds": [
-        "agent_message"
+        "agent_message",
+        "human_decision"
       ]
     },
     {
@@ -345,21 +351,24 @@
       "needs": "read",
       "workKinds": [
         "agent_message",
-        "human_instruction"
+        "human_instruction",
+        "human_decision"
       ]
     },
     {
       "name": "envoi_case_share_asset",
       "needs": "create_assets",
       "workKinds": [
-        "agent_message"
+        "agent_message",
+        "human_decision"
       ]
     },
     {
       "name": "envoi_case_complete",
       "needs": "execute_cases",
       "workKinds": [
-        "agent_message"
+        "agent_message",
+        "human_decision"
       ]
     }
   ],
@@ -592,7 +601,8 @@
     "workKind": {
       "enum": [
         "agent_message",
-        "human_instruction"
+        "human_instruction",
+        "human_decision"
       ]
     },
     "caseToolName": {

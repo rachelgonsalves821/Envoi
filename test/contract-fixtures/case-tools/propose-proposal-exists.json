@@ -1,0 +1,80 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "propose-proposal-exists",
+  "kind": "http",
+  "description": "A current proposal exists, so a second offer is refused; answer the current one instead.",
+  "context": {
+    "sessionRef": "C",
+    "caseRef": "case-c",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_c",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 47,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_propose",
+        "arguments": {
+          "text": "Alternative: 27 Oct.",
+          "terms": {
+            "date": "2026-10-27"
+          },
+          "idempotencyKey": "offer-2"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "toolErrorEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 47,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":false,\"tool\":\"envoi_case_propose\",\"code\":\"PROPOSAL_EXISTS\",\"message\":\"This case already has a current proposal.\",\"retryable\":false}"
+          }
+        ],
+        "isError": true
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Use envoi_case_decide with counter."
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "contract": "case-tools",
+  "version": 1,
+  "id": "propose-new",
+  "kind": "http",
+  "description": "An offer creates the case proposal with one option and sends a typed native offer to the counterparty.",
+  "context": {
+    "sessionRef": "N",
+    "caseRef": "case-n",
+    "workKind": "agent_message",
+    "allowedTools": [
+      "envoi_case_snapshot",
+      "envoi_case_reply",
+      "envoi_case_propose",
+      "envoi_case_decide",
+      "envoi_authority_check",
+      "envoi_request_human",
+      "envoi_case_list_assets",
+      "envoi_case_share_asset",
+      "envoi_case_complete"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "case_session",
+    "headers": {
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_n",
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-11-25"
+    },
+    "schema": "jsonRpcRequest",
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 46,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_case_propose",
+        "arguments": {
+          "text": "We can deliver on 28 Oct, 09:00-12:00.",
+          "terms": {
+            "date": "2026-10-28",
+            "window": "09:00-12:00"
+          },
+          "idempotencyKey": "offer-1"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "proposeEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 46,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_case_propose\",\"result\":{\"messageRef\":\"m_nyrklomiomute3aj\",\"proposalRef\":\"p_st24otvy54gek3x7\",\"optionRef\":\"o_xq4clrnk2mbqowhn\",\"status\":\"queued\",\"recipient\":{\"kind\":\"agent\",\"address\":\"counterparty@envoi.mail\"},\"replayed\":false}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "tool_channel",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "turn": "continue",
+    "next": "Wait for the counterparty's answer."
+  }
+}

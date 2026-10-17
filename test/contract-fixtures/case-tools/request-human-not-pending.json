@@ -1,12 +1,12 @@
 {
   "contract": "case-tools",
   "version": 1,
-  "id": "revision-2-tool-not-in-session",
+  "id": "request-human-not-pending",
   "kind": "http",
-  "description": "A revision 2 tool on a revision 1 server is absent from the session, even when permissions would allow it.",
+  "description": "An allow authority needs no human decision.",
   "context": {
-    "sessionRef": "A",
-    "caseRef": "case-a",
+    "sessionRef": "C",
+    "caseRef": "case-c",
     "workKind": "agent_message",
     "allowedTools": [
       "envoi_case_snapshot",
@@ -25,7 +25,7 @@
     "path": "/mcp",
     "auth": "case_session",
     "headers": {
-      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_a",
+      "authorization": "Bearer envoi_case_session_PLACEHOLDER_case_c",
       "content-type": "application/json",
       "accept": "application/json, text/event-stream",
       "mcp-protocol-version": "2025-11-25"
@@ -33,32 +33,37 @@
     "schema": "jsonRpcRequest",
     "body": {
       "jsonrpc": "2.0",
-      "id": 10,
+      "id": 41,
       "method": "tools/call",
       "params": {
-        "name": "envoi_case_propose",
+        "name": "envoi_request_human",
         "arguments": {
-          "idempotencyKey": "propose-1"
+          "authorityRef": "g_qbtqzkbvqwm2ndpa",
+          "question": "May I accept?",
+          "idempotencyKey": "ask-2"
         }
       }
     }
   },
   "response": {
     "status": 200,
-    "schema": "jsonRpcError",
+    "schema": "mcpToolCallResult",
+    "toolResult": "toolErrorEnvelope",
     "headers": {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store"
     },
     "body": {
       "jsonrpc": "2.0",
-      "id": 10,
-      "error": {
-        "code": -32602,
-        "message": "Tool not available in this case session",
-        "data": {
-          "code": "TOOL_NOT_IN_SESSION"
-        }
+      "id": 41,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":false,\"tool\":\"envoi_request_human\",\"code\":\"AUTHORITY_NOT_PENDING\",\"message\":\"That authority does not need a human decision now.\",\"retryable\":false}"
+          }
+        ],
+        "isError": true
       }
     }
   },
@@ -68,6 +73,6 @@
     "retry": "none",
     "guidance": "none",
     "turn": "continue",
-    "next": "Use only the tools in allowedActions."
+    "next": "Accept directly with that authority."
   }
 }
