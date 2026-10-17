@@ -144,3 +144,13 @@ test('[FileStore] the stored sourceHash is keyed, not a plain SHA-256 of the add
   assert.equal(registration.sourceHash, sourceHmac(address, sourceKey(codeKey)).slice(0, 32));
   assert.notEqual(sourceHmac(address, sourceKey(verificationCodeKey(Buffer.from('another-key')))).slice(0, 32), registration.sourceHash);
 });
+
+// §5.3 precedence: CLAIM_INVALID (step 4) comes before CLAIM_FORBIDDEN (step 5), also for an
+// approver whose email cannot be hinted.
+test('[FileStore] an invalid body from an unhintable approver is CLAIM_INVALID, not CLAIM_FORBIDDEN', async t => {
+  const env = await setup(t, { production: true });
+  const { response, registration } = await pending(env);
+  const invalid = { ...approveInput(response.claim.verificationCode, env.inboxId, 'precedence'), grantedPermissions: [] };
+  await assert.rejects(env.registrations.approve(humanWith('owner@example.xn--p1ai'), registration.id, invalid), { statusCode: 400, code: 'CLAIM_INVALID' });
+  await assert.rejects(env.registrations.approve(humanWith('owner@example.xn--p1ai'), registration.id, approveInput(response.claim.verificationCode, env.inboxId, 'precedence')), { statusCode: 403, code: 'CLAIM_FORBIDDEN' });
+});

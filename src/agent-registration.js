@@ -329,11 +329,6 @@ export function createAgentRegistrations({
     const normalized = normalizeVerificationCode(input?.verificationCode);
     const found = await decisionTarget(human, await getRegistration(registrationId), normalized, 'approve', input || {});
     if (found.replay) return found.replay;
-    // After the code and state checks, so it reveals nothing about a registration the caller
-    // cannot name, and before the body and target checks, so every target gets the same answer.
-    // Not a claim failure: claimAttempt releases the slot.
-    const approverHint = hintForHuman(human, { production });
-    if (!approverHint) throw coded(403, 'CLAIM_FORBIDDEN', 'Your account cannot approve agents: its sign-in email cannot be shown to the agent\'s host.');
     if (!validApproveBody(input)) {
       throw coded(400, 'CLAIM_INVALID', Array.isArray(input?.grantedPermissions) && !input.grantedPermissions.length ? 'Choose at least one permission.' : 'The approval request is not valid.');
     }
@@ -343,6 +338,11 @@ export function createAgentRegistrations({
       try { address = addressForLocalPart(normalizeLocalPart(target.localPart)); }
       catch { throw coded(400, 'CLAIM_INVALID', 'Choose another agent address.'); }
     }
+    // §5.3 step 5 (CLAIM_FORBIDDEN): after the code, state and body checks, and before the target
+    // is resolved, so every target gets the same answer. Not a claim failure: claimAttempt
+    // releases the slot.
+    const approverHint = hintForHuman(human, { production });
+    if (!approverHint) throw coded(403, 'CLAIM_FORBIDDEN', 'Your account cannot approve agents: its sign-in email cannot be shown to the agent\'s host.');
     const resolved = await resolveTarget(human, target);
     const principalHumanId = target.kind === 'new_agent' ? human.id : resolved.agent.principalHumanId || resolved.inbox.ownerHumanId;
     const lockKeys = [registrationLockKey(registrationId), `human:${principalHumanId}:active-agents`, `human:${human.id}:agent-approvals`, ...(address ? [addressHoldLockKey(address)] : [])];
