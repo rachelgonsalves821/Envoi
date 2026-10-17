@@ -225,8 +225,10 @@ export function createAgentRegistrations({
     const retryAfterSeconds = await limits.claimLockRetryAfter(human.id);
     if (retryAfterSeconds) throw coded(429, 'RATE_LIMITED', 'Too many incorrect codes. Try again later.', { retryAfterSeconds, reason: 'claim_attempts' });
   }
-  async function codeInvalid(human) {
-    await limits.recordClaimFailure(human.id);
+  // `counted` is false under a lock: the failure counter runs its own transaction, which must
+  // never nest inside another one. A re-check under the lock only loses a race, which is no guess.
+  async function codeInvalid(human, counted = true) {
+    if (counted) await limits.recordClaimFailure(human.id);
     return coded(404, 'CLAIM_CODE_INVALID', 'That code is not valid. Check the code your agent shows.');
   }
   const codeMatches = (registration, normalized) => Boolean(registration && normalized && timingEqual(registration.codeHmac, verificationCodeHmac(normalized, codeKey)));
@@ -234,14 +236,14 @@ export function createAgentRegistrations({
 
   // §5.3 precedence step 3, shared by approve and reject. Returns { replay } for this human's own
   // identical decision, or the pending registration; throws otherwise.
-  async function decisionTarget(human, registration, normalized, kind, input) {
+  async function decisionTarget(human, registration, normalized, kind, input, { counted = true } = {}) {
     if (codeMatches(registration, normalized) && registration.decision?.humanId === human.id) {
       if (registration.decision.kind === kind && registration.decision.digest === decisionDigest(kind, normalized, input)) return { replay: registration.decision.response };
       throw coded(409, 'CLAIM_ALREADY_DECIDED', kind === 'approve' && registration.decision.kind === 'approve'
         ? 'You already approved this agent. Withdraw it and have the agent register again to change the decision.'
         : 'You already decided this registration.');
     }
-    if (!codeMatches(registration, normalized) || derivedStatus(registration, now()) !== 'pending_claim') throw await codeInvalid(human);
+    if (!codeMatches(registration, normalized) || derivedStatus(registration, now()) !== 'pending_claim') throw await codeInvalid(human, counted);
     return { registration };
   }
 
@@ -314,7 +316,7 @@ export function createAgentRegistrations({
     const lockKeys = [registrationLockKey(registrationId), `human:${principalHumanId}:active-agents`, `human:${human.id}:agent-approvals`, ...(address ? [addressHoldLockKey(address)] : [])];
     const outcome = await withInboxMutation(resolved.inbox.id, async writeAudit => {
       // First decision wins: re-read under the lock.
-      const again = await decisionTarget(human, await getRegistration(registrationId), normalized, 'approve', input);
+      const again = await decisionTarget(human, await getRegistration(registrationId), normalized, 'approve', input, { counted: false });
       if (again.replay) return again.replay;
       const registration = again.registration;
       const at = nowIso();
@@ -374,7 +376,7 @@ export function createAgentRegistrations({
     if (found.replay) return found.replay;
     if (!validCodeOnlyBody(input)) throw coded(400, 'CLAIM_INVALID', 'The claim request is not valid.');
     return store.withTransaction([registrationLockKey(registrationId)], async () => {
-      const again = await decisionTarget(human, await getRegistration(registrationId), normalized, 'reject', input);
+      const again = await decisionTarget(human, await getRegistration(registrationId), normalized, 'reject', input, { counted: false });
       if (again.replay) return again.replay;
       const at = nowIso();
       const response = { registrationId, status: 'rejected' };

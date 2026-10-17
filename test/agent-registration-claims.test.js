@@ -50,7 +50,7 @@ for (const backend of backends) {
     assertCode(await register(baseUrl, { connectionRoute: 'remote_mcp_oauth' }), 'ROUTE_NOT_AVAILABLE');
     assertCode(await register(baseUrl, { connectionRoute: 'authenticated_rest' }), 'ROUTE_NOT_AVAILABLE');
     assertCode(await register(baseUrl, { unexpected: true }), 'REGISTRATION_INVALID');
-    assertCode(await register(baseUrl, { requestedName: 'Agent‮gnp' }), 'REGISTRATION_INVALID');
+    assertCode(await register(baseUrl, { requestedName: 'Agent\u202Egnp' }), 'REGISTRATION_INVALID');
     assertCode(await register(baseUrl, { requestedName: 'envoi_reg_leak' }), 'REGISTRATION_INVALID');
     assertCode(await register(baseUrl, { requestedLocalPart: 'admin' }), 'REGISTRATION_INVALID');
     assertCode(await register(baseUrl, { requestedPermissions: [] }), 'REGISTRATION_INVALID');
