@@ -1,0 +1,11 @@
+{
+  "name": "@envoi/distribution-preparation",
+  "version": "0.0.0-draft",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "cd ../.. && vitest run --config integrations/vitest.config.ts integrations/distribution",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
