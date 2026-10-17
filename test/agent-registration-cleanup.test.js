@@ -12,7 +12,7 @@ import { FileStore } from '../src/storage.js';
 import { PostgresStore } from '../src/postgres-storage.js';
 import { approvalSlotIndexPath, approverIndexPath, createAgentSlots, registrationPath } from '../src/agent-approval.js';
 import { createInstallationReader } from '../src/agent-installations.js';
-import { activationRecoveryPath, addressHoldPath, codeIndexPath, createAgentRegistrations, createdBucketPath, decidedBucketPath, tokenIndexPath } from '../src/agent-registration.js';
+import { activationRecoveryPath, addressHoldPath, cleanupCursorPath, codeIndexPath, createAgentRegistrations, createdBucketPath, decidedBucketPath, tokenIndexPath } from '../src/agent-registration.js';
 import { hashToken, normalizeVerificationCode, verificationCodeHmac, verificationCodeKey } from '../src/agent-registration-codes.js';
 import { createPollLimiter, createRegistrationLimits } from '../src/agent-registration-limits.js';
 
@@ -30,10 +30,13 @@ async function fileStore(t) {
   t.after(() => rm(dir, { recursive: true, force: true }));
   return store;
 }
+// Every PostgreSQL case shares one database, so it also shares the cleanup cursor. Start each case
+// without one: a cursor another case moved ahead would skip this case's buckets.
 async function postgresStore(t) {
   const store = new PostgresStore(process.env.DATABASE_URL);
   await store.init();
   t.after(() => store.close());
+  await store.deleteJson(cleanupCursorPath);
   return store;
 }
 const stores = [['FileStore', fileStore], ...(process.env.DATABASE_URL ? [['PostgreSQL', postgresStore]] : [])];
@@ -80,7 +83,7 @@ for (const [name, open] of stores) {
     assert.equal(normalizeVerificationCode(response.claim.verificationCode).length, 8);
   });
 
-  test(`[${name}] an approval's hold and indexes go too, but a hold or code another registration took is kept`, async t => {
+  test(`[${name}] an approval's hold and indexes go with the registration`, async t => {
     const store = await open(t);
     const registrations = module(store);
     const inboxId = await workspace(store);
@@ -93,8 +96,15 @@ for (const [name, open] of stores) {
     for (const item of indexPaths) assert.ok(await store.getJson(item), `written at approval: ${item}`);
     await registrations.cleanup(after(createdAt, 24 * hour + 60_000));
     for (const item of indexPaths) assert.equal(await store.getJson(item), null, `deleted with the registration: ${item}`);
+  });
 
-    // A second approval whose hold and code index were taken over by a later registration.
+  // Its own store: the cleanup above runs the clock 24 h ahead, and a registration created after it
+  // at the real time would sit behind the cursor, which a monotonic clock never allows.
+  test(`[${name}] a hold or code index another registration took is kept`, async t => {
+    const store = await open(t);
+    const registrations = module(store);
+    const inboxId = await workspace(store);
+    const approver = human();
     const second = await created(store, registrations);
     const otherLocalPart = `d${crypto.randomBytes(4).toString('hex')}`;
     await registrations.approve(approver, second.registration.id, { verificationCode: second.response.claim.verificationCode, target: { kind: 'new_agent', workspaceInboxId: inboxId, name: 'Cleanup agent', localPart: otherLocalPart }, grantedPermissions: ['receive_agent_messages'], policyProfile: 'default' });
@@ -107,6 +117,43 @@ for (const [name, open] of stores) {
     assert.deepEqual(await store.getJson(codeIndexPath(second.registration.codeHmac)), { registrationId: 'registration_later' }, 'a code index naming another registration stays');
     assert.equal(second.registration.codeHmac, verificationCodeHmac(normalizeVerificationCode(second.response.claim.verificationCode), codeKey));
   });
+
+  // One store and one consistent clock across creation, approval and cleanup, starting at and just
+  // before an hour boundary (the final-minute case from board #34 comment 6241963646). Date is mocked,
+  // so the store's timestamps and the cleanup's clock move together, as a real clock does.
+  for (const start of ['2026-10-17T21:58:59.999Z', '2026-10-17T21:59:00.000Z', '2026-10-17T21:59:50.000Z', '2026-10-17T22:00:00.000Z']) {
+    test(`[${name}] cleanup on one store crosses an hour boundary (first created ${start.slice(11, 23)})`, async t => {
+      const store = await open(t);
+      t.mock.timers.enable({ apis: ['Date'], now: Date.parse(start) });
+      const registrations = module(store);
+      const inboxId = await workspace(store);
+      const approver = human();
+      const approveNew = async ({ response, registration }) => registrations.approve(approver, registration.id, { verificationCode: response.claim.verificationCode, target: { kind: 'new_agent', workspaceInboxId: inboxId, name: 'Cleanup agent', localPart: `h${crypto.randomBytes(4).toString('hex')}` }, grantedPermissions: ['receive_agent_messages'], policyProfile: 'default' });
+
+      const first = await created(store, registrations);
+      assert.equal(first.createdAt.toISOString(), start, 'the first registration is created at the boundary time');
+      await approveNew(first);
+      const firstRun = after(first.createdAt, 24 * hour + 60_000);
+      t.mock.timers.setTime(firstRun.getTime());
+      assert.ok(await registrations.cleanup(firstRun) >= 1);
+      assert.equal(await store.getJson(registrationPath(first.registration.id)), null, 'the first registration is deleted');
+
+      // Time has moved on: the next registration is created and approved after that cleanup run.
+      const second = await created(store, registrations);
+      assert.ok(second.createdAt >= firstRun, 'the clock never runs backwards');
+      await approveNew(second);
+      const secondPaths = [registrationPath(second.registration.id), createdBucketPath(second.registration.createdAt, second.registration.id), decidedBucketPath(second.registration.createdAt, second.registration.id)];
+      for (const item of secondPaths) assert.ok(await store.getJson(item), `written for the second registration: ${item}`);
+      const keptRun = after(second.createdAt, 24 * hour - 1000);
+      t.mock.timers.setTime(keptRun.getTime());
+      await registrations.cleanup(keptRun);
+      assert.ok(await store.getJson(registrationPath(second.registration.id)), 'kept before 24 h');
+      const secondRun = after(second.createdAt, 24 * hour + 60_000);
+      t.mock.timers.setTime(secondRun.getTime());
+      assert.ok(await registrations.cleanup(secondRun) >= 1);
+      for (const item of secondPaths) assert.equal(await store.getJson(item), null, `deleted by 25 h: ${item}`);
+    });
+  }
 
   test(`[${name}] recovery envelopes go when their window ends`, async t => {
     const store = await open(t);
