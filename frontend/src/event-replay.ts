@@ -7,6 +7,8 @@ export const WORKSPACE_EVENT_TYPES = [
   'agent.revocation_reconciled', 'agent.reenroll_token_created', 'agent.reconnect_token_created',
   'agent.connection_setup_checked', 'agent.mcp_read_token_issued', 'agent.work_claimed', 'agent.work_failed',
   'agent.paused', 'agent.resumed', 'agent.refresh_replay_detected', 'agent.refresh_recovered', 'work.available',
+  'agent.installation_revoked', 'agent.installation_activated', 'agent.activation_replay_detected',
+  'agent.registration_approved', 'agent.registration_withdrawn',
   'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed',
   'policy.evaluated', 'policy.re_evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted',
   'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued',
