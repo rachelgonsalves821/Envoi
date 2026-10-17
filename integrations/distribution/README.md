@@ -63,10 +63,12 @@ All lifecycle operations preserve session, helper activation journal, cursor, wo
 Run from PowerShell at the repository root:
 
 ```powershell
-npx vitest run --config integrations/vitest.config.ts integrations/distribution/package.test.ts integrations/distribution/background.test.ts
+npm --prefix integrations/distribution test
 npx tsc --noEmit -p integrations/distribution/tsconfig.json
 git diff --check
 ```
+
+The package test command anchors configuration and test discovery at the repository root. Running `npm test` inside `integrations/distribution` invokes the same 23 tests.
 
 Fixtures use new temporary package directories and fake artifact content. No service manager, real agent/runtime, model, enrollment endpoint or hosted environment is invoked. The single-owner test uses the current connector lock implementation and checks that service start is refused while an owner holds it. The lifecycle executor tests verify ordering and failure handling, not operating-system supervisor behavior. Windows sandbox restrictions can block atomic rename and junction fixtures; record the restriction and rerun unchanged tests outside the sandbox rather than skipping assertions.
 
