@@ -13,6 +13,6 @@ export default defineConfig({
   build: {
     target: 'node22', outDir: 'web/downloads', emptyOutDir: false,
     lib: { entry: 'integrations/connector/entry.ts', formats: ['es'], fileName: () => 'envoi-connector.mjs' },
-    rollupOptions: { external: [/^node:/], output: { codeSplitting: false } }
+    rolldownOptions: { external: [/^node:/], output: { codeSplitting: false }, experimental: { attachDebugInfo: 'none' } }
   }
 });
