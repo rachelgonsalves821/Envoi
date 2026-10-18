@@ -8,7 +8,6 @@ import { createServer as x } from "node:net";
 import { execFile as S } from "node:child_process";
 import { promisify as C } from "node:util";
 import { setTimeout as w } from "node:timers/promises";
-//#region \0rolldown/runtime.js
 var T = Object.create, E = Object.defineProperty, D = Object.getOwnPropertyDescriptor, O = Object.getOwnPropertyNames, k = Object.getPrototypeOf, A = Object.prototype.hasOwnProperty, j = (e, t, n) => () => {
 	if (n) throw n[0];
 	try {
@@ -80,8 +79,6 @@ function re(e, t = {}) {
 		...n.operation ? { operation: n.operation } : {}
 	};
 }
-//#endregion
-//#region integrations/connector/adapter.ts
 var L = class extends Error {
 	code;
 	constructor(e, t) {
@@ -331,8 +328,6 @@ async function me(e, t = {}) {
 		clearTimeout(o), t.signal?.removeEventListener("abort", a);
 	}
 }
-//#endregion
-//#region sdk/typescript/src/index.ts
 var B = class extends Error {
 	status;
 	code;
@@ -532,8 +527,6 @@ async function be(e, t, n, r = {}) {
 		agentRefreshTokenExpiresAt: i.agentRefreshTokenExpiresAt
 	};
 }
-//#endregion
-//#region sdk/typescript/src/lifecycle.ts
 var xe = {
 	AGENT_PAUSED: {
 		lifecycle: "PAUSED",
@@ -641,8 +634,6 @@ function we(e) {
 		service_unavailable: "Envoi is unavailable; retry after the saved delay"
 	}[e] ?? e;
 }
-//#endregion
-//#region sdk/typescript/src/sse.ts
 async function* Te(e, t, n) {
 	if (!e.body || !e.headers.get("content-type")?.startsWith("text/event-stream")) throw Error("Invalid event stream");
 	let r = e.body.getReader(), i = new TextDecoder(), a = "", o = "message", s, c = [], l = 0, u = () => {
@@ -680,8 +671,6 @@ async function* Te(e, t, n) {
 		t.removeEventListener("abort", u), await r.cancel().catch(() => {}), r.releaseLock();
 	}
 }
-//#endregion
-//#region sdk/typescript/src/case-session.ts
 var Ee = /* @__PURE__ */ new Set([
 	"envoi_case_snapshot",
 	"envoi_case_reply",
@@ -937,8 +926,6 @@ var Re = class {
 		return await this.#n.assertActive?.(), this.#s(), a;
 	}
 };
-//#endregion
-//#region sdk/typescript/src/connector.ts
 function H(e) {
 	return e.kind === "humanInstruction";
 }
@@ -1985,8 +1972,6 @@ function $e(e, t) {
 		t.addEventListener("abort", i, { once: !0 });
 	});
 }
-//#endregion
-//#region integrations/agent-bridges/bridge.ts
 function et(e, t) {
 	if (![
 		"envoi_send_message",
@@ -2136,8 +2121,6 @@ function st(e, t = [], n = {}) {
 		})
 	].join("\n\n");
 }
-//#endregion
-//#region integrations/agent-bridges/asset-exchange.ts
 async function ct(e) {
 	if (!e.idempotencyKey || e.idempotencyKey.length > 160 || /[\x00-\x1f\x7f]/.test(e.idempotencyKey)) throw TypeError("A stable asset exchange idempotency key is required");
 	if (!e.caseId || !e.recipientAgentId || !e.recipientAddress || !e.text.trim() || !(e.bytes instanceof Uint8Array) || e.bytes.byteLength === 0) throw TypeError("A case, recipient, nonempty text and file bytes are required");
@@ -2176,8 +2159,6 @@ async function ct(e) {
 		message: a
 	};
 }
-//#endregion
-//#region integrations/agent-bridges/asset-manifest.ts
 var lt = (e, t) => {
 	let n = d.relative(e, t);
 	return n !== "" && n !== ".." && !n.startsWith(`..${d.sep}`) && !d.isAbsolute(n);
@@ -2227,8 +2208,6 @@ function dt(e, t, n = ct) {
 		});
 	};
 }
-//#endregion
-//#region integrations/agent-bridges/file-store.ts
 var ft = (e) => {
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e)) throw TypeError("Invalid message ID");
 	return e;
@@ -2443,8 +2422,6 @@ async function bt({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 		close: () => new Promise((e, t) => d.close((n) => n ? t(n) : e()))
 	};
 }
-//#endregion
-//#region integrations/openclaw/turn.ts
 function xt(e) {
 	let t = new URL(e), n = [
 		"localhost",
@@ -2508,8 +2485,6 @@ function St(e) {
 		}
 	};
 }
-//#endregion
-//#region integrations/openclaw/runtime.ts
 async function Ct(e, t = {}) {
 	let n = t.env ?? process.env, r = n.OPENCLAW_MCP_RELAY_TOKEN;
 	if (n.OPENCLAW_MCP_RELAY_PORT && !r) throw Error("OPENCLAW_MCP_RELAY_TOKEN is required when the relay port is configured");
@@ -2567,8 +2542,6 @@ async function Ct(e, t = {}) {
 		}
 	};
 }
-//#endregion
-//#region integrations/openclaw/adapter.ts
 function wt(e) {
 	if (!e || typeof e != "object" || Array.isArray(e) || Object.keys(e).some((e) => ![
 		"gatewayUrl",
@@ -2672,8 +2645,6 @@ async function Ot() {
 		throw new L("WINDOWS_ACCOUNT_UNAVAILABLE", "Could not identify the current Windows account for private credential storage or user startup. Run the connector from your Windows account; preserve any saved connection for retry.");
 	}
 }
-//#endregion
-//#region integrations/connector/store.ts
 var kt = C(S);
 async function At(t) {
 	let i = d.resolve(t);
@@ -2807,8 +2778,6 @@ async function jt(e, t = () => e) {
 	}
 	throw new G("Could not acquire the connector lock. Try again after the existing connector stops");
 }
-//#endregion
-//#region integrations/hermes/config.ts
 async function J(e) {
 	try {
 		return await a(e, "utf8");
@@ -3019,8 +2988,6 @@ function Vt(e, t, n) {
 	}
 	return `${r.join("\n").replace(/\n*$/, "")}\n`;
 }
-//#endregion
-//#region integrations/hermes/api.ts
 var Ht = (e) => ({
 	authorization: `Bearer ${e.apiKey}`,
 	"content-type": "application/json"
@@ -3122,8 +3089,6 @@ async function Kt(e, t) {
 	].some((e) => r[e] !== !0)) throw new L("GATEWAY_INCOMPATIBLE", "Hermes must support run submission, status and cancellation. Update Hermes before enrollment.");
 	await Gt(e, "Envoi connection preflight. Reply with OK only. Do not use tools or change files.", t);
 }
-//#endregion
-//#region integrations/hermes/run-store.ts
 function qt(e) {
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e)) throw TypeError("Invalid message ID");
 	return e;
@@ -3188,8 +3153,6 @@ var Jt = class {
 		}), await c(a, i), r;
 	}
 };
-//#endregion
-//#region integrations/hermes/turn.ts
 function Yt(e) {
 	let t = new URL(e), n = [
 		"localhost",
@@ -3323,8 +3286,6 @@ function Qt(e) {
 		}
 	};
 }
-//#endregion
-//#region integrations/hermes/lease-write.ts
 function $t(e, t, n) {
 	let r = et(t, n);
 	return !(!r || !e || ze(e.message) || H(e.message) || e.message.id !== r || e.signal.aborted || !e.message.caseId || n.caseId !== e.message.caseId || n.recipientAddress !== e.message.from.address);
@@ -3337,8 +3298,6 @@ function en(e, t, n) {
 		"envoi_send_decision"
 	].includes(t) ? typeof n.idempotencyKey == "string" && !n.idempotencyKey.startsWith("bridge:") : !1;
 }
-//#endregion
-//#region integrations/hermes/runtime.ts
 async function tn(e, t = {}) {
 	let n = t.env ?? process.env, r = new pt(e.stateDir);
 	await r.init();
@@ -3397,8 +3356,6 @@ async function tn(e, t = {}) {
 		}
 	};
 }
-//#endregion
-//#region integrations/hermes/adapter.ts
 async function nn() {
 	let e = x();
 	await new Promise((t, n) => {
@@ -3492,8 +3449,6 @@ var on = {
 		};
 	}
 };
-//#endregion
-//#region integrations/agent-bridges/providers.ts
 function sn(e) {
 	if (!e.apiKey || !e.model) throw TypeError("xAI API key and model are required");
 	let t = e.endpoint || "https://api.x.ai/v1/responses", n = new URL(t);
@@ -3555,8 +3510,6 @@ function sn(e) {
 		return ot(l.output.filter((e) => e.type === "message" && Array.isArray(e.content)).flatMap((e) => e.content).filter((e) => e.type === "output_text" && typeof e.text == "string").map((e) => e.text).join("\n").trim());
 	};
 }
-//#endregion
-//#region ../Envoi-phase-c-client-preflight/node_modules/ajv/dist/compile/codegen/code.js
 var cn = /* @__PURE__ */ M(((e) => {
 	Object.defineProperty(e, "__esModule", { value: !0 }), e.regexpCode = e.getEsmExportName = e.getProperty = e.safeStringify = e.stringify = e.strConcat = e.addCodeArg = e.str = e._ = e.nil = e._Code = e.Name = e.IDENTIFIER = e._CodeOrName = void 0;
 	var t = class {};
@@ -8813,8 +8766,6 @@ function ti(e) {
 		}
 	};
 }
-//#endregion
-//#region integrations/grok/scoped-turn.ts
 var ni = (e) => typeof e == "object" && !!e && !Array.isArray(e), ri = () => new B("xAI returned an invalid scoped tool response", void 0, "SCOPED_PROVIDER_RESPONSE_INVALID");
 async function ii(e, t) {
 	let n = e.body?.getReader();
@@ -8963,8 +8914,6 @@ function ai(e) {
 		});
 	};
 }
-//#endregion
-//#region integrations/grok/scoped-store.ts
 var oi = /* @__PURE__ */ new Map(), si = class {
 	directory;
 	constructor(e) {
@@ -9028,8 +8977,6 @@ var oi = /* @__PURE__ */ new Map(), si = class {
 		}
 	}
 };
-//#endregion
-//#region integrations/grok/runtime.ts
 async function ci(e, t = {}) {
 	let n = t.env ?? process.env, r = new pt(e.stateDir);
 	if (await r.init(), !await r.load()) throw Error("No connector credentials were saved. Run setup first");
@@ -9087,8 +9034,6 @@ async function ci(e, t = {}) {
 		close: async () => {}
 	};
 }
-//#endregion
-//#region integrations/grok/adapter.ts
 var li = "https://api.x.ai/v1/responses", ui = (e) => e && typeof e == "object" && !Array.isArray(e) ? e : {};
 function di(e) {
 	if (!e || typeof e != "object" || Array.isArray(e) || Object.keys(e).some((e) => ![
@@ -9195,16 +9140,12 @@ var mi = {
 		model: e.model
 	})
 };
-//#endregion
-//#region integrations/connector/adapters.ts
 function hi(e) {
 	if (e === "openclaw") return Et;
 	if (e === "hermes") return on;
 	if (e === "grok") return mi;
 	throw new L("RUNTIME_UNSUPPORTED", "Choose OpenClaw, Hermes or Grok");
 }
-//#endregion
-//#region integrations/connector/service.ts
 var $ = C(S), gi = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), _i = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, vi = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`;
 function yi(e, t = {}) {
 	if (t.runtime && !F.includes(t.runtime)) throw new G("Unsupported startup runtime");
@@ -9360,8 +9301,6 @@ async function Si(e, t) {
 		windowsHide: !0
 	}), await l(i.filename, { force: !0 }))), i.name;
 }
-//#endregion
-//#region integrations/connector/control.ts
 async function Ci(e, t, n, r = () => ({ status: "running" })) {
 	let i = _(32).toString("base64url"), o = (/* @__PURE__ */ new Date()).toISOString(), s = d.join(e, "control.json"), c = b((e, a) => {
 		let s = c.address(), l = s && typeof s == "object" ? `127.0.0.1:${s.port}` : "", u = Buffer.from(e.headers.authorization || ""), d = Buffer.from(`Bearer ${i}`);
@@ -9424,8 +9363,6 @@ async function wi(e, t) {
 	if (!s.ok) throw new L("CONNECTOR_UNREACHABLE", "The connector is not responding to local management");
 	return await s.json();
 }
-//#endregion
-//#region integrations/connector/enrollment-error.ts
 var Ti = [
 	"ENROLLMENT_HTTP_ERROR",
 	"ENROLLMENT_TOKEN_REJECTED",
@@ -9475,8 +9412,6 @@ async function Oi(e) {
 		return;
 	}
 }
-//#endregion
-//#region integrations/connector/migrate.ts
 var ki = (e) => n(e).catch((e) => {
 	if (e.code === "ENOENT") return null;
 	throw e;
@@ -9553,8 +9488,6 @@ async function Ni(e, t = At) {
 		}
 	}
 }
-//#endregion
-//#region integrations/connector/runtime-readiness.ts
 function Pi(e, t) {
 	return new Promise((n) => {
 		if (t.aborted) {
@@ -9582,8 +9515,6 @@ async function Fi(e, t, n = {}) {
 	}
 	throw t.aborted ? new L("SETUP_CANCELLED", "Runtime recovery was cancelled. Saved enrollment is unchanged.") : new L("TOOLS_NOT_READY", "Runtime tools did not recover within six minutes. Check the selected Gateway MCP connection; saved enrollment is unchanged.");
 }
-//#endregion
-//#region integrations/connector/core.ts
 function Ii(e, t, n, r = {}) {
 	let i = r.env ?? process.env, a = r.homeDir ?? h(), o = r.platform ?? process.platform, s = g("sha256").update(`${ne(e)}\n${t.toLowerCase()}`).digest("hex").slice(0, 24), c = o === "win32" ? i.LOCALAPPDATA || d.join(a, "AppData", "Local") : o === "darwin" ? d.join(a, "Library", "Application Support") : i.XDG_STATE_HOME && d.isAbsolute(i.XDG_STATE_HOME) ? i.XDG_STATE_HOME : d.join(a, ".local", "state");
 	return d.join(c, "envoi", n, s);
@@ -9909,8 +9840,6 @@ async function Yi(e) {
 		await n();
 	}
 }
-//#endregion
-//#region integrations/connector/cli.ts
 var Xi = "Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n\nprepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n\nsetup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n\nsetup --handoff-stdin [--install-service] [--prepare-runtime]\n\nstart|status|doctor|install-service|stop|uninstall --state-dir <directory>\n\nDiscovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n\nKeep keys in local secret storage. Never pass them as arguments.\n\nHermes --prepare-runtime configures its local API key and API settings.\n\nIt does not configure a missing model provider or restart a Gateway serving your chat.\n", Zi = [
 	"--handoff",
 	"--state-dir",
@@ -10046,8 +9975,6 @@ async function $i(e = process.argv.slice(2)) {
 		process.removeListener("SIGINT", u), process.removeListener("SIGTERM", u);
 	}
 }
-//#endregion
-//#region integrations/connector/error.ts
 function ea(e) {
 	if (e instanceof L) return `${e.code}: ${e.message}`;
 	if (e instanceof G || e instanceof I) return e.message;
@@ -10057,9 +9984,6 @@ function ea(e) {
 	}
 	return "Connector failed. Check local configuration and connectivity with doctor; preserve the saved connection for recovery";
 }
-//#endregion
-//#region integrations/connector/entry.ts
 $i().catch((e) => {
 	process.stderr.write(`${ea(e)}\n`), process.exitCode = 1;
 });
-//#endregion
