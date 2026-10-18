@@ -109,7 +109,8 @@ describe('scoped trusted-host work loop', () => {
 
   it('admits and acknowledges once, keeps the model scoped, then ends before host settlement', async () => {
     const test = harness(async (channel, context) => {
-      expect(Object.keys(context)).toEqual(['signal']);
+      expect(Object.keys(context)).toEqual(['signal', 'workId']);
+      expect(context.workId).toBe('msg_example');
       expect(context.signal).toBe(channel.signal);
       expect(JSON.stringify(channel)).not.toMatch(/HOST_|lease_PRIVATE|msg_example|case_example|UNTRUSTED_MESSAGE/);
       await channel.forward(call);

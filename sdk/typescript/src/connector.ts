@@ -181,7 +181,7 @@ export interface WorkHandler {
 
 export interface CaseSessionWorkHandler {
   admit(message: WorkMessage): Promise<void>;
-  process(channel: CaseSessionChannel, context: { signal: AbortSignal }): Promise<void>;
+  process(channel: CaseSessionChannel, context: { signal: AbortSignal; workId?: string }): Promise<void>;
 }
 
 export interface ConnectorOptions extends ClientOptions {
@@ -928,7 +928,7 @@ export class EnvoiConnector {
         }
       }
       try {
-        await abortableTurn(() => handler.process(channel!, { signal: channel!.signal }), channel.signal);
+        await abortableTurn(() => handler.process(channel!, { signal: channel!.signal, workId: work.workId }), channel.signal);
         signal.throwIfAborted();
         let endFailures = 0;
         while (true) {
