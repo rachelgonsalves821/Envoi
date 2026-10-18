@@ -105,6 +105,7 @@ export function createWorkspacePolicy(input = {}) {
     externalEmailEnabled: input.externalEmailEnabled === true,
     calendarWritesEnabled: input.calendarWritesEnabled === true
   };
+  if (input.agreements) policy.agreements = { requireHumanApproval: input.agreements.requireHumanApproval !== false };
   if (!policy.id || !/^[A-Za-z0-9._:-]{1,128}$/.test(policy.id)) throw new TypeError('policy id is invalid');
   if (!policy.version || !/^[A-Za-z0-9._:-]{1,64}$/.test(policy.version)) throw new TypeError('policy version is invalid');
   return Object.freeze({ ...policy, digest: valueDigest(policy) });
@@ -134,7 +135,7 @@ export function evaluatePolicy({
   calendarConnectorAvailable = null, outsideWorkingHours = false, proposalDigest = null,
   allowedOptionIds = [], policy = createWorkspacePolicy({ version: '2026-09-27' }),
   previousRecordDigest = null, phase = 'evaluation', executionId = null, sourceEvaluationId = null, grantType = 'oneTime',
-  signingKey = null, keyring = null, now = new Date().toISOString()
+  signingKey = null, keyring = null, humanDecisionRequired = null, now = new Date().toISOString()
 }) {
   const issuedAt = isoInstant(now);
   if (!issuedAt) throw new Error('A valid policy evaluation time is required');
@@ -144,7 +145,7 @@ export function evaluatePolicy({
   const binding = actionBinding(actionPayload, policy.executeAtToleranceSeconds);
   const deadline = isoInstant(caseDeadline);
   const requestedExpiry = isoInstant(requestedExpiresAt);
-  const maximumExpiry = new Date(new Date(issuedAt).getTime() + policy.decisionTtlSeconds * 1000).toISOString();
+  const maximumExpiry = new Date(new Date(issuedAt).getTime() + (humanDecisionRequired === true ? 86400 : policy.decisionTtlSeconds) * 1000).toISOString();
   const expiresAt = earliestInstant(requestedExpiry, maximumExpiry, deadline, binding.executionWindow.notAfter) || maximumExpiry;
   let result = permissionGranted ? { decision: 'allow', reasonCode: 'withinServerPolicy' } : denied('missingPermission');
 
@@ -165,6 +166,7 @@ export function evaluatePolicy({
   else if (/^payment\./.test(action) && (!binding.amount || !Number.isSafeInteger(binding.amount.minorUnits) || binding.amount.minorUnits <= 0 || !/^[A-Z]{3}$/.test(binding.amount.currency || ''))) result = denied('validPaymentAmountRequired');
   else if (/^payment\./.test(action) && binding.amount.minorUnits > policy.maxPaymentMinorWithoutHuman) result = permissionGranted ? { decision: 'needsHuman', reasonCode: 'paymentExceedsAutomaticLimit' } : result;
   else if (/^(contract\.|asset\.share|external\.)/.test(action)) result = permissionGranted ? { decision: 'needsHuman', reasonCode: 'consequentialExternalCommitment' } : result;
+  if (permissionGranted && result.decision !== 'deny' && humanDecisionRequired === true) result = { decision: 'needsHuman', reasonCode: 'agreementNeedsHumanDecision' };
 
   const keys = normalizeKeyring({ signingKey, keyring });
   const unsigned = {

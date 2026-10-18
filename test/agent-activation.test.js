@@ -61,7 +61,11 @@ for (const backend of backends) {
     // CONNECTED: authenticated status after activation, carrying the installation.
     const status = await agentStatus(server.baseUrl, first.payload.agentApiToken);
     assert.equal(status.status, 200, status.text);
-    assertContract('agentStatusWithInstallation', status.payload);
+    // case-session v1 §1 adds caseSessions to every status response; this schema predates it.
+    const { caseSessions, httpWake, ...registrationStatus } = status.payload;
+    assert.deepEqual(httpWake, { available: false, version: 1, subscription: null });
+    assert.deepEqual(caseSessions, { available: false, version: 1 });
+    assertContract('agentStatusWithInstallation', registrationStatus);
     assert.deepEqual(status.payload.installation, { id: installation.id, connectionRoute: 'local_helper', deliveryMode: 'envoi_link', legacy: false });
     assert.equal((await refresh(server.baseUrl, first.payload.agentRefreshToken, newRotationId())).status, 200, 'refresh continues through /api/agent-token');
 
