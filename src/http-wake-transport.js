@@ -36,26 +36,29 @@ export function classifyWakeStatus(status) {
 }
 export function createWakeTransport({ request = https.request, limits = wakeLimits } = {}) {
   return ({ url, addresses, headers, bodyText, remainingMs = limits.deliveryTimeoutMs }) => new Promise(resolve => {
-    const target = new URL(url); let req, timer, connectTimer, done = false;
+    const target = new URL(url); let req, timer, connectTimer, done = false, responseStream, responseResult;
     const finish = result => { if (done) return; done = true; clearTimeout(timer); clearTimeout(connectTimer); resolve(result); };
     try {
       req = request(target, { method:'POST', headers:{ ...headers, 'content-length':Buffer.byteLength(bodyText) }, agent:false, servername:target.hostname, ca:tls.rootCertificates, minVersion:'TLSv1.2', rejectUnauthorized:true, autoSelectFamily:false,
         lookup: (_host, options, callback) => options?.all ? callback(null, addresses.map(address => ({ address, family:net.isIP(address) }))) : callback(null, addresses[0], net.isIP(addresses[0]))
       }, response => {
+        responseStream = response;
         const status = response.statusCode; const retry = [429,503].includes(status) && /^\d+$/.test(String(response.headers['retry-after'] || '')) ? Math.min(1800, Number(response.headers['retry-after'])) : 0;
+        responseResult = { status, failureClass:classifyWakeStatus(status), retryAfterSeconds:retry };
+        clearTimeout(connectTimer);
         let bytes = 0;
         response.on('data', chunk => { bytes += chunk.length; if (bytes >= limits.responseBodyReadMaxBytes) response.destroy(); });
-        response.on('error', () => {});
-        // Only status/headers determine acknowledgement. Continue a bounded discard in background.
-        const bodyTimer = setTimeout(() => response.destroy(), Math.max(1, remainingMs)); bodyTimer.unref?.();
-        response.on('close', () => clearTimeout(bodyTimer));
-        finish({ status, failureClass:classifyWakeStatus(status), retryAfterSeconds:retry });
+        response.on('error', () => { response.destroy(); finish(responseResult); });
+        response.on('end', () => { response.destroy(); finish(responseResult); });
+        response.on('close', () => finish(responseResult));
+        // Preserve the status result while draining. The original whole-attempt timer stays
+        // armed; neither the socket lifetime nor its admission slot gets a fresh deadline.
       });
-      timer = setTimeout(() => { finish({ failureClass:'timeout' }); req.destroy(); }, Math.max(1, remainingMs));
+      timer = setTimeout(() => { responseStream?.destroy(); req.destroy(); finish(responseResult || { failureClass:'timeout' }); }, Math.max(1, remainingMs));
       connectTimer = setTimeout(() => { finish({ failureClass:'timeout' }); req.destroy(); }, Math.min(limits.connectTimeoutMs, remainingMs));
       req.on('socket', socket => socket.once('secureConnect', () => clearTimeout(connectTimer)));
       req.on('upgrade', (_response, socket) => { socket.destroy(); finish({ status:101, failureClass:'http_rejected' }); });
-      req.on('error', error => finish({ failureClass:/CERT|TLS|SSL|VERIFY|SELF_SIGNED/.test(error.code || '') ? 'tls_failed' : 'connect_failed' }));
+      req.on('error', error => { responseStream?.destroy(); finish(responseResult || { failureClass:/CERT|TLS|SSL|VERIFY|SELF_SIGNED/.test(error.code || '') ? 'tls_failed' : 'connect_failed' }); });
       req.end(bodyText);
     } catch { finish({ failureClass:'connect_failed' }); req?.destroy(); }
   });

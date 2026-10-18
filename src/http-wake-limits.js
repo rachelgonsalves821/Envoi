@@ -12,13 +12,32 @@ export function wakeNetwork(address) {
 export function createWakeAdmission({store, now=Date.now}) {
   const statePath='http-wake/admission';
   return {
-    async admit({subscriptionId,host,addresses,token,limited}) {
+    async admit({subscriptionId,eventId,host,addresses,token,limited}) {
       if (!limited) return true;
       return store.withTransaction(['http-wake:admission'],async()=>{
         const state=await store.getJson(statePath,{buckets:{}});
         const buckets=[{key:`host:${host}`,concurrency:4,rate:120},...addresses.map(address=>({key:`ip:${address}`,concurrency:2,rate:60})),...[...new Set(addresses.map(wakeNetwork))].map(network=>({key:`net:${network}`,concurrency:Infinity,rate:120}))];
         let admitted=true;
-        for(const rule of buckets){const bucket=state.buckets[rule.key] ||= {slots:[],starts:[],waiting:[]};bucket.slots=bucket.slots.filter(slot=>slot.until>now());bucket.starts=bucket.starts.filter(at=>at>now()-60000);bucket.waiting=bucket.waiting.filter(item=>item.until>now());if(!bucket.waiting.some(item=>item.id===subscriptionId))bucket.waiting.push({id:subscriptionId,until:now()+3600000});if(bucket.slots.length>=rule.concurrency || bucket.starts.length>=rule.rate || bucket.waiting[0].id!==subscriptionId)admitted=false;}
+        const runnable=new Map();
+        for(const rule of buckets){
+          const bucket=state.buckets[rule.key] ||= {slots:[],starts:[],waiting:[]};
+          bucket.slots=bucket.slots.filter(slot=>slot.until>now());bucket.starts=bucket.starts.filter(at=>at>now()-60000);
+          const waiting=[];
+          for(const item of bucket.waiting){
+            if(item.until<=now())continue;
+            if(item.eventId){
+              if(!runnable.has(item.eventId)){
+                const event=await store.getJson(`http-wake/queue/${item.eventId}.json`);
+                runnable.set(item.eventId,Boolean(event&&['queued','retrying','processing'].includes(event.status)&&Date.parse(event.deadline)>=now()));
+              }
+              if(!runnable.get(item.eventId))continue;
+            }
+            waiting.push(item);
+          }
+          bucket.waiting=waiting;
+          if(!bucket.waiting.some(item=>item.id===subscriptionId))bucket.waiting.push({id:subscriptionId,eventId,until:now()+3600000});
+          if(bucket.slots.length>=rule.concurrency || bucket.starts.length>=rule.rate || bucket.waiting[0].id!==subscriptionId)admitted=false;
+        }
         if(admitted)for(const rule of buckets){const bucket=state.buckets[rule.key];bucket.waiting=bucket.waiting.filter(item=>item.id!==subscriptionId);bucket.starts.push(now());bucket.slots.push({token,until:now()+15000});}
         await store.putJson(statePath,state);return admitted;
       });
