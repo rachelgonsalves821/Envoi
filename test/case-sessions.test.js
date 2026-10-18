@@ -46,7 +46,9 @@ function assertSessionCreated(res, baseUrl) {
 }
 
 const sessionsOn = { ENVOI_INSTALLATIONS_V2: 'true', ENVOI_CASE_SESSIONS_V1: 'true' };
-const backends = [{ name: 'FileStore', env: {}, suffix: '81' }, ...(process.env.DATABASE_URL ? [{ name: 'PostgreSQL', env: { DATABASE_URL: process.env.DATABASE_URL }, suffix: '82' }] : [])];
+// Owner phone suffixes must be unique across every PostgreSQL test file, which share one database
+// (agent-activation uses 81 and 82).
+const backends = [{ name: 'FileStore', env: {}, suffix: '91' }, ...(process.env.DATABASE_URL ? [{ name: 'PostgreSQL', env: { DATABASE_URL: process.env.DATABASE_URL }, suffix: '92' }] : [])];
 
 const sessionRoute = workId => `/api/agent/work/${workId}/session`;
 const mint = (baseUrl, who, workId, leaseToken, token = who.agentApiToken) => api(baseUrl, sessionRoute(workId), { token, body: { leaseToken } });
