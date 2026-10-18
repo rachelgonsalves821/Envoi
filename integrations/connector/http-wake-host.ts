@@ -315,6 +315,8 @@ export class HttpWakeHost {
     const wake = new AbortController();
     let fatal: unknown;
     let background: Promise<void> | undefined;
+    let reschedule: (() => void) | undefined;
+    let backgroundRetryAt = 0;
     const transient = (error: unknown) => error instanceof EnvoiError && (error.status !== undefined && error.status >= 500 || ['NETWORK_ERROR', 'TIMEOUT', 'RATE_LIMITED'].includes(error.code ?? ''));
     while (!signal.aborted) {
       const started = this.now();
@@ -322,9 +324,13 @@ export class HttpWakeHost {
       try {
         await this.maintain(signal);
         await this.dispatchControls(signal);
-        if (!background) background = (async () => { await this.dispatchWork(signal); await this.claim(signal); })()
-          .catch(error => { if (!signal.aborted && !transient(error)) { fatal = error; wake.abort(); } })
-          .finally(() => { background = undefined; });
+        if (!background && this.now() >= backgroundRetryAt) background = (async () => { await this.dispatchWork(signal); await this.claim(signal); })()
+          .catch(error => {
+            if (!signal.aborted && !transient(error)) { fatal = error; wake.abort(); }
+            else if (error instanceof EnvoiError && Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds! >= 0)
+              backgroundRetryAt = this.now() + error.retryAfterSeconds! * 1000;
+          })
+          .finally(() => { background = undefined; reschedule?.(); });
       }
       catch (error) {
         if (signal.aborted) return;
@@ -334,10 +340,18 @@ export class HttpWakeHost {
       if (fatal) throw fatal;
       if (signal.aborted) return;
       await new Promise<void>(resolve => {
-        const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); wake.signal.removeEventListener('abort', done); resolve(); };
-        const hint = this.driver.nextAvailableInMs?.();
-        const delay = hint !== undefined && Number.isSafeInteger(hint) && hint >= 0 ? Math.min(intervalMs, Math.max(1000, hint)) : intervalMs;
-        const timer = setTimeout(done, Math.max(retryAfterMs, started + delay - this.now(), 0));
+        let timer: ReturnType<typeof setTimeout>;
+        const retryAt = this.now() + retryAfterMs;
+        const done = () => { clearTimeout(timer); reschedule = undefined; signal.removeEventListener('abort', done); wake.signal.removeEventListener('abort', done); resolve(); };
+        const arm = () => {
+          clearTimeout(timer);
+          const hint = this.driver.nextAvailableInMs?.();
+          const hintAt = hint !== undefined && Number.isSafeInteger(hint) && hint >= 0 ? this.now() + Math.max(1000, hint) : Infinity;
+          const next = Math.max(retryAt, Math.min(started + intervalMs, Math.max(backgroundRetryAt, hintAt)));
+          timer = setTimeout(done, Math.max(0, next - this.now()));
+        };
+        reschedule = arm;
+        arm();
         signal.addEventListener('abort', done, { once: true });
         wake.signal.addEventListener('abort', done, { once: true });
         if (signal.aborted || wake.signal.aborted) done();

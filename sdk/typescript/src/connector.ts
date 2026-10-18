@@ -184,6 +184,12 @@ export interface CaseSessionWorkHandler {
   process(channel: CaseSessionChannel, context: { signal: AbortSignal; workId?: string }): Promise<void>;
 }
 
+export interface ScopedWakeWorkDriver {
+  processWorkOnce(signal?: AbortSignal): Promise<boolean>;
+  revalidateLiveLeases(signal?: AbortSignal): Promise<void>;
+  nextAvailableInMs(): number | undefined;
+}
+
 export interface ConnectorOptions extends ClientOptions {
   pageSize?: number;
   /** @deprecated Wake safety intervals are fixed by a4-wake; this value is ignored. */
@@ -336,6 +342,7 @@ export class EnvoiConnector {
   private wakeTrigger?: () => void;
   private readonly activeStreams = new Set<AbortController>();
   private readonly activeCaseSessions = new Set<CaseSessionChannel>();
+  private readonly activeLeaseChecks = new Map<() => Promise<void>, AbortController>();
   private caseSessionsAvailable = false;
   private readonly mintingCaseWork = new Set<string>();
 
@@ -387,15 +394,17 @@ export class EnvoiConnector {
     return write;
   }
 
-  private async transition(state: ConnectorState, patch: Partial<ConnectorLifecycle> = {}): Promise<void> {
+  private async transition(state: ConnectorState, patch: Partial<ConnectorLifecycle> = {}, expectedEpoch?: number): Promise<void> {
     let applied = false;
     const next = await this.mutate(current => {
+      if (expectedEpoch !== undefined && expectedEpoch !== this.actionEpoch) return current;
       const previous = current.lifecycle ?? { state: 'STARTING', paused: false, changedAt: new Date().toISOString(), failures: 0 };
       // A terminal installation can only be replaced by explicit owner enrollment.
       if (['REVOKED', 'NEEDS_RECONNECT'].includes(previous.state)) return current;
       if (['REVOKED', 'NEEDS_RECONNECT'].includes(state)) for (const controller of this.activeRefresh) controller.abort();
       applied = true;
       const lifecycle = { ...previous, ...patch, state, changedAt: new Date().toISOString() };
+      if (previous.paused && !lifecycle.paused) this.actionEpoch++;
       if (lifecycle.paused || ['REVOKED', 'NEEDS_RECONNECT', 'STOPPED'].includes(state)) {
         this.actionEpoch++;
         for (const controller of [...this.activeActions, ...this.activeWork]) controller.abort();
@@ -414,7 +423,7 @@ export class EnvoiConnector {
   }
 
   /** Apply a stable response code. Unknown auth statuses never imply revoke or refresh. */
-  async observeError(error: unknown): Promise<void> {
+  async observeError(error: unknown, expectedEpoch?: number): Promise<void> {
     if (!(error instanceof EnvoiError) || this.observedErrors.has(error)) return;
     this.observedErrors.add(error);
     const policy = lifecyclePolicy(error);
@@ -423,7 +432,7 @@ export class EnvoiConnector {
     const failures = policy.lifecycle === 'DEGRADED' ? previous.failures + 1 : 0;
     await this.transition(policy.lifecycle, { code: error.code, reason: error.reason, guidance: guidanceText(policy.guidance),
       paused: policy.lifecycle === 'PAUSED' || previous.paused, failures,
-      retryAt: failures ? new Date(Date.now() + retryDelay(failures, Math.random(), error.retryAfterSeconds)).toISOString() : undefined });
+      retryAt: failures ? new Date(Date.now() + retryDelay(failures, Math.random(), error.retryAfterSeconds)).toISOString() : undefined }, expectedEpoch);
   }
 
   /** Accept delta/SSE lifecycle events; credential.ended has no observation cursor. */
@@ -804,6 +813,45 @@ export class EnvoiConnector {
     ));
   }
 
+  scopedWakeWorkDriver(): ScopedWakeWorkDriver {
+    const handler = this.options.caseSessionHandler;
+    const assertScoped = () => {
+      if (!handler || this.options.caseSessionHandler !== handler || this.options.handler)
+        throw new EnvoiError('A scoped CaseSession handler is required for wake processing', undefined, 'SCOPED_HANDLER_REQUIRED');
+    };
+    assertScoped();
+    const localCancellation = (error: unknown) => error instanceof EnvoiError
+      && ['CASE_CONTROLLED', 'WORK_LEASE_STALE', 'WORK_NOT_ELIGIBLE', 'WORK_NOT_FOUND', 'CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED', 'REQUEST_CANCELLED'].includes(error.code ?? '');
+    return Object.freeze({
+      processWorkOnce: (signal?: AbortSignal) => {
+        assertScoped();
+        return this.processWorkOnce(signal).catch(error => {
+          if (localCancellation(error) && !signal?.aborted) return true;
+          if (error instanceof EnvoiError && ['AGENT_PAUSED', 'FEATURE_DISABLED'].includes(error.code ?? '') && !signal?.aborted) return false;
+          throw error;
+        });
+      },
+      revalidateLiveLeases: async (signal?: AbortSignal) => {
+        assertScoped();
+        signal?.throwIfAborted();
+        const leases = [...this.activeLeaseChecks];
+        const checks = leases.map(([renew]) => renew().catch(error => { if (!localCancellation(error)) throw error; }));
+        try {
+          await Promise.all([this.checkStatus().then(async () => {
+            await this.guard(true);
+            if (!this.caseSessionsAvailable) throw new EnvoiError('Case sessions are unavailable', 404, 'FEATURE_DISABLED');
+          }), ...checks]);
+          signal?.throwIfAborted();
+        } catch (error) {
+          for (const [, controller] of leases) controller.abort();
+          if (error instanceof EnvoiError && ['AGENT_PAUSED', 'FEATURE_DISABLED'].includes(error.code ?? '') && !signal?.aborted) return;
+          throw error;
+        }
+      },
+      nextAvailableInMs: () => { assertScoped(); return Number.isFinite(this.nextClaimAt) ? Math.max(0, this.nextClaimAt - Date.now()) : undefined; }
+    });
+  }
+
   /** Claims and processes one canonical message. Requires the server's fenced work routes. */
   processWorkOnce(signal?: AbortSignal): Promise<boolean> {
     if (this.workInFlight) { this.workFollowup = true; return this.workInFlight; }
@@ -883,6 +931,30 @@ export class EnvoiConnector {
       }, Math.max(0, Date.parse(leaseExpiresAt) - Date.now()));
     };
     scheduleDeadline();
+    let renewalFlight: Promise<void> | null = null;
+    let retiring = false;
+    const renewLease = (): Promise<void> => {
+      if (renewalFlight) return renewalFlight;
+      renewalFlight = (async () => {
+        if (workAbort.signal.aborted) throw new EnvoiError('Work lease was interrupted', undefined, 'REQUEST_CANCELLED');
+        const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken }, undefined, workAbort.signal, !!scoped);
+        if (workAbort.signal.aborted) throw new EnvoiError('Work lease was interrupted', undefined, 'REQUEST_CANCELLED');
+        if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new EnvoiError('Envoi returned an invalid lease renewal');
+        if (Date.parse(renewed.leaseExpiresAt) <= Date.now()) throw new EnvoiError('Envoi returned an expired lease renewal');
+        leaseExpiresAt = renewed.leaseExpiresAt;
+        scheduleDeadline();
+      })().catch(error => {
+        if (retiring) return;
+        if (scoped) { renewalError = error; workAbort.abort(); }
+        throw error;
+      }).finally(() => { renewalFlight = null; });
+      return renewalFlight;
+    };
+    const revalidateLease = async () => {
+      if (renewalFlight) await renewalFlight;
+      if (!retiring) await renewLease();
+    };
+    if (scoped) this.activeLeaseChecks.set(revalidateLease, workAbort);
     const renewal = (async () => {
       let failures = 0;
       while (!workAbort.signal.aborted) {
@@ -891,13 +963,8 @@ export class EnvoiConnector {
           : Math.max(100, Math.min(scoped ? 20_000 : 30_000, Math.floor(remaining / 3))), workAbort.signal);
         if (workAbort.signal.aborted) break;
         try {
-          const renewed = await this.postWork<{ workId: string; leaseToken: string; leaseExpiresAt: string }>(`${workPath}/renew`, { leaseToken: work.leaseToken }, undefined, workAbort.signal, !!scoped);
-          if (workAbort.signal.aborted) break;
-          if (renewed.workId !== work.workId || renewed.leaseToken !== work.leaseToken || !Number.isFinite(Date.parse(renewed.leaseExpiresAt))) throw new EnvoiError('Envoi returned an invalid lease renewal');
-          if (Date.parse(renewed.leaseExpiresAt) <= Date.now()) throw new EnvoiError('Envoi returned an expired lease renewal');
-          leaseExpiresAt = renewed.leaseExpiresAt;
+          await renewLease();
           failures = 0;
-          scheduleDeadline();
         } catch (error) {
           if (workAbort.signal.aborted) break;
           const transient = error instanceof EnvoiError && (['NETWORK_ERROR', 'TIMEOUT'].includes(error.code ?? '')
@@ -909,7 +976,12 @@ export class EnvoiConnector {
         }
       }
     })();
-    const stopRenewal = async () => { clearTimeout(leaseDeadline); workAbort.abort(); await renewal; };
+    const stopRenewal = async () => {
+      retiring = true;
+      this.activeLeaseChecks.delete(revalidateLease);
+      clearTimeout(leaseDeadline); workAbort.abort(); await renewal;
+      await renewalFlight?.catch(() => {});
+    };
     let settled = false;
     let humanReplyError: unknown = null;
     try {
@@ -943,6 +1015,8 @@ export class EnvoiConnector {
       if (renewalError) throw renewalError;
       if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new EnvoiError('Work lease expired before completion');
       const completed = await this.postWork<WorkSettlement>(`${workPath}/complete`, { leaseToken: work.leaseToken }, completeKey, workAbort.signal, !!scoped);
+      if (renewalError) throw renewalError;
+      if (workAbort.signal.aborted || signal?.aborted || Date.parse(leaseExpiresAt) <= Date.now()) throw new EnvoiError('Work lease was interrupted during completion', undefined, 'REQUEST_CANCELLED');
       if (completed.workId !== work.workId || completed.status !== 'processed' || completed.receipt?.state !== 'processed' || completed.receipt.messageId !== work.message.id) {
         throw new EnvoiError('Envoi returned an invalid completion');
       }
@@ -1057,6 +1131,7 @@ export class EnvoiConnector {
 
   /** Status is available while paused and is the recovery path for a missed resume. */
   async checkStatus(): Promise<void> {
+    const epoch = this.actionEpoch;
     const result = await this.withFreshSession(async session => {
       let response: Response;
       try { response = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
@@ -1068,10 +1143,11 @@ export class EnvoiConnector {
         throw new EnvoiError('Envoi returned an invalid agent status');
       return status;
     });
+    if (epoch !== this.actionEpoch) return;
     this.caseSessionsAvailable = result.caseSessions?.available === true && result.caseSessions.version === 1;
-    if (result.state === 'paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'));
+    if (result.state === 'paused') await this.observeError(new EnvoiError('Paused', undefined, 'AGENT_PAUSED'), epoch);
     else if ((await this.lifecycle()).paused) {
-      await this.transition('RUNNING', { paused: false, code: undefined, reason: undefined, guidance: undefined, failures: 0, retryAt: undefined });
+      await this.transition('RUNNING', { paused: false, code: undefined, reason: undefined, guidance: undefined, failures: 0, retryAt: undefined }, epoch);
       this.wakeTrigger?.();
     }
   }

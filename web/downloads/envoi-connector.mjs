@@ -1126,6 +1126,7 @@ var Ze = class {
 	wakeTrigger;
 	activeStreams = /* @__PURE__ */ new Set();
 	activeCaseSessions = /* @__PURE__ */ new Set();
+	activeLeaseChecks = /* @__PURE__ */ new Map();
 	caseSessionsAvailable = !1;
 	mintingCaseWork = /* @__PURE__ */ new Set();
 	constructor(e, t, n = {}) {
@@ -1174,63 +1175,64 @@ var Ze = class {
 		});
 		return this.writes = t.then(() => void 0, () => void 0), t;
 	}
-	async transition(e, t = {}) {
-		let n = !1, r = await this.mutate((r) => {
-			let i = r.lifecycle ?? {
+	async transition(e, t = {}, n) {
+		let r = !1, i = await this.mutate((i) => {
+			if (n !== void 0 && n !== this.actionEpoch) return i;
+			let a = i.lifecycle ?? {
 				state: "STARTING",
 				paused: !1,
 				changedAt: (/* @__PURE__ */ new Date()).toISOString(),
 				failures: 0
 			};
-			if (["REVOKED", "NEEDS_RECONNECT"].includes(i.state)) return r;
+			if (["REVOKED", "NEEDS_RECONNECT"].includes(a.state)) return i;
 			if (["REVOKED", "NEEDS_RECONNECT"].includes(e)) for (let e of this.activeRefresh) e.abort();
-			n = !0;
-			let a = {
-				...i,
+			r = !0;
+			let o = {
+				...a,
 				...t,
 				state: e,
 				changedAt: (/* @__PURE__ */ new Date()).toISOString()
 			};
-			if (a.paused || [
+			if (a.paused && !o.paused && this.actionEpoch++, o.paused || [
 				"REVOKED",
 				"NEEDS_RECONNECT",
 				"STOPPED"
 			].includes(e)) {
 				this.actionEpoch++;
 				for (let e of [...this.activeActions, ...this.activeWork]) e.abort();
-				for (let t of this.activeCaseSessions) t.invalidate(new z("Case session ended", 401, "CASE_SESSION_ENDED", { reason: a.paused ? "agent_paused" : e === "STOPPED" ? "ended_by_host" : "credential_ended" }));
+				for (let t of this.activeCaseSessions) t.invalidate(new z("Case session ended", 401, "CASE_SESSION_ENDED", { reason: o.paused ? "agent_paused" : e === "STOPPED" ? "ended_by_host" : "credential_ended" }));
 			}
 			return {
-				...r,
-				lifecycle: a
+				...i,
+				lifecycle: o
 			};
 		});
-		if (n && r.lifecycle) {
+		if (r && i.lifecycle) {
 			if ([
 				"REVOKED",
 				"NEEDS_RECONNECT",
 				"STOPPED"
-			].includes(r.lifecycle.state)) for (let e of this.activeStreams) e.abort();
+			].includes(i.lifecycle.state)) for (let e of this.activeStreams) e.abort();
 			this.wake.abort();
 			try {
-				this.options.onState?.(r.lifecycle), this.stateObserver?.(r.lifecycle);
+				this.options.onState?.(i.lifecycle), this.stateObserver?.(i.lifecycle);
 			} catch {}
 		}
 	}
-	async observeError(e) {
+	async observeError(e, t) {
 		if (!(e instanceof z) || this.observedErrors.has(e)) return;
 		this.observedErrors.add(e);
-		let t = Se(e);
-		if (t.lifecycle === "UNCHANGED" || t.lifecycle === "NOT_APPLICABLE") return;
-		let n = await this.lifecycle(), r = t.lifecycle === "DEGRADED" ? n.failures + 1 : 0;
-		await this.transition(t.lifecycle, {
+		let n = Se(e);
+		if (n.lifecycle === "UNCHANGED" || n.lifecycle === "NOT_APPLICABLE") return;
+		let r = await this.lifecycle(), i = n.lifecycle === "DEGRADED" ? r.failures + 1 : 0;
+		await this.transition(n.lifecycle, {
 			code: e.code,
 			reason: e.reason,
-			guidance: we(t.guidance),
-			paused: t.lifecycle === "PAUSED" || n.paused,
-			failures: r,
-			retryAt: r ? new Date(Date.now() + Ce(r, Math.random(), e.retryAfterSeconds)).toISOString() : void 0
-		});
+			guidance: we(n.guidance),
+			paused: n.lifecycle === "PAUSED" || r.paused,
+			failures: i,
+			retryAt: i ? new Date(Date.now() + Ce(i, Math.random(), e.retryAfterSeconds)).toISOString() : void 0
+		}, t);
 	}
 	async observeEvent(e, t = String(e.type ?? "")) {
 		if (t === "case_session.ended") {
@@ -1630,6 +1632,44 @@ var Ze = class {
 			...e.caseId ? { caseId: e.caseId } : {}
 		}));
 	}
+	scopedWakeWorkDriver() {
+		let e = this.options.caseSessionHandler, t = () => {
+			if (!e || this.options.caseSessionHandler !== e || this.options.handler) throw new z("A scoped CaseSession handler is required for wake processing", void 0, "SCOPED_HANDLER_REQUIRED");
+		};
+		t();
+		let n = (e) => e instanceof z && [
+			"CASE_CONTROLLED",
+			"WORK_LEASE_STALE",
+			"WORK_NOT_ELIGIBLE",
+			"WORK_NOT_FOUND",
+			"CASE_SESSION_ENDED",
+			"CASE_SESSION_EXPIRED",
+			"REQUEST_CANCELLED"
+		].includes(e.code ?? "");
+		return Object.freeze({
+			processWorkOnce: (e) => (t(), this.processWorkOnce(e).catch((t) => {
+				if (n(t) && !e?.aborted) return !0;
+				if (t instanceof z && ["AGENT_PAUSED", "FEATURE_DISABLED"].includes(t.code ?? "") && !e?.aborted) return !1;
+				throw t;
+			})),
+			revalidateLiveLeases: async (e) => {
+				t(), e?.throwIfAborted();
+				let r = [...this.activeLeaseChecks], i = r.map(([e]) => e().catch((e) => {
+					if (!n(e)) throw e;
+				}));
+				try {
+					await Promise.all([this.checkStatus().then(async () => {
+						if (await this.guard(!0), !this.caseSessionsAvailable) throw new z("Case sessions are unavailable", 404, "FEATURE_DISABLED");
+					}), ...i]), e?.throwIfAborted();
+				} catch (t) {
+					for (let [, e] of r) e.abort();
+					if (t instanceof z && ["AGENT_PAUSED", "FEATURE_DISABLED"].includes(t.code ?? "") && !e?.aborted) return;
+					throw t;
+				}
+			},
+			nextAvailableInMs: () => (t(), Number.isFinite(this.nextClaimAt) ? Math.max(0, this.nextClaimAt - Date.now()) : void 0)
+		});
+	}
 	processWorkOnce(e) {
 		return this.workInFlight ? (this.workFollowup = !0, this.workInFlight) : (this.workInFlight = (async () => {
 			let t = !1;
@@ -1681,17 +1721,28 @@ var Ze = class {
 			}, Math.max(0, Date.parse(f) - Date.now()));
 		};
 		h();
-		let g = (async () => {
+		let g = null, _ = !1, v = () => g || (g = (async () => {
+			if (u.signal.aborted) throw new z("Work lease was interrupted", void 0, "REQUEST_CANCELLED");
+			let e = await this.postWork(`${o}/renew`, { leaseToken: i.leaseToken }, void 0, u.signal, !!t);
+			if (u.signal.aborted) throw new z("Work lease was interrupted", void 0, "REQUEST_CANCELLED");
+			if (e.workId !== i.workId || e.leaseToken !== i.leaseToken || !Number.isFinite(Date.parse(e.leaseExpiresAt))) throw new z("Envoi returned an invalid lease renewal");
+			if (Date.parse(e.leaseExpiresAt) <= Date.now()) throw new z("Envoi returned an expired lease renewal");
+			f = e.leaseExpiresAt, h();
+		})().catch((e) => {
+			if (!_) throw t && (p = e, u.abort()), e;
+		}).finally(() => {
+			g = null;
+		}), g), y = async () => {
+			g && await g, _ || await v();
+		};
+		t && this.activeLeaseChecks.set(y, u);
+		let b = (async () => {
 			let e = 0;
 			for (; !u.signal.aborted;) {
 				let n = Date.parse(f) - Date.now();
 				if (await $e(e ? Math.min(1e3, Math.max(1, Math.floor(n / 3))) : Math.max(100, Math.min(t ? 2e4 : 3e4, Math.floor(n / 3))), u.signal), u.signal.aborted) break;
 				try {
-					let n = await this.postWork(`${o}/renew`, { leaseToken: i.leaseToken }, void 0, u.signal, !!t);
-					if (u.signal.aborted) break;
-					if (n.workId !== i.workId || n.leaseToken !== i.leaseToken || !Number.isFinite(Date.parse(n.leaseExpiresAt))) throw new z("Envoi returned an invalid lease renewal");
-					if (Date.parse(n.leaseExpiresAt) <= Date.now()) throw new z("Envoi returned an expired lease renewal");
-					f = n.leaseExpiresAt, e = 0, h();
+					await v(), e = 0;
 				} catch (n) {
 					if (u.signal.aborted) break;
 					let r = n instanceof z && (["NETWORK_ERROR", "TIMEOUT"].includes(n.code ?? "") || !n.code && [
@@ -1704,9 +1755,9 @@ var Ze = class {
 					break;
 				}
 			}
-		})(), _ = async () => {
-			clearTimeout(m), u.abort(), await g;
-		}, v = !1, y = null;
+		})(), x = async () => {
+			_ = !0, this.activeLeaseChecks.delete(y), clearTimeout(m), u.abort(), await b, await g?.catch(() => {});
+		}, S = !1, C = null;
 		try {
 			if (u.signal.aborted) throw new z("Work claim was interrupted before admission");
 			if (await this.guard(!0), await n.admit(i.message), u.signal.aborted) throw new z("Work lease was interrupted before acknowledgement");
@@ -1719,20 +1770,22 @@ var Ze = class {
 					if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new z("Work lease is no longer valid for a reply");
 					try {
 						let e = await this.reply(i.message, t, n, r, i.leaseToken);
-						return U(i.message) && (y = null), e;
+						return U(i.message) && (C = null), e;
 					} catch (e) {
-						throw U(i.message) && (y = e), e;
+						throw U(i.message) && (C = e), e;
 					}
 				}
-			}), y) throw y;
+			}), C) throw C;
 			if (p) throw p;
 			if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new z("Work lease expired before completion");
 			let a = await this.postWork(`${o}/complete`, { leaseToken: i.leaseToken }, l, u.signal, !!t);
+			if (p) throw p;
+			if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new z("Work lease was interrupted during completion", void 0, "REQUEST_CANCELLED");
 			if (a.workId !== i.workId || a.status !== "processed" || a.receipt?.state !== "processed" || a.receipt.messageId !== i.message.id) throw new z("Envoi returned an invalid completion");
-			return v = !0, await _(), !0;
+			return S = !0, await x(), !0;
 		} catch (n) {
 			let r = u.signal.aborted;
-			throw await _(), !r && !p && !v && !e?.aborted && !(await this.lifecycle()).paused && ![
+			throw await x(), !r && !p && !S && !e?.aborted && !(await this.lifecycle()).paused && ![
 				"REVOKED",
 				"NEEDS_RECONNECT",
 				"STOPPED"
@@ -1750,7 +1803,7 @@ var Ze = class {
 				reasonCode: "HANDLER_FAILED"
 			}, void 0, void 0, !!t).catch(() => {}), r && !p && n instanceof z && !n.code ? new z(n.message, n.status, "REQUEST_CANCELLED") : (n instanceof z || await this.observeError(new z("Work handler failed", void 0, "HANDLER_FAILED")), p ?? n);
 		} finally {
-			this.activeWork.delete(u), e?.removeEventListener("abort", d), await _();
+			this.activeWork.delete(u), e?.removeEventListener("abort", d), await x();
 		}
 	}
 	async processCaseSessionWork(e, t, n, r) {
@@ -1840,7 +1893,7 @@ var Ze = class {
 		});
 	}
 	async checkStatus() {
-		let e = await this.withFreshSession(async (e) => {
+		let e = this.actionEpoch, t = await this.withFreshSession(async (e) => {
 			let t;
 			try {
 				t = await (this.options.fetch || fetch)(`${this.origin}/api/agent/status`, {
@@ -1856,14 +1909,14 @@ var Ze = class {
 			if (!["active", "paused"].includes(n.state) || n.inboxId !== e.inboxId || n.agent?.id !== e.agentId) throw new z("Envoi returned an invalid agent status");
 			return n;
 		});
-		this.caseSessionsAvailable = e.caseSessions?.available === !0 && e.caseSessions.version === 1, e.state === "paused" ? await this.observeError(new z("Paused", void 0, "AGENT_PAUSED")) : (await this.lifecycle()).paused && (await this.transition("RUNNING", {
+		e === this.actionEpoch && (this.caseSessionsAvailable = t.caseSessions?.available === !0 && t.caseSessions.version === 1, t.state === "paused" ? await this.observeError(new z("Paused", void 0, "AGENT_PAUSED"), e) : (await this.lifecycle()).paused && (await this.transition("RUNNING", {
 			paused: !1,
 			code: void 0,
 			reason: void 0,
 			guidance: void 0,
 			failures: 0,
 			retryAt: void 0
-		}), this.wakeTrigger?.());
+		}, e), this.wakeTrigger?.()));
 	}
 	async run(e) {
 		await this.start();
