@@ -9,6 +9,7 @@ export const WORKSPACE_EVENT_TYPES = [
   'agent.paused', 'agent.resumed', 'agent.refresh_replay_detected', 'agent.refresh_recovered', 'work.available',
   'agent.installation_revoked', 'agent.installation_activated', 'agent.activation_replay_detected',
   'agent.registration_approved', 'agent.registration_withdrawn',
+  'case_session.ended', 'agent.case_session_created', 'agent.case_session_ended',
   'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed',
   'policy.evaluated', 'policy.re_evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted',
   'message.queued', 'message.retry_scheduled', 'message.dead_lettered', 'message.dead_letter_requeued',
