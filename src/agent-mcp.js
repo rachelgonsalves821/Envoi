@@ -119,14 +119,19 @@ async function invokeTool(name, args, identity, callRest) {
   }, args.idempotencyKey);
 }
 
-export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024 }) {
+// The transport rules every /mcp request follows (docs/agent-mcp-remote.md): method, Accept,
+// Content-Type, size, the JSON-RPC envelope, notifications, initialize and the protocol version.
+// Resolves to { request } for a request still to answer, or to undefined once it has responded.
+export async function readMcpRequest(req, res, { maxRequestBytes = 64 * 1024 } = {}) {
   if (req.method === 'GET' || req.method === 'DELETE') {
     res.writeHead(405, { allow: 'POST', 'cache-control': 'no-store' });
-    return res.end();
+    res.end();
+    return undefined;
   }
   if (req.method !== 'POST') {
     res.writeHead(405, { allow: 'POST', 'cache-control': 'no-store' });
-    return res.end();
+    res.end();
+    return undefined;
   }
   const accept = String(req.headers.accept || '').toLowerCase();
   if (!accept.includes('application/json') || !accept.includes('text/event-stream')) return sendJson(res, 406, rpcError(null, -32600, 'Accept must include application/json and text/event-stream'));
@@ -148,7 +153,8 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   if (id !== undefined && !(typeof id === 'string' || typeof id === 'number') || id === null) return sendJson(res, 400, rpcError(null, -32600, 'Invalid JSON-RPC id'));
   if (request.method === 'notifications/initialized' && id === undefined) {
     res.writeHead(202, { 'cache-control': 'no-store' });
-    return res.end();
+    res.end();
+    return undefined;
   }
   if (id === undefined) return sendJson(res, 400, rpcError(null, -32600, 'Unsupported notification'));
   if (request.method === 'initialize') {
@@ -160,6 +166,16 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   }
   const version = req.headers['mcp-protocol-version'];
   if (version && !supportedVersions.has(String(version))) return sendJson(res, 400, rpcError(id, -32600, 'Unsupported MCP protocol version'));
+  return { request };
+}
+
+export const mcpReply = { sendJson, rpcError, rpcResult, toolResult };
+
+export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024 }) {
+  const read = await readMcpRequest(req, res, { maxRequestBytes });
+  if (!read?.request) return;
+  const { request } = read;
+  const id = request.id;
   if (request.method === 'ping') return sendJson(res, 200, rpcResult(id, {}));
   if (request.method === 'tools/list') {
     if (request.params?.cursor) return sendJson(res, 200, rpcError(id, -32602, 'Tool cursor is invalid'));

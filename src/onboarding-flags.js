@@ -1,6 +1,7 @@
 // agent-registration v1 §1: server-only Phase B flags, default off. Clients never read them;
-// they read GET /api/onboarding/routes, built here from the same flags.
-export const onboardingFlagNames = ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE'];
+// they read GET /api/onboarding/routes, built here from the same flags. case-session v1 §1 adds
+// the Phase C sessions flag, which clients learn about from GET /api/agent/status.
+export const onboardingFlagNames = ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE', 'ENVOI_CASE_SESSIONS_V1'];
 // Schema enum order, which the routes response must follow.
 export const connectionRoutes = ['local_helper', 'remote_mcp_oauth', 'provider_connector', 'authenticated_rest'];
 export const deliveryModes = ['envoi_link', 'webhook', 'provider', 'poll', 'on_demand', 'a2a'];
@@ -13,6 +14,8 @@ export function onboardingFlagErrors(env = process.env) {
     if (env[name] !== undefined && env[name] !== '' && !['true', 'false'].includes(env[name])) errors.push(`${name} must be true or false`);
   }
   if (env.ENVOI_AGENT_REGISTRATION_V2 === 'true' && env.ENVOI_INSTALLATIONS_V2 !== 'true') errors.push('ENVOI_AGENT_REGISTRATION_V2 requires ENVOI_INSTALLATIONS_V2');
+  // A session binds an installation.
+  if (env.ENVOI_CASE_SESSIONS_V1 === 'true' && env.ENVOI_INSTALLATIONS_V2 !== 'true') errors.push('ENVOI_CASE_SESSIONS_V1 requires ENVOI_INSTALLATIONS_V2');
   return errors;
 }
 
@@ -23,7 +26,8 @@ export function readOnboardingFlags(env = process.env) {
   return {
     installations: env.ENVOI_INSTALLATIONS_V2 === 'true',
     registration: env.ENVOI_AGENT_REGISTRATION_V2 === 'true',
-    authenticatedRest: env.ENVOI_AUTHENTICATED_REST_ROUTE === 'true'
+    authenticatedRest: env.ENVOI_AUTHENTICATED_REST_ROUTE === 'true',
+    caseSessions: env.ENVOI_CASE_SESSIONS_V1 === 'true'
   };
 }
 
