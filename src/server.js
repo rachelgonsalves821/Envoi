@@ -69,6 +69,8 @@ import { registrationPath } from './agent-approval.js';
 import { installationPath } from './agent-installations.js';
 import { deliveryModeAvailable, routeAvailable } from './onboarding-flags.js';
 import { createPollLimiter, createRegistrationLimits } from './agent-registration-limits.js';
+import { allowedCaseTools, caseSessionTokenPath, caseSessionTokenPrefix, caseSessionsHeartbeatMs, createCaseSessions, firstCondition, leaseStaleReason, publicSessionEnd, sessionConditions, validCaseSessionId, validLeaseToken, workKindOf } from './case-sessions.js';
+import { createCaseSessionMcp } from './case-session-mcp.js';
 
 const productionConfig = validateProductionConfiguration();
 // agent-registration v1 §1: fails closed in every mode, before anything starts.
@@ -340,6 +342,22 @@ const credentialError = (code, reason) => code === 'CREDENTIAL_REVOKED'
   ? codedError(401, code, revokedMessages[reason] || revokedMessages.revoked, { reason: revokedMessages[reason] ? reason : 'revoked' })
   : codedError(code === 'ROTATION_ID_REQUIRED' ? 400 : 401, code, credentialMessages[code]);
 const agentPausedError = () => codedError(409, 'AGENT_PAUSED', 'This agent is paused by its owner.');
+// case-session v1 §12.
+const caseSessionErrors = {
+  featureDisabled: () => codedError(404, 'FEATURE_DISABLED', 'Case sessions are not available on this server.'),
+  requestInvalid: () => codedError(400, 'CASE_SESSION_REQUEST_INVALID', 'The request body is not valid for this route.'),
+  workNotFound: () => codedError(404, 'WORK_NOT_FOUND', 'Work was not found for this agent.'),
+  notEligible: reason => codedError(409, 'WORK_NOT_ELIGIBLE', 'This work can no longer be handled.', { reason }),
+  leaseStale: reason => codedError(409, 'WORK_LEASE_STALE', 'This work lease is no longer live for this host.', { reason }),
+  notFound: () => codedError(404, 'CASE_SESSION_NOT_FOUND', 'Case session was not found.'),
+  ended: reason => codedError(401, 'CASE_SESSION_ENDED', 'This case session has ended.', { reason }),
+  expired: () => codedError(401, 'CASE_SESSION_EXPIRED', 'This case session has expired.')
+};
+// case-session v1 §7.3: with the flag on, these settlement errors carry a code; the status and
+// message stay as they were, and with the flag off nothing changes.
+const settlementError = (statusCode, message, code, reason = null) => caseSessions.enabled
+  ? codedError(statusCode, code, message, reason ? { reason } : undefined)
+  : Object.assign(new Error(message), { statusCode });
 const hashSecret = value => crypto.createHash('sha256').update(value).digest('hex');
 const publicEmailAddressForAgent = agent => emailTransport.addressForSlug(agent.slug);
 const publicIdentity = (slug) => ({
@@ -473,6 +491,14 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated =
   if (!pending?.inboxId) throw credentialError('REFRESH_TOKEN_INVALID');
   // Set when the request is an A1 recovery of a successor already issued, for the audit below.
   let recovered = false;
+  // Session-end events of a replay, published once the revocation commits.
+  const replayEvents = [];
+  const writeReplayAudit = async (type, data, createdAt, targetInboxId) => {
+    const record = await auditRecord(targetInboxId, type, data, createdAt);
+    await store.putJson(record.document.path, record.document.value);
+    replayEvents.push({ inboxId: targetInboxId, event: record.event });
+    return record.event;
+  };
   const rotate = async () => {
     const current = await store.getJson(refreshPath);
     if (!current || current.tokenType !== 'refresh') throw credentialError('REFRESH_TOKEN_INVALID');
@@ -488,6 +514,7 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated =
         // Returned, not thrown, so the revocation commits with the transaction.
         const revokedAt = store.now();
         await store.putJson(familyPath, { ...family, revokedAt, revokedReason: 'refresh_replay', updatedAt: revokedAt });
+        await caseSessions.endForFamily(current.inboxId, current.agentId, current.familyId, 'credential_ended', revokedAt, writeReplayAudit);
         return { replayed: { inboxId: current.inboxId, agentId: current.agentId, familyId: current.familyId } };
       }
       const recovery = await store.getJson(agentRotationRecoveryPath(tokenHash));
@@ -527,6 +554,7 @@ async function rotateAgentCredentials(rawRefreshToken, rotationId, { onRotated =
     }
     return result;
   }
+  for (const committed of replayEvents) publish(committed.inboxId, committed.event);
   const { inboxId, agentId, familyId } = result.replayed;
   await audit(inboxId, 'agent.refresh_replay_detected', { agentId, credentialFamilyId: familyId });
   closeAgentStreams(inboxId, agentId, { code: 'CREDENTIAL_REVOKED', reason: 'refresh_replay' }, familyId);
@@ -581,9 +609,14 @@ async function issueMcpReadToken(identity, caseId) {
   return { mcpAccessToken: raw, tokenType: 'Bearer', scope: 'case_read', caseId, expiresAt };
 }
 const workClaimPath = (inboxId, workId) => path.join('inboxes', inboxId, 'work-claims', `${workId}.json`);
+const liveClaim = (claim, at) => ['claimed', 'acknowledged'].includes(claim?.status) && new Date(claim.leaseExpiresAt) > new Date(at);
+// Offered again as the same attempt (a3 §3); releasedAt tells a release from an expiry (case-session §16).
+const releasedClaim = (claim, at) => ({ ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, releasedAt: at, updatedAt: at });
 
 // Active or paused access credential; callers decide what a paused agent may do.
 const pausedAgentRoutes = new Set(['POST /api/agent/work/claim', 'POST /api/agent/connection-status', 'GET /api/agent/status']);
+// case-session v1 §8: ending a session is always safe, so it also works while the agent is paused.
+const caseSessionEndRoute = /^\/api\/agent\/work\/[^/]+\/session\/end$/;
 // a3-pause-auth v1 §2.1 and §3, applied before any route handler so precedence is uniform.
 // a5-presence §3: a request authenticated by a family's access token records presence once its
 // outcome is known, outside the request's transaction. Handlers add the work-loop fields.
@@ -626,8 +659,8 @@ async function checkAgentCredential(req, url, res) {
     // Human bearer sessions and legacy untyped development tokens keep their per-route handling.
     // Pre-cutover sinaloa_* credentials fall through to resolveAgentCredential, which refuses them.
     // agent-registration v1 §2: a bootstrap token is an unrecognized bearer on every other
-    // authenticated route.
-    if (raw.startsWith('envoi_reg_')) throw credentialError('AUTHENTICATION_REQUIRED');
+    // authenticated route, and so is a case session token outside /mcp (case-session v1 §6.1).
+    if (raw.startsWith('envoi_reg_') || raw.startsWith(caseSessionTokenPrefix)) throw credentialError('AUTHENTICATION_REQUIRED');
     if (!/^(?:envoi|sinaloa)_(?:agent_access|mcp_read)_/.test(raw)) return;
     const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
     if (index && !index.tokenType) return;
@@ -642,7 +675,8 @@ async function checkAgentCredential(req, url, res) {
   if (identity) trackAgentPresence(req, res, identity);
   if (!identity?.paused) return;
   const readOnly = ['GET', 'HEAD'].includes(req.method) && inboxRoute;
-  if (identity.tokenType === 'mcp_read' || url.pathname === '/mcp' || !(readOnly || pausedAgentRoutes.has(`${req.method} ${url.pathname}`))) throw agentPausedError();
+  const pausedAllowed = readOnly || pausedAgentRoutes.has(`${req.method} ${url.pathname}`) || req.method === 'POST' && caseSessionEndRoute.test(url.pathname);
+  if (identity.tokenType === 'mcp_read' || url.pathname === '/mcp' || !pausedAllowed) throw agentPausedError();
 }
 
 async function getAgentWorkIdentity(req) {
@@ -790,6 +824,7 @@ async function failAgentWorkPermanently(message, claim, reasonCode, at, writeAud
     await writeAudit('message.failed', { messageId: message.id, caseId: message.caseId, ...workSenderFields(message), recipientAgentId: message.recipientAgentId, reasonCode }, at, targetInboxId);
   }
   await store.putJsonBatch(documents);
+  await caseSessions.endForWork(claim.inboxId, message.id, 'work_settled', at, writeAudit);
   return receipt;
 }
 const workSenderFields = message => isHumanInstruction(message)
@@ -825,6 +860,17 @@ const humanAgentLimitKey = humanId => `human:${humanId}:active-agents`;
 const agentSlots = createAgentSlots({ store });
 const assertActiveAgentSlot = (humanId, excludingAgentId = null) => agentSlots.assertActiveAgentSlot(humanId, { excludingAgentId });
 const installations = createInstallationReader({ store, agentCredentialFamilyPath });
+// case-session v1: session records, the sessions epoch and the case tools this server implements.
+// C-A1 implements none, so a session carries no tools until C-A2 (§6.4).
+const caseSessions = createCaseSessions({
+  store, enabled: onboardingFlags.caseSessions, hashSecret,
+  recordAudit: async (inboxId, type, data, createdAt) => {
+    const record = await auditRecord(inboxId, type, data, createdAt);
+    await store.putJson(record.document.path, record.document.value);
+    return record.event;
+  }
+});
+const caseSessionMcp = createCaseSessionMcp();
 const registrations = createAgentRegistrations({
   store, flags: onboardingFlags,
   codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')),
@@ -868,7 +914,8 @@ async function assertCaseProgressAllowed(inboxId, caseId) {
   if (value?.state === 'paused' || value?.state === 'revoked') throw codedError(409, 'CASE_CONTROLLED', 'This case is paused or revoked by a human.', { caseId });
 }
 
-async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedAt = store.now(), revokedReason = 'revoked') {
+// `writeAudit` is the caller's transaction writer, so the session-end audits are published with it.
+async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedAt = store.now(), revokedReason = 'revoked', writeAudit = null) {
   const families = await store.listJson(path.join('auth', 'agent-credential-families', inboxId, agentId));
   const active = families.filter(family => !family.revokedAt);
   await store.putJsonBatch(active.map(family => document(agentCredentialFamilyPath(inboxId, agentId, family.id), {
@@ -878,16 +925,18 @@ async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedA
     revokedByHumanId: humanId,
     updatedAt: revokedAt
   })));
+  await caseSessions.endForAgent(inboxId, agentId, 'credential_ended', revokedAt, writeAudit);
   return active.length;
 }
 
 // Ends one installation (agent-registration v1 §6.5) without freezing the identity.
-async function revokeCredentialFamily(inboxId, agentId, familyId, humanId, revokedAt = store.now(), revokedReason = 'revoked') {
+async function revokeCredentialFamily(inboxId, agentId, familyId, humanId, revokedAt = store.now(), revokedReason = 'revoked', writeAudit = null) {
   const familyPath = agentCredentialFamilyPath(inboxId, agentId, familyId);
   const family = await store.getJson(familyPath);
   if (!family || family.revokedAt) return null;
   const revoked = { ...family, revokedAt, revokedReason, revokedByHumanId: humanId, updatedAt: revokedAt };
   await store.putJson(familyPath, revoked);
+  await caseSessions.endForFamily(inboxId, agentId, familyId, 'credential_ended', revokedAt, writeAudit);
   return revoked;
 }
 
@@ -2196,7 +2245,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
     const current = await store.getJson(path.join('inboxes', inbox.id, 'agents', `${target.agentId}.json`));
     // Permissions are decided again; a paused agent stays paused (a3 §4).
     agent = { ...current, permissions: registration.effectivePermissions, updatedAt: activatedAt };
-    replaced = await revokeAgentCredentialFamilies(inbox.id, agent.id, registration.approverHumanId, activatedAt, 'replaced');
+    replaced = await revokeAgentCredentialFamilies(inbox.id, agent.id, registration.approverHumanId, activatedAt, 'replaced', writeAudit);
     const heldLeases = (await store.listJson(path.join('inboxes', inbox.id, 'work-claims')))
       .filter(claim => claim.agentId === agent.id && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(activatedAt));
     await store.putJsonBatch([
@@ -2254,7 +2303,7 @@ async function activatedAgain(rawToken, registrationId, activationIdHash) {
     // Row 7a: two holders of one bootstrap token. The installation this activation created ends;
     // the identity is not frozen. Committed before the error is returned.
     const at = store.now();
-    await revokeCredentialFamily(current.agentInboxId, current.agentId, current.credentialFamilyId, null, at, 'revoked');
+    await revokeCredentialFamily(current.agentInboxId, current.agentId, current.credentialFamilyId, null, at, 'revoked', writeAudit);
     const stored = await store.getJson(installationPath(current.agentInboxId, current.agentId, current.installationId));
     await store.putJson(installationPath(current.agentInboxId, current.agentId, current.installationId), { ...stored, replayDetectedAt: at });
     await store.deleteJson(activationRecoveryPath(current.tokenHash));
@@ -2330,6 +2379,210 @@ async function handleAgentRegistration(req, res, registrationRoute, claimRoute) 
   return json(res, 200, await registrations.reject(human, registrationRoute[1], value));
 }
 
+// case-session v1 §3: why claimed work can no longer be handled, or null. The same checks the
+// claim applies, for the work's counterparty and this agent.
+async function workIneligibility(message, identity) {
+  const workKind = workKindOf(message, isHumanInstruction);
+  if (workKind === 'human_instruction') {
+    try { await assertHumanInstructionAuthority(message, identity); }
+    catch (error) { if ([400, 403, 404, 409, 422].includes(error.statusCode)) return 'instruction_authority_lost'; throw error; }
+  } else {
+    const [counterpartyInboxId, counterpartyAgentId] = workKind === 'agent_message'
+      ? [message.senderInboxId, message.senderAgentId] : [message.counterpartyInboxId, message.counterpartyAgentId];
+    const counterparty = counterpartyInboxId && counterpartyAgentId
+      ? await store.getJson(path.join('inboxes', assertSafeIdentifier(counterpartyInboxId, 'inboxId'), 'agents', `${assertSafeIdentifier(counterpartyAgentId, 'agentId')}.json`)) : null;
+    if (!counterparty || !canAct(counterparty, 'send_agent_messages')) return 'counterparty_unavailable';
+    const [theirs, ours] = await Promise.all([
+      store.getJson(path.join('inboxes', counterpartyInboxId, 'contacts', `${identity.agent.id}.json`)),
+      store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${counterpartyAgentId}.json`))
+    ]);
+    if (theirs?.blocked || ours?.blocked) return 'relationship_blocked';
+  }
+  if (identity.agent.onboardingStatus !== 'approved' || !identity.agent.permissions?.includes('receive_agent_messages')) return 'permission_removed';
+  return null;
+}
+
+// The stored facts §6.2 step 5 derives a session's conditions from.
+async function caseSessionFacts(session) {
+  const [family, agent, message, claim, pointer] = await Promise.all([
+    store.getJson(agentCredentialFamilyPath(session.inboxId, session.agentId, session.familyId)),
+    store.getJson(path.join('inboxes', session.inboxId, 'agents', `${session.agentId}.json`)),
+    store.getJson(messagePath(session.inboxId, session.workId)),
+    store.getJson(workClaimPath(session.inboxId, session.workId)),
+    caseSessions.pointer(session.inboxId, session.workId)
+  ]);
+  const caseRecord = message?.caseId ? await getCase(session.inboxId, message.caseId) : null;
+  // Work that no longer exists can no longer be handled.
+  const ineligibleReason = !message ? 'work_missing' : agent ? await workIneligibility(message, { agent, inboxId: session.inboxId, familyId: session.familyId }) : null;
+  return { family, agent, message, claim, pointer, caseRecord, ineligibleReason };
+}
+
+// The settlement lock set (§6.3): the agent's inbox, every inbox bound to the case, and the case key.
+async function withCaseSessionLock(session, operation) {
+  const message = await store.getJson(messagePath(session.inboxId, session.workId));
+  const binding = session.caseId ? await store.getJson(caseBindingPath(session.caseId)) : null;
+  const related = [...new Set([message?.senderInboxId, message?.counterpartyInboxId, ...(binding?.inboxIds || [])].filter(id => id && id !== session.inboxId))];
+  return withInboxMutation(session.inboxId, operation, related, session.caseId ? [caseMutationKey(session.caseId)] : [], true);
+}
+
+// §6.2 steps 3–5 (and §8 with endIfUsable). A recorded end always wins. Otherwise expiry, then the
+// first holding condition, is recorded under the work's locks, and the session as recorded is returned.
+async function settleCaseSessionState(session, { endIfUsable = null } = {}) {
+  if (session.endedReason) return session;
+  const now = store.now();
+  if (new Date(session.expiresAt) > new Date(now) && !endIfUsable
+    && !firstCondition(sessionConditions(session, await caseSessionFacts(session), now))) return session;
+  return withCaseSessionLock(session, async writeAudit => {
+    const current = await caseSessions.get(session.inboxId, session.id);
+    if (!current || current.endedReason) return current;
+    const at = store.now();
+    if (new Date(current.expiresAt) <= new Date(at)) return caseSessions.recordEnd(current, 'expired', at, writeAudit);
+    const facts = await caseSessionFacts(current);
+    const reason = firstCondition(sessionConditions(current, facts, at)) || endIfUsable;
+    if (!reason) return current;
+    // §7.4: recording work_ineligible also releases the work's live lease without an attempt.
+    if (reason === 'work_ineligible' && liveClaim(facts.claim, at)) await store.putJson(workClaimPath(current.inboxId, current.workId), releasedClaim(facts.claim, at));
+    return caseSessions.recordEnd(current, reason, at, writeAudit);
+  });
+}
+
+// §6.1–§6.2: /mcp with a session token. Steps 1–5 answer at the HTTP level; the a3 envelope
+// carries the code.
+async function handleCaseSessionMcp(req, res, url) {
+  if (!consumeRateLimit(req, res, url.pathname)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
+  const unrecognized = () => {
+    res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP"');
+    return credentialError('AUTHENTICATION_REQUIRED');
+  };
+  if (!caseSessions.enabled) throw unrecognized();
+  const found = await caseSessions.byToken(bearerToken(req));
+  const epoch = found ? await caseSessions.epoch() : null;
+  if (!found || !epoch || new Date(found.createdAt) < new Date(epoch)) throw unrecognized();
+  const session = await settleCaseSessionState(found);
+  if (!session) throw unrecognized();
+  if (session.endedReason) {
+    res.setHeader('www-authenticate', 'Bearer realm="Envoi agent MCP", error="invalid_token"');
+    throw session.endedReason === 'expired' ? caseSessionErrors.expired() : caseSessionErrors.ended(session.endedReason);
+  }
+  // §6.4: the session's tools, less any the agent's current permissions no longer allow.
+  const agent = await store.getJson(path.join('inboxes', session.inboxId, 'agents', `${session.agentId}.json`));
+  const permitted = new Set(allowedCaseTools(agent?.permissions, session.workKind, caseSessionMcp.implemented));
+  const scope = { sessionId: session.id, agentId: session.agentId, inboxId: session.inboxId, workId: session.workId, workKind: session.workKind, caseId: session.caseId, counterparty: session.counterparty };
+  return caseSessionMcp.handle(req, res, { effectiveTools: session.allowedTools.filter(name => permitted.has(name)), scope });
+}
+
+// §3 and §8. Credential and pause checks have already run (rows 2–5).
+async function handleCaseSessionRoute(req, res, route) {
+  res.setHeader('cache-control', 'no-store');
+  const identity = await getAgentWorkIdentity(req);
+  if (!identity) throw credentialError('AUTHENTICATION_REQUIRED');
+  const ending = Boolean(route[2]);
+  let input;
+  try { input = await body(req, 4096); }
+  catch (error) { if ([400, 413].includes(error.statusCode)) throw caseSessionErrors.requestInvalid(); throw error; }
+  const fields = ending ? ['leaseToken', 'sessionId'] : ['leaseToken'];
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== fields.length || !fields.every(field => Object.hasOwn(input, field))
+    || !validLeaseToken(input.leaseToken) || ending && !validCaseSessionId(input.sessionId)) throw caseSessionErrors.requestInvalid();
+  let workId = null;
+  try { workId = assertSafeIdentifier(decodeURIComponent(route[1]), 'workId'); } catch { workId = null; }
+  const leaseTokenHash = hashSecret(input.leaseToken);
+  return ending ? endCaseSession(res, identity, workId, input.sessionId, leaseTokenHash) : mintCaseSession(req, res, identity, workId, leaseTokenHash);
+}
+
+async function mintCaseSession(req, res, identity, workId, leaseTokenHash) {
+  if (!workId) throw caseSessionErrors.workNotFound();
+  const requested = await store.getJson(messagePath(identity.inboxId, workId));
+  const requestedCaseId = typeof requested?.caseId === 'string' ? assertSafeIdentifier(requested.caseId, 'caseId') : null;
+  const binding = requestedCaseId ? await store.getJson(caseBindingPath(requestedCaseId)) : null;
+  const related = [...new Set([requested?.senderInboxId, requested?.counterpartyInboxId, ...(binding?.inboxIds || [])].filter(id => id && id !== identity.inboxId))];
+  const outcome = await withInboxMutation(identity.inboxId, async writeAudit => {
+    const current = await getAgentWorkIdentity(req);
+    if (!current || current.inboxId !== identity.inboxId || current.agent.id !== identity.agent.id || current.familyId !== identity.familyId) {
+      throw (await resolveAgentCredential(req)).error || credentialError('AUTHENTICATION_REQUIRED');
+    }
+    if (current.paused) throw agentPausedError();
+    const message = await store.getJson(messagePath(identity.inboxId, workId));
+    const workKind = workKindOf(message, isHumanInstruction);
+    if (!workKind || !requestedCaseId || message.recipientInboxId !== identity.inboxId || message.recipientAgentId !== identity.agent.id || message.caseId !== requestedCaseId) throw caseSessionErrors.workNotFound();
+    const currentBinding = await store.getJson(caseBindingPath(requestedCaseId));
+    if (currentBinding?.inboxIds?.some(id => id !== identity.inboxId && !related.includes(id))) throw Object.assign(new Error('Case participants changed while acquiring the mutation lock; retry'), { statusCode: 409 });
+    await assertCaseProgressAllowed(identity.inboxId, requestedCaseId);
+    const at = store.now();
+    const claimPath = workClaimPath(identity.inboxId, workId);
+    const claim = await store.getJson(claimPath);
+    const ineligible = await workIneligibility(message, current);
+    if (ineligible) {
+      // Row 9 and §7.4: this host's live lease is released without an attempt. Returned, not
+      // thrown, so the release commits with the transaction.
+      if (claim?.credentialFamilyId === identity.familyId && liveClaim(claim, at)) await store.putJson(claimPath, releasedClaim(claim, at));
+      await caseSessions.endForWork(identity.inboxId, workId, 'work_ineligible', at, writeAudit);
+      return { error: caseSessionErrors.notEligible(ineligible) };
+    }
+    const stale = leaseStaleReason(claim, identity.familyId, leaseTokenHash, at);
+    if (stale) return { error: caseSessionErrors.leaseStale(stale) };
+    // Row 11: the previous session for this work ends, superseded if it was still usable.
+    const pointer = await caseSessions.pointer(identity.inboxId, workId);
+    const previous = pointer ? await caseSessions.get(identity.inboxId, pointer.sessionId) : null;
+    if (previous && !previous.endedReason) {
+      await caseSessions.recordEnd(previous, firstCondition(sessionConditions(previous, await caseSessionFacts(previous), at)) || 'superseded', at, writeAudit);
+    }
+    const installation = await installations.forFamily(identity.inboxId, current.agent, identity.familyId);
+    if (!installation) throw credentialError('CREDENTIAL_REVOKED');
+    let counterparty = { kind: 'human' };
+    if (workKind === 'agent_message') {
+      const sender = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
+      counterparty = { kind: 'agent', address: sender.address };
+    }
+    if (workKind === 'human_decision') counterparty = { kind: 'agent', address: message.counterpartyAddress };
+    const created = await caseSessions.create({
+      inboxId: identity.inboxId, agentId: identity.agent.id, familyId: identity.familyId, installationId: installation.id,
+      workId, workKind, caseId: requestedCaseId, fence: claim.fence, leaseTokenHash, counterparty,
+      allowedTools: allowedCaseTools(current.agent.permissions, workKind, caseSessionMcp.implemented)
+    }, at, writeAudit);
+    return { ...created, leaseExpiresAt: claim.leaseExpiresAt };
+  }, related, requestedCaseId ? [caseMutationKey(requestedCaseId)] : []);
+  if (outcome.error) throw outcome.error;
+  const { session, token, leaseExpiresAt } = outcome;
+  return json(res, 201, {
+    session: {
+      id: session.id, token, tokenType: 'Bearer', status: 'active',
+      transport: { kind: 'mcp_streamable_http', url: `${publicBaseUrl(req)}/mcp` },
+      agentId: session.agentId, installationId: session.installationId, workId: session.workId, workKind: session.workKind,
+      caseId: session.caseId, fence: session.fence, counterparty: session.counterparty, allowedTools: session.allowedTools,
+      createdAt: session.createdAt, expiresAt: session.expiresAt
+    },
+    lease: { workId: session.workId, leaseExpiresAt }
+  });
+}
+
+// §8: only the host that minted the session can end it, and ending twice repeats the first end.
+async function endCaseSession(res, identity, workId, sessionId, leaseTokenHash) {
+  const found = workId ? await caseSessions.get(identity.inboxId, sessionId) : null;
+  const epoch = found ? await caseSessions.epoch() : null;
+  if (!found || found.agentId !== identity.agent.id || found.familyId !== identity.familyId || found.workId !== workId
+    || found.leaseTokenHash !== leaseTokenHash || !epoch || new Date(found.createdAt) < new Date(epoch)) throw caseSessionErrors.notFound();
+  const ended = await settleCaseSessionState(found, { endIfUsable: 'ended_by_host' });
+  if (!ended) throw caseSessionErrors.notFound();
+  return json(res, 200, { session: publicSessionEnd(ended) });
+}
+
+// §7.4: pausing or revoking a case releases every live lease on its work without an attempt, in
+// every bound inbox, and ends those sessions (case_controlled). Runs under the case's locks.
+async function releaseCaseWork(inboxId, caseId, at, writeAudit) {
+  if (!caseSessions.enabled) return;
+  const binding = await store.getJson(caseBindingPath(caseId));
+  for (const participantInboxId of binding?.inboxIds?.length ? binding.inboxIds : [inboxId]) {
+    const released = [];
+    for (const claim of await store.listJson(path.join('inboxes', participantInboxId, 'work-claims'))) {
+      if (!liveClaim(claim, at)) continue;
+      const message = await store.getJson(messagePath(participantInboxId, claim.workId));
+      if (message?.caseId === caseId) released.push(document(workClaimPath(participantInboxId, claim.workId), releasedClaim(claim, at)));
+    }
+    await store.putJsonBatch(released);
+    await caseSessions.endForCase(participantInboxId, caseId, 'case_controlled', at, writeAudit);
+  }
+}
+
 async function route(req, res) {
   installSessionCookieResponse(req, res, auth);
   const responseNonce = crypto.randomBytes(18).toString('base64');
@@ -2341,6 +2594,9 @@ async function route(req, res) {
   catch { return fail(res, 400, 'Invalid request path'); }
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   req.setTimeout(requestTimeoutMs);
+  // case-session v1 §3 row 1 and §8: with the flag off, the mint and end routes do not exist.
+  const caseSessionRoute = req.method === 'POST' ? url.pathname.match(/^\/api\/agent\/work\/([^/]+)\/session(\/end)?$/) : null;
+  if (caseSessionRoute && !caseSessions.enabled) throw caseSessionErrors.featureDisabled();
   // Apply a stable source-IP bound on every route before trusting bearer or
   // cookie headers. Rotating invalid credentials must not reset this limit.
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
@@ -2360,7 +2616,10 @@ async function route(req, res) {
     const current = await auth.getHuman(req);
     if (current && current.id !== expectedHuman) throw codedError(409, 'ACCOUNT_CHANGED', 'You are signed in as a different account in another tab. Reload to continue.');
   }
+  // case-session v1 §6: a session token is checked by its own rules, before any other credential.
+  if (url.pathname === '/mcp' && String(bearerToken(req) || '').startsWith(caseSessionTokenPrefix)) return handleCaseSessionMcp(req, res, url);
   await enforceAgentCredential(req, url, res);
+  if (caseSessionRoute) return handleCaseSessionRoute(req, res, caseSessionRoute);
   if (url.pathname === '/mcp') {
     const identity = await getMcpIdentity(req);
     if (!identity) {
@@ -2534,6 +2793,7 @@ async function route(req, res) {
             updatedAt: now
           };
           await store.putJson(claimPath, claim);
+          await caseSessions.endForWork(identity.inboxId, message.id, 'lease_lost', now, writeAudit);
           await writeAudit('agent.work_claimed', { workId: message.id, agentId: identity.agent.id, fence: claim.fence, attempts: claim.attempts, credentialFamilyId: claim.credentialFamilyId }, now);
           return { status: 200, payload: { work: { workId: message.id, message, leaseToken, leaseExpiresAt }, state: 'claimed' } };
         }
@@ -2548,7 +2808,7 @@ async function route(req, res) {
 
       const currentMessage = await store.getJson(messagePath(identity.inboxId, workId));
       if (!currentMessage || currentMessage.recipientInboxId !== identity.inboxId || currentMessage.recipientAgentId !== identity.agent.id) {
-        throw Object.assign(new Error('Work was not found for this agent'), { statusCode: 404 });
+        throw settlementError(404, 'Work was not found for this agent', 'WORK_NOT_FOUND');
       }
       await assertCaseProgressAllowed(identity.inboxId, currentMessage.caseId);
       if (isHumanInstruction(currentMessage)) {
@@ -2565,7 +2825,7 @@ async function route(req, res) {
       const claim = await store.getJson(claimPath);
       const leaseTokenHash = hashSecret(input.leaseToken);
       if (!claim || claim.credentialFamilyId !== identity.familyId || claim.leaseTokenHash !== leaseTokenHash) {
-        throw Object.assign(new Error('Work lease fence is stale'), { statusCode: 409 });
+        throw settlementError(409, 'Work lease fence is stale', 'WORK_LEASE_STALE', leaseStaleReason(claim, identity.familyId, leaseTokenHash, store.now()));
       }
       const now = store.now();
       const live = ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(now);
@@ -2588,7 +2848,7 @@ async function route(req, res) {
           return { status: 200, payload: replay };
         }
       }
-      if (!live) throw Object.assign(new Error('Work lease has expired or was consumed'), { statusCode: 409 });
+      if (!live) throw settlementError(409, 'Work lease has expired or was consumed', 'WORK_LEASE_STALE', leaseStaleReason(claim, identity.familyId, leaseTokenHash, now));
 
       if (action === 'reply') {
         const reply = {
@@ -2627,6 +2887,7 @@ async function route(req, res) {
           claim.updatedAt = now;
           await store.putJson(claimPath, claim);
         } else await failAgentWorkPermanently(currentMessage, claim, reasonCode || 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
+        await caseSessions.endForWork(identity.inboxId, workId, 'work_settled', now, writeAudit);
         await writeAudit('agent.work_failed', { workId, agentId: identity.agent.id, retryable, reasonCode, attempts: agentWorkAttempts(claim), retryAt: retryable ? claim.retryAt : null }, now);
         return { status: 200, payload: { workId, status: claim.status } };
       }
@@ -2637,7 +2898,7 @@ async function route(req, res) {
         if (replay) return { status: 200, payload: replay };
       }
       if (currentMessage.status === 'processed' || claim.status === 'completed') {
-        throw Object.assign(new Error('Work has already been processed'), { statusCode: 409 });
+        throw settlementError(409, 'Work has already been processed', 'WORK_LEASE_STALE', 'settled');
       }
       const receiptId = `delivery_receipt_${currentMessage.id}_${state}`;
       const existingReceipt = await store.getJson(deliveryReceiptPath(identity.inboxId, receiptId));
@@ -2658,7 +2919,7 @@ async function route(req, res) {
         await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
         return { status: 200, payload: response };
       }
-      if (existingReceipt) throw Object.assign(new Error('Message already has a receipt outside this work fence'), { statusCode: 409 });
+      if (existingReceipt) throw settlementError(409, 'Message already has a receipt outside this work fence', 'WORK_LEASE_STALE', 'settled');
       const updated = { ...currentMessage, status: state, [`${state}At`]: now, updatedAt: now };
       const receipt = {
         id: receiptId,
@@ -2682,6 +2943,7 @@ async function route(req, res) {
       const response = { workId, status: state, receipt };
       await store.putJsonBatch(documents);
       await store.putJson(claimPath, claim);
+      if (state === 'processed') await caseSessions.endForWork(identity.inboxId, workId, 'work_settled', now, writeAudit);
       if (idempotencyPath) await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
       return { status: 201, payload: response };
     }, relatedWorkInboxes, workLockKeys);
@@ -2760,6 +3022,8 @@ async function route(req, res) {
       });
       if (installation) status.installation = installationSummary(installation);
     }
+    // case-session v1 §1: on every status response, whatever the flag.
+    status.caseSessions = { available: caseSessions.enabled, version: 1 };
     return json(res, 200, status);
   }
 
@@ -3020,7 +3284,7 @@ async function route(req, res) {
         if (reenroll) await assertActiveAgentSlot(agent.principalHumanId || inbox.ownerHumanId);
         const claimed = await store.claimJson(tokenPath, 'usedAt', store.now());
         if (!claimed) throw Object.assign(new Error('Enrollment token is invalid, expired, or already used'), { statusCode: 401 });
-        const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId, store.now(), reenroll ? 'revoked' : 'replaced');
+        const credentialFamilyCount = await revokeAgentCredentialFamilies(inbox.id, agent.id, claimed.humanId, store.now(), reenroll ? 'revoked' : 'replaced', writeAudit);
         const connectedAt = store.now();
         const approvedAgent = reenroll ? { ...agent, status: 'active', onboardingStatus: 'approved', permissions: claimed.permissions, revokedAt: null, approvedAt: connectedAt, approvedByHumanId: claimed.humanId, updatedAt: connectedAt } : agent;
         // Leases held by the replaced installation would block the new one until they expire.
@@ -3207,7 +3471,7 @@ async function route(req, res) {
       // Already ended: nothing changes, and the response keeps how it ended.
       if (installation.status === 'ended') return { installation, familyId: null };
       const revokedAt = store.now();
-      await revokeCredentialFamily(inboxId, agentId, installation.familyId, human.id, revokedAt, 'revoked');
+      await revokeCredentialFamily(inboxId, agentId, installation.familyId, human.id, revokedAt, 'revoked', writeAudit);
       // Leases held by this installation would block the next one until they expire.
       const heldLeases = (await store.listJson(path.join('inboxes', inboxId, 'work-claims')))
         .filter(claim => claim.agentId === agentId && claim.credentialFamilyId === installation.familyId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(revokedAt));
@@ -3630,7 +3894,8 @@ async function route(req, res) {
           const claims = await store.listJson(path.join('inboxes', inboxId, 'work-claims'));
           await store.putJsonBatch(claims
             .filter(claim => claim.agentId === agentId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(at))
-            .map(claim => document(workClaimPath(inboxId, claim.workId), { ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, pausedAt: at, updatedAt: at })));
+            .map(claim => document(workClaimPath(inboxId, claim.workId), { ...releasedClaim(claim, at), pausedAt: at })));
+          await caseSessions.endForAgent(inboxId, agentId, 'agent_paused', at, writeAudit);
         } else {
           await releaseHeldSends(inboxId, at);
           if (await hasClaimableInbound(inboxId, agentId)) await writeAudit('work.available', { agentId, reason: 'agent_resumed' });
@@ -3743,7 +4008,7 @@ async function route(req, res) {
         agent.status = 'rejected';
         agent.onboardingStatus = 'rejected';
         agent.permissions = [];
-        await revokeAgentCredentialFamilies(inboxId, agent.id, human.id);
+        await revokeAgentCredentialFamilies(inboxId, agent.id, human.id, store.now(), 'revoked', writeAudit);
         await store.putJsonBatch([
           document(path.join('directory', 'agents', `${agent.id}.json`), { agentId: agent.id, inboxId, address: agent.address, externalAddress: externalEmailEnabled ? publicEmailAddressForAgent(agent) : null, status: agent.status, verified: true }),
           document(nativeAddressDirectoryPath(agent.address), { agentId: agent.id, inboxId, address: agent.address, status: agent.status, verified: true })
@@ -3790,7 +4055,7 @@ async function route(req, res) {
       if (input.deleteHistory && input.confirmation !== (agent?.name || currentInbox.removedAgent?.name)) throw Object.assign(new Error('Enter the agent name to confirm permanent deletion'), { statusCode: 400 });
       const removedAt = store.now();
       await cancelHeldSends(inboxId, human.id, removedAt, writeAudit);
-      await revokeAgentCredentialFamilies(inboxId, agentId, human.id, removedAt);
+      await revokeAgentCredentialFamilies(inboxId, agentId, human.id, removedAt, 'revoked', writeAudit);
       // a5-presence §1: removal deletes every presence record of the agent.
       await store.deleteJsonTree(agentPresenceDir(inboxId, agentId));
       presenceRecorder.forget(inboxId, agentId);
@@ -3799,6 +4064,9 @@ async function route(req, res) {
         await store.deleteJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
       }
       if (input.deleteHistory) {
+        for (const session of await store.listJson(path.join('inboxes', inboxId, 'case-sessions'))) {
+          if (session?.tokenHash) await store.deleteJson(caseSessionTokenPath(session.tokenHash));
+        }
         const currentAssets = await store.listJson(path.join('inboxes', inboxId, 'assets'));
         if (currentAssets.some(asset => !assets.some(locked => locked.id === asset.id))) throw Object.assign(new Error('Files changed during removal; retry'), { statusCode: 409 });
         for (const asset of currentAssets) {
@@ -3827,7 +4095,7 @@ async function route(req, res) {
       const revokedAt = store.now();
       const current = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
       if (!current || current.status === 'revoked') throw Object.assign(new Error('Agent is already revoked'), { statusCode: 409 });
-      const credentialFamilyCount = await revokeAgentCredentialFamilies(inboxId, agentId, human.id, revokedAt);
+      const credentialFamilyCount = await revokeAgentCredentialFamilies(inboxId, agentId, human.id, revokedAt, 'revoked', writeAudit);
       await cancelHeldSends(inboxId, human.id, revokedAt, writeAudit);
       await freezeAgentRecord(inboxId, current, human.id, revokedAt);
       await writeAudit('agent.credentials_revoked', { agentId, humanId: human.id, credentialFamilyCount });
@@ -4003,6 +4271,8 @@ async function route(req, res) {
       }
       await saveCase(inboxId, result.case);
       if (!result.replay) await writeAudit('case.action_recorded', { caseId: value.id, actionId: result.action.id, actionKey: result.action.actionKey, actor: result.action.actor, outcome: result.action.outcome });
+      // Whoever moved it there: a human pause, take-over, revoke or decline, or an agent's nextState.
+      if (!result.replay && !['paused', 'revoked'].includes(value.state) && ['paused', 'revoked'].includes(result.case.state)) await releaseCaseWork(inboxId, value.id, now, writeAudit);
       if (!result.replay && humanCanManage && input.actionKey === 'resume' && (value.state === 'paused' || value.state === 'revoked')) {
         // Every participant whose agent has work waiting in this case is woken; no human identity is shared.
         const binding = await store.getJson(caseBindingPath(value.id));
@@ -4610,6 +4880,10 @@ await ensureDeploymentIdentity(store, { ...deploymentIdentity, releaseSha, now: 
 await objectStorage.init();
 await objectStorage.reapExpiredUploads({ limit: 25 });
 await reconcileLegacyAgentRevocations();
+// case-session v1 §1: the sessions epoch, and the heartbeat that keeps it from moving while on.
+await caseSessions.startEpoch();
+const caseSessionsHeartbeat = caseSessions.enabled ? setInterval(() => { void caseSessions.heartbeat().catch(() => console.error(JSON.stringify({ event: 'envoi.case_sessions_heartbeat_failed' }))); }, caseSessionsHeartbeatMs) : null;
+caseSessionsHeartbeat?.unref?.();
 await synchronizePublicEmailDirectory();
 deliveryWorker.start();
 let waitlistSheetSync = null;
@@ -4645,6 +4919,18 @@ const runRegistrationCleanup = () => registrations.cleanup().catch(() => console
 const registrationCleanup = setInterval(() => { void runRegistrationCleanup(); }, registrationCleanupMs);
 registrationCleanup.unref?.();
 void runRegistrationCleanup();
+// case-session v1 §13: sessions nothing else ended are recorded expired; records go 24 h after expiry.
+const caseSessionCleanupMs = Number(process.env.ENVOI_CASE_SESSION_CLEANUP_INTERVAL_MS || 5 * 60_000);
+let caseSessionCleanupRun = null;
+const runCaseSessionCleanup = () => {
+  caseSessionCleanupRun ||= caseSessions.cleanup(withCaseSessionLock)
+    .then(result => { if (result.failed) console.error(JSON.stringify({ event: 'envoi.case_session_cleanup_partial', failed: result.failed })); })
+    .catch(() => console.error(JSON.stringify({ event: 'envoi.case_session_cleanup_failed' })))
+    .finally(() => { caseSessionCleanupRun = null; });
+  return caseSessionCleanupRun;
+};
+const caseSessionCleanup = setInterval(() => { void runCaseSessionCleanup(); }, caseSessionCleanupMs);
+caseSessionCleanup.unref?.();
 agentRotationReaper.unref?.();
 const objectScanWorker = scanJobStore ? setInterval(() => { void runObjectScans(); }, objectScanWorkerIntervalMs) : null;
 const objectScanRetentionWorker = scanJobStore ? setInterval(() => { void runObjectScanRetention(); }, objectScanRetentionIntervalMs) : null;
@@ -4673,6 +4959,8 @@ const shutdown = () => {
   clearInterval(objectQuotaReaper);
   clearInterval(agentRotationReaper);
   clearInterval(registrationCleanup);
+  clearInterval(caseSessionCleanup);
+  if (caseSessionsHeartbeat) clearInterval(caseSessionsHeartbeat);
   clearInterval(operationalBacklogLogger);
   if (waitlistSheetInterval) clearInterval(waitlistSheetInterval);
   if (objectScanWorker) clearInterval(objectScanWorker);
