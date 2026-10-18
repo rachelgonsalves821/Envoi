@@ -82,8 +82,28 @@ server effect. A journal write already in progress can finish, but cancellation
 still prevents reporting local success. Current server CaseSession/fence checks
 remain the final authorization boundary for tool effects. The trusted transport
 must implement its own bounded timeout, full response buffering, redirect/status/
-encoding checks and upstream credential custody; it is only a synthetic callback
-in this increment. Unexpected transport/decoder failures have sanitized errors.
+encoding checks and upstream credential custody. The admission module accepts this
+as a trusted-host callback; the component below supplies its bounded transport
+implementation, still tested with synthetic fetch only. Unexpected transport/
+decoder failures have sanitized errors.
+
+`createScopedModelTransport` supplies the next offline-tested forwarding component:
+one captured HTTPS `/v1/responses` destination, host-held bearer credential, explicit
+host-provided fetch implementation, no redirects or automatic retries, bounded
+deadline and full JSON buffering. It rejects non-200, foreign/redirected responses,
+unsupported content encoding/type, contradictory lengths and oversized or invalid
+JSON. It requests identity encoding and bounds the number of stream reads, including
+empty chunks. Monotonic elapsed-time checks prevent a microtask-only stream from
+starving the deadline. Response ownership is retained even when cancellation falls
+between fetch resolution and continuation. Cancellation interrupts even
+noncooperating fetch/read promises. Tests compose
+it with the actual admission module using fake fetch only. It opens no listener,
+reads no credential store and makes no request until explicitly invoked. The host
+must separately select/approve the actual provider route and supply the credential;
+there is no implicit ambient-network fallback or real provider proof here.
+The transport closure is trusted-host-only and must not be exposed as a child
+runtime credential or general proxy. Only admission-approved bodies may reach it;
+its transport checks do not replace the gate's canonical authority or tool checks.
 
 ## What still prevents runtime acceptance
 
