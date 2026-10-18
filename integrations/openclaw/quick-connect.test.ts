@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { connectorStartCommand, defaultConnectionDirectory, savedConnectionStatus, setupQuickConnect } from './quick-connect';
+import { connectorStartCommand, defaultConnectionDirectory, savedConnectionStatus, setupQuickConnect, startQuickConnect } from './quick-connect';
 import { acquireConnectorLock } from './quick-connect-store';
 import { connectorService } from './quick-connect-service';
 import { validateQuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
@@ -16,9 +16,10 @@ async function fixture(enabled = true) {
   const directory = await mkdtemp(path.join(tmpdir(), 'envoi-quick-connect-')); directories.push(directory);
   const source = path.join(directory, 'source.mjs'); await writeFile(source, 'console.log("installed connector");');
   const calls: Array<{ url: string; init?: RequestInit }> = [];
-  const config = { gateway: { port: 18789, auth: { token: 'local-gateway-private' }, http: { endpoints: { chatCompletions: { enabled } } } }, agents: { list: [{ id: 'main' }] } };
+  const config = { gateway: { port: 18789, auth: { token: 'local-gateway-private' }, http: { endpoints: { chatCompletions: { enabled }, responses: { enabled } } } }, agents: { list: [{ id: 'main' }] } };
   const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init });
+    if (String(url).endsWith('/v1/responses')) return Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'Connected' }] }] });
     if (String(url).startsWith('http://127.0.0.1:18789/')) return Response.json({ choices: [{ finish_reason: 'stop', message: { content: 'Connection checked' } }] });
     if (String(url).endsWith('/api/agent-enroll')) return Response.json({ agent: { id: 'agent_potato', address: 'potato@agents.envoi.example' }, inbox: { id: 'inbox_potato' },
       agentApiToken: 'envoi-access-private', agentRefreshToken: 'envoi-refresh-private', agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
@@ -32,6 +33,39 @@ async function fixture(enabled = true) {
 }
 
 describe('Quick Connect setup and restart contract', () => {
+  it('persists scoped mode and restarts with an empty service environment using host-only setup reporting', async () => {
+    const test = await fixture();
+    const result = await setupQuickConnect(handoff(), { ...test.options, env: { ENVOI_SCOPED_TOOLS: 'true' } });
+    expect(test.calls[0].url).toBe('http://127.0.0.1:18789/v1/responses');
+    const saved = JSON.parse(await readFile(path.join(result.stateDir, 'connection.json'), 'utf8'));
+    expect(saved.openclaw.scopedTools).toBe(true);
+    expect(JSON.parse(await readFile(path.join(result.stateDir, 'openclaw-mode.json'), 'utf8'))).toEqual({ version: 1, scopedTools: true });
+    test.calls.splice(0);
+    const stop = new AbortController();
+    const ready = vi.fn(() => stop.abort());
+    await startQuickConnect(result.stateDir, stop.signal, { env: {}, fetch: test.options.fetch, secureDirectory, onReady: ready });
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(test.calls[0].url).toBe('http://127.0.0.1:18789/v1/responses');
+    expect(test.calls.some(call => call.url.includes('chat/completions') || call.url.endsWith('/api/agent-enroll'))).toBe(false);
+    const report = test.calls.find(call => call.url.endsWith('/api/agent/connection-status'))!;
+    expect(JSON.parse(String(report.init?.body))).toMatchObject({ phase: 'ready' });
+    expect(new Headers(report.init?.headers).get('authorization')).toBe('Bearer envoi-access-private');
+    expect(test.calls.filter(call => call.url.endsWith('/v1/responses')).every(call => !JSON.stringify(call).match(/envoi-access-private|envoi-refresh-private/))).toBe(true);
+    expect(JSON.parse(await readFile(path.join(result.stateDir, 'connection.json'), 'utf8')).openclaw.scopedTools).toBe(true);
+  });
+
+  it('refuses an explicit scoped downgrade before invoking a legacy endpoint or redeeming again', async () => {
+    const test = await fixture();
+    const result = await setupQuickConnect(handoff(), { ...test.options, env: { ENVOI_SCOPED_TOOLS: 'true' } });
+    test.calls.splice(0);
+    await expect(startQuickConnect(result.stateDir, new AbortController().signal, {
+      env: { ENVOI_SCOPED_TOOLS: 'false' }, fetch: test.options.fetch, secureDirectory
+    })).rejects.toMatchObject({ code: 'SCOPED_MODE_DOWNGRADE_UNAVAILABLE' });
+    await expect(setupQuickConnect(handoff(), { ...test.options, env: { ENVOI_SCOPED_TOOLS: 'false' } }))
+      .rejects.toMatchObject({ code: 'SCOPED_MODE_DOWNGRADE_UNAVAILABLE' });
+    expect(test.calls).toEqual([]);
+  });
+
   it('tests the Gateway before redemption, persists credentials without the enrollment token and installs one executable', async () => {
     const f = await fixture(); const input = handoff();
     const result = await setupQuickConnect(input, f.options);

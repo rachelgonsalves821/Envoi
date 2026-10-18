@@ -12,6 +12,68 @@ function completed(content = 'Connected') {
 }
 const connection: OpenClawConfiguration = { gatewayUrl: 'http://127.0.0.1:18789', gatewayToken: token, agentId: 'main', configPath: '/test/openclaw.json', chatCompletionsEnabled: true };
 
+describe('OpenClaw scoped Responses preflight', () => {
+  const env = { ENVOI_SCOPED_TOOLS: 'true' };
+  const message = { type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Connected' }] };
+
+  it('discovers Responses availability only for the selected local scoped Gateway', async () => {
+    const config = { gateway: { ...base.gateway, http: { endpoints: { responses: { enabled: true } } } } };
+    await expect(discover(config, { env })).resolves.toMatchObject({ responsesEnabled: true, chatCompletionsEnabled: false });
+    await expect(discover(base, { env })).resolves.toMatchObject({ responsesEnabled: false });
+    expect(await discover(config)).not.toHaveProperty('responsesEnabled');
+    expect(await discover(config, { env, gatewayUrl: 'https://remote.example', gatewayToken: token })).not.toHaveProperty('responsesEnabled');
+  });
+
+  it('uses only Responses and a harmless fresh input without Envoi credentials or legacy routing', async () => {
+    const fetcher = vi.fn(async () => Response.json({ status: 'completed', output: [{ type: 'reasoning', summary: [] }, message] }));
+    await preflightOpenClaw({ ...connection, responsesEnabled: true, chatCompletionsEnabled: false }, { env, fetch: fetcher });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, options] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://127.0.0.1:18789/v1/responses');
+    expect(options).toMatchObject({ redirect: 'error', method: 'POST', headers: { authorization: `Bearer ${token}` } });
+    expect(JSON.parse(String(options.body))).toEqual({ model: 'openclaw/main', stream: false, store: false, tools: [], max_output_tokens: 128,
+      input: [{ type: 'message', role: 'user', content: expect.stringContaining('Do not use tools') }] });
+    expect(String(options.body)).not.toMatch(/lease|refresh|inboxId|sessionId|enrollmentToken|private-gateway-secret/);
+  });
+
+  it('rejects known-disabled Responses before network even if Chat Completions is enabled', async () => {
+    const fetcher = vi.fn();
+    await expect(preflightOpenClaw({ ...connection, responsesEnabled: false }, { env, fetch: fetcher })).rejects.toThrow('responses.enabled');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403, 404, 405, 429, 503])('never falls back after Responses HTTP %s', async status => {
+    const fetcher = vi.fn(async () => new Response('private upstream detail', { status }));
+    const error = await preflightOpenClaw(connection, { env, fetch: fetcher }).catch(error => error);
+    expect(error).toBeInstanceOf(OpenClawSetupError);
+    expect(error.message).not.toMatch(/private upstream detail|private-gateway-secret/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]?.[0]).toBe('http://127.0.0.1:18789/v1/responses');
+  });
+
+  it.each([
+    { status: 'incomplete', output: [message] },
+    { status: 'failed', output: [message] },
+    { status: 'completed', output: [] },
+    { status: 'completed', output: [{ type: 'function_call', name: 'envoi_send_message' }, message] },
+    { status: 'completed', output: [{ type: 'web_search_call' }, message] },
+    { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '  ' }] }] }
+  ])('rejects incomplete or non-text preflight output %j', async body => {
+    await expect(preflightOpenClaw(connection, { env, fetch: vi.fn(async () => Response.json(body)) })).rejects.toThrow('completed text reply');
+  });
+
+  it.each(['OPENCLAW_MCP_RELAY_TOKEN', 'OPENCLAW_MCP_RELAY_PORT', 'OPENCLAW_MCP_WRITE_ENABLED', 'ENVOI_MCP_URL', 'ENVOI_ASSET_MANIFEST_PATH'])(
+    'rejects conflicting %s before reading or testing the Gateway', async name => {
+      const fetcher = vi.fn(); const reader = vi.fn();
+      const options = { env: { ...env, [name]: 'private-value' }, fetch: fetcher, readFile: reader };
+      await expect(discoverOpenClaw(options)).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
+      const error = await preflightOpenClaw(connection, options).catch(error => error);
+      expect(error.code).toBe('SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE');
+      expect(error.message).not.toContain('private-value');
+      expect(fetcher).not.toHaveBeenCalled(); expect(reader).not.toHaveBeenCalled();
+    });
+});
+
 describe('OpenClaw quick connect discovery', () => {
   it('detects default local origin, main agent, credential and endpoint', async () => {
     const result = await discover();

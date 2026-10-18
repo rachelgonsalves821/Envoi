@@ -17,6 +17,8 @@ export interface OpenClawConfiguration {
   configPath: string;
   /** Undefined when using explicit connection settings without a local config. */
   chatCompletionsEnabled: boolean | undefined;
+  responsesEnabled?: boolean;
+  scopedTools?: true;
 }
 
 export interface DiscoverOpenClawOptions {
@@ -152,8 +154,7 @@ function validate(config: Pick<OpenClawConfiguration, 'gatewayUrl' | 'gatewayTok
 
 /** Read local connection settings only. Provider secrets never leave the host. */
 export async function discoverOpenClaw(options: DiscoverOpenClawOptions = {}): Promise<OpenClawConfiguration> {
-  const env = options.env ?? process.env;
-  assertOpenClawScopedAdmission(env);
+  const env = assertOpenClawScopedAdmission(options.env ?? process.env, options.fallbackConfiguration);
   const home = options.homeDir ?? env.OPENCLAW_HOME ?? homedir();
   const profile = options.profile ?? env.OPENCLAW_PROFILE;
   if (profile && !safeId.test(profile)) throw new OpenClawSetupError('OpenClaw profile is invalid. Specify its OPENCLAW_CONFIG_PATH directly.');
@@ -223,6 +224,7 @@ export async function discoverOpenClaw(options: DiscoverOpenClawOptions = {}): P
   agentId ??= knownIds[0] ?? 'main';
   if (knownIds.length && !knownIds.includes(agentId)) throw new OpenClawSetupError(`The selected OpenClaw agent is not configured. Set OPENCLAW_AGENT_ID to one of: ${knownIds.join(', ')}.`);
   const localEndpoint = record(record(record(gateway.http).endpoints).chatCompletions).enabled === true;
+  const localResponses = record(record(record(gateway.http).endpoints).responses).enabled === true;
   let gatewayToken: string;
   // gatewayToken holds whichever shared secret the Gateway accepts as a Bearer value.
   const configured = auth[secretKind] ?? (secretKind === 'password' ? env.OPENCLAW_GATEWAY_PASSWORD : undefined);
@@ -238,16 +240,22 @@ export async function discoverOpenClaw(options: DiscoverOpenClawOptions = {}): P
     if (overrideToken || !supportedEnvReference || !prior || origin(prior.gatewayUrl) !== gatewayUrl) throw error;
     gatewayToken = prior.gatewayToken;
   }
-  const result = { gatewayUrl, gatewayToken, agentId, configPath, chatCompletionsEnabled: config && !overrideUrl ? localEndpoint : undefined };
+  const result = { gatewayUrl, gatewayToken, agentId, configPath, chatCompletionsEnabled: config && !overrideUrl ? localEndpoint : undefined,
+    ...(config && !overrideUrl && env.ENVOI_SCOPED_TOOLS === 'true' ? { responsesEnabled: localResponses } : {}),
+    ...(env.ENVOI_SCOPED_TOOLS === 'true' ? { scopedTools: true as const } : {}) };
   validate(result);
   return result;
 }
 
 /** Require a complete harmless agent turn before consuming the enrollment token. */
 export async function preflightOpenClaw(config: OpenClawConfiguration, options: { fetch?: typeof fetch; signal?: AbortSignal; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
-  assertOpenClawScopedAdmission(options.env ?? process.env);
+  const env = assertOpenClawScopedAdmission(options.env ?? process.env, config);
+  const scoped = env.ENVOI_SCOPED_TOOLS === 'true';
+  const selectedEndpointHelp = scoped
+    ? 'Enable gateway.http.endpoints.responses.enabled in the selected OpenClaw profile and retry. This check did not redeem an enrollment token.'
+    : endpointHelp;
   const url = validate(config);
-  if (config.chatCompletionsEnabled === false) throw new OpenClawSetupError(endpointHelp);
+  if (scoped ? config.responsesEnabled === false : config.chatCompletionsEnabled === false) throw new OpenClawSetupError(selectedEndpointHelp);
   const timeoutMs = options.timeoutMs ?? 60_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000) throw new OpenClawSetupError('OpenClaw preflight timeout must be from 1 to 300000 milliseconds.');
   if (options.signal?.aborted) throw new OpenClawSetupError('OpenClaw connection test was canceled. This check did not redeem an enrollment token.');
@@ -262,18 +270,30 @@ export async function preflightOpenClaw(config: OpenClawConfiguration, options: 
     await Promise.race([canceled, (async () => {
       let response: Response;
       try {
-        response = await (options.fetch ?? fetch)(`${url}/v1/chat/completions`, {
+        response = await (options.fetch ?? fetch)(`${url}/v1/${scoped ? 'responses' : 'chat/completions'}`, {
           method: 'POST', redirect: 'error', signal: controller.signal,
           headers: { authorization: `Bearer ${config.gatewayToken}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ model: `openclaw/${config.agentId}`, user: `envoi:connection-test:${crypto.randomUUID()}`, stream: false,
-            messages: [{ role: 'user', content: 'Envoi connection test. Do not use tools, read files, or perform external actions. Reply with a short confirmation that you can receive and answer this message.' }] })
+          body: JSON.stringify(scoped ? { model: `openclaw/${config.agentId}`, stream: false, store: false, tools: [], max_output_tokens: 128,
+            input: [{ type: 'message', role: 'user', content: 'Envoi connection test. Do not use tools, read files, or perform external actions. Reply with a short confirmation.' }] }
+            : { model: `openclaw/${config.agentId}`, user: `envoi:connection-test:${crypto.randomUUID()}`, stream: false,
+              messages: [{ role: 'user', content: 'Envoi connection test. Do not use tools, read files, or perform external actions. Reply with a short confirmation that you can receive and answer this message.' }] })
         });
       } catch { throw new OpenClawSetupError('OpenClaw Gateway could not be reached. Check it is running and run the connector in the same network environment. This check did not redeem an enrollment token.', 'GATEWAY_UNREACHABLE'); }
-      if (response.status === 404 || response.status === 405) throw new OpenClawSetupError(endpointHelp);
+      if (response.status === 404 || response.status === 405) throw new OpenClawSetupError(selectedEndpointHelp);
       if (response.status === 401 || response.status === 403) throw new OpenClawSetupError('OpenClaw Gateway authentication failed. Check the local Gateway credential and selected profile. This check did not redeem an enrollment token.', 'GATEWAY_AUTH_FAILED');
       if (!response.ok) throw new OpenClawSetupError(`OpenClaw connection test failed with HTTP ${response.status}. Check Gateway health and the selected agent model. This check did not redeem an enrollment token.`, response.status === 429 || response.status >= 500 ? 'GATEWAY_UNREACHABLE' : 'GATEWAY_TEST_FAILED');
       let body: unknown;
       try { body = await response.json(); } catch { throw new OpenClawSetupError('OpenClaw connection test returned invalid JSON. Check the Gateway endpoint. This check did not redeem an enrollment token.'); }
+      if (scoped) {
+        const result = record(body);
+        if (result.status !== 'completed' || !Array.isArray(result.output) || !result.output.length
+          || result.output.some(item => !['message', 'reasoning'].includes(String(record(item).type)))
+          || !result.output.some(item => Array.isArray(record(item).content) && (record(item).content as unknown[])
+            .some(part => record(part).type === 'output_text' && typeof record(part).text === 'string' && (record(part).text as string).trim()))) {
+          throw new OpenClawSetupError('OpenClaw Responses test did not return a completed text reply. This check did not redeem an enrollment token.');
+        }
+        return;
+      }
       const choices = record(body).choices;
       const first = Array.isArray(choices) ? record(choices[0]) : {};
       const content = record(first.message).content;

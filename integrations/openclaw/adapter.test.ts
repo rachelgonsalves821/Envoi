@@ -98,4 +98,28 @@ describe('OpenClaw unified adapter', () => {
   it.each([null, [], 'invalid', { configuration: 'unexpected' }])('rejects malformed saved configuration', async previous => {
     await expect(openclawAdapter.discover({ env: {} }, previous as never)).rejects.toMatchObject({ code: 'STATE_INVALID' });
   });
+
+  it('accepts validated Responses metadata for the scoped adapter without changing legacy preflight', async () => {
+    const fetcher = vi.fn(async () => Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'Ready' }] }] }));
+    await openclawAdapter.preflight({ ...configured, responsesEnabled: true }, { env: { ENVOI_SCOPED_TOOLS: 'true' }, fetch: fetcher });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]?.[0]).toBe('http://127.0.0.1:18789/v1/responses');
+    await expect(openclawAdapter.preflight({ ...configured, responsesEnabled: 'true' } as never, { env: {}, fetch: fetcher }))
+      .rejects.toMatchObject({ code: 'STATE_INVALID' });
+  });
+
+  it.each([{ relayToken: 'private-saved-relay' }, { relayPort: '9001' }, { mcpWriteEnabled: false }, { assetManifestPath: '/private/assets.json' }])(
+    'rejects persisted legacy settings before scoped discovery, preflight or bridge creation %j', async legacy => {
+      const previous = { ...configured, ...legacy };
+      const fetcher = vi.fn();
+      const readFile = vi.fn();
+      const env = { ENVOI_SCOPED_TOOLS: 'true' };
+      const bridgeCalls = vi.mocked(createOpenClawBridge).mock.calls.length;
+      await expect(openclawAdapter.discover({ env, readFile }, previous)).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
+      await expect(openclawAdapter.preflight(previous, { env, fetch: fetcher })).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
+      expect(() => openclawAdapter.createBridge(previous, { apiUrl: 'https://envoi.example', stateDir: '/not/created', env }))
+        .toThrow('Scoped mode cannot use privileged legacy');
+      expect(fetcher).not.toHaveBeenCalled(); expect(readFile).not.toHaveBeenCalled();
+      expect(vi.mocked(createOpenClawBridge).mock.calls.length).toBe(bridgeCalls);
+    });
 });

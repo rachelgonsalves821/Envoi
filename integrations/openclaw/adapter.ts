@@ -2,6 +2,7 @@ import { ConnectorSetupError, type ConnectorAdapter } from '../connector/adapter
 import { discoverOpenClaw, OpenClawSetupError, preflightOpenClaw, type OpenClawConfiguration } from './quick-connect-config';
 import { createOpenClawBridge } from './runtime';
 import path from 'node:path';
+import { assertOpenClawScopedAdmission } from './scoped-admission';
 
 export interface InstalledOpenClawConfiguration extends OpenClawConfiguration {
   relayToken?: string;
@@ -12,11 +13,13 @@ export interface InstalledOpenClawConfiguration extends OpenClawConfiguration {
 
 function validate(config: InstalledOpenClawConfiguration) {
   if (!config || typeof config !== 'object' || Array.isArray(config)
-      || Object.keys(config).some(key => !['gatewayUrl', 'gatewayToken', 'agentId', 'configPath', 'chatCompletionsEnabled',
+      || Object.keys(config).some(key => !['gatewayUrl', 'gatewayToken', 'agentId', 'configPath', 'chatCompletionsEnabled', 'responsesEnabled', 'scopedTools',
         'relayToken', 'relayPort', 'mcpWriteEnabled', 'assetManifestPath'].includes(key))
       || typeof config.gatewayUrl !== 'string' || typeof config.gatewayToken !== 'string'
       || typeof config.agentId !== 'string' || typeof config.configPath !== 'string'
-      || config.chatCompletionsEnabled !== undefined && typeof config.chatCompletionsEnabled !== 'boolean') {
+      || config.chatCompletionsEnabled !== undefined && typeof config.chatCompletionsEnabled !== 'boolean'
+      || config.responsesEnabled !== undefined && typeof config.responsesEnabled !== 'boolean'
+      || config.scopedTools !== undefined && config.scopedTools !== true) {
     throw new ConnectorSetupError('STATE_INVALID', 'The saved OpenClaw configuration is invalid; preserve the private connection directory.');
   }
   if (config.relayToken !== undefined && (typeof config.relayToken !== 'string' || !config.relayToken
@@ -53,23 +56,25 @@ export const openclawAdapter: ConnectorAdapter<InstalledOpenClawConfiguration> =
   runtime: 'openclaw',
   discover: async (options, previous) => {
     try {
+      const env = assertOpenClawScopedAdmission(options.env ?? process.env, previous);
       if (previous !== undefined) validate(previous);
-      const config = await discoverOpenClaw({ ...options, configPath: options.configPath ?? previous?.configPath,
+      const config = await discoverOpenClaw({ ...options, env, configPath: options.configPath ?? previous?.configPath,
         allowMissingConfig: Boolean(previous), fallbackConfiguration: previous });
-      return runtimeSettings(config, options.env ?? process.env, previous);
+      return runtimeSettings(config, env, previous);
     } catch (error) {
       if (error instanceof OpenClawSetupError) throw new ConnectorSetupError('RUNTIME_CONFIGURATION_INVALID', error.message);
       throw error;
     }
   },
   preflight: async (config, options) => {
-    try { validate(config); await preflightOpenClaw(config, options); }
+    try { assertOpenClawScopedAdmission(options.env ?? process.env, config); validate(config); await preflightOpenClaw(config, options); }
     catch (error) {
       if (error instanceof OpenClawSetupError) throw new ConnectorSetupError(error.code, error.message);
       throw error;
     }
   },
   createBridge: (config, context) => {
+    assertOpenClawScopedAdmission(context.env ?? process.env, config);
     validate(config);
     const { relayToken: _token, relayPort: _port, mcpWriteEnabled: _write, assetManifestPath: _manifest, ...base } = config;
     const current = runtimeSettings(base, context.env ?? process.env, config);
