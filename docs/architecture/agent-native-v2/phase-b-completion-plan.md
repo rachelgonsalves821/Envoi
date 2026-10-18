@@ -40,6 +40,17 @@ Task IDs below extend the backlog; they do not rename existing A-4/B-4 implement
 | B-R8 | Je / Lane A | Publish shared provider/HTTPS wake and subscription contract; implement canonical authenticated callbacks and durable delivery. Rachel/Codex implements runtime consumption, polling/restart behavior and truthful presence UI. | Per-host closed-app, outage, restart, pause/resume and revoke proof. Generic HTTPS security implementation is the shared Phase C C-A5 task, not a second adapter. |
 | B-R9 | Rachel / Lane B | Finish usability/availability matrix and `/connect` instructions from server-published route status; use the existing packaging workstream's deliverables. | Fresh user follows the published flow without repository checkout or secret pasting; unavailable hosts explain the next supported step. Each automatic claim links to wake evidence. |
 
+## Phase B named-host backlog — explicitly open (2026-10-18)
+
+Prepared against freshly fetched `origin/integration/agent-native` at `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. This preparation checkpoint does not change the acceptance status of any other route.
+
+| Host / backlog | Status | Provider approval | Closed-app wake | Accountable lead / next action |
+| --- | --- | --- | --- | --- |
+| Muse / B-R4, B-R8 | **OPEN — blocked pending provider approval and real-host proof** | No Envoi approval artifact established by this evidence review. Submission, installation access and tool classifications must be recorded separately. | **UNTESTED / not accepted**; generic HTTPS receiver tests and open-chat calls do not prove Muse wake. | Je / Lane A: reviewed provider package and supported wake contract. Codex: [setup preparation](../../../integrations/onboarding/skill/PROVIDER-SETUP-PREPARATION.md); Rachel: account consent and provider submission. |
+| Instinct / B-R5, conditional B-R6, B-R8 | **OPEN — blocked pending supported route/provider approval and real-host proof** | No supported Envoi integration approval established. Mailbox access is an account observation to verify, not authorization to operate an agent bridge. | **UNTESTED / not accepted**; email delivery is not agent processing or canonical reply. | Je / Lane A: route decision and contract publication. Codex: [email bridge review proposal](../../../integrations/onboarding/skill/INSTINCT-EMAIL-BRIDGE-PROPOSAL.md); Rachel: account consent and scope/contract review. |
+
+The [dated evidence register](../../../integrations/onboarding/skill/PROVIDER-EVIDENCE-2026-10-18.md) records provenance, missing proof and the per-host acceptance worksheet. Both rows remain open through a limited beta for other verified routes. Neither provider submission, this proposal, generic adapter CI nor entry into Phase C closes full multi-host onboarding. An explicit Rachel-approved scope change must be recorded as a scope change, never as a host pass.
+
 ## Muse: required connection and wake work
 
 - Validate the actual Muse account's connector interface and obtain required provider review. The existing compatibility matrix is the evidence starting point, not an acceptance certificate.
