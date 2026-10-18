@@ -553,6 +553,64 @@ export class EnvoiConnector {
     return session.agentApiToken;
   }
 
+  get wakeOrigin(): string { return this.origin; }
+
+  async wakeRequest(route: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    signal?.throwIfAborted();
+    const read = body === undefined && ['/api/agent/status', '/api/agent/wake-subscriptions'].includes(route);
+    const create = route === '/api/agent/wake-subscriptions' && body && Object.keys(body).length === 1 && typeof body.url === 'string';
+    const activate = /^\/api\/agent\/wake-subscriptions\/wake_sub_[A-Za-z0-9_-]{3,64}\/activate$/.test(route)
+      && body && Object.keys(body).length === 1 && typeof body.challenge === 'string';
+    const end = /^\/api\/agent\/wake-subscriptions\/wake_sub_[A-Za-z0-9_-]{3,64}\/end$/.test(route) && body && Object.keys(body).length === 0;
+    if (!read && !create && !activate && !end) throw new TypeError('Invalid trusted wake operation');
+    const serialized = body === undefined ? undefined : JSON.stringify(body);
+    return this.withFreshSession(async (session, controller) => {
+      signal?.throwIfAborted();
+      const deadline = AbortSignal.timeout(10_000);
+      let response: Response;
+      try {
+        response = await (this.options.fetch || fetch)(`${this.origin}${route}`, {
+          method: body === undefined ? 'GET' : 'POST', credentials: 'omit', redirect: 'error',
+          headers: { authorization: `Bearer ${session.agentApiToken}`, ...(body ? { 'content-type': 'application/json' } : {}) },
+          ...(serialized !== undefined ? { body: serialized } : {}), signal: AbortSignal.any([deadline, controller!, ...(signal ? [signal] : [])])
+        });
+      } catch { throw new EnvoiError('Wake service is unavailable', undefined, signal?.aborted ? 'REQUEST_CANCELLED' : 'NETWORK_ERROR'); }
+      const reader = response.body?.getReader();
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      try {
+        while (reader) {
+          const next = await reader.read();
+          if (next.done) break;
+          length += next.value.length;
+          if (length > 16 * 1024 * 1024) throw new Error();
+          chunks.push(next.value);
+        }
+        const bytes = new Uint8Array(length);
+        let offset = 0;
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+        const bounded = new Response(bytes, { status: response.status, headers: response.headers });
+        signal?.throwIfAborted();
+        if (!response.ok) {
+          const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as Record<string, unknown>;
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error();
+          const code = typeof payload.code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(payload.code) ? payload.code : undefined;
+          const reason = typeof payload.reason === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(payload.reason) ? payload.reason : undefined;
+          const requestId = typeof payload.requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(payload.requestId) ? payload.requestId : undefined;
+          const retryHeader = response.headers.get('retry-after');
+          const retry = Math.max(retryHeader && /^\d{1,6}$/.test(retryHeader) ? Number(retryHeader) : 0, typeof payload.retryAfterSeconds === 'number' && Number.isSafeInteger(payload.retryAfterSeconds) && payload.retryAfterSeconds >= 0 ? payload.retryAfterSeconds : 0);
+          throw new EnvoiError('Wake request was refused', response.status, code, { reason, requestId, ...(retry ? { retryAfterSeconds: Math.min(retry, 86_400) } : {}) });
+        }
+        return await responsePayload(bounded, 'Wake request was refused');
+      } catch (error) {
+        if (signal?.aborted) throw new EnvoiError('Wake request was cancelled', undefined, 'REQUEST_CANCELLED');
+        if (deadline.aborted) throw new EnvoiError('Wake request timed out', undefined, 'TIMEOUT');
+        if (error instanceof EnvoiError) throw error;
+        throw new EnvoiError('Invalid wake response');
+      } finally { await reader?.cancel().catch(() => {}); }
+    }, false);
+  }
+
   /** Mint a short-lived MCP read credential for a single provider turn. Never send refresh credentials to a provider. */
   mintMcpReadToken(caseId: string | null = null): Promise<McpReadToken> {
     if (this.options.caseSessionHandler) throw new EnvoiError('Scoped runtimes cannot mint legacy model credentials', undefined, 'LEGACY_MODEL_ACCESS_DISABLED');
