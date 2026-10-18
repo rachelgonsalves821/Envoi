@@ -53,7 +53,7 @@ export class FileScopedRunStore implements ScopedRunStore {
       if (bytes.byteLength > 1_000_000) throw new Error('Scoped run record exceeds its limit');
       const record = JSON.parse(bytes.toString('utf8')) as ScopedRunRecord;
       if (record?.version !== 1 || record.workId !== workId || typeof record.model !== 'string'
-        || !Array.isArray(record.input) || !Array.isArray(record.pending) || record.pending.length > 1
+        || !Array.isArray(record.input) || !Array.isArray(record.pending) || record.pending.length > 16
         || !Number.isSafeInteger(record.providerCalls) || record.providerCalls < 0 || record.providerCalls > 16
         || typeof record.completed !== 'boolean') throw new Error('Invalid scoped run record');
       return record;

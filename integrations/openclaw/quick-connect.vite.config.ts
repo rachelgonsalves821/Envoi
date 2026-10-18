@@ -6,6 +6,6 @@ export default defineConfig({
   build: {
     target: 'node22', outDir: 'web/downloads', emptyOutDir: false,
     lib: { entry: 'integrations/openclaw/quick-connect-cli.ts', formats: ['es'], fileName: () => 'envoi-openclaw.mjs' },
-    rollupOptions: { external: [/^node:/], output: { codeSplitting: false } }
+    rolldownOptions: { external: [/^node:/], output: { codeSplitting: false }, experimental: { attachDebugInfo: 'none' } }
   }
 });

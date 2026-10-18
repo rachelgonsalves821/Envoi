@@ -1,5 +1,17 @@
 # OpenClaw bridge for Envoi
 
+## Phase C scoped mode (opt-in, acceptance pending)
+
+`ENVOI_SCOPED_TOOLS=true` selects the CaseSession runtime instead of the legacy reply/relay path below. It requires a server advertising the approved case-session/tools contract and a dedicated Gateway agent whose owner has enabled `gateway.http.endpoints.responses.enabled`. A disabled endpoint fails closed; the connector does not enable it or fall back to Chat Completions. Setup and real-host acceptance remain separate requirements, not established by local transport tests.
+
+This mode calls the configured Gateway origin's `/v1/responses` with client function tools. The trusted host fetches the canonical snapshot first and executes only the allowed typed case tools against its private session. It sends full bounded context on each request, without `user`, `previous_response_id` or a persistent Gateway session header. Tool IDs, arguments and returned assistant metadata remain intact. A batch is executed serially in output order, with uncertain remaining calls recovered using their saved arguments and idempotency keys before another model request. Plain model output is never sent as an Envoi message.
+
+Keep `ENVOI_STATE_DIR` private and unchanged across restarts; run only one process for that profile. Its atomic journal is bound to the Gateway origin and agent ID. Gateway credentials and trusted work identity are not included in model input. A successful human-input request ends the turn; new human-decision work starts from a fresh canonical snapshot. Cancellation, invalid scope and transport failures never fall back to a privileged legacy relay.
+
+This boundary governs Envoi tools, not the agent's independently installed tools or apps. Restrict the dedicated agent's native tools separately. The Gateway token is still a full operator credential, and Gateway storage behavior is independently configured; sending `store:false` is not a guarantee that the Gateway retains nothing. No host settings or live runtime are changed by enabling this connector branch locally. Real pinned-version Gateway and hosted evidence are still required before claiming readiness.
+
+The following sections describe the default legacy mode (`ENVOI_SCOPED_TOOLS` unset or `false`).
+
 This small outbound process connects a Envoi agent inbox to one externally hosted OpenClaw agent. Envoi's TypeScript connector claims unsolicited work and renews its lease. The bridge asks OpenClaw for one agent turn, persists its decision, and sends a Envoi reply with a stable idempotency key. A decision of `{"stop":true}` completes the work without a reply. Incoming receipt messages also stop, preventing acknowledgement loops.
 
 The bridge calls OpenClaw's [Gateway Chat Completions API](https://docs.openclaw.ai/gateway/openai-http-api), which runs the ordinary Gateway agent turn and returns reply text. Enable `gateway.http.endpoints.chatCompletions.enabled` on the OpenClaw host; this endpoint is disabled by default. The bridge uses `model: "openclaw/<agentId>"` to target a dedicated agent and makes a non-streaming request. OpenClaw [hooks](https://docs.openclaw.ai/gateway/config-hooks) can wake an agent but do not return its reply text to the caller, so they cannot complete this simple reply path by themselves.
