@@ -3,6 +3,9 @@ import { bridgeHandler } from '../agent-bridges/bridge';
 import { loadAssetManifest, manifestAssetExchange } from '../agent-bridges/asset-manifest';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { xaiTurn } from '../agent-bridges/providers';
+import { scopedTurnHandler } from '../agent-bridges/scoped-turn';
+import { xaiScopedTurn } from './scoped-turn';
+import { FileScopedRunStore } from './scoped-store';
 
 export interface GrokBridgeConfiguration {
   apiUrl: string;
@@ -20,6 +23,26 @@ export async function createGrokBridge(config: GrokBridgeConfiguration,
   const store = new FileBridgeStore(config.stateDir);
   await store.init();
   if (!await store.load()) throw new Error('No connector credentials were saved. Run setup first');
+  if (env.ENVOI_SCOPED_TOOLS !== undefined && env.ENVOI_SCOPED_TOOLS !== 'true' && env.ENVOI_SCOPED_TOOLS !== 'false') {
+    throw new TypeError('ENVOI_SCOPED_TOOLS must be true or false');
+  }
+  if (env.ENVOI_SCOPED_TOOLS === 'true') {
+    const runs = new FileScopedRunStore(config.stateDir);
+    const connector = new EnvoiConnector(config.apiUrl, store, {
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+      caseSessionHandler: scopedTurnHandler({
+        admit: message => store.admit(message),
+        run: xaiScopedTurn({ apiKey: config.apiKey, model: config.model, store: runs, fetch: options.fetch }),
+        async beforeEndTurn(host) {
+          if (!host.workId) throw new Error('Scoped runtime needs trusted work identity');
+          const record = await runs.load(host.workId);
+          if (!record) throw new Error('Scoped turn journal is missing');
+          await runs.save({ ...record, completed: true, pending: [] });
+        }
+      })
+    });
+    return { connector, store, close: async () => {} };
+  }
   let connector: EnvoiConnector;
   const approvedAssets = await loadAssetManifest(config.assetManifestPath ?? env.ENVOI_ASSET_MANIFEST_PATH);
   const mcpUrl = config.mcpUrl ?? env.ENVOI_MCP_URL;

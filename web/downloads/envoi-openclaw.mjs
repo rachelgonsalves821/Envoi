@@ -1444,18 +1444,21 @@ var Ee = class {
 				}
 			}
 			try {
-				await De(() => t.process(a, { signal: a.signal }), a.signal), n.throwIfAborted();
-				let e = 0;
+				await De(() => t.process(a, {
+					signal: a.signal,
+					workId: e.workId
+				}), a.signal), n.throwIfAborted();
+				let i = 0;
 				for (;;) {
 					n.throwIfAborted();
 					try {
 						await a.end();
 						break;
-					} catch (t) {
-						if (!fe(t) || ++e > 3) throw t;
-						let i = k(e, Math.random(), t.retryAfterSeconds);
-						if (Date.now() + i >= Date.parse(r())) throw t;
-						await V(i, n);
+					} catch (e) {
+						if (!fe(e) || ++i > 3) throw e;
+						let t = k(i, Math.random(), e.retryAfterSeconds);
+						if (Date.now() + t >= Date.parse(r())) throw e;
+						await V(t, n);
 					}
 				}
 				n.throwIfAborted();
