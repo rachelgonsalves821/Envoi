@@ -2,8 +2,10 @@ import { enrollConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { createOpenClawBridge } from './runtime';
 import { migrateConnectionDirectory } from '../connector/migrate';
+import { assertOpenClawScopedAdmission } from './scoped-admission';
 
 async function main() {
+  assertOpenClawScopedAdmission(process.env);
   const apiUrl = process.env.ENVOI_API_URL;
   const requested = process.env.ENVOI_STATE_DIR;
   const stateDir = requested ? await migrateConnectionDirectory(requested) : undefined;
