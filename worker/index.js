@@ -95,7 +95,7 @@ export default {
     try {
       const container = getContainer(env.SINALOA_CONTAINER, CONTAINER_NAME);
       const response = await container.fetch(createForwardedRequest(request));
-      return withNoStoreHeaders(response);
+      return withNoStoreHeaders(response, url.pathname);
     } catch (error) {
       console.error('Envoi container request failed', {
         name: error instanceof Error ? error.name : 'Error'

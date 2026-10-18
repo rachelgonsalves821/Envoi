@@ -69,8 +69,11 @@ import { registrationPath } from './agent-approval.js';
 import { installationPath } from './agent-installations.js';
 import { deliveryModeAvailable, routeAvailable } from './onboarding-flags.js';
 import { createPollLimiter, createRegistrationLimits } from './agent-registration-limits.js';
-import { allowedCaseTools, caseSessionTokenPath, caseSessionTokenPrefix, caseSessionsHeartbeatMs, createCaseSessions, firstCondition, leaseStaleReason, publicSessionEnd, sessionConditions, validCaseSessionId, validLeaseToken, workKindOf } from './case-sessions.js';
+import { allowedCaseTools, isHumanDecision, caseSessionTokenPath, caseSessionTokenPrefix, caseSessionsHeartbeatMs, createCaseSessions, firstCondition, leaseStaleReason, publicSessionEnd, sessionConditions, validCaseSessionId, validLeaseToken, workKindOf } from './case-sessions.js';
 import { createCaseSessionMcp } from './case-session-mcp.js';
+import { createCaseTools, caseToolError } from './case-tools.js';
+import { createCaseReferenceCodec } from './case-tools-projection.js';
+import { createHttpWake } from './http-wake.js';
 
 const productionConfig = validateProductionConfiguration();
 // agent-registration v1 §1: fails closed in every mode, before anything starts.
@@ -675,7 +678,8 @@ async function checkAgentCredential(req, url, res) {
   if (identity) trackAgentPresence(req, res, identity);
   if (!identity?.paused) return;
   const readOnly = ['GET', 'HEAD'].includes(req.method) && inboxRoute;
-  const pausedAllowed = readOnly || pausedAgentRoutes.has(`${req.method} ${url.pathname}`) || req.method === 'POST' && caseSessionEndRoute.test(url.pathname);
+  const pausedAllowed = readOnly || pausedAgentRoutes.has(`${req.method} ${url.pathname}`) || req.method === 'POST' && caseSessionEndRoute.test(url.pathname)
+    || url.pathname.startsWith('/api/agent/wake-subscriptions');
   if (identity.tokenType === 'mcp_read' || url.pathname === '/mcp' || !pausedAllowed) throw agentPausedError();
 }
 
@@ -827,12 +831,12 @@ async function failAgentWorkPermanently(message, claim, reasonCode, at, writeAud
   await caseSessions.endForWork(claim.inboxId, message.id, 'work_settled', at, writeAudit);
   return receipt;
 }
-const workSenderFields = message => isHumanInstruction(message)
+const workSenderFields = message => isHumanInstruction(message) || isHumanDecision(message)
   ? { senderType: 'human', senderHumanId: message.senderHumanId }
   : { senderAgentId: message.senderAgentId };
-const workInboxIds = message => new Set(isHumanInstruction(message)
+const workInboxIds = message => new Set(isHumanInstruction(message) || isHumanDecision(message)
   ? [message.recipientInboxId] : [message.senderInboxId, message.recipientInboxId]);
-const workCaseDocuments = async (current, updated, state, at) => isHumanInstruction(current)
+const workCaseDocuments = async (current, updated, state, at) => isHumanDecision(current) ? [] : isHumanInstruction(current)
   ? humanInstructionCaseDocuments(store, current, state, at)
   : (await nativeCaseDocuments(updated, state, at, { revealRecipient: true })).documents;
 async function assertHumanInstructionAuthority(message, identity) {
@@ -870,7 +874,22 @@ const caseSessions = createCaseSessions({
     return record.event;
   }
 });
-const caseSessionMcp = createCaseSessionMcp();
+let caseReferenceCodec;
+const referenceCodec = Object.fromEntries(['ref', 'resolve', 'sealCursor', 'openCursor'].map(name => [name, (...args) => caseReferenceCodec[name](...args)]));
+const caseSessionMcp = createCaseSessionMcp(createCaseTools({ store, codec: referenceCodec,
+  withSession: withLiveCaseTool, load: loadCaseToolContext, send: sendCaseToolMessage,
+  evaluate: evaluateCaseToolAuthority, authorize: authorizeCaseTool, requestHuman: requestCaseToolHuman,
+  share: shareCaseToolAsset, readContent: readCaseToolContent, complete: completeCaseTool
+}));
+const httpWakeEnabled = process.env.ENVOI_HTTP_WAKE_V1 === 'true';
+if (process.env.ENVOI_HTTP_WAKE_V1 && !['true', 'false'].includes(process.env.ENVOI_HTTP_WAKE_V1)) throw new Error('ENVOI_HTTP_WAKE_V1 must be true or false');
+const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installationsEnabled: onboardingFlags.installations,
+  facts: async sub => ({ family: await store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)), agent: await store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`)) }),
+  audit: async (inboxId, type, data, at) => {
+    if (!inboxId) { await store.putJson(path.join('http-wake', 'epoch-audit', `${store.id('evt')}.json`), { type, data, createdAt: at }); return; }
+    const record = await auditRecord(inboxId, type, data, at); await store.putJson(record.document.path, record.document.value);
+  }
+});
 const registrations = createAgentRegistrations({
   store, flags: onboardingFlags,
   codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')),
@@ -879,7 +898,7 @@ const registrations = createAgentRegistrations({
   normalizeLocalPart: normalizeAgentLocalPart, addressForLocalPart: agentAddressForLocalPart, identityTaken, semanticDigest,
   memberOf: async (human, organizationId) => Boolean(organizationId && await getMembership(organizationId, human.id))
 });
-async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = [], allowRemoved = false) {
+async function withInboxMutation(inboxId, operation, relatedInboxIds = [], additionalLockKeys = [], allowRemoved = false, transactionOptions = {}) {
   const committedEvents = [];
   const run = async () => {
     if (!allowRemoved && (await store.getJson(path.join('inboxes', inboxId, 'inbox.json')))?.status === 'removed') throw Object.assign(new Error('Removed agent history is read-only'), { statusCode: 409 });
@@ -887,11 +906,16 @@ async function withInboxMutation(inboxId, operation, relatedInboxIds = [], addit
     const record = await auditRecord(targetInboxId, type, data, createdAt);
     await store.putJson(record.document.path, record.document.value);
     committedEvents.push({ inboxId: targetInboxId, event: record.event });
+    if (httpWakeEnabled) {
+      if (type === 'work.available' && ['human_instruction', 'human_decision', 'case_resumed', 'counterparty_resumed', 'agent_resumed'].includes(data.reason)) await httpWake.trigger({ inboxId: targetInboxId, agentId: data.agentId, reason: data.reason });
+      if (type === 'agent.resumed') await httpWake.trigger({ inboxId: targetInboxId, agentId: data.agentId, reason: 'agent_resumed' });
+      if (type === 'agent.paused') await httpWake.pause(targetInboxId, data.agentId);
+    }
     return record.event;
     });
   };
   const result = typeof store.withTransaction === 'function'
-    ? await store.withTransaction([...new Set([inboxId, ...relatedInboxIds])].map(inboxMutationKey).concat(additionalLockKeys), run)
+    ? await store.withTransaction([...new Set([inboxId, ...relatedInboxIds])].map(inboxMutationKey).concat(additionalLockKeys), run, transactionOptions)
     : await run();
   for (const committed of committedEvents) publish(committed.inboxId, committed.event);
   return result;
@@ -926,6 +950,7 @@ async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedA
     updatedAt: revokedAt
   })));
   await caseSessions.endForAgent(inboxId, agentId, 'credential_ended', revokedAt, writeAudit);
+  if (httpWakeEnabled) for (const family of active) await httpWake.endForFamily(inboxId, agentId, family.id);
   return active.length;
 }
 
@@ -937,6 +962,7 @@ async function revokeCredentialFamily(inboxId, agentId, familyId, humanId, revok
   const revoked = { ...family, revokedAt, revokedReason, revokedByHumanId: humanId, updatedAt: revokedAt };
   await store.putJson(familyPath, revoked);
   await caseSessions.endForFamily(inboxId, agentId, familyId, 'credential_ended', revokedAt, writeAudit);
+  if (httpWakeEnabled) await httpWake.endForFamily(inboxId, agentId, familyId);
   return revoked;
 }
 
@@ -1317,6 +1343,7 @@ async function activeWorkspacePolicy(inboxId) {
     consequentialActionsEnabled: consequentialActionsEnabled && configured.consequentialActionsEnabled !== false,
     externalEmailEnabled: externalEmailEnabled && configured.externalEmailEnabled !== false,
     calendarWritesEnabled: calendarWritesEnabled && configured.calendarWritesEnabled !== false
+    ,...(onboardingFlags.caseSessions ? { agreements: { requireHumanApproval: configured.agreements?.requireHumanApproval !== false } } : {})
   });
 }
 
@@ -1372,6 +1399,8 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
     phase: options.phase || 'evaluation',
     sourceEvaluationId: options.sourceEvaluationId || null,
     grantType: input.grantType || 'oneTime',
+    humanDecisionRequired: onboardingFlags.caseSessions && requestedAction === 'proposal.accept' ? policy.agreements?.requireHumanApproval !== false
+      : onboardingFlags.caseSessions && requestedAction === 'case.complete' ? caseToolCompletionNeedsHuman(caseRecord, agent.id) : null,
     keyring: policyKeyring,
     now: store.now()
   });
@@ -1384,10 +1413,11 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
   };
 }
 
-const hasHumanApprovalForEvaluation = (caseRecord, evaluationId) => caseRecord.events.some(event =>
+const hasHumanApprovalForEvaluation = (caseRecord, evaluationId, inboxId = null) => caseRecord.events.some(event =>
   event.type === 'humanAction'
   && event.payload?.action?.actionKey === 'approveOnce'
   && event.payload.action.externalRefs?.policyEvaluationId === evaluationId
+  && (!inboxId || event.payload.action.externalRefs?.sourceInboxId === inboxId)
 );
 
 const actionRequestDigest = input => {
@@ -1416,7 +1446,7 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
   const proposalStateDigest = valueDigest(caseRecord.proposals || []);
   assertExactBinding(binding, { requestedAction: requestedAction || binding.requestedAction, actionPayload: actionPayload || {}, proposalDigest: proposalId ? proposalStateDigest : null, optionId, keyring: policyKeyring, at: store.now() });
   if (evaluation.decision === 'deny') throw Object.assign(new Error(`Policy denied this action: ${evaluation.reasonCode}`), { statusCode: 403 });
-  const humanApproved = hasHumanApprovalForEvaluation(caseRecord, evaluation.id);
+  const humanApproved = hasHumanApprovalForEvaluation(caseRecord, evaluation.id, onboardingFlags.caseSessions && ['proposal.accept', 'case.complete'].includes(binding.requestedAction) ? inboxId : null);
   if (evaluation.decision === 'needsHuman' && !humanApproved && !allowPendingHuman) {
     throw Object.assign(new Error('This action requires human approval'), { statusCode: 409 });
   }
@@ -1451,6 +1481,7 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
   });
   if (refreshed.decision === 'deny') throw Object.assign(new Error(`Current policy denied this action: ${refreshed.reasonCode}`), { statusCode: 403 });
   const approvalApplies = humanApproved && refreshed.binding.policy.digest === binding.policy.digest;
+  if (onboardingFlags.caseSessions && humanApproved && !approvalApplies) throw Object.assign(new Error('Current policy requires a new human approval'), { statusCode: 409 });
   if (refreshed.decision === 'needsHuman' && !approvalApplies && !allowPendingHuman) {
     throw Object.assign(new Error('Current policy requires a new human approval'), { statusCode: 409 });
   }
@@ -1476,7 +1507,7 @@ async function ensureStructuredCase(inbox, input, actorAgentId, at) {
   return value;
 }
 
-async function nativeCaseDocuments(message, state, at, { revealRecipient = false } = {}) {
+async function nativeCaseDocuments(message, state, at, { revealRecipient = false, scopedAccept = false, scopedCompletion = null } = {}) {
   const bindingPath = caseBindingPath(message.caseId);
   let binding = await store.getJson(bindingPath);
   if (binding && !matchesCasePair(binding, message)) throw caseParticipantMismatch();
@@ -1502,7 +1533,7 @@ async function nativeCaseDocuments(message, state, at, { revealRecipient = false
     });
     binding = { caseId: message.caseId, agentIds: pairIds([message.senderAgentId, message.recipientAgentId]), inboxIds: pairIds([message.senderInboxId, message.recipientInboxId]), createdAt: at };
   }
-  const updated = advanceNativeCase(current, message, state, at);
+  const updated = advanceNativeCase(current, message, state, at, { scopedAccept, scopedCompletion });
   const documents = [document(bindingPath, binding), document(sharedCasePath(message.caseId), updated), document(caseRecordPath(message.senderInboxId, message.caseId), updated)];
   if (revealRecipient || await store.getJson(caseRecordPath(message.recipientInboxId, message.caseId))) {
     documents.push(document(caseRecordPath(message.recipientInboxId, message.caseId), updated));
@@ -1518,7 +1549,7 @@ async function nativeCaseDocuments(message, state, at, { revealRecipient = false
 
 const permanentDeliveryError = (message, reasonCode) => Object.assign(new Error(message), { permanent: true, ...(reasonCode ? { reasonCode } : {}) });
 
-async function enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType = 'message.queued', writeAudit = null, agentRequest = null) {
+async function enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType = 'message.queued', writeAudit = null, agentRequest = null, caseOptions = {}) {
   if (!writeAudit) {
     const queued = await withInboxMutation(senderInbox.id, auditWriter => enqueueNativeMessage(message, senderInbox, recipientInboxId, eventType, auditWriter, agentRequest), [recipientInboxId], [caseMutationKey(message.caseId)]);
     deliveryWorker.kick();
@@ -1547,7 +1578,7 @@ async function enqueueNativeMessage(message, senderInbox, recipientInboxId, even
   }
   const queuedAt = store.now();
   const queued = { ...message, recipientInboxId, status: 'queued', queuedAt, updatedAt: queuedAt };
-  const shared = await nativeCaseDocuments(queued, 'queued', queuedAt);
+  const shared = await nativeCaseDocuments(queued, 'queued', queuedAt, caseOptions);
   const auditData = {
     messageId: queued.id,
     caseId: queued.caseId,
@@ -1638,6 +1669,7 @@ async function deliverNativeAgentMessage(outbox) {
     );
     events.push({ inboxId: targetInboxId, event: auditEntry.event });
   }
+  if (httpWakeEnabled) await httpWake.trigger({ inboxId: outbox.recipientInboxId, agentId: queued.recipientAgentId, reason: 'message_delivered' });
   return { documents, result: { messageId: delivered.id, receiptId: receipt.id, deliveredAt }, events };
 }
 
@@ -2418,11 +2450,242 @@ async function caseSessionFacts(session) {
 }
 
 // The settlement lock set (§6.3): the agent's inbox, every inbox bound to the case, and the case key.
-async function withCaseSessionLock(session, operation) {
+async function withCaseSessionLock(session, operation, transactionOptions = {}) {
   const message = await store.getJson(messagePath(session.inboxId, session.workId));
   const binding = session.caseId ? await store.getJson(caseBindingPath(session.caseId)) : null;
   const related = [...new Set([message?.senderInboxId, message?.counterpartyInboxId, ...(binding?.inboxIds || [])].filter(id => id && id !== session.inboxId))];
-  return withInboxMutation(session.inboxId, operation, related, session.caseId ? [caseMutationKey(session.caseId)] : [], true);
+  return withInboxMutation(session.inboxId, async writeAudit => {
+    const currentBinding = session.caseId ? await store.getJson(caseBindingPath(session.caseId)) : null;
+    if (JSON.stringify(binding) !== JSON.stringify(currentBinding)) throw caseToolError('TOOL_BUSY');
+    return operation(writeAudit);
+  }, related, session.caseId ? [caseMutationKey(session.caseId)] : [], true, transactionOptions);
+}
+
+const humanRequestDir = inboxId => path.join('inboxes', inboxId, 'case-human-requests');
+const humanRequestPath = (inboxId, id) => path.join(humanRequestDir(inboxId), `${id}.json`);
+function caseToolCompletionApproval(value, agentId) {
+  const accepted = value.proposals.filter(p => p.status === 'accepted');
+  if (!accepted.length) return null;
+  let approval = null;
+  for (const proposal of accepted) {
+    const action = [...value.events].reverse().find(e => e.payload?.action?.actionKey === 'acceptProposal' && e.payload.action.actor === agentId && e.payload.action.outcome === 'ok'
+      && e.payload.action.externalRefs?.proposalId === proposal.id && e.payload.action.externalRefs?.optionId === proposal.acceptedOptionId)?.payload.action;
+    const evaluation = action && value.policyEvaluations.find(e => e.id === action.externalRefs?.policyEvaluationId && e.actor === agentId && e.requestedAction === 'proposal.accept');
+    approval = evaluation && [...value.events].reverse().find(e => e.type === 'humanAction' && e.payload?.action?.actionKey === 'approveOnce'
+      && e.payload.action.externalRefs?.serverAuthenticatedHuman === true && e.payload.action.externalRefs?.policyEvaluationId === evaluation.id
+      && e.payload.action.externalRefs?.sourceInboxId === action.externalRefs?.sourceInboxId)?.payload.action;
+    if (!approval || !action.externalRefs?.sourceInboxId) return null;
+  }
+  return approval;
+}
+const caseToolCompletionNeedsHuman = (value, agentId) => value.proposals.some(p => p.status === 'accepted') && !caseToolCompletionApproval(value, agentId);
+
+async function loadCaseToolContext(session) {
+  const facts = await caseSessionFacts(session);
+  const binding = await store.getJson(caseBindingPath(session.caseId));
+  const counterpartyAgentId = binding?.agentIds.find(id => id !== session.agentId);
+  const counterpartyDirectory = counterpartyAgentId ? await store.getJson(path.join('directory', 'agents', `${counterpartyAgentId}.json`)) : null;
+  const enrichedSession = { ...session, counterpartyAgentId, counterpartyInboxId: counterpartyDirectory?.inboxId };
+  const inbox = await store.getJson(path.join('inboxes', session.inboxId, 'inbox.json'));
+  const messages = (await store.listJson(path.join('inboxes', session.inboxId, 'messages'))).filter(m => m.caseId === session.caseId).map(m => ({ ...m, inboxId: session.inboxId }));
+  const assets = [];
+  const owned = await store.listJson(path.join('object-storage', 'metadata'));
+  const grants = await store.listJson(path.join('inboxes', session.inboxId, 'asset-grants'));
+  const candidates = new Map(owned.filter(a => a.workspaceId === session.inboxId && a.caseId === session.caseId).map(a => [a.id, a]));
+  for (const grant of grants.filter(g => g.caseId === session.caseId)) {
+    const asset = await store.getJson(objectMetadataPath(grant.assetId)); if (asset) candidates.set(asset.id, asset);
+  }
+  for (const asset of candidates.values()) {
+    if (asset.caseId !== session.caseId || !(await assetReadAccess(asset, inbox, { agent: facts.agent, manager: false })).allowed) continue;
+    const grant = enrichedSession.counterpartyInboxId ? await store.getJson(assetGrantPath(enrichedSession.counterpartyInboxId, asset.id)) : null;
+    assets.push({ ...asset, accessAllowed: true, grant: grants.find(g => g.assetId === asset.id), shared: Boolean(grant && grant.recipientAgentId === counterpartyAgentId && grant.caseId === session.caseId && grant.ownerAgentId === session.agentId) });
+  }
+  const policyEvaluations = [];
+  for (const value of facts.caseRecord.policyEvaluations.filter(e => e.actor === session.agentId)) {
+    const bound = await store.getJson(policyBindingPath(session.inboxId, value.id));
+    policyEvaluations.push({ ...value, caseId: session.caseId, actionPayload: bound?.actionPayload, humanApproval: value.decision === 'needsHuman' ? hasHumanApprovalForEvaluation(facts.caseRecord, value.id, session.inboxId) ? 'approved' : 'pending' : 'not_required' });
+  }
+  return { session: enrichedSession, agent: facts.agent, caseRecord: facts.caseRecord, workMessage: facts.message, messages, assets, policyEvaluations,
+    humanRequests: (await store.listJson(humanRequestDir(session.inboxId))).filter(r => r.caseId === session.caseId && r.agentId === session.agentId), ownHumanIds: [inbox.ownerHumanId],
+    effectiveTools: session.allowedTools.filter(name => allowedCaseTools(facts.agent.permissions, session.workKind, caseSessionMcp.implemented).includes(name)) };
+}
+
+async function assertLiveToolSession(session) {
+  const current = await caseSessions.get(session.inboxId, session.id);
+  const epoch = await caseSessions.epoch();
+  if (!current || !epoch || current.createdAt < epoch) throw credentialError('AUTHENTICATION_REQUIRED');
+  if (current.endedReason) throw current.endedReason === 'expired' ? caseSessionErrors.expired() : caseSessionErrors.ended(current.endedReason);
+  const at = store.now();
+  if (current.expiresAt <= at) throw caseSessionErrors.expired();
+  const reason = firstCondition(sessionConditions(current, await caseSessionFacts(current), at));
+  if (reason) throw caseSessionErrors.ended(reason);
+  return current;
+}
+
+async function withLiveCaseTool(scope, operation) {
+  const session = await caseSessions.get(scope.inboxId, scope.sessionId);
+  if (!session || session.agentId !== scope.agentId || session.workId !== scope.workId || session.caseId !== scope.caseId) throw credentialError('AUTHENTICATION_REQUIRED');
+  try {
+    return await withCaseSessionLock(session, async writeAudit => {
+      const binding = await store.getJson(caseBindingPath(session.caseId));
+      const current = await assertLiveToolSession(session);
+      await reconcileCaseHumanRequests(session.inboxId, session.caseId, writeAudit);
+      const ctx = { ...await loadCaseToolContext(current), writeAudit };
+      if (!ctx.effectiveTools.includes(scope.toolName)) throw Object.assign(new Error('Tool not available'), { toolNotInSession: true });
+      // A participant change while acquiring locks requires a retry, never expanded authority.
+      if (JSON.stringify(binding) !== JSON.stringify(await store.getJson(caseBindingPath(session.caseId)))) throw caseToolError('TOOL_BUSY');
+      const result = await operation(ctx);
+      await assertLiveToolSession(current); // expiry during an awaited read/effect rolls back staged writes
+      const agent = await store.getJson(path.join('inboxes', current.inboxId, 'agents', `${current.agentId}.json`));
+      if (!allowedCaseTools(agent.permissions, current.workKind, caseSessionMcp.implemented).includes(scope.toolName)) throw Object.assign(new Error('Tool not available'), { toolNotInSession: true });
+      return result;
+    }, { lockWaitMs: 5000 });
+  } catch (error) {
+    if (['CASE_SESSION_ENDED', 'CASE_SESSION_EXPIRED'].includes(error.code)) await settleCaseSessionState(session);
+    throw error;
+  }
+}
+
+async function sendCaseToolMessage(ctx, { id, type, intent, text, payload = null, inReplyTo = null }, caseOptions = {}) {
+  await assertLiveToolSession(ctx.session);
+  const at = store.now(), session = ctx.session;
+  if (session.workKind === 'human_instruction') {
+    const reply = { id, kind: 'humanInstructionReply', inboxId: session.inboxId, caseId: session.caseId,
+      senderType: 'agent', senderAgentId: session.agentId, senderInboxId: session.inboxId, recipientInboxId: session.inboxId,
+      recipientHumanId: ctx.workMessage.senderHumanId, from: { agentId: ctx.agent.id, address: ctx.agent.address },
+      inReplyTo: ctx.workMessage.id, type: 'message', text, status: 'delivered', createdAt: at, deliveredAt: at, updatedAt: at };
+    await store.putJsonBatch([...(await humanInstructionReplyDocuments(store, ctx.workMessage, reply, at)), document(messagePath(session.inboxId, id), reply)]);
+    await ctx.writeAudit('agent.instruction_replied', { messageId: id, caseId: session.caseId, inReplyTo: ctx.workMessage.id, senderAgentId: session.agentId }, at);
+    return reply;
+  }
+  const recipient = await store.getJson(path.join('inboxes', session.counterpartyInboxId, 'agents', `${session.counterpartyAgentId}.json`));
+  if (!recipient || recipient.address !== session.counterparty.address) throw caseSessionErrors.ended('work_ineligible');
+  const protocol = createProtocolMessage({ messageId: id, conversationId: session.caseId, causationId: inReplyTo,
+    from: { agentId: ctx.agent.id, address: ctx.agent.address }, to: [{ agentId: recipient.id, address: recipient.address }], intent, text,
+    proposal: payload?.proposal || null, createdAt: at });
+  const message = { id, ...protocol, caseId: session.caseId, senderInboxId: session.inboxId, recipientInboxId: session.counterpartyInboxId,
+    senderType: 'agent', senderAgentId: ctx.agent.id, recipientAgentId: recipient.id, recipientEmail: recipient.address, transport: 'native', type, text, payload,
+    requestHash: semanticDigest({ id, type, intent, text, payload, inReplyTo }), createdAt: at, queuedAt: at, status: 'queued' };
+  const inbox = await store.getJson(path.join('inboxes', session.inboxId, 'inbox.json'));
+  if (type === 'decision' && intent === 'accept') caseOptions.scopedAccept = true;
+  return enqueueNativeMessage(message, inbox, session.counterpartyInboxId, 'message.queued', ctx.writeAudit, null, caseOptions);
+}
+
+async function evaluateCaseToolAuthority(ctx, action, proposal, option, result, id) {
+  const requestedAction = action === 'accept_proposal' ? 'proposal.accept' : 'case.complete';
+  const evaluated = await evaluateServerPolicy(ctx.session.inboxId, ctx.agent, ctx.caseRecord, { requestedAction,
+    actionPayload: proposal ? { proposalId: proposal.id, optionId: option.id } : { result } }, { id });
+  const at = store.now();
+  const evaluation = policyEvaluationFromInput({ id, requestedAction, decision: evaluated.decision, matchedPolicyId: evaluated.matchedPolicyId,
+    grantType: 'oneTime', expiresAt: evaluated.expiresAt, reasonCode: evaluated.reasonCode }, ctx.agent.id, at);
+  await saveCase(ctx.session.inboxId, addPolicyEvaluation(ctx.caseRecord, evaluation, { at }));
+  await store.putJson(policyBindingPath(ctx.session.inboxId, id), evaluated.binding);
+  await ctx.writeAudit('policy.evaluated', { caseId: ctx.session.caseId, policyEvaluationId: id, requestedAction, decision: evaluation.decision, reasonCode: evaluation.reasonCode }, at);
+  return evaluation;
+}
+
+async function authorizeCaseTool(ctx, authority, requestedAction, actionPayload, proposal, option, executionId) {
+  try {
+    const authorization = await validatedPolicyBinding(ctx.session.inboxId, ctx.caseRecord, ctx.agent, authority.id, {
+      requestedAction, actionPayload, proposalId: proposal?.id, optionId: option?.id, executionId, writeAudit: ctx.writeAudit });
+    if (proposal) {
+      const result = acceptProposal(ctx.caseRecord, proposal.id, option.id, { ...authority, decision: 'allow' }, { actor: ctx.agent.id,
+        idempotencyKey: executionId, actionId: executionId, externalRefs: { policyEvaluationId: authority.id, sourceInboxId: ctx.session.inboxId }, at: store.now() });
+      await saveCase(ctx.session.inboxId, result.case);
+      await ctx.writeAudit('proposal.accept_attempted', { caseId: ctx.session.caseId, proposalId: proposal.id, optionId: option.id, actor: ctx.agent.id, outcome: result.action.outcome });
+    }
+    return authorization;
+  } catch (error) {
+    if (/expired/.test(error.message)) throw caseToolError('AUTHORITY_EXPIRED');
+    if (/denied|integrity|server-issued/.test(error.message)) throw caseToolError('AUTHORITY_DENIED');
+    if (/requires human approval/.test(error.message)) throw caseToolError('AUTHORITY_PENDING');
+    throw caseToolError('AUTHORITY_CHANGED');
+  }
+}
+
+async function requestCaseToolHuman(ctx, authority, question, id) {
+  const record = { id, inboxId: ctx.session.inboxId, agentId: ctx.agent.id, caseId: ctx.session.caseId, policyEvaluationId: authority.id,
+    counterpartyAgentId: ctx.session.counterpartyAgentId, counterpartyInboxId: ctx.session.counterpartyInboxId, counterpartyAddress: ctx.session.counterparty.address,
+    question, status: 'pending', createdAt: store.now(), expiresAt: authority.expiresAt };
+  await store.putJson(humanRequestPath(ctx.session.inboxId, id), record);
+  await ctx.writeAudit('case.human_decision_requested', { caseId: record.caseId, agentId: record.agentId, requestId: id, policyEvaluationId: authority.id, question });
+  return record;
+}
+
+async function resolveCaseHumanRequest(request, outcome, humanId, value, writeAudit) {
+  const at = store.now();
+  const ended = { ...request, status: outcome, resolvedAt: at, resolvedByHumanId: humanId || null };
+  await store.putJson(humanRequestPath(request.inboxId, request.id), ended);
+  await writeAudit('case.human_decision_resolved', { caseId: request.caseId, agentId: request.agentId, requestId: request.id, outcome }, at);
+  if (['completed', 'failed', 'expired', 'revoked'].includes(value.state)) return;
+  const id = `msg_human_decision_${hashSecret(request.id).slice(0, 32)}`;
+  if (await store.getJson(messagePath(request.inboxId, id))) return;
+  const evaluation = value.policyEvaluations.find(e => e.id === request.policyEvaluationId);
+  const message = { id, kind: 'humanDecision', type: 'humanDecision', inboxId: request.inboxId, caseId: request.caseId,
+    senderType: 'human', senderHumanId: humanId || 'system', from: { humanId: humanId || 'system' }, recipientInboxId: request.inboxId,
+    recipientAgentId: request.agentId, counterpartyAgentId: request.counterpartyAgentId, counterpartyInboxId: request.counterpartyInboxId,
+    counterpartyAddress: request.counterpartyAddress, requestId: request.id, policyEvaluationId: request.policyEvaluationId, action: evaluation?.requestedAction || 'other', outcome,
+    text: `${{ approved: 'Approved', declined: 'Declined', expired: 'Expired' }[outcome]}: ${evaluation?.requestedAction === 'proposal.accept' ? 'accept the requested option.' : 'the requested case outcome.'}`,
+    status: 'delivered', createdAt: at, deliveredAt: at, updatedAt: at };
+  await store.putJson(messagePath(request.inboxId, id), message);
+  await writeAudit('work.available', { agentId: request.agentId, reason: 'human_decision', caseId: request.caseId }, at);
+}
+
+async function reconcileCaseHumanRequests(inboxId, caseId, writeAudit) {
+  const value = await getCase(inboxId, caseId);
+  if (!value) return;
+  const closed = ['completed', 'failed', 'expired', 'revoked'].includes(value.state);
+  for (const request of await store.listJson(humanRequestDir(inboxId))) {
+    if (request.caseId === caseId && request.status === 'pending' && (closed || request.expiresAt <= store.now())) await resolveCaseHumanRequest(request, 'expired', null, value, writeAudit);
+  }
+}
+
+async function cleanupCaseHumanRequests() {
+  if (!caseSessions.enabled) return;
+  const agents = await store.listJson(path.join('directory', 'agents'));
+  for (const inboxId of new Set(agents.map(a => a.inboxId).filter(Boolean))) {
+    const requests = await store.listJson(humanRequestDir(inboxId));
+    for (const caseId of new Set(requests.filter(r => r.status === 'pending').map(r => r.caseId))) {
+      await withCaseMutation(inboxId, caseId, writeAudit => reconcileCaseHumanRequests(inboxId, caseId, writeAudit), { allowPaused: true });
+    }
+  }
+}
+
+async function shareCaseToolAsset(ctx, asset) {
+  await assertLiveToolSession(ctx.session);
+  asset = await store.getJson(objectMetadataPath(asset.id));
+  if (!asset || asset.caseId !== ctx.session.caseId || asset.createdByAgentId !== ctx.agent.id || asset.workspaceId !== ctx.session.inboxId) throw caseToolError('ASSET_NOT_SHAREABLE');
+  if (asset.state !== 'clean') throw caseToolError('ASSET_NOT_CLEAN');
+  if (!await assetPair(asset, ctx.session.counterpartyAgentId, ctx.session.counterpartyInboxId) || await assetRelationshipBlocked(asset, ctx.session.counterpartyAgentId, ctx.session.counterpartyInboxId)) throw caseToolError('REF_NOT_FOUND');
+  const location = assetGrantPath(ctx.session.counterpartyInboxId, asset.id);
+  if (await store.getJson(location)) return true;
+  const grant = { id: `grant_${hashSecret(`${asset.id}:${asset.caseId}:${ctx.session.counterpartyAgentId}`).slice(0, 40)}`, schemaVersion: '1.0', assetId: asset.id, caseId: asset.caseId,
+    ownerInboxId: ctx.session.inboxId, ownerAgentId: ctx.agent.id, recipientInboxId: ctx.session.counterpartyInboxId, recipientAgentId: ctx.session.counterpartyAgentId,
+    grantedByAgentId: ctx.agent.id, createdAt: store.now() };
+  await store.putJson(location, grant);
+  await ctx.writeAudit('asset.granted', { assetId: asset.id, caseId: asset.caseId, grantId: grant.id, recipientAgentId: grant.recipientAgentId, recipientInboxId: grant.recipientInboxId, actorAgentId: ctx.agent.id });
+  return false;
+}
+async function readCaseToolContent(ctx, asset) {
+  const { bytes } = await objectStorage.readCleanObject(asset.id);
+  await assertLiveToolSession(ctx.session);
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+}
+async function completeCaseTool(ctx, result, authority, evidence, id) {
+  let humanDecision = caseToolCompletionApproval(ctx.caseRecord, ctx.agent.id);
+  if (authority) {
+    await authorizeCaseTool(ctx, authority, 'case.complete', { result }, null, null, id);
+    humanDecision = [...ctx.caseRecord.events].reverse().find(e => e.type === 'humanAction' && e.payload?.action?.actionKey === 'approveOnce' && e.payload.action.externalRefs?.policyEvaluationId === authority.id)?.payload.action || humanDecision;
+  }
+  if (caseToolCompletionNeedsHuman(ctx.caseRecord, ctx.agent.id) && !humanDecision) throw caseToolError(authority ? 'AUTHORITY_PENDING' : 'AUTHORITY_REQUIRED');
+  if (ctx.humanRequests.some(r => r.status === 'pending')) throw caseToolError('AUTHORITY_PENDING');
+  const humanApproval = humanDecision ? 'approved' : 'not_required';
+  await sendCaseToolMessage(ctx, { id, type: 'completion', intent: 'receipt', text: result,
+    payload: { completion: { result, evidence: evidence.map(a => a.id), humanApproval } } }, { scopedCompletion: { humanDecision, evidenceRefs: evidence.map(a => a.id) } });
+  await ctx.writeAudit('case.completed', { caseId: ctx.session.caseId, receiptId: `receipt_${id}` });
+  const binding = await store.getJson(caseBindingPath(ctx.session.caseId));
+  for (const inboxId of binding?.inboxIds || [ctx.session.inboxId]) await reconcileCaseHumanRequests(inboxId, ctx.session.caseId, (type, data, at) => ctx.writeAudit(type, data, at, inboxId));
+  return { humanApproval };
 }
 
 // §6.2 steps 3–5 (and §8 with endIfUsable). A recorded end always wins. Otherwise expiry, then the
@@ -2579,8 +2842,69 @@ async function releaseCaseWork(inboxId, caseId, at, writeAudit) {
       if (message?.caseId === caseId) released.push(document(workClaimPath(participantInboxId, claim.workId), releasedClaim(claim, at)));
     }
     await store.putJsonBatch(released);
+    if (httpWakeEnabled) for (const agentId of new Set(released.map(entry => entry.value.agentId))) await httpWake.trigger({ inboxId: participantInboxId, agentId, type: 'wake.control_changed', reason: 'case_controlled' });
     await caseSessions.endForCase(participantInboxId, caseId, 'case_controlled', at, writeAudit);
   }
+}
+
+async function handleHttpWakeRoute(req, res, url) {
+  if (url.pathname === '/.well-known/envoi-wake-keys.json') {
+    if (req.method !== 'GET') return fail(res, 405, 'Method not allowed');
+    const keys = httpWake.keys();
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=300, s-maxage=0' });
+    return res.end(JSON.stringify(keys));
+  }
+  res.setHeader('cache-control', 'no-store');
+  const host = url.pathname.match(/^\/api\/agent\/wake-subscriptions(?:\/([^/]+)\/(activate|end))?$/);
+  const ownerRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/agents\/([^/]+)\/wake-subscriptions(?:\/([^/]+)\/(revoke))?$/);
+  if (!host && !ownerRoute) throw codedError(404, 'WAKE_SUBSCRIPTION_NOT_FOUND', 'Wake subscription not found.');
+  if (ownerRoute) {
+    const human = await auth.getHuman(req), inbox = await store.getJson(path.join('inboxes', assertSafeIdentifier(ownerRoute[1], 'inboxId'), 'inbox.json'));
+    if (!human || !inbox || !await canManageInbox(human, inbox, { maxAgeMs: 0 }) || inbox.ownerAgentId !== ownerRoute[2]) throw codedError(403, 'REQUEST_FAILED', 'Workspace administrator required.');
+  }
+  if (req.method !== 'POST' && req.method !== 'GET' || (host?.[2] || ownerRoute?.[4]) && req.method !== 'POST') return fail(res, 405, 'Method not allowed');
+  let input;
+  if (req.method === 'POST') {
+    try { input = await body(req, 65536); } catch { throw codedError(400, 'WAKE_SUBSCRIPTION_INVALID', 'Invalid wake subscription request.'); }
+    const fields = host ? host[2] === 'activate' ? ['challenge'] : host[2] === 'end' ? [] : ['url'] : [];
+    if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).length !== fields.length || fields.some(key => !Object.hasOwn(input, key))
+      || fields.some(key => typeof input[key] !== 'string') || fields.includes('url') && (input.url.length < 1 || Array.from(input.url).length > 8192)
+      || fields.includes('challenge') && !/^envoi_wake_challenge_[A-Za-z0-9_-]{43}$/.test(input.challenge)) throw codedError(400, 'WAKE_SUBSCRIPTION_INVALID', 'Invalid wake subscription request.');
+  }
+  const initial = host ? await getAgentWorkIdentity(req) : null;
+  if (host && !initial) throw credentialError('AUTHENTICATION_REQUIRED');
+  const inboxId = host ? initial.inboxId : assertSafeIdentifier(ownerRoute[1], 'inboxId');
+  const result = await withInboxMutation(inboxId, async () => {
+    let identity;
+    if (host) {
+      const current = await getAgentWorkIdentity(req);
+      if (!current || current.inboxId !== initial.inboxId || current.agent.id !== initial.agent.id || current.familyId !== initial.familyId) throw credentialError('CREDENTIAL_REVOKED');
+      const installation = await installations.forFamily(current.inboxId, current.agent, current.familyId);
+      if (!installation) throw credentialError('CREDENTIAL_REVOKED');
+      identity = { inboxId: current.inboxId, agentId: current.agent.id, familyId: current.familyId, installationId: installation.id };
+    } else {
+      const human = await auth.getHuman(req), inbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
+      if (!human || !inbox || !await canManageInbox(human, inbox, { maxAgeMs: 0 }) || inbox.ownerAgentId !== ownerRoute[2]) throw codedError(403, 'REQUEST_FAILED', 'Workspace administrator required.');
+    }
+    // Expected refusals follow durable create counters/derived ending writes. Commit
+    // them, then surface the typed error outside the transaction.
+    try {
+      const value = host ? req.method === 'GET' ? await httpWake.list(identity)
+        : host[2] === 'activate' ? await httpWake.activate(identity, host[1], input)
+        : host[2] === 'end' ? await httpWake.end(identity, host[1]) : await httpWake.create(identity, input)
+        : ownerRoute[4] ? await httpWake.ownerRevoke(inboxId, ownerRoute[2], ownerRoute[3]) : await httpWake.ownerList(inboxId, ownerRoute[2]);
+      return { value };
+    } catch (error) {
+      if ([400, 404, 409, 429].includes(error.statusCode)) return { error };
+      throw error;
+    }
+  });
+  if (result.error) {
+    const error = result.error;
+    if (error.retryAfter) res.setHeader('retry-after', String(error.retryAfter));
+    throw codedError(error.statusCode, error.code, 'Wake subscription request could not be completed.', { ...(error.reason ? { reason: error.reason } : {}), ...(error.retryAfter ? { retryAfterSeconds: error.retryAfter } : {}) });
+  }
+  return json(res, host && req.method === 'POST' && !host[2] ? 201 : 200, result.value);
 }
 
 async function route(req, res) {
@@ -2596,6 +2920,8 @@ async function route(req, res) {
   req.setTimeout(requestTimeoutMs);
   // case-session v1 §3 row 1 and §8: with the flag off, the mint and end routes do not exist.
   const caseSessionRoute = req.method === 'POST' ? url.pathname.match(/^\/api\/agent\/work\/([^/]+)\/session(\/end)?$/) : null;
+  const wakeRoute = url.pathname === '/.well-known/envoi-wake-keys.json' || url.pathname.startsWith('/api/agent/wake-subscriptions') || /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/wake-subscriptions/.test(url.pathname);
+  if (wakeRoute && !httpWakeEnabled) throw codedError(404, 'FEATURE_DISABLED', 'HTTPS wake is not available on this server.');
   if (caseSessionRoute && !caseSessions.enabled) throw caseSessionErrors.featureDisabled();
   // Apply a stable source-IP bound on every route before trusting bearer or
   // cookie headers. Rotating invalid credentials must not reset this limit.
@@ -2619,6 +2945,7 @@ async function route(req, res) {
   // case-session v1 §6: a session token is checked by its own rules, before any other credential.
   if (url.pathname === '/mcp' && String(bearerToken(req) || '').startsWith(caseSessionTokenPrefix)) return handleCaseSessionMcp(req, res, url);
   await enforceAgentCredential(req, url, res);
+  if (wakeRoute) return handleHttpWakeRoute(req, res, url);
   if (caseSessionRoute) return handleCaseSessionRoute(req, res, caseSessionRoute);
   if (url.pathname === '/mcp') {
     const identity = await getMcpIdentity(req);
@@ -2700,7 +3027,7 @@ async function route(req, res) {
     const claimCandidates = action === 'claim' ? (await store.listJson(path.join('inboxes', identity.inboxId, 'messages')))
       .filter(message => !isHumanInstruction(message) || input.acceptHumanInstructions === true) : [];
     const ownCandidates = claimCandidates.filter(message => message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status));
-    const humanCaseIds = [...new Set([requestedMessage, ...ownCandidates].filter(isHumanInstruction).map(message => assertSafeIdentifier(message.caseId, 'caseId')))];
+    const humanCaseIds = [...new Set([requestedMessage, ...ownCandidates].filter(m => isHumanInstruction(m) || isHumanDecision(m)).map(message => assertSafeIdentifier(message.caseId, 'caseId')))];
     const humanBindings = await Promise.all(humanCaseIds.map(caseId => store.getJson(caseBindingPath(caseId))));
     const relatedWorkInboxes = [...new Set([requestedMessage?.senderInboxId, ...ownCandidates.map(message => message.senderInboxId), ...humanBindings.flatMap(binding => binding?.inboxIds || [])].filter(Boolean))];
     const workLockKeys = [...new Set([...(requestedMessage?.caseId ? [caseMutationKey(requestedMessage.caseId)] : []), ...humanCaseIds.map(caseMutationKey)])];
@@ -2735,7 +3062,7 @@ async function route(req, res) {
       }
       if (action === 'claim') {
         const messages = claimCandidates
-          .filter(message => (isHumanInstruction(message) || message.senderInboxId && message.senderAgentId) && message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status))
+          .filter(message => (isHumanInstruction(message) || isHumanDecision(message) || message.senderInboxId && message.senderAgentId) && message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status))
           .sort((left, right) => String(left.deliveredAt || left.createdAt).localeCompare(String(right.deliveredAt || right.createdAt)) || String(left.id).localeCompare(String(right.id)));
         let nextAvailable = null;
         const noteAvailable = (claim, at) => {
@@ -2751,6 +3078,8 @@ async function route(req, res) {
           if (isHumanInstruction(message)) {
             try { await assertHumanInstructionAuthority(message, currentIdentity); }
             catch (error) { if ([400, 403, 404, 409, 422].includes(error.statusCode)) continue; throw error; }
+          } else if (isHumanDecision(message)) {
+            if (await workIneligibility(message, currentIdentity)) continue;
           } else {
             const senderAgent = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
             if (!senderAgent || !canAct(senderAgent, 'send_agent_messages')) continue;
@@ -2813,6 +3142,9 @@ async function route(req, res) {
       await assertCaseProgressAllowed(identity.inboxId, currentMessage.caseId);
       if (isHumanInstruction(currentMessage)) {
         await assertHumanInstructionAuthority(currentMessage, currentIdentity);
+      } else if (isHumanDecision(currentMessage)) {
+        if (action === 'reply') throw Object.assign(new Error('Human instruction required'), { statusCode: 404 });
+        if (await workIneligibility(currentMessage, currentIdentity)) throw Object.assign(new Error('Work no longer eligible'), { statusCode: 403 });
       } else {
         if (action === 'reply') throw Object.assign(new Error('Human instruction required'), { statusCode: 404 });
         const senderAgent = await store.getJson(path.join('inboxes', currentMessage.senderInboxId, 'agents', `${currentMessage.senderAgentId}.json`));
@@ -3024,6 +3356,8 @@ async function route(req, res) {
     }
     // case-session v1 §1: on every status response, whatever the flag.
     status.caseSessions = { available: caseSessions.enabled, version: 1 };
+    const installation = await installations.forFamily(identity.inboxId, agent, identity.familyId);
+    status.httpWake = await withInboxMutation(identity.inboxId, () => httpWake.status({ inboxId: identity.inboxId, agentId: agent.id, familyId: identity.familyId, installationId: installation?.id }));
     return json(res, 200, status);
   }
 
@@ -4236,19 +4570,33 @@ async function route(req, res) {
           if (replayAction.actor !== human.id || replayAction.externalRefs?.requestDigest !== requestDigest) throw Object.assign(new Error('Idempotency key was already used for a different action'), { statusCode: 409 });
           return { status: 200, result: { case: value, action: replayAction, replay: true } };
         }
+        const scopedRequest = onboardingFlags.caseSessions && ['approveOnce', 'decline'].includes(input.actionKey)
+          ? (await store.listJson(humanRequestDir(inboxId))).find(r => r.caseId === value.id && r.policyEvaluationId === input.externalRefs?.policyEvaluationId && r.status === 'pending') : null;
+        let scopedBinding = null;
+        if (onboardingFlags.caseSessions && input.actionKey === 'decline' && input.externalRefs?.policyEvaluationId && !scopedRequest) throw Object.assign(new Error('A current local human decision request is required'), { statusCode: 409 });
+        if (scopedRequest) {
+          scopedBinding = await store.getJson(policyBindingPath(inboxId, scopedRequest.policyEvaluationId));
+          if (!scopedBinding || !verifyDecisionRecord(scopedBinding, { keyring: policyKeyring, requireSigned: true }) || scopedBinding.agentId !== scopedRequest.agentId || scopedBinding.caseId !== value.id || scopedBinding.expiresAt <= now) throw Object.assign(new Error('A current open human decision request is required'), { statusCode: 409 });
+        }
         if (input.actionKey === 'approveOnce') {
-          if (input.externalRefs?.requestedAction === 'case.complete') {
+          if (input.externalRefs?.requestedAction === 'case.complete' && !scopedRequest) {
+            if (input.externalRefs?.policyEvaluationId) throw Object.assign(new Error('A current local human decision request is required'), { statusCode: 409 });
             if (value.state !== 'waitingForHuman' || typeof input.externalRefs?.result !== 'string' || !input.externalRefs.result.trim()) throw Object.assign(new Error('A pending case decision and result are required'), { statusCode: 409 });
           } else {
             const evaluationId = input.externalRefs?.policyEvaluationId;
             const evaluation = value.policyEvaluations.find(item => item.id === evaluationId);
             const binding = evaluation ? await store.getJson(policyBindingPath(inboxId, evaluationId)) : null;
             await policyDecisionChain(inboxId);
-            if (!evaluationId || !evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) throw Object.assign(new Error('A current needsHuman policy evaluation is required for one-time approval'), { statusCode: 409 });
+            if (!evaluationId || !evaluation || !binding || binding.workspaceId !== inboxId || binding.agentId !== inbox.ownerAgentId
+              || onboardingFlags.caseSessions && ['proposal.accept', 'case.complete'].includes(binding.requestedAction) && !scopedRequest
+              || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.decision !== 'needsHuman' || new Date(binding.expiresAt) <= new Date()) throw Object.assign(new Error('A current needsHuman policy evaluation is required for one-time approval'), { statusCode: 409 });
           }
         }
         const { serverAuthenticatedHuman: _ignoredHumanClaim, ...suppliedRefs } = input.externalRefs || {};
-        result = applyHumanAction(value, { id: store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: { ...suppliedRefs, caseId: value.id, serverAuthenticatedHuman: true, requestDigest }, reasonCode: input.reasonCode || null }, { at: now });
+        const boundRefs = scopedBinding?.requestedAction === 'case.complete' ? { requestedAction: 'case.complete', result: scopedBinding.actionPayload.result } : {};
+        result = applyHumanAction(value, { id: store.id('action'), actionKey: input.actionKey, actor: human.id, idempotencyKey, externalRefs: { ...suppliedRefs, ...boundRefs, caseId: value.id, sourceInboxId: inboxId, serverAuthenticatedHuman: true, requestDigest }, reasonCode: input.reasonCode || null },
+          { at: now, preserveState: Boolean(scopedRequest && (input.actionKey === 'decline' || scopedBinding.requestedAction === 'proposal.accept')) });
+        if (scopedRequest) await resolveCaseHumanRequest(scopedRequest, input.actionKey === 'approveOnce' ? 'approved' : 'declined', human.id, result.case, writeAudit);
       } else {
         if (currentPrincipal.id !== value.actingAgent || !isCaseParticipant(value, currentPrincipal.id)) throw Object.assign(new Error('Case participant credential required'), { statusCode: 403 });
         if (value.state === 'waitingForHuman' && input.nextState && input.nextState !== 'waitingForHuman') throw Object.assign(new Error('Authenticated human case decision is required'), { statusCode: 409 });
@@ -4876,13 +5224,62 @@ async function route(req, res) {
 // then stamp a new database (src/deployment-identity.js). A refusal exits non-zero.
 await verifyDeploymentIdentityBeforeInit(store, deploymentIdentity);
 await store.init();
+if (caseSessions.enabled) {
+  await store.withTransaction(['config:case-reference-key'], async () => {
+    let stored = await store.getJson(path.join('config', 'case-reference-key'));
+    if (!stored) { stored = encryptConnectorTokens(crypto.randomBytes(32).toString('base64')); await store.putJson(path.join('config', 'case-reference-key'), stored); }
+    const decipher = crypto.createDecipheriv('aes-256-gcm', connectorEncryptionKey(), Buffer.from(stored.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(stored.tag, 'base64'));
+    const key = JSON.parse(Buffer.concat([decipher.update(Buffer.from(stored.ciphertext, 'base64')), decipher.final()]).toString('utf8'));
+    caseReferenceCodec = createCaseReferenceCodec(Buffer.from(key, 'base64'));
+  });
+}
 await ensureDeploymentIdentity(store, { ...deploymentIdentity, releaseSha, now: () => store.now() });
 await objectStorage.init();
 await objectStorage.reapExpiredUploads({ limit: 25 });
 await reconcileLegacyAgentRevocations();
 // case-session v1 §1: the sessions epoch, and the heartbeat that keeps it from moving while on.
 await caseSessions.startEpoch();
+await httpWake.startup();
+let wakeDrainRun = null;
+let wakeMaintenanceRun = null;
+async function wakeMaintenance() {
+  if (!httpWakeEnabled) return;
+  await httpWake.heartbeat();
+  await httpWake.cleanup();
+  for (const sub of await store.listJson(path.join('http-wake', 'subscriptions'))) {
+    if (sub.status !== 'active') continue;
+    await withInboxMutation(sub.inboxId, async () => {
+      const agent = await store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`));
+      if (!agent || agent.status !== 'active') return;
+      const at = store.now();
+      for (const claim of await store.listJson(path.join('inboxes', sub.inboxId, 'work-claims'))) {
+        const due = claim.status === 'retryable' && claim.retryAt <= at || ['claimed', 'acknowledged'].includes(claim.status) && claim.leaseExpiresAt <= at;
+        if (!due || agentWorkAttempts(claim) >= agentWorkMaxAttempts && !claim.reofferWithoutAttempt) continue;
+        const message = await store.getJson(messagePath(sub.inboxId, claim.workId));
+        if (!message || !['delivered', 'acknowledged'].includes(message.status)) continue;
+        const value = await getCase(sub.inboxId, message.caseId);
+        if (['paused', 'revoked'].includes(value?.state) || await workIneligibility(message, { agent, inboxId: sub.inboxId })) continue;
+        await httpWake.trigger({ inboxId: sub.inboxId, agentId: sub.agentId, reason: 'work_due' });
+        break;
+      }
+    });
+  }
+}
+const wakeDispatch = httpWakeEnabled ? setInterval(() => {
+  wakeDrainRun ||= (async () => { for (let i = 0; i < 50 && await httpWake.runOnce(); i++); })()
+    .catch(() => console.error(JSON.stringify({ event: 'envoi.http_wake_dispatch_failed' }))).finally(() => { wakeDrainRun = null; });
+}, 250) : null;
+const wakeMaintenanceTimer = httpWakeEnabled ? setInterval(() => {
+  wakeMaintenanceRun ||= wakeMaintenance().catch(() => console.error(JSON.stringify({ event: 'envoi.http_wake_maintenance_failed' }))).finally(() => { wakeMaintenanceRun = null; });
+}, 1000) : null;
+wakeDispatch?.unref(); wakeMaintenanceTimer?.unref();
 const caseSessionsHeartbeat = caseSessions.enabled ? setInterval(() => { void caseSessions.heartbeat().catch(() => console.error(JSON.stringify({ event: 'envoi.case_sessions_heartbeat_failed' }))); }, caseSessionsHeartbeatMs) : null;
+let humanRequestCleanupRun = null;
+const humanRequestCleanup = setInterval(() => {
+  humanRequestCleanupRun ||= cleanupCaseHumanRequests().catch(() => console.error(JSON.stringify({ event: 'envoi.human_decision_cleanup_failed' }))).finally(() => { humanRequestCleanupRun = null; });
+}, Math.max(100, Number(process.env.ENVOI_CASE_SESSION_CLEANUP_INTERVAL_MS || 5000)));
+humanRequestCleanup.unref();
 caseSessionsHeartbeat?.unref?.();
 await synchronizePublicEmailDirectory();
 deliveryWorker.start();
@@ -4960,6 +5357,9 @@ const shutdown = () => {
   clearInterval(agentRotationReaper);
   clearInterval(registrationCleanup);
   clearInterval(caseSessionCleanup);
+  clearInterval(humanRequestCleanup);
+  if (wakeDispatch) clearInterval(wakeDispatch);
+  if (wakeMaintenanceTimer) clearInterval(wakeMaintenanceTimer);
   if (caseSessionsHeartbeat) clearInterval(caseSessionsHeartbeat);
   clearInterval(operationalBacklogLogger);
   if (waitlistSheetInterval) clearInterval(waitlistSheetInterval);
@@ -4970,7 +5370,7 @@ const shutdown = () => {
     subscription.res.end();
   }
   server.close(async () => {
-    await Promise.allSettled([objectScanRun, objectScanRetentionRun].filter(Boolean));
+    await Promise.allSettled([objectScanRun, objectScanRetentionRun, wakeDrainRun, wakeMaintenanceRun, humanRequestCleanupRun].filter(Boolean));
     await deliveryWorker.stop();
     if (store.close) await store.close();
     process.exit(0);

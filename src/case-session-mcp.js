@@ -40,7 +40,12 @@ export function createCaseSessionMcp(tools = new Map()) {
       if (typeof name !== 'string' || !effectiveTools.includes(name)) return sendJson(res, 200, codedRpcError(id, 'Tool not available in this case session', 'TOOL_NOT_IN_SESSION'));
       const args = request.params?.arguments ?? {};
       if (!validators.get(name)(args)) return sendJson(res, 200, codedRpcError(id, 'Invalid tool arguments', 'TOOL_ARGUMENTS_INVALID'));
-      return sendJson(res, 200, rpcResult(id, await tools.get(name).run(args, scope)));
+      try { return sendJson(res, 200, rpcResult(id, await tools.get(name).run(args, scope))); }
+      catch (error) {
+        if (error.invalidToolArguments) return sendJson(res, 200, codedRpcError(id, 'Invalid tool arguments', 'TOOL_ARGUMENTS_INVALID'));
+        if (error.toolNotInSession) return sendJson(res, 200, codedRpcError(id, 'Tool not available in this case session', 'TOOL_NOT_IN_SESSION'));
+        throw error;
+      }
     }
   };
 }

@@ -182,7 +182,7 @@ export function acceptProposal(caseInput, proposalId, optionId, evaluation, { ac
   return { case: assertValidCase(value), action };
 }
 
-export function applyHumanAction(caseInput, actionInput, { at }) {
+export function applyHumanAction(caseInput, actionInput, { at, preserveState = false }) {
   if (!HUMAN_ACTIONS.includes(actionInput.actionKey)) throw domainError('Unsupported human action', 400);
   const action = assertValidAction({ ...actionInput, outcome: 'ok', reasonCode: actionInput.reasonCode || null, externalRefs: actionInput.externalRefs || {}, createdAt: at });
   let value = clone(caseInput);
@@ -196,7 +196,7 @@ export function applyHumanAction(caseInput, actionInput, { at }) {
     if (!pauseEvent || !pauseEvent.payload?.from) throw domainError('Paused case has no previous state', 409);
     value = transitionCase(value, pauseEvent.payload.from, { actor: action.actor, at, reasonCode: 'resume' });
   }
-  if (targetState) value = transitionCase(value, targetState, { actor: action.actor, at, reasonCode: action.actionKey });
+  if (targetState && !preserveState) value = transitionCase(value, targetState, { actor: action.actor, at, reasonCode: action.actionKey });
   appendEvent(value, {
     id: `evt_${crypto.randomUUID()}`,
     type: 'humanAction',
@@ -255,7 +255,7 @@ export function verifiedHumanCaseDecision(caseInput, actionId, result) {
 const nativeMessageType = message => ({ offer: 'proposal', counteroffer: 'counterproposal', accept: 'decision', reject: 'decision', receipt: 'completion' }[message.intent] || message.type || 'message');
 const nativeOption = (message, value) => ({ id: `option_${message.id}`, value, sourceConfidence: 'enteredForCase', expired: false, outOfPolicyFlags: [] });
 
-export function advanceNativeCase(caseInput, message, deliveryState, at) {
+export function advanceNativeCase(caseInput, message, deliveryState, at, { scopedAccept = false, scopedCompletion = null } = {}) {
   let value = clone(caseInput);
   const eventId = `evt_${message.id}`;
   const existing = value.events.find(item => item.id === eventId);
@@ -301,6 +301,9 @@ export function advanceNativeCase(caseInput, message, deliveryState, at) {
     const reference = message.payload?.decision?.proposalMessageId;
     const prior = value.events.find(item => item.payload?.messageId === reference);
     const proposal = value.proposals.find(item => item.id === prior?.payload?.proposalId);
+    if (message.payload?.decision?.kind === 'reject' && proposal) {
+      proposal.status = 'withdrawn'; proposal.updatedAt = at; payload.proposalId = proposal.id;
+    }
     if (message.payload?.decision?.kind === 'accept' || message.intent === 'accept') {
       if (!proposal) throw domainError('Decision must reference a proposal in this case', 409);
       proposal.status = 'accepted';
@@ -312,13 +315,13 @@ export function advanceNativeCase(caseInput, message, deliveryState, at) {
   appendEvent(value, { id: eventId, type: type === 'decision' ? 'decision' : 'message', actor: message.senderAgentId, createdAt: message.createdAt, payload, linkedPolicyEvaluation: null, precedingEventRef: value.events.at(-1)?.id || null });
   if (value.state === 'new') value = transitionCase(value, 'inProgress', { actor: message.senderAgentId, at, reasonCode: 'caseStarted' });
   if (type === 'decision' && (message.payload?.decision?.kind === 'accept' || message.intent === 'accept')) {
-    value = transitionCase(value, 'waitingForHuman', { actor: message.senderAgentId, at, reasonCode: 'agentDecisionNeedsHumanReview' });
+    if (!scopedAccept) value = transitionCase(value, 'waitingForHuman', { actor: message.senderAgentId, at, reasonCode: 'agentDecisionNeedsHumanReview' });
   }
   if (type === 'completion') {
     const completion = message.payload?.completion;
     if (!completion || typeof completion.result !== 'string' || !completion.result.trim()) throw domainError('Completion result is required', 400);
     const claimedBasis = completion.authorityBasis || null;
-    const humanDecision = verifiedHumanCaseDecision(value, claimedBasis, completion.result);
+    const humanDecision = scopedCompletion?.humanDecision || verifiedHumanCaseDecision(value, claimedBasis, completion.result);
     if (claimedBasis && !humanDecision) throw domainError('Completion authority is not a verified human case decision', 409);
     const approvalRequired = value.events.some(item => item.type === 'decision' && item.payload?.messageType === 'decision' && item.payload?.data?.decision?.kind === 'accept');
     if ((approvalRequired || value.state === 'waitingForHuman') && !humanDecision) throw domainError('Authenticated human case decision is required', 409);
@@ -329,7 +332,7 @@ export function advanceNativeCase(caseInput, message, deliveryState, at) {
       externalIds: {},
       authorityBasis: humanDecision?.id || 'nativeAgentCompletion',
       humanApprovalStatus: humanDecision ? 'approved' : 'notRequired',
-      evidenceRefs: Array.isArray(completion.evidenceRefs) ? completion.evidenceRefs : [],
+      evidenceRefs: scopedCompletion?.evidenceRefs || (Array.isArray(completion.evidenceRefs) ? completion.evidenceRefs : []),
       createdAt: at
     };
     value = completeCase(value, receipt, { actor: message.senderAgentId, at });

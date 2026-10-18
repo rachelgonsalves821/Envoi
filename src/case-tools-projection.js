@@ -114,7 +114,7 @@ export function projectCaseAsset(asset, { codec, session }) {
   if (asset.caseId !== session.caseId || !owner && !(asset.accessAllowed === true
     && asset.grant?.recipientInboxId === session.inboxId && asset.grant?.recipientAgentId === session.agentId
     && asset.grant?.caseId === session.caseId && asset.grant?.assetId === asset.id)) return null;
-  const scan = asset.state === 'clean' ? 'clean' : ['reserved', 'uploaded', 'quarantined', 'scanning'].includes(asset.state) ? 'pending' : 'blocked';
+  const scan = asset.state === 'clean' ? 'clean' : ['reserved', 'uploaded', 'quarantine', 'quarantined', 'scanning'].includes(asset.state) ? 'pending' : 'blocked';
   return { ref: codec.ref(session, 'a', asset.id), filename: truncateJsonText(asset.filename, 255).text,
     mimeType: truncateJsonText(asset.mimeType, 128).text, size: asset.size, scan,
     origin: owner ? 'you' : 'other_agent', shared: owner && asset.shared === true };
@@ -137,7 +137,7 @@ export function projectCaseSnapshot(context, input = {}) {
     const native = caseEvents.find(event => event.payload?.messageId === message.id && ['message', 'decision'].includes(event.type));
     const kind = kinds[message.kind] || nativeTypes[native?.payload?.messageType] || 'message';
     const actor = ['instruction', 'human_decision'].includes(kind) ? 'your_human' : message.senderAgentId === session.agentId ? 'you' : 'other_agent';
-    const intent = kind === 'human_decision' ? (['approveOnce', 'decline', 'expired'].includes(message.intent) ? message.intent : 'expired')
+    const intent = kind === 'human_decision' ? ({ approved: 'approveOnce', declined: 'decline', expired: 'expired' }[message.outcome] || (['approveOnce', 'decline', 'expired'].includes(message.intent) ? message.intent : 'expired'))
       : ['instruction', 'instruction_reply'].includes(kind) ? null : intents.has(message.intent) ? message.intent : 'other';
     const text = truncateJsonText(message.text, snapshotLimits.eventTextMaxBytes);
     return { ref: ref('m', message.id), kind, actor, at: message.createdAt, intent, ...text,
@@ -208,7 +208,8 @@ export function projectCaseSnapshot(context, input = {}) {
   refreshPage();
   const { recentEvents: ignored, ...fixed } = result;
   if (bytes(fixed) > snapshotLimits.fixedSectionsMaxBytes) throw new TypeError('Snapshot fixed sections exceed the contract budget');
-  while (bytes(result) > snapshotLimits.resultMaxBytes && pageEvents.length > 1) { pageEvents = pageEvents.slice(1); refreshPage(); }
-  if (bytes(result) > snapshotLimits.resultMaxBytes) throw new TypeError('Snapshot exceeds the contract budget');
+  const resultBytes = () => bytes({ ok: true, tool: 'envoi_case_snapshot', result });
+  while (resultBytes() > snapshotLimits.resultMaxBytes && pageEvents.length > 1) { pageEvents = pageEvents.slice(1); refreshPage(); }
+  if (resultBytes() > snapshotLimits.resultMaxBytes) throw new TypeError('Snapshot exceeds the contract budget');
   return result;
 }

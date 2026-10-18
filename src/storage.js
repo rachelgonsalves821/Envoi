@@ -51,7 +51,7 @@ export class FileStore {
     } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
   }
 
-  async withTransaction(keys, operation) {
+  async withTransaction(keys, operation, { lockWaitMs = null } = {}) {
     if (!Array.isArray(keys) || keys.some(key => typeof key !== 'string' || !key || key.length > 512) || typeof operation !== 'function') throw new TypeError('Transaction keys and callback are required');
     const orderedKeys = [...new Set(keys)].sort();
     const current = this.currentTransaction();
@@ -62,7 +62,16 @@ export class FileStore {
     const previous = this.transactionTail;
     let release;
     this.transactionTail = previous.then(() => new Promise(resolve => { release = resolve; }));
-    await previous;
+    let waitTimer;
+    try {
+      await (lockWaitMs == null ? previous : Promise.race([previous, new Promise((_, reject) => {
+        waitTimer = setTimeout(() => reject(Object.assign(new Error('Transaction lock wait expired'), { code: 'LOCK_TIMEOUT' })), lockWaitMs);
+      })]));
+    } catch (error) {
+      // Keep the queue linked, but never execute a timed-out caller afterwards.
+      previous.then(() => release?.());
+      throw error;
+    } finally { clearTimeout(waitTimer); }
     const context = { keys: new Set(orderedKeys), writes: new Map(), active: true };
     try {
       const result = await this.transactionContext.run(context, operation);
