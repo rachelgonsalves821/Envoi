@@ -12,7 +12,6 @@ export const WORKSPACE_EVENT_TYPES = [
   'case_session.ended', 'agent.case_session_created', 'agent.case_session_ended',
   'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed',
   'case.human_decision_requested', 'case.human_decision_resolved',
-  'agent.case_session_created', 'agent.case_session_ended', 'case_session.ended',
   'agent.case_tool_used',
   'agent.wake_subscription_created', 'agent.wake_subscription_activated', 'agent.wake_subscription_ended',
   'policy.evaluated', 'policy.re_evaluated', 'proposal.created', 'proposal.countered', 'proposal.accept_attempted',
