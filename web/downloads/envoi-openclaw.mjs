@@ -1085,6 +1085,68 @@ var Te = class {
 		if (Date.parse(t.agentTokenExpiresAt) <= Date.now() + e && (t = await this.freshSession(!0)), Date.parse(t.agentTokenExpiresAt) <= Date.now() + e) throw new B();
 		return t.agentApiToken;
 	}
+	get wakeOrigin() {
+		return this.origin;
+	}
+	async wakeRequest(e, t, n) {
+		n?.throwIfAborted();
+		let r = t === void 0 && ["/api/agent/status", "/api/agent/wake-subscriptions"].includes(e), i = e === "/api/agent/wake-subscriptions" && t && Object.keys(t).length === 1 && typeof t.url == "string", a = /^\/api\/agent\/wake-subscriptions\/wake_sub_[A-Za-z0-9_-]{3,64}\/activate$/.test(e) && t && Object.keys(t).length === 1 && typeof t.challenge == "string", o = /^\/api\/agent\/wake-subscriptions\/wake_sub_[A-Za-z0-9_-]{3,64}\/end$/.test(e) && t && Object.keys(t).length === 0;
+		if (!r && !i && !a && !o) throw TypeError("Invalid trusted wake operation");
+		let s = t === void 0 ? void 0 : JSON.stringify(t);
+		return this.withFreshSession(async (r, i) => {
+			n?.throwIfAborted();
+			let a = AbortSignal.timeout(1e4), o;
+			try {
+				o = await (this.options.fetch || fetch)(`${this.origin}${e}`, {
+					method: t === void 0 ? "GET" : "POST",
+					credentials: "omit",
+					redirect: "error",
+					headers: {
+						authorization: `Bearer ${r.agentApiToken}`,
+						...t ? { "content-type": "application/json" } : {}
+					},
+					...s === void 0 ? {} : { body: s },
+					signal: AbortSignal.any([
+						a,
+						i,
+						...n ? [n] : []
+					])
+				});
+			} catch {
+				throw new C("Wake service is unavailable", void 0, n?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
+			}
+			let c = o.body?.getReader(), l = [], u = 0;
+			try {
+				for (; c;) {
+					let e = await c.read();
+					if (e.done) break;
+					if (u += e.value.length, u > 16777216) throw Error();
+					l.push(e.value);
+				}
+				let e = new Uint8Array(u), t = 0;
+				for (let n of l) e.set(n, t), t += n.length;
+				let r = new Response(e, {
+					status: o.status,
+					headers: o.headers
+				});
+				if (n?.throwIfAborted(), !o.ok) {
+					let t = JSON.parse(new TextDecoder("utf-8", { fatal: !0 }).decode(e));
+					if (!t || typeof t != "object" || Array.isArray(t)) throw Error();
+					let n = typeof t.code == "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(t.code) ? t.code : void 0, r = typeof t.reason == "string" && /^[a-z][a-z0-9_]{0,63}$/.test(t.reason) ? t.reason : void 0, i = typeof t.requestId == "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(t.requestId) ? t.requestId : void 0, a = o.headers.get("retry-after"), s = Math.max(a && /^\d{1,6}$/.test(a) ? Number(a) : 0, typeof t.retryAfterSeconds == "number" && Number.isSafeInteger(t.retryAfterSeconds) && t.retryAfterSeconds >= 0 ? t.retryAfterSeconds : 0);
+					throw new C("Wake request was refused", o.status, n, {
+						reason: r,
+						requestId: i,
+						...s ? { retryAfterSeconds: Math.min(s, 86400) } : {}
+					});
+				}
+				return await T(r, "Wake request was refused");
+			} catch (e) {
+				throw n?.aborted ? new C("Wake request was cancelled", void 0, "REQUEST_CANCELLED") : a.aborted ? new C("Wake request timed out", void 0, "TIMEOUT") : e instanceof C ? e : new C("Invalid wake response");
+			} finally {
+				await c?.cancel().catch(() => {});
+			}
+		}, !1);
+	}
 	mintMcpReadToken(e = null) {
 		if (this.options.caseSessionHandler) throw new C("Scoped runtimes cannot mint legacy model credentials", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
 		if (e !== null && (typeof e != "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e))) throw TypeError("A safe case ID is required for an MCP read token");
