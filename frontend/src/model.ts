@@ -20,8 +20,11 @@ export const ASSET_STATE_META: Record<AssetState | 'unknown', { label: string; d
 };
 
 export function assetDisplayName(asset: Asset) { return asset.filename || asset.name || 'Untitled file'; }
-export function assetStateMeta(asset: Asset) { return ASSET_STATE_META[asset.state || 'unknown']; }
-export function canDownloadAsset(asset: Asset) { return asset.state === 'clean'; }
+export function assetStateMeta(asset: Asset) {
+  const state = asset.state === 'clean' && asset.scan?.status && asset.scan.status !== 'clean' ? asset.scan.status : asset.state;
+  return state && Object.hasOwn(ASSET_STATE_META, state) ? ASSET_STATE_META[state] : ASSET_STATE_META.unknown;
+}
+export function canDownloadAsset(asset: Asset) { return asset.state === 'clean' && (!asset.scan || asset.scan.status === 'clean'); }
 
 export function filterAssets(assets: Asset[], cases: WorkCase[], agents: Agent[], filters: { query?: string; caseId?: string; creatorId?: string; mimeType?: string }) {
   const query = (filters.query || '').trim().toLowerCase();
