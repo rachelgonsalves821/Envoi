@@ -9,7 +9,8 @@ import {
   Folder, Hand, LogOut, Pause, Play, PlugZap, Plus, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
-import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl, setExpectedHuman } from './api';
+import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
+import { prepareCaseAssetDownload } from './case-files';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
 import { ClaimPage } from './onboarding/ClaimPage';
@@ -1329,19 +1330,17 @@ function ContextRail({ workCase, view, onPolicy, onEvidence, notify }: { workCas
   );
 }
 
-function AssetRow({ asset, inboxId, notify }: { asset: Asset; inboxId: string; notify: (message: string) => void }) {
+export function AssetRow({ asset, inboxId, notify }: { asset: Asset; inboxId: string; notify: (message: string) => void }) {
   const [busy, setBusy] = useState(false);
   const state = assetStateMeta(asset);
   const downloadable = canDownloadAsset(asset);
   async function download() {
     setBusy(true);
     try {
-      const result = await api.downloadAsset(inboxId, asset.id);
-      const url = safeDownloadUrl(result.download.url);
-      if (!url) throw new Error('The storage provider returned an unsafe download address.');
+      const { url, filename } = await prepareCaseAssetDownload(inboxId, asset);
       const link = document.createElement('a');
       link.href = url;
-      link.download = assetDisplayName(asset);
+      link.download = filename;
       link.rel = 'noopener';
       link.referrerPolicy = 'no-referrer';
       document.body.appendChild(link);
@@ -1354,14 +1353,15 @@ function AssetRow({ asset, inboxId, notify }: { asset: Asset; inboxId: string; n
       setBusy(false);
     }
   }
-  return <div className={`asset-row tone-${state.tone}`}><div className="asset-row-heading"><FileText size={17} /><span><strong>{assetDisplayName(asset)}</strong><small>{asset.mimeType} · {formatBytes(asset.size)}</small></span></div><span className="asset-state"><StatusGlyph state={asset.state === 'clean' ? 'completed' : asset.state === 'infected' ? 'failed' : asset.state === 'error' ? 'unknownExternalResult' : 'waitingForExternalParty'} />{state.label}</span><p>{state.description}</p>{downloadable && <button className="button tertiary compact" disabled={busy} onClick={() => void download()}><Download size={14} />{busy ? 'Preparing…' : 'Download file'}</button>}</div>;
+  return <div className={`asset-row tone-${state.tone}`}><div className="asset-row-heading"><FileText size={17} /><span><strong>{assetDisplayName(asset)}</strong><small>{asset.mimeType} · {formatBytes(asset.size)}</small></span></div><span className="asset-state"><StatusGlyph state={downloadable ? 'completed' : state.tone === 'danger' ? 'failed' : state.tone === 'unknown' ? 'unknownExternalResult' : 'waitingForExternalParty'} />{state.label}</span><p>{state.description}</p>{downloadable && <button className="button tertiary compact" disabled={busy} onClick={() => void download()}><Download size={14} />{busy ? 'Preparing…' : 'Download file'}</button>}</div>;
 }
 
 function RailSection({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) { return <section className="rail-section"><h3>{icon}{title}</h3>{children}</section>; }
 function RailEmpty({ children }: { children: ReactNode }) { return <p className="rail-empty">{children}</p>; }
 
 export function ReceiptCard({ workCase }: { workCase: WorkCase }) {
-  const receipt = workCase.receipt!;
+  const receipt = workCase.receipt;
+  if (!receipt || typeof receipt.result !== 'string' || !receipt.result.trim()) return null;
   function exportReceipt() {
     const url = URL.createObjectURL(new Blob([JSON.stringify({ caseId: workCase.id, receipt }, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a');
@@ -1406,19 +1406,17 @@ function SharedFilesPage({ view, notify, onOpenCase }: { view: HumanView; notify
   </div>;
 }
 
-function FileItem({ asset, workCase, creator, inboxId, notify, onOpenCase }: { asset: Asset; workCase?: WorkCase; creator?: Agent; inboxId: string; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void }) {
+export function FileItem({ asset, workCase, creator, inboxId, notify, onOpenCase }: { asset: Asset; workCase?: WorkCase; creator?: Agent; inboxId: string; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void }) {
   const safe = canDownloadAsset(asset);
-  const status = safe ? 'Safe' : asset.state === 'infected' ? 'Blocked' : 'Scanning';
+  const status = assetStateMeta(asset);
   async function download() {
     try {
-      const result = await api.downloadAsset(inboxId, asset.id);
-      const url = safeDownloadUrl(result.download.url);
-      if (!url) throw new Error('The download address is unsafe');
-      const link = document.createElement('a'); link.href = url; link.download = assetDisplayName(asset); link.rel = 'noopener'; link.referrerPolicy = 'no-referrer'; document.body.appendChild(link); link.click(); link.remove();
+      const { url, filename } = await prepareCaseAssetDownload(inboxId, asset);
+      const link = document.createElement('a'); link.href = url; link.download = filename; link.rel = 'noopener'; link.referrerPolicy = 'no-referrer'; document.body.appendChild(link); link.click(); link.remove();
       notify('Downloading');
     } catch (caught) { notify(assetDownloadError(caught)); }
   }
-  return <div className="file-item"><div className="file-name"><span className="file-type"><FileText size={16} /></span><div><strong>{assetDisplayName(asset)}</strong><small>{formatDate(asset.createdAt)}</small></div></div><div>{workCase ? <button className="file-case-link" onClick={() => onOpenCase(workCase)}>{workCase.objective || 'Untitled case'}</button> : 'No case'}</div><div>{creator?.name || 'Other agent'}</div><time dateTime={asset.createdAt}>{formatDate(asset.createdAt)}</time><div>{formatBytes(asset.size)}</div><div className={`file-scan ${status.toLowerCase()}`}>{safe ? <ShieldCheck size={14} /> : <Clock3 size={14} />}{status}</div>{safe && <button className="file-download" aria-label={`Download ${assetDisplayName(asset)}`} onClick={() => void download()}><Download size={15} /></button>}</div>;
+  return <div className="file-item"><div className="file-name"><span className="file-type"><FileText size={16} /></span><div><strong>{assetDisplayName(asset)}</strong><small>{formatDate(asset.createdAt)}</small></div></div><div>{workCase ? <button className="file-case-link" onClick={() => onOpenCase(workCase)}>{workCase.objective || 'Untitled case'}</button> : 'No case'}</div><div>{creator?.name || 'Other agent'}</div><time dateTime={asset.createdAt}>{formatDate(asset.createdAt)}</time><div>{formatBytes(asset.size)}</div><div className={`file-scan ${safe ? 'safe' : status.tone}`} title={status.description}>{safe ? <ShieldCheck size={14} /> : <Clock3 size={14} />}{status.label}</div>{safe && <button className="file-download" aria-label={`Download ${assetDisplayName(asset)}`} onClick={() => void download()}><Download size={15} /></button>}</div>;
 }
 
 const PLANNED_ACTION_GATES = ['Calendar availability', 'Hold times', 'Submit forms', 'Spend money'];
