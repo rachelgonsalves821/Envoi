@@ -4,6 +4,10 @@ Consumes human-approved `http-wake` v1 at `269d9697cb8dd2d6ddd77f49e671c7fff6916
 
 ## Composition
 
+The existing generated `envoi-connector.mjs` artifact exports `EnvoiConnector`, `EnvoiError`, `HttpWakeReceiver`, `FileWakeStore`, `createScopedWakeHost` and `createWakeHttpHandler`. Import these named exports from the same verified artifact so the host and its SDK share one class identity. The artifact has no repository or third-party runtime dependency; its hash and size remain in the existing `release.json`. No additional public download, installer or registration system is introduced.
+
+Importing the artifact does not run the connector CLI, read credentials, create storage, open a listener or start polling. Running it directly retains the existing CLI behavior, including renamed files and symbolic-link entry paths. Import uses filesystem metadata only to distinguish direct execution. The published JavaScript exports are not a declaration-file package. Existing CLI setup does not automatically opt an installation into HTTPS wake or bypass provider admission.
+
 - `HttpWakeKeys` reads only the configured HTTPS Envoi origin's fixed public key-set path, with bounded verified-TLS requests and no redirects or credentials. It honors cache age, rotates keys, throttles unknown-key refresh and returns retryable deferrals after failed key retrieval.
 - `HttpWakeReceiver.receive()` verifies ordered raw-byte signature and envelope checks against its configured registered URL, never the incoming Host header. Unknown fields/reasons are ignored and unknown types are acknowledged without execution. An accepted notification is saved privately before acknowledgement, with a durable pending action and replay record.
 - `FileWakeStore.open()` restricts a dedicated directory to its owner and acquires the existing process lock. Atomic, flushed, bounded state preserves subscription identities, owner-revocation memory, replay IDs and interrupted dispatch. Corrupt or linked state fails closed; it is not silently recreated. Call `close()` after stopping the host and HTTP requests. Use a separate directory per installation, not a vendor profile or another connector's root.
@@ -14,6 +18,8 @@ Consumes human-approved `http-wake` v1 at `269d9697cb8dd2d6ddd77f49e671c7fff6916
 The deployment owner supplies HTTPS termination and forwards unchanged raw bytes. The URL used for verification must be the server's returned canonical subscription URL. Never reconstruct it from proxy headers. Run the receiver before creating a subscription: a challenge can precede the create response, in which case it is deferred until the subscription ID has been stored.
 
 Construct the transport with the existing connector and trusted agent/installation/inbox identity. Construct the receiver with `{ origin, registeredUrl, store }`; construct the host with the transport, same store, a trusted `WakeWorkDriver`, and that registered URL. Pass both to the HTTP handler. Only an explicitly authorized operator starts an HTTPS server or calls `host.run(signal)`; importing these modules does neither.
+
+For the scoped composition, an approved host application imports the artifact, supplies its existing private `ConnectorStore` and accepted CaseSession handler, constructs `EnvoiConnector`, and calls `createScopedWakeHost`. Use the same private `FileWakeStore` instance for that host and receiver, and the same registered URL for signature verification and subscription ownership. `createWakeHttpHandler` can then be attached to that application's existing HTTPS server with its shutdown signal. All storage access, polling, subscription requests and listening remain explicit operator actions. Never import this trusted-host bundle into a model sandbox or treat the presence of these exports as proof that a provider can execute safely or wake while closed.
 
 ## Runtime requirements
 
@@ -33,6 +39,8 @@ PowerShell, from the repository root:
 npx vitest run --config integrations/vitest.config.ts integrations/connector/http-wake
 npx vitest run --config vitest.sdk.config.ts sdk/typescript/test/http-wake.test.ts
 npm run typecheck
+npm run build
+node --test test/wake-download.test.js test/quick-connect-download.test.js
 ```
 
 Receiver tests consume canonical executable fixtures without modifying or copying them. Synthetic keys and loopback HTTP servers test additional boundaries; they are not real Hermes/OpenClaw, hosted provider or tenant evidence. Store fixtures use disposable temporary directories only. No proof files contain live credentials.
