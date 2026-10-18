@@ -62,9 +62,9 @@ async function settle(baseUrl, who, work) {
     key: `settle-${work.workId}`, body: { leaseToken: work.leaseToken } });
   assert.ok([200, 201].includes(response.status), response.text);
 }
-async function claimCase(baseUrl, who, caseId) {
+async function claimCase(baseUrl, who, caseId, options = {}) {
   return eventually(async () => {
-    const response = await claim(baseUrl, who.agentApiToken);
+    const response = await claim(baseUrl, who.agentApiToken, options);
     assert.equal(response.status, 200, response.text);
     if (!response.payload.work) return null;
     assert.equal(response.payload.work.message.caseId, caseId, response.text);
@@ -284,7 +284,7 @@ for (const backend of backends) {
     const issued = await api(baseUrl, `/api/inboxes/${bob.inbox.id}/cases/${first.caseId}/instructions`, { session: bob.session,
       key: 'own-instruction', body: { text: 'Summarize this case for me.', recipientAgentId: bob.agent.id } });
     assert.equal(issued.status, 201, issued.text);
-    const work = await claimCase(baseUrl, bob, first.caseId);
+    const work = await claimCase(baseUrl, bob, first.caseId, { acceptHumanInstructions: true });
     const session = await mint(baseUrl, bob, work);
     const shown = await snapshot(baseUrl, session);
     assert.deepEqual(shown.counterparty, { kind: 'human' });
