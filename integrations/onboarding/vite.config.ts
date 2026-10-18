@@ -21,6 +21,6 @@ export default defineConfig({
   build: {
     target: 'node22', outDir: 'integrations/onboarding/dist', emptyOutDir: true,
     lib: { entry: 'integrations/onboarding/entry.ts', formats: ['es'], fileName: () => 'envoi-link.mjs' },
-    rollupOptions: { external: [/^node:/], output: { codeSplitting: false, banner: '#!/usr/bin/env node' } }
+    rolldownOptions: { external: [/^node:/], output: { codeSplitting: false, banner: '#!/usr/bin/env node' }, experimental: { attachDebugInfo: 'none' } }
   }
 });
