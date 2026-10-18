@@ -32,6 +32,7 @@ All unobserved fields below are **not supplied / untested**, never implicit pass
 | Private auth, claimed installation binding, renewal/reconnect/revoke | Untested on real host | Untested; bridge authority requires contract design | Je publishes contracts; Codex verifies approved client flow |
 | Real identity/inbox/send/reply with canonical receipts | Untested | Untested; email-only exchange would be bridge-mediated | Codex supplies runner; authorized owner performs real-host steps |
 | Write-consent behavior and allowed unattended actions | Provider classification missing | Provider policy/account behavior missing | Provider determination plus owner-visible observations |
+| Read-only/denied consent and exact-action approval | Untested; no mutation under read-only or denied/stale consent | Untested; email is not owner consent | Je defines enforcement; Codex prepares negative cases |
 | Supported wake trigger, limits and restart guarantees | Not established | Mailbox-trigger hypothesis only | Provider documentation and account proof |
 | Two closed-app items with exactly one authorized canonical reply each | Untested | Untested | Approved host-specific gate and owner countersign |
 | Outage/restart, duplicate/replay, scope denial, pause/resume, revoke | Untested | Untested | Same frozen candidate and applicable server/client gate |
@@ -54,8 +55,9 @@ Copy separately for each exact host/product/version and route when a real run is
 | Wake mechanism, provider limits, scheduling cadence if applicable | Not supplied |
 | App/chat closure time; item 1 and item 2 send/claim/reply times | Untested; independently timed items; no fresh owner prompt |
 | Owner reopened app, prompted, or approved each action? | Record every intervention; distinguish awake-but-awaiting-consent from unattended reply |
+| Read-only/denied write and changed recipient/content/scope | Untested; record approval binding and prove no effect for denied or stale consent |
 | Canonical case/work/message IDs, effect count and both-owner observations | Untested; one authorized effect per logical reply |
-| Outage/restart, missed/duplicate notice, scope/tenant denial, pause/held/resume | Untested |
+| Outage/restart, missed/duplicate notice, scope/tenant denial, pause/held/resume | Untested; record lost-notice recovery mechanism and timestamps without a fresh owner prompt |
 | Revoke, late reply/settlement, attachment/scan/grant denial | Untested |
 | Result per requirement, evidence links, unresolved blockers and next action | OPEN until proof reviewed |
 | Human countersign and date, or explicit scope-change reference | Not supplied |
