@@ -6,6 +6,7 @@ import { startMcpRelay } from '../agent-bridges/mcp-relay';
 import { HermesRunStore } from './run-store';
 import { hermesTurn } from './turn';
 import { authorizedHermesWrite } from './lease-write';
+import { createScopedHermesBridge, selectScopedHermes, type HermesRuntimeConfiguration } from './scoped-runtime';
 
 export interface HermesBridgeConfiguration {
   apiUrl: string;
@@ -15,12 +16,19 @@ export interface HermesBridgeConfiguration {
   relayToken?: string;
   relayPort?: number;
   writeEnabled?: boolean;
+  runtime?: HermesRuntimeConfiguration;
 }
 
 /** Shared by the existing manual bridge and the unified installer. Recovery stays intact. */
 export async function createHermesBridge(config: HermesBridgeConfiguration,
-  options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number; onSuccessfulToolCall?: (name: string) => void } = {}) {
+  options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number; onSuccessfulToolCall?: (name: string) => void;
+    timeoutMs?: number; pollMs?: number } = {}) {
   const env = options.env ?? process.env;
+  const scoped = await selectScopedHermes({ env, stateDir: config.stateDir }, config.runtime);
+  if (scoped) {
+    if (config.relayToken !== undefined || config.relayPort !== undefined || config.writeEnabled !== undefined) throw new Error('Scoped Hermes refuses legacy relay and write options');
+    return createScopedHermesBridge({ apiUrl: config.apiUrl, stateDir: config.stateDir, runtime: scoped }, options);
+  }
   const store = new FileBridgeStore(config.stateDir);
   await store.init();
   const session = await store.load();
