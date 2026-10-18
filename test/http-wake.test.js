@@ -215,6 +215,13 @@ storeTest('cancelled and deadline-exceeded waiters cannot block the next receive
   assert.equal(await admission.admit({...base,subscriptionId:'expired',eventId:'wake_evt_expired',token:'expired'}),false);
   clock+=2;await admission.release('next');await admission.release('occupy');
   assert.equal(await admission.admit({...base,subscriptionId:'last',token:'last'}),true);
+  await admission.admit({...base,subscriptionId:'busy',token:'busy'});
+  await h.store.putJson('http-wake/subscriptions/wake_sub_ended.json',{id:'wake_sub_ended',status:'active'});
+  await h.store.putJson('http-wake/queue/wake_evt_ended.json',{id:'wake_evt_ended',subscriptionId:'wake_sub_ended',status:'processing',deadline:new Date(clock+60000).toISOString()});
+  assert.equal(await admission.admit({...base,subscriptionId:'ended',eventId:'wake_evt_ended',token:'ended'}),false);
+  await h.store.putJson('http-wake/subscriptions/wake_sub_ended.json',{id:'wake_sub_ended',status:'ended'});
+  await admission.release('last');await admission.release('busy');
+  assert.equal(await admission.admit({...base,subscriptionId:'after-end',token:'after-end'}),true);
 });
 
 test('response body drain retains its slot and the original whole-attempt deadline',async t=>{
