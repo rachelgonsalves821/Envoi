@@ -148,6 +148,8 @@ export async function owner(baseUrl, suffix) {
   const verified = await api(baseUrl, '/api/auth/phone/verify', { session, body: { challengeId: phone.payload.challengeId, code: phone.payload.developmentCode } });
   assert.ok(verified.payload?.human, `phone verify: ${describe(verified)}`);
   const setup = await api(baseUrl, '/api/auth/totp/setup', { session, body: {} });
+  assert.equal(setup.status, 201, `TOTP setup for fresh owner ${suffix}: ${describe(setup)}`);
+  assert.equal(typeof setup.payload?.secret, 'string', 'fresh owner TOTP setup returns a secret');
   assert.equal((await api(baseUrl, '/api/auth/totp/verify', { session, body: { code: generateSync({ secret: setup.payload.secret }) } })).status, 200);
   const workspace = await api(baseUrl, '/api/inboxes', { session, body: { name: `A3 ${suffix}` } });
   const enrollment = await api(baseUrl, `/api/inboxes/${workspace.payload.id}/agent-enrollment-tokens`, { session, body: { permissions: ['send_agent_messages', 'receive_agent_messages', 'create_assets', 'execute_cases'] } });

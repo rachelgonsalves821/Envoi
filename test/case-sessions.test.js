@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { api, claim, eventually, launch, newRotationId, owner, ownerEvents, pauseAgent, refresh, resumeAgent, revokeAgent, send, sha256, waitForMessageStatus, workClaimParts } from './a3-harness.js';
+import { api, claim, eventually, launch, newRotationId, openEventStream, owner, ownerEvents, pauseAgent, refresh, resumeAgent, revokeAgent, send, sha256, waitForMessageStatus, workClaimParts } from './a3-harness.js';
 import { documents } from './agent-registration-harness.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -46,7 +46,10 @@ function assertSessionCreated(res, baseUrl) {
 }
 
 const sessionsOn = { ENVOI_INSTALLATIONS_V2: 'true', ENVOI_CASE_SESSIONS_V1: 'true' };
-const backends = [{ name: 'FileStore', env: {}, suffix: '81' }, ...(process.env.DATABASE_URL ? [{ name: 'PostgreSQL', env: { DATABASE_URL: process.env.DATABASE_URL }, suffix: '82' }] : [])];
+// The PostgreSQL suite shares its database across files. 81/82 belong to
+// agent-activation.test.js: reusing them signs into an already MFA-enrolled
+// human, whose TOTP setup correctly refuses replacement after phone-only auth.
+const backends = [{ name: 'FileStore', env: {}, suffix: '91' }, ...(process.env.DATABASE_URL ? [{ name: 'PostgreSQL', env: { DATABASE_URL: process.env.DATABASE_URL }, suffix: '92' }] : [])];
 
 const sessionRoute = workId => `/api/agent/work/${workId}/session`;
 const mint = (baseUrl, who, workId, leaseToken, token = who.agentApiToken) => api(baseUrl, sessionRoute(workId), { token, body: { leaseToken } });
@@ -214,6 +217,8 @@ for (const backend of backends) {
     // Agent pause: agent_paused with an event, the lease released, and resume never revives it.
     let work = await claimedWork(baseUrl, alice, bob, 'pause');
     let session = assertSessionCreated(await mint(baseUrl, bob, work.workId, work.leaseToken), baseUrl).session;
+    const installationStream = await openEventStream(server, bob.inbox.id, null, { headers: bob.session.headers(baseUrl, 'GET'), query: '?from=latest' });
+    assert.equal(installationStream.status, 200);
     await pauseAgent(baseUrl, bob);
     const [paused] = await eventsFor('case_session.ended', session.id);
     assertSchema('caseSessionEndedEvent', paused);
@@ -291,6 +296,9 @@ for (const backend of backends) {
     session = assertSessionCreated(await mint(baseUrl, bob, work.workId, work.leaseToken), baseUrl).session;
     await revokeAgent(baseUrl, bob);
     assertEnded(await mcp(baseUrl, session.token, 'ping'), 'credential_ended');
+    const publishedEnd = await installationStream.waitFor(event => event.data?.type === 'agent.case_session_ended' && event.data?.sessionId === session.id);
+    assert.equal(publishedEnd.data.endedReason, 'credential_ended', 'session-end audit is published live after commit');
+    installationStream.close();
   });
 
   test(`[${backend.name}] the sessions epoch: a restart keeps sessions, a disable never revives them`, { timeout: 90000 }, async t => {
@@ -370,6 +378,25 @@ for (const backend of backends) {
       assert.equal((await store.get(workClaimParts(frank.inbox.id, work.workId))).reofferWithoutAttempt, true, actionKey);
       assertEnded(await mcp(baseUrl, session.token, 'ping'), 'case_controlled');
     }
+  });
+
+  test(`[${backend.name}] an agent nextState control transition releases the other participant's lease`, { timeout: 60000 }, async t => {
+    const server = await launch({ ...backend.env, ...sessionsOn });
+    t.after(() => server.stop());
+    const { baseUrl } = server;
+    const [alice, bob] = await pair(baseUrl, 8);
+    const work = await claimedWork(baseUrl, alice, bob, 'agent-control');
+    const session = assertSessionCreated(await mint(baseUrl, bob, work.workId, work.leaseToken), baseUrl).session;
+    const response = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${work.caseId}/actions`, {
+      token: alice.agentApiToken, key: `cs-agent-control-${backend.suffix}`,
+      body: { actionKey: 'case.note', outcome: 'ok', nextState: 'paused' }
+    });
+    assert.equal(response.status, 201, response.text);
+    assertEnded(await mcp(baseUrl, session.token, 'ping'), 'case_controlled');
+    const persisted = await documents(t, backend, server).get(workClaimParts(bob.inbox.id, work.workId));
+    assert.equal(persisted.reofferWithoutAttempt, true);
+    assert.equal(persisted.leaseExpiresAt, null);
+    assert.equal(persisted.attempts, 1);
   });
 
   test(`[${backend.name}] cleanup records expiry and removes records 24 h after it`, { timeout: 60000 }, async t => {
