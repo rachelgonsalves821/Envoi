@@ -166,7 +166,7 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
     expect(test.effect).not.toHaveBeenCalled();
   });
 
-  it('refuses unverified scoped runtime admission without claiming work or changing saved state', async () => {
+  it('refuses conflicting legacy configuration without claiming work or changing saved state', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-scoped-'));
     try {
       const store = new FileBridgeStore(directory); await store.init();
@@ -178,7 +178,7 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
       const files = await readdir(directory);
       await expect(createOpenClawBridge(config, { env: { ENVOI_SCOPED_TOOLS: 'true', OPENCLAW_MCP_RELAY_PORT: '1',
         ENVOI_ASSET_MANIFEST_PATH: '/do/not/read' }, fetch: fetcher }))
-        .rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+        .rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
       expect(fetcher).not.toHaveBeenCalled();
       expect(await readFile(path.join(directory, 'session.json'))).toEqual(saved);
       expect(await readdir(directory)).toEqual(files);
@@ -193,7 +193,7 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
       await expect(createOpenClawBridge({ apiUrl: 'https://envoi.example', stateDir: path.join(directory, 'not-created'),
         gatewayUrl: test.config.gatewayUrl, gatewayToken: test.config.gatewayToken, agentId: test.config.agentId }, {
         env: { ENVOI_SCOPED_TOOLS: 'true', OPENCLAW_MCP_RELAY_TOKEN: 'legacy-secret', OPENCLAW_MCP_WRITE_ENABLED: 'true' }, fetch: fetcher
-      })).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE', message: expect.not.stringContaining('private-gateway-token') });
+      })).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE', message: expect.not.stringContaining('private-gateway-token') });
       expect(await readdir(directory)).toEqual([]);
       expect(fetcher).not.toHaveBeenCalled();
       expect(test.effect).not.toHaveBeenCalled();
@@ -202,16 +202,16 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
 
   it('refuses discovery and adapter preflight before reading configuration or invoking the legacy Gateway', async () => {
     const read = vi.fn(); const fetcher = vi.fn();
-    const options = { env: { ENVOI_SCOPED_TOOLS: 'true' }, readFile: read, fetch: fetcher };
+    const options = { env: { ENVOI_SCOPED_TOOLS: 'true', ENVOI_MCP_URL: 'https://private-legacy.example' }, readFile: read, fetch: fetcher };
     const { gatewayUrl, gatewayToken, agentId } = harness().config;
     const config = { gatewayUrl, gatewayToken, agentId, configPath: '/private/config', chatCompletionsEnabled: true };
-    await expect(discoverOpenClaw(options)).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
-    await expect(preflightOpenClaw(config, options)).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
-    await expect(openclawAdapter.preflight(config, options)).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+    await expect(discoverOpenClaw(options)).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
+    await expect(preflightOpenClaw(config, options)).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
+    await expect(openclawAdapter.preflight(config, options)).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
     expect(read).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it('does not redeem an enrollment token from Quick Connect while scoped admission is unavailable', async () => {
+  it('does not redeem an enrollment token from Quick Connect with conflicting legacy settings', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-setup-refusal-'));
     try {
       const fetcher = vi.fn();
@@ -219,13 +219,13 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
       await expect(setupQuickConnect({ version: 1, runtime: 'openclaw', apiUrl: 'https://envoi.example',
         address: 'agent@example.com', agentName: 'Fixture', enrollmentToken: 'fixture-enrollment-token-private-12345',
         expiresAt: new Date(Date.now() + 600000).toISOString() }, {
-        env: { ENVOI_SCOPED_TOOLS: 'true' }, stateDir: directory, fetch: fetcher, secureDirectory
-      })).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+        env: { ENVOI_SCOPED_TOOLS: 'true', OPENCLAW_MCP_WRITE_ENABLED: 'false' }, stateDir: directory, fetch: fetcher, secureDirectory
+      })).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
       expect(fetcher).not.toHaveBeenCalled();
       expect(secureDirectory).not.toHaveBeenCalled();
       await expect(startQuickConnect(directory, new AbortController().signal, {
-        env: { ENVOI_SCOPED_TOOLS: 'true' }, fetch: fetcher, secureDirectory
-      })).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+        env: { ENVOI_SCOPED_TOOLS: 'true', OPENCLAW_MCP_WRITE_ENABLED: 'false' }, fetch: fetcher, secureDirectory
+      })).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
       expect(secureDirectory).not.toHaveBeenCalled();
       expect(fetcher).not.toHaveBeenCalled();
       expect(await readdir(directory)).toEqual([]);
@@ -241,6 +241,7 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     vi.stubGlobal('fetch', fetcher);
     vi.stubEnv('ENVOI_SCOPED_TOOLS', 'true');
+    vi.stubEnv('ENVOI_MCP_URL', 'https://private-legacy.example');
     vi.stubEnv('ENVOI_STATE_DIR', path.join(directory, 'not-created'));
     vi.stubEnv('ENVOI_API_URL', 'https://envoi.example');
     vi.stubEnv('ENVOI_ENROLLMENT_TOKEN', 'fixture-token');
