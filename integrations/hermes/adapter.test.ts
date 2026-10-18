@@ -5,6 +5,7 @@ import path from 'node:path';
 import { discoverHermes, envValue, mergeMcpConfiguration, yamlScalar, type HermesConfiguration } from './config';
 import { boundedHermesRun, preflightHermes } from './api';
 import { configureHermes, hermesAdapter } from './adapter';
+import { saveHermesScopedMode } from './scoped-runtime';
 
 const directories: string[] = [];
 async function fixture() {
@@ -176,6 +177,26 @@ describe('Hermes authenticated preflight', () => {
 });
 
 describe('Hermes profile MCP configuration', () => {
+  it('selects scoped mode before profile preparation and refuses a legacy Envoi integration', async () => {
+    const scenario = await fixture();
+    const original = await readFile(path.join(scenario.home, '.env'), 'utf8');
+    const options = { ...scenario.options, prepareRuntime: true, env: { ENVOI_SCOPED_TOOLS: 'true', HERMES_HOME: scenario.home, HERMES_DAEMON_URL: 'http://127.0.0.1:18973' } };
+    const scoped = await hermesAdapter.discover(options);
+    expect(scoped).toMatchObject({ scopedTools: true, apiKey: '', daemonOrigin: 'http://127.0.0.1:18973' });
+    expect(await readFile(path.join(scenario.home, '.env'), 'utf8')).toBe(original);
+    await writeFile(scenario.config.configPath, 'mcp_servers:\n  envoi:\n    url: http://127.0.0.1:8789/mcp\n');
+    await expect(hermesAdapter.discover(options)).rejects.toMatchObject({ code: 'SCOPED_CONFIG_INVALID' });
+    expect(await readFile(path.join(scenario.home, '.env'), 'utf8')).toBe(original);
+  });
+  it('restores the scoped installer selection in an empty service environment without legacy preflight', async () => {
+    const scenario = await fixture(); const stateDir = path.join(scenario.root, 'scoped-state'); await mkdir(stateDir);
+    const scoped = await hermesAdapter.discover({ ...scenario.options, env: { ENVOI_SCOPED_TOOLS: 'true', HERMES_HOME: scenario.home, HERMES_DAEMON_URL: 'http://127.0.0.1:18973' } });
+    await saveHermesScopedMode(stateDir, scoped);
+    expect(await hermesAdapter.discover({ ...scenario.options, stateDir } as never, scoped)).toEqual(scoped);
+    await expect(hermesAdapter.discover({ ...scenario.options, stateDir, env: { ENVOI_SCOPED_TOOLS: 'false' } } as never, scoped)).rejects.toMatchObject({ code: 'SCOPED_CONFIG_INVALID' });
+    await writeFile(path.join(stateDir, 'hermes-scoped.json'), '{broken');
+    await expect(hermesAdapter.discover({ ...scenario.options, stateDir } as never, scoped)).rejects.toThrow();
+  });
   it('preserves other servers and refuses unsupported edits or a second identity on the same profile', () => {
     const text = 'model:\n  default: existing\nmcp_servers:\n  other:\n    url: "http://localhost:1"\nterminal:\n  backend: local\n';
     const result = mergeMcpConfiguration(text, 'envoi_a', ['  envoi_a:', '    url: "http://localhost:2"']);
