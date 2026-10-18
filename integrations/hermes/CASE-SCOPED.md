@@ -1,86 +1,80 @@
-# Hermes case-scoped adapter: implementation and admission boundary
+# Hermes case-scoped host composition
 
-## Current status
+The manual and unified connector entry points now select an opt-in production
+daemon host. The shared connector owns enrollment, credential rotation, work
+leases, CaseSession minting and invalidation. Hermes receives one temporary
+editor MCP binding; typed calls execute through the existing CaseToolsClient.
+No model output, ACP update or terminal text becomes an Envoi REST fallback.
 
-The private MCP binding, loopback relay, standalone Node stdio shim and ACP stream
-transport are implemented locally. They are not connected to the production
-Hermes runtime entry point. Passing their tests is not a real-host gate result.
-The existing manual/installer bridge remains unchanged.
+## Approved beta assumptions
 
-The transport consumes the approved `case-session` / `case-tools` publication at
-`15fff09f336fe941858287511471b07b9f5184f8`. Each binding captures one trusted
-`ScopedModelTurn` and permanently disconnects on loss of authority. It never
-retargets an old capability to a replacement case or session. Operational tokens
-remain outside model input. ACP updates are observations, not instructions to
-dispatch tools or send messages. Hermes Responses function-call output must not
-be interpreted as pending client tools: that provider path already executes them.
+The host and installed plugins are trusted and owner-operated. Operational
+Envoi credentials and lease tokens never enter prompts, editor MCP configuration
+or daemon authentication. No separate privileged Envoi integration may remain
+in the selected runtime. Unrelated native vendor tools do not require blanket
+removal or OS sandboxing for this approved beta boundary. This route does not
+defend against malicious owner-installed code reading host files.
 
-## Pinned provider limitation
+Select an existing profile through HERMES_HOME or --config, an explicit loopback
+daemon origin through HERMES_DAEMON_URL, and optionally HERMES_SCOPED_CWD.
+Model/provider authentication remains configured in Hermes. No provider key is
+requested or substituted. Preparation checks transport readiness only; it does
+not claim a model execution passed.
 
-Source review at Hermes
-`ccc695635094d7615373db267b77f894d978b1a0` found no supported per-session ACP
-setting that both restricts the complete effective model tool inventory to the
-captured private MCP tools and exposes that inventory before execution.
-This is a source-level finding, not a reproduced live runtime failure and not a
-claim about every Hermes release.
+Profile YAML and private .env are read before enrollment. An Envoi integration,
+legacy relay/write/asset options, invalid selection or corrupt private marker
+refuses. Configuration is not rewritten. The existing connection and a bounded
+atomic private mode marker preserve scoped mode in an empty restart environment.
+Explicit downgrades refuse. Legacy mode retains its earlier API Server behavior
+when scoped mode was never selected.
 
-- [Session policy](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/gateway/session_policy.py)
-  checks explicit toolsets as a subset of the effective tools, not an exclusive
-  allowlist. Profile/plugin/native additions can survive an empty explicit list.
-- [Editor policy](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/gateway/session_local_editor.py)
-  accepts MCP servers and edit-approval policy, not a complete tool allowlist.
-- [Worker selection](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/gateway/session_managed_worker.py),
-  [worker execution](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/agent/managed_worker.py)
-  and [editor MCP custody](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/gateway/session_local_mcp.py)
-  do not make `safe_mode` or `ignore_user_config` a working substitute: the
-  bypass worker does not supply the authority needed to recover private editor
-  transports. Safe-mode discovery also disables MCP registration.
-- [Tool Search](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/tools/tool_search.py)
-  can replace the MCP catalog with synthetic search/describe/call tools. Its
-  configuration must be included in any reviewed exclusive-inventory solution.
-- Pre-turn `session.info` / `tools.show` inspection does not establish the full
-  editor overlay used during execution. A fingerprint, successful MCP discovery,
-  restricted-profile assertion or prompt instruction is not equivalent proof.
+## Supported vendor evidence
 
-Do not enable this route by relaxing the exclusive-tool requirement. Do not
-invent an ACP inventory method or silently use the legacy privileged relay.
+Implementation is grounded in official NousResearch/hermes-agent commit
+`ccc695635094d7615373db267b77f894d978b1a0`:
 
-## Unblocking requirements
+- [Gateway client](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/hermes_cli/gateway_client.py): explicit endpoint, private session-ticket bootstrap, canonical /api/ws and hermes-gateway-v1/ticket subprotocols. No implicit daemon startup helper is used.
+- [Runtime discovery](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/hermes_cli/gateway_runtime.py): ready-state, served-profile, origin and runtime identity checks. This adapter supports a directly served local profile; multiplexed secondary control-home/overlay discovery is not inferred.
+- [Control socket](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/gateway/control_socket.py): one versioned JSON line per connection, Unix socket/short-path pointer or canonical Windows named pipe. Ticket authorization is enforced by the vendor's same-user endpoint.
+- [Canonical session contract](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/gateway/session_contract.py) and [generated OpenRPC contract](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/apps/shared/src/gateway-contract.openrpc.json): session.create/resume/detach, prompt.submit/receipt/cancel and generation-fenced session.interrupt. Its canonical registry is separate from the legacy desktop methods in the same document.
+- [ACP production client](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/acp_adapter/gateway_server.py): source=acp editor MCP, stable input identity, unknown execution refusal and queued-cancel/started-interrupt races.
+- [Frozen session policy](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/gateway/session_policy.py) and [editor MCP custody](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/gateway/session_local_mcp.py): no_mcp excludes global configured MCP while the editor overlay is session-bound. Complete native-tool isolation is outside the approved beta requirement.
 
-Before runtime wiring can be accepted, identify a reviewed provider version or
-separately approved runtime design that supplies all of the following:
+## Recovery and cancellation
 
-1. An authoritative tool-selection boundary applied at model construction and
-   refresh, including native tools, plugins, configured MCP and Tool Search.
-2. A pre-execution projection of that same effective inventory, including the
-   private editor MCP overlay. Compare actual names and schemas with the captured
-   turn, and refuse extra, missing or changed tools before model execution.
-3. A non-starting readiness check tied to the selected profile. Discover the
-   endpoint first and connect explicitly; do not use discovery helpers that can
-   start a daemon as a side effect.
-4. A private durable provider-turn journal and recovery path. Preserve operation
-   keys and uncertain outcomes; never resample an uncertain successful write.
-5. Cancellation that invalidates the MCP binding first, then cancels the captured
-   provider session and waits a bounded time for its terminal response. Closing
-   an ACP viewer alone is not proof that daemon execution stopped.
-6. Matching-release real-host evidence for parallel cases, decisions, assets,
-   recovery and revocation, with separately approved live operations.
+FileScopedRunStore saves one bounded record before creation/submission. It keeps
+stable create/input IDs, exact prompt text, returned session/admission IDs,
+provider identity and completion. It never stores Envoi credentials, lease
+tokens, daemon tickets or the temporary relay secret.
 
-No current helper starts Hermes, changes a profile, enrolls an agent, sends test
-work or changes the original paused case merely to obtain evidence.
+A completed record performs no provider operation. Otherwise recovery attaches
+to the original session without a replacement MCP capability, reads its captured
+admission, or repeats the exact unacknowledged input ID and text. The vendor owns
+admission deduplication. Terminal completed receipts can finish original work;
+unknown, failed, interrupted or live recovered admissions never cause a replacement
+model turn. Uncertain creation stops before any prompt was submitted. Preserve
+the journal and reconcile with the owner; do not delete it to force retries.
 
-## Local checks
+Before human-wait, the shared handler durably completes the journal. Its signal
+then invalidates MCP. All aborts/deadlines close that binding before cancellation.
+Cleanup attempts prompt.cancel, reads the original receipt and interrupts only
+that receipt's execution_generation, then waits within a bounded deadline.
+Transport loss triggers one bounded fresh cancellation connection. Cancellation
+failure remains uncertain, never proof the daemon stopped; local scoped effects
+remain denied regardless.
 
-Run from PowerShell in the isolated task checkout:
+## Validation and remaining gate
 
-```powershell
-npx vitest run --config integrations/vitest.config.ts integrations/hermes/scoped-mcp.test.ts integrations/hermes/scoped-relay.test.ts integrations/hermes/scoped-acp.test.ts
-npm run test:integrations
-npm run test:sdk:typescript
-npm run typecheck
-git diff --check
-```
+Production tests run the actual connector, private bootstrap socket, JSON-RPC
+serializer, loopback MCP relay, typed tool client and file journal with an inert
+WebSocket peer and canonical Envoi fixtures. They never run a Hermes CLI,
+daemon/model/provider, real profile or real account.
 
-The standalone stdio and ACP tests use synthetic Node child processes and local
-streams, not Hermes. Their results establish transport behavior only. Server,
-database, combined CI and hosted acceptance must be recorded separately.
+Run focused integrations/hermes tests, all Lane B suites, strict typechecks,
+the existing build and backend/download regressions from PowerShell. Generated
+downloads come only from the build. Je integrates only this task's top increment
+onto the reviewed client stack and rebuilds the combined candidate.
+
+Matching-release real-host/two-owner decision, file-scan/grant, recovery and
+revoke/cancel evidence remain separate human-approved acceptance work. Inert tests
+or CI do not establish hosted acceptance or change the original paused case.

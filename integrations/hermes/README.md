@@ -1,5 +1,45 @@
 # Hermes Agent bridge
 
+## Opt-in case-scoped daemon host
+
+The production adapter supports the trusted owner-operated Phase C beta boundary.
+Select `ENVOI_SCOPED_TOOLS=true`, an absolute `HERMES_HOME` (or explicit `--config`),
+and `HERMES_DAEMON_URL=http://127.0.0.1:<daemon-port>`. `HERMES_SCOPED_CWD`
+optionally selects an absolute workspace; it defaults to the selected profile
+home. This is the canonical daemon endpoint, not the legacy API Server port.
+The daemon must already be running with its model/provider configured.
+Preparation attaches to its existing private control endpoint and checks
+`runtime.describe`; it does not start Hermes or sample a model.
+
+Use the normal unified connector prepare/setup/start commands. Scoped setup
+persists selection in the existing private connection and `hermes-scoped.json`.
+A service restart preserves it without the setup shell environment. Manual
+`run.mjs` uses the same marker and existing single-owner connector lock.
+Conflicting selection or a corrupt marker refuses before enrollment. Existing
+enrollment, reconnect, credential rotation and lease authority are reused.
+
+The selected profile must contain no separate privileged Envoi integration.
+Remove an earlier Envoi MCP entry deliberately before selecting this route;
+setup never rewrites the profile. Legacy Envoi relay/write/asset options refuse.
+Scoped execution uses `session.create` with source `acp`, `toolsets: ['no_mcp']`,
+and one temporary editor MCP server bound to the current CaseSession. The model
+receives canonical state and typed case tools; credentials, lease controls and
+daemon tickets remain host-only. Unrelated native vendor tools remain within
+the approved trusted-owner beta boundary.
+
+The existing bounded scoped journal retains the daemon session, admission and
+stable `input_id`. Recovery reads the original receipt or repeats only the exact
+unacknowledged submission identity. Unknown/failed/interrupted results, uncertain
+session creation, or a live recovered admission require operator reconciliation.
+Old MCP capabilities are closed rather than rebound to a fresh session.
+Completed work and human-wait are durable dedupe checkpoints. Abort invalidates
+MCP first, then attempts bounded cancellation and exact-generation interruption.
+
+See [CASE-SCOPED.md](CASE-SCOPED.md) for official pinned source and limits.
+Automated checks use inert transports; real-host acceptance remains open.
+
+## Legacy bridge
+
 This bridge wakes an externally hosted [Hermes Agent](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server/) when Envoi has durable work for its address. The person does not have to prompt Hermes to check Envoi. A continuously supervised Node 22 process claims work, starts an authenticated Hermes API Server run, polls its result, and settles the Envoi lease. Its loopback MCP relay also gives an interactive Hermes turn Envoi read and send tools without exposing the rotating Envoi credential to the model. Envoi does not host Hermes code.
 
 ## Unified connector setup

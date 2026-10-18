@@ -3,9 +3,11 @@ import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { ConnectorSetupError, type AdapterContext, type ConnectorAdapter } from '../connector/adapter';
 import { privateJson } from '../openclaw/quick-connect-store';
-import { discoverHermes, hermesServerName, mergeMcpConfiguration, optionalText, replaceConfiguration, setEnvValue, type HermesConfiguration } from './config';
+import { discoverHermes, hermesServerName, mergeMcpConfiguration, optionalText, replaceConfiguration, setEnvValue } from './config';
 import { boundedHermesRun, preflightHermes } from './api';
 import { createHermesBridge } from './runtime';
+import { assertScopedHermes, hermesHost, selectScopedHermes, type HermesRuntimeConfiguration } from './scoped-runtime';
+import { connectHermesHost } from './scoped-host';
 
 interface RelayState { version: 1; port: number; token: string; serverName: string }
 
@@ -37,7 +39,9 @@ async function relayState(context: AdapterContext): Promise<RelayState> {
   return state;
 }
 
-export async function configureHermes(config: HermesConfiguration, context: AdapterContext) {
+export async function configureHermes(config: HermesRuntimeConfiguration, context: AdapterContext) {
+  const scoped = await selectScopedHermes(context, config);
+  if (scoped) { await assertScopedHermes(scoped, context.env ?? process.env); return; }
   const relay = await relayState(context);
   const variable = `ENVOI_MCP_${relay.serverName.slice('envoi_'.length).toUpperCase()}`;
   const original = await optionalText(config.configPath);
@@ -54,9 +58,22 @@ export async function configureHermes(config: HermesConfiguration, context: Adap
   await replaceConfiguration(config.configPath, original, updated);
 }
 
-export const hermesAdapter: ConnectorAdapter<HermesConfiguration> = {
-  runtime: 'hermes', discover: discoverHermes, preflight: preflightHermes, configure: configureHermes,
+export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
+  runtime: 'hermes',
+  async discover(options, previous) {
+    return await selectScopedHermes(options, previous) ?? discoverHermes(options, previous);
+  },
+  async preflight(config, options) {
+    const scoped = await selectScopedHermes(options, config);
+    if (!scoped) return preflightHermes(config, options);
+    await assertScopedHermes(scoped, options.env ?? process.env);
+    const wire = await connectHermesHost(hermesHost(scoped), AbortSignal.any([options.signal ?? new AbortController().signal, AbortSignal.timeout(15000)]));
+    wire.close();
+  }, configure: configureHermes,
   async createBridge(config, context) {
+    const scoped = await selectScopedHermes(context, config);
+    if (scoped) return createHermesBridge({ apiUrl: context.apiUrl, stateDir: context.stateDir,
+      hermesUrl: '', hermesKey: '', runtime: scoped }, context);
     const relay = await relayState(context);
     let observedInfo = 0;
     let bridge: Awaited<ReturnType<typeof createHermesBridge>>;
