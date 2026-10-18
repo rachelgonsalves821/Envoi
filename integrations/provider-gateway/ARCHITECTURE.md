@@ -2,6 +2,8 @@
 
 Prepared 2026-10-18. Source base: freshly fetched `origin/integration/agent-native` at `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. Status: **implementation design and contract request; no gateway implementation or host acceptance**. Rachel requested a non-email-bridge architecture based on AgentBox. Both named hosts remain OPEN. PR #137's documentation review remains separately preserved at `7a3f171`.
 
+The [browser-session/polling contract draft](BROWSER-POLL-CONTRACT.draft.md) now supplies proposed endpoints, limits, state/error rules and fixture specifications. Its §11 lists six exact Je review decisions. It is an agent-authored proposal, not canonical publication or implementation approval.
+
 ## Findings and correction to the previous blocker
 
 The requested [AgentBox setup file](https://my.nandaindex.org/agent/SKILL.md) was retrieved read-only on 2026-10-18. SHA-256 of the fetched bytes: `2033b7ce0fce3d3c5d994e365db84f773e32b0217a0f4e7860e5b6a3cc3c86f2`. It describes mailbox creation, email-code verification, private key custody and a host recurring task checking every five minutes. A webhook is optional when the host provides a receiver. It requires human approval before every send and permits manual checking if scheduling is unavailable. These instructions establish the proposed mechanism, not observed Muse/Instinct execution. No example account was created, and `ana@example.com` was not treated as Rachel's address.
@@ -16,6 +18,8 @@ The requested [AgentBox setup file](https://my.nandaindex.org/agent/SKILL.md) wa
 
 For hosts that support website login but cannot inject privately stored API keys into HTTP headers, use **scoped browser login plus native scheduled visits** as a design candidate. Do not require API-header access when the supported integration surface is the browser. Verify the exact browser/login interface, unattended session persistence, expiry/recovery and real Envoi access before advertising support. Private account evidence belongs outside this public repository.
 
+Keep private API/script credentials as a parallel candidate for either host when its actual approved mechanism can use a secret without exposing it to model/chat/logs. Earlier capability assumptions must not categorically rule out an API route. Verify the specific Envoi auth profile and renewal/revocation behavior before selecting that adapter; no private account transcript is included here.
+
 ## Architecture to implement after contract approval
 
 ```mermaid
@@ -24,7 +28,7 @@ flowchart LR
   R --> V[Private connector grant in host credential store]
   S[Muse or Instinct native scheduler] --> T[Bounded scheduled check]
   V --> T
-  B[Instinct delegated browser login] --> W[Scoped gateway website]
+  B[Muse / Instinct delegated browser login] --> W[Scoped gateway website]
   S --> W
   W --> G
   T --> G[Provider gateway over canonical Envoi services]
@@ -34,9 +38,9 @@ flowchart LR
   A --> G
 ```
 
-The schedule lives on the **actual host**, not in this Codex chat and not in an Envoi process pretending to be the person's Muse/Instinct. The gateway serves authenticated checks and canonical operations. Initially target a five-minute host schedule, subject to demonstrated host limits, bounded jitter and one active tick per installation. It is scheduled availability, not instantaneous push. With reliable cadence P and jitter J, notification latency depends on P + J plus provider/run time; do not advertise a bound before measuring it. Persist work through missed runs. If the host cannot schedule checks with private credential access, this route remains unavailable.
+The schedule lives on the **actual host**, not in this Codex chat and not in an Envoi process pretending to be the person's Muse/Instinct. The gateway serves authenticated checks and canonical operations. The contract now proposes a 30-minute initial cadence, subject to owner approval, demonstrated host limits, bounded jitter and one active tick per installation; five minutes is a candidate only if supported and explicitly selected. It is scheduled availability, not instantaneous push. With reliable cadence P and jitter J, notification latency depends on P + J plus provider/run time; do not advertise a bound before measuring it. Persist work through missed runs. If the host cannot schedule checks with private credential access, this route remains unavailable.
 
-### Browser gateway candidate for Instinct and similar hosts
+### Browser gateway candidate for Muse, Instinct and similar hosts
 
 Use a same-origin website backed by a trusted gateway, with a browser session restricted to one delegated agent installation. A host uses its verified browser login surface, while the gateway retains operational Envoi access/refresh material server-side and invokes existing canonical services. It is **not** a public inbox and does not convert the owner's ordinary dashboard cookie into agent authority. It does not require the assistant to read a secret, construct an auth header or copy a token into a page. Instinct remains a candidate requiring private real-account verification.
 
@@ -46,7 +50,7 @@ The runtime browser receives only an opaque `HttpOnly`, `Secure`, host-only sess
 
 The gateway page presents bounded canonical work and a safe read/notify surface. Repeated visits do not claim, settle or reply merely by rendering a page. Explicit typed action controls use the existing canonical policy and current lease/fence authority through the trusted gateway; browser navigation, a click by the agent or a stored task instruction is not an authenticated human approval. Required human decisions stay in the existing owner control plane and bind the exact action. Pause/revoke is checked at every read and effect boundary, and invalidates the delegated session even if the host keeps running its task. A login challenge or MFA prompt during a background visit becomes visible `needs reconnect`, never an automated MFA bypass.
 
-Browser visits are the scheduled delivery mechanism; the server-side gateway is the credential-owning authenticated client. Je must decide how this delegation maps onto the existing route catalog and publish its limited session contract; this document does not add a `browser` registration enum. The native private-API connector path remains the preferred Muse candidate. Both share canonical work/authority and avoid an email bridge.
+Browser visits are the scheduled delivery mechanism; the server-side gateway is the credential-owning authenticated client. The contract proposes `authenticated_rest + poll` with gateway-only activation and versioned availability for Je's review; it does not add a `browser` registration enum. Browser sessions and native private-API clients are candidates for both hosts, selected using verified auth/scheduling capabilities. Both share canonical work/authority and avoid an email bridge.
 
 No new SMTP mailbox, inbound email parser, general email sender, public agent index, parallel inbox or NANDA registration is needed. Envoi retains exact-address agent identity, owner/workspace authority, one installation model, canonical cases, ordering, proposals/decisions, asset grants and work settlement. AgentBox's one-email/one-mailbox policy does not replace Envoi's identity and installation semantics.
 
@@ -100,7 +104,7 @@ Please publish a reviewed provider/scheduled-REST authorization and delivery ame
 | Owner/provider consent | Separate read/notify, authorized canonical action, provider per-use prompts and actual human-decision provenance. No standing-send assumption. | Denied/stale/changed-recipient or content approval, forged human decision and pause/revoke race |
 | Task lifecycle | Define permitted task metadata, expiry, retry/alert limits, existing-task reuse and removal/recovery; tokens never enter metadata. | Duplicate setup, task disappeared, overlapping run, revoke with orphaned task and reconnect without new identity |
 
-Lane A owns canonical schemas/fixtures and `handoffs.md`; Codex reviews and ACKs the consuming surface. The human approves the exact published contract before implementation. Architecture acceptance is not approval of an unpublished wire contract. No endpoint schema, auth flow or runtime code has been invented as an implementation shortcut.
+Lane A owns canonical schemas/fixtures and `handoffs.md`; agents prepare proposed schemas/fixture specifications, and Codex reviews/ACKs the published consuming surface. The human approves the exact published contract before implementation. The adjacent contract draft proposes precise endpoints and authorization rules for review; none is implemented or represented as an available interface. Je's required decisions are enumerated in its §11.
 
 ## Acceptance and implementation sequence
 
