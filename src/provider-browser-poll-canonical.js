@@ -56,7 +56,11 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
       if (!human || !workspace || !await canManageInbox(human, workspace, { maxAgeMs: 0 }) || !agent.permissions?.includes('receive_agent_messages')) fail(403, 'GATEWAY_SCOPE_DENIED');
       return { address: agent.address, paused: agent.status === 'paused' };
     },
-    highWater: async b => Number((await store.getJson(path.join('inboxes', b.inboxId, 'event-sequence.json')))?.value || 0),
+    // FileStore's allocator document is not a portable read API: PostgreSQL keeps its
+    // counter in a dedicated table. Committed canonical events carry the same sequence
+    // on both backends. The caller holds the inbox mutation lock for this snapshot.
+    highWater: async b => (await store.listJson(path.join('inboxes', b.inboxId, 'events')))
+      .reduce((high, event) => Math.max(high, Number(event.sequence) || 0), 0),
     pending: async (b, { high, after }) => {
       const deadline = Date.now() + 120_000;
       const events = (await store.listJson(path.join('inboxes', b.inboxId, 'events')))
