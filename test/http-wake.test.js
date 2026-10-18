@@ -26,12 +26,12 @@ async function harness(t,kind='file'){
   }else{const dir=await mkdtemp(path.join(process.cwd(),'.wake-test-'));store=new FileStore(dir);await store.init();t.after(()=>rm(dir,{recursive:true,force:true}));}
   let clock=Date.parse('2026-10-18T12:00:00Z');
   const state={family:{refreshExpiresAt:'2027-01-01T00:00:00Z'},agent:{status:'active',onboardingStatus:'approved'}};
-  const sent=[],audits=[];let response={status:204,failureClass:null};let beforeSend,beforeResolve;
-  const options={store,enabled:true,installationsEnabled:true,env:{ENVOI_WAKE_SIGNING_KEYS:encoded},facts:async()=>state,now:()=>new Date(clock).toISOString(),random:()=>0.5,resolveDestination:async url=>{await beforeResolve?.();return {url,addresses:['192.0.32.10']};},transport:async request=>{await beforeSend?.();sent.push(request);return response;},audit:async(...args)=>audits.push(args)};
+  const sent=[],audits=[],observed=[];let response={status:204,failureClass:null};let beforeSend,beforeResolve;
+  const options={store,enabled:true,installationsEnabled:true,env:{ENVOI_WAKE_SIGNING_KEYS:encoded},facts:async()=>state,now:()=>new Date(clock).toISOString(),random:()=>0.5,resolveDestination:async url=>{await beforeResolve?.();return {url,addresses:['192.0.32.10']};},transport:async request=>{await beforeSend?.();sent.push(request);return response;},audit:async(...args)=>audits.push(args),observe:record=>observed.push(record)};
   const service=createHttpWake(options);await service.startup();
   const tx=fn=>store.withTransaction([`inbox:${identity.inboxId}:mutations`],fn);
   async function active(){const created=await tx(()=>service.create(identity,{url:'https://hooks.example.com/wake'}));clock+=2000;await service.runOnce();const challenge=JSON.parse(sent.at(-1).bodyText).challenge;await tx(()=>service.activate(identity,created.subscription.id,{challenge}));return {id:created.subscription.id,challenge};}
-  return {store,service,options,state,sent,audits,tx,active,advance:ms=>clock+=ms,response:r=>response=r,beforeSend:fn=>beforeSend=fn,beforeResolve:fn=>beforeResolve=fn};
+  return {store,service,options,state,sent,audits,observed,tx,active,advance:ms=>clock+=ms,response:r=>response=r,beforeSend:fn=>beforeSend=fn,beforeResolve:fn=>beforeResolve=fn};
 }
 function storeTest(name,operation){
   for(const kind of ['file','postgres'])test(`${kind}: ${name}`,{skip:kind==='postgres'&&!process.env.DATABASE_URL},t=>operation(t,kind));
@@ -233,4 +233,48 @@ test('response body drain retains its slot and the original whole-attempt deadli
   response=new EventEmitter();response.statusCode=204;response.headers={};response.destroy=()=>{destroyed=true;response.emit('close');};callback(response);
   await Promise.resolve();assert.equal(settled,false,'headers acknowledge but do not free the socket/admission slot');
   t.mock.timers.tick(25);const result=await pending;assert.equal(result.status,204);assert.equal(destroyed,true);
+});
+
+storeTest('canonical HTTP-date Retry-After is ignored and jitter controls the next attempt',async(t,kind)=>{
+  const fixture=JSON.parse(await readFile(new URL('wake-retry-after-http-date.json',fixtureDir)));
+  const h=await harness(t,kind);await h.active();
+  const transport=createWakeTransport({request:(_url,_opts,callback)=>{const req=new EventEmitter();req.destroy=()=>{};req.end=()=>{const response=new EventEmitter();response.statusCode=fixture.delivery.response.status;response.headers=fixture.delivery.response.headers;response.destroy=()=>response.emit('close');callback(response);response.emit('end');};return req;}});
+  const result=await transport({url:'https://hooks.example.com/wake',addresses:['192.0.32.10'],headers:{},bodyText:'{}'});
+  assert.equal(result.retryAfterSeconds,0);assert.equal(result.failureClass,fixture.delivery.failureClass);
+  const service=createHttpWake({...h.options,random:()=>0.25,transport:async()=>result});await service.runOnce();
+  const event=(await h.store.listJson('http-wake/queue')).find(record=>record.lane==='work');
+  assert.equal(event.status,'retrying');assert.equal((Date.parse(event.availableAt)-Date.parse(event.startedAt))/1000,fixture.delivery.nextAttemptInSeconds);
+});
+
+test('Retry-After honors decimal seconds only on 429/503 and caps at 1800 seconds',async()=>{
+  for(const [status,value,expected] of [[429,'120',120],[503,'9999999',1800],[500,'120',0],[429,'-1',0],[503,'1.5',0]]){
+    const send=createWakeTransport({request:(_url,_opts,callback)=>{const req=new EventEmitter();req.destroy=()=>{};req.end=()=>{const response=new EventEmitter();response.statusCode=status;response.headers={'retry-after':value};response.destroy=()=>response.emit('close');callback(response);response.emit('end');};return req;}});
+    assert.equal((await send({url:'https://hooks.example.com/wake',addresses:['192.0.32.10'],headers:{},bodyText:'{}'})).retryAfterSeconds,expected);
+  }
+});
+
+storeTest('generated notifications, keyset and redacted attempt logs follow the canonical contract',async(t,kind)=>{
+  const h=await harness(t,kind);await h.active();await h.service.runOnce();
+  const Ajv=(await import('ajv')).default,addFormats=(await import('ajv-formats')).default;const ajv=new Ajv({strict:false});addFormats(ajv);ajv.addSchema(schema);
+  for(const name of ['notification','deliveryHeaders','jwks']){
+    const validate=ajv.getSchema(`${schema.$id}#/definitions/${name}`);
+    const values=name==='jwks'?[h.service.keys()]:h.sent.map(request=>name==='notification'?JSON.parse(request.bodyText):request.headers);
+    for(const value of values)assert.ok(validate(value),`${name}: ${JSON.stringify(validate.errors)}`);
+  }
+  assert.equal(h.service.keys().keys.filter(key=>key.status==='active').length,1);
+  for(const entry of h.observed.filter(record=>record.event==='http_wake.attempt')){
+    assert.deepEqual(Object.keys(entry).sort(),['event','subscriptionId','origin','address','attempt','class','durationMs'].sort());
+    assert.equal(entry.origin,'https://hooks.example.com');assert.equal(entry.address,'192.0.32.10');assert.equal(entry.class,'acknowledged');assert.ok(entry.durationMs>=0);
+    assert.equal(JSON.stringify(entry).includes('/wake'),false,'URL paths stay out of logs');
+    assert.equal(JSON.stringify(entry).includes('envoi_wake_challenge_'),false,'challenge bodies stay out of logs');
+  }
+  assert.equal(h.observed.filter(record=>record.event==='http_wake.attempt').length,2);
+  assert.ok(h.observed.some(record=>record.event==='http_wake.epoch_moved'));
+});
+
+test('key ids accept the schema alphabet and reject oversize or ambiguous keysets',()=>{
+  const template=JSON.parse(encoded)[0];
+  const valid=createWakeKeys(JSON.stringify([{...template,kid:'wk.2026-10_a'}]),()=>Date.parse('2026-10-18T12:00:00Z'));assert.equal(valid.jwks().keys[0].kid,'wk.2026-10_a');
+  assert.throws(()=>createWakeKeys(JSON.stringify([{...template,kid:'a'.repeat(65)}])),/Invalid wake signing keys/);
+  assert.throws(()=>createWakeKeys(JSON.stringify([template,{...template,kid:'other'}])),/unambiguous/);
 });

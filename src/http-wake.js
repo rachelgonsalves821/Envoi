@@ -16,7 +16,7 @@ const retryable = new Set(['timeout','connect_failed','tls_failed','address_reje
 const challengeRetryable = new Set(['interrupted','http_retryable']);
 const schedule = [10,30,120,600,1800];
 const publicSub = sub => Object.fromEntries(['id','installationId','agentId','url','status','endedReason','endedAt','createdAt','activatedAt','expiresAt','challengeExpiresAt','replacesSubscriptionId','delivery'].map(key => [key, sub[key]]));
-export function createHttpWake({ store, enabled = false, installationsEnabled = false, env = process.env, facts, audit = async () => {}, now = () => new Date().toISOString(), random = Math.random, resolveDestination, transport, signingKeys } = {}) {
+export function createHttpWake({ store, enabled = false, installationsEnabled = false, env = process.env, facts, audit = async () => {}, observe = record => console.info(JSON.stringify(record)), now = () => new Date().toISOString(), random = Math.random, resolveDestination, transport, signingKeys } = {}) {
   if (enabled && !installationsEnabled) throw new Error('ENVOI_HTTP_WAKE_V1 requires ENVOI_INSTALLATIONS_V2');
   if (enabled && ['1','true'].includes(env.NODE_USE_ENV_PROXY)) throw new Error('Wake cannot use environment proxy transport');
   const destination = createWakeDestination({ env });
@@ -25,6 +25,8 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
   const send = transport || createWakeTransport();
   const time = () => Date.parse(now());
   const admission = createWakeAdmission({store,now:time});
+  const log = record => { try { observe(record); } catch { /* Observability cannot change delivery. */ } };
+  const logAttempt = (event,sub,result,address=null) => log({event:'http_wake.attempt',subscriptionId:sub.id,origin:new URL(sub.url).origin,address,attempt:event.attempts,class:result.notSent?'not_sent':result.failureClass||'acknowledged',durationMs:Math.max(0,time()-Date.parse(event.startedAt))});
   const subs = () => store.listJson(path.join(root, 'subscriptions'));
   const events = () => store.listJson(path.join(root, 'queue'));
   const save = sub => store.putJson(subPath(sub.id), sub);
@@ -62,7 +64,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       const move = !enabled || !previous || Date.parse(previous.activeUntil) <= time();
       const record = { epoch:move ? at : previous.epoch, activeUntil:enabled ? iso(time()+21600000) : at };
       await store.putJson(epochPath, record);
-      if (move) await audit(null, 'http_wake.epoch_moved', { cause:enabled ? 'active_until_passed' : 'flag_off_at_startup' }, at);
+      if (move) { const cause=enabled ? 'active_until_passed' : 'flag_off_at_startup';await audit(null, 'http_wake.epoch_moved', { cause }, at);log({event:'http_wake.epoch_moved',cause,epoch:at}); }
     });
   }
   async function heartbeat() { if (!enabled) return; await store.withTransaction(['http-wake:epoch'], async () => { const record = await store.getJson(epochPath); if (!record || Date.parse(record.activeUntil) <= time()) return startup(); await store.putJson(epochPath, { ...record, activeUntil:iso(time()+21600000) }); }); }
@@ -154,7 +156,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       await store.withTransaction([lock(candidate.inboxId)],async()=>{
         const event=await store.getJson(eventPath(candidate.id)); if (!event || !live(event)) return;
         const sub=await derive(await store.getJson(subPath(event.subscriptionId))); if (!sub) return;
-        if (event.status === 'processing') { if (Date.parse(event.lockedUntil)>time()) return; await finish(event,sub,{failureClass:'interrupted'});return; }
+        if (event.status === 'processing') { if (Date.parse(event.lockedUntil)>time()) return; const result={failureClass:'interrupted'};logAttempt(event,sub,result);await finish(event,sub,result);return; }
         if (Date.parse(event.availableAt)>time()) return;
         const {family,agent}=await facts(sub);
         if (sub.status === 'ended' || Date.parse(family?.refreshExpiresAt)<=time() || (event.lane==='work' && agent?.status==='paused') || (sub.status==='pending' && event.lane!=='challenge') || (sub.status==='active' && event.lane==='challenge')) { await finish(event,sub,{notSent:true});return; }
@@ -162,11 +164,12 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
         event.status='processing';event.attempts++;event.startedAt=now();event.claimToken=crypto.randomUUID();event.lockedUntil=iso(time()+15000);await store.putJson(eventPath(event.id),event);claimed={event,sub};
       });
       if (!claimed) continue;
-      const {event,sub}=claimed;let result;
+      const {event,sub}=claimed;let result,address=null;
       try { destination.canonical(sub.url); } catch { result={failureClass:'url_rejected'}; }
       if (!result) {
         try {
           const resolved=await resolve(sub.url);
+          address=resolved.addresses[0]||null;
           const admitted=await admission.admit({subscriptionId:sub.id,eventId:event.id,host:new URL(sub.url).hostname,addresses:resolved.addresses,token:event.claimToken,limited:event.lane==='challenge'||sub.lastTransportFailure===true});
           if(!admitted){await store.withTransaction([lock(sub.inboxId)],async()=>{const current=await store.getJson(eventPath(event.id));if(current?.claimToken===event.claimToken){current.status='queued';current.attempts--;current.availableAt=iso(time()+1000);current.claimToken=null;await store.putJson(eventPath(event.id),current);}});continue;}
           // Recheck control after asynchronous DNS, immediately before the external effect.
@@ -188,6 +191,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
         } catch { result={failureClass:'address_rejected'}; }
       }
       await admission.release(event.claimToken);
+      logAttempt(event,sub,result,address);
       await store.withTransaction([lock(sub.inboxId)],async()=>{
         const current=await store.getJson(eventPath(event.id));if(current?.claimToken!==event.claimToken)return;
         // A result arriving beyond its lease is uncertain even if this process knows it. The
