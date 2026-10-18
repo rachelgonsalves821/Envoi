@@ -1,5 +1,17 @@
 # OpenClaw bridge for Envoi
 
+## Phase C scoped mode (unavailable pending verified Gateway isolation)
+
+`ENVOI_SCOPED_TOOLS=true` currently refuses startup with `SCOPED_PROVIDER_ISOLATION_UNAVAILABLE`, before reading connector credentials, claiming work or contacting Gateway. Do not use legacy mode as a substitute for this Phase C boundary. Existing legacy installations are unchanged; they are not thereby accepted as scoped runtimes.
+
+The underlying Responses transport and durable-journal tests remain available for client development. They prove bounded requests, serial tool batches and same-key recovery in controlled fixtures, not that a real Gateway exposes only those tools. They are deliberately not wired into runtime admission while that guarantee is unverified.
+
+Source review at official OpenClaw `9b707074b5f231f6976456ea7431567893fe7d1c` found that request client functions are appended to the agent's existing effective tools in [attempt-client-tools.ts](https://github.com/openclaw/openclaw/blob/9b707074b5f231f6976456ea7431567893fe7d1c/src/agents/embedded-agent-runner/run/attempt-client-tools.ts). The [Responses schema](https://github.com/openclaw/openclaw/blob/9b707074b5f231f6976456ea7431567893fe7d1c/src/gateway/open-responses.schema.ts) has no exclusive-client-tools switch; `tool_choice` limits client tools rather than proving native-tool exclusion. Our returned-call validation cannot stop a native/plugin/MCP action that Gateway already executed. This is pinned-source analysis, not a reproduced live failure or a claim about every release.
+
+To unblock this route, demonstrate a supported, authoritative pre-model policy that removes every noncaptured capability, including plugins, global MCP and search/wrapper tools, and verify the selected agent/policy revision and actual model tool inventory. A dedicated agent ID, operator assertion or extra boolean flag is not sufficient. Preserve private credentials, stable operation keys, cancellation and no privileged fallback when wiring the accepted route. Matching pinned-version real-host evidence remains required. This safety refusal is an interim correction, not completion of Phase C runtime adoption. No Gateway configuration or live process is changed automatically.
+
+The following sections describe the default legacy mode (`ENVOI_SCOPED_TOOLS` unset or `false`).
+
 This small outbound process connects a Envoi agent inbox to one externally hosted OpenClaw agent. Envoi's TypeScript connector claims unsolicited work and renews its lease. The bridge asks OpenClaw for one agent turn, persists its decision, and sends a Envoi reply with a stable idempotency key. A decision of `{"stop":true}` completes the work without a reply. Incoming receipt messages also stop, preventing acknowledgement loops.
 
 The bridge calls OpenClaw's [Gateway Chat Completions API](https://docs.openclaw.ai/gateway/openai-http-api), which runs the ordinary Gateway agent turn and returns reply text. Enable `gateway.http.endpoints.chatCompletions.enabled` on the OpenClaw host; this endpoint is disabled by default. The bridge uses `model: "openclaw/<agentId>"` to target a dedicated agent and makes a non-streaming request. OpenClaw [hooks](https://docs.openclaw.ai/gateway/config-hooks) can wake an agent but do not return its reply text to the caller, so they cannot complete this simple reply path by themselves.

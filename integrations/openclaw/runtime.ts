@@ -4,6 +4,7 @@ import { loadAssetManifest, manifestAssetExchange } from '../agent-bridges/asset
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { startOpenClawMcpRelay } from './mcp-relay';
 import { mcpReplyMessageId, openClawTurn, withRecordedMcpReply } from './turn';
+import { assertOpenClawScopedAdmission } from './scoped-admission';
 
 export interface BridgeConfiguration {
   apiUrl: string;
@@ -16,6 +17,7 @@ export interface BridgeConfiguration {
 /** Legacy setup and Quick Connect share the durable work and reply implementation. */
 export async function createOpenClawBridge(config: BridgeConfiguration, options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number } = {}) {
   const env = options.env ?? process.env;
+  assertOpenClawScopedAdmission(env);
   const relayToken = env.OPENCLAW_MCP_RELAY_TOKEN;
   if (env.OPENCLAW_MCP_RELAY_PORT && !relayToken) throw new Error('OPENCLAW_MCP_RELAY_TOKEN is required when the relay port is configured');
   if (env.OPENCLAW_MCP_WRITE_ENABLED && env.OPENCLAW_MCP_WRITE_ENABLED !== 'true') throw new Error('OPENCLAW_MCP_WRITE_ENABLED must be true when set');
