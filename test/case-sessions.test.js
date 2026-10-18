@@ -33,15 +33,14 @@ function assertCode(res, code, extra = {}) {
   for (const [field, value] of Object.entries(extra)) assert.deepEqual(res.payload[field], value, `${code}.${field}`);
   return res.payload;
 }
-// The schema needs envoi_case_snapshot in every session; C-A1 implements no tool, so the set is
-// checked to be exactly the empty implemented subset and the rest of the body against the schema.
+// C-A2–C-A4 supply all nine canonical tools; validate the actual allowed set.
 // The test server has no https public origin, so the transport URL is checked against its own.
 function assertSessionCreated(res, baseUrl) {
   assert.equal(res.status, 201, res.text);
   assert.equal(res.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(res.payload.session.allowedTools, [], 'only implemented tools are carried (§6.4)');
+  assert.deepEqual(res.payload.session.allowedTools, schemas['x-case-tools'].filter(row => row.workKinds.includes(res.payload.session.workKind)).map(row => row.name), 'implemented canonical tool set (§6.4)');
   assert.equal(res.payload.session.transport.url, `${baseUrl}/mcp`);
-  assertSchema('sessionCreated', { ...res.payload, session: { ...res.payload.session, allowedTools: ['envoi_case_snapshot'], transport: { ...res.payload.session.transport, url: 'https://envoi.example/mcp' } } });
+  assertSchema('sessionCreated', { ...res.payload, session: { ...res.payload.session, transport: { ...res.payload.session.transport, url: 'https://envoi.example/mcp' } } });
   return res.payload;
 }
 
@@ -139,8 +138,8 @@ for (const backend of backends) {
     const init = await mcp(baseUrl, session.token, 'initialize', initialize);
     assert.equal(init.status, 200, init.text);
     assertSchema('mcpInitializeResult', init.payload);
-    assert.deepEqual((await mcp(baseUrl, session.token, 'tools/list')).payload.result.tools, []);
-    for (const name of ['envoi_case_snapshot', 'envoi_send_message', 'envoi_complete_work', 'envoi_claim_work']) {
+    assert.deepEqual((await mcp(baseUrl, session.token, 'tools/list')).payload.result.tools.map(tool => tool.name), session.allowedTools);
+    for (const name of ['envoi_send_message', 'envoi_complete_work', 'envoi_claim_work']) {
       const refused = await mcp(baseUrl, session.token, 'tools/call', { name, arguments: {} });
       assert.equal(refused.status, 200);
       assert.deepEqual([refused.payload.error.code, refused.payload.error.data.code], [-32602, 'TOOL_NOT_IN_SESSION'], name);

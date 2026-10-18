@@ -15,6 +15,13 @@ import {
   withNoStoreHeaders
 } from './router.js';
 
+test('only the exact successful public wake key endpoint preserves its bounded cache', () => {
+  const response = () => new Response('{}', { headers: { 'cache-control': 'public, max-age=300, s-maxage=0' } });
+  assert.equal(withNoStoreHeaders(response(), '/.well-known/envoi-wake-keys.json').headers.get('cache-control'), 'public, max-age=300, s-maxage=0');
+  for (const pathname of ['', '/api/agent/status', '/.well-known/envoi-wake-keys.json/']) assert.equal(withNoStoreHeaders(response(), pathname).headers.get('cache-control'), 'private, no-store');
+  assert.equal(withNoStoreHeaders(new Response('{}', { status: 500 }), '/.well-known/envoi-wake-keys.json').headers.get('cache-control'), 'private, no-store');
+});
+
 test('allowed hostnames are normalized and enforced', () => {
   assert.deepEqual([...parseAllowedHostnames(' WWW.ENVOI-AGENTS.COM., beta.example.com ')], [
     'www.envoi-agents.com',

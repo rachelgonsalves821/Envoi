@@ -26,7 +26,7 @@ export class PostgresStore {
     if (current && !current.active) throw new Error('Transaction is no longer active');
     return (current?.client ?? this.pool).query(statement, values);
   }
-  async withTransaction(keys, operation) {
+  async withTransaction(keys, operation, { lockWaitMs = null } = {}) {
     if (!Array.isArray(keys) || keys.some(key => typeof key !== 'string' || !key || key.length > 512) || typeof operation !== 'function') throw new TypeError('Transaction keys and callback are required');
     const orderedKeys = [...new Set(keys)].sort();
     const current = this.transactionContext.getStore();
@@ -35,13 +35,30 @@ export class PostgresStore {
       if (orderedKeys.some(key => !current.keys.has(key))) throw new Error('Nested transaction cannot acquire additional keys');
       return operation();
     }
-    const client = await this.pool.connect();
+    let timer;
+    let abandoned = false;
+    const deadline = lockWaitMs == null ? null : Date.now() + lockWaitMs;
+    const connection = this.pool.connect();
+    connection.then(client => { if (abandoned) client.release(); }, () => {});
+    let client;
+    try {
+      client = await (lockWaitMs == null ? connection : Promise.race([connection, new Promise((_, reject) => {
+        timer = setTimeout(() => { abandoned = true; reject(Object.assign(new Error('Transaction lock wait expired'), { code: 'LOCK_TIMEOUT' })); }, lockWaitMs);
+      })]));
+    } finally { clearTimeout(timer); }
     const context = { client, keys: new Set(orderedKeys), active: true };
     let active = false;
     try {
       await client.query('BEGIN');
       active = true;
-      for (const key of orderedKeys) await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [key]);
+      for (const key of orderedKeys) {
+        if (deadline != null) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) throw Object.assign(new Error('Transaction lock wait expired'), { code: 'LOCK_TIMEOUT' });
+          await client.query("SELECT set_config('lock_timeout', $1, true)", [`${remaining}ms`]);
+        }
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [key]);
+      }
       const result = await this.transactionContext.run(context, operation);
       await client.query('COMMIT');
       active = false;
