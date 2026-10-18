@@ -167,17 +167,34 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       if (!result) {
         try {
           const resolved=await resolve(sub.url);
-          const admitted=await admission.admit({subscriptionId:sub.id,host:new URL(sub.url).hostname,addresses:resolved.addresses,token:event.claimToken,limited:event.lane==='challenge'||sub.lastTransportFailure===true});
+          const admitted=await admission.admit({subscriptionId:sub.id,eventId:event.id,host:new URL(sub.url).hostname,addresses:resolved.addresses,token:event.claimToken,limited:event.lane==='challenge'||sub.lastTransportFailure===true});
           if(!admitted){await store.withTransaction([lock(sub.inboxId)],async()=>{const current=await store.getJson(eventPath(event.id));if(current?.claimToken===event.claimToken){current.status='queued';current.attempts--;current.availableAt=iso(time()+1000);current.claimToken=null;await store.putJson(eventPath(event.id),current);}});continue;}
           // Recheck control after asynchronous DNS, immediately before the external effect.
           let permitted=false;
-          await store.withTransaction([lock(sub.inboxId)],async()=>{const current=await derive(await store.getJson(subPath(sub.id)));const state=await facts(current);permitted=current.status!=='ended' && Date.parse(state.family?.refreshExpiresAt)>time() && !(event.lane==='work' && state.agent?.status==='paused');});
+          await store.withTransaction([lock(sub.inboxId)],async()=>{
+            const queued=await store.getJson(eventPath(event.id));
+            const current=await derive(await store.getJson(subPath(sub.id)));
+            if(!current)return;
+            const state=await facts(current);
+            permitted=queued?.status==='processing' && queued.claimToken===event.claimToken
+              && Date.parse(queued.lockedUntil)>time() && Date.parse(queued.deadline)>=time()
+              && time()-Date.parse(queued.startedAt)<10000 && current.status!=='ended'
+              && Date.parse(state.family?.refreshExpiresAt)>time()
+              && !(event.lane==='work' && state.agent?.status==='paused')
+              && (event.lane==='challenge' ? current.status==='pending' : current.status==='active');
+          });
           if (!permitted) result={notSent:true};
           else result=await send({...resolved,bodyText:event.bodyText,headers:keys.sign(sub.url,event.bodyText,event.id),remainingMs:Math.max(1,10000-(time()-Date.parse(event.startedAt)))});
         } catch { result={failureClass:'address_rejected'}; }
       }
       await admission.release(event.claimToken);
-      await store.withTransaction([lock(sub.inboxId)],async()=>{const current=await store.getJson(eventPath(event.id));if(current?.claimToken!==event.claimToken)return;await finish(current,await derive(await store.getJson(subPath(sub.id))),result);});
+      await store.withTransaction([lock(sub.inboxId)],async()=>{
+        const current=await store.getJson(eventPath(event.id));if(current?.claimToken!==event.claimToken)return;
+        // A result arriving beyond its lease is uncertain even if this process knows it. The
+        // durable queue recovers it as interrupted, exactly as a different worker would.
+        if(Date.parse(current.lockedUntil)<=time())result={failureClass:'interrupted'};
+        await finish(current,await derive(await store.getJson(subPath(sub.id))),result);
+      });
       return true;
     }
     return false;
