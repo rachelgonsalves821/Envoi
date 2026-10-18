@@ -4,9 +4,7 @@ import { loadAssetManifest, manifestAssetExchange } from '../agent-bridges/asset
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { startOpenClawMcpRelay } from './mcp-relay';
 import { mcpReplyMessageId, openClawTurn, withRecordedMcpReply } from './turn';
-import { scopedTurnHandler } from '../agent-bridges/scoped-turn';
-import { FileScopedRunStore } from '../grok/scoped-store';
-import { openClawScopedTurn } from './scoped-turn';
+import { assertOpenClawScopedAdmission } from './scoped-admission';
 
 export interface BridgeConfiguration {
   apiUrl: string;
@@ -19,29 +17,7 @@ export interface BridgeConfiguration {
 /** Legacy setup and Quick Connect share the durable work and reply implementation. */
 export async function createOpenClawBridge(config: BridgeConfiguration, options: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; pollIntervalMs?: number } = {}) {
   const env = options.env ?? process.env;
-  if (env.ENVOI_SCOPED_TOOLS !== undefined && env.ENVOI_SCOPED_TOOLS !== 'true' && env.ENVOI_SCOPED_TOOLS !== 'false') {
-    throw new TypeError('ENVOI_SCOPED_TOOLS must be true or false');
-  }
-  if (env.ENVOI_SCOPED_TOOLS === 'true') {
-    const store = new FileBridgeStore(config.stateDir);
-    await store.init();
-    if (!await store.load()) throw new Error('No connector credentials were saved. Run setup first');
-    const runs = new FileScopedRunStore(config.stateDir);
-    const connector = new EnvoiConnector(config.apiUrl, store, {
-      ...(options.fetch ? { fetch: options.fetch } : {}),
-      caseSessionHandler: scopedTurnHandler({
-        admit: message => store.admit(message),
-        run: openClawScopedTurn({ gatewayUrl: config.gatewayUrl, gatewayToken: config.gatewayToken, agentId: config.agentId, store: runs, fetch: options.fetch }),
-        async beforeEndTurn(host) {
-          if (!host.workId) throw new Error('Scoped runtime needs trusted work identity');
-          const record = await runs.load(host.workId);
-          if (!record) throw new Error('Scoped turn journal is missing');
-          await runs.save({ ...record, completed: true, pending: [] });
-        }
-      })
-    });
-    return { connector, store, close: async () => {} };
-  }
+  assertOpenClawScopedAdmission(env);
   const relayToken = env.OPENCLAW_MCP_RELAY_TOKEN;
   if (env.OPENCLAW_MCP_RELAY_PORT && !relayToken) throw new Error('OPENCLAW_MCP_RELAY_TOKEN is required when the relay port is configured');
   if (env.OPENCLAW_MCP_WRITE_ENABLED && env.OPENCLAW_MCP_WRITE_ENABLED !== 'true') throw new Error('OPENCLAW_MCP_WRITE_ENABLED must be true when set');
