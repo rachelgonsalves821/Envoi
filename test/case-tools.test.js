@@ -7,7 +7,7 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { api, claim, eventually, launch, owner, ownerMessages, pauseAgent, revokeAgent, send, waitForMessageStatus, workClaimParts } from './a3-harness.js';
+import { api, claim, eventually, launch, owner, ownerEvents, ownerMessages, pauseAgent, revokeAgent, send, waitForMessageStatus, workClaimParts } from './a3-harness.js';
 import { documents } from './agent-registration-harness.js';
 
 const contract = JSON.parse(await readFile(new URL('./contract-fixtures/case-tools/schemas.json', import.meta.url)));
@@ -93,12 +93,36 @@ async function scanner(t) {
 }
 
 for (const backend of backends) {
-  const pair = (baseUrl, number) => Promise.all([owner(baseUrl, `${backend.prefix}${number}0`), owner(baseUrl, `${backend.prefix}${number}1`)]);
+  const pair = (baseUrl, number) => {
+    // Preserve the original xx10/11 .. xx90/91 identities; added regressions
+    // occupy xx12/13, xx22/23, etc. Every phone/slug remains disjoint and four digits.
+    const first = number > 9 ? (number - 9) * 10 + 2 : number * 10;
+    return Promise.all([owner(baseUrl, `${backend.prefix}${first}`), owner(baseUrl, `${backend.prefix}${first + 1}`)]);
+  };
   async function start(t, number, extraEnv = {}) {
     const server = await launch({ ...backend.env, ...flags, ...extraEnv });
     t.after(() => server.stop());
     const [alice, bob] = await pair(server.baseUrl, number);
     return { server, baseUrl: server.baseUrl, alice, bob };
+  }
+  // A native offer received by Alice, evaluated under the default human-required
+  // agreements policy and requested through the scoped tool, without settling yet.
+  async function pendingApproval(t, number, extraEnv = {}) {
+    const context = await start(t, number, extraEnv);
+    const { baseUrl, alice, bob } = context;
+    const first = await begin(baseUrl, alice, bob);
+    await tool(baseUrl, first.session, 'envoi_case_propose', { text: 'Offer Friday', terms: { day: 'Friday' }, idempotencyKey: 'offer' });
+    await settle(baseUrl, bob, first.work);
+    const work = await claimCase(baseUrl, alice, first.caseId);
+    const session = await mint(baseUrl, alice, work);
+    const shown = await snapshot(baseUrl, session);
+    const authority = await tool(baseUrl, session, 'envoi_authority_check', { action: 'accept_proposal', proposalRef: shown.proposal.ref,
+      optionRef: shown.proposal.options[0].ref, idempotencyKey: 'check' });
+    assert.equal(authority.decision, 'needsHuman');
+    await tool(baseUrl, session, 'envoi_request_human', { authorityRef: authority.authorityRef, question: 'Approve Friday?', idempotencyKey: 'request' });
+    const event = (await ownerEvents(baseUrl, alice)).find(value => value.type === 'case.human_decision_requested' && value.caseId === first.caseId);
+    assert.ok(event?.requestId && event.policyEvaluationId, 'canonical owner event identifies its request and evaluation');
+    return { ...context, caseId: first.caseId, work, session, shown, authority, requestId: event.requestId, evaluationId: event.policyEvaluationId };
   }
 
   test(`[${backend.name}] snapshot privacy, scope rejection, reply idempotency and reclaimed replay`, { timeout: 90000 }, async t => {
@@ -128,6 +152,7 @@ for (const backend of backends) {
     const replay = await tool(baseUrl, first.session, 'envoi_case_reply', { ...args, intent: 'message', inReplyTo: shown.requestedResponse.ref });
     assert.deepEqual(replay, { ...sent, replayed: true });
     await toolError(baseUrl, first.session, 'envoi_case_reply', { ...args, text: 'conflicting payload' }, 'IDEMPOTENCY_CONFLICT');
+    await toolError(baseUrl, first.session, 'envoi_case_reply', { ...args, inReplyTo: 'm_aaaaaaaaaaaaaaaa' }, 'REF_NOT_FOUND');
     assert.deepEqual(await tool(baseUrl, first.session, 'envoi_case_reply', args), { ...sent, replayed: true });
     const store = documents(t, backend, server);
     await store.edit(workClaimParts(bob.inbox.id, first.work.workId), value => ({ ...value, leaseExpiresAt: '2000-01-01T00:00:00.000Z' }));
@@ -195,7 +220,8 @@ for (const backend of backends) {
   });
 
   test(`[${backend.name}] human approval resumes canonical decision work and guards accept`, { timeout: 90000 }, async t => {
-    const { baseUrl, alice, bob } = await start(t, 7);
+    const scannerUrl = await scanner(t);
+    const { baseUrl, alice, bob } = await start(t, 7, { ENVOI_MALWARE_SCANNER_URL: scannerUrl });
     const first = await begin(baseUrl, alice, bob);
     await tool(baseUrl, first.session, 'envoi_case_propose', { text: 'Offer Wednesday', terms: { day: 'Wednesday' }, idempotencyKey: 'offer' });
     await settle(baseUrl, bob, first.work);
@@ -234,6 +260,28 @@ for (const backend of backends) {
     assert.equal(accepted.proposalStatus, 'accepted');
     assert.equal(accepted.caseStatus, 'authorized');
     assert.equal((await snapshot(baseUrl, resumed)).proposal, null);
+    // The exact authenticated human approval that allowed this agent's accept
+    // also allows its completion; it must not invent a second approval request.
+    const content = Buffer.from('Approved agreement evidence');
+    const reserved = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/asset-uploads`, { token: alice.agentApiToken, key: 'approved-evidence', body: {
+      caseId: first.caseId, filename: 'approved.txt', mimeType: 'text/plain', size: content.length,
+      checksumSha256: crypto.createHash('sha256').update(content).digest('base64') } });
+    assert.equal(reserved.status, 201, reserved.text);
+    const uploaded = await fetch(reserved.payload.upload.url, { method: 'PUT', headers: reserved.payload.upload.headers, body: content });
+    assert.equal(uploaded.status, 204);
+    const scanned = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/assets/${reserved.payload.object.id}/complete`, { token: alice.agentApiToken, body: {} });
+    assert.equal(scanned.status, 200, scanned.text);
+    const assetRef = (await snapshot(baseUrl, resumed)).assets[0].ref;
+    await tool(baseUrl, resumed, 'envoi_case_share_asset', { assetRef, idempotencyKey: 'approved-share' });
+    const completed = await tool(baseUrl, resumed, 'envoi_case_complete', { result: 'Approved agreement fulfilled', evidenceRefs: [assetRef], idempotencyKey: 'approved-complete' });
+    assert.equal(completed.humanApproval, 'approved');
+    const final = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${first.caseId}`, { session: alice.session });
+    assert.equal(final.status, 200, final.text);
+    assert.equal(final.payload.receipt.authorityBasis, approved.payload.action.id);
+    assert.deepEqual(final.payload.receipt.evidenceRefs, [reserved.payload.object.id]);
+    const otherView = await api(baseUrl, `/api/inboxes/${bob.inbox.id}/cases/${first.caseId}`, { session: bob.session });
+    assert.deepEqual(otherView.payload.receipt, final.payload.receipt, 'both owners see the same canonical receipt');
+    assert.equal((await ownerEvents(baseUrl, alice)).filter(event => event.type === 'case.human_decision_requested' && event.caseId === first.caseId).length, 1);
   });
 
   test(`[${backend.name}] scanned asset sharing and completion preserve grants and work settlement`, { timeout: 90000 }, async t => {
@@ -294,6 +342,98 @@ for (const backend of backends) {
     const reply = await tool(baseUrl, session, 'envoi_case_reply', { text: 'Here is your case summary.', idempotencyKey: 'instruction-reply' });
     assert.equal(reply.status, 'delivered');
     assert.deepEqual(reply.recipient, { kind: 'human' });
+    await toolError(baseUrl, session, 'envoi_case_reply', { text: 'Here is your case summary.', intent: 'clarify', idempotencyKey: 'instruction-reply' }, 'NOT_SUPPORTED_FOR_WORK');
     assert.ok(!(await ownerMessages(baseUrl, alice, first.caseId)).some(message => message.text === 'Here is your case summary.'));
+  });
+
+  test(`[${backend.name}] counterparty humans cannot approve another workspace's pending authority`, { timeout: 90000 }, async t => {
+    const { baseUrl, alice, bob, caseId, session, shown, evaluationId } = await pendingApproval(t, 10);
+    const actionRoute = `/api/inboxes/${bob.inbox.id}/cases/${caseId}/actions`;
+    const ordinary = await api(baseUrl, actionRoute, { session: bob.session, key: 'foreign-ordinary', body: {
+      actionKey: 'approveOnce', externalRefs: { policyEvaluationId: evaluationId } } });
+    assert.ok([403, 409].includes(ordinary.status), ordinary.text);
+    // Exercise the real legacy completion approval branch in a state where its
+    // state/result checks pass, so workspace isolation must do the rejection.
+    const waiting = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${caseId}/actions`, { token: alice.agentApiToken,
+      key: 'legacy-review-state', body: { actionKey: 'case.note', outcome: 'ok', nextState: 'waitingForHuman' } });
+    assert.equal(waiting.status, 201, waiting.text);
+    const legacy = await api(baseUrl, actionRoute, { session: bob.session, key: 'foreign-legacy', body: {
+      actionKey: 'approveOnce', externalRefs: { requestedAction: 'case.complete', result: 'Forged approval', policyEvaluationId: evaluationId } } });
+    assert.ok([403, 409].includes(legacy.status), legacy.text);
+    const after = await snapshot(baseUrl, session);
+    assert.equal(after.authority.lastPolicyDecision.humanApproval, 'pending');
+    assert.equal(after.authority.pendingHumanDecision, true);
+    assert.equal(after.proposal.ref, shown.proposal.ref);
+    assert.ok(!(await ownerMessages(baseUrl, alice, caseId)).some(message => message.kind === 'humanDecision'));
+  });
+
+  test(`[${backend.name}] a declined request creates one decision work item and leaves the case open`, { timeout: 90000 }, async t => {
+    const { baseUrl, alice, bob, caseId, work, session, shown, evaluationId } = await pendingApproval(t, 11);
+    await settle(baseUrl, alice, work);
+    const args = { actionKey: 'decline', externalRefs: { policyEvaluationId: evaluationId } };
+    const declined = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${caseId}/actions`, { session: alice.session, key: 'owner-decline', body: args });
+    assert.equal(declined.status, 201, declined.text);
+    const replay = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${caseId}/actions`, { session: alice.session, key: 'owner-decline', body: args });
+    assert.equal(replay.status, 200, replay.text);
+    const resumedWork = await claimCase(baseUrl, alice, caseId);
+    assert.equal(resumedWork.message.kind, 'humanDecision');
+    assert.equal(resumedWork.message.outcome, 'declined');
+    const resumed = await mint(baseUrl, alice, resumedWork);
+    const after = await snapshot(baseUrl, resumed);
+    assert.equal(after.requestedResponse.intent, 'decline');
+    assert.equal(after.case.status, shown.case.status);
+    assert.equal(after.authority.pendingHumanDecision, false);
+    assert.equal(after.authority.lastPolicyDecision.humanApproval, 'pending');
+    assert.equal((await ownerMessages(baseUrl, alice, caseId)).filter(message => message.kind === 'humanDecision').length, 1);
+    const counterpart = await api(baseUrl, `/api/inboxes/${bob.inbox.id}/cases/${caseId}`, { session: bob.session });
+    assert.equal(counterpart.payload.state, shown.case.status, 'decline never revokes the shared case');
+    const ended = await call(baseUrl, session.token, 'envoi_case_reply', { text: 'Stale decision turn', idempotencyKey: 'old-turn' });
+    assert.equal(ended.payload.code, 'CASE_SESSION_ENDED');
+  });
+
+  test(`[${backend.name}] cleanup expires a request exactly once without changing the signed binding`, { timeout: 90000 }, async t => {
+    const { server, baseUrl, alice, caseId, work, shown, requestId, evaluationId } = await pendingApproval(t, 12,
+      { ENVOI_CASE_SESSION_CLEANUP_INTERVAL_MS: '100' });
+    await settle(baseUrl, alice, work);
+    const store = documents(t, backend, server);
+    const requestPath = ['inboxes', alice.inbox.id, 'case-human-requests', `${requestId}.json`];
+    const bindingPath = ['inboxes', alice.inbox.id, 'policy-bindings', `${evaluationId}.json`];
+    const signedBinding = await store.get(bindingPath);
+    await store.edit(requestPath, request => ({ ...request, expiresAt: '2000-01-01T00:00:00.000Z' }));
+    await eventually(async () => (await store.get(requestPath))?.status === 'expired', { message: 'cleanup resolves expired human request' });
+    const resumedWork = await claimCase(baseUrl, alice, caseId);
+    assert.equal(resumedWork.message.kind, 'humanDecision');
+    assert.equal(resumedWork.message.outcome, 'expired');
+    const resumed = await mint(baseUrl, alice, resumedWork);
+    const after = await snapshot(baseUrl, resumed);
+    assert.equal(after.requestedResponse.intent, 'expired');
+    assert.equal(after.authority.pendingHumanDecision, false);
+    assert.equal(after.case.status, shown.case.status);
+    await new Promise(resolve => setTimeout(resolve, 350));
+    assert.equal((await ownerMessages(baseUrl, alice, caseId)).filter(message => message.kind === 'humanDecision' && message.requestId === requestId).length, 1);
+    assert.equal((await ownerEvents(baseUrl, alice)).filter(event => event.type === 'case.human_decision_resolved' && event.requestId === requestId).length, 1);
+    assert.deepEqual(await store.get(bindingPath), signedBinding, 'expiry never edits the signed authority binding');
+  });
+
+  test(`[${backend.name}] policy changes invalidate approved authority before any accept effect`, { timeout: 90000 }, async t => {
+    const { server, baseUrl, alice, caseId, work, shown, authority, evaluationId } = await pendingApproval(t, 13);
+    await settle(baseUrl, alice, work);
+    const approval = await api(baseUrl, `/api/inboxes/${alice.inbox.id}/cases/${caseId}/actions`, { session: alice.session,
+      key: 'owner-approve', body: { actionKey: 'approveOnce', externalRefs: { policyEvaluationId: evaluationId } } });
+    assert.equal(approval.status, 201, approval.text);
+    const resumedWork = await claimCase(baseUrl, alice, caseId);
+    const resumed = await mint(baseUrl, alice, resumedWork);
+    const store = documents(t, backend, server);
+    await store.put(['inboxes', alice.inbox.id, 'policies', 'active.json'], { agreements: { requireHumanApproval: false } });
+    const before = (await ownerMessages(baseUrl, alice, caseId)).map(message => message.id).sort();
+    const executionPath = ['inboxes', alice.inbox.id, 'policy-executions', `${evaluationId}.json`];
+    assert.equal(await store.get(executionPath), null);
+    await toolError(baseUrl, resumed, 'envoi_case_decide', { proposalRef: shown.proposal.ref, optionRef: shown.proposal.options[0].ref,
+      authorityRef: authority.authorityRef, decision: 'accept', text: 'Must reject stale policy authority', idempotencyKey: 'changed-policy-accept' }, 'AUTHORITY_CHANGED');
+    assert.deepEqual((await ownerMessages(baseUrl, alice, caseId)).map(message => message.id).sort(), before);
+    assert.equal(await store.get(executionPath), null, 'refused accept never consumes authority');
+    const after = await snapshot(baseUrl, resumed);
+    assert.equal(after.proposal.status, 'open');
+    assert.equal(after.proposal.lastActor, 'other_agent');
   });
 }
