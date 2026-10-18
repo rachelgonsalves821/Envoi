@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,9 @@ import { EnvoiError } from '../../sdk/typescript/src/index';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { createOpenClawBridge } from './runtime';
 import { openClawScopedTurn } from './scoped-turn';
+import { discoverOpenClaw, preflightOpenClaw } from './quick-connect-config';
+import { openclawAdapter } from './adapter';
+import { setupQuickConnect, startQuickConnect } from './quick-connect';
 
 const call = (id = 'call_one', text = 'Hello') => ({ type: 'function_call', id: `item_${id}`, status: 'completed',
   call_id: id, name: 'envoi_case_reply', arguments: JSON.stringify({ text, idempotencyKey: id }) });
@@ -32,7 +35,7 @@ function harness() {
   return { store, turn, config, controller, saved: () => saved, effect: vi.mocked(turn.callTool) };
 }
 
-describe('OpenClaw scoped Responses transport', () => {
+describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation evidence)', () => {
   it('uses the strict Gateway request shape without persistent session routing or exposed credentials', async () => {
     const test = harness();
     const bodies: any[] = [];
@@ -163,7 +166,7 @@ describe('OpenClaw scoped Responses transport', () => {
     expect(test.effect).not.toHaveBeenCalled();
   });
 
-  it('wires only explicit scoped mode without starting a legacy relay or reading an asset manifest', async () => {
+  it('refuses unverified scoped runtime admission without claiming work or changing saved state', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-scoped-'));
     try {
       const store = new FileBridgeStore(directory); await store.init();
@@ -171,11 +174,114 @@ describe('OpenClaw scoped Responses transport', () => {
       const test = harness(); const fetcher = vi.fn(async () => { throw new Error('Unexpected network'); });
       const config = { apiUrl: 'https://envoi.example', stateDir: directory, gatewayUrl: test.config.gatewayUrl,
         gatewayToken: test.config.gatewayToken, agentId: test.config.agentId };
-      const bridge = await createOpenClawBridge(config, { env: { ENVOI_SCOPED_TOOLS: 'true', OPENCLAW_MCP_RELAY_PORT: '1',
-        ENVOI_ASSET_MANIFEST_PATH: '/do/not/read' }, fetch: fetcher });
-      expect(() => bridge.connector.mintMcpReadToken('case_one')).toThrow(expect.objectContaining({ code: 'LEGACY_MODEL_ACCESS_DISABLED' }));
-      expect(fetcher).not.toHaveBeenCalled(); await bridge.close();
+      const saved = await readFile(path.join(directory, 'session.json'));
+      const files = await readdir(directory);
+      await expect(createOpenClawBridge(config, { env: { ENVOI_SCOPED_TOOLS: 'true', OPENCLAW_MCP_RELAY_PORT: '1',
+        ENVOI_ASSET_MANIFEST_PATH: '/do/not/read' }, fetch: fetcher }))
+        .rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(await readFile(path.join(directory, 'session.json'))).toEqual(saved);
+      expect(await readdir(directory)).toEqual(files);
       await expect(createOpenClawBridge(config, { env: { ENVOI_SCOPED_TOOLS: 'yes' }, fetch: fetcher })).rejects.toThrow('must be true or false');
     } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('rejects scoped startup before creating state or falling back to configured legacy writes', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-admission-'));
+    try {
+      const test = harness(); const fetcher = vi.fn();
+      await expect(createOpenClawBridge({ apiUrl: 'https://envoi.example', stateDir: path.join(directory, 'not-created'),
+        gatewayUrl: test.config.gatewayUrl, gatewayToken: test.config.gatewayToken, agentId: test.config.agentId }, {
+        env: { ENVOI_SCOPED_TOOLS: 'true', OPENCLAW_MCP_RELAY_TOKEN: 'legacy-secret', OPENCLAW_MCP_WRITE_ENABLED: 'true' }, fetch: fetcher
+      })).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE', message: expect.not.stringContaining('private-gateway-token') });
+      expect(await readdir(directory)).toEqual([]);
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(test.effect).not.toHaveBeenCalled();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('refuses discovery and adapter preflight before reading configuration or invoking the legacy Gateway', async () => {
+    const read = vi.fn(); const fetcher = vi.fn();
+    const options = { env: { ENVOI_SCOPED_TOOLS: 'true' }, readFile: read, fetch: fetcher };
+    const { gatewayUrl, gatewayToken, agentId } = harness().config;
+    const config = { gatewayUrl, gatewayToken, agentId, configPath: '/private/config', chatCompletionsEnabled: true };
+    await expect(discoverOpenClaw(options)).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+    await expect(preflightOpenClaw(config, options)).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+    await expect(openclawAdapter.preflight(config, options)).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+    expect(read).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not redeem an enrollment token from Quick Connect while scoped admission is unavailable', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-setup-refusal-'));
+    try {
+      const fetcher = vi.fn();
+      const secureDirectory = vi.fn(async (selected: string) => selected);
+      await expect(setupQuickConnect({ version: 1, runtime: 'openclaw', apiUrl: 'https://envoi.example',
+        address: 'agent@example.com', agentName: 'Fixture', enrollmentToken: 'fixture-enrollment-token-private-12345',
+        expiresAt: new Date(Date.now() + 600000).toISOString() }, {
+        env: { ENVOI_SCOPED_TOOLS: 'true' }, stateDir: directory, fetch: fetcher, secureDirectory
+      })).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(secureDirectory).not.toHaveBeenCalled();
+      await expect(startQuickConnect(directory, new AbortController().signal, {
+        env: { ENVOI_SCOPED_TOOLS: 'true' }, fetch: fetcher, secureDirectory
+      })).rejects.toMatchObject({ code: 'SCOPED_PROVIDER_ISOLATION_UNAVAILABLE' });
+      expect(secureDirectory).not.toHaveBeenCalled();
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(await readdir(directory)).toEqual([]);
+      await expect(readFile(path.join(directory, 'session.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('refuses the manual runner before migration, local state initialization or enrollment', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-run-refusal-'));
+    const priorExitCode = process.exitCode;
+    const fetcher = vi.fn();
+    const init = vi.spyOn(FileBridgeStore.prototype, 'init');
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    vi.stubGlobal('fetch', fetcher);
+    vi.stubEnv('ENVOI_SCOPED_TOOLS', 'true');
+    vi.stubEnv('ENVOI_STATE_DIR', path.join(directory, 'not-created'));
+    vi.stubEnv('ENVOI_API_URL', 'https://envoi.example');
+    vi.stubEnv('ENVOI_ENROLLMENT_TOKEN', 'fixture-token');
+    vi.stubEnv('OPENCLAW_GATEWAY_URL', 'http://127.0.0.1:18789');
+    vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'fixture-gateway-token');
+    vi.stubEnv('OPENCLAW_AGENT_ID', 'fixture');
+    try {
+      await import('./run');
+      await vi.waitFor(() => expect(stderr).toHaveBeenCalled());
+      expect(init).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled();
+      expect(await readdir(directory)).toEqual([]);
+    } finally {
+      process.exitCode = priorExitCode;
+      stderr.mockRestore(); init.mockRestore(); vi.unstubAllEnvs(); vi.unstubAllGlobals();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps explicit legacy setup/start environments distinct from an ambient scoped setting', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-explicit-env-'));
+    vi.stubEnv('ENVOI_SCOPED_TOOLS', 'true');
+    try {
+      const test = harness();
+      const fetcher = vi.fn(async () => { throw new Error('Fixture Gateway offline'); });
+      const env = { ENVOI_SCOPED_TOOLS: 'false', OPENCLAW_GATEWAY_URL: test.config.gatewayUrl,
+        OPENCLAW_GATEWAY_TOKEN: test.config.gatewayToken, OPENCLAW_AGENT_ID: test.config.agentId };
+      await expect(setupQuickConnect({ version: 1, runtime: 'openclaw', apiUrl: 'https://envoi.example',
+        address: 'agent@example.com', agentName: 'Fixture', enrollmentToken: 'fixture-enrollment-token-private-12345',
+        expiresAt: new Date(Date.now() + 600000).toISOString() }, {
+        env, stateDir: directory, homeDir: directory, fetch: fetcher,
+        readFile: async () => { throw Object.assign(new Error('No fixture config'), { code: 'ENOENT' }); }
+      })).rejects.toMatchObject({ code: 'GATEWAY_UNREACHABLE' });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      const openclaw = { gatewayUrl: test.config.gatewayUrl, gatewayToken: test.config.gatewayToken,
+        agentId: test.config.agentId, configPath: path.join(directory, 'missing-config.json') };
+      await writeFile(path.join(directory, 'connection.json'), JSON.stringify({ version: 1, runtime: 'openclaw',
+        apiUrl: 'https://envoi.example', address: 'agent@example.com', openclaw }));
+      await expect(startQuickConnect(directory, new AbortController().signal, { env, fetch: fetcher }))
+        .rejects.toMatchObject({ code: 'GATEWAY_UNREACHABLE' });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(process.env.ENVOI_SCOPED_TOOLS).toBe('true');
+    } finally { vi.unstubAllEnvs(); await rm(directory, { recursive: true, force: true }); }
   });
 });

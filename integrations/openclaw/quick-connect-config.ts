@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { assertOpenClawScopedAdmission } from './scoped-admission';
 
 /** Trusted local diagnostic. Never construct this class from an upstream response body. */
 export class OpenClawSetupError extends Error {
@@ -152,6 +153,7 @@ function validate(config: Pick<OpenClawConfiguration, 'gatewayUrl' | 'gatewayTok
 /** Read local connection settings only. Provider secrets never leave the host. */
 export async function discoverOpenClaw(options: DiscoverOpenClawOptions = {}): Promise<OpenClawConfiguration> {
   const env = options.env ?? process.env;
+  assertOpenClawScopedAdmission(env);
   const home = options.homeDir ?? env.OPENCLAW_HOME ?? homedir();
   const profile = options.profile ?? env.OPENCLAW_PROFILE;
   if (profile && !safeId.test(profile)) throw new OpenClawSetupError('OpenClaw profile is invalid. Specify its OPENCLAW_CONFIG_PATH directly.');
@@ -242,7 +244,8 @@ export async function discoverOpenClaw(options: DiscoverOpenClawOptions = {}): P
 }
 
 /** Require a complete harmless agent turn before consuming the enrollment token. */
-export async function preflightOpenClaw(config: OpenClawConfiguration, options: { fetch?: typeof fetch; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<void> {
+export async function preflightOpenClaw(config: OpenClawConfiguration, options: { fetch?: typeof fetch; signal?: AbortSignal; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
+  assertOpenClawScopedAdmission(options.env ?? process.env);
   const url = validate(config);
   if (config.chatCompletionsEnabled === false) throw new OpenClawSetupError(endpointHelp);
   const timeoutMs = options.timeoutMs ?? 60_000;
