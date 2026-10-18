@@ -9,6 +9,7 @@ import { migrateConnectionDirectory } from '../connector/migrate';
 import { quickConnectOrigin, validateQuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { discoverOpenClaw, preflightOpenClaw, type DiscoverOpenClawOptions, type OpenClawConfiguration } from './quick-connect-config';
+import { assertOpenClawScopedAdmission, openClawRuntimeEnvironment, saveOpenClawScopedMode } from './scoped-admission';
 import { privateDirectory, privateJson, acquireConnectorLock } from './quick-connect-store';
 import { checkServiceManager, installConnectorService } from './quick-connect-service';
 import { createOpenClawBridge } from './runtime';
@@ -94,6 +95,7 @@ function resumeDiscovery(previous: OpenClawConfiguration, options: DiscoverOpenC
 
 /** Pure setup orchestration with injectable I/O for credential/restart integration tests. */
 export async function setupQuickConnect(input: unknown, options: SetupOptions = {}) {
+  assertOpenClawScopedAdmission(options.env ?? process.env);
   const fetcher = connectionFetch(options.fetch);
   // An expired file may resume an already enrolled installation; it must never be redeemed again.
   const handoff = validateQuickConnectHandoff(input, { allowExpired: true });
@@ -113,13 +115,16 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
       }
     } else validateQuickConnectHandoff(input);
     options.onProgress?.('Detecting OpenClaw');
-    const openclaw = await discoverOpenClaw(prior ? resumeDiscovery(prior.openclaw, options) : options);
+    const env = await openClawRuntimeEnvironment(stateDir, options.env ?? process.env, prior?.openclaw);
+    const selected = { ...options, env };
+    const openclaw = await discoverOpenClaw(prior ? resumeDiscovery(prior.openclaw, selected) : selected);
     options.onProgress?.('Testing OpenClaw before enrollment');
-    await preflightOpenClaw(openclaw, { fetch: fetcher });
+    await preflightOpenClaw(openclaw, { fetch: fetcher, env });
     const saved: InstalledConnection = { version: 1, runtime: 'openclaw', apiUrl: handoff.apiUrl,
       address: handoff.address, agentName: handoff.agentName, openclaw };
     // Write the restart configuration before redeeming so interrupted setup can resume safely.
     await privateJson(path.join(stateDir, 'connection.json'), saved);
+    await saveOpenClawScopedMode(stateDir, assertOpenClawScopedAdmission(env, openclaw));
     if (options.executableFile) {
       const target = path.join(stateDir, 'connector.mjs');
       if (path.resolve(options.executableFile) !== path.resolve(target)) await copyFile(options.executableFile, target);
@@ -147,23 +152,27 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
 
 /** Starts the same bridge as manual onboarding, using saved state and enforcing one process. */
 export async function startQuickConnect(stateDir: string, signal: AbortSignal, options: { fetch?: typeof fetch; secureDirectory?: typeof privateDirectory; env?: NodeJS.ProcessEnv; pollIntervalMs?: number; onReady?: () => void } = {}) {
+  assertOpenClawScopedAdmission(options.env ?? process.env);
   const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(stateDir, options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = connectionFetch(options.fetch);
   let bridge: Awaited<ReturnType<typeof createOpenClawBridge>> | undefined;
+  let reporter: EnvoiConnector | undefined;
   try {
     const saved = await readConnection(directory);
-    const openclaw = await discoverOpenClaw(resumeDiscovery(saved.openclaw, { env: options.env }));
-    await preflightOpenClaw(openclaw, { fetch: fetcher, signal });
-    bridge = await createOpenClawBridge({ ...openclaw, apiUrl: saved.apiUrl, stateDir: directory }, { ...options, fetch: fetcher });
-    await bridge.connector.checkStatus();
-    await reportChecks(saved.apiUrl, bridge.connector, 'ready', fetcher);
+    const env = await openClawRuntimeEnvironment(directory, options.env ?? process.env, saved.openclaw);
+    const openclaw = await discoverOpenClaw(resumeDiscovery(saved.openclaw, { env }));
+    await preflightOpenClaw(openclaw, { fetch: fetcher, signal, env });
+    bridge = await createOpenClawBridge({ ...openclaw, apiUrl: saved.apiUrl, stateDir: directory }, { ...options, env, fetch: fetcher });
+    reporter = new EnvoiConnector(saved.apiUrl, bridge.store, { fetch: fetcher });
+    await reporter.checkStatus();
+    await reportChecks(saved.apiUrl, reporter, 'ready', fetcher);
     options.onReady?.();
     await bridge.connector.run(signal);
   } catch (error) {
-    if (bridge) {
+    if (reporter) {
       const saved = await readConnection(directory).catch(() => null);
-      if (saved) await reportChecks(saved.apiUrl, bridge.connector, 'error', fetcher, 'CONNECTOR_START_FAILED').catch(() => {});
+      if (saved) await reportChecks(saved.apiUrl, reporter, 'error', fetcher, 'CONNECTOR_START_FAILED').catch(() => {});
     }
     throw error;
   } finally { try { await bridge?.close(); } finally { await unlock(); } }
