@@ -21,11 +21,13 @@ describe('two-owner native case presentation', () => {
       { id: 'agent_alice', name: 'Alice agent', address: 'alice@agents.envoi-agents.com' },
       { id: 'agent_bob', name: 'Bob agent', address: 'bob@agents.envoi-agents.com' }
     ];
+    const receipts: string[] = [];
     for (const ownerAgentId of ['agent_alice', 'agent_bob']) {
       const view = { agents, participantDirectory: {}, inbox: { ownerAgentId } } as HumanView;
       const proposal = renderToStaticMarkup(createElement(ProposalHistory, { workCase, view, events: workCase.events }));
       const decision = renderToStaticMarkup(createElement(ExchangeLedgerEvent, { event: workCase.events[0], view, workCase }));
       const receipt = renderToStaticMarkup(createElement(ReceiptCard, { workCase }));
+      receipts.push(receipt);
       expect(proposal).toContain('Offers and counteroffers');
       expect(proposal).toContain('Accepted');
       expect(proposal).toContain('Answer');
@@ -37,5 +39,6 @@ describe('two-owner native case presentation', () => {
       expect(receipt).toContain('Human approval');
       expect(receipt).toContain('Approved');
     }
+    expect(receipts[0]).toBe(receipts[1]);
   });
 });

@@ -1,4 +1,4 @@
-import { isHumanInstructionMessage, type WorkHandler, type WorkMessage } from '../../sdk/typescript/src/connector';
+import { isHumanDecisionMessage, isHumanInstructionMessage, type WorkHandler, type WorkMessage } from '../../sdk/typescript/src/connector';
 import type { EnvoiIntent } from '../../sdk/typescript/src/index';
 
 export interface BridgeReply {
@@ -119,6 +119,7 @@ export function parseAgentReply(value: string): BridgeDecision {
 }
 
 export function workPrompt(message: WorkMessage, history: Array<Record<string, unknown>> = [], options: { allowEnvoiMcpWrites?: boolean; assetHandles?: Array<{ handle: string; filename: string }> } = {}): string {
+  if (isHumanDecisionMessage(message)) throw new TypeError('Human decisions require the scoped tool runtime');
   const humanInstruction = isHumanInstructionMessage(message);
   const incomingTime = typeof message.createdAt === 'string' ? Date.parse(message.createdAt) : NaN;
   const prior = history.filter(item => item.id !== message.id && typeof item.createdAt === 'string'
