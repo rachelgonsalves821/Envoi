@@ -43,6 +43,7 @@ export function responsesScopedTurn(options: {
     return options.store.exclusive(workId, async () => {
     turn.signal.throwIfAborted();
     let record = await options.store.load(workId);
+    if (record?.admission) throw new EnvoiError('Resume with the dedicated admission host', undefined, 'SCOPED_ADMISSION_REQUIRED');
     let recovered = record !== null;
     if (record && record.model !== identity) throw new EnvoiError('Resume with the original scoped model', undefined, 'SCOPED_MODEL_CHANGED');
     if (!record) record = {

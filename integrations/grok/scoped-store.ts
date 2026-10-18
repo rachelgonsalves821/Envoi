@@ -17,6 +17,31 @@ export interface ScopedRunRecord {
   pending: ScopedCall[];
   providerCalls: number;
   completed: boolean;
+  admission?: ScopedAdmissionCheckpoint;
+}
+
+export interface ScopedAdmissionCheckpoint {
+  version: 1;
+  requestId: string;
+  bindingDigest: string;
+  requestDigest: string;
+  fence: number;
+  history: string[];
+  state: 'prepared' | 'started' | 'completed';
+}
+
+export function validAdmissionCheckpoint(value: unknown): value is ScopedAdmissionCheckpoint {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return Object.keys(entry).sort().join(',') === 'bindingDigest,fence,history,requestDigest,requestId,state,version'
+    && entry.version === 1 && typeof entry.requestId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(entry.requestId)
+    && typeof entry.bindingDigest === 'string' && /^[a-f0-9]{64}$/.test(entry.bindingDigest)
+    && typeof entry.requestDigest === 'string' && /^[a-f0-9]{64}$/.test(entry.requestDigest)
+    && Number.isSafeInteger(entry.fence) && (entry.fence as number) >= 1
+    && Array.isArray(entry.history) && entry.history.length > 0 && entry.history.length <= 16
+    && entry.history.every(value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value))
+    && new Set(entry.history).size === entry.history.length && entry.history.at(-1) === entry.requestId
+    && ['prepared', 'started', 'completed'].includes(entry.state as string);
 }
 
 export interface ScopedRunStore {
@@ -55,7 +80,8 @@ export class FileScopedRunStore implements ScopedRunStore {
       if (record?.version !== 1 || record.workId !== workId || typeof record.model !== 'string'
         || !Array.isArray(record.input) || !Array.isArray(record.pending) || record.pending.length > 16
         || !Number.isSafeInteger(record.providerCalls) || record.providerCalls < 0 || record.providerCalls > 16
-        || typeof record.completed !== 'boolean') throw new Error('Invalid scoped run record');
+        || typeof record.completed !== 'boolean'
+        || (record.admission !== undefined && !validAdmissionCheckpoint(record.admission))) throw new Error('Invalid scoped run record');
       return record;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
