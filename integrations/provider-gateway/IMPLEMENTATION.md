@@ -1,0 +1,25 @@
+# Installation-scoped browser gateway — Stage 1
+
+The human authorized implementation of `provider-browser-poll v1` against PR #141 at `8f3c756`, then explicitly delegated gateway server/contract/fixture paths to this task. Code lives in three `src/provider-browser-poll*.js` modules with narrow registration/activation and server-router hooks. The existing canonical registration, installation, credential-family, owner membership, message, claim and case-control services remain authoritative. No email bridge or new conversation store.
+
+## Implemented boundary
+
+- A separate Secure/HttpOnly/Strict browser cookie, encrypted persistent gateway state, hashed lookup names, CSRF/exact-origin controls, fixed same-origin routes, no operational tokens in HTML/results, no owner-cookie fallback for runtime requests.
+- Pending registration and explicit owner code/phrase confirmation, private activation with persisted canonical activation ID, lost-cookie recovery, no automatic re-registration after uncertain non-idempotent creation. Runtime gets only identity/status and bounded read/notify scope.
+- Versioned gateway capabilities and an internal-only authority marker for `authenticated_rest + poll`; unversioned v1 clients remain unchanged. `ENVOI_PROVIDER_BROWSER_POLL` is off by default and depends on the three existing onboarding flags; worker configuration carries it without enabling it.
+- Canonical recipient delivery-event sequence supplies the immutable paging high-water mark. Message status, claim timing, sender permission, blocks and canonical case controls are rechecked. Notifications use their own presentation ledger; their acknowledgement never mutates canonical work. Each batch rechecks current eligibility and commits atomically.
+- One bounded check per installation, private journal/restart recovery, late-run/cursor protection, response limits/redaction, notification retry/deduplication, schedule cadence policy and an explicitly unverified polling-presence projection.
+- Pause/revoke/member/scope/expiry checks on reads and mutation boundaries; sign-out ends only the delegated browser session. Absolute session expiry requires owner repair. Periodic cleanup removes expired session/pairing documents and short-lived cookie recovery values and applies terminal notification retention.
+- Browser-accessible pairing, owner confirmation and inbox pages with accessible text, a bounded pending-work list, same-origin assets, explicit alert-presentation confirmation and no automatic claim/send/settlement.
+
+## Review and use after rollout authorization
+
+No setting is changed by this implementation. The authorized rollout operator must select an exact reviewed server/artifact candidate and verify configuration/rollback before enabling the new default-off feature. The browser gateway requires the deployment's configured canonical HTTPS origin. Development tests use disposable loopback servers and manually handled test cookie jars; they do not certify a real browser's production cookie/profile behavior.
+
+The assistant browser starts at `/agent-gateway/connect`, receives a pending cookie and requests read/notify setup. The owner approves the displayed code at `/claim` using their own admitted account/browser, then confirms the comparison phrase and limited delegation at `/agent-gateway/owner`. The assistant continues activation in its original browser and uses `/agent-gateway/inbox`. Never ask it to operate the owner's dashboard or extract vault keys. The pages do not create a provider task. Only after separately approved setup should the actual host create/read back one native schedule with an owner-approved cadence, initially 30 minutes. The host alerts the owner before confirming notification presentation.
+
+## Validation and remaining acceptance
+
+New core tests exercise persistence/restart, ambiguous creation, cookie recovery, schema/scope/CSRF, snapshot paging, mixed-invalid ack atomicity, changed eligibility, duplicate notifications, overlap, pause/revoke, idle/absolute expiry, overdue boundaries and encrypted storage. Real local HTTP tests exercise canonical owner claim/confirmation/activation, real agent-to-agent delivery, notification-only acknowledgement, raw API denial and pause/revoke. Shared JSON schemas are consumed by real responses. The same gateway tests run in the PostgreSQL CI stage in addition to FileStore.
+
+Record exact final local/CI results in the PR. Synthetic/local server tests do not prove Muse/Instinct execution, persistent private login, cookie filling, provider approval, background scheduling or alert receipt. Both named hosts remain OPEN. A private API/script adapter remains a separate candidate requiring actual auth-profile/secret-isolation proof. Stage 2 canonical writes and any live host/account/scheduler operations are outside this read/notify implementation checkpoint. This is not full multi-host onboarding or a Phase C hosted gate.

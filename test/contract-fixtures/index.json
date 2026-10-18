@@ -562,6 +562,19 @@
         "tools-list.json",
         "two-cases-same-counterparty.json"
       ]
+    },
+    {
+      "id": "provider-browser-poll",
+      "version": 1,
+      "status": "approved",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-browser-poll-v1",
+      "dir": "provider-browser-poll",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "capabilities-disabled.json",
+        "check-empty.json",
+        "check-paused.json"
+      ]
     }
   ]
 }

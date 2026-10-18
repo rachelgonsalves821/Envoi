@@ -94,7 +94,8 @@
         "ENVOI_INSTALLATIONS_V2": "false",
         "ENVOI_AGENT_REGISTRATION_V2": "false",
         "ENVOI_AUTHENTICATED_REST_ROUTE": "false",
-        "ENVOI_CASE_SESSIONS_V1": "false"
+        "ENVOI_CASE_SESSIONS_V1": "false",
+        "ENVOI_PROVIDER_BROWSER_POLL": "false"
       },
       "routes": [
         {

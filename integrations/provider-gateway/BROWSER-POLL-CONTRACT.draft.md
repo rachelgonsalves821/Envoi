@@ -1,6 +1,6 @@
 # Installation-scoped browser session and scheduled polling — contract draft
 
-Proposed contract ID: `provider-browser-poll`, version `1`, draft revision `1` (2026-10-18). Base: integration `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. **PROPOSED ONLY: not CONTRACT-PUBLISHED, ACKed, approved, implemented, deployed or host-tested.** Paths, names and limits below are exact proposals for review, not descriptions of available endpoints. Both Muse and Instinct remain OPEN.
+Proposed contract ID: `provider-browser-poll`, version `1`, draft revision `1` (2026-10-18). Base: integration `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. **Stage 1 implementation approved by the human against PR #141 head 8f3c756 on 2026-10-18, with explicit gateway server/fixture delegation.** The historical draft filename is retained for link stability. Canonical publication and implementation evidence are recorded in handoffs.md and IMPLEMENTATION.md. This is not deployment, rollout permission or real-host acceptance. Both Muse and Instinct remain OPEN.
 
 Authority: existing [registration, auth, presence and work contracts](../../docs/architecture/agent-native-v2/handoffs.md); [gateway architecture](ARCHITECTURE.md). This draft does not amend canonical contracts in place. Lane A publishes accepted text and executable fixtures; Codex consumes/reviews them; Rachel approves the exact published version before dependent implementation.
 

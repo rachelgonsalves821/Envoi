@@ -74,6 +74,8 @@ import { createCaseSessionMcp } from './case-session-mcp.js';
 import { authorityToolError, createCaseTools, caseToolError, humanDecisionWorkMessage } from './case-tools.js';
 import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
+import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
+import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
 
 const productionConfig = validateProductionConfiguration();
 // agent-registration v1 §1: fails closed in every mode, before anything starts.
@@ -2173,7 +2175,7 @@ const registrationEnded = reason => codedError(409, 'REGISTRATION_ENDED', {
   rejected: 'The owner rejected this agent.', expired: 'This setup expired.', withdrawn: 'The owner withdrew this approval.'
 }[reason] || 'This setup ended.', { reason });
 
-async function activateRegistration(rawToken, input) {
+async function activateRegistration(rawToken, input, authority) {
   if (!onboardingFlags.registration) throw codedError(404, 'FEATURE_DISABLED', 'Agent-led setup is not available yet.');
   const body = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   // Row 2, checked before the token: nothing is consumed.
@@ -2181,9 +2183,11 @@ async function activateRegistration(rawToken, input) {
   const registration = await registrations.registrationForToken(rawToken, body.registrationId);
   if (recoveryWindowOver(registration, new Date())) throw registrations.recoveryExpired();
   if (!validActivationBody(body)) throw codedError(400, 'ACTIVATION_INVALID', 'This activation request is not valid.');
+  if (registration.providerBrowserPoll && authority !== providerGatewayAuthority) throw codedError(400, 'DELIVERY_MODE_NOT_AVAILABLE', 'This installation requires private gateway activation.');
   const activationIdHash = hashSecret(body.activationId);
   if (registration.status === 'activated') return activatedAgain(rawToken, registration.id, activationIdHash);
-  if (!deliveryModeAvailable(onboardingFlags, body.deliveryMode)) throw codedError(400, 'DELIVERY_MODE_NOT_AVAILABLE', 'That delivery mode is not available.');
+  const gatewayPoll = authority === providerGatewayAuthority && registration.providerBrowserPoll && browserPollAvailable(onboardingFlags) && body.deliveryMode === 'poll';
+  if (!gatewayPoll && !deliveryModeAvailable(onboardingFlags, body.deliveryMode)) throw codedError(400, 'DELIVERY_MODE_NOT_AVAILABLE', 'That delivery mode is not available.');
   const status = derivedStatus(registration, new Date());
   if (status === 'pending_claim') throw codedError(409, 'REGISTRATION_PENDING', 'Waiting for the owner to approve.');
   if (status !== 'approved') throw registrationEnded(status);
@@ -2900,6 +2904,27 @@ async function handleHttpWakeRoute(req, res, url) {
   return json(res, host && req.method === 'POST' && !host[2] ? 201 : 200, result.value);
 }
 
+const browserGatewayHttp = createCanonicalBrowserGateway({
+  store, flags: onboardingFlags, key: connectorEncryptionKey(), registrations, activateRegistration, auth, canManageInbox,
+  publicOrigin: req => publicBaseUrl(req), clientIp, familyPath: agentCredentialFamilyPath,
+  writeAudit: async (binding, type, data) => {
+    const record = await auditRecord(binding.inboxId, type, { agentId: binding.agentId, installationId: binding.installationId, ...data });
+    await store.putJson(record.document.path, record.document.value); return { inboxId: binding.inboxId, event: record.event };
+  },
+  publishAudit: record => publish(record.inboxId, record.event),
+  ownerCsrf: req => parseCookies(req.headers.cookie)[csrfCookieName()] || '',
+  verifyOwnerCsrf: (req, csrf) => verifyCsrfRequest({ ...req, headers: { ...req.headers, 'x-envoi-csrf': csrf } }),
+  pendingAllowed: async (message, binding) => {
+    if (isHumanInstruction(message) || message.recipientInboxId !== binding.inboxId) return false;
+    const workCase = await getCase(binding.inboxId, message.caseId);
+    if (workCase?.state === 'paused' || workCase?.state === 'revoked') return false;
+    const sender = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
+    const sentContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${binding.agentId}.json`));
+    const receivedContact = await store.getJson(path.join('inboxes', binding.inboxId, 'contacts', `${message.senderAgentId}.json`));
+    return Boolean(sender && canAct(sender, 'send_agent_messages') && !sentContact?.blocked && !receivedContact?.blocked);
+  },
+  rateLimit: () => true
+});
 async function route(req, res) {
   installSessionCookieResponse(req, res, auth);
   const responseNonce = crypto.randomBytes(18).toString('base64');
@@ -2921,6 +2946,7 @@ async function route(req, res) {
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
   if (!consumeRateLimit(req, res, url.pathname, ipKey)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
   if (url.pathname !== '/mcp' && !consumeRateLimit(req, res, url.pathname)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
+  if (await browserGatewayHttp(req, res, url)) return;
   const csrfExempt = url.pathname === '/api/email-webhooks/resend'
     || url.pathname.startsWith('/api/object-storage/local-upload/')
     || url.pathname === '/api/auth/phone/start'
@@ -5309,7 +5335,7 @@ objectQuotaReaper.unref?.();
 const agentRotationReaper = setInterval(() => { void reapAgentRotationRecovery(store).catch(() => console.error('Agent rotation recovery cleanup failed')); }, agentRotationRecoveryMs);
 // agent-registration v1 §2: registration records go by 25 h, recovery envelopes after 300 s.
 const registrationCleanupMs = Number(process.env.ENVOI_REGISTRATION_CLEANUP_INTERVAL_MS || 5 * 60_000);
-const runRegistrationCleanup = () => registrations.cleanup().catch(() => console.error(JSON.stringify({ event: 'envoi.agent_registration_cleanup_failed' })));
+const runRegistrationCleanup = () => Promise.all([registrations.cleanup(), browserGatewayHttp.cleanup()]).catch(() => console.error(JSON.stringify({ event: 'envoi.agent_registration_cleanup_failed' })));
 const registrationCleanup = setInterval(() => { void runRegistrationCleanup(); }, registrationCleanupMs);
 registrationCleanup.unref?.();
 void runRegistrationCleanup();

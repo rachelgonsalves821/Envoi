@@ -1,0 +1,35 @@
+{
+  "contract": "provider-browser-poll",
+  "version": 1,
+  "id": "check-empty",
+  "kind": "http",
+  "description": "check-empty",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/check",
+    "schema": "checkRequest",
+    "body": {
+      "runId": "fixture_run"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "checkResult",
+    "body": {
+      "contract": {
+        "id": "provider-browser-poll",
+        "version": 1
+      },
+      "state": "active",
+      "asOf": "2026-10-18T22:00:00Z",
+      "runId": "fixture_run",
+      "agentAddress": "agent@envoi.mail",
+      "items": [],
+      "nextCursor": null,
+      "retryAfterSeconds": 1800
+    },
+    "headers": {
+      "cache-control": "private, no-store"
+    }
+  }
+}
