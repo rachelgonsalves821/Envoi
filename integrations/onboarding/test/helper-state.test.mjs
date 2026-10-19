@@ -252,3 +252,48 @@ test('Hermes tool recovery timeout gives static resume guidance and keeps the sa
   assert.equal(retry.adopted[0].context.completionId, session._onboarding.completionId);
   assert.deepEqual(retry.calls.map(call => call.path), ['/api/agent/status']);
 });
+
+test('installation revoke projects owner reconnect and remains terminal across status and resume', async () => {
+  let revoked = false;
+  const h = await started({ operationalStatus: async () => {
+    if (revoked) throw Object.assign(new Error('PRIVATE diagnostic envoi_agent_access_DO_NOT_PRINT'), { code: 'CREDENTIAL_REVOKED', status: 401, reason: 'revoked' });
+    return (await fixture('agent-status-installation')).response.body;
+  } }, ['registration-approved', 'activation-created']);
+  assert.equal((await h.helper.resume()).state, 'connected');
+  const credentials = await h.store.read('session.json');
+  const requestCount = h.calls.length;
+  revoked = true;
+  for (const command of ['status', 'resume', 'status']) {
+    const result = await h.helper[command]();
+    assert.equal(result.state, 'revoked'); assert.equal(result.guidance, 'owner_reconnect');
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE|DO_NOT_PRINT|envoi_agent_|installation_example/);
+  }
+  assert.equal(h.calls.length, requestCount);
+  assert.deepEqual(await h.store.read('session.json'), credentials);
+  assert.equal((await h.store.read('helper-state.json')).phase, 'ended');
+});
+
+for (const code of ['NETWORK_ERROR', 'TIMEOUT']) {
+  for (const command of ['status', 'resume']) {
+    test(`${command} preserves completed setup through a coded ${code} and recovers the same session`, async () => {
+      let offline = false;
+      const h = await started({ operationalStatus: async () => {
+        if (offline) throw Object.assign(new Error('PRIVATE TLS cause envoi_agent_access_DO_NOT_PRINT'), { code });
+        return (await fixture('agent-status-installation')).response.body;
+      } }, ['registration-approved', 'activation-created']);
+      await h.helper.resume();
+      const credentials = await h.store.read('session.json');
+      const journal = await h.store.read('helper-state.json');
+      const requestCount = h.calls.length;
+      offline = true;
+      const result = await h.helper[command]();
+      assert.equal(result.state, 'degraded'); assert.equal(result.guidance, 'service_unavailable');
+      assert.doesNotMatch(JSON.stringify(result), /PRIVATE|TLS|DO_NOT_PRINT|envoi_agent_|installation_example/);
+      assert.deepEqual(await h.store.read('session.json'), credentials);
+      assert.deepEqual(await h.store.read('helper-state.json'), journal);
+      offline = false;
+      assert.equal((await h.helper[command]()).state, 'connected');
+      assert.equal(h.calls.length, requestCount); assert.equal(h.adopted.length, 1);
+    });
+  }
+}

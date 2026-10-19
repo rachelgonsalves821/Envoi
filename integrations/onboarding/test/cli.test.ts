@@ -1,5 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { privateJson } from '../../connector/store';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FileBridgeStore } from '../../agent-bridges/file-store';
 vi.mock('../../connector/core', async importOriginal => ({ ...await importOriginal<typeof import('../../connector/core')>(),
   readConnection: vi.fn(async () => ({ apiUrl: 'https://www.envoi-agents.com', runtime: 'hermes', address: 'example@envoi.mail', activationSetup: { completionId: 'completion_fixture', installationId: 'installation_example' } }))
@@ -9,7 +13,12 @@ import { contractRegistry, loadContractFixture } from '../../contract-fixtures/s
 import { runLocalLink, selectLocalRuntime } from '../cli';
 const origin = 'https://www.envoi-agents.com';
 const resolver = () => ({ discover: vi.fn(async () => ({})), preflight: vi.fn(async () => undefined) }) as any;
-afterEach(() => vi.restoreAllMocks());
+const directories: string[] = [];
+beforeEach(() => vi.mocked(readConnection).mockResolvedValue({ apiUrl: origin, runtime: 'hermes', address: 'example@envoi.mail', activationSetup: { completionId: 'completion_fixture', installationId: 'installation_example' } } as any));
+afterEach(async () => {
+  vi.useRealTimers(); vi.restoreAllMocks();
+  for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
+});
 function session() {
   return { address: 'example@envoi.mail', _onboarding: { completionId: 'completion_fixture', installation: { id: 'installation_example' } } } as any;
 }
@@ -91,4 +100,68 @@ it('runs the actual private helper engine through canonical registration, confir
   expect(paths).not.toContain('/api/agent-enroll'); expect(responses).toHaveLength(0);
   expect(records.get('helper-state.json').bootstrapToken).toBeUndefined();
   expect(JSON.stringify(write.mock.calls)).not.toMatch(/envoi_(reg|agent_access|agent_refresh)_|activation_7f3c9a1e|installation_example|inbox_example/);
+});
+
+it.each(['throw', 'normal exit'])('projects foreground installation revoke on %s without raw diagnostics', async mode => {
+  const lifecycle = { state: 'REVOKED', code: 'CREDENTIAL_REVOKED', reason: 'revoked', guidance: 'owner_reenroll' };
+  vi.spyOn(FileBridgeStore.prototype, 'load').mockResolvedValueOnce(session()).mockResolvedValue({ ...session(), lifecycle } as any);
+  const start = vi.fn(async () => { if (mode === 'throw') throw Object.assign(new Error('PRIVATE envoi_agent_access_DO_NOT_PRINT'), { code: lifecycle.code, reason: lifecycle.reason, status: 401 }); });
+  const write = vi.fn();
+  const result = await runLocalLink(['resume', origin, '--runtime', 'hermes'], new AbortController().signal,
+    { resolveAdapter: resolver, helperCli: vi.fn().mockResolvedValue({ schemaVersion: '1', state: 'connected' }), start, write });
+  expect(result).toMatchObject({ state: 'revoked', guidance: 'owner_reconnect' });
+  expect(write.mock.calls.at(-1)?.[0]).toEqual(result); expect(start).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(write.mock.calls)).not.toMatch(/PRIVATE|DO_NOT_PRINT|envoi_agent_|completion_fixture|installation_example|owner_reenroll/);
+});
+
+it.each(['NETWORK_ERROR', 'TIMEOUT'])('projects a coded %s from foreground startup as a resumable transport outage', async code => {
+  vi.spyOn(FileBridgeStore.prototype, 'load').mockResolvedValue(session());
+  const start = vi.fn(async () => { throw Object.assign(new Error('PRIVATE TLS cause'), { code }); });
+  const write = vi.fn();
+  const result = await runLocalLink(['resume', origin, '--runtime', 'hermes'], new AbortController().signal,
+    { resolveAdapter: resolver, helperCli: vi.fn().mockResolvedValue({ state: 'connected' }), start, write });
+  expect(result).toMatchObject({ state: 'degraded', guidance: 'service_unavailable' });
+  expect(write.mock.calls.at(-1)?.[0]).toEqual(result);
+  expect(JSON.stringify(result)).not.toMatch(/PRIVATE|TLS/);
+});
+
+it('keeps an unknown foreground setup failure fail-closed', async () => {
+  vi.spyOn(FileBridgeStore.prototype, 'load').mockResolvedValue(session());
+  await expect(runLocalLink(['resume', origin, '--runtime', 'hermes'], new AbortController().signal,
+    { resolveAdapter: resolver, helperCli: vi.fn().mockResolvedValue({ state: 'connected' }),
+      start: async () => { throw new Error('unknown configuration failure'); } })).rejects.toThrow('unknown configuration failure');
+});
+
+it.each(['status', 'resume'])('%s maps a real authenticated-status TLS rejection to degraded and reuses the saved enrollment', async command => {
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-12T12:05:00Z'));
+  const registration = contractRegistry.contracts.find(item => item.id === 'agent-registration')!;
+  const fromFixture = (name: string) => (loadContractFixture(registration, name + '.json') as any).response.body;
+  const activation = fromFixture('activation-created'), status = fromFixture('agent-status-installation');
+  const directory = await mkdtemp(path.join(tmpdir(), 'envoi-helper-tls-')); directories.push(directory);
+  const store = new FileBridgeStore(directory); await store.init();
+  const saved = { ...activation, agentId: activation.agent.id, address: activation.agent.address, cursor: null,
+    _onboarding: { completionId: 'completion_fixture', origin, runtime: { type: 'hermes', version: 'unknown' },
+      agent: activation.agent, installation: activation.installation } };
+  await privateJson(path.join(directory, 'session.json'), saved);
+  const journal = { version: 1, origin, runtime: { type: 'hermes', version: 'unknown' }, phase: 'completed', completionId: 'completion_fixture' };
+  await privateJson(path.join(directory, 'helper-state.json'), journal);
+  const tls = Object.assign(new TypeError('fetch failed: PRIVATE diagnostic'), {
+    cause: Object.assign(new Error('PRIVATE certificate path envoi_agent_access_DO_NOT_PRINT'), { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' })
+  });
+  let offline = true;
+  const fetcher = vi.fn(async () => { if (offline) throw tls; return Response.json(status); });
+  const start = vi.fn(async () => undefined), write = vi.fn();
+  const options = { stateDir: directory, resolveAdapter: resolver, fetch: fetcher as typeof fetch, start, write };
+  const result = await runLocalLink([command, origin, '--runtime', 'hermes'], new AbortController().signal, options);
+  expect(result).toMatchObject({ state: 'degraded', guidance: 'service_unavailable' });
+  expect(JSON.stringify(write.mock.calls)).not.toMatch(/PRIVATE|certificate|DO_NOT_PRINT|envoi_agent_|completion_fixture|installation_example/);
+  expect(start).not.toHaveBeenCalled();
+  expect(JSON.parse(await readFile(path.join(directory, 'helper-state.json'), 'utf8'))).toEqual(journal);
+  expect(await store.load()).toMatchObject({ agentApiToken: saved.agentApiToken, agentRefreshToken: saved.agentRefreshToken, lifecycle: { state: 'DEGRADED' } });
+  offline = false;
+  const recovered = await runLocalLink([command, origin, '--runtime', 'hermes'], new AbortController().signal, options);
+  expect(recovered.state).toBe('connected');
+  expect(start).toHaveBeenCalledTimes(command === 'resume' ? 1 : 0);
+  expect(fetcher.mock.calls.every(call => String((call as unknown[])[0]) === origin + '/api/agent/status')).toBe(true);
+  expect((await store.load())?.agentApiToken).toBe(saved.agentApiToken);
 });

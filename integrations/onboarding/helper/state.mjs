@@ -9,6 +9,26 @@ const identifier = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9
 const statuses = ['pending_claim', 'approved', 'activated', 'rejected', 'expired', 'withdrawn'];
 const sleepDefault = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+/** Public helper policy for coded connector failures; never project raw diagnostics. */
+export function connectionFailure(contract, error) {
+  const code = error?.code;
+  if (error?.state === 'REVOKED' || ['CREDENTIAL_REVOKED', 'REFRESH_REPLAY', 'ACTIVATION_REPLAY'].includes(code)) {
+    const guidance = code === 'REFRESH_REPLAY' || error?.reason === 'refresh_replay' ? 'owner_reenroll'
+      : error?.reason === 'replaced' ? 'replaced_by_reconnect' : 'owner_reconnect';
+    return safeOutput(contract, { schemaVersion: '1', state: 'revoked', guidance,
+      nextAction: 'Access for this installation ended. Ask the owner to review it before reconnecting this identity.' });
+  }
+  if (error?.state === 'NEEDS_RECONNECT' || ['CREDENTIAL_EXPIRED', 'REFRESH_TOKEN_INVALID', 'REFRESH_RECOVERY_EXPIRED', 'ROTATION_ID_REQUIRED', 'ACTIVATION_RECOVERY_EXPIRED'].includes(code)) {
+    return safeOutput(contract, { schemaVersion: '1', state: 'needs_reconnect',
+      guidance: code === 'ROTATION_ID_REQUIRED' ? 'update_connector' : 'owner_reconnect',
+      nextAction: 'Ask the owner to reconnect this existing identity using the reviewed helper.' });
+  }
+  if (['NETWORK_ERROR', 'TIMEOUT', 'INTERNAL_SERVER_ERROR', 'AUTH_UNAVAILABLE'].includes(code)) {
+    return failureOutput(contract, 'degraded', 'service_unavailable');
+  }
+  return null;
+}
+
 export async function createHelper(options) {
   const contract = await loadContract(options.contract);
   const limits = contract['x-limits'];
@@ -59,12 +79,10 @@ export async function createHelper(options) {
         : 'Ask the owner to review this setup before reconnecting or starting another registration.' }, state);
   }
   async function protocolFailure(error, state, unresolved = false) {
-    if (['CREDENTIAL_REVOKED', 'REFRESH_REPLAY'].includes(error.code)) return end(state, 'revoked', error.reason === 'replaced' ? 'replaced_by_reconnect' : 'owner_reenroll');
-    if (['CREDENTIAL_EXPIRED', 'REFRESH_TOKEN_INVALID', 'REFRESH_RECOVERY_EXPIRED', 'ROTATION_ID_REQUIRED'].includes(error.code)) return end(state, 'needs_reconnect', error.code === 'ROTATION_ID_REQUIRED' ? 'update_connector' : 'owner_reconnect');
+    const connection = connectionFailure(contract, error);
+    if (connection) return connection.state === 'degraded' ? connection : end(state, connection.state, connection.guidance);
     const row = contract['x-codes'][error.code]?.bySurface?.helper;
     const guidance = row?.guidanceByHelperState?.[unresolved ? 'activation_unresolved' : ''] ?? row?.guidanceByReason?.[error.reason] ?? row?.guidance;
-    if (error.code === 'ACTIVATION_RECOVERY_EXPIRED') return end(state, 'needs_reconnect', 'owner_reconnect');
-    if (error.code === 'ACTIVATION_REPLAY') return end(state, 'revoked', 'owner_reconnect');
     if (error.code === 'REGISTRATION_TOKEN_INVALID') return end(state, 'invalid', unresolved ? 'check_owner_agents' : 'register_again');
     if (error.code === 'REGISTRATION_ENDED') return end(state, error.reason ?? 'withdrawn', guidance ?? 'approval_ended');
     if (row?.lifecycle === 'REGISTRATION_ENDED') return end(state, 'ended', guidance);
@@ -240,7 +258,7 @@ export async function createHelper(options) {
         }
         return await advance(state, ['connect', 'resume'].includes(command), showCode);
       } catch (error) {
-        if (error instanceof ProtocolError || typeof error?.code === 'string' && ['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED', 'REFRESH_REPLAY', 'REFRESH_TOKEN_INVALID', 'REFRESH_RECOVERY_EXPIRED', 'ROTATION_ID_REQUIRED'].includes(error.code)) return await protocolFailure(error, state, state?.phase === 'activating');
+        if (error instanceof ProtocolError || typeof error?.code === 'string' && ['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED', 'REFRESH_REPLAY', 'REFRESH_TOKEN_INVALID', 'REFRESH_RECOVERY_EXPIRED', 'ROTATION_ID_REQUIRED', 'ACTIVATION_REPLAY', 'ACTIVATION_RECOVERY_EXPIRED', 'NETWORK_ERROR', 'TIMEOUT', 'INTERNAL_SERVER_ERROR', 'AUTH_UNAVAILABLE'].includes(error.code)) return await protocolFailure(error, state, state?.phase === 'activating');
         // Project only static, allow-listed guidance, never an adapter/provider body.
         if (runtime.type === 'hermes' && error?.code === 'TOOLS_NOT_READY') return project({ state: 'needs_help',
           nextAction: 'Hermes did not invoke the Envoi identity tool before the recovery deadline. Keep the Gateway running, check its MCP/provider diagnostics, then resume this saved connection. Do not register again.' }, state);
