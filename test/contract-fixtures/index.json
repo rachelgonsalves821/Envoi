@@ -240,7 +240,7 @@
     {
       "id": "http-wake",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#http-wake-v1",
       "dir": "http-wake",
       "schemas": "schemas.json",
@@ -390,7 +390,7 @@
     {
       "id": "case-session",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#case-session-v1",
       "dir": "case-session",
       "schemas": "schemas.json",
@@ -476,7 +476,7 @@
     {
       "id": "case-tools",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#case-tools-v1",
       "dir": "case-tools",
       "schemas": "schemas.json",

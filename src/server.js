@@ -882,8 +882,7 @@ const caseSessionMcp = createCaseSessionMcp(createCaseTools({ store, codec: refe
   evaluate: evaluateCaseToolAuthority, authorize: authorizeCaseTool, requestHuman: requestCaseToolHuman,
   share: shareCaseToolAsset, readContent: readCaseToolContent, complete: completeCaseTool
 }));
-const httpWakeEnabled = process.env.ENVOI_HTTP_WAKE_V1 === 'true';
-if (process.env.ENVOI_HTTP_WAKE_V1 && !['true', 'false'].includes(process.env.ENVOI_HTTP_WAKE_V1)) throw new Error('ENVOI_HTTP_WAKE_V1 must be true or false');
+const httpWakeEnabled = onboardingFlags.httpWake;
 const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installationsEnabled: onboardingFlags.installations,
   facts: async sub => ({ family: await store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)), agent: await store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`)) }),
   audit: async (inboxId, type, data, at) => {
@@ -5273,9 +5272,11 @@ const wakeMaintenanceTimer = httpWakeEnabled ? setInterval(() => {
 wakeDispatch?.unref(); wakeMaintenanceTimer?.unref();
 const caseSessionsHeartbeat = caseSessions.enabled ? setInterval(() => { void caseSessions.heartbeat().catch(() => console.error(JSON.stringify({ event: 'envoi.case_sessions_heartbeat_failed' }))); }, caseSessionsHeartbeatMs) : null;
 let humanRequestCleanupRun = null;
+// Pending human-decision requests expire on their own clock, separate from session cleanup.
+const humanRequestCleanupMs = Math.max(100, Number(process.env.ENVOI_HUMAN_DECISION_CLEANUP_INTERVAL_MS || 5000));
 const humanRequestCleanup = setInterval(() => {
   humanRequestCleanupRun ||= cleanupCaseHumanRequests().catch(() => console.error(JSON.stringify({ event: 'envoi.human_decision_cleanup_failed' }))).finally(() => { humanRequestCleanupRun = null; });
-}, Math.max(100, Number(process.env.ENVOI_CASE_SESSION_CLEANUP_INTERVAL_MS || 5000)));
+}, humanRequestCleanupMs);
 humanRequestCleanup.unref();
 caseSessionsHeartbeat?.unref?.();
 await synchronizePublicEmailDirectory();

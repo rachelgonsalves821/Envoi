@@ -19,7 +19,7 @@ function assertContract(name, value) {
   assert.ok(validate(value), `${name}: ${ajv.errorsText(validate.errors)}\n${JSON.stringify(value)}`);
 }
 
-const off = { installations: false, registration: false, authenticatedRest: false, caseSessions: false };
+const off = { installations: false, registration: false, authenticatedRest: false, caseSessions: false, httpWake: false };
 
 test('every onboarding flag defaults off', () => {
   assert.deepEqual(readOnboardingFlags({}), off);
@@ -31,7 +31,7 @@ test('every onboarding flag defaults off', () => {
 test('only the exact string true turns a flag on', () => {
   assert.deepEqual(readOnboardingFlags({ ENVOI_INSTALLATIONS_V2: 'true' }), { ...off, installations: true });
   assert.deepEqual(readOnboardingFlags({ ENVOI_INSTALLATIONS_V2: 'true', ENVOI_AGENT_REGISTRATION_V2: 'true', ENVOI_AUTHENTICATED_REST_ROUTE: 'true' }),
-    { installations: true, registration: true, authenticatedRest: true, caseSessions: false });
+    { ...off, installations: true, registration: true, authenticatedRest: true });
   for (const name of onboardingFlagNames) {
     for (const value of ['TRUE', '1', 'True', 'yes', 'on', ' true']) {
       assert.throws(() => readOnboardingFlags({ ENVOI_INSTALLATIONS_V2: 'true', [name]: value }), new RegExp(`${name} must be true or false`));
@@ -52,6 +52,16 @@ test('case sessions without installations fail closed', () => {
   assert.throws(() => readOnboardingFlags({ ENVOI_CASE_SESSIONS_V1: 'true', ENVOI_INSTALLATIONS_V2: 'false' }), /ENVOI_CASE_SESSIONS_V1 requires ENVOI_INSTALLATIONS_V2/);
   assert.deepEqual(readOnboardingFlags({ ENVOI_CASE_SESSIONS_V1: 'true', ENVOI_INSTALLATIONS_V2: 'true' }), { ...off, installations: true, caseSessions: true });
   assert.deepEqual(readOnboardingFlags({ ENVOI_CASE_SESSIONS_V1: 'false' }), off);
+});
+
+// http-wake v1: a wake subscription belongs to an installation.
+test('HTTPS wake without installations fails closed', () => {
+  assert.ok(onboardingFlagNames.includes('ENVOI_HTTP_WAKE_V1'));
+  assert.throws(() => readOnboardingFlags({ ENVOI_HTTP_WAKE_V1: 'true' }), /ENVOI_HTTP_WAKE_V1 requires ENVOI_INSTALLATIONS_V2/);
+  assert.throws(() => readOnboardingFlags({ ENVOI_HTTP_WAKE_V1: 'true', ENVOI_INSTALLATIONS_V2: 'false' }), /ENVOI_HTTP_WAKE_V1 requires ENVOI_INSTALLATIONS_V2/);
+  assert.deepEqual(onboardingFlagErrors({ ENVOI_HTTP_WAKE_V1: 'yes', ENVOI_INSTALLATIONS_V2: 'true' }), ['ENVOI_HTTP_WAKE_V1 must be true or false']);
+  assert.deepEqual(readOnboardingFlags({ ENVOI_HTTP_WAKE_V1: 'true', ENVOI_INSTALLATIONS_V2: 'true' }), { ...off, installations: true, httpWake: true });
+  assert.deepEqual(readOnboardingFlags({ ENVOI_HTTP_WAKE_V1: 'false' }), off);
 });
 
 for (const name of ['routes-available.json', 'routes-available-rest.json', 'routes-disabled.json']) {
