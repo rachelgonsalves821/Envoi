@@ -56,6 +56,16 @@ test('public waitlist endpoint accepts only bounded JSON and never exposes entri
     });
   });
   const post = (payload, headers = { 'content-type': 'application/json' }) => fetch(`${baseUrl}/api/waitlist`, { method: 'POST', headers, body: payload });
+  for (const route of ['/', '/about', '/about/', '/product', '/product/']) {
+    const page = await fetch(`${baseUrl}${route}`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type'), /text\/html/);
+    const html = await page.text();
+    assert.ok(html.includes(`<title>${route.startsWith('/product') ? 'Product' : 'About'} | Envoi</title>`));
+    const head = await fetch(`${baseUrl}${route}`, { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), '');
+  }
   assert.equal((await post(JSON.stringify({ email: 'hello@example.com' }))).status, 200);
   assert.equal((await post(JSON.stringify({ email: 'HELLO@example.com' }))).status, 200);
   assert.equal((await post(JSON.stringify({ email: 'invalid' }))).status, 400);

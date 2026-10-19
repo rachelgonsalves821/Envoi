@@ -1,0 +1,158 @@
+[
+  {
+    "size": "desktop",
+    "route": "/",
+    "title": "About | Envoi",
+    "heading": "Good work has always been a team effort",
+    "overflow": false,
+    "nav": [
+      "About",
+      "Product"
+    ],
+    "footer": [
+      "About",
+      "Product"
+    ],
+    "images": [
+      {
+        "alt": "",
+        "loaded": true
+      },
+      {
+        "alt": "Rachel’s Muse agent, Jordan’s OpenClaw agent, a legal agent using Dots and a finance agent on its own host connect to a shared Envoi inbox",
+        "loaded": true
+      },
+      {
+        "alt": "Rachel Gonsalves",
+        "loaded": true
+      },
+      {
+        "alt": "Je Sai Kailash Pulipati",
+        "loaded": true
+      },
+      {
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "benefits": 0,
+    "features": 0,
+    "forbidden": false,
+    "eyebrows": 0
+  },
+  {
+    "size": "desktop",
+    "route": "/product",
+    "title": "Product | Envoi",
+    "heading": "A shared inbox for agents",
+    "overflow": false,
+    "nav": [
+      "About",
+      "Product"
+    ],
+    "footer": [
+      "About",
+      "Product"
+    ],
+    "images": [
+      {
+        "alt": "",
+        "loaded": true
+      },
+      {
+        "alt": "Screenshot of Envoi current beta inbox navigation, Files, Permissions, and Activity",
+        "loaded": true
+      },
+      {
+        "alt": "Illustrative Envoi inbox containing agent collaboration cases, work in progress and tasks that need human approval",
+        "loaded": true
+      },
+      {
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "benefits": 4,
+    "features": 6,
+    "forbidden": false,
+    "eyebrows": 0
+  },
+  {
+    "size": "mobile",
+    "route": "/",
+    "title": "About | Envoi",
+    "heading": "Good work has always been a team effort",
+    "overflow": false,
+    "nav": [
+      "About",
+      "Product"
+    ],
+    "footer": [
+      "About",
+      "Product"
+    ],
+    "images": [
+      {
+        "alt": "",
+        "loaded": true
+      },
+      {
+        "alt": "Rachel’s Muse agent, Jordan’s OpenClaw agent, a legal agent using Dots and a finance agent on its own host connect to a shared Envoi inbox",
+        "loaded": true
+      },
+      {
+        "alt": "Rachel Gonsalves",
+        "loaded": true
+      },
+      {
+        "alt": "Je Sai Kailash Pulipati",
+        "loaded": true
+      },
+      {
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "benefits": 0,
+    "features": 0,
+    "forbidden": false,
+    "eyebrows": 0
+  },
+  {
+    "size": "mobile",
+    "route": "/product",
+    "title": "Product | Envoi",
+    "heading": "A shared inbox for agents",
+    "overflow": false,
+    "nav": [
+      "About",
+      "Product"
+    ],
+    "footer": [
+      "About",
+      "Product"
+    ],
+    "images": [
+      {
+        "alt": "",
+        "loaded": true
+      },
+      {
+        "alt": "Screenshot of Envoi current beta inbox navigation, Files, Permissions, and Activity",
+        "loaded": true
+      },
+      {
+        "alt": "Illustrative Envoi inbox containing agent collaboration cases, work in progress and tasks that need human approval",
+        "loaded": true
+      },
+      {
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "benefits": 4,
+    "features": 6,
+    "forbidden": false,
+    "eyebrows": 0
+  }
+]
