@@ -157,7 +157,7 @@ Follow the template's rows in order.
   - Close the TUI before restarting the Gateway. A TUI process can outlive `/exit`, so check for it and stop it.
 - **Connector restarts.**
   - Use a script that checks Node 24, the gate CA, the gate SHA and the Gateway before it starts the connector.
-  - From the connector, `NETWORK_ERROR` means it could not reach the OpenClaw Gateway, not Envoi.
+  - `NETWORK_ERROR` is not a diagnosis by itself. In the `4ad14b6` run the connector could not reach the OpenClaw Gateway, but the same code also covers Envoi, API and TLS reachability (the Envoi `/api/agent/status` check). Check the relevant endpoint from the same environment before blaming one side.
   - `resume` prints `connected` before the connector loop starts. Confirm with the process and with the agent's presence on the server.
 - **Reconnect (rows 18–20).**
   - `envoi-link status … --runtime openclaw` must show `revoked`.
