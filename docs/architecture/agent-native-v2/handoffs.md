@@ -1042,7 +1042,7 @@ The five `event-*` fixtures are already clean.
 
 ## agent-registration v1
 
-**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** approved, third revision (§13). The human's first `CONTRACT-APPROVED` preceded Lane B's review, which found a `MISMATCH`. By the human's decision the corrected contract stayed v1. Lane B posted [`CONTRACT-ACK` @4da219e](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134589212) and the human posted a [fresh `CONTRACT-APPROVED`](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134778271) on 2026-10-12, before #76 was integrated. The wire contract is unchanged since then. Server code is A-4.x; nothing here is default-on.
+**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** fourth revision (§13), published and waiting for the human's `CONTRACT-APPROVED`. The third revision is approved. The human's first `CONTRACT-APPROVED` preceded Lane B's review, which found a `MISMATCH`. By the human's decision the corrected contract stayed v1. Lane B posted [`CONTRACT-ACK` @4da219e](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134589212) and the human posted a [fresh `CONTRACT-APPROVED`](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134778271) on 2026-10-12, before #76 was integrated. Revision 4 (§13) clarifies which agents the owner UI offers for reconnect. It does not change the wire contract, server behaviour or a5-presence v1. Server code is A-4.x; nothing here is default-on.
 
 **Fixtures:** [`test/contract-fixtures/agent-registration/`](../../../test/contract-fixtures/agent-registration/). It holds:
 - `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-model-visible`, `x-permission-labels`, `x-route-availability`, `x-delivery-availability`, `x-operations`, `x-legacy-projection` and `x-installation-derivation`;
@@ -1257,6 +1257,15 @@ For an `existing_agent` approval the count excludes the agent being attached (to
 **`existing_agent`**
 - The agent must be approved and `active` or `paused`. It may have every credential family revoked or expired.
 - A pending or rejected agent, or one frozen by the agent-wide revoke (status `revoked`), gets `409 AGENT_NOT_RECONNECTABLE`. A frozen agent is still re-enrolled through Quick Connect in v1.
+- **Owner-UI eligibility (revision 4).** The rules above apply to the **stored** agent record. The owner UI never sees that record. It sees the owner view (a5-presence v1): `GET /api/inboxes/{inboxId}/agents`, and the `agents` of `GET /api/inboxes/{inboxId}/human-view`, which the claim page reads. Both are the same `ownerAgentState`. The owner UI offers an agent under "Reconnect an existing agent" when:
+  - `onboardingStatus === "approved"`, **and**
+  - `status` is `"active"` or `"paused"`, **or** `credentialRevoked === true`.
+
+  The owner view reports `status: "revoked"`, `credentialRevoked: true` and `permissions: []` for an agent whose families are all revoked (a5-presence v1, fixture `owner-revoked-refresh-replay`). Such an agent is **not frozen**: it is still reconnectable, and the owner UI must offer it. This happens after a per-installation revoke of its only installation (§6.5), a `REFRESH_REPLAY` or an `ACTIVATION_REPLAY`.
+
+  How to tell the cases apart: every freeze writes `onboardingStatus: "revoked"` together with `status: "revoked"`. That covers the agent-wide `credentials/revoke`, agent removal and the one-time legacy reconciliation. A frozen agent therefore always has `onboardingStatus: "revoked"` in the owner view, and stays ineligible (`AGENT_NOT_RECONNECTABLE`; re-enrolled through Quick Connect). Families that end without a freeze leave `onboardingStatus` and the stored `status` unchanged, so an approved agent stays `active` or `paused`. For every record the server writes, this predicate agrees with the server's status check of the stored record. The approval can still fail for other reasons: `CLAIM_FORBIDDEN`, `CLAIM_STALE` or `ACTIVE_AGENT_LIMIT`.
+
+  Re-enrollment through Quick Connect also stays available for an agent with revoked credentials. That is why a5-presence v1's `owner-revoked-refresh-replay` says "Offer re-enrollment". Revision 4 adds the reconnect offer beside it and replaces nothing. Fixture: `owner-reconnect-after-installation-revoke`.
 - If the agent has no live family, the approval needs a slot, checked against the agent's principal human (`ACTIVE_AGENT_LIMIT`).
 - **`replacesInstallationId` must name the agent's newest active installation** (latest `activatedAt`, §6.4), or be `null` when it has none, otherwise `409 CLAIM_STALE`. This forces the UI to show the owner which installation, and which last check-in, will be disconnected. Activation replaces **every** active installation, including older legacy ones.
 - Approval changes nothing yet. The current installation keeps working until the new one **activates**.
@@ -1426,6 +1435,7 @@ Every path that revokes a family therefore updates its installation, with no sec
 - unlike the agent-wide `credentials/revoke`, it **does not freeze the identity**: a new registration can attach to it (`existing_agent`, with permissions decided again);
 - **not even after a restart.** Today's startup job `reconcileLegacyAgentRevocations` freezes every active or paused agent whose families are all revoked. Unchanged, it would freeze an agent after this revoke, or after a `REFRESH_REPLAY` or `ACTIVATION_REPLAY` of its only family, on the next boot, and its claims would then get `AGENT_NOT_RECONNECTABLE`. A-4.x must narrow it to the pre-freeze data it was written for (§12), so that only the agent-wide revoke freezes. Fixture: `reconnect-after-installation-revoke`;
 - once every family is revoked, a5-presence v1 reports the agent as `revoked` ("Access revoked"), as it already does today. An agent left only with expired families shows `needs_reconnect`;
+- **that `revoked` is the owner view, not a freeze (revision 4).** The owner view also reports `credentialRevoked: true` and keeps `onboardingStatus: "approved"`, and the stored agent stays `active` or `paused`. The owner UI must still offer the agent under "Reconnect an existing agent" (§5.3, Owner-UI eligibility), with `replacesInstallationId: null` because no installation is active. Of the owner's actions, only the agent-wide `credentials/revoke` freezes. Every freeze writes `onboardingStatus: "revoked"`, and a frozen agent is not offered. Fixture: `owner-reconnect-after-installation-revoke`;
 - an unknown id → `404 INSTALLATION_NOT_FOUND`;
 - audit `agent.installation_revoked`.
 
@@ -1629,6 +1639,7 @@ These are candidates for v2 or A-3.1b.
 - **installations elsewhere:** an activation creates an active, non-legacy installation on the requested mode and an available route; a revoke returns ended/revoked; a legacy installation has the projected shape (by schema);
 - **derivation:** every listed installation, and the installation named by agent status, is re-derived from the stored families (projection, frozen agents, read-time status, and the five-newest-ended cut). A legacy installation can never have ended by `activation_replay`;
 - **migration and restart steps:** every step of the migration, rollback, re-enable and restart fixtures. After a restart every step succeeds, the stored agent is approved and not frozen, an `existing_agent` approval attaches to it, and its `replacesInstallationId` is the newest active installation derived from the stored families, or `null`;
+- **owner-UI eligibility (revision 4):** a step may show the owner view, validated against a5-presence v1's `ownerAgentList` (named `a5-presence/ownerAgentList`). Each row's `status`, `credentialRevoked`, `onboardingStatus` and `permissions` are derived from the stored agent and families as a5-presence v1 derives them. `client.reconnectOffered` lists exactly the rows that §5.3's predicate offers, and every `existing_agent` approval in the fixture targets one of them;
 - **tokens:** placeholders only, now including `envoi_reg_`.
 
 A separate test checks three things:
@@ -1647,7 +1658,7 @@ The revision-3 checks were mutation-tested: 42 deliberate fixture and schema mut
 | Claim | `claim-lookup`, `claim-feature-disabled`, `claim-code-invalid`, `claim-attempts-exhausted`, `claim-not-admitted`, `claim-auth-unavailable`, `claim-approve-new-agent`, `claim-approve-replayed`, `claim-approve-replayed-after-activation`, `claim-approve-existing-agent`, `claim-approve-wrong-code`, `claim-already-decided`, `claim-account-changed`, `claim-forbidden`, `claim-address-taken`, `claim-agent-limit`, `claim-pending-activation-limit`, `claim-agent-not-reconnectable`, `claim-stale`, `claim-invalid`, `claim-reject`, `claim-reject-replayed`, `claim-reject-after-approve`, `claim-reject-wrong-code`, `owner-claims`, `claim-withdraw`, `claim-withdraw-replayed`, `claim-withdraw-not-found` |
 | Activation | `activation-created`, `activation-recovered`, `activation-paused-agent`, `activation-pending`, `activation-rejected`, `activation-expired`, `activation-withdrawn`, `activation-id-required`, `activation-invalid`, `activation-token-invalid-unresolved`, `activation-replay`, `activation-after-recovery-window`, `activation-recovery-expired`, `activation-delivery-not-available`, `activation-server-error` |
 | Installations | `agent-status-installation`, `agent-status-legacy-address`, `owner-installations`, `owner-installations-legacy-several`, `owner-installations-frozen-agent`, `owner-installation-revoke`, `owner-installation-not-found`, `installations-feature-disabled` |
-| Migration and restart | `migration-legacy-family`, `rollback-flags-off`, `reenable-after-rollback`, `reconnect-after-installation-revoke` |
+| Migration and restart | `migration-legacy-family`, `rollback-flags-off`, `reenable-after-rollback`, `reconnect-after-installation-revoke`, `owner-reconnect-after-installation-revoke` |
 
 ### 12. Implementation notes for A-4.x (Lane A; informative)
 
@@ -1659,7 +1670,9 @@ The revision-3 checks were mutation-tested: 42 deliberate fixture and schema mut
 - **Deployment.** Add the three flags to the Worker allowlist, `production-config`, `promote-release`, `.env.production.example` and `check-deployment`, all defaulting off.
 - **Order (two-owner plan).** No implementation starts before `CONTRACT-APPROVED agent-registration v1`, and none is enabled before the hosted Phase A gate passes.
 
-### 13. Revisions within v1 (before ACK)
+### 13. Revisions within v1
+
+The entries before revision 4 were made before Lane B's `CONTRACT-ACK`.
 
 - **Lane A independent review, against `a814a75`.** The review found three blockers:
   - activation did not re-check the decision, and approvals could not be undone;
@@ -1728,6 +1741,20 @@ The revision-3 checks were mutation-tested: 42 deliberate fixture and schema mut
     - no double-counted slots;
     - limit consistency checks.
   - **Mutation testing:** 42 deliberate mutations caught (§11).
+- **Revision 4: owner-UI eligibility for reconnect (2026-10-19, after approval of revision 3).**
+  - **Why:** Gate B-local failed at `7baaf63`, row 18. The owner revoked an agent's only installation (§6.5). Then the claim page's "Reconnect an existing agent" did not list that agent, so it could not be reconnected as the same identity.
+  - **Cause:** two approved texts read differently.
+    - This contract says a per-installation revoke does not freeze the identity, and that an `existing_agent` may have every credential family revoked, with `replacesInstallationId: null` (§5.3, §6.5).
+    - a5-presence v1 reports such an agent in the owner view as `status: "revoked"`, `credentialRevoked: true`, `onboardingStatus: "approved"` (fixture `owner-revoked-refresh-replay`).
+    - The server checks the stored record (approved, `active` or `paused`), so it accepts the approval. The owner UI filtered on the view's `status`, so it hid the agent.
+  - **What changed:**
+    - §5.3 gains "Owner-UI eligibility": `onboardingStatus === "approved"` and either `status` is `active` or `paused`, or `credentialRevoked === true`. A frozen agent always has `onboardingStatus: "revoked"` and stays ineligible.
+    - §6.5 states the same beside the installation revoke route.
+    - New fixture `owner-reconnect-after-installation-revoke`, with a new optional `client.reconnectOffered` field and the cross-contract schema name `a5-presence/ownerAgentList` (§11).
+    - New server regression test `test/agent-reconnect-after-revoke.test.js`.
+  - **Unchanged:** the wire format, every server behaviour and code, and a5-presence v1.
+  - **For consumers of the fixtures:** the registration directory now holds 79 fixtures, up from 78. A step may name another contract's schema as `<contract>/<definition>`. Lane B's consuming reviews (`sdk/typescript/reviews/agent-registration.review.ts`, `integrations/onboarding/test/agent-registration.review.mjs`) pin the count at 78 and look schema names up in this contract only, so they need that update.
+  - **Version:** this is a clarification of approved behaviour, so the contract stays v1. It needs the human's `CONTRACT-APPROVED` for revision 4. After that, a `REQUEST lane-b` fixes the owner UI predicate.
 
 ## Gate GA observability (additive audit data, 2026-10-13)
 

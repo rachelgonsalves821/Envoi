@@ -2739,6 +2739,15 @@
             "activation_unresolved"
           ],
           "description": "Local helper state that selects x-codes guidanceByHelperState (§2)."
+        },
+        "reconnectOffered": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+          },
+          "uniqueItems": true,
+          "description": "owner_ui, on an owner agent list (a5-presence/ownerAgentList): the agents \"Reconnect an existing agent\" offers, by §5.3 Owner-UI eligibility (revision 4)."
         }
       },
       "allOf": [

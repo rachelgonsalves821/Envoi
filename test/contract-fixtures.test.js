@@ -389,6 +389,43 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
   if (fixture.stored) checkInstallationDerivation(fixture, schemas, label);
   // §6.5, §12: after a restart, every step of a restart fixture still succeeds (nothing was frozen).
   if (fixture.kind === 'restart') checkRestart(fixture, exchanges, label);
+  checkOwnerReconnectEligibility(fixture, exchanges, label);
+}
+
+// agent-registration §5.3, Owner-UI eligibility (revision 4): which owner-view rows "Reconnect an existing agent" offers.
+const offersReconnect = (agent) => agent.onboardingStatus === 'approved' && (['active', 'paused'].includes(agent.status) || agent.credentialRevoked === true);
+
+// agent-registration §5.3 and §6.5 (revision 4): the owner view (a5-presence v1) is derived from the stored records, the
+// UI offers exactly the rows the predicate allows, that agrees with the server's check of the stored record, and every
+// existing_agent approval targets an offered agent.
+function checkOwnerReconnectEligibility(fixture, exchanges, label) {
+  const lists = exchanges.filter((step) => step.response.schema === 'a5-presence/ownerAgentList');
+  for (const step of exchanges) {
+    if (!lists.includes(step)) assert.equal(step.client.reconnectOffered, undefined, `${step.label}: reconnectOffered belongs on an owner agent list`);
+  }
+  if (!lists.length) return;
+  const offered = new Set();
+  for (const step of lists) {
+    assert.ok(Array.isArray(step.client.reconnectOffered), `${step.label}: an owner agent list names the agents offered for reconnect`);
+    for (const row of step.response.body) {
+      if (!fixture.stored) continue;
+      const stored = fixture.stored.agents.find((agent) => agent.id === row.id);
+      assert.ok(stored, `${step.label}: ${row.id} has a stored agent`);
+      const families = fixture.stored.credentialFamilies.filter((family) => family.agentId === row.id);
+      const credentialRevoked = stored.status === 'revoked' || (families.length > 0 && families.every((family) => family.revokedAt));
+      assert.deepEqual({ status: row.status, onboardingStatus: row.onboardingStatus, credentialRevoked: row.credentialRevoked, paused: row.paused },
+        { status: credentialRevoked ? 'revoked' : stored.status, onboardingStatus: stored.onboardingStatus, credentialRevoked, paused: stored.status === 'paused' },
+        `${step.label}: ${row.id} is the owner view of the stored agent (a5-presence v1)`);
+      if (credentialRevoked) assert.deepEqual([row.permissions, row.connection.state], [[], 'revoked'], `${step.label}: ${row.id} with every family revoked has no permissions and shows revoked`);
+      assert.equal(offersReconnect(row), stored.onboardingStatus === 'approved' && ['active', 'paused'].includes(stored.status), `${step.label}: ${row.id}: the owner-UI predicate agrees with the server's check of the stored agent`);
+    }
+    const expected = step.response.body.filter(offersReconnect).map((row) => row.id);
+    assert.deepEqual([...step.client.reconnectOffered].sort(), expected.sort(), `${step.label}: reconnectOffered is exactly the rows §5.3 offers`);
+    for (const id of expected) offered.add(id);
+  }
+  for (const step of exchanges.filter((entry) => entry.response.schema === 'claimApproved' && entry.request.body.target.kind === 'existing_agent')) {
+    assert.ok(offered.has(step.request.body.target.agentId), `${step.label}: the approved existing agent was offered for reconnect`);
+  }
 }
 
 // agent-registration §6.5, §12: after a restart nothing was frozen. Every step succeeds, the stored agent is
@@ -1190,15 +1227,23 @@ test('every registered fixture exists, parses and is registered exactly once', a
 
 test('every fixture matches its declared schema', async () => {
   const index = await readJson(path.join(root, 'index.json'));
+  const allSchemas = new Map(await Promise.all(index.contracts.filter((entry) => entry.schemas)
+    .map(async (entry) => [entry.id, await readJson(path.join(root, entry.dir, entry.schemas))])));
   for (const contract of index.contracts.filter((entry) => entry.schemas)) {
+    const schemas = allSchemas.get(contract.id);
     const dir = path.join(root, contract.dir);
-    const schemas = await readJson(path.join(dir, contract.schemas));
     const ajv = new Ajv({ allErrors: true, strict: false });
     addFormats(ajv);
     ajv.addSchema(schemas);
+    // A schema name is a definition of this contract, or "<contract>/<definition>" for another contract's
+    // (agent-registration revision 4 shows a5-presence v1's owner view).
     const validator = (name) => {
-      const validate = ajv.getSchema(`${schemas.$id}#/definitions/${name}`);
-      assert.ok(validate, `${contract.id} has no schema ${name}`);
+      const [owner, definition] = name.includes('/') ? name.split('/') : [contract.id, name];
+      const source = allSchemas.get(owner);
+      assert.ok(source, `${contract.id}: no contract ${owner} for schema ${name}`);
+      if (!ajv.getSchema(source.$id)) ajv.addSchema(source);
+      const validate = ajv.getSchema(`${source.$id}#/definitions/${definition}`);
+      assert.ok(validate, `${owner} has no schema ${definition}`);
       return validate;
     };
     const check = (validate, value, label) => assert.equal(validate(value), true, `${label}: ${ajv.errorsText(validate.errors)}`);
