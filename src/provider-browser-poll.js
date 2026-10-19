@@ -202,7 +202,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
     if (Object.hasOwn(input, 'cursor') && (typeof input.cursor !== 'string' || !input.cursor || input.cursor.length > 512)) error(400, 'GATEWAY_CURSOR_INVALID');
     if (!safeId(input.runId) || (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 50))) error(400, 'GATEWAY_REQUEST_INVALID');
     const stored = await read(`session:${secret}`);
-    if (stored && (stored.rotation || Date.parse(stored.binding.credentials?.expiresAt) <= now() + 60_000)) await renew(secret, suppliedCsrf, {});
+    if (stored && (stored.rotation || Date.parse(stored.binding.credentials?.expiresAt) <= now() + 60_000)) await renew(secret, suppliedCsrf, {}, false);
     return authorized(secret, true, async (s, identity) => {
       paused(identity); const id = ledgerId(s.binding), ledger = await read(id) || { acks: {}, cadence: 1800 };
       const at = now(), sessionKey = digest(`session:${secret}`); let run = ledger.run;
@@ -267,7 +267,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
       return { state: 'presentation_recorded', count: logicals.length };
     }, suppliedCsrf);
   }
-  async function renew(secret, suppliedCsrf, input) {
+  async function renew(secret, suppliedCsrf, input, touchIdle = true) {
     if (suppliedCsrf === undefined) error(403, 'GATEWAY_CSRF_INVALID');
     gatewayClosed(input, []);
     // Commit one operation identity BEFORE canonical rotation. An uncertain response is
@@ -282,7 +282,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
       return { binding: s.binding, operation: s.rotation };
     }, suppliedCsrf, true);
     const successor = await adapter.renew(plan.binding, plan.operation);
-    return authorized(secret, true, async s => {
+    return authorized(secret, touchIdle, async s => {
       // Concurrent renewals may recover the same operation. A later operation must not
       // be overwritten by an earlier response arriving late.
       if (s.rotation && s.rotation.id !== plan.operation.id) error(503, 'GATEWAY_RECOVERY_REQUIRED');
@@ -290,6 +290,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
         s.binding.credentials = successor;
         delete s.rotation;
         await write(`installation:${s.binding.installationId}`, { kind: 'installation', binding: s.binding });
+        await write(`session:${secret}`, s);
       }
       return { state: 'connected', expiresAt: iso(s.expiresAt) };
     }, suppliedCsrf, true);

@@ -184,6 +184,14 @@ for (const backend of backends) {
     assert.equal((await f.gateway.end(s.secret, s.csrf, {})).state, 'ended');
     await assert.rejects(f.gateway.renew(s.secret, s.csrf, {}), code('GATEWAY_SESSION_REQUIRED'));
   });
+  test(`[${backend}] automatic refresh before a rejected check cannot extend browser inactivity`, async t => {
+    const f = await fixture(t), s = await f.connect();
+    f.advance(gatewayLimits.idle / 2); f.pause();
+    await assert.rejects(f.gateway.check(s.secret, s.csrf, { runId: 'paused-refresh' }), code('AGENT_PAUSED'));
+    assert.equal(f.rotations(), 1, 'private authentication was renewed');
+    f.advance(gatewayLimits.idle / 2);
+    await assert.rejects(f.gateway.session(s.secret), code('GATEWAY_SESSION_EXPIRED'), 'the rejected check did not advance browser activity');
+  });
   test(`[${backend}] scope closed schema, untrusted content, overdue boundary and disabled gateway`, async t => {
     const f = await fixture(t), s = await f.connect();
     assert.equal((await f.gateway.session(s.secret)).polling.checkState, 'not_yet_checked');
