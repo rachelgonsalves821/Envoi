@@ -2362,8 +2362,13 @@ async function activatedAgain(rawToken, registrationId, activationIdHash) {
 
 // The reviewed agent-facing skill content (Lane B, integrations/onboarding/skill). It stays
 // unpublished until the local-helper route is offered: with the route off it is FEATURE_DISABLED.
-// skill.json lists as offered only what GET /api/onboarding/routes marks available.
+// skill.json lists as offered only what GET /api/onboarding/routes marks available, and names
+// this deployment's own origin (ENVOI_PUBLIC_URL) in connectUrl and helperCommand. The file's
+// production values stay when ENVOI_PUBLIC_URL is unset or invalid; the Host header is never used.
 const connectContentDir = path.resolve('integrations', 'onboarding', 'skill');
+function configuredPublicOrigin() {
+  try { return process.env.ENVOI_PUBLIC_URL ? new URL(process.env.ENVOI_PUBLIC_URL).origin : null; } catch { return null; }
+}
 const connectContent = {
   '/connect/SKILL.md': { file: 'SKILL.md', type: 'text/markdown; charset=utf-8' },
   '/connect/HEARTBEAT.md': { file: 'HEARTBEAT.md', type: 'text/markdown; charset=utf-8' },
@@ -2379,6 +2384,11 @@ async function serveConnectContent(req, res, url) {
     const availability = routeAvailability(onboardingFlags, store.now());
     manifest.offeredConnectionRoutes = availability.routes.filter(item => item.available).map(item => item.connectionRoute);
     manifest.offeredDeliveryModes = availability.deliveryModes.filter(item => item.available).map(item => item.deliveryMode);
+    const origin = configuredPublicOrigin();
+    if (origin) {
+      manifest.connectUrl = `${origin}/connect`;
+      manifest.helperCommand = `envoi-link connect ${origin}`;
+    }
     content = Buffer.from(`${JSON.stringify(manifest, null, 2)}
 `);
   }
