@@ -213,6 +213,7 @@
         "owner-installations-frozen-agent.json",
         "owner-installations-legacy-several.json",
         "owner-installations.json",
+        "owner-reconnect-after-installation-revoke.json",
         "reconnect-after-installation-revoke.json",
         "reenable-after-rollback.json",
         "registration-activated.json",
