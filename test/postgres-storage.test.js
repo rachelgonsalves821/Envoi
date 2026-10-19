@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { PostgresStore } from '../src/postgres-storage.js';
 import { DocumentObjectMetadataStore, ObjectStorageService, PersistentQuotaLedger } from '../src/object-storage.js';
 import { PostgresMalwareScanJobStore } from '../src/object-scan-lifecycle.js';
+import { assertDeliveryWritesCommitWithSettlement } from './delivery-commit-harness.js';
 
 test('PostgreSQL store preserves atomic and paginated document semantics', { skip: !process.env.DATABASE_URL }, async t => {
   const store = new PostgresStore(process.env.DATABASE_URL);
@@ -119,6 +120,16 @@ test('PostgreSQL delivery lease rejects stale document writes', { skip: !process
   assert.equal(await store.getJson(`${prefix}/stale.json`), null);
   await store.completeOutbox(id, [{ path: `${prefix}/current.json`, value: { current: true } }], {}, replacement);
   assert.deepEqual(await store.getJson(`${prefix}/current.json`), { current: true });
+});
+
+// http-wake v1 §6.5: the recipient wake written while delivering commits with the settlement or not at all.
+test('PostgreSQL delivery writes commit only with the settlement', { skip: !process.env.DATABASE_URL }, async t => {
+  const store = new PostgresStore(process.env.DATABASE_URL);
+  t.after(() => store.close());
+  await store.init();
+  await assertDeliveryWritesCommitWithSettlement(store, {
+    expireLease: record => store.pool.query("UPDATE sinaloa_outbox SET locked_at = NOW() - INTERVAL '1 minute' WHERE id = $1", [record.id])
+  });
 });
 
 async function createHeldOutboxFixture(t) {
