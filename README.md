@@ -36,7 +36,7 @@ The Vite development server is also available through `npm run dev:web` and prox
 
 ## Beta analytics
 
-Production web builds use Envoi's PostHog US Cloud project. The browser SDK records page views, successful waitlist submissions, and authenticated beta app opens. It uses an anonymous browser ID; it does not identify human accounts or send form values, case content, or query strings. Autocapture and session recording are disabled.
+Production web builds use Envoi's PostHog US Cloud project. The browser SDK records page views, successful waitlist submissions, authenticated beta app opens, and successful workspace, agent onboarding, invitation, case decision, and instruction actions. It uses an anonymous browser ID; it does not identify human accounts or send form values, case content, IDs, or query strings. Autocapture and session recording are disabled.
 
 The public project token and ingest host are configured in `frontend/src/analytics.ts`. To use another PostHog project, set `VITE_POSTHOG_PROJECT_TOKEN` and `VITE_POSTHOG_HOST` before `npm run build`, then deploy the rebuilt `web/index.html`. Local development sends no events unless a token override is set. Verify events in PostHog's Live events view after the beta site is deployed.
 
