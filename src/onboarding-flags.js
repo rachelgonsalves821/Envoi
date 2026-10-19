@@ -1,7 +1,8 @@
 // agent-registration v1 §1: server-only Phase B flags, default off. Clients never read them;
 // they read GET /api/onboarding/routes, built here from the same flags. case-session v1 §1 adds
-// the Phase C sessions flag, which clients learn about from GET /api/agent/status.
-export const onboardingFlagNames = ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_PROVIDER_BROWSER_POLL'];
+// the Phase C sessions flag, which clients learn about from GET /api/agent/status. http-wake v1
+// adds the HTTPS wake flag, which clients learn about from the same status route.
+export const onboardingFlagNames = ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_HTTP_WAKE_V1', 'ENVOI_PROVIDER_BROWSER_POLL'];
 // Internal capability, never accepted from a registration or activation HTTP body.
 export const providerGatewayAuthority = Symbol('provider-browser-poll');
 export const browserPollAvailable = flags => Boolean(flags.providerBrowserPoll && flags.registration && flags.installations && flags.authenticatedRest);
@@ -19,6 +20,8 @@ export function onboardingFlagErrors(env = process.env) {
   if (env.ENVOI_AGENT_REGISTRATION_V2 === 'true' && env.ENVOI_INSTALLATIONS_V2 !== 'true') errors.push('ENVOI_AGENT_REGISTRATION_V2 requires ENVOI_INSTALLATIONS_V2');
   // A session binds an installation.
   if (env.ENVOI_CASE_SESSIONS_V1 === 'true' && env.ENVOI_INSTALLATIONS_V2 !== 'true') errors.push('ENVOI_CASE_SESSIONS_V1 requires ENVOI_INSTALLATIONS_V2');
+  // A wake subscription belongs to an installation.
+  if (env.ENVOI_HTTP_WAKE_V1 === 'true' && env.ENVOI_INSTALLATIONS_V2 !== 'true') errors.push('ENVOI_HTTP_WAKE_V1 requires ENVOI_INSTALLATIONS_V2');
   if (env.ENVOI_PROVIDER_BROWSER_POLL === 'true' && ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE'].some(name => env[name] !== 'true')) errors.push('ENVOI_PROVIDER_BROWSER_POLL requires installation, registration and authenticated REST flags');
   return errors;
 }
@@ -32,6 +35,7 @@ export function readOnboardingFlags(env = process.env) {
     registration: env.ENVOI_AGENT_REGISTRATION_V2 === 'true',
     authenticatedRest: env.ENVOI_AUTHENTICATED_REST_ROUTE === 'true',
     caseSessions: env.ENVOI_CASE_SESSIONS_V1 === 'true',
+    httpWake: env.ENVOI_HTTP_WAKE_V1 === 'true',
     ...(env.ENVOI_PROVIDER_BROWSER_POLL === 'true' ? { providerBrowserPoll: true } : {})
   };
 }

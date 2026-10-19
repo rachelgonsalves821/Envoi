@@ -393,7 +393,7 @@ for (const backend of backends) {
 
   test(`[${backend.name}] cleanup expires a request exactly once without changing the signed binding`, { timeout: 90000 }, async t => {
     const { server, baseUrl, alice, caseId, work, shown, requestId, evaluationId } = await pendingApproval(t, 12,
-      { ENVOI_CASE_SESSION_CLEANUP_INTERVAL_MS: '100' });
+      { ENVOI_HUMAN_DECISION_CLEANUP_INTERVAL_MS: '100' });
     await settle(baseUrl, alice, work);
     const store = documents(t, backend, server);
     const requestPath = ['inboxes', alice.inbox.id, 'case-human-requests', `${requestId}.json`];

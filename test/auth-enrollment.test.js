@@ -122,6 +122,12 @@ test('verified human issues a single-use permissioned agent enrollment', async t
   const totpSetupReplay = await request(server.baseUrl, '/api/auth/totp/setup', { token: sessionToken, body: {} });
   assert.equal(totpSetupReplay.status, 201);
   assert.equal(totpSetupReplay.payload.secret, totpSetup.payload.secret);
+  // A mistyped code that is not six digits is a client error, not a 500 from the TOTP library.
+  for (const code of ['12345', '1234567', '12a456', ' 123456', 123456789]) {
+    const malformed = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code } });
+    assert.equal(malformed.status, 400, `malformed code ${JSON.stringify(code)}`);
+    assert.equal(malformed.payload.message, 'Incorrect authenticator code');
+  }
   const totpCode = generateSync({ secret: totpSetup.payload.secret });
   const totpVerified = await request(server.baseUrl, '/api/auth/totp/verify', { token: sessionToken, body: { code: totpCode } });
   assert.equal(totpVerified.status, 200);

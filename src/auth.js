@@ -169,6 +169,8 @@ export class AuthService {
   async verifyTotp(req, code) {
     const pendingSession = await this.getSession(req);
     if (!pendingSession) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
+    // verifySync throws on a token of the wrong length, which would surface as a 500.
+    if (!/^\d{6}$/.test(String(code))) throw Object.assign(new Error('Incorrect authenticator code'), { statusCode: 400 });
     const verify = async () => {
       const session = await this.getSession(req);
       if (!session || session.humanId !== pendingSession.humanId) throw Object.assign(new Error('Verified phone session required'), { statusCode: 401 });
