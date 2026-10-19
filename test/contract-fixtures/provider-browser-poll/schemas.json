@@ -1,0 +1,245 @@
+{
+  "$id": "provider-browser-poll/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "const": "provider-browser-poll"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "http"
+        },
+        "description": {
+          "type": "string"
+        },
+        "request": {
+          "type": "object"
+        },
+        "response": {
+          "type": "object"
+        },
+        "client": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "kind",
+        "description",
+        "request",
+        "response"
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "const": "provider-browser-poll"
+            },
+            "version": {
+              "const": 1
+            }
+          },
+          "required": [
+            "id",
+            "version"
+          ]
+        },
+        "gatewayAvailable": {
+          "type": "boolean"
+        },
+        "allowedPairs": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "connectionRoute": {
+                "const": "authenticated_rest"
+              },
+              "deliveryMode": {
+                "const": "poll"
+              },
+              "activationAuthority": {
+                "const": "gateway"
+              }
+            },
+            "required": [
+              "connectionRoute",
+              "deliveryMode",
+              "activationAuthority"
+            ]
+          }
+        }
+      },
+      "required": [
+        "contract",
+        "gatewayAvailable",
+        "allowedPairs"
+      ]
+    },
+    "checkRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,80}$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "cursor": {
+          "type": "string",
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "checkResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "const": "provider-browser-poll"
+            },
+            "version": {
+              "const": 1
+            }
+          },
+          "required": [
+            "id",
+            "version"
+          ]
+        },
+        "state": {
+          "const": "active"
+        },
+        "asOf": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "agentAddress": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "notificationRef": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "caseRef": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "workVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "senderAddress": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "notificationRef",
+              "caseRef",
+              "workVersion",
+              "senderAddress",
+              "summary",
+              "truncated"
+            ]
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 86400
+        }
+      },
+      "required": [
+        "contract",
+        "state",
+        "asOf",
+        "runId",
+        "agentAddress",
+        "items",
+        "nextCursor",
+        "retryAfterSeconds"
+      ]
+    },
+    "pausedError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "const": "AGENT_PAUSED"
+        },
+        "code": {
+          "const": "AGENT_PAUSED"
+        },
+        "guidance": {
+          "const": "check_state"
+        }
+      },
+      "required": [
+        "error",
+        "code",
+        "guidance"
+      ]
+    }
+  },
+  "x-codes": {
+    "AGENT_PAUSED": {
+      "status": 409,
+      "lifecycle": "PAUSED",
+      "retry": "none",
+      "guidance": "check_state"
+    }
+  }
+}

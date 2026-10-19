@@ -1,0 +1,33 @@
+{
+  "contract": "provider-browser-poll",
+  "version": 1,
+  "id": "check-paused",
+  "kind": "http",
+  "description": "check-paused",
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/check",
+    "schema": "checkRequest",
+    "body": {
+      "runId": "fixture_run"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "pausedError",
+    "body": {
+      "error": "AGENT_PAUSED",
+      "code": "AGENT_PAUSED",
+      "guidance": "check_state"
+    },
+    "headers": {
+      "cache-control": "private, no-store"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "PAUSED",
+    "retry": "none",
+    "guidance": "check_state"
+  }
+}

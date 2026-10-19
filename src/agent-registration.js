@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { agentPermissions, approvalSlotIndexPath, approverIndexDir, approverIndexPath, effectivePermissions, liveApproval, organizationMaximumPermissions, registrationPath } from './agent-approval.js';
 import { newestActiveInstallation } from './agent-installations.js';
-import { routeAvailable } from './onboarding-flags.js';
+import { routeAvailable, browserPollAvailable, providerGatewayAuthority } from './onboarding-flags.js';
 import { approverEmailHint, displayName, displayVerificationCode, generateBootstrapToken, generateVerificationCode, hashToken, isBootstrapToken, normalizeVerificationCode, sourceHmac, sourceKey, tokenLikePattern, unsafeNameCharacters, validRequestedName, verificationCodeHmac } from './agent-registration-codes.js';
 
 export const registrationTtlSeconds = 600;
@@ -154,13 +154,14 @@ export function createAgentRegistrations({
 
   // ------------------------------------------------------------------ §3 registration
 
-  async function create(input, { ip, claimUrl }) {
+  async function create(input, { ip, claimUrl, authority } = {}) {
     assertRegistrationEnabled();
     if (!validRegistrationCreate(input)) throw coded(400, 'REGISTRATION_INVALID', 'The registration request is not valid.');
     if (input.requestedLocalPart !== undefined) {
       try { normalizeLocalPart(input.requestedLocalPart); } catch { throw coded(400, 'REGISTRATION_INVALID', 'The registration request is not valid.'); }
     }
     if (!routeAvailable(flags, input.connectionRoute)) throw coded(400, 'ROUTE_NOT_AVAILABLE', 'That connection route is not available.');
+    const gateway = authority === providerGatewayAuthority && browserPollAvailable(flags);
     const limited = await limits.consumeCreation(ip);
     if (!limited.allowed) {
       log({ event: 'agent_registration.limited', source: sourceHash(ip), route: input.connectionRoute, reason: 'registration_limit' });
@@ -173,7 +174,8 @@ export function createAgentRegistrations({
       id: store.id('registration'), status: 'pending_claim', createdAt, expiresAt, tokenHash: hashToken(bootstrapToken), codeHmac: null,
       requested: { name: input.requestedName, localPart: input.requestedLocalPart ?? null, permissions: [...input.requestedPermissions] },
       connectionRoute: input.connectionRoute, runtime: { type: input.runtime.type, version: input.runtime.version },
-      deliveryCapabilities: { ...input.deliveryCapabilities }, helper: input.helper ? { ...input.helper } : null, sourceHash: sourceHash(ip)
+      deliveryCapabilities: { ...input.deliveryCapabilities }, helper: input.helper ? { ...input.helper } : null, sourceHash: sourceHash(ip),
+      ...(gateway ? { providerBrowserPoll: true } : {})
     };
     let code = null;
     await store.withTransaction([registrationLockKey(registration.id)], async () => {

@@ -10,6 +10,8 @@ export const WORKSPACE_EVENT_TYPES = [
   'agent.installation_revoked', 'agent.installation_activated', 'agent.activation_replay_detected',
   'agent.registration_approved', 'agent.registration_withdrawn',
   'case_session.ended', 'agent.case_session_created', 'agent.case_session_ended',
+  'agent.gateway_pairing_created', 'agent.gateway_session_created', 'agent.gateway_session_ended',
+  'agent.gateway_notification_acknowledged', 'agent.poll_policy_changed',
   'case.created', 'case.event_appended', 'case.action_recorded', 'case.completed',
   'case.human_decision_requested', 'case.human_decision_resolved',
   'agent.case_tool_used',

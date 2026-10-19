@@ -1,0 +1,26 @@
+{
+  "contract": "provider-browser-poll",
+  "version": 1,
+  "id": "capabilities-disabled",
+  "kind": "http",
+  "description": "capabilities-disabled",
+  "request": {
+    "method": "GET",
+    "path": "/api/onboarding/routes?contract=provider-browser-poll-v1"
+  },
+  "response": {
+    "status": 200,
+    "schema": "capabilities",
+    "body": {
+      "contract": {
+        "id": "provider-browser-poll",
+        "version": 1
+      },
+      "gatewayAvailable": false,
+      "allowedPairs": []
+    },
+    "headers": {
+      "cache-control": "public, max-age=60"
+    }
+  }
+}
