@@ -19,7 +19,7 @@ for (const backend of backends) {
     const prefix = crypto.randomUUID();
     const scopedStore = backend === 'FileStore' ? store : { now: () => store.now(), getJson: (p,...a) => store.getJson(path.join('gateway-tests',prefix,p),...a), putJson: (p,v) => store.putJson(path.join('gateway-tests',prefix,p),v), deleteJson: p => store.deleteJson(path.join('gateway-tests',prefix,p)), listJson: p => store.listJson(path.join('gateway-tests',prefix,p)), withTransaction: (keys,fn) => store.withTransaction(keys.map(k=>`${prefix}:${k}`),fn) };
     t.after(async () => { if (backend === 'PostgreSQL') await store.close(); await rm(root, { recursive: true, force: true }); });
-    let clock = Date.now(), enabled = true, paused = false, revoked = false, creates = 0, activations = 0, uncertain = false, loseRotation = false;
+    let clock = Date.now(), enabled = true, paused = false, revoked = false, creates = 0, activations = 0, uncertain = false, loseRotation = false, rotationGate = null;
     const rotations = new Map();
     const rows = [{ id: 'message1', sequence: 1, caseId: 'case1', senderAddress: 'peer@envoi.mail', summary: 'Please reply' }, { id: 'message2', sequence: 2, caseId: 'case2', senderAddress: 'peer2@envoi.mail', summary: 'Other work' }];
     const key = crypto.randomBytes(32), adapter = {
@@ -32,6 +32,12 @@ for (const backend of backends) {
       notificationWork: async () => rows,
       renew: async (_b, operation) => {
         if (!rotations.has(operation.id)) rotations.set(operation.id, { access: 'envoi_agent_access_SUCCESSOR', refresh: 'envoi_agent_refresh_SUCCESSOR', expiresAt: new Date(clock + 900_000).toISOString() });
+        if (rotationGate) {
+          rotationGate.arrivals++;
+          if (rotationGate.arrivals === 1) rotationGate.first();
+          if (rotationGate.arrivals === 2) rotationGate.both();
+          await rotationGate.wait;
+        }
         if (loseRotation) { loseRotation = false; throw new Error('lost canonical rotation response'); }
         return rotations.get(operation.id);
       }
@@ -48,7 +54,15 @@ for (const backend of backends) {
       return gateway.activate(next.secret, next.csrf, { operationId: next.operationId });
     };
     return { root, setup, begin, connect, replaceBrowser, rows, get gateway() { return gateway; }, restart() { gateway = make(); }, advance(ms) { clock += ms; },
-      disable() { enabled = false; }, pause() { paused = true; }, resume() { paused = false; }, revoke() { revoked = true; }, uncertain() { uncertain = true; }, loseRotation() { loseRotation = true; }, rotations() { return rotations.size; }, counts() { return { creates, activations }; } };
+      disable() { enabled = false; }, pause() { paused = true; }, resume() { paused = false; }, revoke() { revoked = true; }, uncertain() { uncertain = true; }, loseRotation() { loseRotation = true; }, rotations() { return rotations.size; }, counts() { return { creates, activations }; },
+      holdRotation() {
+        let first, both, release;
+        const entered = new Promise(resolve => { first = resolve; });
+        const joined = new Promise(resolve => { both = resolve; });
+        const wait = new Promise(resolve => { release = resolve; });
+        rotationGate = { arrivals: 0, first, both, wait };
+        return { entered, joined, release() { rotationGate = null; release(); } };
+      } };
   }
   test(`[${backend}] pending setup cannot read or activate; owner comparison is mandatory; recover lost cookie without second installation`, async t => {
     const f = await fixture(t), p = await f.begin();
@@ -178,7 +192,14 @@ for (const backend of backends) {
   });
   test(`[${backend}] concurrent private renewal shares an operation; uncertainty cannot prevent sign-out`, async t => {
     const f = await fixture(t), s = await f.connect();
-    await Promise.all([f.gateway.renew(s.secret, s.csrf, {}), f.gateway.renew(s.secret, s.csrf, {})]);
+    const held = f.holdRotation();
+    const first = f.gateway.renew(s.secret, s.csrf, {});
+    await held.entered;
+    const second = f.gateway.renew(s.secret, s.csrf, {});
+    try {
+      await Promise.race([held.joined, new Promise((_, reject) => setTimeout(() => reject(new Error('second renewal did not join the pending operation')), 2_000))]);
+    } finally { held.release(); }
+    await Promise.all([first, second]);
     assert.equal(f.rotations(), 1);
     f.loseRotation(); await assert.rejects(f.gateway.renew(s.secret, s.csrf, {}));
     assert.equal((await f.gateway.end(s.secret, s.csrf, {})).state, 'ended');

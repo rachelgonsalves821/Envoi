@@ -270,9 +270,13 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
   async function renew(secret, suppliedCsrf, input, touchIdle = true) {
     if (suppliedCsrf === undefined) error(403, 'GATEWAY_CSRF_INVALID');
     gatewayClosed(input, []);
+    const observed = await read(`session:${secret}`);
     // Commit one operation identity BEFORE canonical rotation. An uncertain response is
     // recovered with the same old refresh token and operation, never a second rotation.
     const plan = await authorized(secret, false, async s => {
+      if (!s.rotation && observed && (observed.rotation || observed.binding.credentials?.refresh !== s.binding.credentials?.refresh)) {
+        return { alreadyRenewed: true, expiresAt: s.expiresAt };
+      }
       if (!s.rotation) {
         s.rotation = { id: `rotation_${random()}`, startedAt: now() };
         await write(`session:${secret}`, s);
@@ -281,6 +285,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
       if (s.rotation.startedAt + gatewayLimits.recovery <= now()) error(503, 'GATEWAY_RECOVERY_REQUIRED');
       return { binding: s.binding, operation: s.rotation };
     }, suppliedCsrf, true);
+    if (plan.alreadyRenewed) return { state: 'connected', expiresAt: iso(plan.expiresAt) };
     const successor = await adapter.renew(plan.binding, plan.operation);
     return authorized(secret, touchIdle, async s => {
       // Concurrent renewals may recover the same operation. A later operation must not
