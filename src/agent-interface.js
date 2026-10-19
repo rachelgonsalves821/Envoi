@@ -255,7 +255,7 @@ export function verifiedHumanCaseDecision(caseInput, actionId, result) {
 const nativeMessageType = message => ({ offer: 'proposal', counteroffer: 'counterproposal', accept: 'decision', reject: 'decision', receipt: 'completion' }[message.intent] || message.type || 'message');
 const nativeOption = (message, value) => ({ id: `option_${message.id}`, value, sourceConfidence: 'enteredForCase', expired: false, outOfPolicyFlags: [] });
 
-export function advanceNativeCase(caseInput, message, deliveryState, at, { scopedAccept = false, scopedCompletion = null } = {}) {
+export function advanceNativeCase(caseInput, message, deliveryState, at, { scopedAccept = false, scopedReject = false, scopedCompletion = null } = {}) {
   let value = clone(caseInput);
   const eventId = `evt_${message.id}`;
   const existing = value.events.find(item => item.id === eventId);
@@ -301,7 +301,9 @@ export function advanceNativeCase(caseInput, message, deliveryState, at, { scope
     const reference = message.payload?.decision?.proposalMessageId;
     const prior = value.events.find(item => item.payload?.messageId === reference);
     const proposal = value.proposals.find(item => item.id === prior?.payload?.proposalId);
-    if (message.payload?.decision?.kind === 'reject' && proposal) {
+    // case-tools v1: only a scoped case-tool reject withdraws the proposal; legacy native rejects
+    // leave it as it was.
+    if (scopedReject && message.payload?.decision?.kind === 'reject' && proposal) {
       proposal.status = 'withdrawn'; proposal.updatedAt = at; payload.proposalId = proposal.id;
     }
     if (message.payload?.decision?.kind === 'accept' || message.intent === 'accept') {

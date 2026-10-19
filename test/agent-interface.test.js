@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   acceptProposal,
   addProposal,
+  advanceNativeCase,
   applyHumanAction,
   assertValidCase,
   canTransition,
@@ -121,4 +122,28 @@ test('state machine preserves unknown external results as a distinct terminal st
   assert.equal(work.state, 'unknownExternalResult');
   assert.equal(canTransition('unknownExternalResult', 'completed'), false);
   assert.throws(() => transitionCase(work, 'completed', { actor: 'agent_forms', at: at(3) }), /cannot transition/);
+});
+
+// case-tools v1: a scoped case-tool reject withdraws the proposal. A legacy native reject records
+// the decision and leaves the proposal as it was before Phase C.
+test('only a scoped case-tool reject withdraws a native proposal', () => {
+  const base = createCase({ id: 'case_native_reject', objective: 'Agree a day', collaborationMode: 'negotiation', principal: 'human_rachel', actingAgent: 'agent_a', participants: ['agent_a', 'agent_b'], createdAt: at(0) });
+  const offer = { id: 'msg_offer', intent: 'offer', type: 'proposal', text: 'Offer Tuesday', payload: { proposal: { day: 'Tuesday' } }, senderAgentId: 'agent_a', recipientAgentId: 'agent_b', createdAt: at(1) };
+  const reject = { id: 'msg_reject', intent: 'reject', type: 'decision', text: 'No', payload: { decision: { kind: 'reject', proposalMessageId: offer.id } }, senderAgentId: 'agent_b', recipientAgentId: 'agent_a', createdAt: at(2) };
+  const offered = advanceNativeCase(base, offer, 'queued', at(1));
+  assert.equal(offered.proposals[0].status, 'open');
+
+  const legacy = advanceNativeCase(offered, reject, 'queued', at(2));
+  assert.equal(legacy.proposals[0].status, 'open', 'a legacy native reject leaves the proposal open');
+  assert.equal(legacy.events.at(-1).payload.proposalId, undefined);
+  assert.equal(legacy.events.at(-1).type, 'decision');
+
+  const scoped = advanceNativeCase(offered, reject, 'queued', at(2), { scopedReject: true });
+  assert.equal(scoped.proposals[0].status, 'withdrawn');
+  assert.equal(scoped.proposals[0].updatedAt, at(2));
+  assert.equal(scoped.events.at(-1).payload.proposalId, scoped.proposals[0].id);
+
+  // Delivery replays the same message without options; the queued outcome stands.
+  assert.equal(advanceNativeCase(scoped, reject, 'delivered', at(3)).proposals[0].status, 'withdrawn');
+  assert.equal(advanceNativeCase(legacy, reject, 'delivered', at(3)).proposals[0].status, 'open');
 });

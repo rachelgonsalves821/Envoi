@@ -1508,7 +1508,7 @@ async function ensureStructuredCase(inbox, input, actorAgentId, at) {
   return value;
 }
 
-async function nativeCaseDocuments(message, state, at, { revealRecipient = false, scopedAccept = false, scopedCompletion = null } = {}) {
+async function nativeCaseDocuments(message, state, at, { revealRecipient = false, scopedAccept = false, scopedReject = false, scopedCompletion = null } = {}) {
   const bindingPath = caseBindingPath(message.caseId);
   let binding = await store.getJson(bindingPath);
   if (binding && !matchesCasePair(binding, message)) throw caseParticipantMismatch();
@@ -1534,7 +1534,7 @@ async function nativeCaseDocuments(message, state, at, { revealRecipient = false
     });
     binding = { caseId: message.caseId, agentIds: pairIds([message.senderAgentId, message.recipientAgentId]), inboxIds: pairIds([message.senderInboxId, message.recipientInboxId]), createdAt: at };
   }
-  const updated = advanceNativeCase(current, message, state, at, { scopedAccept, scopedCompletion });
+  const updated = advanceNativeCase(current, message, state, at, { scopedAccept, scopedReject, scopedCompletion });
   const documents = [document(bindingPath, binding), document(sharedCasePath(message.caseId), updated), document(caseRecordPath(message.senderInboxId, message.caseId), updated)];
   if (revealRecipient || await store.getJson(caseRecordPath(message.recipientInboxId, message.caseId))) {
     documents.push(document(caseRecordPath(message.recipientInboxId, message.caseId), updated));
@@ -1670,8 +1670,12 @@ async function deliverNativeAgentMessage(outbox) {
     );
     events.push({ inboxId: targetInboxId, event: auditEntry.event });
   }
-  if (httpWakeEnabled) await httpWake.trigger({ inboxId: outbox.recipientInboxId, agentId: queued.recipientAgentId, reason: 'message_delivered' });
-  return { documents, result: { messageId: delivered.id, receiptId: receipt.id, deliveredAt }, events };
+  // http-wake v1: wake the recipient only once the delivery has committed, under its inbox lock as
+  // every other trigger is. A wake failure is logged and never changes the delivery.
+  const afterCommit = httpWakeEnabled ? () => withInboxMutation(outbox.recipientInboxId,
+    () => httpWake.trigger({ inboxId: outbox.recipientInboxId, agentId: queued.recipientAgentId, reason: 'message_delivered' }), [], [], true)
+    .catch(() => console.error(JSON.stringify({ event: 'envoi.http_wake_trigger_failed', reason: 'message_delivered' }))) : null;
+  return { documents, result: { messageId: delivered.id, receiptId: receipt.id, deliveredAt }, events, afterCommit };
 }
 
 async function deliverExternalEmail(outbox) {
@@ -2569,6 +2573,7 @@ async function sendCaseToolMessage(ctx, { id, type, intent, text, payload = null
     requestHash: semanticDigest({ id, type, intent, text, payload, inReplyTo }), createdAt: at, queuedAt: at, status: 'queued' };
   const inbox = await store.getJson(path.join('inboxes', session.inboxId, 'inbox.json'));
   if (type === 'decision' && intent === 'accept') caseOptions.scopedAccept = true;
+  if (type === 'decision' && intent === 'reject') caseOptions.scopedReject = true;
   return enqueueNativeMessage(message, inbox, session.counterpartyInboxId, 'message.queued', ctx.writeAudit, null, caseOptions);
 }
 

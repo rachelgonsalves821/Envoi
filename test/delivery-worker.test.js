@@ -158,3 +158,60 @@ test('reclaimed delivery lease fences stale settlements and their documents', as
   assert.equal((await store.getOutbox(replacement.id)).status, 'delivered');
   assert.deepEqual(await store.getJson('test/current.json'), { current: true });
 });
+
+// http-wake v1: a delivery's wake is queued only after its settlement commits, so a delivery that
+// fails or loses its lease never wakes a host.
+test('post-commit steps run only after the delivery settlement commits', async () => {
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-after-commit-')));
+  await store.init();
+  const createdAt = store.now();
+  const base = { kind: 'test', status: 'queued', attempts: 0, maxAttempts: 3, availableAt: createdAt, createdAt, updatedAt: createdAt };
+  const woken = [];
+  const deliver = async record => ({ documents: [{ path: `test/${record.id}.json`, value: { delivered: true } }], result: {},
+    afterCommit: async settled => {
+      assert.equal((await store.getOutbox(record.id)).status, 'delivered', 'the settlement is visible to the post-commit step');
+      assert.deepEqual(await store.getJson(`test/${record.id}.json`), { delivered: true });
+      assert.equal(settled.id, record.id);
+      woken.push(record.id);
+    } });
+
+  await store.enqueueOutbox([], { ...base, id: 'delivery_committed' });
+  assert.equal(await new DeliveryWorker({ store, deliver }).processOne(), true);
+  assert.deepEqual(woken, ['delivery_committed']);
+
+  // A worker whose lease was taken over cannot settle, so its post-commit step never runs.
+  await store.enqueueOutbox([], { ...base, id: 'delivery_fenced' });
+  const original = await store.claimOutbox('worker_one');
+  await store.putJson('outbox/delivery_fenced.json', { ...original, lockedAt: '2000-01-01T00:00:00.000Z' });
+  await store.claimOutbox('worker_two', 1_000);
+  const stale = new DeliveryWorker({ store, deliver });
+  store.claimOutbox = async () => original;
+  assert.equal(await stale.processOne(), true);
+  delete store.claimOutbox;
+  assert.deepEqual(woken, ['delivery_committed']);
+  assert.equal(await store.getJson('test/delivery_fenced.json'), null);
+
+  // A settlement that fails becomes a retry; the post-commit step does not run.
+  await store.putJson('outbox/delivery_fenced.json', { ...(await store.getOutbox('delivery_fenced')), status: 'delivered' });
+  await store.enqueueOutbox([], { ...base, id: 'delivery_rejected' });
+  const completeOutbox = store.completeOutbox.bind(store);
+  store.completeOutbox = async () => { throw new Error('commit failed'); };
+  assert.equal(await new DeliveryWorker({ store, deliver }).processOne(), true);
+  store.completeOutbox = completeOutbox;
+  assert.deepEqual(woken, ['delivery_committed']);
+  assert.equal((await store.getOutbox('delivery_rejected')).status, 'retrying');
+});
+
+test('a failing post-commit step never changes the settled delivery', async () => {
+  const store = new FileStore(await mkdtemp(path.join(tmpdir(), 'sinaloa-delivery-after-commit-fail-')));
+  await store.init();
+  const createdAt = store.now();
+  await store.enqueueOutbox([], { id: 'delivery_wake_fails', kind: 'test', status: 'queued', attempts: 0, maxAttempts: 3, availableAt: createdAt, createdAt, updatedAt: createdAt });
+  const settledEvents = [];
+  const worker = new DeliveryWorker({ store, deliver: async () => ({ documents: [], result: {}, events: [{ inboxId: 'recipient', event: 'delivered' }], afterCommit: async () => { throw new Error('wake failed'); } }),
+    onSettled: async (_record, events) => { settledEvents.push(...events); } });
+  assert.equal(await worker.processOne(), true);
+  const settled = await store.getOutbox('delivery_wake_fails');
+  assert.equal(settled.status, 'delivered');
+  assert.deepEqual(settledEvents, [{ inboxId: 'recipient', event: 'delivered' }]);
+});
