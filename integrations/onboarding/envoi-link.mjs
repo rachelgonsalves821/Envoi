@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { createHelper } from './helper/state.mjs';
 import { loadContract, failureOutput } from './helper/output.mjs';
 import { validateOrigin } from './helper/transport.mjs';
-export { createHelper } from './helper/state.mjs';
+export { createHelper, connectionFailure } from './helper/state.mjs';
 
 // Retained for callers inspecting the old unpublished draft API. The executable
 // entry below uses runCli; bundled runtime integration injects adopt/preflight.

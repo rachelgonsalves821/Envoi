@@ -8,3 +8,5 @@ export interface HelperDependencies {
 export function runCli(args: string[], dependencies?: HelperDependencies): Promise<Record<string, any>>;
 export function createHelper(dependencies?: HelperDependencies): Promise<any>;
 export function draftConnect(args: string[]): Record<string, any>;
+
+export function connectionFailure(contract: any, error: unknown): Record<string, any> | null;

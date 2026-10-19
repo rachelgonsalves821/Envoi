@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import contract from '../../test/contract-fixtures/agent-registration/schemas.json';
-import { runCli, type HelperDependencies } from './envoi-link.mjs';
+import { runCli, connectionFailure, type HelperDependencies } from './envoi-link.mjs';
 import { adapterFor } from '../connector/adapters';
 import { adoptActivatedConnection, operationalConnectionStatus, readConnection, startConnection, type AdapterResolver, type OperationalStatusContext, type SetupOptions } from '../connector/core';
 import { FileBridgeStore } from '../agent-bridges/file-store';
@@ -93,7 +93,21 @@ export async function runLocalLink(args: string[], signal: AbortSignal, options:
     if (configuration.apiUrl !== origin || configuration.runtime !== runtime || configuration.address !== session?.address
       || !configuration.activationSetup || configuration.activationSetup.completionId !== session?._onboarding?.completionId
       || configuration.activationSetup.installationId !== session?._onboarding?.installation?.id) throw new Error('Saved runtime configuration does not match this installation.');
-    await (options.start ?? startConnection)(directory, signal, resolver, { ...options, control: true });
+    let failure: Record<string, any> | null = null;
+    try {
+      await (options.start ?? startConnection)(directory, signal, resolver, { ...options, control: true });
+      if (!signal.aborted) {
+        // The foreground connector can stop normally after durably recording a revoke.
+        // Reload after it releases its lock; the pre-start session is now stale.
+        const lifecycle = (await new FileBridgeStore(directory).load())?.lifecycle;
+        if (lifecycle && ['REVOKED', 'NEEDS_RECONNECT'].includes(lifecycle.state)) failure = connectionFailure(contract, lifecycle);
+      }
+    } catch (error) {
+      if (signal.aborted) return result;
+      failure = connectionFailure(contract, error);
+      if (!failure) throw error;
+    }
+    if (failure) { result = failure; options.write?.(result); }
   }
   return result;
 }
