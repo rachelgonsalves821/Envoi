@@ -100,7 +100,7 @@ export class DeliveryWorker {
       notification = await this.store.withTransaction(lockKeys, async () => {
         const outcome = await this.deliver(record, context);
         const settled = await this.store.completeOutbox(record.id, outcome.documents || [], outcome.result || {}, record);
-        return { settled, events: outcome.events || [] };
+        return { settled, events: outcome.events || [], afterCommit: outcome.afterCommit };
       });
     } catch (error) {
       if (error?.code === 'LEASE_LOST') { this.observe('lease_lost', record); return true; }
@@ -133,6 +133,12 @@ export class DeliveryWorker {
     }
     this.observe('settled', notification.settled);
     await this.onSettled(notification.settled, notification.events);
+    // A delivery's side effects outside the store (for example an HTTPS wake) run only after its
+    // settlement committed, and cannot undo it.
+    if (typeof notification.afterCommit === 'function') {
+      try { await notification.afterCommit(notification.settled); }
+      catch (error) { console.error('Envoi delivery post-commit step failed', safeError(error)); }
+    }
     return true;
   }
 
