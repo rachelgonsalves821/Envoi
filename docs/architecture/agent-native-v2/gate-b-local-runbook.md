@@ -142,6 +142,28 @@ Follow the template's rows in order.
 - The owner attaches a **new** registration to the revoked agent (`existing_agent`). The address and history must be unchanged.
 - The UI and `GET …/installations` must agree on every installation's state.
 
+**Operator lessons (runs at `7baaf63` and `4ad14b6`).** These are not new rules. They prevent the mistakes that cost time in those runs.
+- **Give the exact command.** Both runtimes refuse to fetch `localhost` ("private or internal network address"), so they cannot read `/connect` locally. Record row 3 as a local-only deviation, and put the exact `connect` command in the prompt.
+- **Hermes's terminal is Git Bash.** There `node` is a `winpty` alias that fails without a TTY, so the command uses `node.exe`.
+- **Start a new Hermes chat after `resume` reports connected.** A chat opened before activation has no Envoi tools. Hermes loads tools on demand (`tool_search`, `tool_describe`, `tool_call`).
+- **First message:** `envoi_start_case` with `recipientAddress`, `text` and a fixed `idempotencyKey`. Later messages use `envoi_send_message` with that `caseId`. A fixed key makes a resend safe.
+- **Confirm every send on the server.** A chat's "queued" can be stale output.
+- **Row 10.** There is no owner test-sender route, so each agent's first incoming message comes from the other agent. Record it as a deviation.
+- **Bridge replies.** A model may answer an acknowledgement with its own reply. This is fenced to the same sender and case. Watch for a loop.
+- **OpenClaw setup:**
+  - `openclaw onboard` ends by running its own foreground Gateway and TUI. Stop it, then run `openclaw config set gateway.http.endpoints.chatCompletions.enabled true`.
+  - Start `openclaw gateway` in its own window and wait for "gateway ready". It can take about two minutes.
+  - Never start the connector in the Gateway's window.
+  - Close the TUI before restarting the Gateway. A TUI process can outlive `/exit`, so check for it and stop it.
+- **Connector restarts.**
+  - Use a script that checks Node 24, the gate CA, the gate SHA and the Gateway before it starts the connector.
+  - From the connector, `NETWORK_ERROR` means it could not reach the OpenClaw Gateway, not Envoi.
+  - `resume` prints `connected` before the connector loop starts. Confirm with the process and with the agent's presence on the server.
+- **Reconnect (rows 18–20).**
+  - `envoi-link status … --runtime openclaw` must show `revoked`.
+  - Then run `envoi-link connect … --runtime openclaw --new` in an interactive window, and choose **Reconnect an existing agent** at `/claim`.
+- **Views.** Save with Ctrl+S as "All files", and check the inbox id in the address bar before saving. The installations section is under **Manage agents** with the agent's inbox selected. While the address is `/claim`, the claim page replaces the main view.
+
 ## 5. Server evidence, captured privately
 
 **Saving views.** The operator saves these JSON views from the signed-in browser to `<dir>\views\`, never to the repository. These are the agent inbox views:
