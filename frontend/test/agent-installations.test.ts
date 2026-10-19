@@ -78,7 +78,7 @@ describe('installation UI and state', () => {
   });
   it('does not confuse installation revoke with a frozen identity', async () => {
     const controller = new InstallationsController(client(), 'inbox_example', 'agent_example', now); await controller.load();
-    expect(render(controller, { ...agent, credentialRevoked: true, status: 'active', onboardingStatus: 'approved' })).toContain('Reconnect this identity');
+    expect(render(controller, { ...agent, credentialRevoked: true, status: 'revoked', onboardingStatus: 'approved' })).toContain('Reconnect this identity');
     const frozen = { ...agent, status: 'revoked', onboardingStatus: 'revoked' }; const html = render(controller, frozen);
     expect(html).not.toContain('Reconnect this identity'); expect(html).toContain('Quick Connect under Advanced');
   });
