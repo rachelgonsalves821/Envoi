@@ -48,6 +48,6 @@ export interface OnboardingApi {
   revoke(inboxId: string, agentId: string, installationId: string, signal?: AbortSignal): Promise<{ installation: Installation }>;
 }
 export function permissionLabel(permission: string) { return PERMISSION_LABELS[permission as RegistrationPermission] ?? 'Unrecognized permission'; }
-export function canReconnectAgent(agent: Agent) { return agent.onboardingStatus === 'approved' && ['active', 'paused'].includes(agent.status); }
+export function canReconnectAgent(agent: Agent) { return agent.onboardingStatus === 'approved' && (['active', 'paused'].includes(agent.status) || agent.credentialRevoked === true); }
 export function routeLabel(route: string) { return ({ local_helper: 'Local helper', authenticated_rest: 'Authenticated REST', remote_mcp_oauth: 'Remote MCP with OAuth', provider_connector: 'Provider connector' } as Record<string, string>)[route] ?? 'Unknown route'; }
 export function deliveryLabel(mode: string) { return ({ envoi_link: 'Envoi Link', webhook: 'Webhook', provider: 'Provider', poll: 'Polling', on_demand: 'On demand', a2a: 'A2A' } as Record<string, string>)[mode] ?? 'Unknown delivery mode'; }

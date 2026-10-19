@@ -139,7 +139,7 @@ describe('claim state driven by approved fixtures', () => {
   it('allows an active identity after installation-only revoke, and excludes frozen/pending identities', () => {
     const base = { status: 'active', onboardingStatus: 'approved', credentialRevoked: true } as Agent;
     expect(canReconnectAgent(base)).toBe(true); expect(canReconnectAgent({ ...base, status: 'paused' })).toBe(true);
-    expect(canReconnectAgent({ ...base, status: 'revoked' })).toBe(false); expect(canReconnectAgent({ ...base, onboardingStatus: 'pending' })).toBe(false);
+    expect(canReconnectAgent({ ...base, status: 'revoked' })).toBe(true); expect(canReconnectAgent({ ...base, onboardingStatus: 'revoked' })).toBe(false); expect(canReconnectAgent({ ...base, onboardingStatus: 'pending' })).toBe(false);
   });
 });
 

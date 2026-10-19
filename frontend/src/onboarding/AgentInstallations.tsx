@@ -32,6 +32,6 @@ function InstallationsSession({ humanId, inboxId, agent, canManage, onReconnect,
         : <button type="button" className="button secondary compact" disabled={locked} onClick={() => setConfirmId(installation.id)}>Revoke installation</button>)}
     </article>)}</div>
     {onReconnect && canReconnectAgent(agent) && <><p>To move this identity to another runtime, start a new registration there and choose this existing agent when claiming its code.</p><button type="button" className="button secondary" disabled={locked} onClick={onReconnect}>Reconnect this identity</button></>}
-    {!canReconnectAgent(agent) && (agent.status === 'revoked' || agent.onboardingStatus === 'revoked') && <p>This identity is frozen by agent-wide revocation. Use Quick Connect under Advanced to re-onboard it.</p>}
+    {agent.onboardingStatus === 'revoked' && <p>This identity is frozen by agent-wide revocation. Use Quick Connect under Advanced to re-onboard it.</p>}
   </section>;
 }

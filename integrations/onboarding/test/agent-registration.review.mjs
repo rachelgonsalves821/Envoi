@@ -27,9 +27,9 @@ function capableProfile(route) {
   return profile;
 }
 
-test('all 78 published fixtures map to v1 code and model-visible allowlists', async () => {
+test('all 79 published fixtures map to v1 code and model-visible allowlists', async () => {
   const names = (await readdir(root)).filter((name) => name.endsWith('.json') && name !== 'schemas.json');
-  assert.equal(names.length, 78);
+  assert.equal(names.length, 79);
   const schema = await readFixture('schemas.json');
   const allowed = new Set([
     ...Object.keys(schema['x-model-visible'].serverDerived),

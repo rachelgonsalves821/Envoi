@@ -15,7 +15,16 @@ const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
 ajv.addSchema(schemas);
 const validator = (name: string) => {
-  const check = ajv.getSchema(schemas.$id + '#/definitions/' + name);
+  const [contractId, definition] = name.includes('/') ? name.split('/') : ['agent-registration', name];
+  let schemaId = schemas.$id;
+  if (contractId !== 'agent-registration') {
+    const dependency = loadContractRegistry(source).contracts.find(item => item.id === contractId);
+    if (!dependency?.schemas) throw new Error('Missing schema contract: ' + contractId);
+    const dependencySchema = loadContractFixture(dependency, dependency.schemas, source) as any;
+    schemaId = dependencySchema.$id;
+    if (!ajv.getSchema(schemaId)) ajv.addSchema(dependencySchema);
+  }
+  const check = ajv.getSchema(schemaId + '#/definitions/' + definition);
   if (!check) throw new Error('Missing schema: ' + name);
   return check;
 };
@@ -40,9 +49,9 @@ afterEach(() => {
 });
 
 describe('agent-registration v1 independent client consumption', () => {
-  it('loads all 78 unique registered fixtures without copies and pins security/recovery limits', () => {
-    expect(fixtures).toHaveLength(78);
-    expect(new Set(fixtures.map(item => item.id)).size).toBe(78);
+  it('loads all 79 unique registered fixtures without copies and pins security/recovery limits', () => {
+    expect(fixtures).toHaveLength(79);
+    expect(new Set(fixtures.map(item => item.id)).size).toBe(79);
     expect(schemas['x-limits']).toMatchObject({
       registrationTtlSeconds: 600, activationWindowSeconds: 600, activationRecoverySeconds: 300,
       pollAfterSeconds: 5, pollMinIntervalSeconds: 4, deleteRecordsAfterHours: 24, deleteRecordsByHours: 25, ownerClaimListMax: 20, ownerInstallationEndedMax: 5,
