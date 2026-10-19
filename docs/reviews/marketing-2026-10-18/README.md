@@ -1,5 +1,7 @@
 # Envoi landing page replacement
 
+This is the original static review. See the [October 19 interactive revision](../marketing-2026-10-19/README.md) for the current implementation and screenshots.
+
 The public landing page now opens the About page. Product is the second navigation item and is available at `/product`. `/about` is an alias for the About view. The signed-in workspace still uses the existing root route.
 
 The implementation follows the supplied `envoi_revised_preview_v2.html` and `envoi_revised_coding_agent_prompt_v3.md`. It retains the story, founders, four-agent hero, distinct product screenshots, four benefits, six features, sign-in, and waitlist. Eyebrows and the duplicate inbox section are absent. The waitlist uses the existing API, including configured CSRF cookie handling.

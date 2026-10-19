@@ -12,7 +12,7 @@ describe('landing page', () => {
     expect(markup).toContain('Good work has always been a team effort');
     expect(markup).toContain('Rachel Gonsalves');
     expect(markup).toContain('Je Sai Kailash Pulipati');
-    expect(markup).toContain('class="agent-hero-visual"');
+    expect(markup).toContain('aria-label="Interactive agent handoff demo"');
     expect(markup).not.toContain('eyebrow');
     expect(markup).not.toContain("We'll use your email only to contact you about beta access.");
     expect(markup).toMatch(/About<\/a><a href="\/product"[^>]*>Product<\/a>/);
@@ -32,7 +32,9 @@ describe('landing page', () => {
     expect(markup).toContain('What makes Envoi different');
     expect(markup.match(/class="diagram-point"/g)).toHaveLength(4);
     expect(markup.match(/class="feature-card"/g)).toHaveLength(6);
-    expect(markup.match(/<img /g)).toHaveLength(4);
+    expect(markup.match(/<img /g)).toHaveLength(2);
+    expect(markup).not.toContain('Join the waitlist');
+    expect(markup).toContain('aria-label="Interactive inbox demo"');
     expect(markup).not.toContain('Your work in one place');
     expect(markup).not.toContain('eyebrow');
     expect(markup).not.toContain('Who is building Envoi');

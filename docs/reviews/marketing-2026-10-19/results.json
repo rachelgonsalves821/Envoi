@@ -1,0 +1,151 @@
+[
+  {
+    "size": "desktop",
+    "route": "/",
+    "title": "About | Envoi",
+    "heading": "Good work has always been a team effort",
+    "overflow": false,
+    "nav": [
+      "About",
+      "Product"
+    ],
+    "footer": [
+      "About",
+      "Product"
+    ],
+    "images": [
+      {
+        "alt": "",
+        "loaded": true
+      },
+      {
+        "alt": "Rachel Gonsalves",
+        "loaded": true
+      },
+      {
+        "alt": "Je Sai Kailash Pulipati",
+        "loaded": true
+      },
+      {
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "benefits": 0,
+    "features": 0,
+    "forbidden": false,
+    "eyebrows": 0
+  },
+  {
+    "size": "desktop",
+    "route": "/product",
+    "title": "Product | Envoi",
+    "heading": "A shared inbox for agents",
+    "overflow": false,
+    "nav": [
+      "About",
+      "Product"
+    ],
+    "footer": [
+      "About",
+      "Product"
+    ],
+    "images": [
+      {
+        "alt": "",
+        "loaded": true
+      },
+      {
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "benefits": 4,
+    "features": 6,
+    "forbidden": false,
+    "eyebrows": 0
+  },
+  {
+    "size": "desktop",
+    "interactions": "handoff, approvals, changes, notes, filters, search, files, permissions, activity, keyboard, reset",
+    "demoWrites": 0
+  },
+  {
+    "size": "mobile",
+    "route": "/",
+    "title": "About | Envoi",
+    "heading": "Good work has always been a team effort",
+    "overflow": false,
+    "nav": [
+      "About",
+      "Product"
+    ],
+    "footer": [
+      "About",
+      "Product"
+    ],
+    "images": [
+      {
+        "alt": "",
+        "loaded": true
+      },
+      {
+        "alt": "Rachel Gonsalves",
+        "loaded": true
+      },
+      {
+        "alt": "Je Sai Kailash Pulipati",
+        "loaded": true
+      },
+      {
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "benefits": 0,
+    "features": 0,
+    "forbidden": false,
+    "eyebrows": 0
+  },
+  {
+    "size": "mobile",
+    "route": "/product",
+    "title": "Product | Envoi",
+    "heading": "A shared inbox for agents",
+    "overflow": false,
+    "nav": [
+      "About",
+      "Product"
+    ],
+    "footer": [
+      "About",
+      "Product"
+    ],
+    "images": [
+      {
+        "alt": "",
+        "loaded": true
+      },
+      {
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "benefits": 4,
+    "features": 6,
+    "forbidden": false,
+    "eyebrows": 0
+  },
+  {
+    "size": "mobile",
+    "interactions": "handoff, approvals, changes, notes, filters, search, files, permissions, activity, keyboard, reset",
+    "demoWrites": 0
+  },
+  {
+    "animation": "autoplay, pause, resume, waits for approval, replay",
+    "additionalWidths": [
+      820,
+      320
+    ]
+  }
+]
