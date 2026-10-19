@@ -1670,12 +1670,10 @@ async function deliverNativeAgentMessage(outbox) {
     );
     events.push({ inboxId: targetInboxId, event: auditEntry.event });
   }
-  // http-wake v1: wake the recipient only once the delivery has committed, under its inbox lock as
-  // every other trigger is. A wake failure is logged and never changes the delivery.
-  const afterCommit = httpWakeEnabled ? () => withInboxMutation(outbox.recipientInboxId,
-    () => httpWake.trigger({ inboxId: outbox.recipientInboxId, agentId: queued.recipientAgentId, reason: 'message_delivered' }), [], [], true)
-    .catch(() => console.error(JSON.stringify({ event: 'envoi.http_wake_trigger_failed', reason: 'message_delivered' }))) : null;
-  return { documents, result: { messageId: delivered.id, receiptId: receipt.id, deliveredAt }, events, afterCommit };
+  // http-wake v1 §6.5: the wake is written in the delivery's own transaction (the worker runs this
+  // and completeOutbox in one withTransaction), so it commits with the delivery or not at all.
+  if (httpWakeEnabled) await httpWake.trigger({ inboxId: outbox.recipientInboxId, agentId: queued.recipientAgentId, reason: 'message_delivered' });
+  return { documents, result: { messageId: delivered.id, receiptId: receipt.id, deliveredAt }, events };
 }
 
 async function deliverExternalEmail(outbox) {
