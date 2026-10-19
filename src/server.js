@@ -2904,8 +2904,39 @@ async function handleHttpWakeRoute(req, res, url) {
   return json(res, host && req.method === 'POST' && !host[2] ? 201 : 200, result.value);
 }
 
+// Gateway-only browser repair: an attributable owner claim can reattach a live
+// gateway installation without minting credentials or replacing its notification ledger.
+// No ordinary registration/activation route can invoke this internal adapter callback.
+async function reattachGatewayRegistration(rawToken, registrationId, activationId, binding, confirmed) {
+  const registration = await registrations.registrationForToken(rawToken, registrationId);
+  if (!browserPollAvailable(onboardingFlags) || !registration.providerBrowserPoll || registration.target?.kind !== 'existing_agent'
+    || registration.approverHumanId !== confirmed.humanId) throw codedError(403, 'GATEWAY_SCOPE_DENIED', 'Browser repair is not authorized.');
+  return withInboxMutation(binding.inboxId, async writeAudit => {
+    const current = await registrations.getRegistration(registrationId);
+    const installation = await store.getJson(installationPath(binding.inboxId, binding.agentId, binding.installationId));
+    const family = await store.getJson(agentCredentialFamilyPath(binding.inboxId, binding.agentId, binding.credentialFamilyId));
+    const human = await store.getJson(path.join('humans', `${confirmed.humanId}.json`));
+    const inbox = await store.getJson(path.join('inboxes', binding.inboxId, 'inbox.json'));
+    if (!current?.providerBrowserPoll || current.approverHumanId !== confirmed.humanId || current.target.agentId !== binding.agentId
+      || current.target.agentInboxId !== binding.inboxId || current.target.replacesInstallationId !== binding.installationId
+      || !installation || installation.deliveryMode !== 'poll' || installation.credentialFamilyId !== binding.credentialFamilyId
+      || !family || family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()
+      || !human || !inbox || !await canManageInbox(human, inbox, { maxAgeMs: 0 })) throw codedError(403, 'GATEWAY_SCOPE_DENIED', 'Browser repair is no longer authorized.');
+    if (current.status === 'activated') {
+      if (!current.gatewayReattachment || current.activationIdHash !== hashSecret(activationId) || recoveryWindowOver(current, new Date())) throw registrations.recoveryExpired();
+      return;
+    }
+    if (derivedStatus(current, new Date()) !== 'approved' || !await activationRechecksPass(current)) throw registrationEnded('withdrawn');
+    const at = store.now();
+    await store.putJson(registrationPath(current.id), { ...current, status: 'activated', gatewayReattachment: true,
+      activatedAt: at, activationIdHash: hashSecret(activationId), installationId: binding.installationId,
+      agentId: binding.agentId, agentInboxId: binding.inboxId, credentialFamilyId: binding.credentialFamilyId });
+    await writeAudit('agent.gateway_pairing_created', { agentId: binding.agentId, installationId: binding.installationId }, at);
+  }, [], [registrationLockKey(registrationId), `gateway-installation:${binding.installationId}`]);
+}
+
 const browserGatewayHttp = createCanonicalBrowserGateway({
-  store, flags: onboardingFlags, key: connectorEncryptionKey(), registrations, activateRegistration, auth, canManageInbox,
+  store, flags: onboardingFlags, key: connectorEncryptionKey(), registrations, activateRegistration, reattachRegistration: reattachGatewayRegistration, rotateCredentials: rotateAgentCredentials, auth, canManageInbox,
   publicOrigin: req => publicBaseUrl(req), clientIp, familyPath: agentCredentialFamilyPath,
   writeAudit: async (binding, type, data) => {
     const record = await auditRecord(binding.inboxId, type, { agentId: binding.agentId, installationId: binding.installationId, ...data });

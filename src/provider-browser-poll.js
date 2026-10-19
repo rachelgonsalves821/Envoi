@@ -149,11 +149,16 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
         if (current.completed.recoverUntil <= now()) error(503, 'GATEWAY_RECOVERY_REQUIRED');
         return current.completed;
       }
+      const existing = await read(`installation:${binding.installationId}`);
+      if (existing?.rotation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
+      if (binding.reattaching && existing?.binding.generation !== binding.generation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
+      binding.generation = random();
+      await write(`installation:${binding.installationId}`, { kind: 'installation', binding });
       const sessionSecret = random(), session = { binding, csrf: random(), createdAt: now(), lastActivity: now(), expiresAt: now() + gatewayLimits.absolute, ended: false };
       await write(`session:${sessionSecret}`, session);
       current.completed = { secret: sessionSecret, binding, recoverUntil: now() + gatewayLimits.recovery };
       current.state = 'connected'; await write(id, current);
-      await audit(binding, 'agent.gateway_pairing_created');
+      if (!binding.reattaching) await audit(binding, 'agent.gateway_pairing_created');
       await audit(binding, 'agent.gateway_session_created');
       return current.completed;
     });
@@ -161,14 +166,17 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
     const view = await session(result.secret);
     return { secret: result.secret, ...view };
   }
-  async function authorized(secret, mutate, operation, suppliedCsrf) {
+  async function authorized(secret, mutate, operation, suppliedCsrf, allowRotation = false) {
     on(); const id = `session:${secret}`, initial = await read(id);
     if (!initial) error(401, 'GATEWAY_SESSION_REQUIRED');
     return lock(id, adapter.lockKeys(initial.binding), async () => {
       on(); const current = await read(id);
       if (!current || current.ended) error(401, 'GATEWAY_SESSION_REQUIRED');
+      const installation = await read(`installation:${current.binding.installationId}`);
+      if (!installation || installation.binding.generation !== current.binding.generation) error(401, 'GATEWAY_SESSION_REQUIRED');
       if (current.expiresAt <= now() || current.lastActivity + gatewayLimits.idle <= now()) error(401, 'GATEWAY_SESSION_EXPIRED');
       if (suppliedCsrf !== undefined) csrf(current, suppliedCsrf);
+      if (current.rotation && !allowRotation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
       const identity = await adapter.authorize(current.binding);
       const result = await operation(current, identity);
       if (mutate) { current.lastActivity = now(); await write(id, current); }
@@ -191,38 +199,48 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
   async function check(secret, suppliedCsrf, input) {
     if (suppliedCsrf === undefined) error(403, 'GATEWAY_CSRF_INVALID');
     gatewayClosed(input, ['runId', 'limit', 'cursor'], ['runId']);
+    if (Object.hasOwn(input, 'cursor') && (typeof input.cursor !== 'string' || !input.cursor || input.cursor.length > 512)) error(400, 'GATEWAY_CURSOR_INVALID');
     if (!safeId(input.runId) || (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 50))) error(400, 'GATEWAY_REQUEST_INVALID');
+    const stored = await read(`session:${secret}`);
+    if (stored && (stored.rotation || Date.parse(stored.binding.credentials?.expiresAt) <= now() + 60_000)) await renew(secret, suppliedCsrf, {});
     return authorized(secret, true, async (s, identity) => {
       paused(identity); const id = ledgerId(s.binding), ledger = await read(id) || { acks: {}, cadence: 1800 };
-      const at = now(); let run = ledger.run;
-      if (run && run.expiresAt > at && run.id !== input.runId) error(409, 'GATEWAY_CHECK_ACTIVE', { retryAfterSeconds: Math.ceil((run.expiresAt - at) / 1000) });
-      if (!run || run.id !== input.runId || run.expiresAt <= at) {
+      const at = now(), sessionKey = digest(`session:${secret}`); let run = ledger.run;
+      const newRun = !run || run.id !== input.runId || run.expiresAt <= at;
+      if (run && run.expiresAt > at && (run.id !== input.runId || run.sessionKey !== sessionKey)) error(409, 'GATEWAY_CHECK_ACTIVE', { retryAfterSeconds: Math.ceil((run.expiresAt - at) / 1000) });
+      if (newRun) {
         if (input.cursor) error(400, 'GATEWAY_CURSOR_INVALID');
         if (ledger.lastCheck && at - ledger.lastCheck < 60_000) error(429, 'RATE_LIMITED', { retryAfterSeconds: Math.ceil((60_000 - (at - ledger.lastCheck)) / 1000) });
-        run = { id: input.runId, expiresAt: at + gatewayLimits.run, high: await adapter.highWater(s.binding), pages: 0, issued: {} };
+        run = { id: input.runId, nonce: random(), sessionKey, visited: {}, expiresAt: at + gatewayLimits.run, high: await adapter.highWater(s.binding), pages: 0, issued: {} };
       }
-      if (run.pages >= 5) error(429, 'RATE_LIMITED', { retryAfterSeconds: ledger.cadence });
       const scope = digest(`${s.binding.installationId}:${s.binding.generation}`);
-      const cursor = input.cursor ? token(input.cursor, `cursor:${scope}`) : { after: 0, high: run.high, runId: run.id };
-      if (cursor.runId !== run.id || cursor.high !== run.high) error(400, 'GATEWAY_CURSOR_INVALID');
+      const cursor = input.cursor ? token(input.cursor, `cursor:${scope}`) : { after: 0, high: run.high, runId: run.id, nonce: run.nonce };
+      if (cursor.runId !== run.id || cursor.high !== run.high || cursor.nonce !== run.nonce) error(400, 'GATEWAY_CURSOR_INVALID');
+      const pageKey = `${cursor.after}:${input.limit || 20}`;
+      if (run.pages >= 5 && !run.visited[pageKey]) error(429, 'RATE_LIMITED', { retryAfterSeconds: ledger.cadence });
       const rows = await adapter.pending(s.binding, { high: run.high, after: cursor.after });
       if (now() >= run.expiresAt) error(503, 'GATEWAY_TEMPORARILY_UNAVAILABLE');
-      const items = []; let after = cursor.after; let more = false;
+      const items = []; let after = cursor.after; let more = false, newlyIssued = false;
       for (const row of rows) {
         const logical = digest(`${row.id}:${row.version || 1}`);
         if (ledger.acks[logical]) { after = row.sequence; continue; }
         if (items.length >= (input.limit || 20)) { more = true; break; }
-        const notificationRef = ref({ logical }, `notification:${scope}`);
+        const notificationRef = ref({ logical, nonce: run.nonce }, `notification:${scope}`);
         const item = { notificationRef, caseRef: ref({ caseId: row.caseId }, `case:${scope}`), workVersion: row.version || 1,
           senderAddress: text(row.senderAddress, 256), summary: text(row.summary), truncated: text(row.summary) !== String(row.summary ?? '') };
         if (Buffer.byteLength(JSON.stringify(items)) + Buffer.byteLength(JSON.stringify(item)) > 56_000) { more = true; break; }
+        if (!run.issued[logical]) {
+          if (run.pages >= 5) error(429, 'RATE_LIMITED', { retryAfterSeconds: ledger.cadence });
+          newlyIssued = true;
+        }
         items.push(item); run.issued[logical] = true; after = row.sequence;
       }
-      run.pages += 1; ledger.run = run; if (!input.cursor) ledger.lastCheck = at;
+      if (newlyIssued || !run.visited[pageKey]) { run.pages += 1; run.visited[pageKey] = true; }
+      ledger.run = run; if (newRun) ledger.lastCheck = at;
       const { credentials: _credentials, ...retentionBinding } = s.binding; ledger.binding = retentionBinding;
       await write(id, ledger);
       return { contract: gatewayContract, state: 'active', asOf: iso(at), runId: run.id, agentAddress: text(identity.address, 256), items,
-        nextCursor: more ? ref({ after, high: run.high, runId: run.id }, `cursor:${scope}`) : null, retryAfterSeconds: ledger.cadence };
+        nextCursor: more ? ref({ after, high: run.high, runId: run.id, nonce: run.nonce }, `cursor:${scope}`) : null, retryAfterSeconds: ledger.cadence };
     }, suppliedCsrf);
   }
   async function acknowledge(secret, suppliedCsrf, input) {
@@ -231,9 +249,11 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
     if (!safeId(input.runId) || !Array.isArray(input.notificationRefs) || input.notificationRefs.length < 1 || input.notificationRefs.length > 50 || new Set(input.notificationRefs).size !== input.notificationRefs.length) error(400, 'GATEWAY_REQUEST_INVALID');
     return authorized(secret, false, async (s, identity) => {
       paused(identity); const id = ledgerId(s.binding), ledger = await read(id);
-      if (!ledger?.run || ledger.run.id !== input.runId || ledger.run.expiresAt <= now()) error(409, 'GATEWAY_CHECK_ACTIVE');
+      if (!ledger?.run || ledger.run.id !== input.runId || ledger.run.expiresAt <= now() || ledger.run.sessionKey !== digest(`session:${secret}`)) error(409, 'GATEWAY_CHECK_ACTIVE');
       const scope = digest(`${s.binding.installationId}:${s.binding.generation}`);
-      const logicals = input.notificationRefs.map(value => token(value, `notification:${scope}`).logical);
+      const refs = input.notificationRefs.map(value => token(value, `notification:${scope}`));
+      if (refs.some(value => value.nonce !== ledger.run.nonce)) error(403, 'GATEWAY_SCOPE_DENIED');
+      const logicals = refs.map(value => value.logical);
       if (new Set(logicals).size !== logicals.length) error(400, 'GATEWAY_REQUEST_INVALID');
       if (logicals.some(value => !ledger.run.issued[value])) error(403, 'GATEWAY_SCOPE_DENIED');
       const eligible = new Set((await adapter.pending(s.binding, { high: await adapter.highWater(s.binding), after: 0 })).map(row => digest(`${row.id}:${row.version || 1}`)));
@@ -250,7 +270,29 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
   async function renew(secret, suppliedCsrf, input) {
     if (suppliedCsrf === undefined) error(403, 'GATEWAY_CSRF_INVALID');
     gatewayClosed(input, []);
-    return authorized(secret, true, async s => ({ state: 'connected', expiresAt: iso(s.expiresAt) }), suppliedCsrf);
+    // Commit one operation identity BEFORE canonical rotation. An uncertain response is
+    // recovered with the same old refresh token and operation, never a second rotation.
+    const plan = await authorized(secret, false, async s => {
+      if (!s.rotation) {
+        s.rotation = { id: `rotation_${random()}`, startedAt: now() };
+        await write(`session:${secret}`, s);
+        await write(`installation:${s.binding.installationId}`, { kind: 'installation', binding: s.binding, rotation: s.rotation });
+      }
+      if (s.rotation.startedAt + gatewayLimits.recovery <= now()) error(503, 'GATEWAY_RECOVERY_REQUIRED');
+      return { binding: s.binding, operation: s.rotation };
+    }, suppliedCsrf, true);
+    const successor = await adapter.renew(plan.binding, plan.operation);
+    return authorized(secret, true, async s => {
+      // Concurrent renewals may recover the same operation. A later operation must not
+      // be overwritten by an earlier response arriving late.
+      if (s.rotation && s.rotation.id !== plan.operation.id) error(503, 'GATEWAY_RECOVERY_REQUIRED');
+      if (s.rotation?.id === plan.operation.id) {
+        s.binding.credentials = successor;
+        delete s.rotation;
+        await write(`installation:${s.binding.installationId}`, { kind: 'installation', binding: s.binding });
+      }
+      return { state: 'connected', expiresAt: iso(s.expiresAt) };
+    }, suppliedCsrf, true);
   }
   async function end(secret, suppliedCsrf, input) {
     on();
@@ -258,7 +300,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
     gatewayClosed(input, []);
     const existing = await read(`session:${secret}`);
     if (existing?.ended) { csrf(existing, suppliedCsrf); return { state: 'ended' }; }
-    return authorized(secret, false, async s => { s.ended = true; await write(`session:${secret}`, s); await audit(s.binding, 'agent.gateway_session_ended'); return { state: 'ended' }; }, suppliedCsrf);
+    return authorized(secret, false, async s => { s.ended = true; delete s.rotation; delete s.binding.credentials; await write(`session:${secret}`, s); await audit(s.binding, 'agent.gateway_session_ended'); return { state: 'ended' }; }, suppliedCsrf, true);
   }
   async function updatePolicy(binding, input, authorizeOwner = async () => {}) {
     on(); gatewayClosed(input, ['cadenceSeconds', 'alertDestination', 'expectedPolicyRevision']);
@@ -277,17 +319,26 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
     for (const raw of records) {
       if (!/^[a-f0-9]{64}$/.test(raw.key || '')) continue;
       const observed = unseal(raw.encrypted, raw.key);
-      await store.withTransaction([`gateway:${raw.key}`, ...(observed.binding && observed.acks ? adapter.lockKeys(observed.binding) : [])], async () => {
+      await store.withTransaction([`gateway:${raw.key}`, ...(observed.binding ? adapter.lockKeys(observed.binding) : [])], async () => {
         const recordPath = path.join('auth', 'provider-browser-poll', `${raw.key}.json`);
         const latest = await store.getJson(recordPath); if (!latest) return;
         const value = unseal(latest.encrypted, raw.key);
+        if (value.kind === 'installation') {
+          try { await adapter.authorize(value.binding); }
+          catch (cause) {
+            if (['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED'].includes(cause.code)) { await store.deleteJson(recordPath); return; }
+            if (cause.code !== 'GATEWAY_SCOPE_DENIED') throw cause;
+          }
+        }
         // Operational cookies are retained encrypted ONLY for the approved recovery window.
         // The session document itself never contains its raw browser cookie.
         if (value.completed && value.completed.recoverUntil <= now()) delete value.completed.secret;
         if (value.acks && value.binding) {
-          const active = new Set((await adapter.pending(value.binding, { high: await adapter.highWater(value.binding), after: 0 })).map(row => digest(`${row.id}:${row.version || 1}`)));
+          // Leases, backoff, blocks and pauses are temporary visibility filters, not
+          // terminal work. Only canonical terminal facts start the retention clock.
+          const work = new Map((await adapter.notificationWork(value.binding)).map(row => [digest(`${row.id}:${row.version || 1}`), row]));
           for (const [logical, ack] of Object.entries(value.acks)) {
-            if (active.has(logical)) delete ack.terminalObservedAt;
+            if (!work.get(logical)?.terminal) delete ack.terminalObservedAt;
             else if (!ack.terminalObservedAt) ack.terminalObservedAt = now();
             else if (ack.terminalObservedAt + 30 * 86_400_000 <= now()) delete value.acks[logical];
           }
@@ -297,5 +348,12 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
       });
     }
   }
-  return { setup, begin, pairing, confirm, activate, session, check, acknowledge, renew, end, updatePolicy, cleanup, digest };
+  // Internal adapter port only; no HTTP route returns this binding or its credentials.
+  async function bindingForInstallation(installationId) {
+    const value = await read(`installation:${installationId}`);
+    if (!value || value.rotation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
+    await adapter.authorize(value.binding);
+    return value.binding;
+  }
+  return { setup, begin, pairing, confirm, activate, session, check, acknowledge, renew, end, updatePolicy, cleanup, digest, bindingForInstallation };
 }

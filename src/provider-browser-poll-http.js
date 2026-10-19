@@ -1,4 +1,4 @@
-import { gatewayClosed, gatewayContract, gatewayError } from './provider-browser-poll.js';
+import { gatewayContract, gatewayError } from './provider-browser-poll.js';
 
 export const gatewayCookies = Object.freeze({ pending: '__Host-envoi_agent_pair', session: '__Host-envoi_agent_gateway' });
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -26,18 +26,43 @@ async function input(req) {
   } catch { /* closed decoding, no raw response echo */ }
   throw gatewayError(400, 'GATEWAY_REQUEST_INVALID');
 }
-const script = `document.querySelectorAll('form[data-api]').forEach(form=>form.addEventListener('submit',async event=>{
-event.preventDefault(); const fields=new FormData(form); let payload={};
-for(const [key,value] of fields)payload[key]=value;
-if(form.dataset.kind==='pair')payload={requestedName:payload.requestedName,requestedPermissions:['receive_agent_messages'],runtime:{type:payload.runtimeType,version:null}};
-if(form.dataset.kind==='empty')payload={};
-if(form.dataset.kind==='ack')payload={runId:payload.runId,notificationRefs:JSON.parse(payload.notificationRefs)};
-const out=document.getElementById('result');try{const r=await fetch(form.dataset.api,{method:'POST',credentials:'same-origin',redirect:'error',headers:{'content-type':'application/json','X-Envoi-Gateway-CSRF':document.querySelector('meta[name="csrf"]').content},body:JSON.stringify(payload)});
-const data=await r.json();out.textContent=JSON.stringify(data,null,2);document.getElementById('status').textContent=r.ok?(data.state==='presentation_recorded'?'Owner alert recorded. The work remains pending.':data.state==='owner_confirmed'?'Delegation confirmed. Continue in the assistant browser.':data.state==='connected'?'Connected to '+data.agentAddress:data.items?data.items.length+' new work item(s).':'Request completed.'):data.code==='AGENT_PAUSED'?'This agent is paused.':data.code==='GATEWAY_SESSION_EXPIRED'?'Your session expired. Ask the owner to reconnect.':'Unable to complete this step: '+data.code;
-if(r.ok)document.getElementById('continue').hidden=false;
-if(data.verificationCode){document.getElementById('status').textContent='Claim code: '+data.verificationCode+' — Comparison phrase: '+data.comparisonPhrase+'. The owner approves this in their own browser.';}
-if(data.items){const list=document.getElementById('work');list.replaceChildren();for(const item of data.items){const li=document.createElement('li');const title=document.createElement('strong');title.textContent=item.senderAddress;const p=document.createElement('p');p.textContent=item.summary;li.append(title,p);list.append(li);}const ack=document.querySelector('form[data-kind="ack"]');if(ack){ack.hidden=!data.items.length;ack.elements.runId.value=data.runId;ack.elements.notificationRefs.value=JSON.stringify(data.items.map(x=>x.notificationRef));}}
-}catch{out.textContent='Request did not complete. Preserve this browser and retry the same operation; do not register again.'}}));`;
+const script = `
+const find=selector=>document.querySelector(selector);
+const ack=find('form[data-kind="ack"]'), next=find('form[data-kind="next"]'), check=find('form[data-kind="check"]');
+const clearWork=()=>{document.getElementById('work').replaceChildren();if(ack)ack.hidden=true;if(next)next.hidden=true;};
+document.querySelectorAll('form[data-api]').forEach(form=>form.addEventListener('submit',async event=>{
+  event.preventDefault();if(form.dataset.busy)return;form.dataset.busy='true';
+  const button=form.querySelector('button');button.disabled=true;
+  const out=document.getElementById('result'), status=document.getElementById('status');
+  try{
+    if(form===check&&form.dataset.completed==='true'){form.elements.runId.value='run_'+crypto.randomUUID().replaceAll('-','');delete form.dataset.completed;}
+    const fields=new FormData(form);let payload=Object.fromEntries(fields);
+    if(form.dataset.kind==='pair')payload={requestedName:payload.requestedName,requestedPermissions:['receive_agent_messages'],runtime:{type:payload.runtimeType,version:null}};
+    if(form.dataset.kind==='empty')payload={};
+    if(form.dataset.kind==='ack')payload={runId:payload.runId,notificationRefs:JSON.parse(payload.notificationRefs)};
+    const r=await fetch(form.dataset.api,{method:'POST',credentials:'same-origin',redirect:'error',headers:{'content-type':'application/json','X-Envoi-Gateway-CSRF':find('meta[name="csrf"]').content},body:JSON.stringify(payload)});
+    const data=await r.json();out.textContent=JSON.stringify(data,null,2);
+    if(!r.ok){
+      if(['AGENT_PAUSED','CREDENTIAL_REVOKED','CREDENTIAL_EXPIRED','GATEWAY_SESSION_REQUIRED','GATEWAY_SESSION_EXPIRED','GATEWAY_SCOPE_DENIED','GATEWAY_RECOVERY_REQUIRED','FEATURE_DISABLED'].includes(data.code))clearWork();
+      status.textContent='Unable to complete this step: '+data.code+(data.retryAfterSeconds?' � retry after '+data.retryAfterSeconds+' seconds.':'');return;
+    }
+    document.getElementById('continue').hidden=false;
+    if(data.items){
+      clearWork();for(const item of data.items){const li=document.createElement('li'), title=document.createElement('strong'), p=document.createElement('p');title.textContent=item.senderAddress;p.textContent=item.summary;li.append(title,p);document.getElementById('work').append(li);}
+      if(ack){ack.hidden=!data.items.length;ack.elements.runId.value=data.runId;ack.elements.notificationRefs.value=JSON.stringify(data.items.map(x=>x.notificationRef));}
+      if(next){next.hidden=!data.nextCursor;next.elements.runId.value=data.runId;next.elements.cursor.value=data.nextCursor||'';next.querySelector('button').disabled=!!data.items.length;}
+      if(check)check.dataset.completed=String(!data.nextCursor&&!data.items.length);
+      status.textContent=data.items.length+' pending work item(s). Send the owner alert before confirming it. '+(data.nextCursor?'More work is available in this run.':'Check again after '+data.retryAfterSeconds+' seconds.');
+    }else if(data.state==='presentation_recorded'){
+      if(ack)ack.hidden=true;if(next)next.querySelector('button').disabled=false;
+      if(check)check.dataset.completed=String(!next||next.hidden);
+      status.textContent='Owner alert recorded. The work remains pending.';
+    }else if(data.verificationCode){status.textContent='Claim code: '+data.verificationCode+' � Comparison phrase: '+data.comparisonPhrase+'. The owner approves this in their own browser.';
+    }else if(data.state==='ended'){clearWork();document.querySelectorAll('form[data-api]').forEach(f=>{f.hidden=true;});status.textContent='This delegated browser is signed out.';
+    }else{status.textContent=data.state==='owner_confirmed'?'Delegation confirmed. Continue in the assistant browser.':data.state==='connected'?'Connection active.':'Request completed.';}
+  }catch{out.textContent='Request did not complete. Preserve this browser and retry the same operation; do not register again.';}
+  finally{delete form.dataset.busy;button.disabled=form===next&&ack&&!ack.hidden;}
+}));`;
 const styles = `:root{font-family:system-ui,sans-serif;color:#172c32;background:#f0f4f2}*{box-sizing:border-box}body{margin:0;padding:48px 20px}main{max-width:760px;margin:auto;background:#fff;border:1px solid #d6e0da;border-radius:20px;padding:36px;box-shadow:0 16px 50px #153a2310}h1{font-size:2rem;letter-spacing:-.04em;margin-top:0}p{line-height:1.6;color:#425b60}label{display:block;margin:18px 0;font-weight:600}input:not([type=hidden]){display:block;width:100%;padding:12px;margin-top:6px;border:1px solid #91aaa1;border-radius:8px;font:inherit}button{border:0;background:#146846;color:white;border-radius:9px;padding:12px 18px;font:inherit;cursor:pointer;margin:8px 0}button:hover{background:#0c4e32}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #f2ac45;outline-offset:3px}a{color:#146846}ul{list-style:none;padding:0}li{padding:18px;border:1px solid #d6e0da;border-radius:10px;margin:12px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.8rem}details{margin-top:24px}#status{padding:12px 0;font-weight:600}@media(max-width:500px){body{padding:16px 10px}main{padding:22px}}`;
 
 export function createProviderBrowserPollHttp({ gateway, enabled, origin, owner, ownerConfirm, policy, rateLimit = () => true }) {
@@ -52,7 +77,7 @@ export function createProviderBrowserPollHttp({ gateway, enabled, origin, owner,
     }
   }
   const json = (res, value, status = 200) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); };
-  const form = (api, kind, fields, label) => `<form data-api="${api}" data-kind="${kind}">${fields}<button>${label}</button></form>`;
+  const form = (api, kind, fields, label, hidden = false) => `<form${hidden ? ' hidden' : ''} data-api="${api}" data-kind="${kind}">${fields}<button>${label}</button></form>`;
   const field = (name, label, value = '', hidden = false) => `<label>${escape(label)}<input name="${name}" value="${escape(value)}"${hidden ? ' type="hidden"' : ' required'}></label>`;
   function page(res, title, csrf, content) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -63,8 +88,8 @@ export function createProviderBrowserPollHttp({ gateway, enabled, origin, owner,
     const discovery = url.pathname === '/api/onboarding/routes' && url.searchParams.has('contract');
     const policyMatch = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/agents\/([^/]+)\/installations\/([^/]+)\/poll-policy$/);
     if (!gatewayPath && !discovery && !policyMatch) return false;
-    secure(req, res);
     try {
+      secure(req, res);
       if (discovery) {
         if (req.method !== 'GET' || url.searchParams.get('contract') !== 'provider-browser-poll-v1' || [...url.searchParams.keys()].length !== 1) throw gatewayError(400, 'GATEWAY_REQUEST_INVALID');
         res.setHeader('cache-control', 'public, max-age=60');
@@ -90,7 +115,7 @@ export function createProviderBrowserPollHttp({ gateway, enabled, origin, owner,
       if (req.method === 'GET' && ['/api/agent-gateway/session', '/agent-gateway/inbox'].includes(url.pathname)) {
         const view = await gateway.session(session);
         if (url.pathname.endsWith('/session')) json(res, view);
-        else page(res, 'Your agent’s pending work', view.csrf, `<p>${escape(view.agentAddress)} — ${escape(view.state)}</p><p>This connection can read pending work and notify you. It cannot send replies or mark work complete. Scheduled checks require your separate approval.</p>${form('/api/agent-gateway/check', 'check', field('runId', '', `run_${cryptoId()}`, true), 'Check for new work')}${form('/api/agent-gateway/notifications/ack', 'ack', field('runId', '', '', true) + field('notificationRefs', '', '[]', true), 'Confirm the owner alert was sent')}${form('/api/agent-gateway/session/renew', 'empty', '', 'Keep this connection active')}${form('/api/agent-gateway/session/end', 'empty', '', 'Sign out')}`);
+        else page(res, 'Your agent’s pending work', view.csrf, `<p>${escape(view.agentAddress)} — ${escape(view.state)}</p><p>This connection can read pending work and notify you. It cannot send replies or mark work complete. Scheduled checks require your separate approval.</p>${form('/api/agent-gateway/check', 'check', field('runId', '', `run_${cryptoId()}`, true), 'Check for new work')}${form('/api/agent-gateway/notifications/ack', 'ack', field('runId', '', '', true) + field('notificationRefs', '', '[]', true), 'Confirm the owner alert was sent', true)}${form('/api/agent-gateway/check', 'next', field('runId', '', '', true) + field('cursor', '', '', true), 'Continue this check', true)}${form('/api/agent-gateway/session/renew', 'empty', '', 'Keep this connection active')}${form('/api/agent-gateway/session/end', 'empty', '', 'Sign out')}`);
         return true;
       }
       if (req.method !== 'POST') throw gatewayError(405, 'GATEWAY_REQUEST_INVALID');

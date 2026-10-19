@@ -1,13 +1,12 @@
 import path from 'node:path';
 import { browserPollAvailable, providerGatewayAuthority } from './onboarding-flags.js';
-import { registrationPath } from './agent-approval.js';
 import { installationPath } from './agent-installations.js';
 import { createProviderBrowserPoll, gatewayError } from './provider-browser-poll.js';
 import { createProviderBrowserPollHttp } from './provider-browser-poll-http.js';
 
 // This adapter is deliberately not a general proxy: Stage 1 can only register, privately
 // activate, validate canonical authority and project pending native messages.
-export function createCanonicalBrowserGateway({ store, flags, key, registrations, activateRegistration, auth,
+export function createCanonicalBrowserGateway({ store, flags, key, registrations, activateRegistration, reattachRegistration, rotateCredentials, auth,
   canManageInbox, verifyOwnerCsrf, ownerCsrf, publicOrigin, clientIp, familyPath, rateLimit, pendingAllowed, writeAudit, publishAudit }) {
   const enabled = () => browserPollAvailable(flags);
   const fail = (status, code) => { throw gatewayError(status, code); };
@@ -35,12 +34,18 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
     activate: async (registration, activationId, confirmed) => {
       const current = await registrations.getRegistration(registration.registrationId);
       if (!current?.providerBrowserPoll || current.approverHumanId !== confirmed.humanId) fail(403, 'GATEWAY_SCOPE_DENIED');
+      if (current.target.kind === 'existing_agent') {
+        const id = current.status === 'activated' ? current.installationId : current.target.replacesInstallationId;
+        const binding = await gateway.bindingForInstallation(id);
+        await reattachRegistration(registration.bootstrapToken, registration.registrationId, activationId, binding, confirmed);
+        return { ...binding, reattaching: true, ownerId: confirmed.humanId, workspaceInboxId: confirmed.workspaceInboxId };
+      }
       const result = await activateRegistration(registration.bootstrapToken, { registrationId: registration.registrationId, activationId, deliveryMode: 'poll' }, providerGatewayAuthority);
       const value = result.body, installation = await store.getJson(installationPath(value.inboxId, value.agent.id, value.installation.id));
       return { ownerId: confirmed.humanId, workspaceInboxId: confirmed.workspaceInboxId, inboxId: value.inboxId, agentId: value.agent.id,
         installationId: value.installation.id, credentialFamilyId: installation.credentialFamilyId, generation: value.installation.id,
         // Stored only in the gateway's encrypted record; never returned to a runtime.
-        credentials: { access: value.agentApiToken, refresh: value.agentRefreshToken } };
+        credentials: { access: value.agentApiToken, refresh: value.agentRefreshToken, expiresAt: value.agentTokenExpiresAt } };
     },
     authorize: async b => {
       const [agent, inbox, family, installation, human, workspace] = await Promise.all([
@@ -49,12 +54,27 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
         store.getJson(installationPath(b.inboxId, b.agentId, b.installationId)), store.getJson(path.join('humans', `${b.ownerId}.json`)),
         store.getJson(path.join('inboxes', b.workspaceInboxId, 'inbox.json'))
       ]);
-      if (!family || family.revokedAt || !agent || agent.status === 'revoked' || agent.onboardingStatus !== 'approved' || !installation
+      if (!family || family.revokedAt || !agent || !['active', 'paused'].includes(agent.status) || agent.onboardingStatus !== 'approved' || !installation
         || installation.credentialFamilyId !== b.credentialFamilyId || installation.agentId !== b.agentId || installation.deliveryMode !== 'poll'
         || inbox?.status === 'removed' || family.installationId !== b.installationId) fail(401, 'CREDENTIAL_REVOKED');
       if (!Number.isFinite(Date.parse(family.refreshExpiresAt)) || Date.parse(family.refreshExpiresAt) <= Date.now()) fail(401, 'CREDENTIAL_EXPIRED');
       if (!human || !workspace || !await canManageInbox(human, workspace, { maxAgeMs: 0 }) || !agent.permissions?.includes('receive_agent_messages')) fail(403, 'GATEWAY_SCOPE_DENIED');
       return { address: agent.address, paused: agent.status === 'paused' };
+    },
+    renew: async (binding, operation) => {
+      const value = await rotateCredentials(binding.credentials.refresh, operation.id);
+      return { access: value.agentApiToken, refresh: value.agentRefreshToken, expiresAt: value.agentTokenExpiresAt };
+    },
+    notificationWork: async b => {
+      const ids = new Set((await store.listJson(path.join('inboxes', b.inboxId, 'events')))
+        .filter(e => e.type === 'message.delivered' && e.recipientAgentId === b.agentId).map(e => e.messageId));
+      const work = [];
+      for (const id of ids) {
+        const message = await store.getJson(path.join('inboxes', b.inboxId, 'messages', `${id}.json`));
+        const claim = await store.getJson(path.join('inboxes', b.inboxId, 'work-claims', `${id}.json`));
+        work.push({ id, version: 1, terminal: !message || ['processed', 'failed'].includes(message.status) || ['completed', 'failed'].includes(claim?.status) });
+      }
+      return work;
     },
     // FileStore's allocator document is not a portable read API: PostgreSQL keeps its
     // counter in a dedicated table. Committed canonical events carry the same sequence
@@ -85,6 +105,7 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
   const requireOwner = async req => {
     const human = await auth.getHuman(req);
     if (!human) fail(401, 'GATEWAY_SESSION_REQUIRED');
+    if (req.headers['x-envoi-expected-human'] && req.headers['x-envoi-expected-human'] !== human.id) fail(403, 'ACCOUNT_CHANGED');
     return { human, csrf: ownerCsrf(req) };
   };
   const ownerMutation = (req, csrf) => { if (!verifyOwnerCsrf(req, csrf)) fail(403, 'GATEWAY_CSRF_INVALID'); };

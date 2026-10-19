@@ -1,6 +1,6 @@
 # Muse / Instinct gateway: private connector and host-scheduled polling
 
-Prepared 2026-10-18. Source base: freshly fetched `origin/integration/agent-native` at `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. Status: **implementation design and contract request; no gateway implementation or host acceptance**. Rachel requested a non-email-bridge architecture based on AgentBox. Both named hosts remain OPEN. PR #137's documentation review remains separately preserved at `7a3f171`.
+Prepared 2026-10-18. Source base: freshly fetched `origin/integration/agent-native` at `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. Original design status at that source base: implementation design and contract request. **Current Stage 1 implementation and PR #144 review evidence: [IMPLEMENTATION.md](IMPLEMENTATION.md). No real-host acceptance.** Rachel requested a non-email-bridge architecture based on AgentBox. Both named hosts remain OPEN. PR #137's documentation review remains separately preserved at `7a3f171`.
 
 The [browser-session/polling contract draft](BROWSER-POLL-CONTRACT.draft.md) now supplies proposed endpoints, limits, state/error rules and fixture specifications. Its §11 lists six exact Je review decisions. It is an agent-authored proposal, not canonical publication or implementation approval.
 
