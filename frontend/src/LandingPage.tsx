@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { request } from './api';
+import { captureAnalyticsEvent } from './analytics';
 
 type Moment = {
   side: 'left' | 'right' | 'center';
@@ -163,6 +164,7 @@ export default function LandingPage({ signInPath, notice }: { signInPath: string
     setFormState('sending');
     try {
       await request<{ accepted: boolean }>('/api/waitlist', { method: 'POST', body: JSON.stringify({ email, company }) });
+      captureAnalyticsEvent('waitlist_joined');
       setFormState('success');
     } catch {
       setFormState('error');

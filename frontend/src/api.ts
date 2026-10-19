@@ -1,5 +1,6 @@
 import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, InboxPreference, Organization } from './types';
 import { trackSessionRequest } from './session-lifecycle';
+import { captureSuccessfulProductAction } from './analytics';
 import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 
@@ -111,6 +112,7 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
       if (response.status === 409 && payload.code === 'ACCOUNT_CHANGED' && typeof window !== 'undefined') window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
       throw new ApiError(payload.message || payload.error || 'The request could not be completed.', response.status, payload.code || payload.error, payload.details);
     }
+    captureSuccessfulProductAction(pathname, options.method);
     return payload as T;
   } finally { session.release(); }
 }
