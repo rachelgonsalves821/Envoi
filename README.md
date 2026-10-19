@@ -34,6 +34,12 @@ Open `http://127.0.0.1:8787`. Development authentication returns local one-time 
 
 The Vite development server is also available through `npm run dev:web` and proxies API calls to port 8787.
 
+## Beta analytics
+
+Production web builds use Envoi's PostHog US Cloud project. The browser SDK records page views, successful waitlist submissions, and authenticated beta app opens. It uses an anonymous browser ID; it does not identify human accounts or send form values, case content, or query strings. Autocapture and session recording are disabled.
+
+The public project token and ingest host are configured in `frontend/src/analytics.ts`. To use another PostHog project, set `VITE_POSTHOG_PROJECT_TOKEN` and `VITE_POSTHOG_HOST` before `npm run build`, then deploy the rebuilt `web/index.html`. Local development sends no events unless a token override is set. Verify events in PostHog's Live events view after the beta site is deployed.
+
 ## External hosting
 
 Use the included `Dockerfile`, set `SINALOA_HOST=0.0.0.0`, configure WorkOS and the canonical HTTPS `SINALOA_PUBLIC_URL`, and provide PostgreSQL plus a private S3-compatible bucket and malware scanner. PostgreSQL is required for atomic production outbox and quota semantics; filesystem storage is for local development. See `docs/deployment.md` for the exact environment and migration contract.
