@@ -5248,10 +5248,11 @@ let wakeDrainRun = null;
 let wakeMaintenanceRun = null;
 async function wakeMaintenance() {
   if (!httpWakeEnabled) return;
+  // Heartbeat and cleanup throttle themselves; the work-due scan visits only active subscriptions
+  // that a work_due trigger could still wake.
   await httpWake.heartbeat();
   await httpWake.cleanup();
-  for (const sub of await store.listJson(path.join('http-wake', 'subscriptions'))) {
-    if (sub.status !== 'active') continue;
+  for (const sub of await httpWake.workDueTargets()) {
     await withInboxMutation(sub.inboxId, async () => {
       const agent = await store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`));
       if (!agent || agent.status !== 'active') return;

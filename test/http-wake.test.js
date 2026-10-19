@@ -216,10 +216,10 @@ storeTest('cancelled and deadline-exceeded waiters cannot block the next receive
   clock+=2;await admission.release('next');await admission.release('occupy');
   assert.equal(await admission.admit({...base,subscriptionId:'last',token:'last'}),true);
   await admission.admit({...base,subscriptionId:'busy',token:'busy'});
-  await h.store.putJson('http-wake/subscriptions/wake_sub_ended.json',{id:'wake_sub_ended',status:'active'});
-  await h.store.putJson('http-wake/queue/wake_evt_ended.json',{id:'wake_evt_ended',subscriptionId:'wake_sub_ended',status:'processing',deadline:new Date(clock+60000).toISOString()});
+  await h.store.putJson('http-wake/agents/agent_test/wake-subscriptions/wake_sub_ended.json',{id:'wake_sub_ended',agentId:'agent_test',status:'active'});
+  await h.store.putJson('http-wake/queue/wake_evt_ended.json',{id:'wake_evt_ended',subscriptionId:'wake_sub_ended',agentId:'agent_test',status:'processing',deadline:new Date(clock+60000).toISOString()});
   assert.equal(await admission.admit({...base,subscriptionId:'ended',eventId:'wake_evt_ended',token:'ended'}),false);
-  await h.store.putJson('http-wake/subscriptions/wake_sub_ended.json',{id:'wake_sub_ended',status:'ended'});
+  await h.store.putJson('http-wake/agents/agent_test/wake-subscriptions/wake_sub_ended.json',{id:'wake_sub_ended',agentId:'agent_test',status:'ended'});
   await admission.release('last');await admission.release('busy');
   assert.equal(await admission.admit({...base,subscriptionId:'after-end',token:'after-end'}),true);
 });
@@ -277,4 +277,58 @@ test('key ids accept the schema alphabet and reject oversize or ambiguous keyset
   const valid=createWakeKeys(JSON.stringify([{...template,kid:'wk.2026-10_a'}]),()=>Date.parse('2026-10-18T12:00:00Z'));assert.equal(valid.jwks().keys[0].kid,'wk.2026-10_a');
   assert.throws(()=>createWakeKeys(JSON.stringify([{...template,kid:'a'.repeat(65)}])),/Invalid wake signing keys/);
   assert.throws(()=>createWakeKeys(JSON.stringify([template,{...template,kid:'other'}])),/unambiguous/);
+});
+
+// http-wake v1 §11: subscriptions are stored per agent. A trigger lists only its agent's
+// subscriptions, and a dispatch tick lists only live notifications, however many finished
+// notifications the queue keeps for retention.
+const slash=p=>String(p).replaceAll(path.sep,'/');
+function recordLists(h){const listed=[];const list=h.store.listJson.bind(h.store);h.store.listJson=p=>{listed.push(slash(p));return list(p);};return listed;}
+storeTest('subscriptions live per agent, and trigger and dispatch list only their own records',async(t,kind)=>{
+  const h=await harness(t,kind);const {id}=await h.active();
+  assert.equal((await h.store.getJson(`http-wake/agents/${identity.agentId}/wake-subscriptions/${id}.json`)).status,'active');
+  assert.deepEqual(await h.store.listJson('http-wake/subscriptions'),[]);
+  assert.deepEqual(await h.store.getJson(`http-wake/subscription-index/${id}.json`),{id,inboxId:identity.inboxId,agentId:identity.agentId,status:'active',endedAt:null});
+  assert.equal(await h.service.runOnce(),true);
+  assert.deepEqual(await h.store.listJson('http-wake/live'),[],'acknowledged notifications leave the live index');
+  assert.ok((await h.store.listJson('http-wake/queue')).some(event=>event.lane==='work'&&event.status==='acknowledged'),'the queue keeps the record for retention');
+  for(let i=0;i<25;i++)await h.store.putJson(`http-wake/queue/wake_evt_finished_${i}.json`,{id:`wake_evt_finished_${i}`,status:'acknowledged',finishedAt:new Date().toISOString()});
+  const listed=recordLists(h);
+  await h.tx(()=>h.service.trigger({...identity,reason:'message_delivered'}));
+  assert.deepEqual([...new Set(listed)],[`http-wake/agents/${identity.agentId}/wake-subscriptions`]);
+  assert.equal((await h.store.listJson('http-wake/live')).length,1);
+  listed.length=0;
+  assert.equal(await h.service.runOnce(),true);assert.equal(JSON.parse(h.sent.at(-1).bodyText).reason,'message_delivered');
+  assert.deepEqual([...new Set(listed)],['http-wake/live']);
+  listed.length=0;
+  assert.equal(await h.service.runOnce(),false);assert.deepEqual([...new Set(listed)],['http-wake/live']);
+});
+
+storeTest('maintenance refreshes the epoch once a minute, cleans up every ten minutes and scans only due subscriptions',async(t,kind)=>{
+  const h=await harness(t,kind);const {id}=await h.active();await h.service.runOnce();
+  const subFile=`http-wake/agents/${identity.agentId}/wake-subscriptions/${id}.json`;
+  let epochWrites=0;const put=h.store.putJson.bind(h.store);h.store.putJson=(p,v)=>{if(slash(p)==='config/http-wake-epoch')epochWrites++;return put(p,v);};
+  await h.service.heartbeat();await h.service.heartbeat();assert.equal(epochWrites,1);
+  h.advance(59000);await h.service.heartbeat();assert.equal(epochWrites,1);
+  h.advance(1000);await h.service.heartbeat();assert.equal(epochWrites,2);
+  assert.ok(Date.parse((await h.store.getJson('config/http-wake-epoch')).activeUntil)>Date.parse(h.options.now())+21000000);
+
+  assert.deepEqual((await h.service.workDueTargets()).map(target=>target.id),[id]);
+  await h.tx(()=>h.service.trigger({...identity,reason:'work_due'}));
+  assert.deepEqual(await h.service.workDueTargets(),[],'a subscription woken for work_due within a minute is not scanned');
+  h.advance(60000);assert.deepEqual((await h.service.workDueTargets()).map(target=>target.id),[id]);
+
+  await h.tx(()=>h.service.end(identity,id));
+  assert.equal((await h.store.getJson(`http-wake/subscription-index/${id}.json`)).status,'ended');
+  assert.deepEqual(await h.service.workDueTargets(),[]);
+  assert.deepEqual(await h.store.listJson('http-wake/live'),[],'ending cancels the live notification and unindexes it');
+  await h.service.cleanup();
+  assert.ok(await h.store.getJson(subFile),'ended subscriptions are kept for 30 days');
+  h.advance(2592000000+1000);await h.service.cleanup();
+  assert.equal(await h.store.getJson(subFile),null);
+  assert.equal(await h.store.getJson(`http-wake/subscription-index/${id}.json`),null);
+  assert.deepEqual(await h.store.listJson('http-wake/queue'),[],'finished notifications go 24 h after they finish');
+  await h.store.putJson('http-wake/queue/wake_evt_old.json',{id:'wake_evt_old',status:'failed',finishedAt:new Date(Date.parse(h.options.now())-86400001).toISOString()});
+  await h.service.cleanup();assert.ok(await h.store.getJson('http-wake/queue/wake_evt_old.json'),'cleanup runs at most every ten minutes');
+  h.advance(600000);await h.service.cleanup();assert.equal(await h.store.getJson('http-wake/queue/wake_evt_old.json'),null);
 });
