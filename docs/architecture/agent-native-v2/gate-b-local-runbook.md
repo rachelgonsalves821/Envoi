@@ -45,6 +45,14 @@ Record everything in a copy of [`evidence/phase-b-local-TEMPLATE.md`](evidence/p
    - Give the disposable profile its own `API_SERVER_PORT` in its private `.env`, so it never collides with the regular Gateway.
    - Configure its model provider through Hermes' own setup, then prove one ordinary model turn with `integrations/gates/prepare-disposable-hermes.ps1 -Action ModelTurn`. The human enters every credential; the operator records the provider name only.
    - Check the startup banner: it must list no MCP server.
+
+   **Accepted alternative: a new named profile in the existing installation.** Hermes v0.21 supports profiles, and the helper honours a `HERMES_HOME` that points straight at a profile directory.
+   - Create the profile without `--clone`, so nothing is copied from the default profile: `hermes.exe profile create <name> --no-alias`.
+   - Set `$env:HERMES_HOME = "$env:LOCALAPPDATA\hermes\profiles\<name>"` in every terminal for this runtime.
+   - Run Hermes as `hermes.exe -p <name>`.
+   - Configure its model with `hermes.exe -p <name> setup model`, and prove one ordinary model turn by hand. `prepare-disposable-hermes.ps1` requires a separate installation, so it does not apply here.
+   - Lane A confirms that the profile's `config.yaml` has no `mcp_servers` section and that neither it nor `.env` mentions Envoi or Sinaloa.
+   - Do not apply a Hermes update during the gate.
 6. **OpenClaw: a named profile.** Install OpenClaw from its official instructions. Then, in every terminal for this runtime, set `$env:OPENCLAW_PROFILE = 'envoi-gate'` before any `openclaw` command, so its state lives in `%USERPROFILE%\.openclaw-envoi-gate` and nothing touches a regular `.openclaw` profile.
    - Run OpenClaw's own onboarding in that profile, with a model provider the human configures.
    - Set `gateway.auth.mode` to `token`, and keep the Gateway on loopback.
