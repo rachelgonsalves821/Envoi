@@ -2,7 +2,7 @@
 
 **Purpose.** This runbook proves the agent-registration v1 local-helper journey with **real** Hermes and OpenClaw runtimes. The two runtimes and the Envoi server all run on one machine. It follows v3 §47 rows 1–17 and the two-owner plan's Phase B gate items.
 
-**Authority.** The human chose a local server, with `ENVOI_INSTALLATIONS_V2` and `ENVOI_AGENT_REGISTRATION_V2` on, on 2026-10-17.
+**Authority.** The human chose a local server, with `ENVOI_INSTALLATIONS_V2` and `ENVOI_AGENT_REGISTRATION_V2` on, on 2026-10-17. The first attempt, at `984051f`, ran preflight only: its Hermes profile already held an Envoi connection, so no row was run. On 2026-10-19 the human chose to rerun the gate on integration `f3a71f6`, the integrated Phase C candidate, with the Phase C flags off.
 - Every flag on staging and beta stays off.
 - Nothing is deployed, and the helper is not published.
 - Messages are sent only between the two local test agents, and only when the human operator sends or approves each one.
@@ -39,6 +39,21 @@ Record everything in a copy of [`evidence/phase-b-local-TEMPLATE.md`](evidence/p
    - Use Hermes and OpenClaw profiles with no existing Envoi configuration or connector state (§47 row 1).
    - Record each version, the OS and the model provider, by name only.
    - Set `NODE_EXTRA_CA_CERTS=<dir>\localhost.pem` in the environment of every process that runs the helper or the connector. Do not disable TLS verification.
+5. **Hermes: a disposable profile, never the regular one.** A profile that has ever held an Envoi or Sinaloa MCP entry is not fresh, even after the entry is removed. Follow the disposable-profile steps in [`integrations/gates/PHASE-A-HOSTED-RUNBOOK.md`](../../../integrations/gates/PHASE-A-HOSTED-RUNBOOK.md):
+   - Install Hermes again with the official installer's `-HermesHome <abs-dir>` and `-InstallDir <abs-dir>\bin`, into an empty directory outside the repository. Do not repair or update the regular `%LOCALAPPDATA%\hermes` installation.
+   - In every terminal for this runtime, set `$env:HERMES_HOME = '<abs-dir>'` first, and call the CLI by its absolute path, `<abs-dir>\bin\hermes.exe`. Never use the machine-wide `hermes`.
+   - Give the disposable profile its own `API_SERVER_PORT` in its private `.env`, so it never collides with the regular Gateway.
+   - Configure its model provider through Hermes' own setup, then prove one ordinary model turn with `integrations/gates/prepare-disposable-hermes.ps1 -Action ModelTurn`. The human enters every credential; the operator records the provider name only.
+   - Check the startup banner: it must list no MCP server.
+6. **OpenClaw: a named profile.** Install OpenClaw from its official instructions. Then, in every terminal for this runtime, set `$env:OPENCLAW_PROFILE = 'envoi-gate'` before any `openclaw` command, so its state lives in `%USERPROFILE%\.openclaw-envoi-gate` and nothing touches a regular `.openclaw` profile.
+   - Run OpenClaw's own onboarding in that profile, with a model provider the human configures.
+   - Set `gateway.auth.mode` to `token`, and keep the Gateway on loopback.
+   - Prove one ordinary agent turn before the gate.
+   - Its configuration must list no MCP server.
+7. **Leave no earlier Envoi state for this origin.**
+   - These must not exist: `%LOCALAPPDATA%\envoi\onboarding\<runtime>\<id>`, the helper state for `https://localhost:8443`, and `%LOCALAPPDATA%\envoi\<runtime>\<id>`, the connector state. Move any earlier copy aside before the run; never reuse it.
+   - Leave connector state for other origins, such as an existing hosted Envoi connection, untouched.
+8. **Run each agent from an empty working directory** outside the repository, such as `<dir>\agent-workdir`, and invoke the helper by its absolute path in the gate checkout. A run started inside a repository checkout can pick up a different connector build.
 
 ## 2. Start the local server and HTTPS front end
 
@@ -49,9 +64,13 @@ $dir = "$env:USERPROFILE\envoi-gate-b-local"
 $env:DATABASE_URL = ''; $env:ENVOI_AUTH_MODE = 'development'; $env:ENVOI_PORT = '8787'
 $env:ENVOI_DATA_DIR = "$dir\data"
 $env:ENVOI_INSTALLATIONS_V2 = 'true'; $env:ENVOI_AGENT_REGISTRATION_V2 = 'true'
+Remove-Item Env:ENVOI_AUTHENTICATED_REST_ROUTE, Env:ENVOI_CASE_SESSIONS_V1, Env:ENVOI_HTTP_WAKE_V1 -ErrorAction SilentlyContinue
 $env:ENVOI_PUBLIC_URL = 'https://localhost:8443'; $env:ENVOI_CORS_ORIGIN = 'https://localhost:8443'
+$env:ENVOI_RELEASE_SHA = git rev-parse HEAD
 npm start
 ```
+
+`ENVOI_RELEASE_SHA` makes `/health` report the gate SHA, which the preflight and the stop conditions compare. Without it, `/health` reports `null`. The Phase C flags stay off: this gate proves Phase B onboarding only.
 
 Then start the HTTPS front end in a second terminal:
 
@@ -65,7 +84,7 @@ node scripts/local-https-proxy.mjs --cert "$env:USERPROFILE\envoi-gate-b-local\l
 - Every request arrives from 127.0.0.1, so one source carries all registrations, at 10 per hour.
 
 **Preflight**, recorded in the header:
-- `GET https://localhost:8443/health` shows the gate SHA.
+- `GET https://localhost:8443/health` shows the gate SHA as `releaseSha`.
 - `GET /api/onboarding/routes` offers exactly `local_helper` and `envoi_link`.
 - `GET /connect/skill.json` lists the same in `offeredConnectionRoutes` and `offeredDeliveryModes`.
 - `GET /connect/SKILL.md` matches `integrations/onboarding/skill/SKILL.md` byte for byte.
@@ -77,6 +96,8 @@ node scripts/local-https-proxy.mjs --cert "$env:USERPROFILE\envoi-gate-b-local\l
 3. Create one workspace for the gate.
 
 In development, `approverEmailHint` is the fixed `d***@development.invalid`, because local-auth humans have no email. Record it as such. The masked-email confirmation itself is proven only in production.
+
+**Known issue.** An authenticator code of the wrong length returns `500` instead of `400` in local development sign-in. This is an open Lane A bug, not a gate row. Enter the current six-digit code again.
 
 ## 4. Run the rows
 
