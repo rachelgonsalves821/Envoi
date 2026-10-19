@@ -46,7 +46,7 @@ test('with the flags off: /connect is the app shell, the skill content is unpubl
 });
 
 test('with the local helper offered: exact reviewed content, availability-driven manifest', { timeout: 60000 }, async t => {
-  const server = await launch(on);
+  const server = await launch({ ...on, ENVOI_PUBLIC_URL: '' });
   t.after(() => server.stop());
   for (const [file, type] of [['SKILL.md', /^text\/markdown; charset=utf-8/], ['HEARTBEAT.md', /^text\/markdown; charset=utf-8/]]) {
     const res = await raw(server.baseUrl, 'GET', `/connect/${file}`);
@@ -79,6 +79,24 @@ test('with the local helper offered: exact reviewed content, availability-driven
     assert.notEqual(res.status, 200, target);
     assert.ok(!res.body.includes('createAgentRegistrations'), `${target} never leaks server source`);
   }
+});
+
+test('the manifest names this deployment\'s own origin; production keeps the reviewed values', { timeout: 90000 }, async t => {
+  const source = JSON.parse(await readFile(path.join(skillDir, 'skill.json'), 'utf8'));
+  const manifestFor = async publicUrl => {
+    const server = await launch({ ...on, ENVOI_PUBLIC_URL: publicUrl });
+    t.after(() => server.stop());
+    return JSON.parse((await raw(server.baseUrl, 'GET', '/connect/skill.json')).body);
+  };
+  const staging = await manifestFor('https://staging.envoi.example/some/path/');
+  assert.equal(staging.connectUrl, 'https://staging.envoi.example/connect');
+  assert.equal(staging.helperCommand, 'envoi-link connect https://staging.envoi.example');
+  const { connectUrl: _a, helperCommand: _b, offeredConnectionRoutes: _c, offeredDeliveryModes: _d, ...rest } = staging;
+  const { connectUrl: _e, helperCommand: _f, offeredConnectionRoutes: _g, offeredDeliveryModes: _h, ...expected } = source;
+  assert.deepEqual(rest, expected, 'only the two origin fields follow the deployment');
+  const production = await manifestFor('https://www.envoi-agents.com');
+  assert.deepEqual([production.connectUrl, production.helperCommand], [source.connectUrl, source.helperCommand], 'production serves the reviewed values');
+  // An invalid ENVOI_PUBLIC_URL is not reachable here: the server refuses to start with one.
 });
 
 test('the manifest offers authenticated REST only with its own flag, in schema order', { timeout: 60000 }, async t => {
