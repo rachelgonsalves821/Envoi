@@ -39,10 +39,13 @@ export function initAnalytics() {
     person_profiles: 'never',
     before_send: event => {
       if (!event || !['$pageview', ...productEvents].includes(event.event)) return null;
-      // Do not send query strings, emails, case content, or other SDK-added page properties.
+      // The SDK keeps the project token and anonymous browser ID in properties.
+      // Dropping the token here makes the SDK discard the event before sending it.
+      // Keep only the fields needed for anonymous ingestion and our public path.
+      const { token, distinct_id } = event.properties ?? {};
       event.properties = event.event === '$pageview'
-        ? { $current_url: `${window.location.origin}${publicPage()}` }
-        : {};
+        ? { token, distinct_id, $process_person_profile: false, $current_url: `${window.location.origin}${publicPage()}` }
+        : { token, distinct_id, $process_person_profile: false };
       return event;
     }
   });
