@@ -14,6 +14,58 @@ const failure = (tool, code) => {
   return { content: [{ type: 'text', text: JSON.stringify({ ok: false, tool, code, message: row.message, retryable: row.retryable }) }], isError: true };
 };
 
+// case-tools v1 §12.5: the refusals the policy binding check and proposal acceptance give, by their
+// exact server messages. Anything else is not an authority outcome: a fault stays an HTTP 500 and a
+// session end its 401 (§2), and a participant change while taking the locks is TOOL_BUSY.
+const authorityRefusals = new Map([
+  ['A current server-issued policy evaluation for this agent and case is required', 'AUTHORITY_DENIED'],
+  ['Policy decision failed integrity verification', 'AUTHORITY_DENIED'],
+  ['This action requires human approval', 'AUTHORITY_PENDING'],
+  ['Policy decision expired before execution', 'AUTHORITY_EXPIRED'],
+  ['Policy decision does not authorize this action', 'AUTHORITY_CHANGED'],
+  ['Policy decision does not authorize this proposal option', 'AUTHORITY_CHANGED'],
+  ['Action authority binding changed after policy evaluation', 'AUTHORITY_CHANGED'],
+  ['Proposal changed after policy evaluation', 'AUTHORITY_CHANGED'],
+  ['Action is earlier than its authorized execution window', 'AUTHORITY_CHANGED'],
+  ['Action is later than its authorized execution window', 'AUTHORITY_CHANGED'],
+  ['Current policy requires a new human approval', 'AUTHORITY_CHANGED'],
+  ['This one-time policy evaluation has already been consumed', 'AUTHORITY_CHANGED'],
+  ['Proposal not found', 'AUTHORITY_CHANGED'],
+  ['Proposal option is missing or expired', 'OPTION_NOT_LIVE'],
+  ['Case participants changed while acquiring the mutation lock; retry', 'TOOL_BUSY']
+]);
+const authorityRefusalPrefixes = [
+  ['Policy denied this action: ', 'AUTHORITY_DENIED'],
+  ['Current policy denied this action: ', 'AUTHORITY_DENIED'],
+  ['Proposal cannot be accepted from ', 'PROPOSAL_NOT_AWAITING']
+];
+export function authorityToolError(error) {
+  if (error?.toolCode) return error;
+  if (![403, 404, 409].includes(error?.statusCode) || error.code) return null;
+  const message = String(error.message || '');
+  const code = authorityRefusals.get(message) || authorityRefusalPrefixes.find(([prefix]) => message.startsWith(prefix))?.[1];
+  return code ? caseToolError(code) : null;
+}
+
+// case-session v1 §3.1: the work message written when a person resolves an agent's request, or
+// when the request expires. An expiry has no person, so it is sent by `system` and names nobody.
+const decisionLabels = { approved: 'Approved', declined: 'Declined', expired: 'Expired' };
+export function humanDecisionWorkMessage({ id, request, outcome, humanId = null, requestedAction, at }) {
+  if (!decisionLabels[outcome]) throw new TypeError('Unknown human decision outcome');
+  if (!['proposal.accept', 'case.complete'].includes(requestedAction)) throw new TypeError('A human decision resolves proposal.accept or case.complete');
+  const person = outcome === 'expired' ? null : humanId;
+  if (outcome !== 'expired' && !person) throw new TypeError('An approval or decline names the person who made it');
+  return {
+    id, kind: 'humanDecision', type: 'humanDecision', inboxId: request.inboxId, caseId: request.caseId,
+    senderType: person ? 'human' : 'system', ...(person ? { senderHumanId: person, from: { humanId: person } } : {}),
+    recipientInboxId: request.inboxId, recipientAgentId: request.agentId,
+    counterpartyAgentId: request.counterpartyAgentId, counterpartyInboxId: request.counterpartyInboxId, counterpartyAddress: request.counterpartyAddress,
+    requestId: request.id, policyEvaluationId: request.policyEvaluationId, action: requestedAction, outcome,
+    text: `${decisionLabels[outcome]}: ${requestedAction === 'proposal.accept' ? 'accept the requested option.' : 'the requested case outcome.'}`,
+    status: 'delivered', createdAt: at, deliveredAt: at, updatedAt: at
+  };
+}
+
 // The host supplies existing in-process services. withSession must hold the settlement
 // locks, rederive live authority, and roll back all staged effects on any exception.
 export function createCaseTools({ store, codec, withSession, load, send, evaluate, authorize, requestHuman, share, readContent, complete }) {

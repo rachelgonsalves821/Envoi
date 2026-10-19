@@ -71,7 +71,7 @@ import { deliveryModeAvailable, routeAvailable } from './onboarding-flags.js';
 import { createPollLimiter, createRegistrationLimits } from './agent-registration-limits.js';
 import { allowedCaseTools, isHumanDecision, caseSessionTokenPath, caseSessionTokenPrefix, caseSessionsHeartbeatMs, createCaseSessions, firstCondition, leaseStaleReason, publicSessionEnd, sessionConditions, validCaseSessionId, validLeaseToken, workKindOf } from './case-sessions.js';
 import { createCaseSessionMcp } from './case-session-mcp.js';
-import { createCaseTools, caseToolError } from './case-tools.js';
+import { authorityToolError, createCaseTools, caseToolError, humanDecisionWorkMessage } from './case-tools.js';
 import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 
@@ -831,7 +831,8 @@ async function failAgentWorkPermanently(message, claim, reasonCode, at, writeAud
   await caseSessions.endForWork(claim.inboxId, message.id, 'work_settled', at, writeAudit);
   return receipt;
 }
-const workSenderFields = message => isHumanInstruction(message) || isHumanDecision(message)
+const workSenderFields = message => isHumanDecision(message) && message.senderType === 'system' ? { senderType: 'system' }
+  : isHumanInstruction(message) || isHumanDecision(message)
   ? { senderType: 'human', senderHumanId: message.senderHumanId }
   : { senderAgentId: message.senderAgentId };
 const workInboxIds = message => new Set(isHumanInstruction(message) || isHumanDecision(message)
@@ -2596,10 +2597,7 @@ async function authorizeCaseTool(ctx, authority, requestedAction, actionPayload,
     }
     return authorization;
   } catch (error) {
-    if (/expired/.test(error.message)) throw caseToolError('AUTHORITY_EXPIRED');
-    if (/denied|integrity|server-issued/.test(error.message)) throw caseToolError('AUTHORITY_DENIED');
-    if (/requires human approval/.test(error.message)) throw caseToolError('AUTHORITY_PENDING');
-    throw caseToolError('AUTHORITY_CHANGED');
+    throw authorityToolError(error) || error;
   }
 }
 
@@ -2621,12 +2619,7 @@ async function resolveCaseHumanRequest(request, outcome, humanId, value, writeAu
   const id = `msg_human_decision_${hashSecret(request.id).slice(0, 32)}`;
   if (await store.getJson(messagePath(request.inboxId, id))) return;
   const evaluation = value.policyEvaluations.find(e => e.id === request.policyEvaluationId);
-  const message = { id, kind: 'humanDecision', type: 'humanDecision', inboxId: request.inboxId, caseId: request.caseId,
-    senderType: 'human', senderHumanId: humanId || 'system', from: { humanId: humanId || 'system' }, recipientInboxId: request.inboxId,
-    recipientAgentId: request.agentId, counterpartyAgentId: request.counterpartyAgentId, counterpartyInboxId: request.counterpartyInboxId,
-    counterpartyAddress: request.counterpartyAddress, requestId: request.id, policyEvaluationId: request.policyEvaluationId, action: evaluation?.requestedAction || 'other', outcome,
-    text: `${{ approved: 'Approved', declined: 'Declined', expired: 'Expired' }[outcome]}: ${evaluation?.requestedAction === 'proposal.accept' ? 'accept the requested option.' : 'the requested case outcome.'}`,
-    status: 'delivered', createdAt: at, deliveredAt: at, updatedAt: at };
+  const message = humanDecisionWorkMessage({ id, request, outcome, humanId, requestedAction: evaluation?.requestedAction, at });
   await store.putJson(messagePath(request.inboxId, id), message);
   await writeAudit('work.available', { agentId: request.agentId, reason: 'human_decision', caseId: request.caseId }, at);
 }
@@ -3356,8 +3349,12 @@ async function route(req, res) {
     }
     // case-session v1 §1: on every status response, whatever the flag.
     status.caseSessions = { available: caseSessions.enabled, version: 1 };
-    const installation = await installations.forFamily(identity.inboxId, agent, identity.familyId);
-    status.httpWake = await withInboxMutation(identity.inboxId, () => httpWake.status({ inboxId: identity.inboxId, agentId: agent.id, familyId: identity.familyId, installationId: installation?.id }));
+    // http-wake v1 §1: additive on every status response. With the flag off it is fixed, so the
+    // most-polled route takes no inbox transaction and reads nothing for it.
+    if (httpWakeEnabled) {
+      const installation = await installations.forFamily(identity.inboxId, agent, identity.familyId);
+      status.httpWake = await withInboxMutation(identity.inboxId, () => httpWake.status({ inboxId: identity.inboxId, agentId: agent.id, familyId: identity.familyId, installationId: installation?.id }));
+    } else status.httpWake = { available: false, version: 1, subscription: null };
     return json(res, 200, status);
   }
 
