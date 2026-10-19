@@ -2495,9 +2495,15 @@ async function loadCaseToolContext(session) {
   const inbox = await store.getJson(path.join('inboxes', session.inboxId, 'inbox.json'));
   const messages = (await store.listJson(path.join('inboxes', session.inboxId, 'messages'))).filter(m => m.caseId === session.caseId).map(m => ({ ...m, inboxId: session.inboxId }));
   const assets = [];
-  const owned = await store.listJson(path.join('object-storage', 'metadata'));
+  // Only this inbox's own asset records and this case's grants: object storage keeps a per-inbox
+  // copy of every record, and the canonical record is re-read, so nothing system-wide is listed.
   const grants = await store.listJson(path.join('inboxes', session.inboxId, 'asset-grants'));
-  const candidates = new Map(owned.filter(a => a.workspaceId === session.inboxId && a.caseId === session.caseId).map(a => [a.id, a]));
+  const candidates = new Map();
+  for (const copy of await store.listJson(path.join('inboxes', session.inboxId, 'assets'))) {
+    if (copy?.caseId !== session.caseId || !copy.id) continue;
+    const asset = await store.getJson(objectMetadataPath(copy.id));
+    if (asset?.workspaceId === session.inboxId && asset.caseId === session.caseId) candidates.set(asset.id, asset);
+  }
   for (const grant of grants.filter(g => g.caseId === session.caseId)) {
     const asset = await store.getJson(objectMetadataPath(grant.assetId)); if (asset) candidates.set(asset.id, asset);
   }
