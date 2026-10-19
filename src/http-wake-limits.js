@@ -1,4 +1,5 @@
 import net from 'node:net';
+import { wakeEventPath, wakeSubscriptionPath } from './http-wake-paths.js';
 
 // Shared document admission state prevents aliases and multiple server instances from bypassing
 // the destination limits. Leased slots recover after a worker disappears.
@@ -27,8 +28,8 @@ export function createWakeAdmission({store, now=Date.now}) {
             if(item.until<=now())continue;
             if(item.eventId){
               if(!runnable.has(item.eventId)){
-                const event=await store.getJson(`http-wake/queue/${item.eventId}.json`);
-                const subscription=event?.subscriptionId ? await store.getJson(`http-wake/subscriptions/${event.subscriptionId}.json`) : null;
+                const event=await store.getJson(wakeEventPath(item.eventId));
+                const subscription=event?.subscriptionId&&event.agentId ? await store.getJson(wakeSubscriptionPath(event.agentId,event.subscriptionId)) : null;
                 runnable.set(item.eventId,Boolean(event&&['queued','retrying','processing'].includes(event.status)&&Date.parse(event.deadline)>=now()&&(!event.subscriptionId||(subscription&&subscription.status!=='ended'))));
               }
               if(!runnable.get(item.eventId))continue;
