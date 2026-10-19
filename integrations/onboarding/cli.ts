@@ -70,7 +70,8 @@ export async function runLocalLink(args: string[], signal: AbortSignal, options:
     operationalStatus: options.helperDependencies?.operationalStatus ?? ((context: OperationalStatusContext) => operationalConnectionStatus(context, { fetch: options.fetch })),
     adopt: async (activation, context) => {
       await (options.adopt ?? adoptActivatedConnection)(origin, runtime, activation, resolver, {
-        ...options, stateDir: directory, completionId: context.completionId,
+        ...options, signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal,
+        stateDir: directory, completionId: context.completionId,
         executableFile: options.executableFile ?? fileURLToPath(new URL(/* @vite-ignore */ './envoi-connector.mjs', import.meta.url))
       });
     }

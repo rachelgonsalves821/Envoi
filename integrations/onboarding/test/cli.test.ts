@@ -71,8 +71,9 @@ it('runs the actual private helper engine through canonical registration, confir
   vi.mocked(readConnection).mockResolvedValue({ version: 1, apiUrl: origin, runtime: 'hermes', address: status.agent.address, configuration: {},
     agentName: 'Example agent', activationSetup: { completionId: 'activation_7f3c9a1e', installationId: status.installation.id } });
   let now = Date.parse('2026-10-12T12:00:00.000Z');
-  const paths: string[] = [], start = vi.fn(async () => undefined), adopt = vi.fn(async () => ({} as any)), write = vi.fn();
-  const result = await runLocalLink(['connect', origin, '--runtime', 'hermes'], new AbortController().signal, {
+  const paths: string[] = [], start = vi.fn(async () => undefined), adopt = vi.fn<typeof import('../../connector/core').adoptActivatedConnection>(async () => ({} as any)), write = vi.fn();
+  const stop = new AbortController();
+  const result = await runLocalLink(['connect', origin, '--runtime', 'hermes'], stop.signal, {
     resolveAdapter: resolver, start, adopt, write, wait: async ms => { now += ms; },
     helperDependencies: { store: memory, now: () => now, randomId: () => 'activation_7f3c9a1e',
       confirm: async (details: any) => { expect(details.approverEmailHint).toBe('o***@example.com'); return true; },
@@ -86,6 +87,7 @@ it('runs the actual private helper engine through canonical registration, confir
     }
   });
   expect(result.state).toBe('connected'); expect(adopt).toHaveBeenCalledTimes(1); expect(start).toHaveBeenCalledTimes(1);
+  expect(adopt.mock.calls[0][4].signal).toBe(stop.signal);
   expect(paths).not.toContain('/api/agent-enroll'); expect(responses).toHaveLength(0);
   expect(records.get('helper-state.json').bootstrapToken).toBeUndefined();
   expect(JSON.stringify(write.mock.calls)).not.toMatch(/envoi_(reg|agent_access|agent_refresh)_|activation_7f3c9a1e|installation_example|inbox_example/);

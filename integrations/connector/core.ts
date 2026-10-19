@@ -32,6 +32,9 @@ export interface SetupOptions extends AdapterOptions {
   secureDirectory?: typeof privateDirectory;
   installService?: boolean;
   onProgress?: (phase: string) => void;
+  /** Hermes Gateway reconciliation and parked-server recovery, bounded across all attempts. */
+  toolRecoveryTimeoutMs?: number;
+  toolRecoveryRetryMs?: number;
 }
 export type AdapterResolver = (runtime: ConnectorRuntime) => ConnectorAdapter<any>;
 
@@ -280,8 +283,17 @@ export async function adoptActivatedConnection(apiUrl: string, runtime: Connecto
     bridge = await adapter.createBridge(configuration, context);
     await bridge.connector.start();
     await bridge.connector.checkStatus();
-    const paused = (await bridge.connector.lifecycle()).paused;
-    if (!paused) { await bridge.verify?.(); await report(saved, bridge.connector, 'ready', fetcher); }
+    let paused = (await bridge.connector.lifecycle()).paused;
+    if (!paused) {
+      if (runtime === 'hermes') await waitForRuntimeTools(bridge, options.signal ?? new AbortController().signal, {
+        timeoutMs: options.toolRecoveryTimeoutMs, retryMs: options.toolRecoveryRetryMs,
+        onWaiting() { options.onProgress?.('Waiting for Hermes Gateway MCP reconciliation; keep this connector running.'); }
+      });
+      else await bridge.verify?.();
+      // The owner may pause while recovery waits. Never report ready in that case.
+      paused = (await bridge.connector.lifecycle()).paused;
+      if (!paused) await report(saved, bridge.connector, 'ready', fetcher);
+    }
     const checks = paused ? 'deferred_while_paused' as const : 'passed' as const;
     await privateJson(path.join(directory, 'setup-check.json'), { runtime, checkedAt: new Date().toISOString(), checks });
     return { stateDir: directory, runtime, address: activation.agent.address, agentId: activation.agent.id, checks };

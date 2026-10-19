@@ -56,7 +56,8 @@ async function fixture(runtime: 'hermes' | 'openclaw' = 'hermes', paused = false
     secureDirectory: async (value: string) => { await mkdir(value, { recursive: true }); return path.resolve(value); } };
   const adopt = () => adoptActivatedConnection('https://envoi.example', runtime, activation, resolver, options);
   return { directory, activation, requests, store, options, resolver, adapter, configure, discover, verify, close, adopt,
-    failConfigure: (value: boolean) => { failConfigure = value; }, revoke: () => { remoteRevoked = true; } };
+    failConfigure: (value: boolean) => { failConfigure = value; }, revoke: () => { remoteRevoked = true; },
+    pause: () => { status.state = 'paused'; status.agent.status = 'paused'; } };
 }
 
 describe('approved activated credentials runtime handoff', () => {
@@ -65,7 +66,9 @@ describe('approved activated credentials runtime handoff', () => {
       const f = await fixture(runtime);
       const result = await f.adopt();
       expect(result).toEqual({ stateDir: f.directory, runtime, address: f.activation.agent.address, agentId: f.activation.agent.id, checks: 'passed' });
-      expect(f.requests.map(value => new URL(value.url).pathname)).toEqual(['/api/agent/status', '/api/agent/status', '/api/agent/connection-status']);
+      expect(f.requests.map(value => new URL(value.url).pathname)).toEqual([
+        '/api/agent/status', '/api/agent/status', ...(runtime === 'hermes' ? ['/api/agent/status'] : []), '/api/agent/connection-status'
+      ]);
       expect(f.requests.every(value => value.init?.redirect === 'error')).toBe(true);
       expect(f.configure).toHaveBeenCalledTimes(1); expect(f.verify).toHaveBeenCalledTimes(1); expect(f.close).toHaveBeenCalledTimes(1);
       expect((await f.store.load() as any)._onboarding).toMatchObject({ completionId: f.options.completionId, installation: { id: f.activation.installation.id } });
@@ -108,6 +111,27 @@ describe('approved activated credentials runtime handoff', () => {
     expect((await f.store.load())?.lifecycle).toMatchObject({ state: 'PAUSED', paused: true });
     expect(f.requests.every(value => value.url.endsWith('/api/agent/status'))).toBe(true);
     expect(f.verify).not.toHaveBeenCalled();
+  });
+
+  it('defers readiness if the owner pauses during Hermes adoption recovery', async () => {
+    const f = await fixture();
+    f.verify.mockImplementationOnce(async () => { f.pause(); throw new ConnectorSetupError('TOOLS_NOT_READY', 'Waiting'); });
+    const result = await adoptActivatedConnection('https://envoi.example', 'hermes', f.activation, f.resolver,
+      { ...f.options, toolRecoveryRetryMs: 1 });
+    expect(result.checks).toBe('deferred_while_paused');
+    expect(f.verify).toHaveBeenCalledTimes(1);
+    expect(f.requests.some(request => request.url.endsWith('/api/agent/connection-status'))).toBe(false);
+    expect(f.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops Hermes adoption recovery on revocation before another model attempt', async () => {
+    const f = await fixture();
+    f.verify.mockImplementationOnce(async () => { f.revoke(); throw new ConnectorSetupError('TOOLS_NOT_READY', 'Waiting'); });
+    await expect(adoptActivatedConnection('https://envoi.example', 'hermes', f.activation, f.resolver,
+      { ...f.options, toolRecoveryRetryMs: 1 })).rejects.toMatchObject({ code: 'CREDENTIAL_REVOKED' });
+    expect(f.verify).toHaveBeenCalledTimes(1);
+    expect(f.requests.some(request => request.url.endsWith('/api/agent/connection-status'))).toBe(false);
+    expect(f.close).toHaveBeenCalledTimes(1);
   });
 
   it('persists revocation and makes zero subsequent service or adapter calls', async () => {

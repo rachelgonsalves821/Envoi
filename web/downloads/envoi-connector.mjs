@@ -9803,7 +9803,14 @@ var Vi = {
 		if (!n) return ri(e, t);
 		await Ni(n, t.env ?? process.env), (await Ei(ji(n), AbortSignal.any([t.signal ?? new AbortController().signal, AbortSignal.timeout(15e3)]))).close();
 	},
-	configure: Bi,
+	async configure(e, t) {
+		let n = await Pi(t, e);
+		if (n) {
+			await Ni(n, t.env ?? process.env);
+			return;
+		}
+		await zi(t);
+	},
 	async createBridge(e, t) {
 		let n = await Pi(t, e);
 		if (n) return Li({
@@ -9837,6 +9844,11 @@ var Vi = {
 		} catch (e) {
 			throw e.code === "EADDRINUSE" ? new L("RELAY_UNAVAILABLE", "This Hermes connection relay port is occupied. Stop its prior connector or the conflicting process, then retry with the same state directory.") : e;
 		}
+		try {
+			await Bi(e, t);
+		} catch (e) {
+			throw await a.close(), e;
+		}
 		return {
 			connector: a.connector,
 			close: a.close,
@@ -9845,7 +9857,7 @@ var Vi = {
 				if (await ni(e, `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${r.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`, {
 					...t,
 					...n ? { signal: n } : {}
-				}), i <= a) throw new L("TOOLS_NOT_READY", "Hermes did not invoke the configured Envoi identity tool. Start a fresh API session, or restart the selected profile Gateway from a separate terminal to load its MCP configuration, then rerun setup using the same state directory. Enrollment is saved; do not create another token.");
+				}), i <= a) throw new L("TOOLS_NOT_READY", "Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.");
 			}
 		};
 	},

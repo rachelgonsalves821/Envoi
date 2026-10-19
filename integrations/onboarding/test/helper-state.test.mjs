@@ -233,3 +233,22 @@ test('explicit same-identity replacement carries the old completion binding into
   assert.equal(current._onboarding.previousAddress, previous.address);
   assert.equal(current._onboarding.completionId, 'activation_successor');
 });
+
+
+test('Hermes tool recovery timeout gives static resume guidance and keeps the same activation', async () => {
+  const error = Object.assign(new Error('PRIVATE provider body envoi_agent_access_NEVER_PROJECT'), { code: 'TOOLS_NOT_READY' });
+  const h = await started({ adopt: async () => { throw error; } }, ['registration-approved', 'activation-created']);
+  const output = await h.helper.resume();
+  assert.equal(output.state, 'needs_help');
+  assert.match(output.nextAction, /identity tool before the recovery deadline/);
+  assert.match(output.nextAction, /resume this saved connection/);
+  assert.match(output.nextAction, /Do not register again/);
+  assert.equal(output.guidance, undefined);
+  assert.doesNotMatch(JSON.stringify(output), /PRIVATE|NEVER_PROJECT|envoi_agent_access_|activation_/);
+  const session = await h.store.read('session.json');
+  const retry = await harness(['agent-status-installation'], { store: h.store, now: h.options.now });
+  assert.equal((await retry.helper.resume()).state, 'connected');
+  assert.equal(retry.adopted.length, 1);
+  assert.equal(retry.adopted[0].context.completionId, session._onboarding.completionId);
+  assert.deepEqual(retry.calls.map(call => call.path), ['/api/agent/status']);
+});

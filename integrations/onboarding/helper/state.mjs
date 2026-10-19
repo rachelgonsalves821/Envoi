@@ -241,6 +241,9 @@ export async function createHelper(options) {
         return await advance(state, ['connect', 'resume'].includes(command), showCode);
       } catch (error) {
         if (error instanceof ProtocolError || typeof error?.code === 'string' && ['CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED', 'REFRESH_REPLAY', 'REFRESH_TOKEN_INVALID', 'REFRESH_RECOVERY_EXPIRED', 'ROTATION_ID_REQUIRED'].includes(error.code)) return await protocolFailure(error, state, state?.phase === 'activating');
+        // Project only static, allow-listed guidance, never an adapter/provider body.
+        if (runtime.type === 'hermes' && error?.code === 'TOOLS_NOT_READY') return project({ state: 'needs_help',
+          nextAction: 'Hermes did not invoke the Envoi identity tool before the recovery deadline. Keep the Gateway running, check its MCP/provider diagnostics, then resume this saved connection. Do not register again.' }, state);
         // Filesystem, prompt and adapter failures preserve the private journal.
         return failureOutput(contract);
       }

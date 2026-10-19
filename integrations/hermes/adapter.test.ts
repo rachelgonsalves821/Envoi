@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createServer, createConnection } from 'node:net';
+import * as hermesConfig from './config';
 import { discoverHermes, envValue, mergeMcpConfiguration, yamlScalar, type HermesConfiguration } from './config';
 import { boundedHermesRun, preflightHermes } from './api';
 import { configureHermes, hermesAdapter } from './adapter';
@@ -228,6 +230,43 @@ describe('Hermes profile MCP configuration', () => {
     const saved = await readFile(path.join(stateA, 'hermes-relay.json'), 'utf8');
     await configureHermes(f.config, contextA);
     expect(await readFile(path.join(stateA, 'hermes-relay.json'), 'utf8')).toBe(saved);
+  });
+  it('defers MCP publication until the relay listens and releases its saved port if publication fails', async () => {
+    const f = await fixture(); const stateDir = path.join(f.root, 'state'); await mkdir(stateDir);
+    await writeFile(path.join(stateDir, 'session.json'), JSON.stringify({ agentId: 'hermes_agent', inboxId: 'inbox_hermes', address: 'hermes@envoi.mail', cursor: null,
+      agentApiToken: 'access', agentRefreshToken: 'refresh', agentTokenExpiresAt: new Date(Date.now() + 900000).toISOString(), agentRefreshTokenExpiresAt: new Date(Date.now() + 86400000).toISOString() }));
+    const context = { apiUrl: 'https://envoi.test', stateDir, env: {} };
+    await hermesAdapter.configure!(f.config, context);
+    expect(await readFile(f.config.configPath, 'utf8')).not.toContain('mcp_servers:');
+    const relay = JSON.parse(await readFile(path.join(stateDir, 'hermes-relay.json'), 'utf8'));
+    const missingPath = path.join(f.home, 'missing', 'config.yaml');
+    const replace = hermesConfig.replaceConfiguration;
+    let listeningAtPublication = false;
+    const publication = vi.spyOn(hermesConfig, 'replaceConfiguration').mockImplementation(async (filename, original, updated) => {
+      if (filename === missingPath) {
+        // Check TCP at the publication boundary, without forwarding any Envoi request.
+        await new Promise<void>((resolve, reject) => {
+          const socket = createConnection({ host: '127.0.0.1', port: relay.port });
+          socket.once('error', reject);
+          socket.once('connect', () => { listeningAtPublication = true; socket.destroy(); resolve(); });
+        });
+      }
+      return replace(filename, original, updated);
+    });
+    // The missing parent makes publication fail AFTER the real listener was created.
+    try {
+      await expect(hermesAdapter.createBridge({ ...f.config, configPath: missingPath }, context)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(listeningAtPublication).toBe(true);
+    } finally { publication.mockRestore(); }
+    const probe = createServer();
+    try {
+      await new Promise<void>((resolve, reject) => { probe.once('error', reject); probe.listen(relay.port, '127.0.0.1', resolve); });
+    } finally { await new Promise<void>((resolve, reject) => probe.close(error => error ? reject(error) : resolve())); }
+    const recovered = await hermesAdapter.createBridge(f.config, context);
+    try {
+      expect(await readFile(f.config.configPath, 'utf8')).toContain(`http://127.0.0.1:${relay.port}/mcp`);
+      expect(JSON.parse(await readFile(path.join(stateDir, 'hermes-relay.json'), 'utf8'))).toEqual(relay);
+    } finally { await recovered.close(); }
   });
   it('requires an observed successful Hermes-originated tool call rather than a model claim', async () => {
     const f = await fixture(); const stateDir = path.join(f.root, 'state'); await mkdir(stateDir);

@@ -134,3 +134,32 @@ Local regressions cannot certify model compliance or a hosted gate. Before any
 new live send, obtain approval, validate one reviewed candidate with its matching
 connector, and rerun the gate with fresh messages. Keep previously paused cases
 paused; this patch does not alter their state.
+
+## Local-helper MCP adoption recovery
+
+For `envoi-link resume` in API Server mode, the helper first opens the saved
+loopback relay, then publishes its MCP entry to the selected Hermes profile.
+It keeps that relay listening while verification retries at 15-second intervals,
+with a six-minute total deadline. Every attempt uses a fresh Runs API session;
+readiness requires a successful `envoi_agent_info` invocation observed through
+the relay, not a model statement or `tools/list` result. Work is not claimed
+while setup waits. Pause, revocation and cancellation still stop or defer setup.
+
+The read-only source reviewed is Hermes Agent v0.21.5+5355.g357f51c,
+upstream `357f51c49106f47136caf9b01015467b7b633fe8`. That Gateway reconciles
+MCP config on its housekeeping tick; a parked server probes again every 300
+seconds. The six-minute bound includes that five-minute probe plus verification
+headroom. The helper uses these supported behaviors, without vendor imports,
+Gateway restarts, private control verbs or assumed API endpoints.
+
+On `TOOLS_NOT_READY` timeout, preserve the private helper directory, check the
+selected Gateway's MCP/provider diagnostics, then rerun **resume** with the same
+state. The installation, port and relay credential are reused; no second
+registration is needed. The failed attempt closes its relay before returning,
+and configuration publication failure also closes the listener. Do not run two
+connectors against the same state directory.
+
+Delayed reconciliation, parked-server recovery, timeout and cleanup are tested
+with simulated Hermes Runs API responses and a real disposable loopback MCP
+relay. These tests are not real-Hermes acceptance. Je must rerun Gate B-local
+rows 8–9 (and the gate's required full matrix) on the integrated new SHA.

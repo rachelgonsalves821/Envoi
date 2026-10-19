@@ -69,7 +69,14 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
     await assertScopedHermes(scoped, options.env ?? process.env);
     const wire = await connectHermesHost(hermesHost(scoped), AbortSignal.any([options.signal ?? new AbortController().signal, AbortSignal.timeout(15000)]));
     wire.close();
-  }, configure: configureHermes,
+  },
+  async configure(config, context) {
+    const scoped = await selectScopedHermes(context, config);
+    if (scoped) { await assertScopedHermes(scoped, context.env ?? process.env); return; }
+    // Persist the port/key now, but do not advertise an unreachable MCP endpoint.
+    // The Gateway can otherwise discover it before createBridge starts listening.
+    await relayState(context);
+  },
   async createBridge(config, context) {
     const scoped = await selectScopedHermes(context, config);
     if (scoped) return createHermesBridge({ apiUrl: context.apiUrl, stateDir: context.stateDir,
@@ -88,12 +95,20 @@ export const hermesAdapter: ConnectorAdapter<HermesRuntimeConfiguration> = {
       if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') throw new ConnectorSetupError('RELAY_UNAVAILABLE', 'This Hermes connection relay port is occupied. Stop its prior connector or the conflicting process, then retry with the same state directory.');
       throw error;
     }
+    try {
+      // createHermesBridge has awaited listen(). Keep this same relay alive while
+      // the Gateway reconciles config, including its parked-server self-probe.
+      await configureHermes(config, context);
+    } catch (error) {
+      await bridge.close();
+      throw error;
+    }
     return { connector: bridge.connector, close: bridge.close, async verify(signal) {
       const before = observedInfo;
       await boundedHermesRun(config,
         `Envoi setup verification. Call the envoi_agent_info MCP tool from server ${relay.serverName} exactly once, then finish. Use its discovered tool name. Do not send messages, invoke terminal commands, or change files.`,
         { ...context, ...(signal ? { signal } : {}) });
-      if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Hermes did not invoke the configured Envoi identity tool. Start a fresh API session, or restart the selected profile Gateway from a separate terminal to load its MCP configuration, then rerun setup using the same state directory. Enrollment is saved; do not create another token.');
+      if (observedInfo <= before) throw new ConnectorSetupError('TOOLS_NOT_READY', 'Hermes has not invoked the Envoi identity tool through its live relay yet. Waiting for the selected Gateway to reconcile or reconnect its MCP server. Keep this connector running; saved enrollment is unchanged.');
     } };
   },
   describe(config) { return { runtime: 'hermes', profile: config.profile, gatewayUrl: config.apiUrl, configPath: config.configPath }; }
