@@ -53,7 +53,12 @@ Record everything in a copy of [`evidence/phase-b-local-TEMPLATE.md`](evidence/p
    - Configure its model with `hermes.exe -p <name> setup model`, and prove one ordinary model turn by hand. `prepare-disposable-hermes.ps1` requires a separate installation, so it does not apply here.
    - Lane A confirms that the profile's `config.yaml` has no `mcp_servers` section and that neither it nor `.env` mentions Envoi or Sinaloa.
    - Do not apply a Hermes update during the gate.
-6. **OpenClaw: a named profile.** Install OpenClaw from its official instructions. Then, in every terminal for this runtime, set `$env:OPENCLAW_PROFILE = 'envoi-gate'` before any `openclaw` command, so its state lives in `%USERPROFILE%\.openclaw-envoi-gate` and nothing touches a regular `.openclaw` profile.
+6. **OpenClaw: a profile no earlier Envoi connection ever touched.** Install OpenClaw from its official instructions, using Node 24.16 or newer. A per-window portable Node and npm prefix keep the install out of the machine-wide PATH.
+   - **One profile for both readers.** The helper and OpenClaw must read the same `openclaw.json`.
+     - OpenClaw 2026.10.5 kept its configuration in the default `%USERPROFILE%\.openclaw` even with `OPENCLAW_PROFILE` set.
+     - The helper does honour `OPENCLAW_PROFILE`.
+     - So on a machine that had no OpenClaw before the gate, use the default profile as the fresh gate profile, and leave `OPENCLAW_PROFILE` unset in every window.
+     - On a machine with an existing OpenClaw profile, set `OPENCLAW_CONFIG_PATH` to the gate profile's `openclaw.json`, for both OpenClaw and the helper.
    - Run OpenClaw's own onboarding in that profile, with a model provider the human configures.
    - Set `gateway.auth.mode` to `token`, and keep the Gateway on loopback.
    - Prove one ordinary agent turn before the gate.
@@ -122,6 +127,9 @@ Follow the template's rows in order.
 - The connector must stay in the foreground. It must report connected only after an authenticated status check.
 
 **OpenClaw.** Repeat the same flow with `--runtime openclaw`, as a second new agent.
+- Start the OpenClaw Gateway (`openclaw gateway`) from a window that has the gate environment, including `NODE_EXTRA_CA_CERTS`. The agent's tool runs inherit that environment.
+- The agent may run `connect` itself.
+- The human runs `resume` in an interactive terminal. Without an interactive prompt, the helper stays at the confirmation step. That window then keeps the connector in the foreground.
 
 **Rows 11–17**
 - Hermes sends OpenClaw a message, and OpenClaw replies.
