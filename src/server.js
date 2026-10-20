@@ -1768,8 +1768,8 @@ async function route(req, res) {
     };
     return handleAgentMcp(req, res, { identity, callRest });
   }
-  if (['GET', 'HEAD'].includes(req.method) && (url.pathname === '/' || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
-    const relative = url.pathname === '/' ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
+  if (['GET', 'HEAD'].includes(req.method) && (['/', '/about', '/about/', '/product', '/product/'].includes(url.pathname) || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
+    const relative = ['/', '/about', '/about/', '/product', '/product/'].includes(url.pathname) ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
     let filePath;
     try { filePath = resolvePathWithin(path.resolve('web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
@@ -1777,6 +1777,13 @@ async function route(req, res) {
     try {
       const extension = path.extname(filePath);
       let content = await readFile(filePath);
+      if (relative === 'index.html' && ['/product', '/product/'].includes(url.pathname)) {
+        content = Buffer.from(content.toString('utf8')
+          .replace('<title>About | Envoi</title>', '<title>Product | Envoi</title>')
+          .replaceAll('content="About | Envoi"', 'content="Product | Envoi"')
+          .replace('href="https://www.envoi-agents.com/"', 'href="https://www.envoi-agents.com/product"')
+          .replaceAll('content="https://www.envoi-agents.com/"', 'content="https://www.envoi-agents.com/product"'));
+      }
       if (extension === '.html') content = Buffer.from(content.toString('utf8').replace('<script', `<script nonce="${responseNonce}"`).replace('<style', `<style nonce="${responseNonce}"`));
       res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream', 'content-length': content.byteLength, 'cache-control': 'private, no-store' });
       return res.end(req.method === 'HEAD' ? undefined : content);

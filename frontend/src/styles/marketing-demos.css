@@ -1,0 +1,54 @@
+.marketing-shell .handoff-demo{width:100%;min-width:0;border:1px solid #34435b;border-radius:18px;background:#111a29;box-shadow:0 30px 90px #0004;overflow:hidden;text-align:left}
+.marketing-shell .demo-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #29354a;background:#162133;font-size:12px;font-weight:600;color:#d6e2f5}
+.marketing-shell .demo-toolbar>span,.marketing-shell .demo-toolbar>div{display:flex;align-items:center;gap:10px}
+.marketing-shell .demo-caption{font-size:11px;font-weight:400;color:#a8bad3}
+.marketing-shell .live-dot{width:6px;height:6px;border-radius:50%;background:#8bd4bc;box-shadow:0 0 12px #8bd4bc44}
+.marketing-shell .envoi-mark{width:25px;height:25px;display:inline-grid;place-items:center;background:#5c8fff;color:#fff;border-radius:7px;font-size:18px;font-weight:700}
+.marketing-shell .demo-primary,.marketing-shell .demo-secondary,.marketing-shell .demo-quiet{border-radius:7px;padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.4}
+.marketing-shell .demo-primary{background:#527eec;color:white;border:1px solid #759cff;display:inline-flex;align-items:center;justify-content:center;gap:18px}
+.marketing-shell .demo-primary:hover{background:#6b95ff}
+.marketing-shell .demo-secondary{background:#172438;border:1px solid #435773;color:#e6efff}
+.marketing-shell .demo-quiet{background:transparent;border:1px solid transparent;color:#b7c8e3}
+.marketing-shell .demo-quiet:hover,.marketing-shell .demo-secondary:hover{background:#25344d;color:white}
+.marketing-shell .handoff-network{height:300px;position:relative;background:radial-gradient(ellipse at center,#26385b55,transparent 70%)}
+.marketing-shell .handoff-network svg{position:absolute;inset:0;width:100%;height:100%}
+.marketing-shell .handoff-wire{fill:none;stroke:#34445e;stroke-width:1.3}
+.marketing-shell .handoff-beam{fill:none;stroke:#81a8ff;stroke-width:2.5;stroke-dasharray:12 270;opacity:0;stroke-linecap:round}
+.marketing-shell .handoff-beam.active{opacity:1;stroke-dashoffset:-80}
+.marketing-shell .is-playing .handoff-beam.active{animation:handoff-flow 2.4s linear infinite}
+@keyframes handoff-flow{from{stroke-dashoffset:0}to{stroke-dashoffset:-282}}
+.marketing-shell .agent-node{position:absolute;width:40%;display:flex;align-items:center;gap:9px;text-align:left;padding:12px 10px;border:1px solid #34415a;border-radius:11px;background:#192334;color:#eaf1ff;cursor:pointer;box-shadow:0 7px 18px #0002}
+.marketing-shell .agent-node[aria-pressed=true]{border-color:#81a8ff;background:#202e47;box-shadow:0 0 24px #5387ff18}
+.marketing-shell .agent-node:hover{transform:translateY(-2px);border-color:#829bcb}
+.marketing-shell .agent-node strong{font-size:12px;display:block;line-height:1.5}
+.marketing-shell .agent-node small{display:block;font-size:10px;color:#aabbd5}
+.marketing-shell .node-0{left:4%;top:25px}.marketing-shell .node-1{right:4%;top:25px}.marketing-shell .node-2{left:4%;bottom:25px}.marketing-shell .node-3{right:4%;bottom:25px}
+.marketing-shell .agent-avatar{display:grid;place-items:center;flex-shrink:0;width:30px;height:30px;border-radius:9px;background:#5c8fff20;color:#a1bdff;font-size:12px;font-weight:700;border:1px solid #5c8fff40}
+.marketing-shell .purple .agent-avatar,.marketing-shell .agent-avatar.purple{color:#d1b7ff;background:#b08af019;border-color:#b08af044}
+.marketing-shell .orange .agent-avatar,.marketing-shell .agent-avatar.orange{color:#ffc67e;background:#efa34b19;border-color:#efa34b44}
+.marketing-shell .cyan .agent-avatar,.marketing-shell .agent-avatar.cyan{color:#a3e7f4;background:#6fcbde19;border-color:#6fcbde44}
+.marketing-shell .handoff-core{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:152px;padding:14px;display:grid;grid-template-columns:26px 1fr;gap:6px 8px;align-items:center;background:#1c2940;border:1px solid #4c6080;border-radius:13px;box-shadow:0 0 30px #5c8fff12}
+.marketing-shell .handoff-core strong{font-size:16px;letter-spacing:-.04em}
+.marketing-shell .handoff-core small{grid-column:1/-1;font-size:11px;color:#b4c4dd;margin:3px 0}
+.marketing-shell .handoff-core .demo-badge{grid-column:1/-1;display:flex;justify-content:space-between}
+.marketing-shell .demo-badge{display:inline-block;width:fit-content;font-size:10px;font-weight:600;line-height:1.5;padding:3px 7px;border-radius:5px;background:#26364e;color:#c6d7f4;white-space:nowrap}
+.marketing-shell .demo-badge.needs{background:#49351e;color:#ffd296}.marketing-shell .demo-badge.done{background:#1c3b35;color:#9fe3c7}.marketing-shell .demo-badge.progress{background:#253759;color:#b3caff}
+.marketing-shell .handoff-story{padding:18px 20px 20px;border-top:1px solid #29354a;background:#151f30}
+.marketing-shell .handoff-progress{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.marketing-shell .handoff-progress button{border:0;border-bottom:2px solid #32415a;background:transparent;color:#a1b3d0;padding:0 0 10px;font-size:10px;text-align:left;cursor:pointer;white-space:nowrap}
+.marketing-shell .handoff-progress button span{margin-right:5px;font-size:10px;color:#8199bc}
+.marketing-shell .handoff-progress button[aria-current=step]{border-color:#82a8ff;color:white}
+.marketing-shell .handoff-progress button:disabled{opacity:.5;cursor:default}
+.marketing-shell .handoff-message{min-height:100px;padding-top:18px}
+.marketing-shell .handoff-message strong{font-size:13px}
+.marketing-shell .handoff-message p{font-size:12px;line-height:1.65;margin-top:6px;color:#b6c6de}
+.marketing-shell .handoff-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.marketing-shell .handoff-controls>.demo-caption{margin-left:auto;font-size:10px}
+.marketing-shell .product-head{margin-bottom:0}
+.marketing-shell .product-hero{padding-bottom:76px}
+.marketing-shell .how{scroll-margin-top:80px}
+@media(max-width:1100px) and (min-width:951px){.marketing-shell .handoff-controls>.demo-caption{width:100%;margin-top:4px}.marketing-shell .agent-node{gap:6px;padding:11px 7px}.marketing-shell .agent-node strong{font-size:10px}.marketing-shell .agent-node .agent-avatar{width:25px;height:28px}}
+@media(max-width:950px){.marketing-shell .about-art{width:100%;max-width:650px;margin:auto}}
+@media(max-width:760px){.marketing-shell .product-hero{padding-bottom:52px}}
+@media(max-width:400px){.marketing-shell .handoff-network{height:285px}.marketing-shell .agent-node{padding:10px 7px;gap:7px;width:43%}.marketing-shell .agent-node strong{font-size:10px}.marketing-shell .agent-node small{font-size:9px}.marketing-shell .agent-node .agent-avatar{width:24px;height:27px;font-size:10px}.marketing-shell .node-0,.marketing-shell .node-2{left:3%}.marketing-shell .node-1,.marketing-shell .node-3{right:3%}.marketing-shell .handoff-core{width:130px;padding:11px}.marketing-shell .handoff-story{padding:16px 14px}.marketing-shell .handoff-controls>.demo-caption{width:100%;margin-top:5px}.marketing-shell .handoff-message{min-height:110px}.marketing-shell .handoff-progress button{font-size:9px}.marketing-shell .handoff-progress button span{margin-right:3px}}
+@media(prefers-reduced-motion:reduce){.marketing-shell .handoff-beam.active{animation:none!important}.marketing-shell .agent-node:hover{transform:none}}

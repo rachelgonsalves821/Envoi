@@ -1,0 +1,13 @@
+{
+  "public_reference": "https://sinaloa-staging.rachelgonsalves821.workers.dev/",
+  "html_sha256": "fa722946df9cd8b976af5b708cf4c1c7e5aa273c5764a6b852b638296c017cb6",
+  "matched_deployed_styles": {
+    "light_workspace": true,
+    "list_then_detail": true,
+    "message_rows": true,
+    "participants": true,
+    "details_panel": true,
+    "conversation_toolbar": true
+  },
+  "data": "Synthetic sample cases only. No authenticated staging records or credentials used."
+}
