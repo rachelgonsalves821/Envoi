@@ -1,6 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { validateOrigin } from './helper/transport.mjs';
+
+const defaultOrigin = 'https://www.envoi-agents.com';
 
 const capabilityKeys = [
   'readSkill', 'invokeTrustedHelper', 'privateStorage', 'outboundHttps',
@@ -85,7 +88,9 @@ function validateProfile(profile) {
   }
 }
 
-function validateManifest(manifest) {
+function validateManifest(manifest, origin, availability) {
+  const matchesOffered = (values, catalog, offered) => JSON.stringify(values) === '[]'
+    || (availability !== null && JSON.stringify(values) === JSON.stringify(catalog.filter(value => offered.has(value))));
   if (manifest?.name !== 'envoi-agent-connect' || manifest.status !== 'draft'
     || manifest.published !== false || manifest.skill !== 'SKILL.md'
     || manifest.heartbeat !== 'HEARTBEAT.md'
@@ -93,10 +98,10 @@ function validateManifest(manifest) {
     || manifest.coreContract?.version !== 1
     || manifest.coreContract?.publishedSha !== '4da219e7156138c94e26b8105efe7ffe43ec6f98'
     || manifest.availabilitySource !== 'GET /api/onboarding/routes'
-    || JSON.stringify(manifest.offeredConnectionRoutes) !== '[]'
-    || JSON.stringify(manifest.offeredDeliveryModes) !== '[]'
-    || manifest.connectUrl !== 'https://www.envoi-agents.com/connect'
-    || manifest.helperCommand !== 'envoi-link connect https://www.envoi-agents.com'
+    || !matchesOffered(manifest.offeredConnectionRoutes, connectionRoutes.map(([route]) => route), availability?.routes)
+    || !matchesOffered(manifest.offeredDeliveryModes, modes, availability?.modes)
+    || manifest.connectUrl !== `${origin}/connect`
+    || manifest.helperCommand !== `envoi-link connect ${origin}`
     || JSON.stringify(manifest.connectionRoutes) !== JSON.stringify(connectionRoutes.map(([route]) => route))
     || JSON.stringify(manifest.deliveryModes) !== JSON.stringify(modes)) {
     throw new Error('Only the reviewed unpublished Envoi manifest is supported');
@@ -166,12 +171,14 @@ export function planApprovalConfirmation(profile) {
   };
 }
 
-export function planHost(manifest, profile, routeAvailability = null) {
-  validateManifest(manifest);
+export function planHost(manifest, profile, routeAvailability = null, { origin = defaultOrigin } = {}) {
+  if (typeof origin !== 'string' || origin.trim() !== origin) throw new Error('INVALID_ORIGIN');
+  const trustedOrigin = validateOrigin(origin);
+  const offered = availableFromServer(routeAvailability);
+  validateManifest(manifest, trustedOrigin, offered);
   validateProfile(profile);
   // Only the public server response may offer a route. A host profile is a claim,
   // and a successful wake probe does not enable a mode that Envoi has disabled.
-  const offered = availableFromServer(routeAvailability);
   const capabilities = profile.capabilities;
   const missing = ['readSkill', 'privateStorage', 'outboundHttps']
     .filter((key) => !capabilities[key]);
@@ -220,24 +227,37 @@ export function planHost(manifest, profile, routeAvailability = null) {
     plannedApprovalConfirmation: selectedConnectionRoute === 'local_helper' ? planApprovalConfirmation(profile) : null,
     plannedHelperInvocation: selectedConnectionRoute !== 'local_helper' ? null : {
       executable: 'envoi-link',
-      args: ['connect', 'https://www.envoi-agents.com'],
+      args: ['connect', trustedOrigin],
     },
   };
 }
 
-export async function consumeHostPlan(profilePath) {
-  const [manifestSource, profileSource] = await Promise.all([
-    readFile(new URL('./skill/skill.json', import.meta.url), 'utf8'),
+export async function consumeHostPlan(profilePath, { origin = defaultOrigin, manifestPath, availabilityPath } = {}) {
+  const [manifestSource, profileSource, availabilitySource] = await Promise.all([
+    readFile(manifestPath ?? new URL('./skill/skill.json', import.meta.url), 'utf8'),
     readFile(profilePath, 'utf8'),
+    availabilityPath === undefined ? null : readFile(availabilityPath, 'utf8'),
   ]);
-  if (profileSource.length > 32_768) throw new Error('Host profile exceeds size limit');
-  return planHost(JSON.parse(manifestSource), JSON.parse(profileSource));
+  if ([manifestSource, profileSource, availabilitySource].some(source => source !== null && source.length > 32_768)) {
+    throw new Error('Host-plan input exceeds size limit');
+  }
+  return planHost(JSON.parse(manifestSource), JSON.parse(profileSource),
+    availabilitySource === null ? null : JSON.parse(availabilitySource), { origin });
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   try {
-    if (process.argv.length !== 3) throw new Error('Usage: node integrations/onboarding/host-plan.mjs <host-profile.json>');
-    process.stdout.write(`${JSON.stringify(await consumeHostPlan(process.argv[2]), null, 2)}\n`);
+    const [profilePath, ...argumentsList] = process.argv.slice(2);
+    if (!profilePath || argumentsList.length % 2 !== 0) throw new Error('Invalid host-plan arguments');
+    const optionNames = { '--origin': 'origin', '--manifest': 'manifestPath', '--availability': 'availabilityPath' };
+    const options = {};
+    for (let index = 0; index < argumentsList.length; index += 2) {
+      if (!Object.hasOwn(optionNames, argumentsList[index])) throw new Error('Invalid host-plan arguments');
+      const name = optionNames[argumentsList[index]];
+      if (!name || Object.hasOwn(options, name) || argumentsList[index + 1].startsWith('--')) throw new Error('Invalid host-plan arguments');
+      options[name] = argumentsList[index + 1];
+    }
+    process.stdout.write(`${JSON.stringify(await consumeHostPlan(profilePath, options), null, 2)}\n`);
   } catch {
     process.stderr.write('Host planning failed: supply a valid host-plan-draft-2 profile. No helper was executed.\n');
     process.exitCode = 1;

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { consumeHostPlan, planHost, planApprovalConfirmation, requiredChecks } from '../host-plan.mjs';
@@ -301,6 +303,99 @@ test('CLI consumes bundled JSON, emits bounded safe output and never runs a help
   assert.equal(invalid.status, 1);
   assert.doesNotMatch(invalid.stderr, /missing-profile-test-secret/);
   assert.equal(invalid.stdout, '');
+});
+
+test('a separately trusted deployment origin pins served metadata and fixed helper arguments', () => {
+  const origin = 'https://staging.envoi.example';
+  const served = {
+    ...manifest, connectUrl: `${origin}/connect`, helperCommand: `envoi-link connect ${origin}`,
+    offeredConnectionRoutes: ['local_helper'], offeredDeliveryModes: ['envoi_link'],
+  };
+  const profile = supportedProfile();
+  profile.capabilities.persistentProcess = true;
+  profile.capabilities.sse = true;
+  const result = planHost(served, profile, v1Availability(), { origin: `${origin}/` });
+  assert.deepEqual(result.plannedHelperInvocation, { executable: 'envoi-link', args: ['connect', origin] });
+  assert.equal(result.liveEnrollmentAllowed, false);
+  assert.equal(result.reachability, 'not_verified_closed_app');
+  assert.throws(() => planHost(served, profile, v1Availability()), /reviewed unpublished/);
+  assert.throws(() => planHost(manifest, profile, v1Availability(), { origin }), /reviewed unpublished/);
+});
+
+test('served metadata cannot replace the independently trusted origin or execute a command', () => {
+  const origin = 'https://staging.envoi.example';
+  const served = { ...manifest, connectUrl: `${origin}/connect`, helperCommand: `envoi-link connect ${origin}` };
+  for (const change of [
+    { connectUrl: 'https://other.example/connect' },
+    { helperCommand: 'envoi-link connect https://other.example' },
+    { connectUrl: `${origin}/connect?token=test-secret` },
+    { helperCommand: `envoi-link connect ${origin}; malicious-command` },
+  ]) {
+    assert.throws(() => planHost({ ...served, ...change }, supportedProfile(), null, { origin }), /reviewed unpublished/);
+  }
+  const profile = supportedProfile();
+  profile.origin = origin;
+  assert.throws(() => planHost(served, profile, null, { origin }), /Invalid host-plan input/);
+});
+
+test('operator origins require clean HTTPS origins without secret-bearing input', () => {
+  for (const origin of [
+    'http://staging.envoi.example', 'https://user:test-secret@staging.envoi.example',
+    'https://staging.envoi.example/path', 'https://staging.envoi.example?token=test-secret',
+    'https://staging.envoi.example#test-secret', ' https://staging.envoi.example', null, 123,
+  ]) {
+    assert.throws(() => planHost(manifest, supportedProfile(), null, { origin }), (error) => {
+      assert.doesNotMatch(error.message, /test-secret/);
+      return true;
+    });
+  }
+});
+
+test('served offers must match separately validated server availability and never grant a route', () => {
+  const served = { ...manifest, offeredConnectionRoutes: ['local_helper'], offeredDeliveryModes: ['envoi_link'] };
+  assert.throws(() => planHost(served, supportedProfile()), /reviewed unpublished/);
+  assert.throws(() => planHost(served, supportedProfile(), v1Availability({ enabled: false })), /reviewed unpublished/);
+  assert.throws(() => planHost({ ...served, offeredConnectionRoutes: ['provider_connector'] }, supportedProfile(), v1Availability()), /reviewed unpublished/);
+  assert.throws(() => planHost({ ...served, offeredDeliveryModes: ['provider'] }, supportedProfile(), v1Availability()), /reviewed unpublished/);
+  const result = planHost(served, supportedProfile(), v1Availability());
+  assert.equal(result.selectedConnectionRoute, 'local_helper');
+  assert.equal(result.liveEnrollmentAllowed, false);
+});
+
+test('consumer and CLI accept explicit local deployment files without fetching or executing a helper', async (testContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'envoi-host-origin-'));
+  testContext.after(() => rm(directory, { recursive: true, force: true }));
+  const origin = 'https://staging.envoi.example';
+  const served = {
+    ...manifest, connectUrl: `${origin}/connect`, helperCommand: `envoi-link connect ${origin}`,
+    offeredConnectionRoutes: ['local_helper'], offeredDeliveryModes: ['envoi_link'],
+  };
+  const profile = supportedProfile();
+  const profilePath = join(directory, 'profile.json');
+  const manifestPath = join(directory, 'skill.json');
+  const availabilityPath = join(directory, 'routes.json');
+  await Promise.all([
+    writeFile(profilePath, JSON.stringify(profile)), writeFile(manifestPath, JSON.stringify(served)),
+    writeFile(availabilityPath, JSON.stringify(v1Availability())),
+  ]);
+  const expected = planHost(served, profile, v1Availability(), { origin });
+  assert.deepEqual(await consumeHostPlan(profilePath, { origin, manifestPath, availabilityPath }), expected);
+  const command = fileURLToPath(new URL('../host-plan.mjs', import.meta.url));
+  const result = spawnSync(process.execPath, [command, profilePath, '--origin', origin, '--manifest', manifestPath, '--availability', availabilityPath], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), expected);
+  for (const argumentsList of [
+    ['--origin'], ['--unknown', 'test-secret'], ['--origin', origin, '--origin', origin],
+    ['__proto__', 'test-secret'], ['constructor', 'test-secret'],
+    ['--origin', 'https://user:test-secret@staging.envoi.example'], ['--manifest', '--origin'],
+    ['--manifest', manifestPath, '--availability', availabilityPath],
+  ]) {
+    const rejected = spawnSync(process.execPath, [command, profilePath, ...argumentsList], { encoding: 'utf8' });
+    assert.equal(rejected.status, 1, JSON.stringify(argumentsList));
+    assert.equal(rejected.stdout, '');
+    assert.doesNotMatch(rejected.stderr, /test-secret/);
+    assert.match(rejected.stderr, /No helper was executed/);
+  }
 });
 
 test('local confirmation prefers a host-native prompt and never treats chat as attributable human input', () => {
