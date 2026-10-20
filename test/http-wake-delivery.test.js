@@ -26,7 +26,10 @@ test('[FileStore] a delivered native message queues the recipient wake after the
     installationId: 'installation_delivery_test', url: 'https://wake.invalid/hook', status: 'active', endedReason: null, endedAt: null,
     createdAt: at, activatedAt: at, expiresAt: new Date(Date.now() + 86_400_000).toISOString(), challengeExpiresAt: null, replacesSubscriptionId: null,
     delivery: { state: 'healthy', lastAttemptAt: null, lastSuccessAt: at, consecutiveFailures: 0, lastFailureClass: null }, challengeHash: null, sequence: 0, dirty: {} };
-  await writeData(server, ['http-wake', 'subscriptions', `${subscription.id}.json`], subscription);
+  // The layout from src/http-wake-paths.js: the record under its agent, plus its status index entry.
+  await writeData(server, ['http-wake', 'agents', bob.agent.id, 'wake-subscriptions', `${subscription.id}.json`], subscription);
+  await writeData(server, ['http-wake', 'subscription-index', `${subscription.id}.json`],
+    { id: subscription.id, inboxId: subscription.inboxId, agentId: subscription.agentId, status: subscription.status, endedAt: null });
   assert.deepEqual(await queuedWakes(server, subscription.id), []);
 
   const sent = await send(server.baseUrl, alice, bob, { text: 'Wake after commit' });
