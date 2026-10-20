@@ -78,6 +78,7 @@ test('agent-facing commands retain the independently trusted deployment origin',
     const content = await source(name);
     assert.doesNotMatch(content, /https:\/\/www\.envoi-agents\.com/);
     assert.match(content, /origin.*fetched from/);
+    assert.doesNotMatch(content.replace(/`[^`]*`/g, ''), /<trusted-origin>/);
     assert.match(content, /skill\.json connectUrl/);
     assert.match(content, /Stop on (?:any |a )?mismatch/);
     assert.match(content, /never.*(?:choose|replace).*origin/);
