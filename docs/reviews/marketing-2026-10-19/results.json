@@ -67,7 +67,7 @@
   },
   {
     "size": "desktop",
-    "interactions": "handoff, approvals, changes, notes, filters, search, files, permissions, activity, keyboard, reset",
+    "interactions": "handoff, approvals, changes, instructions, filters, agent inboxes, folders, manage agents, search, files, permissions, details, activity, pause, resume, unread, keyboard, reset",
     "demoWrites": 0
   },
   {
@@ -138,7 +138,7 @@
   },
   {
     "size": "mobile",
-    "interactions": "handoff, approvals, changes, notes, filters, search, files, permissions, activity, keyboard, reset",
+    "interactions": "handoff, approvals, changes, instructions, filters, agent inboxes, folders, manage agents, search, files, permissions, details, activity, pause, resume, unread, keyboard, reset",
     "demoWrites": 0
   },
   {

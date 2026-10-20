@@ -1,4 +1,4 @@
-.marketing-shell .handoff-demo,.marketing-shell .inbox-demo{width:100%;min-width:0;border:1px solid #34435b;border-radius:18px;background:#111a29;box-shadow:0 30px 90px #0004;overflow:hidden;text-align:left}
+.marketing-shell .handoff-demo{width:100%;min-width:0;border:1px solid #34435b;border-radius:18px;background:#111a29;box-shadow:0 30px 90px #0004;overflow:hidden;text-align:left}
 .marketing-shell .demo-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #29354a;background:#162133;font-size:12px;font-weight:600;color:#d6e2f5}
 .marketing-shell .demo-toolbar>span,.marketing-shell .demo-toolbar>div{display:flex;align-items:center;gap:10px}
 .marketing-shell .demo-caption{font-size:11px;font-weight:400;color:#a8bad3}
@@ -47,82 +47,8 @@
 .marketing-shell .product-head{margin-bottom:0}
 .marketing-shell .product-hero{padding-bottom:76px}
 .marketing-shell .how{scroll-margin-top:80px}
-.marketing-shell .inbox-demo{margin-top:42px}
-.marketing-shell .inbox-workspace{display:grid;grid-template-columns:176px minmax(240px,.9fr) minmax(330px,1.1fr);min-height:580px}
-.marketing-shell .demo-sidebar{background:#101926;border-right:1px solid #29354a;padding:24px 12px;display:flex;flex-direction:column}
-.marketing-shell .demo-brand{display:flex;gap:10px;align-items:center;font-weight:750;font-size:19px;letter-spacing:-.04em;margin:0 8px 28px}
-.marketing-shell .demo-sidebar nav{display:grid;gap:4px}
-.marketing-shell .demo-sidebar nav button{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;border:1px solid transparent;border-radius:7px;background:transparent;color:#b9c9df;font-size:12px;text-align:left;cursor:pointer}
-.marketing-shell .demo-sidebar nav button[aria-pressed=true]{background:#27354c;color:#fff;border-color:#3a4b68}
-.marketing-shell .demo-sidebar nav button:hover{background:#202e44}
-.marketing-shell .needs-count{color:#ffd296;background:#49351e;border-radius:5px;padding:0 5px}
-.marketing-shell .sidebar-label{font-size:10px;color:#8fa5c6;margin:26px 10px 10px}
-.marketing-shell .demo-user{display:flex;align-items:center;gap:8px;padding:30px 4px 0;margin-top:auto;font-size:10px;color:#c6d2e7}
-.marketing-shell .demo-user small{display:block;font-size:9px;color:#92a8c7;margin-top:4px}
-.marketing-shell .demo-case-list{background:#151e2d;border-right:1px solid #29354a;min-width:0;display:flex;flex-direction:column}
-.marketing-shell .case-list-head{padding:25px 20px 20px}
-.marketing-shell .inbox-demo h3{font-size:18px;line-height:1.4;letter-spacing:-.025em}
-.marketing-shell .case-list-head p{font-size:11px;margin-top:4px;color:#9fb3d1}
-.marketing-shell .demo-search{display:block;margin-top:18px}
-.marketing-shell .demo-search input,.marketing-shell .demo-reply input{width:100%;min-width:0;background:#101927;color:#e7efff;border:1px solid #34435d;border-radius:7px;padding:10px 12px;font:inherit;font-size:12px}
-.marketing-shell .demo-search input::placeholder,.marketing-shell .demo-reply input::placeholder{color:#9fb1cb}
-.marketing-shell .inbox-demo input:focus-visible{outline:2px solid #aec5ff;outline-offset:2px}
-.marketing-shell .case-row{width:100%;display:flex;gap:10px;text-align:left;color:#e2eafa;background:transparent;border:0;border-bottom:1px solid #283349;border-left:2px solid transparent;padding:19px 18px;cursor:pointer}
-.marketing-shell .case-row.selected{background:#22304a;border-left-color:#7aa3ff}
-.marketing-shell .case-row:hover{background:#243149}
-.marketing-shell .case-dot{display:block;width:6px;height:6px;border-radius:50%;background:#7ba5ff;flex-shrink:0;margin-top:6px}
-.marketing-shell .case-dot.purple{background:#b894ef}.marketing-shell .case-dot.orange{background:#ecb269}.marketing-shell .case-dot.cyan{background:#8ed9e5}
-.marketing-shell .case-row-copy{display:block;min-width:0;flex:1}
-.marketing-shell .case-row strong{font-size:12px;font-weight:600;line-height:1.6;display:block}
-.marketing-shell .case-row small{font-size:10px;color:#a4b7d4;display:block;margin-top:5px;line-height:1.6}
-.marketing-shell .case-row-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:11px}
-.marketing-shell .case-row time{font-size:9px;color:#9fb3d1}
-.marketing-shell .list-hint{margin-top:auto;padding:24px 20px;font-size:10px;color:#9aafcd}
-.marketing-shell .demo-empty{padding:30px 20px;font-size:13px}.marketing-shell .demo-empty p{font-size:12px;margin:8px 0}
-.marketing-shell .demo-case-detail{min-width:0;background:#192334;display:flex;flex-direction:column}
-.marketing-shell .case-detail-head{padding:24px 24px 18px}
-.marketing-shell .case-detail-head h3{font-size:18px;margin-top:12px;outline-offset:4px}
-.marketing-shell .case-detail-head p{font-size:11px;color:#a9bdd9;margin-top:7px}
-.marketing-shell .case-tabs{display:flex;gap:18px;padding:0 24px;border-bottom:1px solid #33415a}
-.marketing-shell .case-tabs button{padding:12px 0;border:0;border-bottom:2px solid transparent;background:transparent;color:#a7bad8;font-size:11px;cursor:pointer}
-.marketing-shell .case-tabs button[aria-pressed=true]{color:#fff;border-bottom-color:#8aafff}
-.marketing-shell .case-content{padding:24px;min-height:300px;flex:1}
-.marketing-shell .case-message{display:flex;align-items:flex-start;gap:10px}
-.marketing-shell .case-message strong,.marketing-shell .your-message strong{font-size:11px}
-.marketing-shell .case-message p,.marketing-shell .your-message p{font-size:12px;line-height:1.75;margin-top:7px;color:#c0cee3;overflow-wrap:anywhere}
-.marketing-shell .demo-file{width:100%;display:flex;align-items:center;gap:11px;margin:18px 0;padding:13px;background:#131e2e;border:1px solid #37475e;border-radius:9px;color:#e0eaff;text-align:left;cursor:pointer}
-.marketing-shell .demo-file>span:nth-child(2){flex:1;min-width:0}
-.marketing-shell .demo-file strong{display:block;font-size:11px;overflow-wrap:anywhere}
-.marketing-shell .demo-file small{display:block;font-size:10px;color:#9eb4d4;margin-top:5px}
-.marketing-shell .demo-file:hover{border-color:#7c9cd1;background:#1c2a41}
-.marketing-shell .file-monogram{display:grid;place-items:center;width:33px;height:39px;border:1px solid #455d81;border-radius:6px;background:#243653;color:#b5ceff;font-size:8px;font-weight:700;flex-shrink:0}
-.marketing-shell .case-approval{padding:16px;border:1px solid #4a4c42;border-radius:9px;background:#2a2b27}
-.marketing-shell .case-approval.needs{border-color:#705330;background:#30291f}
-.marketing-shell .case-approval.done{border-color:#356758;background:#1c302e}
-.marketing-shell .case-approval.progress{border-color:#40577b;background:#1d2d45}
-.marketing-shell .case-approval strong{font-size:12px}
-.marketing-shell .case-approval p{font-size:11px;line-height:1.7;margin-top:7px;color:#c7d1e0}
-.marketing-shell .approval-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
-.marketing-shell .approval-actions button{font-size:11px}
-.marketing-shell .demo-reply{margin:0 24px 24px;display:flex;gap:8px}
-.marketing-shell .demo-reply button{width:36px;flex-shrink:0;border-radius:7px;border:1px solid #6b93ed;background:#527eec;color:#fff;font-size:20px;cursor:pointer}
-.marketing-shell .demo-reply button:disabled{opacity:.4;cursor:default}
-.marketing-shell .your-message{margin:18px 0 0 40px;padding:14px;background:#243751;border-radius:10px}
-.marketing-shell .your-message small{font-size:9px;color:#99b3d8}
-.marketing-shell .file-preview h4{font-size:14px;overflow-wrap:anywhere;margin:15px 0 6px}.marketing-shell .file-preview p{font-size:12px}
-.marketing-shell .file-preview dl{margin:20px 0;font-size:11px}.marketing-shell .file-preview dl>div{display:flex;justify-content:space-between;gap:15px;padding:12px 0;border-bottom:1px solid #32415a}.marketing-shell .file-preview dt{color:#9bb0d1}.marketing-shell .file-preview dd{text-align:right;margin:0;max-width:70%}
-.marketing-shell .demo-audit{margin:0;padding:0;list-style:none;display:grid;gap:0}
-.marketing-shell .demo-audit li{display:flex;align-items:flex-start;gap:14px;padding:16px 0;border-bottom:1px solid #33415a;font-size:11px}
-.marketing-shell .demo-audit li>span:not(.case-dot){color:#8ca6cf;font-size:10px;margin-top:2px}.marketing-shell .demo-audit strong{font-weight:500;line-height:1.6}.marketing-shell .demo-audit small{display:block;color:#98b0d2;font-size:10px;margin-top:6px}
-.marketing-shell .workspace-panel{grid-column:2/-1;padding:28px;min-width:0}.marketing-shell .workspace-panel>p{font-size:13px;margin:8px 0 28px}.marketing-shell .workspace-panel .demo-audit p{font-size:12px;margin-top:7px}
-.marketing-shell .workspace-files{max-width:650px}.marketing-shell .workspace-files .demo-file{padding:20px}
-.marketing-shell .permission-list>div{display:flex;align-items:center;gap:14px;padding:20px 0;border-bottom:1px solid #34435b}.marketing-shell .permission-list strong{font-size:13px}.marketing-shell .permission-list p{font-size:12px;margin-top:4px}.marketing-shell .permission-list .demo-badge{margin-left:auto}
-.marketing-shell .audit-link{border:0;background:none;padding:0;color:#dbe7fc;text-align:left;text-decoration:underline;text-underline-offset:4px;font-size:13px;cursor:pointer}
-.marketing-shell .demo-footnote{padding:12px 20px;border-top:1px solid #33435d;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:10px;color:#a9bddc;background:#152032;min-height:40px}
-.marketing-shell .demo-announcement{color:#b1e6d0}
-.marketing-shell .back-to-cases{display:none}
 @media(max-width:1100px) and (min-width:951px){.marketing-shell .handoff-controls>.demo-caption{width:100%;margin-top:4px}.marketing-shell .agent-node{gap:6px;padding:11px 7px}.marketing-shell .agent-node strong{font-size:10px}.marketing-shell .agent-node .agent-avatar{width:25px;height:28px}}
-@media(max-width:950px){.marketing-shell .inbox-workspace{grid-template-columns:150px minmax(0,1fr) minmax(0,1.15fr)}.marketing-shell .demo-sidebar{padding:20px 8px}.marketing-shell .case-list-head,.marketing-shell .case-detail-head,.marketing-shell .case-content{padding:18px 14px}.marketing-shell .case-row{padding:16px 12px}.marketing-shell .case-tabs{padding:0 14px;gap:14px}.marketing-shell .demo-reply{margin:0 14px 18px}.marketing-shell .demo-toolbar{padding:14px}.marketing-shell .about-art{width:100%;max-width:650px;margin:auto}}
-@media(max-width:760px){.marketing-shell .inbox-workspace{display:block;min-height:0}.marketing-shell .demo-sidebar{padding:12px;border-right:0;border-bottom:1px solid #34435b}.marketing-shell .demo-brand,.marketing-shell .sidebar-label,.marketing-shell .demo-user{display:none}.marketing-shell .demo-sidebar nav{display:flex;gap:4px;flex-wrap:wrap}.marketing-shell .demo-sidebar nav+nav{margin-top:6px}.marketing-shell .demo-sidebar nav button{padding:9px 8px;font-size:11px;gap:7px}.marketing-shell .demo-sidebar nav[aria-label="Demo workspace"]{border-top:1px solid #29354a;margin-top:8px;padding-top:5px}.marketing-shell .demo-case-list{border-right:0}.marketing-shell .case-list-head{padding:20px}.marketing-shell .case-row{padding:18px 20px}.marketing-shell .case-row strong{font-size:13px}.marketing-shell .case-row small{font-size:11px}.marketing-shell .demo-case-detail{display:none}.marketing-shell .show-detail .demo-case-detail{display:flex}.marketing-shell .show-detail .demo-case-list{display:none}.marketing-shell .back-to-cases{display:block;align-self:flex-start;margin:12px 12px 0}.marketing-shell .case-detail-head,.marketing-shell .case-content{padding:20px}.marketing-shell .case-tabs{padding:0 20px}.marketing-shell .demo-reply{margin:0 20px 20px}.marketing-shell .case-content{min-height:260px}.marketing-shell .workspace-panel{padding:22px 20px;min-height:430px}.marketing-shell .demo-toolbar .demo-caption{display:none}.marketing-shell .demo-toolbar{font-size:11px}.marketing-shell .demo-toolbar .demo-quiet{padding:5px;font-size:10px}.marketing-shell .demo-footnote{font-size:9px;padding:12px 14px}.marketing-shell .list-hint{padding:18px 20px}.marketing-shell .product-hero{padding-bottom:52px}}
+@media(max-width:950px){.marketing-shell .about-art{width:100%;max-width:650px;margin:auto}}
+@media(max-width:760px){.marketing-shell .product-hero{padding-bottom:52px}}
 @media(max-width:400px){.marketing-shell .handoff-network{height:285px}.marketing-shell .agent-node{padding:10px 7px;gap:7px;width:43%}.marketing-shell .agent-node strong{font-size:10px}.marketing-shell .agent-node small{font-size:9px}.marketing-shell .agent-node .agent-avatar{width:24px;height:27px;font-size:10px}.marketing-shell .node-0,.marketing-shell .node-2{left:3%}.marketing-shell .node-1,.marketing-shell .node-3{right:3%}.marketing-shell .handoff-core{width:130px;padding:11px}.marketing-shell .handoff-story{padding:16px 14px}.marketing-shell .handoff-controls>.demo-caption{width:100%;margin-top:5px}.marketing-shell .handoff-message{min-height:110px}.marketing-shell .handoff-progress button{font-size:9px}.marketing-shell .handoff-progress button span{margin-right:3px}}
 @media(prefers-reduced-motion:reduce){.marketing-shell .handoff-beam.active{animation:none!important}.marketing-shell .agent-node:hover{transform:none}}
