@@ -14,6 +14,7 @@ const path = require('node:path');
   try {
     for (const size of [{ name: 'desktop', width: 1440, height: 1000 }, { name: 'mobile', width: 390, height: 844 }]) {
       const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, reducedMotion: 'reduce' });
+      await context.route('https://*.posthog.com/**', route => route.fulfill(route.request().resourceType() === 'script' ? { contentType: 'application/javascript', body: '' } : { json: { featureFlags: {} } }));
       const page = await context.newPage();
       page.setDefaultTimeout(15000);
       const errors = [];
@@ -122,6 +123,7 @@ const path = require('node:path');
       await context.close();
     }
     const motionContext = await browser.newContext({ viewport: { width: 820, height: 1180 }, reducedMotion: 'no-preference' });
+    await motionContext.route('https://*.posthog.com/**', route => route.fulfill(route.request().resourceType() === 'script' ? { contentType: 'application/javascript', body: '' } : { json: { featureFlags: {} } }));
     const motionPage = await motionContext.newPage();
     await motionPage.goto(base + '/about');
     const animated = motionPage.getByLabel('Interactive agent handoff demo', { exact: true });

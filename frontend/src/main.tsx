@@ -8,9 +8,12 @@ import '@fontsource-variable/newsreader/wght.css';
 import '@fontsource/geist-mono/latin-400.css';
 import App from './App';
 import MarketingPage from './MarketingPage';
+import { initAnalytics } from './analytics';
 import './styles/tokens.css';
 import './styles/app.css';
 import './styles/envoi-app.css';
+
+initAnalytics();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>{['/about', '/about/', '/product', '/product/'].includes(window.location.pathname)

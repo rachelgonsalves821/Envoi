@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, request } from './api';
+import { captureAnalyticsEvent } from './analytics';
 import './styles/marketing.css';
 import { AgentHandoffDemo, InboxDemo } from './MarketingDemos';
 import image0 from './assets/marketing/logo.png';
@@ -21,7 +22,7 @@ export default function MarketingPage({ signInPath, notice, page = 'about' }: { 
     event.preventDefault();
     if (state === 'sending') return;
     setState('sending');
-    try { await api.authConfig(); await request('/api/waitlist', { method: 'POST', body: JSON.stringify({ email, company }) }); setState('success'); }
+    try { await api.authConfig(); await request('/api/waitlist', { method: 'POST', body: JSON.stringify({ email, company }) }); captureAnalyticsEvent('waitlist_joined'); setState('success'); }
     catch { setState('error'); }
   }
   useEffect(() => {

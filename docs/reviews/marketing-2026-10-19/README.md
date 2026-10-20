@@ -18,12 +18,12 @@ The inbox supports opening cases, searching, status filters, approval and change
 ## Validation
 
 - Production build and TypeScript pass.
-- Frontend test suite passes.
+- All 203 frontend tests and all 7 waitlist/HTTP security tests pass.
 - Chrome tests run against the production server and its Content Security Policy at 1440 and 390 px widths. Additional layout checks cover 820 and 320 px.
 - Tested approval, request changes, notes, search and empty results, status counts, file scope, permissions, activity, keyboard case selection, reset, reduced motion, autoplay, pause, resume, approval gating, and replay.
-- Demo interactions make zero API writes. About waitlist failure, retry, success, Escape, and focus restoration are checked with mocked responses.
+- Demo interactions make zero API writes. About waitlist failure, retry, success, Escape, and focus restoration are checked with mocked responses. Analytics network requests are also mocked.
 - No horizontal overflow or browser page errors in the desktop/mobile runs. See [machine-readable results](results.json).
-- No new runtime dependency. Replacing the raster illustrations lowers the generated HTML payload compared with the previous revision. Core Web Vitals and Lighthouse scores have not been measured; no field-performance claim is made.
+- The demos add no runtime dependency. Main’s PostHog dependency, initialization, and successful waitlist event are preserved after resolving the branch conflicts. The rebuilt HTML is 1,868.15 kB, or 1,018.12 kB gzip, including the existing app and analytics. Core Web Vitals and Lighthouse scores have not been measured; no field-performance claim is made.
 
 Interaction inspiration came from [21st.dev Animated Beam](https://preview.21st.dev/%40dillionverma/components/animated-beam) and [AI Agent Pipeline](https://preview.21st.dev/%40monolythdev/components/ai-agent-pipeline). The demos are implemented in the existing React/CSS/SVG stack without copying those components or adding animation packages.
 

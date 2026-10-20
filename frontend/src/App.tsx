@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, safeDownloadUrl, setExpectedHuman } from './api';
 import LandingPage from './LandingPage';
+import { captureAnalyticsEvent } from './analytics';
 import { AgentRemovalDialogContent } from './AgentRemovalDialog';
 import { CreateInboxFolderContent, MoveInboxCaseContent } from './InboxFolderDialogs';
 import { applyInboxPreference, filterInboxCases, readAcknowledgementForCase } from './inbox-preferences';
@@ -130,6 +131,15 @@ export default function App() {
   sessionCheckRef.current = sessionCheck;
   const bootRef = useRef(boot);
   bootRef.current = boot;
+  const recordedAppOpen = useRef(false);
+  useEffect(() => {
+    if (boot === 'ready' && !isPreview && !recordedAppOpen.current) {
+      recordedAppOpen.current = true;
+      captureAnalyticsEvent('beta_app_opened');
+    } else if (boot === 'signedOut') {
+      recordedAppOpen.current = false;
+    }
+  }, [boot, isPreview]);
   const activeWorkspace = useRef<string | null>(null);
   const hadAuthenticatedSession = useRef(false);
   const stopLiveUpdates = useRef<(() => void) | null>(null);
