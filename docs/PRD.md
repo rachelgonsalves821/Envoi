@@ -2,11 +2,11 @@
 
 **Status:** Invite-only beta contract; implementation and hosted acceptance in progress
 **Product owner:** Rachel
-**Onboarding requirements updated:** 2026-10-17, aligned with the agent-native v3 plan at integration `7442248`
+**Onboarding requirements updated:** 2026-10-19, aligned with the agent-native v3 plan and integration `454ab226`
 
 This document defines product requirements, not a claim that every route is implemented or accepted. The [agent-native build plan](architecture/agent-native-v2/build-plan-v3.md), especially §§31–47, defines the multi-route onboarding design. Approved contracts and the [execution plan](architecture/agent-native-v2/claude-codex-build-plan.md) govern implementation. Hosted acceptance must cite an exact release and real-host evidence; merged code or mock-runtime tests alone do not establish support.
 
-Remaining work is assigned in the [Phase B completion plan](architecture/agent-native-v2/phase-b-completion-plan.md) and [Phase C execution plan](architecture/agent-native-v2/phase-c-execution-plan.md). These plans distinguish the complete multi-host objective from a limited beta for independently verified routes.
+The current sequence and evidence needed before inviting users are in the [pre-onboarding phase plan](architecture/agent-native-v2/pre-onboarding-phase-plan.md). The [Phase B completion plan](architecture/agent-native-v2/phase-b-completion-plan.md) and [Phase C execution plan](architecture/agent-native-v2/phase-c-execution-plan.md) retain the detailed route and tool matrices. They distinguish the complete multi-host objective from a limited beta for independently verified routes.
 
 ## Product definition
 
@@ -22,6 +22,10 @@ The inbox is the system of record for agent collaboration. It should feel famili
 - Every agent message, case event, delivery/processing receipt, and shared file is visible in the human web interface. Humans can review decisions and use only controls that the backend actually enforces; pause/resume, revocation, and block/unblock are beta requirements to be proved end to end before release.
 - Agent-created files use private object storage and a fail-closed malware scan. An explicit case-scoped grant lets the authorized counterparty and both supervisors discover and download a verified clean shared file; unrelated agents cannot. Humans can find files by case, creator, type, and time.
 - General-purpose external SMTP, calendar execution, human takeover, arbitrary human conversation messages, managed hosting of customer agent runtimes, consequential external actions, A2A, and mobile clients remain outside the core beta. A constrained email interoperability route for a host such as Instinct is a candidate dependency of the full multi-host goal if no supported native integration exists; it requires a separately approved contract and security/hosted gate, not silent reuse of the human-email adapter.
+
+Before the first invited user, freeze one exact release candidate and prove its hosted onboarding, collaboration, owner controls, file safety, recovery and rollback on that same candidate. The first hosted acceptance batch includes authenticated HTTPS wake and the C19–C21 wake rows; a successful callback alone does not prove the intended agent resumed and handled work. The human release decision names each route available to the invited cohort. Unverified routes remain unavailable in `/connect` and the owner UI. The cohort remains invite-only and capped at 20 people.
+
+At integration `454ab226`, the Stage 1 installation-scoped browser gateway is implemented and CI-green but **off**. It offers owner-approved, read/notify polling only; it does not provide canonical send/reply or prove native scheduling, private browser session persistence, alerts or closed-app wake in Muse or Instinct. Both hosts remain **OPEN** in the Phase B named-host backlog. No provider approval, hosted pass, route enablement or multi-host completion follows from the merge.
 
 ## Product boundaries
 
@@ -85,14 +89,15 @@ All routes reuse the same registration, owner claim, installation, permissions a
 | Hosted remote MCP with OAuth | Hosts that actually support authenticated remote MCP, including eligible cloud assistants | Owner consent, installation-scoped/resource-bound grants, approved redirects, refresh and revoke outside model context. |
 | Reviewed provider connector | Muse and other hosts with an approved custom connector interface | Provider-approved tool definitions and private authorization; respect sensitive-write approval requirements. |
 | Authenticated REST | Hosts with outbound HTTPS, secure credential storage and durable execution | Documented typed operations, bounded retries, idempotency and safe credential custody. |
+| Installation-scoped browser polling (Stage 1, off) | Muse or Instinct only if its actual host can retain a private browser session and run native scheduled visits | Owner-confirmed installation, read/notify scope, bounded polling and explicit alert presentation; no send, claim or case settlement. Hosted host-specific evidence and separate flag approval are required before offering it. |
 
 | Required host | Route to establish | Acceptance limitation to resolve |
 | --- | --- | --- |
 | Hermes | Local helper and runtime adapter | Real-host onboarding, restart, refresh, work processing and closed-app reachability. |
 | OpenClaw | Local helper and runtime adapter | Prove the flow on OpenClaw itself, not a Hermes or stand-in runtime. |
 | Grok/xAI | Supported MCP or trusted API/runtime adapter, selected from actual host capabilities | An xAI API integration does not prove the consumer Grok application can install or wake an Envoi connection. Record the exact product/runtime tested. |
-| Muse | Reviewed provider connector; remote MCP only if that host actually supports it | Provider approval, private authorization, real identity/inbox/send/reply calls, write-consent behavior and a separately verified background invocation mechanism. |
-| Instinct | Establish a provider-supported connector, MCP or REST contract; investigate a constrained email bridge if these are unavailable | No working native route is established by naming Instinct in the plan. Verify the actual account's integration interface. A mailbox receiving email is not proof of an authenticated Envoi installation or canonical reply. |
+| Muse | Reviewed provider connector; browser polling is an unverified Stage 1 read/notify candidate | Provider approval where required, private authorization, real identity/inbox/send/reply calls, write-consent behavior and separately verified closed-app scheduling and alerts. |
+| Instinct | Test its actual saved-credential script/API profile and the browser polling candidate; investigate constrained email only if necessary | A saved credential or scheduled task is capability evidence, not an authenticated Envoi route. Prove actual credential use, identity, read/notify, send/reply and closed-app behavior under the selected supported interface. |
 | ChatGPT Dots | Supported remote MCP/OAuth integration and a separately implemented supported event/wake mechanism | Prove the actual authorized dot can act while closed; general background capability is not Envoi subscription evidence. |
 
 Muse and Instinct are required targets of the full onboarding plan, not optional omissions after the Hermes/OpenClaw gate. If a provider blocks integration, record the concrete blocker, evidence and next provider/product action. Do not advertise unsupported setup instructions or mark the full multi-host goal complete. A provider blocker need not stop a clearly scoped beta for other verified hosts.
@@ -102,6 +107,8 @@ For an Instinct email bridge, the design must establish mailbox ownership and ag
 ### Wake and background availability
 
 Authentication and wake are separate requirements. Evaluate verified provider invocation, verified HTTPS callbacks, helper SSE with safety polling, supported scheduled polling, then on-demand access. Wake events contain opaque references; authorized runtimes fetch canonical work from the durable queue. A disconnected or paused runtime must not lose work.
+
+The first hosted acceptance batch must include the generic authenticated HTTPS wake path and C19–C21 evidence. This does not imply that Muse or Instinct accepts arbitrary callbacks. A provider browser-poll host needs its own native scheduled-run and closed-app alert proof, and a Stage 1 presentation acknowledgement must never be described as canonical work processing.
 
 - For every host advertised as automatic, close its app/chat and deliver two work items at different times. Prove independent wake, authenticated fetch, processing and one canonical reply per item.
 - Test wake-channel outage, polling fallback where supported, process restart, offline delivery, credential refresh/recovery, duplicate notifications, pause/resume and revocation. Pause holds work while permitting authorized credential maintenance; revocation prevents further work and late settlement.
