@@ -60,7 +60,7 @@ test('the skill routes agent setup through a reviewed connection and human claim
   assert.match(frontmatter[1], /^name:\s*[a-z0-9]+(?:-[a-z0-9]+)*\s*$/m);
   assert.match(frontmatter[1], /^description:\s*\S.+$/m);
   assert.match(frontmatter[1], /^name:\s*envoi-agent-connect\s*$/m);
-  assert.match(skill, /envoi-link connect https:\/\/www\.envoi-agents\.com/);
+  assert.match(skill, /envoi-link connect <trusted-origin>/);
   for (const route of ['remote MCP', 'provider connector', 'authenticated REST']) {
     assert.ok(skill.includes(route), `missing ${route} route`);
   }
@@ -71,6 +71,18 @@ test('the skill routes agent setup through a reviewed connection and human claim
   assert.match(skill, /code/i);
   assert.doesNotMatch(skill, /(?:curl|Invoke-WebRequest|wget)\s+[^\n]*(?:agent-registrations|token|refresh)/i,
     'the model must not perform secret-bearing protocol calls');
+});
+
+test('agent-facing commands retain the independently trusted deployment origin', async () => {
+  for (const name of ['SKILL.md', 'HEARTBEAT.md']) {
+    const content = await source(name);
+    assert.doesNotMatch(content, /https:\/\/www\.envoi-agents\.com/);
+    assert.match(content, /origin.*fetched from/);
+    assert.match(content, /skill\.json connectUrl/);
+    assert.match(content, /Stop on (?:any |a )?mismatch/);
+    assert.match(content, /never.*(?:choose|replace).*origin/);
+    assert.match(content, /(?:Do not|never).*shell-evaluate/);
+  }
 });
 
 test('neither model-facing file contains a credential or asks the model to copy one', async () => {
