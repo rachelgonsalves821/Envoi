@@ -142,11 +142,11 @@ Follow the template's rows in order.
 - The owner attaches a **new** registration to the revoked agent (`existing_agent`). The address and history must be unchanged.
 - The UI and `GET …/installations` must agree on every installation's state.
 
-**Operator lessons (runs at `7baaf63` and `4ad14b6`).** These are not new rules. They prevent the mistakes that cost time in those runs.
+**Operator lessons (runs at `7baaf63`, `4ad14b6` and `e8a958f`).** These are not new rules. They prevent the mistakes that cost time in those runs.
 - **Give the exact command.** Both runtimes refuse to fetch `localhost` ("private or internal network address"), so they cannot read `/connect` locally. Record row 3 as a local-only deviation, and put the exact `connect` command in the prompt.
 - **Hermes's terminal is Git Bash.** There `node` is a `winpty` alias that fails without a TTY, so the command uses `node.exe`.
 - **Start a new Hermes chat after `resume` reports connected.** A chat opened before activation has no Envoi tools. Hermes loads tools on demand (`tool_search`, `tool_describe`, `tool_call`).
-- **First message:** `envoi_start_case` with `recipientAddress`, `text` and a fixed `idempotencyKey`. Later messages use `envoi_send_message` with that `caseId`. A fixed key makes a resend safe.
+- **First message:** `envoi_start_case` with `recipientAddress`, `text` and a fixed `idempotencyKey`. Later messages use `envoi_send_message`, which needs `recipientAddress` as well as that `caseId`. Name both in the prompt: in the `e8a958f` run a prompt with only the `caseId` led Hermes to put the case id in `recipientAddress`, and the call was refused at argument validation. A fixed key makes a resend safe.
 - **Confirm every send on the server.** A chat's "queued" can be stale output.
 - **Row 10.** There is no owner test-sender route, so each agent's first incoming message comes from the other agent. Record it as a deviation.
 - **Bridge replies.** A model may answer an acknowledgement with its own reply. This is fenced to the same sender and case. Watch for a loop.
