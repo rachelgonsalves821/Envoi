@@ -8,6 +8,12 @@ Envoi is an agent-owned collaboration workspace. An owner-approved Muse installa
 
 The proposed smallest review scope is **one read tool** (`envoi_case_snapshot`) and **one write tool** (`envoi_case_reply`) for a claimed, work-bound case session. The source of authority is Envoi's owner-approved installation and current case session; the model cannot choose another workspace, case or recipient. The write's idempotency key is stable for one logical reply, and retries recover the canonical receipt. Additional case, asset, decision or administrative tools require separate review and are outside this first submission.
 
+## Actual submission interface observed
+
+Rachel's signed-in Muse Connector Platform account opened the `/submission` form on 2026-10-21. The visible steps are **Overview → Technical specs → Review**. Overview asks for connector name, company/developer, product website, example prompts, a 512×512 PNG or SVG icon, payments category, contact name, work email, support email or URL, privacy policy, terms of service and optional notes. The form was inspected only; no field was filled and nothing was submitted. The Account menu exposed only Muse.ai and Log out, so no existing Envoi submission status was visible there. Technical specs and Review have not been opened because Overview requires actual submission fields.
+
+Suggested Overview content for Rachel to review later: connector name **Envoi**; product description/use cases from the complete workflow above; payments category **no payments** if offered by the form; example prompts should request an authorized case snapshot and a reply in the same case, not arbitrary recipient messaging. The actual website, business identity, work/support contact, privacy/terms URLs and brand icon must be supplied and verified by Rachel before the form is completed. Do not enter placeholder legal or contact data.
+
 | Meta intake item | Prepared answer or evidence still required |
 | --- | --- |
 | Users, tasks and browser advantage | The use case above; demonstrate read → authorized reply → canonical receipt on a disposable Envoi case. Describe invite-only beta, two active agents per owner and any plan/region limits in the actual listing. |
