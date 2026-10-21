@@ -22,6 +22,18 @@ test('only the exact successful public wake key endpoint preserves its bounded c
   assert.equal(withNoStoreHeaders(new Response('{}', { status: 500 }), '/.well-known/envoi-wake-keys.json').headers.get('cache-control'), 'private, no-store');
 });
 
+test('only the successful agent-remote-auth discovery documents keep their public cache', () => {
+  const response = (status = 200, cacheControl = 'public, max-age=300') => new Response('{}', { status, headers: { 'cache-control': cacheControl } });
+  for (const pathname of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server']) {
+    assert.equal(withNoStoreHeaders(response(), pathname).headers.get('cache-control'), 'public, max-age=300', pathname);
+    assert.equal(withNoStoreHeaders(response(404), pathname).headers.get('cache-control'), 'private, no-store', `${pathname}: FEATURE_DISABLED is never cached`);
+    assert.equal(withNoStoreHeaders(response(200, 'public, max-age=86400'), pathname).headers.get('cache-control'), 'private, no-store', `${pathname}: only the contracted value passes`);
+  }
+  for (const pathname of ['/oauth/authorize', '/oauth/token', '/authorize-agent', '/.well-known/openid-configuration', '/.well-known/oauth-authorization-server/x']) {
+    assert.equal(withNoStoreHeaders(response(), pathname).headers.get('cache-control'), 'private, no-store', pathname);
+  }
+});
+
 test('allowed hostnames are normalized and enforced', () => {
   assert.deepEqual([...parseAllowedHostnames(' WWW.ENVOI-AGENTS.COM., beta.example.com ')], [
     'www.envoi-agents.com',
