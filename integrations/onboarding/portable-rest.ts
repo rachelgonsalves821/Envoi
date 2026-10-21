@@ -23,13 +23,16 @@ export interface PortableRestHostOptions {
 function validRuntimeSession(session: ConnectorSession | null, options: PortableRestHostOptions, origin: string) {
   const marker = (session as ConnectorSession & { _onboarding?: {
     origin?: string; completionId?: string; runtime?: { type?: string; version?: string };
-    installation?: { id?: string; connectionRoute?: string; deliveryMode?: string;
+    agent?: { id?: string; address?: string };
+    installation?: { id?: string; agentId?: string; connectionRoute?: string; deliveryMode?: string;
       runtime?: { type?: string; version?: string } };
   } } | null)?._onboarding;
   return !!session && !!marker && marker.origin === origin
     && marker.runtime?.type === options.runtime.type && marker.runtime.version === options.runtime.version
     && marker.installation?.connectionRoute === 'authenticated_rest' && marker.installation.deliveryMode === 'envoi_link'
     && marker.installation.runtime?.type === options.runtime.type && marker.installation.runtime.version === options.runtime.version
+    && marker.agent?.id === session.agentId && marker.agent.address === session.address
+    && marker.installation.agentId === session.agentId
     && typeof marker.completionId === 'string' && !!marker.completionId
     && typeof marker.installation.id === 'string' && !!marker.installation.id
     && typeof session.agentApiToken === 'string' && session.agentApiToken.startsWith('envoi_agent_access_')

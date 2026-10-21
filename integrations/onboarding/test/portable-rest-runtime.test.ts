@@ -19,5 +19,14 @@ test('trusted REST runtime refuses work before completed private activation', as
     await writeFile(path.join(directory, 'helper-state.json'), JSON.stringify({ version: 1, origin: options.origin,
       connectionRoute: 'local_helper', phase: 'completed', runtime: options.runtime, completionId: 'activation_example' }));
     await expect(host.run(new AbortController().signal)).rejects.toThrow('PORTABLE_REST_SETUP_INCOMPLETE');
+    await writeFile(path.join(directory, 'helper-state.json'), JSON.stringify({ version: 1, origin: options.origin,
+      connectionRoute: 'authenticated_rest', phase: 'completed', runtime: options.runtime, completionId: 'activation_example' }));
+    await writeFile(path.join(directory, 'session.json'), JSON.stringify({ agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@envoi.mail',
+      agentApiToken: 'envoi_agent_access_PRIVATE', agentRefreshToken: 'envoi_agent_refresh_PRIVATE',
+      agentTokenExpiresAt: '2099-01-01T00:00:00Z', agentRefreshTokenExpiresAt: '2099-01-01T00:00:00Z', cursor: null,
+      _onboarding: { origin: options.origin, completionId: 'activation_example', runtime: options.runtime,
+        agent: { id: 'agent_other', address: 'one@envoi.mail' }, installation: { id: 'installation_one', agentId: 'agent_one',
+          connectionRoute: 'authenticated_rest', deliveryMode: 'envoi_link', runtime: options.runtime } } }));
+    await expect(host.run(new AbortController().signal)).rejects.toThrow('PORTABLE_REST_STATE_INVALID');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
