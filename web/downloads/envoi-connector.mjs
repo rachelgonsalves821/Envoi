@@ -16,7 +16,7 @@ var k = Object.create, A = Object.defineProperty, j = Object.getOwnPropertyDescr
 	} catch (e) {
 		throw n = [e], e;
 	}
-}, F = (e, t) => () => (t || (e((t = { exports: {} }).exports, t, t.exports), e = null), t.exports), te = (e, t) => {
+}, F = (e, t) => () => (t || (e((t = { exports: {} }).exports, t), e = null), t.exports), te = (e, t) => {
 	let n = {};
 	for (var r in e) A(n, r, {
 		get: e[r],
@@ -502,12 +502,22 @@ function Oe(e) {
 	let t = +(e.charCodeAt(0) === 65279), n = () => {
 		throw Error("configuration syntax");
 	}, r = () => {
-		for (; t < e.length;) if (/\s/.test(e[t])) t++;
-		else if (e.slice(t, t + 2) === "//") for (t += 2; t < e.length && !/[\r\n]/.test(e[t]);) t++;
-		else if (e.slice(t, t + 2) === "/*") {
-			let r = e.indexOf("*/", t + 2);
-			r < 0 && n(), t = r + 2;
-		} else break;
+		for (; t < e.length;) {
+			if (/\s/.test(e[t])) {
+				t++;
+				continue;
+			}
+			if (e.slice(t, t + 2) === "//") {
+				for (t += 2; t < e.length && !/[\r\n]/.test(e[t]);) t++;
+				continue;
+			}
+			if (e.slice(t, t + 2) === "/*") {
+				let r = e.indexOf("*/", t + 2);
+				r < 0 && n(), t = r + 2;
+				continue;
+			}
+			break;
+		}
 	}, i = () => {
 		let r = e[t++], i = "";
 		for (; t < e.length;) {
@@ -4420,7 +4430,11 @@ var It = /* @__PURE__ */ F(((e) => {
 	Object.defineProperty(e, "__esModule", { value: !0 }), e.getData = e.KeywordCxt = e.validateFunctionCode = void 0;
 	var t = Bt(), n = Ut(), r = Ht(), i = Ut(), a = Wt(), o = Gt(), s = Kt(), c = q(), l = Rt(), u = Yt(), d = J(), f = zt();
 	function p(e) {
-		S(e) && (w(e), x(e)) ? _(e) : m(e, () => (0, t.topBoolOrEmptySchema)(e));
+		if (S(e) && (w(e), x(e))) {
+			_(e);
+			return;
+		}
+		m(e, () => (0, t.topBoolOrEmptySchema)(e));
 	}
 	e.validateFunctionCode = p;
 	function m({ gen: e, validateName: t, schema: n, schemaEnv: r, opts: i }, a) {
@@ -4453,7 +4467,11 @@ var It = /* @__PURE__ */ F(((e) => {
 		return n && (t.code.source || t.code.process) ? (0, c._)`/*# sourceURL=${n} */` : c.nil;
 	}
 	function b(e, n) {
-		S(e) && (w(e), x(e)) ? C(e, n) : (0, t.boolOrEmptySchema)(e, n);
+		if (S(e) && (w(e), x(e))) {
+			C(e, n);
+			return;
+		}
+		(0, t.boolOrEmptySchema)(e, n);
 	}
 	function x({ schema: e, self: t }) {
 		if (typeof e == "boolean") return !e;
@@ -4531,9 +4549,15 @@ var It = /* @__PURE__ */ F(((e) => {
 		!e.schemaEnv.meta && e.opts.strictTypes && (F(e, t), e.opts.allowUnionTypes || te(e, t), ne(e, e.dataTypes));
 	}
 	function F(e, t) {
-		t.length && (e.dataTypes.length ? (t.forEach((t) => {
-			ie(e.dataTypes, t) || I(e, `type "${t}" not allowed by context "${e.dataTypes.join(",")}"`);
-		}), ae(e, t)) : e.dataTypes = t);
+		if (t.length) {
+			if (!e.dataTypes.length) {
+				e.dataTypes = t;
+				return;
+			}
+			t.forEach((t) => {
+				ie(e.dataTypes, t) || I(e, `type "${t}" not allowed by context "${e.dataTypes.join(",")}"`);
+			}), ae(e, t);
+		}
 	}
 	function te(e, t) {
 		t.length > 1 && !(t.length === 2 && t.includes("null")) && I(e, "use allowUnionTypes to allow union type keyword");
@@ -4579,7 +4603,11 @@ var It = /* @__PURE__ */ F(((e) => {
 			this.failResult((0, c.not)(e), void 0, t);
 		}
 		fail(e) {
-			e === void 0 ? (this.error(), this.allErrors || this.gen.if(!1)) : (this.gen.if(e), this.error(), this.allErrors ? this.gen.endIf() : this.gen.else());
+			if (e === void 0) {
+				this.error(), this.allErrors || this.gen.if(!1);
+				return;
+			}
+			this.gen.if(e), this.error(), this.allErrors ? this.gen.endIf() : this.gen.else();
 		}
 		fail$data(e) {
 			if (!this.$data) return this.fail(e);
@@ -4587,7 +4615,11 @@ var It = /* @__PURE__ */ F(((e) => {
 			this.fail((0, c._)`${t} !== undefined && (${(0, c.or)(this.invalid$data(), e)})`);
 		}
 		error(e, t, n) {
-			t ? (this.setParams(t), this._error(e, n), this.setParams({})) : this._error(e, n);
+			if (t) {
+				this.setParams(t), this._error(e, n), this.setParams({});
+				return;
+			}
+			this._error(e, n);
 		}
 		_error(e, t) {
 			(e ? f.reportExtraError : f.reportError)(this, this.def.error, t);
@@ -4907,8 +4939,11 @@ var It = /* @__PURE__ */ F(((e) => {
 	function _(e) {
 		if (e.length === 0) return !1;
 		for (let t = 0; t < e.length; t++) if (!h(e[t])) {
-			if (e[t] === "%" && t + 2 < e.length && a(e.slice(t + 1, t + 3))) t += 2;
-			else return !1;
+			if (e[t] === "%" && t + 2 < e.length && a(e.slice(t + 1, t + 3))) {
+				t += 2;
+				continue;
+			}
+			return !1;
 		}
 		return !0;
 	}
@@ -4931,10 +4966,10 @@ var It = /* @__PURE__ */ F(((e) => {
 			if (n.indexOf(".") !== -1) {
 				if (e !== a.length - 1 || t !== -1 && i.length === 0 || !r(n)) return;
 				o += 2;
-			} else {
-				if (!p(n)) return;
-				a[e] = parseInt(n, 16).toString(16), o++;
+				continue;
 			}
+			if (!p(n)) return;
+			a[e] = parseInt(n, 16).toString(16), o++;
 		}
 		if (t === -1) return o === 8 ? v(a) : void 0;
 		if (o >= 8) return;
@@ -5875,13 +5910,14 @@ var It = /* @__PURE__ */ F(((e) => {
 		}
 	}
 	function T(e) {
-		if (Array.isArray(e)) this.addVocabulary(e);
-		else {
-			this.logger.warn("keywords option as map is deprecated, pass array");
-			for (let t in e) {
-				let n = e[t];
-				n.keyword ||= t, this.addKeyword(n);
-			}
+		if (Array.isArray(e)) {
+			this.addVocabulary(e);
+			return;
+		}
+		this.logger.warn("keywords option as map is deprecated, pass array");
+		for (let t in e) {
+			let n = e[t];
+			n.keyword ||= t, this.addKeyword(n);
 		}
 	}
 	function E() {
@@ -6361,7 +6397,11 @@ var It = /* @__PURE__ */ F(((e) => {
 		},
 		code(e) {
 			let { parentSchema: t, it: r } = e, { items: a } = t;
-			Array.isArray(a) ? i(e, a) : (0, n.checkStrictMode)(r, "\"additionalItems\" is ignored when \"items\" is not an array of schemas");
+			if (!Array.isArray(a)) {
+				(0, n.checkStrictMode)(r, "\"additionalItems\" is ignored when \"items\" is not an array of schemas");
+				return;
+			}
+			i(e, a);
 		}
 	};
 	function i(e, r) {
@@ -6630,9 +6670,15 @@ var It = /* @__PURE__ */ F(((e) => {
 				a.code((0, n._)`delete ${c}[${e}]`);
 			}
 			function v(t) {
-				if (f.removeAdditional === "all" || f.removeAdditional && o === !1) _(t);
-				else if (o === !1) e.setParams({ additionalProperty: t }), e.error(), d || a.break();
-				else if (typeof o == "object" && !(0, i.alwaysValidSchema)(u, o)) {
+				if (f.removeAdditional === "all" || f.removeAdditional && o === !1) {
+					_(t);
+					return;
+				}
+				if (o === !1) {
+					e.setParams({ additionalProperty: t }), e.error(), d || a.break();
+					return;
+				}
+				if (typeof o == "object" && !(0, i.alwaysValidSchema)(u, o)) {
 					let r = a.name("valid");
 					f.removeAdditional === "failing" ? (y(t, r, !1), a.if((0, n.not)(r), () => {
 						e.reset(), _(t);
@@ -9759,7 +9805,11 @@ var Vi = {
 	},
 	async configure(e, t) {
 		let n = await Pi(t, e);
-		n ? await Ni(n, t.env ?? process.env) : await zi(t);
+		if (n) {
+			await Ni(n, t.env ?? process.env);
+			return;
+		}
+		await zi(t);
 	},
 	async createBridge(e, t) {
 		let n = await Pi(t, e);
@@ -10226,15 +10276,27 @@ async function aa(e, t) {
 async function oa(e, t, n, r = () => ({ status: "running" })) {
 	let i = b(32).toString("base64url"), o = (/* @__PURE__ */ new Date()).toISOString(), s = d.join(e, "control.json"), c = w((e, a) => {
 		let s = c.address(), l = s && typeof s == "object" ? `127.0.0.1:${s.port}` : "", u = Buffer.from(e.headers.authorization || ""), d = Buffer.from(`Bearer ${i}`);
-		e.headers.host !== l || e.headers.origin || u.length !== d.length || !S(u, d) ? (a.writeHead(403), a.end()) : e.method === "GET" && (e.url === "/status" || e.url === "/doctor") ? (a.writeHead(200, {
-			"content-type": "application/json",
-			"cache-control": "no-store"
-		}), a.end(JSON.stringify({
-			...t,
-			pid: process.pid,
-			startedAt: o,
-			...r()
-		}))) : e.method === "POST" && e.url === "/stop" ? (a.writeHead(202), a.end("{}"), n()) : (a.writeHead(404), a.end());
+		if (e.headers.host !== l || e.headers.origin || u.length !== d.length || !S(u, d)) {
+			a.writeHead(403), a.end();
+			return;
+		}
+		if (e.method === "GET" && (e.url === "/status" || e.url === "/doctor")) {
+			a.writeHead(200, {
+				"content-type": "application/json",
+				"cache-control": "no-store"
+			}), a.end(JSON.stringify({
+				...t,
+				pid: process.pid,
+				startedAt: o,
+				...r()
+			}));
+			return;
+		}
+		if (e.method === "POST" && e.url === "/stop") {
+			a.writeHead(202), a.end("{}"), n();
+			return;
+		}
+		a.writeHead(404), a.end();
 	});
 	c.requestTimeout = 5e3, await new Promise((e, t) => {
 		c.once("error", t), c.listen(0, "127.0.0.1", e);
@@ -10776,10 +10838,10 @@ async function Ia(e = process.argv.slice(2)) {
 		if (Fa.includes(t)) {
 			if (o.has(t)) throw new L("ARGUMENT_INVALID", "Duplicate option");
 			o.add(t);
-		} else {
-			if (!Pa.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new L("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
-			i.set(t, r[++e]);
+			continue;
 		}
+		if (!Pa.includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new L("ARGUMENT_INVALID", "Unknown, duplicate or incomplete option. Run --help");
+		i.set(t, r[++e]);
 	}
 	let s = {
 		configPath: i.get("--config"),
@@ -11139,18 +11201,24 @@ var eo = class {
 					return;
 				}
 				let s = Xa(c);
-				Object.keys(i.accepted).length >= 4096 || s && Object.values(i.accepted).filter((e) => e.pending).length >= 256 || (i.accepted[c.id] = {
-					receivedAt: o,
-					expiresAt: o + 39e5,
-					notification: { ...c },
-					pending: s,
-					acknowledged: !1
-				}, Buffer.byteLength(JSON.stringify(i)) > 4194304 ? delete i.accepted[c.id] : l = s ? {
-					status: 200,
-					headers: {},
-					notification: { ...c },
-					acceptedId: c.id
-				} : t(200));
+				if (!(Object.keys(i.accepted).length >= 4096 || s && Object.values(i.accepted).filter((e) => e.pending).length >= 256)) {
+					if (i.accepted[c.id] = {
+						receivedAt: o,
+						expiresAt: o + 39e5,
+						notification: { ...c },
+						pending: s,
+						acknowledged: !1
+					}, Buffer.byteLength(JSON.stringify(i)) > 4194304) {
+						delete i.accepted[c.id];
+						return;
+					}
+					l = s ? {
+						status: 200,
+						headers: {},
+						notification: { ...c },
+						acceptedId: c.id
+					} : t(200);
+				}
 			}), l;
 		} catch {
 			return t(503);
@@ -11408,9 +11476,15 @@ var fo = class {
 				await this.remember(l);
 			}
 		})().catch(async (e) => {
-			if (e instanceof R && e.code === "FEATURE_DISABLED") await this.disableWake();
-			else if (e instanceof R && e.code === "RATE_LIMITED" && e.reason === "wake_subscription_create_limit" && Number.isSafeInteger(e.retryAfterSeconds) && e.retryAfterSeconds >= 0) this.subscriptionRetryAt = this.now() + e.retryAfterSeconds * 1e3;
-			else throw e;
+			if (e instanceof R && e.code === "FEATURE_DISABLED") {
+				await this.disableWake();
+				return;
+			}
+			if (e instanceof R && e.code === "RATE_LIMITED" && e.reason === "wake_subscription_create_limit" && Number.isSafeInteger(e.retryAfterSeconds) && e.retryAfterSeconds >= 0) {
+				this.subscriptionRetryAt = this.now() + e.retryAfterSeconds * 1e3;
+				return;
+			}
+			throw e;
 		}).finally(() => {
 			this.createFlight = null;
 		}), this.createFlight;
@@ -11583,7 +11657,13 @@ function ho(e) {
 		}), t.on("aborted", () => {
 			o = !0, l();
 		}), t.on("data", (e) => {
-			o || (a += e.length, a > 1024 ? (o = !0, l(), r(400), t.resume()) : i.push(Buffer.from(e)));
+			if (!o) {
+				if (a += e.length, a > 1024) {
+					o = !0, l(), r(400), t.resume();
+					return;
+				}
+				i.push(Buffer.from(e));
+			}
 		}), t.on("end", () => {
 			l(), !(o || e.signal.aborted) && (async () => {
 				let a, o = await Promise.race([e.receiver.receive({
@@ -11593,14 +11673,18 @@ function ho(e) {
 				}), new Promise((e, t) => {
 					a = setTimeout(() => t(/* @__PURE__ */ Error("Wake verification deadline")), 3500);
 				})]).finally(() => clearTimeout(a));
-				e.signal.aborted ? r(503) : (o.status >= 200 && o.status < 300 && n.once("finish", () => {
+				if (e.signal.aborted) {
+					r(503);
+					return;
+				}
+				o.status >= 200 && o.status < 300 && n.once("finish", () => {
 					e.signal.aborted || (async () => {
 						o.acceptedId && await e.host.acknowledge(o.acceptedId), await e.host.dispatchPending(e.signal);
 					})().catch(() => e.onError?.("WAKE_DISPATCH_FAILED"));
 				}), n.headersSent || (n.writeHead(o.status, {
 					...o.headers,
 					"cache-control": "no-store"
-				}), n.end()));
+				}), n.end());
 			})().catch(() => r(503));
 		});
 	};

@@ -14,7 +14,7 @@ var C = Object.create, w = Object.defineProperty, T = Object.getOwnPropertyDescr
 	} catch (e) {
 		throw n = [e], e;
 	}
-}, A = (e, t) => () => (t || (e((t = { exports: {} }).exports, t, t.exports), e = null), t.exports), j = (e, t) => {
+}, A = (e, t) => () => (t || (e((t = { exports: {} }).exports, t), e = null), t.exports), j = (e, t) => {
 	let n = {};
 	for (var r in e) w(n, r, {
 		get: e[r],
@@ -2288,12 +2288,22 @@ function ft(e) {
 	let t = +(e.charCodeAt(0) === 65279), n = () => {
 		throw Error("configuration syntax");
 	}, r = () => {
-		for (; t < e.length;) if (/\s/.test(e[t])) t++;
-		else if (e.slice(t, t + 2) === "//") for (t += 2; t < e.length && !/[\r\n]/.test(e[t]);) t++;
-		else if (e.slice(t, t + 2) === "/*") {
-			let r = e.indexOf("*/", t + 2);
-			r < 0 && n(), t = r + 2;
-		} else break;
+		for (; t < e.length;) {
+			if (/\s/.test(e[t])) {
+				t++;
+				continue;
+			}
+			if (e.slice(t, t + 2) === "//") {
+				for (t += 2; t < e.length && !/[\r\n]/.test(e[t]);) t++;
+				continue;
+			}
+			if (e.slice(t, t + 2) === "/*") {
+				let r = e.indexOf("*/", t + 2);
+				r < 0 && n(), t = r + 2;
+				continue;
+			}
+			break;
+		}
 	}, i = () => {
 		let r = e[t++], i = "";
 		for (; t < e.length;) {
@@ -4681,7 +4691,11 @@ var Kt = /* @__PURE__ */ A(((e) => {
 	Object.defineProperty(e, "__esModule", { value: !0 }), e.getData = e.KeywordCxt = e.validateFunctionCode = void 0;
 	var t = Yt(), n = Qt(), r = Zt(), i = Qt(), a = $t(), o = en(), s = tn(), c = J(), l = X(), u = an(), d = Y(), f = Jt();
 	function p(e) {
-		S(e) && (w(e), x(e)) ? _(e) : m(e, () => (0, t.topBoolOrEmptySchema)(e));
+		if (S(e) && (w(e), x(e))) {
+			_(e);
+			return;
+		}
+		m(e, () => (0, t.topBoolOrEmptySchema)(e));
 	}
 	e.validateFunctionCode = p;
 	function m({ gen: e, validateName: t, schema: n, schemaEnv: r, opts: i }, a) {
@@ -4714,7 +4728,11 @@ var Kt = /* @__PURE__ */ A(((e) => {
 		return n && (t.code.source || t.code.process) ? (0, c._)`/*# sourceURL=${n} */` : c.nil;
 	}
 	function b(e, n) {
-		S(e) && (w(e), x(e)) ? C(e, n) : (0, t.boolOrEmptySchema)(e, n);
+		if (S(e) && (w(e), x(e))) {
+			C(e, n);
+			return;
+		}
+		(0, t.boolOrEmptySchema)(e, n);
 	}
 	function x({ schema: e, self: t }) {
 		if (typeof e == "boolean") return !e;
@@ -4792,9 +4810,15 @@ var Kt = /* @__PURE__ */ A(((e) => {
 		!e.schemaEnv.meta && e.opts.strictTypes && (I(e, t), e.opts.allowUnionTypes || L(e, t), ee(e, e.dataTypes));
 	}
 	function I(e, t) {
-		t.length && (e.dataTypes.length ? (t.forEach((t) => {
-			te(e.dataTypes, t) || re(e, `type "${t}" not allowed by context "${e.dataTypes.join(",")}"`);
-		}), ne(e, t)) : e.dataTypes = t);
+		if (t.length) {
+			if (!e.dataTypes.length) {
+				e.dataTypes = t;
+				return;
+			}
+			t.forEach((t) => {
+				te(e.dataTypes, t) || re(e, `type "${t}" not allowed by context "${e.dataTypes.join(",")}"`);
+			}), ne(e, t);
+		}
 	}
 	function L(e, t) {
 		t.length > 1 && !(t.length === 2 && t.includes("null")) && re(e, "use allowUnionTypes to allow union type keyword");
@@ -4840,7 +4864,11 @@ var Kt = /* @__PURE__ */ A(((e) => {
 			this.failResult((0, c.not)(e), void 0, t);
 		}
 		fail(e) {
-			e === void 0 ? (this.error(), this.allErrors || this.gen.if(!1)) : (this.gen.if(e), this.error(), this.allErrors ? this.gen.endIf() : this.gen.else());
+			if (e === void 0) {
+				this.error(), this.allErrors || this.gen.if(!1);
+				return;
+			}
+			this.gen.if(e), this.error(), this.allErrors ? this.gen.endIf() : this.gen.else();
 		}
 		fail$data(e) {
 			if (!this.$data) return this.fail(e);
@@ -4848,7 +4876,11 @@ var Kt = /* @__PURE__ */ A(((e) => {
 			this.fail((0, c._)`${t} !== undefined && (${(0, c.or)(this.invalid$data(), e)})`);
 		}
 		error(e, t, n) {
-			t ? (this.setParams(t), this._error(e, n), this.setParams({})) : this._error(e, n);
+			if (t) {
+				this.setParams(t), this._error(e, n), this.setParams({});
+				return;
+			}
+			this._error(e, n);
 		}
 		_error(e, t) {
 			(e ? f.reportExtraError : f.reportError)(this, this.def.error, t);
@@ -5168,8 +5200,11 @@ var Kt = /* @__PURE__ */ A(((e) => {
 	function _(e) {
 		if (e.length === 0) return !1;
 		for (let t = 0; t < e.length; t++) if (!h(e[t])) {
-			if (e[t] === "%" && t + 2 < e.length && a(e.slice(t + 1, t + 3))) t += 2;
-			else return !1;
+			if (e[t] === "%" && t + 2 < e.length && a(e.slice(t + 1, t + 3))) {
+				t += 2;
+				continue;
+			}
+			return !1;
 		}
 		return !0;
 	}
@@ -5192,10 +5227,10 @@ var Kt = /* @__PURE__ */ A(((e) => {
 			if (n.indexOf(".") !== -1) {
 				if (e !== a.length - 1 || t !== -1 && i.length === 0 || !r(n)) return;
 				o += 2;
-			} else {
-				if (!p(n)) return;
-				a[e] = parseInt(n, 16).toString(16), o++;
+				continue;
 			}
+			if (!p(n)) return;
+			a[e] = parseInt(n, 16).toString(16), o++;
 		}
 		if (t === -1) return o === 8 ? v(a) : void 0;
 		if (o >= 8) return;
@@ -6136,13 +6171,14 @@ var Kt = /* @__PURE__ */ A(((e) => {
 		}
 	}
 	function T(e) {
-		if (Array.isArray(e)) this.addVocabulary(e);
-		else {
-			this.logger.warn("keywords option as map is deprecated, pass array");
-			for (let t in e) {
-				let n = e[t];
-				n.keyword ||= t, this.addKeyword(n);
-			}
+		if (Array.isArray(e)) {
+			this.addVocabulary(e);
+			return;
+		}
+		this.logger.warn("keywords option as map is deprecated, pass array");
+		for (let t in e) {
+			let n = e[t];
+			n.keyword ||= t, this.addKeyword(n);
 		}
 	}
 	function E() {
@@ -6622,7 +6658,11 @@ var Kt = /* @__PURE__ */ A(((e) => {
 		},
 		code(e) {
 			let { parentSchema: t, it: r } = e, { items: a } = t;
-			Array.isArray(a) ? i(e, a) : (0, n.checkStrictMode)(r, "\"additionalItems\" is ignored when \"items\" is not an array of schemas");
+			if (!Array.isArray(a)) {
+				(0, n.checkStrictMode)(r, "\"additionalItems\" is ignored when \"items\" is not an array of schemas");
+				return;
+			}
+			i(e, a);
 		}
 	};
 	function i(e, r) {
@@ -6891,9 +6931,15 @@ var Kt = /* @__PURE__ */ A(((e) => {
 				a.code((0, n._)`delete ${c}[${e}]`);
 			}
 			function v(t) {
-				if (f.removeAdditional === "all" || f.removeAdditional && o === !1) _(t);
-				else if (o === !1) e.setParams({ additionalProperty: t }), e.error(), d || a.break();
-				else if (typeof o == "object" && !(0, i.alwaysValidSchema)(u, o)) {
+				if (f.removeAdditional === "all" || f.removeAdditional && o === !1) {
+					_(t);
+					return;
+				}
+				if (o === !1) {
+					e.setParams({ additionalProperty: t }), e.error(), d || a.break();
+					return;
+				}
+				if (typeof o == "object" && !(0, i.alwaysValidSchema)(u, o)) {
 					let r = a.name("valid");
 					f.removeAdditional === "failing" ? (y(t, r, !1), a.if((0, n.not)(r), () => {
 						e.reset(), _(t);
@@ -8828,16 +8874,16 @@ async function ii(e = process.argv.slice(2)) {
 		if (["--install-service", "--handoff-stdin"].includes(t)) {
 			if (o.has(t)) throw new F("Duplicate option");
 			o.add(t);
-		} else {
-			if (![
-				"--handoff",
-				"--config",
-				"--agent",
-				"--gateway-url",
-				"--state-dir"
-			].includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new F("Unknown, duplicate or incomplete option. Run --help");
-			i.set(t, r[++e]);
+			continue;
 		}
+		if (![
+			"--handoff",
+			"--config",
+			"--agent",
+			"--gateway-url",
+			"--state-dir"
+		].includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new F("Unknown, duplicate or incomplete option. Run --help");
+		i.set(t, r[++e]);
 	}
 	if (t === "setup") {
 		if (i.has("--handoff") === o.has("--handoff-stdin")) throw new F("Supply either --handoff <file> or --handoff-stdin");

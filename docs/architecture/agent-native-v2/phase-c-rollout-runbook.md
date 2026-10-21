@@ -10,14 +10,14 @@ Values marked **TO CONFIRM** are not recorded in this repository. Fill them in f
 
 | Item | Value | Source |
 | --- | --- | --- |
-| Candidate SHA | **TO CONFIRM.** `integration/agent-native` was `f3a71f6` at C-A6. The follow-ups #150, #151 and #152 change server code, so the candidate becomes the SHA that integrates them. | board #34 |
+| Candidate SHA | **TO CONFIRM.** `integration/agent-native` was `f3a71f6` at C-A6. The follow-ups #150, #151 and #152 are integrated in `e8a958f` (#162), the SHA that passed Gate B-local (countersigned on #34, comment 6304550858); `f7cafcb` adds only its evidence. The vite advisory fix (#169, vite 8.3.3) leaves `web/**` and the helper byte-identical, and vite is a dev dependency the image never installs, so it doesn't change the gated runtime. Recheck that on the final candidate: `npm run build` must leave `git status` clean and the helper must stay `5c2a4318…`. Any change to `src/**`, `web/**`, `db/**`, `protocol/**` or the helper needs the applicable gate again (L5). | board #34 |
 | Release manifest and helper hashes | **TO CONFIRM for the final candidate.** At `9b9c109`/`f3a71f6` the owner recorded release-manifest `7b75636c…a013c` and onboarding-helper `0921201a…16f0`. The follow-ups change no generated output, but recompute the hashes on the final candidate anyway. | INTEGRATED C-A6 post |
 | Staging Worker | Wrangler environment `staging` in `wrangler.jsonc` (`workers_dev: true`, one `basic` container, `max_instances: 1`, cron `* * * * *`). Deployed with `npm run cf:deploy:staging`, which passes only `ENVOI_RELEASE_SHA` and refuses a dirty worktree. | `wrangler.jsonc`, `scripts/deploy-staging.mjs` |
 | Staging URL | `https://sinaloa-staging.rachelgonsalves821.workers.dev` as recorded on 2026-09-29. **TO CONFIRM** that it is still current. | `docs/runtime-configuration-status.md` |
 | Cloudflare account | `RELEASE_ACCOUNT_ID` in `scripts/promote-release.mjs`. **TO CONFIRM** that staging is in this account. | repo |
 | Staging database identity and backup | **TO CONFIRM.** It must be separate from beta; the GA rerun found that sharing caused contamination. | Je, read-only |
 | Currently deployed staging version | **TO CONFIRM.** Record the Worker version ID, the container image reference and `/health` `releaseSha`. This is the rollback target (§6). | Je, read-only |
-| Wake settings and signing key | **TO CONFIRM** (§3). Wake can stay off for the run if no public HTTPS receiver exists yet. Rows C19–C21 are then reported as not run, never as passed. | Je |
+| Wake settings and signing key | **TO CONFIRM** (§3). **The first hosted batch runs with wake ON, and rows C19–C21 are in it** (Rachel's scope decision, board #34 comments 6278276747 and 6299040516). So that batch needs a public HTTPS receiver, the signing key and the wake settings before it starts. Wake OFF with C19–C21 reported as not run is no longer an option for it; that applies only to a later run Je and Rachel scope that way, and then those rows are never reported as passed. | Je, Rachel |
 | Pinned Wrangler | `wrangler ^4.144.0` (root `package.json`). Check each command's flags with `--help` on the installed version before use. | repo |
 
 ## 2. Flags: order and dependencies
