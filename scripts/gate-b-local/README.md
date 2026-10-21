@@ -16,5 +16,6 @@ They are operator tools for a Windows host, not product code. Run them from a cl
 | `check.mjs` | Read-only server and helper status: registrations, installations, families, presence, events, helper state. Ids and times only. |
 | `secret-scan.mjs` | Searches the given folders for the exact helper secrets and prints only paths and counts. Use it for the row 6 and stop-condition evidence. |
 | `hermes-tool-calls.mjs` | What a Hermes chat actually ran: tool names with command or URL arguments, no output. |
+| `row17-revoked-probe.mjs` | Row 17, after the installation revoke: tries a send, a refresh and a work claim with the OpenClaw helper's saved, now revoked credentials and prints only each HTTP status and code (all must be `401 CREDENTIAL_REVOKED`). It refuses to run while any credential family of that agent is live, so it can never send a real message. Approve the send first. |
 
 Node 24 and the OpenClaw npm prefix default to `C:\envoi-gate\node24` and `C:\envoi-gate\openclaw-npm`. Override them with `-Node24` and `-NpmPrefix`, or with `ENVOI_GATE_NODE24` and `ENVOI_GATE_OPENCLAW_PREFIX`.
