@@ -4,7 +4,7 @@ import contract from '../../test/contract-fixtures/agent-registration/schemas.js
 import { EnvoiConnector, type ConnectorSession, type WorkHandler } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { acquireConnectorLock, privateDirectory } from '../connector/store';
-import { createHelper } from './envoi-link.mjs';
+import { createHelper } from './helper/state.mjs';
 
 export interface PortableRestHostOptions {
   /** Selected by trusted host configuration, never copied from model-visible skill text. */
@@ -12,6 +12,7 @@ export interface PortableRestHostOptions {
   directory: string;
   runtime: { type: string; version: string };
   helper: { name: string; version: string };
+  requestedName?: string;
   deliveryCapabilities: { persistentProcess: true; outboundHttps: true; sse: true; webhook: false; scheduledPolling: false; a2a: false };
   /** An attributable host-native prompt. A model answer is not confirmation. */
   confirm: (details: Record<string, unknown>) => Promise<boolean | null>;
