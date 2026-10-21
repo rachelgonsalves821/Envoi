@@ -37,7 +37,13 @@ export async function createHelper(options) {
   const route = options.connectionRoute ?? 'local_helper';
   if (!['local_helper', 'authenticated_rest'].includes(route)) throw new Error('ROUTE_REQUIRED');
   if (!runtime || (route === 'local_helper' ? !['hermes', 'openclaw'].includes(runtime.type) : !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(runtime.type))
-    || typeof runtime.version !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$/.test(runtime.version)) throw new Error('RUNTIME_REQUIRED');
+    || typeof runtime.version !== 'string' || (route === 'local_helper'
+      ? !runtime.version || runtime.version.length > 80
+      : !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$/.test(runtime.version))) throw new Error('RUNTIME_REQUIRED');
+  if (route === 'authenticated_rest' && (!options.helper || typeof options.helper.name !== 'string'
+    || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(options.helper.name)
+    || typeof options.helper.version !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$/.test(options.helper.version)
+    || Object.keys(options.helper).some(key => !['name', 'version'].includes(key)))) throw new Error('HELPER_METADATA_REQUIRED');
   const capabilities = options.deliveryCapabilities ?? (route === 'local_helper'
     ? { persistentProcess: true, outboundHttps: true, sse: true, webhook: false, scheduledPolling: false, a2a: false }
     : null);

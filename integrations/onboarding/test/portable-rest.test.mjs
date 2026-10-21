@@ -18,7 +18,7 @@ function privateStore() {
     lock: operation => operation() };
 }
 
-async function client(available = true) {
+async function client(available = true, invalidStep = null) {
   const store = privateStore();
   const calls = []; const adopted = []; let confirmed = false;
   const created = (await fixture('registration-created')).response.body;
@@ -27,6 +27,8 @@ async function client(available = true) {
   activated.installation.connectionRoute = 'authenticated_rest';
   const status = (await fixture('agent-status-installation')).response.body;
   status.installation.connectionRoute = 'authenticated_rest';
+  if (invalidStep === 'activation') activated.installation.connectionRoute = 'local_helper';
+  if (invalidStep === 'status') status.installation.connectionRoute = 'local_helper';
   const availability = (await fixture(available ? 'routes-available-rest' : 'routes-available')).response.body;
   const responses = [availability, created, approved, activated, status];
   let time = Date.parse('2026-10-12T12:00:00.000Z');
@@ -47,8 +49,19 @@ test('REST route requires independent availability and actual private host capab
   const unavailable = await client(false);
   assert.equal((await unavailable.helper.connect()).guidance, 'route_unavailable');
   assert.equal(unavailable.calls.length, 1);
-  await assert.rejects(createHelper({ contract, origin, runtime, connectionRoute: 'authenticated_rest', store: privateStore(), adopt: async () => {} }), /DELIVERY_CAPABILITIES_REQUIRED/);
-  await assert.rejects(createHelper({ contract, origin, runtime, connectionRoute: 'authenticated_rest', deliveryCapabilities: { ...deliveryCapabilities, sse: false }, store: privateStore(), adopt: async () => {} }), /DELIVERY_CAPABILITIES_REQUIRED/);
+  const helper = { name: 'rest-host', version: '1.0.0' };
+  await assert.rejects(createHelper({ contract, origin, runtime, connectionRoute: 'authenticated_rest', helper, store: privateStore(), adopt: async () => {} }), /DELIVERY_CAPABILITIES_REQUIRED/);
+  await assert.rejects(createHelper({ contract, origin, runtime, connectionRoute: 'authenticated_rest', helper, deliveryCapabilities: { ...deliveryCapabilities, sse: false }, store: privateStore(), adopt: async () => {} }), /DELIVERY_CAPABILITIES_REQUIRED/);
+  await assert.rejects(createHelper({ contract, origin, runtime, connectionRoute: 'authenticated_rest', deliveryCapabilities, store: privateStore(), adopt: async () => {} }), /HELPER_METADATA_REQUIRED/);
+});
+
+for (const stage of ['activation', 'status']) test(`REST route rejects ${stage} response bound to another route`, async () => {
+  const host = await client(true, stage);
+  await host.helper.connect(); host.tick(5000);
+  const result = await host.helper.resume();
+  assert.equal(result.state, stage === 'activation' ? 'needs_help' : 'degraded');
+  assert.doesNotMatch(JSON.stringify(result), /envoi_agent_|envoi_reg_|private-host-store/);
+  assert.equal(host.adopted.length, stage === 'activation' ? 0 : 1);
 });
 
 test('generic HTTPS host reuses private registration and verifies authenticated identity after activation', async () => {
