@@ -523,14 +523,33 @@ function checkStoredOAuthRecords(fixture, label) {
     assert.equal(Date.parse(recovery.expiresAt) - Date.parse(recovery.createdAt), 60_000, `${label}: the envelope lives 60 s`);
     for (const [hash, type] of [[recovery.successorAccessHash, 'oauth_access'], [recovery.successorRefreshHash, 'oauth_refresh']]) {
       const successor = credentialRecords.find((entry) => entry.tokenHash === hash);
-      assert.ok(successor && successor.tokenType === type && successor.familyId === family.id && successor.usedAt === null, `${label}: the envelope's ${type} successor is unused`);
+      assert.ok(successor && successor.tokenType === type && successor.familyId === family.id && successor.usedAt === null && successor.issuedAt === recovery.createdAt, `${label}: the envelope's ${type} successor was issued by this rotation and is unused`);
     }
+    // A1: the rotation rolls the family's expiry, and the successor refresh token carries it.
+    const successorRefresh = credentialRecords.find((entry) => entry.tokenHash === recovery.successorRefreshHash);
+    assert.equal(successorRefresh.expiresAt, family.refreshExpiresAt, `${label}: the successor refresh token expires with the family`);
+    assert.ok(family.refreshExpiresAt > old.expiresAt, `${label}: the rotation extended refreshExpiresAt`);
+  }
+  // §14.6: every code index and consent decision has exactly one cleanup entry, deleted no later than its record.
+  const { oauthCleanupIndex = [] } = fixture.stored;
+  const indexed = [...oauthCodes.map((entry) => ['oauth_code', entry.codeHash, entry.registrationId]), ...consentDecisions.map((entry) => ['consent_decision', entry.handleDigest, entry.registrationId])];
+  assert.deepEqual(oauthCleanupIndex.map((entry) => [entry.kind, entry.key, entry.registrationId]).sort(), indexed.sort(), `${label}: one cleanup entry per code index and consent decision`);
+  for (const entry of oauthCleanupIndex) {
+    const registration = registrations.find((item) => item.id === entry.registrationId);
+    const denial = consentDecisions.find((item) => item.handleDigest === entry.key && item.decision === 'denied');
+    const deleteAfter = registration ? new Date(Date.parse(registration.createdAt) + 86_400_000).toISOString() : denial?.handleExpiresAt;
+    assert.equal(entry.deleteAfter, deleteAfter, `${label}: a cleanup entry expires with its registration's retention, or with its denied handle`);
   }
   const stored = JSON.stringify(fixture.stored);
   assert.doesNotMatch(stored, /envoi_oauth_code_|envoi_boot_|envoi_agent_|redirectTo|[?&]code=|code_verifier|client_secret/, `${label}: stored records hold no code, token, verifier, secret or code-bearing URL`);
+  // Every client and audience this fixture stores, derived from its own records.
+  const clientValues = [...new Set([...credentialFamilies, ...registrations.map((entry) => entry.oauth)].flatMap((entry) => [entry.oauthClientId, entry.clientId, entry.audience, entry.resource]).filter(Boolean))];
+  const hosts = [...new Set(clientValues.filter((value) => value.startsWith('https://')).map((value) => new URL(value).host).filter((host) => !['www.envoi-agents.com'].includes(host)))];
   for (const step of fixture.steps) {
     const shown = JSON.stringify(step.response.body);
-    assert.doesNotMatch(shown, /"audience"|"oauthClientId"|\/mcp"|assistant\.example\.com|client_[a-z0-9-]{3,40}"/, `${label}: owner and agent responses never carry the audience or the client`);
+    assert.doesNotMatch(shown, /"audience"|"oauthClientId"|\/mcp"/, `${label}: owner and agent responses never carry the audience or the client`);
+    for (const value of [...clientValues, ...hosts]) assert.ok(!shown.includes(value), `${label}: responses never include ${value}`);
+    // Fixtures name an OAuth-family bearer envoi_agent_access_PLACEHOLDER_oauth (only these stored-* fixtures use it).
     const oauthBearer = /PLACEHOLDER_oauth$/.test(step.request.headers?.authorization || '');
     if (oauthBearer) assert.equal(step.response.body.code, 'AUTHENTICATION_REQUIRED', `${label}: ${step.request.method} ${step.request.path} refuses an OAuth token here`);
   }
@@ -2034,7 +2053,7 @@ test('agent-registration revision 5 stored records agree across cases', async ()
   const load = (name) => readJson(path.join(dir, `${name}.json`));
   const schemas = await load('schemas');
   const table = schemas['x-stored-records'];
-  for (const prefix of ['auth/agent-credential-families/', 'auth/agent-credentials/', 'auth/agent-registrations/', 'auth/oauth-codes/', 'auth/oauth-consent-decisions/', 'auth/agent-oauth-refresh-recovery/', 'rate-limits/oauth-', 'process memory only']) {
+  for (const prefix of ['auth/agent-credential-families/', 'auth/agent-credentials/', 'auth/agent-registrations/', 'auth/oauth-codes/', 'auth/oauth-consent-decisions/', 'auth/agent-oauth-refresh-recovery/', 'auth/oauth-cleanup/', 'rate-limits/oauth-', 'process memory only']) {
     assert.ok(table.some((row) => row.path.includes(prefix)), `x-stored-records names ${prefix}`);
   }
   for (const row of table) for (const key of ['record', 'path', 'writtenBy', 'transaction', 'secret', 'retention', 'cleanup']) assert.equal(typeof row[key], 'string', `${row.record}: ${key}`);
@@ -2044,7 +2063,13 @@ test('agent-registration revision 5 stored records agree across cases', async ()
   assert.equal(flagsOff.flags.ENVOI_REMOTE_MCP_OAUTH || flagsOff.flags.ENVOI_PROVIDER_CONNECTORS, false, 'flags-off: both route flags off');
   assert.equal('ENVOI_REMOTE_MCP_OAUTH' in sourceRollback.flags || 'ENVOI_PROVIDER_CONNECTORS' in sourceRollback.flags, false, 'source rollback: the older server has no route flags');
   for (const fixture of [flagsOff, sourceRollback]) {
-    assert.deepEqual(fixture.stored, { ...installed.stored, consentDecisions: installed.stored.consentDecisions.filter((entry) => entry.decision === 'approved') }, `${fixture.id}: rollback reads the records the approval left, unchanged`);
+    // The earlier denial has expired by then and was swept with its cleanup entry.
+    const approvedOnly = {
+      ...installed.stored,
+      consentDecisions: installed.stored.consentDecisions.filter((entry) => entry.decision === 'approved'),
+      oauthCleanupIndex: installed.stored.oauthCleanupIndex.filter((entry) => entry.registrationId !== null)
+    };
+    assert.deepEqual(fixture.stored, approvedOnly, `${fixture.id}: rollback reads the records the approval left, unchanged`);
     const paths = fixture.steps.map((step) => `${step.request.method} ${step.request.path.split('/').slice(0, 3).join('/')}`);
     assert.ok(paths.includes('POST /mcp') && paths.some((entry) => entry.startsWith('GET /api/agent')), `${fixture.id}: OAuth tokens refused at /mcp and on REST`);
     assert.equal(fixture.steps.at(-1).response.schema, 'installationRevoked', `${fixture.id}: the owner can still revoke`);

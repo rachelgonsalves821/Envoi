@@ -85,6 +85,23 @@
         "approvedAt": "2026-10-22T12:00:00.000Z",
         "activationExpiresAt": "2026-10-22T12:01:00.000Z",
         "activatedAt": "2026-10-22T12:00:20.000Z",
+        "target": {
+          "kind": "new_agent",
+          "workspaceInboxId": "inbox_workspace",
+          "organizationId": "org_example",
+          "agentName": "Example assistant",
+          "name": "Example assistant",
+          "localPart": "example",
+          "address": "example@envoi.mail"
+        },
+        "workspaceName": "Example workspace",
+        "approverHumanId": "human_example",
+        "principalHumanId": "human_example",
+        "effectivePermissions": [
+          "send_agent_messages",
+          "receive_agent_messages"
+        ],
+        "policyProfile": "default",
         "installationId": "installation_remote_example",
         "credentialFamilyId": "credential_family_remote-example",
         "agentId": "agent_example",
@@ -126,6 +143,22 @@
         "clientId": "https://assistant.example.com/oauth/envoi-client.json",
         "expiresAt": "2026-10-22T12:01:00.000Z",
         "usedAt": "2026-10-22T12:00:20.000Z"
+      }
+    ],
+    "oauthCleanupIndex": [
+      {
+        "kind": "oauth_code",
+        "key": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+        "registrationId": "registration_remote_example",
+        "createdAt": "2026-10-22T12:00:00.000Z",
+        "deleteAfter": "2026-10-23T12:00:00.000Z"
+      },
+      {
+        "kind": "consent_decision",
+        "key": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+        "registrationId": "registration_remote_example",
+        "createdAt": "2026-10-22T12:00:00.000Z",
+        "deleteAfter": "2026-10-23T12:00:00.000Z"
       }
     ]
   },
@@ -185,6 +218,48 @@
         "retry": "refresh_then_retry_once",
         "guidance": "none",
         "next": "Refused at /mcp too: the older server never accepts an audience-bound token anywhere."
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/agent-claims",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerClaimList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "claims": [
+            {
+              "registrationId": "registration_remote_example",
+              "status": "activated",
+              "target": "new_agent",
+              "agent": {
+                "name": "Example assistant",
+                "address": "example@envoi.mail"
+              },
+              "effectivePermissions": [
+                "send_agent_messages",
+                "receive_agent_messages"
+              ],
+              "approvedAt": "2026-10-22T12:00:00.000Z",
+              "activationExpiresAt": "2026-10-22T12:01:00.000Z",
+              "installationId": "installation_remote_example",
+              "approvedByMe": true
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner_ui",
+        "next": "The older server lists the OAuth approval from the fields every approval stores: target, workspace, approver and permissions."
       }
     },
     {

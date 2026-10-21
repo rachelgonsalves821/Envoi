@@ -1758,11 +1758,11 @@ The entries before revision 4 were made before Lane B's `CONTRACT-ACK`.
 - **Revision 5: stored records for the agent-remote-auth routes (2026-10-21; published, awaiting Lane B's `CONTRACT-ACK` and the human's approval).**
   - **Why:** agent-remote-auth v1 (approved @`bbd361e`) reaches this contract's approval, activation and family operations, and its §14 deferred the stored-shape note to this contract. The implementation (RA-A1, RA-A2) needs every stored record, transaction, hash rule, retention limit and cleanup path agreed before it starts.
   - **What changed:**
-    - New §14: `audience` and `oauthClientId` on the credential family (§14.1); `oauth_access` and `oauth_refresh` token records, so a source rollback fails closed (§14.2); OAuth registrations and the code index (§14.3); consent decisions, including the denial record that agent-remote-auth §5.3's "Nothing is created" leaves implicit (§14.4); the refresh recovery envelope (§14.5); cleanup and orphans (§14.6); flags-off and source rollback (§14.7).
-    - `schemas.json`: typed `audience`/`oauthClientId` on `storedCredentialFamily` (present together); a rule that `remote_mcp_oauth`/`provider_connector` installations declare `on_demand` with runtime `remote_mcp`/`provider`; new `storedCredentialRecord`, `storedOAuthRegistration`, `storedConsentDecision`, `storedOAuthCode`, `storedOAuthRefreshRecovery`; fixture kind `stored`; optional fixture flags `ENVOI_REMOTE_MCP_OAUTH`, `ENVOI_PROVIDER_CONNECTORS`; `x-stored-records`.
+    - New §14: `audience` and `oauthClientId` on the credential family (§14.1); `oauth_access` and `oauth_refresh` token records, so a source rollback fails closed (§14.2); OAuth registrations and the code index (§14.3); consent decisions, including the denial record that agent-remote-auth §5.3's "Nothing is created" leaves implicit (§14.4); the refresh recovery envelope (§14.5); cleanup, the cleanup index and orphans (§14.6); flags-off and source rollback (§14.7).
+    - `schemas.json`: typed `audience`/`oauthClientId` on `storedCredentialFamily` (present together); a rule that `remote_mcp_oauth` installations declare `on_demand` with runtime `remote_mcp`, and `provider_connector` installations `on_demand` with runtime `provider`; new `storedCredentialRecord`, `storedOAuthRegistration`, `storedConsentDecision`, `storedOAuthCode`, `storedOAuthRefreshRecovery`, `storedOAuthCleanupIndex`; fixture kind `stored`; optional fixture flags `ENVOI_REMOTE_MCP_OAUTH`, `ENVOI_PROVIDER_CONNECTORS`; `x-stored-records`.
     - Six fixtures (§14.8) and `checkStoredOAuthRecords` plus an agreement test in `test/contract-fixtures.test.js`.
   - **Unchanged:** the wire format, every route, code and owner view, today's server behaviour, and every existing record. No data migration.
-  - **For consumers of the fixtures:** the registration directory now holds 85 fixtures, up from 79. Lane B's consuming review `integrations/onboarding/test/agent-registration.review.mjs` pins 79; it is not in CI, but it needs that update.
+  - **For consumers of the fixtures:** the registration directory now holds 85 fixtures, up from 79. Lane B's consuming reviews `integrations/onboarding/test/agent-registration.review.mjs` and `sdk/typescript/reviews/agent-registration.review.ts` pin 79. The `.mjs` also allows only the kinds `http`, `migration`, `rollback` and `restart`. Neither runs in CI, but both need the new count and the kind `stored`.
   - **Version:** internal storage plus one clarification of agent-remote-auth §5.3, so the contract stays v1. It needs Lane B's `CONTRACT-ACK` and the human's version-specific approval before RA-A1 or RA-A2 writes any of these records.
 
 ### 14. Stored records for the agent-remote-auth routes (revision 5)
@@ -1797,14 +1797,14 @@ An OAuth family's token index records (`auth/agent-credentials/{hash}`, `auth/ag
 
 **Rules**
 - A family has `audience` exactly when every token record of it is an `oauth_` type. The server checks both the record type and the family. If they disagree, the token is refused and the mismatch is logged without token material.
-- `oauth_access` is accepted only at `/mcp` (agent-remote-auth §9). Everywhere else it gets `401 AUTHENTICATION_REQUIRED`, like an unknown token.
+- `oauth_access` is accepted only at `/mcp` (agent-remote-auth §9). Everywhere else it gets `401 AUTHENTICATION_REQUIRED`, like an unknown token. The one exception is agent-remote-auth §14's internal dispatch: the agent operations a `/mcp` tool call performs on behalf of the outer `/mcp` request. That dispatch must be marked in a way no external request can forge (a header or a loopback address is not enough), or call the services directly. Either way, the outer request is what authenticated the token.
 - `oauth_refresh` is accepted only at `POST /oauth/token`. At `POST /api/agent-token` it gets `401 REFRESH_TOKEN_INVALID` and **revokes nothing**: it is not a replay of an A1 family. In the other direction, an A1 `refresh` record is unknown at `/oauth/token` (agent-remote-auth §6.2 row 4).
 - An OAuth family never has `mcp_read` records. `POST /api/agent/mcp-read-token` needs an `access` token, and no `/mcp` tool issues one for an OAuth family.
-- `oauth_access.usedAt` records the first request the token authenticated. The server sets it once, before it dispatches that request, with a conditional write. The refresh recovery check depends on it (§14.5).
+- `oauth_access.usedAt` records the first outer `/mcp` request the token authenticated. The server sets it once, before it dispatches that request, with a conditional write under the family's lock, the same lock a refresh takes. Internal dispatch never writes it. The refresh recovery check depends on it (§14.5).
 
 #### 14.3 Registrations and the code index
 
-**The registration.** Consent approval (agent-remote-auth §5.2) and bootstrap issue (§8) create a registration that is already `approved` (`storedOAuthRegistration`). It enters the same indexes as every approval: the created and decided hour buckets, the principal's slot index, the approver index and, for `new_agent`, the address hold. It holds the usual decision fields of §5.3, plus `oauth`:
+**The registration.** Consent approval (agent-remote-auth §5.2) and bootstrap issue (§8) create a registration that is already `approved` (`storedOAuthRegistration`). It enters the same indexes as every approval: the created and decided hour buckets, the principal's slot index, the approver index and, for `new_agent`, the address hold. It holds the usual decision fields of §5.3: `target`, `workspaceName`, `approverHumanId`, `principalHumanId`, `effectivePermissions`, `policyProfile`, `approvedAt` and `activationExpiresAt`. Every server version reads those, including one that predates this revision (`GET /api/agent-claims`). It also holds `oauth`:
 
 | `oauth` field | Value |
 | --- | --- |
@@ -1862,19 +1862,22 @@ A refresh (agent-remote-auth §6.2) runs in one transaction under the family's l
 - **Encryption:** AES-256-GCM, with `familyId` and `oauthClientId` bound as additional data. A database read plus the server key cannot decrypt it, and it cannot be replayed into another family or for another client.
 - **Contents:** the `tokenResponse`. The record also holds the two successor hashes and `expiresAt`, 60 s after the rotation.
 
-**Recovery.** The same client presenting the old token gets the identical response from the envelope, provided all of these hold:
+**Recovery.** The same client presenting the old token gets the identical response from the envelope, provided all of these hold, checked under the family's lock:
 - the family is not revoked;
 - the envelope exists and has not expired;
 - both successors are unused: the new refresh record's `usedAt` is `null`, and so is the new access record's (§14.2).
 
 Every other presentation of a used refresh token is replay. The family is revoked with `refresh_replay`, and the installation ends with that reason (§6.4).
 
-**Deletion.** The envelope is deleted at the first use of either successor, or when the family is revoked (best effort, because a revoked family is refused anyway). The reaper deletes any envelope past `expiresAt`, as `reapAgentRotationRecovery` does for A1.
+A recovery can never race a successor's first use. The first use of the successor access token is written under the same lock (§14.2), and the successor refresh token can only be used through a refresh, which takes that lock.
+
+**Deletion.** The reaper deletes any envelope past `expiresAt`, as `reapAgentRotationRecovery` does for A1. Revoking the family also deletes it (best effort, because a revoked family is refused anyway). A successor's first use does not delete it: no successor record points back to the old token, and from then on the `usedAt` check already refuses recovery.
 
 #### 14.6 Cleanup and orphans
 
 - **Registrations.** §2's registration cleanup (24 h after `createdAt`) also deletes an OAuth registration's code index and its approved consent decision, in the same lock as the registration.
-- **Sweeps.** Cleanup also sweeps:
+- **Cleanup index.** Every code index and consent decision write also writes an entry `auth/oauth-cleanup/{hour of createdAt}/{key}` (`storedOAuthCleanupIndex`: `kind`, `key`, `registrationId`, `createdAt`, `deleteAfter`), in the same write. Cleanup walks these hour buckets as it walks the registration buckets, so its work stays bounded. It deletes a record once its `deleteAfter` has passed or its registration is gone, and then the entry.
+- **Sweeps.** Through that index, cleanup also sweeps:
   - denied consent decisions after `handleExpiresAt`;
   - expired refresh recovery envelopes;
   - **orphans**: a code index or consent decision whose registration no longer exists.
@@ -1891,7 +1894,7 @@ Every other presentation of a used refresh token is replay. The family is revoke
   - turning a flag on again restores every family that has not expired or been revoked.
 - **Source rollback** to a release that predates agent-remote-auth (fixture `stored-oauth-source-rollback`):
   - That server refuses `oauth_` token types everywhere (§14.2).
-  - It lists the installation from the same documents, and the owner can revoke it there.
+  - It lists the installation from the same documents, and lists the approval in `GET /api/agent-claims`. The owner can revoke the installation there.
   - It ignores `audience`, `oauthClientId`, the `oauth` registration field and the new paths.
   - Its registration cleanup deletes OAuth registrations after 24 h and leaves their code index and consent decision behind. A revision-5 server treats those as orphans (§14.6).
   - Rolling forward again needs no repair.
@@ -1899,7 +1902,7 @@ Every other presentation of a used refresh token is replay. The family is revoke
 
 #### 14.8 Fixtures (`kind: "stored"`, `"rollback"`)
 
-Revision 5 adds the fixture kind `stored`: the records a flow leaves, with the owner views derived from them. It also adds optional `stored` arrays (`credentialRecords`, `registrations`, `consentDecisions`, `oauthCodes`, `oauthRefreshRecoveries`) and the optional fixture flags `ENVOI_REMOTE_MCP_OAUTH` and `ENVOI_PROVIDER_CONNECTORS`.
+Revision 5 adds the fixture kind `stored`: the records a flow leaves, with the owner views derived from them. It also adds optional `stored` arrays (`credentialRecords`, `registrations`, `consentDecisions`, `oauthCodes`, `oauthRefreshRecoveries`, `oauthCleanupIndex`) and the optional fixture flags `ENVOI_REMOTE_MCP_OAUTH` and `ENVOI_PROVIDER_CONNECTORS`.
 
 `test/contract-fixtures.test.js` (`checkStoredOAuthRecords`) checks that:
 - a family has `audience` exactly when its installation is on an agent-remote-auth route, and its token records are `oauth_` types exactly then;
@@ -1907,29 +1910,31 @@ Revision 5 adds the fixture kind `stored`: the records a flow leaves, with the o
 - the code index and the consent decision agree with their registration;
 - only a consent registration has a handle, a redirect and a challenge, and a bootstrap registration has no consent decision;
 - a denial lives no longer than its handle;
-- a recovery envelope is keyed by a rotated refresh token of its family, bound to its client, lives 60 s, and names unused successors;
+- a recovery envelope is keyed by a rotated refresh token of its family, bound to its client, and lives 60 s. It names unused successors issued by that rotation, and the successor refresh token carries the family's rolled expiry;
+- every code index and consent decision has exactly one cleanup entry, which expires with its registration's retention or with its denied handle;
 - no stored record holds a code, token, verifier, secret or code-bearing URL;
-- no response carries the audience or the client;
+- no response carries the audience, the client or the client's host, derived from the fixture's own records;
 - every OAuth bearer outside the flow is refused with `AUTHENTICATION_REQUIRED`.
 
 The agreement test checks that `x-stored-records` names every new path, that both rollback fixtures read exactly the records the approval left, and that this table lists exactly the `stored-*` fixtures.
 
 | Fixture | Shows |
 | --- | --- |
-| `stored-oauth-installation` | A consent approval and its exchange: family, installation, token records, registration, code index, consent decision. Also an earlier denial's record. |
+| `stored-oauth-installation` | A consent approval and its exchange: family, installation, token records, registration, code index, consent decision and cleanup entries. Also an earlier denial's record. |
 | `stored-provider-installation` | A bootstrap code and its exchange: no handle, redirect, challenge or consent decision. |
 | `stored-oauth-refresh-recovery` | 30 s after a rotation: the used old record, unused successors, and the envelope. |
 | `stored-oauth-replaced-by-local-helper` | A local-helper reconnect replaces the OAuth family. The old family keeps its fields; the new one has none. |
 | `stored-oauth-flags-off` | Flags off: tokens refused at `/mcp` and on REST, installation listed, owner revoke works. |
-| `stored-oauth-source-rollback` | An older server over the same records: tokens refused everywhere, installation listed, owner revoke works. |
+| `stored-oauth-source-rollback` | An older server over the same records: tokens refused everywhere, the approval and the installation listed, owner revoke works. |
 
 #### 14.9 Decisions for review
 
 1. **Separate `oauth_` token types**, so a source rollback fails closed. The alternative is `access`/`refresh` records plus the family's `audience`, which an older server would ignore. That server would then accept OAuth tokens on REST.
 2. **A stored consent decision for a denial.** It is the only way approve-after-deny and another human's request can be told apart, as agent-remote-auth §5.2 and §5.3 require.
 3. **The code index outlives the code** until its registration is deleted, so reuse after expiry still revokes (agent-remote-auth §6.1).
-4. **The first use of an access token is written once, before dispatch.** That is the cost of an exact "neither successor used" rule. The alternative, deleting the envelope only best-effort, could let a replay inside the 60 s window go undetected.
-5. **Approval.** Version-specific `CONTRACT-APPROVED agent-registration v1 revision 5 @<publication sha>` after Lane B's `CONTRACT-ACK`. It authorizes no flag, and no implementation beyond the separately approved RA tasks.
+4. **The first use of an access token is written once, before dispatch, under the family lock.** That is the cost of an exact "neither successor used" rule. The alternative, deleting the envelope only best-effort, could let a replay inside the 60 s window go undetected.
+5. **A cleanup index for OAuth records.** It keeps cleanup bounded, and lets a revision-5 server find the code indexes and decisions that an older server's cleanup left behind. The alternative, scanning the whole prefixes, grows with traffic.
+6. **Approval.** Version-specific `CONTRACT-APPROVED agent-registration v1 revision 5 @<publication sha>` after Lane B's `CONTRACT-ACK`. It authorizes no flag, and no implementation beyond the separately approved RA tasks.
 
 ## Gate GA observability (additive audit data, 2026-10-13)
 
