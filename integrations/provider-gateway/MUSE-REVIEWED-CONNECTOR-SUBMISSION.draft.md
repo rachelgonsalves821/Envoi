@@ -1,0 +1,32 @@
+# Muse reviewed Connector Platform submission packet
+
+**Status: preparation only, 2026-10-21.** Rachel selected Meta's reviewed/listed Connector Platform route for the Envoi beta and excluded user-created Custom Connectors. No submission, Meta approval, Muse installation, private credential, or live Envoi exchange is recorded here. This packet maps [Meta's published intake requirements](https://platform.muse.ai/docs) to the evidence needed before Rachel submits. It is not a request to accept Meta terms or create an account.
+
+## Use case and complete workflow
+
+Envoi is an agent-owned collaboration workspace. An owner-approved Muse installation should read its own pending case work, inspect the authorized case snapshot, and send a reply in the same canonical case when its Envoi grant and Muse approval policy allow it. It should return the actual Envoi message/receipt reference after a write, preserve pending work across provider or network failure, and show the owner a truthful status. The connector adds scoped machine-readable case work, durable receipts and current permission checks beyond browsing the human inbox. It must never claim that a notification, queued send or approval prompt is a completed reply.
+
+The proposed smallest review scope is **one read tool** (`envoi_case_snapshot`) and **one write tool** (`envoi_case_reply`) for a claimed, work-bound case session. The source of authority is Envoi's owner-approved installation and current case session; the model cannot choose another workspace, case or recipient. The write's idempotency key is stable for one logical reply, and retries recover the canonical receipt. Additional case, asset, decision or administrative tools require separate review and are outside this first submission.
+
+| Meta intake item | Prepared answer or evidence still required |
+| --- | --- |
+| Users, tasks and browser advantage | The use case above; demonstrate read → authorized reply → canonical receipt on a disposable Envoi case. Describe invite-only beta, two active agents per owner and any plan/region limits in the actual listing. |
+| Organization and authority | Rachel supplies verified business/legal identity, brand rights, product and privacy terms, support/security contacts and a maintenance owner through Meta's portal. **Not supplied in this repository.** |
+| Data processing | Case/work text and minimal identity/receipt metadata are accessed only for the authorized task. Document exact data fields, retention, recipient sharing, deletion/revocation, encryption and incident contact against the implemented release and privacy policy. **Questionnaire not completed.** |
+| Endpoint and auth | Publish the actual hosted HTTPS MCP endpoint, OAuth client metadata, redirect/auth scopes and test-versus-production environment only after `agent-remote-auth` is implemented, approved, deployed and verified. The published contract currently starts `provider_connector` on `on_demand`; it does not prove Muse background invocation. Do not submit a staging secret, bearer token or bootstrap code in this packet. |
+| Tool documentation | Provide exact versioned input/output/error schemas, permissions, side effects, rate limits and read/write classifications from the deployed contract. `envoi_case_snapshot` is proposed **Read**; `envoi_case_reply` is **Write**, with Meta deciding whether it is a **Sensitive write**. Never describe a send as a read. |
+| Approval behavior | Record Envoi owner claim and effective grant separately from Muse tool approval. Meta says ordinary read/write may be set to Always allow within scope; sensitive writes ask on every use. If `envoi_case_reply` is classified sensitive, do not promise unattended replies. Denial or changed content/recipient requires no effect and a fresh approval where applicable. |
+| Test account and demo | Prepare a dedicated disposable owner and two agents, representative synthetic cases, sign-in instructions, exact release SHA and expected receipt IDs. Keep credentials in Meta's approved secure intake, not this repository or chat. **Account and demo not prepared.** |
+| Review tracking | Record Meta submission ID, accepted terms action by Rachel, risk/tool/QA feedback, approved tool set and classification, and listing status. **No submission ID or approval yet.** |
+
+## Internal gates before submitting
+
+1. Je publishes and implements the selected `provider_connector` authorization surface, including discovery, client validation, consent, tokens, revocation, bootstrap if used, and `/mcp` enforcement. Lane B ACKs the exact published fixtures; Rachel approves that exact contract version. PRs #176–#177 are Je's remote work and are not modified by this packet.
+2. Freeze a hosted release and complete one private owner claim, authenticated Muse-compatible MCP/tool exchange, reconnect and revoke with a disposable test account. Capture only redacted request, installation, case and receipt references in the evidence.
+3. Obtain the provider's exact OAuth/client registration and tool documentation requirements. Submit only the tools that can complete the demonstrated case workflow. Classify `envoi_case_reply` honestly and record Meta's decision; a per-use sensitive-write prompt would prevent a claim of unattended canonical reply.
+4. Rachel reviews the final business, privacy, support, security and demo fields, accepts any applicable platform terms herself, and submits through Meta's portal. Track review and QA feedback without treating submission as approval.
+5. After Meta approves the exact connector and tools, install it in Rachel's actual Muse account, verify private authorization and a real identity/inbox/send/reply exchange, then run two separately timed closed-app items plus restart, missed wake, duplicate, pause, revoke and recovery checks on the pinned release. Record every Muse prompt and any human reopening. Only then label the exact host automatic if both replies complete without intervention.
+
+## Current disposition
+
+**Muse beta route: OPEN, awaiting Meta submission prerequisites and approval.** The account's visible Connectors, Background sync and Goals controls prove neither Envoi access nor a provider-approved Envoi trigger. The default-off `provider-browser-poll` v1 gateway is read/notify only and is not a substitute for this selected reviewed connector route. Keep the Muse row unavailable in `/connect` until server availability, provider authorization and real host evidence align.
