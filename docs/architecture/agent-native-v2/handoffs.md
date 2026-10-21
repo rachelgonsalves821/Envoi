@@ -1760,9 +1760,10 @@ The entries before revision 4 were made before Lane B's `CONTRACT-ACK`.
   - **What changed:**
     - New §14: `audience` and `oauthClientId` on the credential family (§14.1); `oauth_access` and `oauth_refresh` token records, so a source rollback fails closed (§14.2); OAuth registrations and the code index (§14.3); consent decisions, including the denial record that agent-remote-auth §5.3's "Nothing is created" leaves implicit (§14.4); the refresh recovery envelope (§14.5); cleanup, the cleanup index and orphans (§14.6); flags-off and source rollback (§14.7).
     - `schemas.json`: typed `audience`/`oauthClientId` on `storedCredentialFamily` (present together); a rule that `remote_mcp_oauth` installations declare `on_demand` with runtime `remote_mcp`, and `provider_connector` installations `on_demand` with runtime `provider`; new `storedCredentialRecord`, `storedOAuthRegistration`, `storedConsentDecision`, `storedOAuthCode`, `storedOAuthRefreshRecovery`, `storedOAuthCleanupIndex`; fixture kind `stored`; optional fixture flags `ENVOI_REMOTE_MCP_OAUTH`, `ENVOI_PROVIDER_CONNECTORS`; `x-stored-records`.
-    - Six fixtures (§14.8) and `checkStoredOAuthRecords` plus an agreement test in `test/contract-fixtures.test.js`.
+    - Seven fixtures (§14.0, §14.8) and `checkStoredOAuthRecords` plus an agreement test in `test/contract-fixtures.test.js`.
+    - §14.0: the public registration and activation routes never create a remote-auth registration or installation, whatever the flags (clarifies agent-remote-auth §1).
   - **Unchanged:** the wire format, every route, code and owner view, today's server behaviour, and every existing record. No data migration.
-  - **For consumers of the fixtures:** the registration directory now holds 85 fixtures, up from 79. Lane B's consuming reviews `integrations/onboarding/test/agent-registration.review.mjs` and `sdk/typescript/reviews/agent-registration.review.ts` pin 79. The `.mjs` also allows only the kinds `http`, `migration`, `rollback` and `restart`. Neither runs in CI, but both need the new count and the kind `stored`.
+  - **For consumers of the fixtures:** the registration directory now holds 86 fixtures, up from 79. Lane B's consuming reviews `integrations/onboarding/test/agent-registration.review.mjs` and `sdk/typescript/reviews/agent-registration.review.ts` pin 79. The `.mjs` also allows only the kinds `http`, `migration`, `rollback` and `restart`. Neither runs in CI, but both need the new count and the kind `stored`.
   - **Version:** internal storage plus one clarification of agent-remote-auth §5.3, so the contract stays v1. It needs Lane B's `CONTRACT-ACK` and the human's version-specific approval before RA-A1 or RA-A2 writes any of these records.
 
 ### 14. Stored records for the agent-remote-auth routes (revision 5)
@@ -1773,6 +1774,14 @@ agent-remote-auth v1 (revision 2, approved @`bbd361e`) runs this contract's appr
 - **No data migration.** Each record is either new or gains optional fields. No existing record is rewritten, and every existing family keeps working unchanged. FileStore and PostgreSQL store these as documents at new paths, with no SQL migration.
 - **Hashes.** "Hash" means the lowercase hex SHA-256 of the raw value, as `hashSecret` already does for agent credentials. Raw codes, bootstrap codes, handles, verifiers, client secrets and tokens are never stored. The handle and request body are stored only as digests.
 - **Machine-readable table:** `x-stored-records`, one row per record: path, writer, transaction, secret handling, retention and cleanup.
+
+#### 14.0 Public routes never create these records
+
+agent-remote-auth §1 makes `remote_mcp_oauth` and `provider_connector` available in `GET /api/onboarding/routes` when their flags are on. That availability means "through agent-remote-auth's own flow": consent (§5) or a bootstrap code (§8). This contract's own public routes still never create such a registration or installation, whatever the flags:
+- `POST /api/agent-registrations` with either route gets `400 ROUTE_NOT_AVAILABLE`, as it does today (x-route-availability: "never in v1"). Fixture `registration-remote-route-refused`;
+- `POST /api/agent-installations/activate` with `deliveryMode: on_demand` gets `400 DELIVERY_MODE_NOT_AVAILABLE` (agent-remote-auth §11).
+
+Otherwise a bootstrap-token registration could create an installation on an OAuth route with no `audience`, which §14.1 forbids. This clarifies agent-remote-auth §1, and no response changes.
 
 #### 14.1 Credential family: `audience` and `oauthClientId`
 

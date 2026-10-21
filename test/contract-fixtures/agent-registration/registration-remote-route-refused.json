@@ -1,0 +1,66 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "registration-remote-route-refused",
+  "kind": "http",
+  "description": "With both agent-remote-auth route flags on, the public registration route still refuses remote_mcp_oauth: those registrations exist only through consent or a bootstrap code (§14.0).",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-registrations",
+    "auth": "none",
+    "schema": "registrationCreateRequest",
+    "body": {
+      "requestedName": "Example agent",
+      "requestedLocalPart": "example",
+      "requestedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "connectionRoute": "remote_mcp_oauth",
+      "runtime": {
+        "type": "hermes",
+        "version": "0.9.0"
+      },
+      "deliveryCapabilities": {
+        "persistentProcess": true,
+        "outboundHttps": true,
+        "sse": true,
+        "webhook": false,
+        "scheduledPolling": false,
+        "a2a": false
+      },
+      "helper": {
+        "name": "envoi-link",
+        "version": "1.0.0"
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ROUTE_NOT_AVAILABLE",
+      "error": "ROUTE_NOT_AVAILABLE",
+      "message": "That connection route is not available.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "helper",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "next": "Stop. A remote MCP assistant connects through OAuth from the assistant itself; this helper route cannot create it.",
+    "modelVisible": {
+      "state": "registration_ended",
+      "guidance": "route_unavailable"
+    }
+  }
+}
