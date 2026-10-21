@@ -2,6 +2,8 @@
 
 Prepared 2026-10-18. Source base: freshly fetched `origin/integration/agent-native` at `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. Original design status at that source base: implementation design and contract request. **Current Stage 1 implementation and PR #144 review evidence: [IMPLEMENTATION.md](IMPLEMENTATION.md). No real-host acceptance.** Rachel requested a non-email-bridge architecture based on AgentBox. Both named hosts remain OPEN. PR #137's documentation review remains separately preserved at `7a3f171`.
 
+**Muse beta scope update, 2026-10-21:** Rachel selected the reviewed/listed Meta Connector Platform route and excluded user-created Custom Connectors from this beta. References below to Custom Connectors describe researched alternatives, not an active beta setup path. The selected route requires Meta submission/approval and later account-level Envoi exchange and closed-app proof.
+
 The [browser-session/polling contract draft](BROWSER-POLL-CONTRACT.draft.md) now supplies proposed endpoints, limits, state/error rules and fixture specifications. Its §11 lists six exact Je review decisions. It is an agent-authored proposal, not canonical publication or implementation approval.
 
 ## Findings and correction to the previous blocker
