@@ -34,7 +34,15 @@ export async function createHelper(options) {
   const limits = contract['x-limits'];
   const origin = validateOrigin(options.origin);
   const runtime = options.runtime;
-  if (!runtime || !['hermes', 'openclaw'].includes(runtime.type) || typeof runtime.version !== 'string' || !runtime.version || runtime.version.length > 80) throw new Error('RUNTIME_REQUIRED');
+  const route = options.connectionRoute ?? 'local_helper';
+  if (!['local_helper', 'authenticated_rest'].includes(route)) throw new Error('ROUTE_REQUIRED');
+  if (!runtime || (route === 'local_helper' ? !['hermes', 'openclaw'].includes(runtime.type) : !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(runtime.type))
+    || typeof runtime.version !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$/.test(runtime.version)) throw new Error('RUNTIME_REQUIRED');
+  const capabilities = options.deliveryCapabilities ?? (route === 'local_helper'
+    ? { persistentProcess: true, outboundHttps: true, sse: true, webhook: false, scheduledPolling: false, a2a: false }
+    : null);
+  if (route === 'authenticated_rest' && (!capabilities || capabilities.persistentProcess !== true || capabilities.outboundHttps !== true || capabilities.sse !== true
+    || capabilities.webhook !== false || capabilities.scheduledPolling !== false || capabilities.a2a !== false)) throw new Error('DELIVERY_CAPABILITIES_REQUIRED');
   const store = options.store ?? await new PrivateStore(options.directory).init();
   const request = options.request ?? createTransport(origin, options.fetch);
   const now = options.now ?? Date.now;
@@ -42,9 +50,10 @@ export async function createHelper(options) {
   const confirm = options.confirm ?? nativeConfirmation;
   const project = (values, state) => safeOutput(contract, { schemaVersion: '1', ...values }, [state?.bootstrapToken, state?.activationId]);
   const save = value => store.write('helper-state.json', value);
-  const base = { version: 1, origin, runtime };
+  const base = { version: 1, origin, runtime, connectionRoute: route };
   function ensureState(state) {
     if (!state || state.version !== 1 || state.origin !== origin || state.runtime?.type !== runtime.type
+      || (state.connectionRoute ?? 'local_helper') !== route
       || !['pending', 'confirming', 'activating', 'completed', 'ended', 'cooldown'].includes(state.phase)) throw new Error('STATE_INVALID');
     if (['pending', 'confirming', 'activating'].includes(state.phase)
       && (!identifier(state.registrationId) || typeof state.bootstrapToken !== 'string' || !state.bootstrapToken.startsWith('envoi_reg_') || !validDate(state.expiresAt))) throw new Error('STATE_INVALID');
@@ -96,7 +105,7 @@ export async function createHelper(options) {
   }
   function validActivation(body) {
     if (!identifier(body.agent?.id) || !identifier(body.inboxId) || !identifier(body.installation?.id)
-      || body.installation.connectionRoute !== 'local_helper' || body.installation.deliveryMode !== 'envoi_link'
+      || body.installation.connectionRoute !== route || body.installation.deliveryMode !== 'envoi_link'
       || body.installation.status !== 'active' || body.installation.agentId !== body.agent.id || body.installation.legacy !== false || !['active', 'paused'].includes(body.agent.status)
       || typeof body.agent.address !== 'string' || typeof body.agent.name !== 'string'
       || !body.agentApiToken?.startsWith('envoi_agent_access_') || !body.agentRefreshToken?.startsWith('envoi_agent_refresh_')
@@ -123,10 +132,10 @@ export async function createHelper(options) {
       ? await options.operationalStatus({ origin, runtime, stateDirectory: store.directory ?? options.directory, completionId: session._onboarding?.completionId })
       : await request('GET', '/api/agent/status', { token: session.agentApiToken });
     if (!['active', 'paused'].includes(status.state) || status.agent?.status !== status.state || status.agent?.id !== session.agentId || status.agent?.address !== session.address
-      || status.installation?.connectionRoute !== 'local_helper' || status.installation.deliveryMode !== 'envoi_link'
+      || status.installation?.connectionRoute !== route || status.installation.deliveryMode !== 'envoi_link'
       || status.installation.id !== session._onboarding?.installation?.id) throw new ProtocolError('INVALID_RESPONSE');
     return project({ state: status.state === 'paused' ? 'paused' : 'connected', reachability: 'not_verified_closed_app',
-      agentAddress: status.agent.address, agentStatus: status.agent.status, connectionRoute: 'local_helper', deliveryMode: 'envoi_link',
+      agentAddress: status.agent.address, agentStatus: status.agent.status, connectionRoute: route, deliveryMode: 'envoi_link',
       nextAction: status.state === 'paused' ? 'Paused. Wait for the owner to resume this existing agent.' : 'Connected while this host runs. Closed-app wake has not been tested.' });
   }
   async function activate(state) {
@@ -241,13 +250,13 @@ export async function createHelper(options) {
         if (!state) {
           if (command !== 'connect') return failureOutput(contract, 'needs_help', 'register_again');
           if (typeof options.adopt !== 'function') return failureOutput(contract, 'needs_help', 'update_helper');
-          if (!offered(await request('GET', '/api/onboarding/routes'))) return project({ state: 'needs_help', guidance: 'route_unavailable', nextAction: 'This server does not currently offer the local helper route.' });
+          if (!offered(await request('GET', '/api/onboarding/routes'), route)) return project({ state: 'needs_help', guidance: 'route_unavailable', nextAction: 'This server does not currently offer the requested connection route.' });
           await options.preflight?.({ origin, runtime, stateDirectory: store.directory ?? options.directory });
           const permissions = options.requestedPermissions ?? ['send_agent_messages', 'receive_agent_messages'];
           const body = await request('POST', '/api/agent-registrations', { body: {
-            requestedName: options.requestedName ?? 'Envoi agent', requestedPermissions: permissions, connectionRoute: 'local_helper', runtime,
-            deliveryCapabilities: { persistentProcess: true, outboundHttps: true, sse: true, webhook: false, scheduledPolling: false, a2a: false },
-            helper: { name: 'envoi-link', version: '1.0.0' } } });
+            requestedName: options.requestedName ?? 'Envoi agent', requestedPermissions: permissions, connectionRoute: route, runtime,
+            deliveryCapabilities: capabilities,
+            helper: options.helper ?? { name: 'envoi-link', version: '1.0.0' } } });
           if (!identifier(body.registrationId) || body.status !== 'pending_claim' || typeof body.bootstrapToken !== 'string' || !body.bootstrapToken.startsWith('envoi_reg_')
             || body.claim?.url !== `${origin}/claim` || !/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/.test(body.claim?.verificationCode)
             || !validDate(body.expiresAt) || body.claim.expiresAt !== body.expiresAt || !Number.isFinite(body.pollAfterSeconds) || body.pollAfterSeconds < limits.pollMinIntervalSeconds) throw new ProtocolError('INVALID_RESPONSE');
