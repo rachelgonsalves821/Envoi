@@ -11,6 +11,7 @@ Before publishing, reconcile command output and status labels with Lane A's revi
 [HOST-INTEGRATION.md](HOST-INTEGRATION.md) provides the executable local manifest/capability consumer, host integration sequence, conformance record format, and the contract decisions needed from Lane A. Run `node integrations/onboarding/host-plan.mjs integrations/onboarding/profiles/unverified-host.json` from the repository root. This makes no network calls and executes no helper. The Node tests now cover both safety wording and behavioral capability/evidence selection; `npm run test:integrations` also runs them through `../test/onboarding.test.ts`.
 
 [HOST-SETUP-PROBES.md](HOST-SETUP-PROBES.md) records bounded Muse, Dots, Instinct, local-helper and generic REST capability checks. Public provider documentation is labeled separately from owner-account observations and real Envoi calls. [BREADTH-EVIDENCE.md](BREADTH-EVIDENCE.md) is the blank hosted route-by-host gate; no row is pre-approved.
+[DOTS-GROK-ACCEPTANCE.md](DOTS-GROK-ACCEPTANCE.md) provides separate Dots, Grok consumer, Grok automation, Grok Bot and xAI API bridge probes and names the server event-contract gaps.
 
 [PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md](PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md) is the Rachel/Codex-owned Muse and Instinct route decision packet. It distinguishes the integrated read/notify gateway from real exchange and closed-app wake evidence, and keeps the Instinct email path conditional.
 
