@@ -12,10 +12,10 @@ Nothing in this packet authorizes a deploy, a flag or secret change, a model cal
 
 | § | Section | Owner | Status | Blocked on |
 | --- | --- | --- | --- | --- |
-| 1 | Final candidate and inclusion list | Lane A, with Lane B for the client | **Open** | Lane B's client inclusion answer (§1.3) |
+| 1 | Final candidate and inclusion list | Lane A, with Lane B for the client | **Proposed** `25c6637`; client inclusion answered (§1.3) | Je's final selection; the image and Worker pair after the build (§1.2) |
 | 2 | Staging baseline and paired rollback | Rachel (read-only facts, her account), Lane A (write-up) | **Open** | Rachel's Cloudflare read-only output (§2.2) |
 | 3 | Flags, settings and network scope, wake ON | Lane A, Je for key custody | **Open** | §2 facts; key custody decision (§3.3) |
-| 4 | Wake receiver and host handoff | Lane B (receiver), Je (hosting), Lane A (server side) | **Open** | Receiver hosting decision (§4.1) |
+| 4 | Wake receiver and host handoff | Lane B (receiver), Je (hosting), Lane A (server side) | **Composition known** (§4.1); offline coverage 155/155 | The operator, hosting and TLS decisions (§4.2) |
 | 5 | Bounded hosted test batch | Lane A drafts, Lane B reviews the client rows | **Open** | §1, §4 |
 | 6 | Approval request | Codex, for Rachel | Not started | §1–§5 reviewed |
 
@@ -26,6 +26,8 @@ Nothing in this packet authorizes a deploy, a flag or secret change, a model cal
 - **SHA:** `25c66372dc16f399cc5b213368246ebba9d65fd1` on `integration/agent-native` (#170, integrated 2026-10-21).
 - **CI:** exact-head PR [run 39524219752](https://github.com/rachelgonsalves821/Envoi/actions/runs/39524219752) and integration push [run 39550313276](https://github.com/rachelgonsalves821/Envoi/actions/runs/39550313276), both 26/26 with both audits at 0.
 - **Local gate:** Gate B-local PASS 21/21 at `e8a958f`, countersigned ([6304550858](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6304550858)), evidence `evidence/phase-b-local-e8a958f1f6d56e9efde5c0f9bc269b2bdd43d7bc.md`. The runtime at `25c6637` is identical to `e8a958f`: `src`, `web`, `db`, `protocol`, the skill, `test/contract-fixtures`, `Dockerfile.cloudflare` and `wrangler.jsonc` have no diff. Rachel's agent found no runtime delta needing another live run ([CLOSE-OK 6305156369](https://github.com/rachelgonsalves821/Envoi/pull/170#issuecomment-6305156369)).
+- **Evidence retention:** the published worksheet, its 11 sanitized tables and the as-run probe source are kept in the repository. The private raw local evidence (data, views, logs and the private worksheet copy) was deleted by the operator before the retention asked for in CLOSE-OK ([6309161732](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6309161732)). It is **unavailable**, not retained and not independently verified as raw host data. This does not change the countersigned result.
+- **Integration has moved on:** integration is now at `bbd361e` (#171, agent-remote-auth v1 revision 2). That change is contract-only: `handoffs.md`, new `test/contract-fixtures/agent-remote-auth/` fixtures and their test. It adds no runtime source and **does not select a new candidate**. The candidate stays `25c6637` unless a reviewed host-composition change is shown, in which case the new head needs its own artifacts, CI and applicable-gate assessment.
 
 ### 1.2 Artifact identities at the candidate
 
@@ -38,7 +40,9 @@ Nothing in this packet authorizes a deploy, a flag or secret change, a model cal
 | Container image | **TO CONFIRM** after `npm run cf:deploy:staging` builds it | §2.2 |
 | Worker version | **TO CONFIRM** after the deploy | §2.2 |
 
-The image is not byte-identical to one built at `e8a958f`: the Dockerfile copies `docs/` and the root package files, which differ. Its identity is recorded after the build.
+These hashes are the committed and operator-built identities at the candidate source. They are **not yet verified** against bytes served by staging or installed on a host; that check belongs to the hosted run.
+
+The image is not byte-identical to one built at `e8a958f`: the Dockerfile copies `docs/` and the root package files, which differ. Do not infer an unchanged production image from "docs only". The exact image and Worker pair is recorded after the build, separately from these source identities.
 
 ### 1.3 Inclusion list
 
@@ -47,16 +51,16 @@ The image is not byte-identical to one built at `e8a958f`: the Dockerfile copies
 - Phase C server: case-session, case-tools and http-wake (C-A0–C-A6, #148), with the follow-ups #150, #151, #152 and the rollout runbook #153.
 - Provider browser polling (#144), with `ENVOI_PROVIDER_BROWSER_POLL` **off** (decision [6279259661](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6279259661)).
 - Gate B-local evidence and tooling (#149, #160, #165, #167, #168), and the vite 8.3.3 dependency fix (#169).
-- Some Phase C client code is already present, for example `integrations/connector/http-wake-receiver.ts`, `http-wake-host.ts` and `integrations/agent-bridges/scoped-turn.ts`.
+- **Phase C client (C-B1–C-B5)**, through #143 (`9b9c109`, an ancestor of `25c6637`, 48 commits earlier). #143 applied each stack once ([Lane B's answer 6318749324](https://github.com/rachelgonsalves821/Envoi/pull/172#issuecomment-6318749324)):
+  - #139 at `5f6cb04`, which carries #118, #120, #124, #125, #127, #129, #130, #131, #132, #134 and #135;
+  - #140 at `5d38b2a`, which includes #138, #123 and #136;
+  - the tops of #126 (`41e16ae`), #128 (`546ad5c`) and #142 (`a932de2`).
 
-**Not in the candidate:** #166 (superseded by #169), and the open Lane B Phase C client drafts:
-- #118 (C-B1 case sessions) and #120 (C-B2 case tools);
-- #124, #125, #127, #129, #134 and #135 (C-B3 runtime transports);
-- #126 and #140 (C-B4 owner views);
-- #130, #131 and #132 (C-B5 HTTPS wake receiver);
-- #128 (C-B0/C-B6 evidence prep), plus #136 and #138.
+  Lane B's tree comparison at `25c6637` found the SDK, shared agent bridge, Grok and OpenClaw, connector, Hermes, owner-file and evidence-prep content present, including the C-B5 receiver, host, driver and HTTP handler and the import-safe packaged exports. The later differences are the reviewed Phase B reconnect, adoption and origin work, not missing Phase C source.
 
-**Question for Lane B.** Which C-B1–C-B5 content does the hosted batch need that `25c6637` does not already contain? If any is needed, integrating it changes the served connector downloads and possibly the helper. That makes a new candidate, which needs its own exact-head CI and an applicable-gate assessment under L5 before this packet can name it. **This is the item most likely to change §1.1.**
+**Not in the candidate:** #166 (superseded by #169).
+
+The standalone C-B drafts listed above are still open on GitHub, but only as old stacks. Their selected content is already in the candidate, so **no further merge of them is needed**, and their stacked ancestors must not be reapplied. This is source inclusion only. It is not acceptance of C-B3, C-B5 or C-B6, which the hosted run decides.
 
 ## 2. Staging baseline and paired rollback
 
@@ -128,17 +132,29 @@ Each step is followed by the runbook §5 preflight.
 
 The first batch must show the whole path, not just an HTTP 200 callback: the signed notification reaches the receiver, the receiver makes an authenticated canonical fetch, and the intended host and agent claim and do the authorized work.
 
-### 4.1 Decisions needed
+### 4.1 Receiver composition, from the integrated source
+
+Lane B's answers ([6321223317](https://github.com/rachelgonsalves821/Envoi/pull/172#issuecomment-6321223317), [6321318450](https://github.com/rachelgonsalves821/Envoi/pull/172#issuecomment-6321318450)), from source in the candidate:
+
+- **Artifact:** the verified `envoi-connector.mjs` (§1.2) exports `EnvoiConnector`, `HttpWakeReceiver`, `FileWakeStore`, `createScopedWakeHost` and `createWakeHttpHandler` (`integrations/connector/entry.ts`, `http-wake.md`). The host imports all of them from that one artifact, so class identity holds. Importing opens no port and starts no process or subscription.
+- **Handoff:** the host application gives the real `EnvoiConnector` its private `ConnectorStore` and the accepted snapshot-first `CaseSession` handler. `createScopedWakeHost` binds the scoped wake work driver, the authenticated wake transport, the installation identity and the registered URL. The receiver and the host use the **same** private `FileWakeStore` and the canonical subscription URL the server returns. The driver, not model output and not anything in a notification, does the canonical work and lease revalidation.
+- **HTTPS and process:** an explicitly authorized host application attaches `createWakeHttpHandler` to its HTTPS listener, or to a TLS terminator that passes the raw bytes unchanged. It passes the shutdown signal and runs `host.run(signal)`. The receiver must be up **before** the subscription is created. The download is not itself a deployed receiver: it needs a running trusted host and listener, and a reachable runtime. A stopped process cannot be woken, and nothing here claims closed-app reachability.
+- **Recovery:** the receiver stores acceptance, replay and pending state durably before it acknowledges. The HTTP handler sends the acknowledgement and dispatches only after the response finishes. A restart reopens the same private per-installation store and lock. A subscription the owner ended is never silently recreated.
+- **Offline coverage, not hosted evidence:** five suites passed 155/155 on source byte-identical to integration: `http-wake-driver`, `http-wake-http`, `http-wake-host`, `http-wake-receiver` and the Hermes scoped host. They cover scoped admission, mint, end and fenced completion; refusal of a wrong origin or owner; raw-byte verification and replay deduplication; acknowledgement before dispatch; recovery of an interrupted dispatch; single-flight claims; pause; and terminal revoke without re-enrollment. They do not prove an installed runtime, public TLS, hosting or a billed model turn.
+
+### 4.2 Decisions still needed
 
 | Question | Owner | Answer |
 | --- | --- | --- |
-| Where the public HTTPS receiver runs (host, operator, TLS), and its cost | Je, with Lane B | **TO DECIDE** |
-| Which receiver code, at which version and hash | Lane B (C-B5) | **TO CONFIRM**, tied to §1.3 |
-| How the receiver hands a wake to the Hermes or OpenClaw host | Lane B | **TO CONFIRM** |
-| Which process must stay running, and which idle, offline and restart states are supported | Lane B | **TO CONFIRM**; a dead process cannot be woken |
-| Missed and duplicate wake recovery | Lane B, Lane A | per http-wake v1; **TO CONFIRM** the evidence for each |
+| The public HTTPS host, its operator, TLS, and the registered public URL | Je, with Lane B | **TO DECIDE** |
+| The network path from that host to the Hermes or OpenClaw runtime, and which process stays running for the whole batch | Je, with Lane B | **TO DECIDE** |
+| Which idle, offline and restart states the batch exercises | Lane B, Lane A | **TO CONFIRM** within the states in §4.1 |
+| Hosting cost, the budget, and cleanup (stop the listener, end the subscriptions, delete the private store) | Je | **TO DECIDE** |
+| Signing-key custody | Je | §3.3 |
 
-### 4.2 Fences that stay in force
+**C19–C21 evidence must show the whole chain:** a signed callback, then an authenticated canonical fetch, then scoped work by the intended agent. It must also cover a missed callback, a duplicate callback and a restart, with pause and revoke in force. An HTTP 200, or a callback mock, is not enough.
+
+### 4.3 Fences that stay in force
 
 Pause and revocation keep their effect during wake: a paused case or agent gets no new authorized work, and a revoked installation is refused (C16–C18).
 
