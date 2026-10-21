@@ -227,6 +227,7 @@
         "registration-poll-too-fast.json",
         "registration-rate-limited.json",
         "registration-rejected.json",
+        "registration-remote-route-refused.json",
         "registration-rest-not-enabled.json",
         "registration-route-not-available.json",
         "registration-token-invalid.json",
