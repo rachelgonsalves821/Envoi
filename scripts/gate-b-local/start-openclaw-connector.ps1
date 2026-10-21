@@ -20,7 +20,7 @@ Add-Content -Path $log -Value "`n===== start $(Get-Date -Format o) =====" -Encod
 
 # 1. The gate's checkout and helper bytes, and one explicit OpenClaw profile for the Gateway and the helper.
 try { $gateSha = Assert-GateArtifact $repo $GateDir $helper; $openclaw = Select-OpenClawProfile $OpenClawConfig $Origin } catch { Say $_.Exception.Message; exit 1 }
-Say "gate $gateSha, helper matches; OpenClaw config $($openclaw.Config), Gateway port $($openclaw.Port)"
+Say "gate $gateSha, helper matches; OpenClaw config $($openclaw.Config), Gateway $($openclaw.Gateway)"
 
 # 2. The same environment as the OpenClaw Gateway window: Node 24, the OpenClaw npm prefix, the gate CA.
 $env:Path = "$NpmPrefix;$(Split-Path $Node24);" + $env:Path
@@ -30,7 +30,7 @@ Set-Location (Join-Path $GateDir 'agent-workdir')
 Say "node $(& $Node24 --version), CA $(Test-Path $env:NODE_EXTRA_CA_CERTS), folder $(Get-Location)"
 
 # 3. Preconditions: the gate answers on the gate SHA, that profile's Gateway answers, no other OpenClaw connector runs.
-$gateway = "http://127.0.0.1:$($openclaw.Port)/health"
+$gateway = "$($openclaw.Gateway)/health"
 $check = & $Node24 -e "const t=(u)=>fetch(u,{signal:AbortSignal.timeout(10000)}).then(async r=>{const b=await r.text();let s='';try{s=JSON.parse(b).releaseSha||''}catch{};return u+' '+r.status+' '+s}).catch(e=>u+' ERR '+(e.cause?.code||e.name));Promise.all([t('$Origin/health'),t('$gateway')]).then(r=>console.log(r.join(' | ')))"
 Say "preflight: $check"
 if ($check -notmatch ("$Origin/health 200 " + $gateSha)) { Say "STOP: the gate server is not answering on the gate SHA $gateSha."; exit 1 }
