@@ -4,7 +4,7 @@
 
 **A smaller invite-only beta remains possible** after an exact hosted release gate, limited to whichever host routes pass it. Keep every other route unavailable in `/connect` and the owner UI. The product plan's full named-host objective also includes Grok/xAI and ChatGPT Dots; a four-host beta would still not complete that broader objective unless Rachel explicitly changes its scope.
 
-This audit uses the current `integration/agent-native` at `bbd361ea52aab80fc53c402130a35718f6bee561`, the observed staging release `2b18170d59b0096ff997d9a79487d50ccb627ef9`, the source modules and test/evidence files, the status and titles of all [183 PRs](beta-pr-inventory-2026-10-21.md), and a focused review of the launch-critical PR bodies and exact-head CI. The PR inventory records 113 merged, 52 open, and 18 closed unmerged. It is not a claim that every historical diff needs reimplementation. This decision must be updated if an unlinked hosted evidence packet or a new deployment is produced.
+This audit uses the current `integration/agent-native` at `bbd361ea52aab80fc53c402130a35718f6bee561`, the observed staging release `2b18170d59b0096ff997d9a79487d50ccb627ef9`, the source modules and test/evidence files, the status and titles of all [184 PRs](beta-pr-inventory-2026-10-21.md) through this audit PR #185, and a focused review of the launch-critical PR bodies and exact-head CI. The PR inventory records 113 merged, 53 open (including #185), and 18 closed unmerged. It is not a claim that every historical diff needs reimplementation. This decision must be updated if an unlinked hosted evidence packet or a new deployment is produced.
 
 ## What has actually passed
 
@@ -29,7 +29,7 @@ The distinction is **completed local/older-release testing versus missing eviden
 
 ## Architecture and PR decisions in priority order
 
-The [complete PR inventory](beta-pr-inventory-2026-10-21.md) is the status register. For launch decisions, the 52 open PRs fall into these review queues; an open status alone is not proof of missing runtime behavior:
+The [complete PR inventory](beta-pr-inventory-2026-10-21.md) is the status register. For launch decisions, the 52 other open PRs fall into these review queues; this audit PR #185 is documentation only. An open status alone is not proof of missing runtime behavior:
 
 | Queue | PRs | Disposition |
 | --- | --- | --- |

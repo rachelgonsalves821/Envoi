@@ -1,8 +1,8 @@
 # Envoi PR inventory for beta audit (2026-10-21)
 
-GitHub pull requests #1–#184 were enumerated in two creation-date windows; #34 is an issue, so there are 183 PRs. Status was rechecked for each closed PR and for the open set. This inventory is a status map, not a claim that every historical diff requires a fresh beta gate. Launch-critical dispositions are in `definitive-beta-launch-roadmap-2026-10-21.md`.
+GitHub pull requests #1–#184 were enumerated in two creation-date windows; #34 is an issue. This audit's own draft #185 was then added below. Status was rechecked for each closed PR and for the open set. This inventory is a status map, not a claim that every historical diff requires a fresh beta gate. Launch-critical dispositions are in `definitive-beta-launch-roadmap-2026-10-21.md`.
 
-Counts: 183 total; 52 open; 113 merged; 18 closed unmerged.
+Counts: 184 total including this audit PR; 53 open; 113 merged; 18 closed unmerged.
 
 - [#1](https://github.com/rachelgonsalves821/Envoi/pull/1) — MERGED — Prepare Cloudflare deployment recovery and harden runtime consistency
 - [#2](https://github.com/rachelgonsalves821/Envoi/pull/2) — CLOSED, UNMERGED — Make R1 onboarding and staging acceptance evidence based
@@ -187,3 +187,4 @@ Counts: 183 total; 52 open; 113 merged; 18 closed unmerged.
 - [#182](https://github.com/rachelgonsalves821/Envoi/pull/182) — OPEN — phase-b: Dots/Grok host gates and xAI MCP token origin
 - [#183](https://github.com/rachelgonsalves821/Envoi/pull/183) — OPEN — RA-B2: render approved on-demand owner presence
 - [#184](https://github.com/rachelgonsalves821/Envoi/pull/184) — OPEN — Phase B: prepare hosted onboarding and staging rollback evidence
+- [#185](https://github.com/rachelgonsalves821/Envoi/pull/185) — OPEN — docs: definitive beta launch decision and PR audit (this audit)
