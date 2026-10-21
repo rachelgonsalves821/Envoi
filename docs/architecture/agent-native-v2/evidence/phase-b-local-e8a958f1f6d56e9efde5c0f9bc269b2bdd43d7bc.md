@@ -82,3 +82,196 @@ A pass here is a local-server result. It is not the hosted Phase B gate, the §4
 - 23:54Z: row 19 recorded by Lane A.
 - 23:56Z: row 20 recorded by Lane A.
 - 23:56Z: closing checks by Lane A: /health still e8a958f; preflight 5/5; gate checkout clean; final secret scan (1064 files, including this worksheet): only each runtime's own loopback keys in its own config; server log 0 errors. Result filled. PASS posted on #34 (comment 6304532715) with the human's approval; evidence published in #165; countersigned 00:00:56Z (comment 6304550858).
+- 2026-10-21 (Lane A, close checks before stopping anything): stop conditions rechecked. /health and every releaseSha in the server log are e8a958f; exactly 3 registrations (Hermes, OpenClaw, the row 18 reconnect), none duplicated; no hosted Envoi origin in helper state, agent workdir or OpenClaw temp logs; no bootstrap token (envoi_reg_ pattern) or Envoi-format credential in 1064 files outside the private helper state (a control scan of that state finds its own tokens, so the pattern works). activationIds are stored only as server hashes and never appeared as a field in any model-visible tool result.
+- 00:27Z: the operator saved the final owner views for both agent inboxes (events, agents, installations, delivery receipts, deliveries) and the claims (runbook §5); the tables below come from them. They match every sequence and time cited in the rows; OpenClaw has no event between the revoke (seq 25, 23:35:56Z) and the reconnect approval (seq 26, 23:49:53Z).
+
+## Sanitized server tables
+
+Generated with `node scripts/ga-evidence.mjs <kind> <view>` from the owner views saved at 2026-10-21T00:27Z from the signed-in browser, after row 20 and before the close (runbook §5). They are the whole run for both agent inboxes, so they include every row's events; the row 15 and row 17 views cited above are earlier snapshots of the same inbox. Ids, enumerated values and times only.
+
+### Claims after the run (`/api/agent-claims`)
+
+| registrationId | status | target | agent.address | approvedAt | activationExpiresAt | installationId | approvedByMe |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| registration_0838ba3f-6580-4bcc-8c84-5205697d8bb1 | activated | existing_agent | openclaw-gateway@envoi.mail | 2026-10-20T23:49:53.001Z | 2026-10-20T23:59:53.001Z | installation_c391237c-06e0-4b93-a026-c69adc19b946 | true |
+| registration_dfca6f31-0eff-41cc-9ed3-edc3892fee1b | activated | new_agent | hermes-gateway@envoi.mail | 2026-10-20T23:13:24.088Z | 2026-10-20T23:23:24.088Z | installation_1654a78b-47cc-4d57-8cca-8360e0970146 | true |
+| registration_95089dc3-f205-480d-9e62-5139f9cd4e74 | activated | new_agent | openclaw-gateway@envoi.mail | 2026-10-20T22:52:29.122Z | 2026-10-20T23:02:29.122Z | installation_d5de968c-02e1-42b5-b017-f50fb807ca2c | true |
+
+### OpenClaw installations after the reconnect (row 20)
+
+| id | status | endedReason | legacy | connectionRoute | deliveryMode | runtime.type | runtime.version | activatedAt | endedAt |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| installation_c391237c-06e0-4b93-a026-c69adc19b946 | active | null | false | local_helper | envoi_link | openclaw | unknown | 2026-10-20T23:49:58.110Z | null |
+| installation_d5de968c-02e1-42b5-b017-f50fb807ca2c | ended | revoked | false | local_helper | envoi_link | openclaw | unknown | 2026-10-20T22:53:42.188Z | 2026-10-20T23:35:56.521Z |
+
+### Hermes installations
+
+| id | status | endedReason | legacy | connectionRoute | deliveryMode | runtime.type | runtime.version | activatedAt | endedAt |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| installation_1654a78b-47cc-4d57-8cca-8360e0970146 | active | null | false | local_helper | envoi_link | hermes | unknown | 2026-10-20T23:14:30.102Z | null |
+
+### Agents after the run: OpenClaw
+
+| id | address | status | paused | credentialRevoked | connection.state | connection.asOf | connection.seenAt | connection.credentialExpiresAt | connection.presence.lastSeenAt | connection.presence.lastSuccessfulRefreshAt | connection.presence.lastWorkClaimAt | connection.presence.lastProcessedAt |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | openclaw-gateway@envoi.mail | active | false | false | seen_recently | 2026-10-21T00:27:22.774Z | 2026-10-21T00:26:47.339Z | 2026-11-20T00:19:05.880Z | 2026-10-21T00:26:47.339Z | 2026-10-21T00:19:05.901Z | 2026-10-21T00:26:47.339Z | 2026-10-20T23:53:03.948Z |
+
+### Agents after the run: Hermes
+
+| id | address | status | paused | credentialRevoked | connection.state | connection.asOf | connection.seenAt | connection.credentialExpiresAt | connection.presence.lastSeenAt | connection.presence.lastSuccessfulRefreshAt | connection.presence.lastWorkClaimAt | connection.presence.lastProcessedAt |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | hermes-gateway@envoi.mail | active | false | false | seen_recently | 2026-10-21T00:27:22.974Z | 2026-10-21T00:27:20.255Z | 2026-11-20T00:26:27.505Z | 2026-10-21T00:27:20.255Z | 2026-10-21T00:26:27.529Z | 2026-10-21T00:27:20.255Z | 2026-10-20T23:53:08.193Z |
+
+### OpenClaw agent-inbox events, whole run
+
+| sequence | id | type | createdAt | agentId | workId | messageId | caseId | fence | attempts | credentialFamilyId | runtime | phase | installationId | registrationId | target | connectionRoute | deliveryMode |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | evt_fb1a7c5e-9ccc-44bd-944d-516677c9e9cd | agent.installation_activated | 2026-10-20T22:53:42.188Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  | credential_family_8286ef04-1b87-48e9-a1ab-10b7ed7f0e1e |  |  | installation_d5de968c-02e1-42b5-b017-f50fb807ca2c | registration_95089dc3-f205-480d-9e62-5139f9cd4e74 | new_agent | local_helper | envoi_link |
+| 2 | evt_99dd8d93-1521-421d-bb9e-4678470772b6 | agent.connection_setup_checked | 2026-10-20T22:53:50.642Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  |  | openclaw | ready |  |  |  |  |  |
+| 3 | evt_2b945520-c851-40c4-a00c-80f3b0981a5b | agent.connection_setup_checked | 2026-10-20T22:53:57.177Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  |  | openclaw | ready |  |  |  |  |  |
+| 4 | evt_70f61f5c-cd05-4889-8ca0-9d53cd5669cd | message.delivered | 2026-10-20T23:17:22.441Z |  |  | msg_8b2adfc372f5eb95bab99d78d76568b8 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 5 | evt_b7f25fbb-c6e2-4c4e-97a8-9b34a98f7e95 | agent.work_claimed | 2026-10-20T23:17:22.520Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | msg_8b2adfc372f5eb95bab99d78d76568b8 |  |  | 1 | 1 | credential_family_8286ef04-1b87-48e9-a1ab-10b7ed7f0e1e |  |  |  |  |  |  |  |
+| 6 | evt_25e8b45e-8bbb-4e15-9c56-3907f8a8759b | message.acknowledged | 2026-10-20T23:17:22.564Z |  |  | msg_8b2adfc372f5eb95bab99d78d76568b8 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 7 | evt_0943968d-3bb8-4fb2-975d-26a9edf18a18 | message.queued | 2026-10-20T23:17:35.208Z |  |  | msg_7d2890f3c4d55377de7ac1c006f91925 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 8 | evt_40d089a2-f62c-4e90-a4fb-2dfe8db95bc7 | message.processed | 2026-10-20T23:17:35.281Z |  |  | msg_8b2adfc372f5eb95bab99d78d76568b8 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 9 | evt_27b6bf70-4e29-4b45-b711-e074974d38d5 | message.delivered | 2026-10-20T23:17:35.465Z |  |  | msg_7d2890f3c4d55377de7ac1c006f91925 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 10 | evt_7e75ef85-444b-4ae9-b106-caf278ecbdb5 | message.acknowledged | 2026-10-20T23:17:35.636Z |  |  | msg_7d2890f3c4d55377de7ac1c006f91925 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 11 | evt_dba5ae3d-9b39-41f9-a53f-3e26a9cadd72 | message.delivered | 2026-10-20T23:17:38.191Z |  |  | msg_5fd0a369597ec61b88cfd6f691062fc0 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 12 | evt_8a9a2ec5-083c-48c2-af2e-6548287086cf | message.processed | 2026-10-20T23:17:38.270Z |  |  | msg_7d2890f3c4d55377de7ac1c006f91925 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 13 | evt_a5611161-2248-4cbc-9745-17fa6ce1f6d9 | agent.work_claimed | 2026-10-20T23:17:38.366Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | msg_5fd0a369597ec61b88cfd6f691062fc0 |  |  | 1 | 1 | credential_family_8286ef04-1b87-48e9-a1ab-10b7ed7f0e1e |  |  |  |  |  |  |  |
+| 14 | evt_11c5cef2-683b-4549-82c2-4d530868c15b | message.acknowledged | 2026-10-20T23:17:38.427Z |  |  | msg_5fd0a369597ec61b88cfd6f691062fc0 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 15 | evt_93f8aa82-6a78-49b6-9e4f-d1b2e7187197 | message.processed | 2026-10-20T23:17:41.987Z |  |  | msg_5fd0a369597ec61b88cfd6f691062fc0 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 16 | evt_20a2650e-8a45-433a-96b0-e5a88331b5c9 | message.delivered | 2026-10-20T23:24:12.554Z |  |  | msg_9ea8c408f8f71868a7b34e4b8c56a488 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 17 | evt_787169ad-5fc5-46ba-8fd2-3ce8ef9ba9ad | agent.connection_setup_checked | 2026-10-20T23:28:10.730Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  |  | openclaw | ready |  |  |  |  |  |
+| 18 | evt_425404be-bc62-430d-b879-626d865d2f4c | agent.work_claimed | 2026-10-20T23:28:10.808Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | msg_9ea8c408f8f71868a7b34e4b8c56a488 |  |  | 1 | 1 | credential_family_8286ef04-1b87-48e9-a1ab-10b7ed7f0e1e |  |  |  |  |  |  |  |
+| 19 | evt_433ff64c-b477-4d0a-8625-22e2e5872462 | message.acknowledged | 2026-10-20T23:28:10.903Z |  |  | msg_9ea8c408f8f71868a7b34e4b8c56a488 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 20 | evt_3923be98-6c87-4b23-94af-76a26ece32c2 | message.queued | 2026-10-20T23:28:16.889Z |  |  | msg_9b5ee94ec7c6e14807fac1c57680b3ea | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 21 | evt_29d40f18-4a37-45d8-8513-bf240a057c09 | message.processed | 2026-10-20T23:28:16.990Z |  |  | msg_9ea8c408f8f71868a7b34e4b8c56a488 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 22 | evt_181a68b2-74c9-4781-ac11-a5cf95d767ac | message.delivered | 2026-10-20T23:28:17.146Z |  |  | msg_9b5ee94ec7c6e14807fac1c57680b3ea | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 23 | evt_c7ab40ff-a782-4f24-83f2-6e76e44898c6 | message.acknowledged | 2026-10-20T23:28:17.365Z |  |  | msg_9b5ee94ec7c6e14807fac1c57680b3ea | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 24 | evt_d2274dff-ec66-405b-981a-689dcac5c112 | message.processed | 2026-10-20T23:28:19.754Z |  |  | msg_9b5ee94ec7c6e14807fac1c57680b3ea | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 25 | evt_bd515847-dd07-49df-9c33-a78784383b12 | agent.installation_revoked | 2026-10-20T23:35:56.521Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  | credential_family_8286ef04-1b87-48e9-a1ab-10b7ed7f0e1e |  |  | installation_d5de968c-02e1-42b5-b017-f50fb807ca2c |  |  |  |  |
+| 26 | evt_4def31f0-e7ca-4fca-9ff5-151efe21108a | agent.registration_approved | 2026-10-20T23:49:53.001Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  |  |  |  |  | registration_0838ba3f-6580-4bcc-8c84-5205697d8bb1 | existing_agent |  |  |
+| 27 | evt_b6232aef-011f-41ab-82c9-7bc1f71801a4 | agent.installation_activated | 2026-10-20T23:49:58.110Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  | credential_family_72e933de-1b02-4388-8f18-b7fdfdec6fed |  |  | installation_c391237c-06e0-4b93-a026-c69adc19b946 | registration_0838ba3f-6580-4bcc-8c84-5205697d8bb1 | existing_agent | local_helper | envoi_link |
+| 28 | evt_8561589b-fb72-48a1-a0d4-4d7f3156b7b3 | agent.connection_setup_checked | 2026-10-20T23:50:21.555Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  |  | openclaw | ready |  |  |  |  |  |
+| 29 | evt_16c8351e-9832-48b9-a5f5-5bcf89409f86 | agent.connection_setup_checked | 2026-10-20T23:50:32.698Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |  |  |  |  |  | openclaw | ready |  |  |  |  |  |
+| 30 | evt_31214dfd-9844-4768-9fb5-2193fafeda3e | message.delivered | 2026-10-20T23:52:56.754Z |  |  | msg_70bf8dcc6e86f101f3108d70e1c1fbec | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 31 | evt_186c11d2-a280-4384-89f8-e91bbadb9a0a | agent.work_claimed | 2026-10-20T23:52:56.922Z | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | msg_70bf8dcc6e86f101f3108d70e1c1fbec |  |  | 1 | 1 | credential_family_72e933de-1b02-4388-8f18-b7fdfdec6fed |  |  |  |  |  |  |  |
+| 32 | evt_1b8a8f3e-88c9-480f-aaeb-b409b27a7951 | message.acknowledged | 2026-10-20T23:52:57.019Z |  |  | msg_70bf8dcc6e86f101f3108d70e1c1fbec | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 33 | evt_4fa749a4-4f78-4731-9046-b3b1b24ecaac | message.queued | 2026-10-20T23:53:03.660Z |  |  | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 34 | evt_4605c806-6faa-4d11-9ef7-ae47bf5c0168 | message.processed | 2026-10-20T23:53:03.839Z |  |  | msg_70bf8dcc6e86f101f3108d70e1c1fbec | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 35 | evt_4b91c2c3-0dd9-43d3-b2cb-b03fea93463b | message.delivered | 2026-10-20T23:53:03.969Z |  |  | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 36 | evt_41832c37-a2a4-4af9-904e-9d68ed5c1874 | message.acknowledged | 2026-10-20T23:53:04.256Z |  |  | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 37 | evt_d7734dc7-2807-4a14-a0db-f67ee697bb55 | message.processed | 2026-10-20T23:53:08.125Z |  |  | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+
+### Hermes agent-inbox events, whole run
+
+| sequence | id | type | createdAt | agentId | workId | messageId | caseId | fence | attempts | credentialFamilyId | runtime | phase | installationId | registrationId | target | connectionRoute | deliveryMode |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | evt_610124eb-7057-4339-af80-7eb25bbed7f5 | agent.installation_activated | 2026-10-20T23:14:30.102Z | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |  |  |  |  | credential_family_49bd0772-6c78-46e7-9324-9171af3e72d8 |  |  | installation_1654a78b-47cc-4d57-8cca-8360e0970146 | registration_dfca6f31-0eff-41cc-9ed3-edc3892fee1b | new_agent | local_helper | envoi_link |
+| 2 | evt_c0421a5e-aa6f-4ee8-ac01-b8df1be5f641 | agent.connection_setup_checked | 2026-10-20T23:15:24.363Z | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |  |  |  |  |  | hermes | ready |  |  |  |  |  |
+| 3 | evt_93f7865c-8360-4b64-889d-08258871be05 | agent.connection_setup_checked | 2026-10-20T23:15:32.551Z | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |  |  |  |  |  | hermes | ready |  |  |  |  |  |
+| 4 | evt_16f024c6-3b00-40e4-a069-559b51d9665c | message.queued | 2026-10-20T23:17:22.267Z |  |  | msg_8b2adfc372f5eb95bab99d78d76568b8 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 5 | evt_261db003-c964-4acf-b495-00836aabd1ff | message.delivered | 2026-10-20T23:17:22.441Z |  |  | msg_8b2adfc372f5eb95bab99d78d76568b8 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 6 | evt_8c9690e8-40f2-415b-84db-16b57d2e7809 | message.acknowledged | 2026-10-20T23:17:22.564Z |  |  | msg_8b2adfc372f5eb95bab99d78d76568b8 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 7 | evt_76bad9c0-c396-4398-97cc-85eba429433d | message.processed | 2026-10-20T23:17:35.281Z |  |  | msg_8b2adfc372f5eb95bab99d78d76568b8 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 8 | evt_0505103a-c651-4e8d-99ac-f1175f28572a | message.delivered | 2026-10-20T23:17:35.465Z |  |  | msg_7d2890f3c4d55377de7ac1c006f91925 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 9 | evt_3b1647ab-a14f-42e0-b21a-8ab3bf8ddd0b | agent.work_claimed | 2026-10-20T23:17:35.585Z | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | msg_7d2890f3c4d55377de7ac1c006f91925 |  |  | 1 | 1 | credential_family_49bd0772-6c78-46e7-9324-9171af3e72d8 |  |  |  |  |  |  |  |
+| 10 | evt_09802f1a-195d-43f4-b94c-345fecb71265 | message.acknowledged | 2026-10-20T23:17:35.636Z |  |  | msg_7d2890f3c4d55377de7ac1c006f91925 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 11 | evt_0f074543-382c-4567-8626-675bd9fde345 | message.queued | 2026-10-20T23:17:38.126Z |  |  | msg_5fd0a369597ec61b88cfd6f691062fc0 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 12 | evt_32e42bae-3459-4ce7-a5fd-79f824c131bf | message.delivered | 2026-10-20T23:17:38.191Z |  |  | msg_5fd0a369597ec61b88cfd6f691062fc0 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 13 | evt_de2c736e-289b-4a2a-8f35-54ba5451a2f9 | message.processed | 2026-10-20T23:17:38.270Z |  |  | msg_7d2890f3c4d55377de7ac1c006f91925 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 14 | evt_5492925f-49b4-4ee7-b099-1f6870de1022 | message.acknowledged | 2026-10-20T23:17:38.427Z |  |  | msg_5fd0a369597ec61b88cfd6f691062fc0 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 15 | evt_78587064-f92d-46f1-92a3-6aff55f0b3ff | message.processed | 2026-10-20T23:17:41.987Z |  |  | msg_5fd0a369597ec61b88cfd6f691062fc0 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 16 | evt_83be3c8d-a91d-4354-a8b6-2250c0e3ef85 | message.queued | 2026-10-20T23:24:12.489Z |  |  | msg_9ea8c408f8f71868a7b34e4b8c56a488 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 17 | evt_3450e0ab-9a8f-4991-9b68-aa5ac8268979 | message.delivered | 2026-10-20T23:24:12.554Z |  |  | msg_9ea8c408f8f71868a7b34e4b8c56a488 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 18 | evt_c466a05d-e65c-4e2d-b68a-03b8dd3c1bd3 | message.acknowledged | 2026-10-20T23:28:10.903Z |  |  | msg_9ea8c408f8f71868a7b34e4b8c56a488 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 19 | evt_b9ac9f92-9126-4992-a75b-9b62d8cacfa4 | message.processed | 2026-10-20T23:28:16.990Z |  |  | msg_9ea8c408f8f71868a7b34e4b8c56a488 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 20 | evt_0f5a041f-eb29-4554-aa3c-86be088f9bd4 | message.delivered | 2026-10-20T23:28:17.146Z |  |  | msg_9b5ee94ec7c6e14807fac1c57680b3ea | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 21 | evt_a6f8a24a-3769-44fd-8524-a45926ec425b | agent.work_claimed | 2026-10-20T23:28:17.304Z | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | msg_9b5ee94ec7c6e14807fac1c57680b3ea |  |  | 1 | 1 | credential_family_49bd0772-6c78-46e7-9324-9171af3e72d8 |  |  |  |  |  |  |  |
+| 22 | evt_9f1e026d-7e3e-4742-a757-8d491cfc12eb | message.acknowledged | 2026-10-20T23:28:17.365Z |  |  | msg_9b5ee94ec7c6e14807fac1c57680b3ea | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 23 | evt_a5d86e5c-c588-42da-af0d-1961155c54f8 | message.processed | 2026-10-20T23:28:19.754Z |  |  | msg_9b5ee94ec7c6e14807fac1c57680b3ea | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 24 | evt_b98c0808-075b-4d68-9875-2e9875d4af39 | message.queued | 2026-10-20T23:52:56.514Z |  |  | msg_70bf8dcc6e86f101f3108d70e1c1fbec | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 25 | evt_79ae0f21-e8f1-49f2-a9b1-b4a095455a98 | message.delivered | 2026-10-20T23:52:56.754Z |  |  | msg_70bf8dcc6e86f101f3108d70e1c1fbec | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 26 | evt_83798b70-db2a-4bb1-bb61-01cde0036db1 | message.acknowledged | 2026-10-20T23:52:57.019Z |  |  | msg_70bf8dcc6e86f101f3108d70e1c1fbec | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 27 | evt_2192d69b-b7c3-4997-9341-fb978abed51c | message.processed | 2026-10-20T23:53:03.839Z |  |  | msg_70bf8dcc6e86f101f3108d70e1c1fbec | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 28 | evt_325ee2bb-fba9-463c-b6ad-c814a390217b | message.delivered | 2026-10-20T23:53:03.969Z |  |  | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 29 | evt_c78a7cb5-946f-413b-a0c8-54b02119290d | agent.work_claimed | 2026-10-20T23:53:04.139Z | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 |  |  | 1 | 1 | credential_family_49bd0772-6c78-46e7-9324-9171af3e72d8 |  |  |  |  |  |  |  |
+| 30 | evt_58a049e2-0c9c-46a7-a452-0b3a32d68878 | message.acknowledged | 2026-10-20T23:53:04.256Z |  |  | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+| 31 | evt_1653eabf-2e83-41e6-8c19-6bfe41b258fc | message.processed | 2026-10-20T23:53:08.125Z |  |  | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | case_8b2adfc372f5eb95bab99d78d76568b8 |  |  |  |  |  |  |  |  |  |  |
+
+### OpenClaw delivery receipts, whole run
+
+| createdAt | id | type | state | messageId | senderAgentId | recipientAgentId | attempt |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-20T23:53:08.125Z | delivery_receipt_msg_2a541b7a2a7e20cb574bfc8cc2f1baf4_processed | delivery | processed | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:53:04.256Z | delivery_receipt_msg_2a541b7a2a7e20cb574bfc8cc2f1baf4_acknowledged | delivery | acknowledged | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:53:03.969Z | delivery_receipt_msg_2a541b7a2a7e20cb574bfc8cc2f1baf4_delivered | delivery | delivered | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | 1 |
+| 2026-10-20T23:53:03.839Z | delivery_receipt_msg_70bf8dcc6e86f101f3108d70e1c1fbec_processed | delivery | processed | msg_70bf8dcc6e86f101f3108d70e1c1fbec | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:52:57.019Z | delivery_receipt_msg_70bf8dcc6e86f101f3108d70e1c1fbec_acknowledged | delivery | acknowledged | msg_70bf8dcc6e86f101f3108d70e1c1fbec | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:52:56.754Z | delivery_receipt_msg_70bf8dcc6e86f101f3108d70e1c1fbec_delivered | delivery | delivered | msg_70bf8dcc6e86f101f3108d70e1c1fbec | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | 1 |
+| 2026-10-20T23:28:19.754Z | delivery_receipt_msg_9b5ee94ec7c6e14807fac1c57680b3ea_processed | delivery | processed | msg_9b5ee94ec7c6e14807fac1c57680b3ea | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:28:17.365Z | delivery_receipt_msg_9b5ee94ec7c6e14807fac1c57680b3ea_acknowledged | delivery | acknowledged | msg_9b5ee94ec7c6e14807fac1c57680b3ea | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:28:17.146Z | delivery_receipt_msg_9b5ee94ec7c6e14807fac1c57680b3ea_delivered | delivery | delivered | msg_9b5ee94ec7c6e14807fac1c57680b3ea | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | 1 |
+| 2026-10-20T23:28:16.990Z | delivery_receipt_msg_9ea8c408f8f71868a7b34e4b8c56a488_processed | delivery | processed | msg_9ea8c408f8f71868a7b34e4b8c56a488 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:28:10.903Z | delivery_receipt_msg_9ea8c408f8f71868a7b34e4b8c56a488_acknowledged | delivery | acknowledged | msg_9ea8c408f8f71868a7b34e4b8c56a488 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:24:12.554Z | delivery_receipt_msg_9ea8c408f8f71868a7b34e4b8c56a488_delivered | delivery | delivered | msg_9ea8c408f8f71868a7b34e4b8c56a488 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | 1 |
+| 2026-10-20T23:17:41.987Z | delivery_receipt_msg_5fd0a369597ec61b88cfd6f691062fc0_processed | delivery | processed | msg_5fd0a369597ec61b88cfd6f691062fc0 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:17:38.427Z | delivery_receipt_msg_5fd0a369597ec61b88cfd6f691062fc0_acknowledged | delivery | acknowledged | msg_5fd0a369597ec61b88cfd6f691062fc0 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:17:38.270Z | delivery_receipt_msg_7d2890f3c4d55377de7ac1c006f91925_processed | delivery | processed | msg_7d2890f3c4d55377de7ac1c006f91925 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:17:38.191Z | delivery_receipt_msg_5fd0a369597ec61b88cfd6f691062fc0_delivered | delivery | delivered | msg_5fd0a369597ec61b88cfd6f691062fc0 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | 1 |
+| 2026-10-20T23:17:35.636Z | delivery_receipt_msg_7d2890f3c4d55377de7ac1c006f91925_acknowledged | delivery | acknowledged | msg_7d2890f3c4d55377de7ac1c006f91925 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:17:35.465Z | delivery_receipt_msg_7d2890f3c4d55377de7ac1c006f91925_delivered | delivery | delivered | msg_7d2890f3c4d55377de7ac1c006f91925 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | 1 |
+| 2026-10-20T23:17:35.281Z | delivery_receipt_msg_8b2adfc372f5eb95bab99d78d76568b8_processed | delivery | processed | msg_8b2adfc372f5eb95bab99d78d76568b8 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:17:22.564Z | delivery_receipt_msg_8b2adfc372f5eb95bab99d78d76568b8_acknowledged | delivery | acknowledged | msg_8b2adfc372f5eb95bab99d78d76568b8 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:17:22.441Z | delivery_receipt_msg_8b2adfc372f5eb95bab99d78d76568b8_delivered | delivery | delivered | msg_8b2adfc372f5eb95bab99d78d76568b8 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | 1 |
+
+### Hermes delivery receipts, whole run
+
+| createdAt | id | type | state | messageId | senderAgentId | recipientAgentId | attempt |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-20T23:53:08.125Z | delivery_receipt_msg_2a541b7a2a7e20cb574bfc8cc2f1baf4_processed | delivery | processed | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:53:04.256Z | delivery_receipt_msg_2a541b7a2a7e20cb574bfc8cc2f1baf4_acknowledged | delivery | acknowledged | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:53:03.969Z | delivery_receipt_msg_2a541b7a2a7e20cb574bfc8cc2f1baf4_delivered | delivery | delivered | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | 1 |
+| 2026-10-20T23:53:03.839Z | delivery_receipt_msg_70bf8dcc6e86f101f3108d70e1c1fbec_processed | delivery | processed | msg_70bf8dcc6e86f101f3108d70e1c1fbec | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:52:57.019Z | delivery_receipt_msg_70bf8dcc6e86f101f3108d70e1c1fbec_acknowledged | delivery | acknowledged | msg_70bf8dcc6e86f101f3108d70e1c1fbec | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:52:56.754Z | delivery_receipt_msg_70bf8dcc6e86f101f3108d70e1c1fbec_delivered | delivery | delivered | msg_70bf8dcc6e86f101f3108d70e1c1fbec | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | 1 |
+| 2026-10-20T23:28:19.754Z | delivery_receipt_msg_9b5ee94ec7c6e14807fac1c57680b3ea_processed | delivery | processed | msg_9b5ee94ec7c6e14807fac1c57680b3ea | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:28:17.365Z | delivery_receipt_msg_9b5ee94ec7c6e14807fac1c57680b3ea_acknowledged | delivery | acknowledged | msg_9b5ee94ec7c6e14807fac1c57680b3ea | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:28:17.146Z | delivery_receipt_msg_9b5ee94ec7c6e14807fac1c57680b3ea_delivered | delivery | delivered | msg_9b5ee94ec7c6e14807fac1c57680b3ea | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | 1 |
+| 2026-10-20T23:28:16.990Z | delivery_receipt_msg_9ea8c408f8f71868a7b34e4b8c56a488_processed | delivery | processed | msg_9ea8c408f8f71868a7b34e4b8c56a488 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:28:10.903Z | delivery_receipt_msg_9ea8c408f8f71868a7b34e4b8c56a488_acknowledged | delivery | acknowledged | msg_9ea8c408f8f71868a7b34e4b8c56a488 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:24:12.554Z | delivery_receipt_msg_9ea8c408f8f71868a7b34e4b8c56a488_delivered | delivery | delivered | msg_9ea8c408f8f71868a7b34e4b8c56a488 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | 1 |
+| 2026-10-20T23:17:41.987Z | delivery_receipt_msg_5fd0a369597ec61b88cfd6f691062fc0_processed | delivery | processed | msg_5fd0a369597ec61b88cfd6f691062fc0 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:17:38.427Z | delivery_receipt_msg_5fd0a369597ec61b88cfd6f691062fc0_acknowledged | delivery | acknowledged | msg_5fd0a369597ec61b88cfd6f691062fc0 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:17:38.270Z | delivery_receipt_msg_7d2890f3c4d55377de7ac1c006f91925_processed | delivery | processed | msg_7d2890f3c4d55377de7ac1c006f91925 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:17:38.191Z | delivery_receipt_msg_5fd0a369597ec61b88cfd6f691062fc0_delivered | delivery | delivered | msg_5fd0a369597ec61b88cfd6f691062fc0 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | 1 |
+| 2026-10-20T23:17:35.636Z | delivery_receipt_msg_7d2890f3c4d55377de7ac1c006f91925_acknowledged | delivery | acknowledged | msg_7d2890f3c4d55377de7ac1c006f91925 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 |  |
+| 2026-10-20T23:17:35.465Z | delivery_receipt_msg_7d2890f3c4d55377de7ac1c006f91925_delivered | delivery | delivered | msg_7d2890f3c4d55377de7ac1c006f91925 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | 1 |
+| 2026-10-20T23:17:35.281Z | delivery_receipt_msg_8b2adfc372f5eb95bab99d78d76568b8_processed | delivery | processed | msg_8b2adfc372f5eb95bab99d78d76568b8 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:17:22.564Z | delivery_receipt_msg_8b2adfc372f5eb95bab99d78d76568b8_acknowledged | delivery | acknowledged | msg_8b2adfc372f5eb95bab99d78d76568b8 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e |  |
+| 2026-10-20T23:17:22.441Z | delivery_receipt_msg_8b2adfc372f5eb95bab99d78d76568b8_delivered | delivery | delivered | msg_8b2adfc372f5eb95bab99d78d76568b8 | agent_a0755cb5-ee55-478a-b801-db6b9ec84840 | agent_4bcaa9ab-7d1a-432e-a596-912ba598c80e | 1 |
+
+### OpenClaw deliveries
+
+| id | messageId | status | attempts | maxAttempts | availableAt | deliveredAt |
+| --- | --- | --- | --- | --- | --- | --- |
+| delivery_msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | delivered | 0 | 5 | 2026-10-20T23:53:03.660Z | 2026-10-20T23:53:03.987Z |
+| delivery_msg_70bf8dcc6e86f101f3108d70e1c1fbec | msg_70bf8dcc6e86f101f3108d70e1c1fbec | delivered | 0 | 5 | 2026-10-20T23:52:56.514Z | 2026-10-20T23:52:56.768Z |
+| delivery_msg_9b5ee94ec7c6e14807fac1c57680b3ea | msg_9b5ee94ec7c6e14807fac1c57680b3ea | delivered | 0 | 5 | 2026-10-20T23:28:16.889Z | 2026-10-20T23:28:17.167Z |
+| delivery_msg_9ea8c408f8f71868a7b34e4b8c56a488 | msg_9ea8c408f8f71868a7b34e4b8c56a488 | delivered | 0 | 5 | 2026-10-20T23:24:12.489Z | 2026-10-20T23:24:12.563Z |
+| delivery_msg_5fd0a369597ec61b88cfd6f691062fc0 | msg_5fd0a369597ec61b88cfd6f691062fc0 | delivered | 0 | 5 | 2026-10-20T23:17:38.126Z | 2026-10-20T23:17:38.202Z |
+| delivery_msg_7d2890f3c4d55377de7ac1c006f91925 | msg_7d2890f3c4d55377de7ac1c006f91925 | delivered | 0 | 5 | 2026-10-20T23:17:35.208Z | 2026-10-20T23:17:35.480Z |
+| delivery_msg_8b2adfc372f5eb95bab99d78d76568b8 | msg_8b2adfc372f5eb95bab99d78d76568b8 | delivered | 0 | 5 | 2026-10-20T23:17:22.267Z | 2026-10-20T23:17:22.448Z |
+
+### Hermes deliveries
+
+| id | messageId | status | attempts | maxAttempts | availableAt | deliveredAt |
+| --- | --- | --- | --- | --- | --- | --- |
+| delivery_msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | msg_2a541b7a2a7e20cb574bfc8cc2f1baf4 | delivered | 0 | 5 | 2026-10-20T23:53:03.660Z | 2026-10-20T23:53:03.987Z |
+| delivery_msg_70bf8dcc6e86f101f3108d70e1c1fbec | msg_70bf8dcc6e86f101f3108d70e1c1fbec | delivered | 0 | 5 | 2026-10-20T23:52:56.514Z | 2026-10-20T23:52:56.768Z |
+| delivery_msg_9b5ee94ec7c6e14807fac1c57680b3ea | msg_9b5ee94ec7c6e14807fac1c57680b3ea | delivered | 0 | 5 | 2026-10-20T23:28:16.889Z | 2026-10-20T23:28:17.167Z |
+| delivery_msg_9ea8c408f8f71868a7b34e4b8c56a488 | msg_9ea8c408f8f71868a7b34e4b8c56a488 | delivered | 0 | 5 | 2026-10-20T23:24:12.489Z | 2026-10-20T23:24:12.563Z |
+| delivery_msg_5fd0a369597ec61b88cfd6f691062fc0 | msg_5fd0a369597ec61b88cfd6f691062fc0 | delivered | 0 | 5 | 2026-10-20T23:17:38.126Z | 2026-10-20T23:17:38.202Z |
+| delivery_msg_7d2890f3c4d55377de7ac1c006f91925 | msg_7d2890f3c4d55377de7ac1c006f91925 | delivered | 0 | 5 | 2026-10-20T23:17:35.208Z | 2026-10-20T23:17:35.480Z |
+| delivery_msg_8b2adfc372f5eb95bab99d78d76568b8 | msg_8b2adfc372f5eb95bab99d78d76568b8 | delivered | 0 | 5 | 2026-10-20T23:17:22.267Z | 2026-10-20T23:17:22.448Z |
