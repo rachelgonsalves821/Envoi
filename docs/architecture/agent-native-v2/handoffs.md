@@ -4083,10 +4083,10 @@ PR #144 review corrections preserve provider-browser-poll v1's public payloads: 
 
 ## agent-remote-auth v1
 
-**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** published, awaiting Lane B's `CONTRACT-ACK`. Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
+**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** published (revision 2, §15), awaiting Lane B's `CONTRACT-ACK`. Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
 
 **Fixtures:** [`test/contract-fixtures/agent-remote-auth/`](../../../test/contract-fixtures/agent-remote-auth/). It holds:
-- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-oauth-errors`, `x-limits`, `x-scopes`, `x-route-availability`, `x-delivery-availability`, `x-client-metadata-checks`, `x-redirect-rules`, `x-authorize-checks`, `x-token-checks`, `x-consent-display` and `x-endpoints`;
+- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-oauth-errors`, `x-limits`, `x-scopes`, `x-route-availability`, `x-delivery-availability`, `x-client-metadata-checks`, `x-redirect-rules`, `x-authorize-checks`, `x-token-checks`, `x-consent-display`, `x-consent-decisions` and `x-endpoints`;
 - one JSON file per case. The PKCE verifiers and challenges in them are real S256 pairs made for the fixtures; every code, token and secret is a placeholder.
 
 **Owner:** Lane A. **Consumers:** Lane B (B-R3): the owner consent page, `/connect` and `skill.json` route guidance, and the remote MCP and provider host setup notes. Every real remote MCP client and reviewed provider connector consumes it too.
@@ -4305,7 +4305,8 @@ A request without `scope` asks for `envoi.agent envoi.send`, the same set as the
 - `client`: `name` (as a `displayName`), `clientIdHost` (the host of a URL client id, or `null` for a pre-registered client), `redirectHost` (the redirect URI's host and, for loopback, the port), `loopbackRedirect` (boolean), `registration` (`metadata_document` or `pre_registered`) and `provider` (pre-registered clients only);
 - `connectionRoute`;
 - `requestedPermissions` and `grantablePermissions` (requested ∩ organization maximum), as in agent-registration §5.2;
-- `expiresAt`, the handle's expiry.
+- `expiresAt`, the handle's expiry;
+- `decision`: present exactly when **this** human already decided the handle. It is the `consentDecided` body of §5.2, or `{ "status": "denied" }` after a deny. The page then shows the outcome instead of the form, so a reload never offers the same decision twice.
 
 **What the page must show** (`x-consent-display`):
 - the client name **as a claim the client makes**, beside the host it came from (`clientIdHost`) or the provider;
@@ -4316,7 +4317,7 @@ A request without `scope` asks for `envoi.agent envoi.send`, the same set as the
 
 The page never shows the handle's contents in raw form and never fetches `client_uri` or `logo_uri`.
 
-The checks are agent-registration §5.1's: a human session, the beta allowlist re-evaluated now, and the assurance rule. A handle that is malformed, tampered, expired, or already decided by another human gets `404 AUTHORIZATION_REQUEST_INVALID`, identical in every case.
+The checks are agent-registration §5.1's: a human session, the beta allowlist re-evaluated now, and the assurance rule. A handle that is malformed, tampered, already decided by another human, or expired without a decision by this human gets `404 AUTHORIZATION_REQUEST_INVALID`, identical in every case. A handle this human approved stays readable for as long as its registration is kept; a denied one, until it expires (§5.2, "Retention").
 
 #### 5.2 Approve
 
@@ -4330,15 +4331,15 @@ The checks are agent-registration §5.1's: a human session, the beta allowlist r
 Everything in agent-registration §5.3 applies unchanged: the permission intersection, agent slots, address holds, `replacesInstallationId`, the live management check and the policy profile. The precedence is §5.3's, with the code step replaced by the handle:
 1. session and CSRF, then `ACCOUNT_CHANGED`;
 2. `RATE_LIMITED` (`x-limits.consentApprovalsPerHumanPerHour`, 10);
-3. **the handle:** a handle this human already decided replays the identical original `200` for the identical body, and gets `409 CLAIM_ALREADY_DECIDED` for any other body or for approving after denying. Any other unusable handle gets `404 AUTHORIZATION_REQUEST_INVALID`;
+3. **the handle:** for a handle this human already approved, the identical body gets `200 consentDecided` ("Retrying an approval", below), never the code again. Any other body, or approving after denying, gets `409 CLAIM_ALREADY_DECIDED`. Any other unusable handle gets `404 AUTHORIZATION_REQUEST_INVALID`;
 4. `CLAIM_INVALID`;
 5. `CLAIM_FORBIDDEN`;
 6. `AGENT_NOT_RECONNECTABLE`, `CLAIM_STALE`, `ADDRESS_TAKEN`, `ACTIVE_AGENT_LIMIT` or `PENDING_ACTIVATION_LIMIT`.
 
 **What approval does.** In one transaction the server:
 - creates an agent registration with `status: approved`, the client's `connectionRoute`, `runtime: { type: "remote_mcp", version: null }` (`provider_connector`: `{ type: "provider", version: null }`), and the decision fields of agent-registration §5.3;
-- records the decision against the handle, so step 3 can replay it;
-- issues one **authorization code**: `envoi_oauth_code_` + 32 random bytes, base64url, stored only as SHA-256, single use, expiring `x-limits.authorizationCodeTtlSeconds` (60 s) after approval. The code's expiry is the registration's `activationExpiresAt`.
+- records the decision against the handle: the human, a SHA-256 digest of the request body, and the registration id. It never records the code, the `redirectTo` or any other response that contains the code;
+- issues one **authorization code**: `envoi_oauth_code_` + 32 random bytes, base64url, stored only as SHA-256, single use, expiring `x-limits.authorizationCodeTtlSeconds` (60 s) after approval. The code's expiry is the registration's `activationExpiresAt`. The code appears in exactly **one** response, this first `200`, and nothing that could rebuild it is kept.
 
 The registration then behaves like any approved one: it holds its address and slot, appears in the owner's `GET /api/agent-claims`, and can be withdrawn there (agent-registration §5.4). It has no bootstrap token and no verification code. Audit: `agent.registration_approved`, as today, with the route.
 
@@ -4348,9 +4349,26 @@ The registration then behaves like any approved one: it holds its address and sl
 
 The page navigates the browser to `redirectTo`. This is the one place an authorization code crosses a browser, as OAuth requires (v3 §45). It is not an agent credential, and it is useless without the client's PKCE verifier.
 
+**Retrying an approval** (`x-consent-decisions`). The code is returned once. A repeated identical approve by the same human gets `200` `consentDecided`, with `cache-control: no-store`. That covers a lost response, a reload, a double click, and a server restart in between. The status is derived from the stored registration at the time of the retry, so it survives a restart:
+
+| `status` | When | The page shows |
+| --- | --- | --- |
+| `pending_exchange` | Approved; the code is unused and `codeExpiresAt` has not passed. | "Approved. Go back to your assistant to finish connecting. If it doesn't connect, start again from your assistant." It also shows that the approval lapses at `codeExpiresAt`, and offers Withdraw (agent-registration §5.4, with `registrationId`). |
+| `completed` | The code was exchanged, so activation happened (§6.1), whatever has happened to the installation since. | "Connected. You can close this page." |
+| `expired` | The code was never exchanged, and `codeExpiresAt` passed. | "This approval expired before your assistant finished. Start again from your assistant." |
+| `withdrawn` | A manager withdrew it (agent-registration §5.4), or an exchange-time re-check failed (§6.1 row 10). | "This approval no longer holds. Start again from your assistant." |
+
+`consentDecided` carries `status`, `registrationId`, `target`, `workspaceName`, `agent`, `effectivePermissions`, `policyProfile` and `codeExpiresAt`. It has **no** `redirectTo` and no code.
+
+**The page never navigates on `consentDecided`.** It navigates to the client only on the first `200 consentApproved`. So an honest retry can never send a used code back through the token endpoint, where §6.1 row 5 would revoke the installation. It can never strand the user at the client with an expired code either. The token endpoint's reuse check and revocation are unchanged.
+
+**Recovery is a new authorization.** If the first response never reached the page, the host never receives the code, and its authorization never completes. The user starts again from the assistant, which sends a new authorization request with a new handle. The server never issues a second code for a decided handle, and never creates a second registration for it. The unused approval holds its address, slot and waiting-approval count only until `codeExpiresAt` (60 s), or until it is withdrawn. A new `new_agent` approval for the same address inside that window gets `ADDRESS_TAKEN`, so the page offers withdrawing the pending approval first.
+
+**Retention.** A decided handle keeps getting `consentDecided`, and `decision` in §5.1, after its own 600 s expiry, for as long as its registration is kept (agent-registration §2: at least 24 h). After cleanup it gets `404 AUTHORIZATION_REQUEST_INVALID`, like any unknown handle. A denied handle has no registration, so its decision lasts only until the handle itself expires (600 s); after that a repeated deny, or a read, also gets `404 AUTHORIZATION_REQUEST_INVALID`.
+
 #### 5.3 Deny
 
-`POST /api/oauth/authorization-requests/{handle}/deny`, human session and CSRF, empty body → `200 { redirectTo }`, with `error=access_denied`, `state` and `iss`. Nothing is created. The same human repeating it gets the identical `200`. Denying a handle this human approved gets `409 CLAIM_ALREADY_DECIDED`.
+`POST /api/oauth/authorization-requests/{handle}/deny`, human session and CSRF, empty body → `200 { redirectTo }`, with `error=access_denied`, `state` and `iss`. Nothing is created. The same human repeating it gets the identical `200`; its `redirectTo` carries no code, so it can be rebuilt from the handle and the page may navigate again. Denying a handle this human approved gets `409 CLAIM_ALREADY_DECIDED`.
 
 ### 6. Token endpoint
 
@@ -4516,7 +4534,8 @@ The owner routes also return agent-registration's `CLAIM_INVALID`, `CLAIM_FORBID
 | Availability and discovery | `routes-available-remote-mcp`, `routes-available-provider`, `protected-resource-metadata`, `protected-resource-metadata-root`, `authorization-server-metadata`, `discovery-feature-disabled` |
 | `/mcp` challenge | `mcp-challenge-unauthenticated`, `mcp-challenge-invalid-token`, `mcp-insufficient-scope`, `mcp-paused-oauth-token`, `oauth-token-refused-on-rest` |
 | Authorization request | `authorize-redirects-to-consent`, `authorize-loopback-redirect`, `authorize-unknown-client`, `authorize-client-id-mismatch`, `authorize-redirect-uri-mismatch`, `authorize-pkce-missing`, `authorize-pkce-plain`, `authorize-resource-missing`, `authorize-scope-invalid`, `authorize-feature-disabled` |
-| Consent | `consent-view`, `consent-view-loopback`, `consent-request-invalid`, `consent-approve-new-agent`, `consent-approve-existing-agent`, `consent-approve-replayed`, `consent-approve-other-body`, `consent-deny`, `consent-agent-limit` |
+| Consent | `consent-view`, `consent-view-loopback`, `consent-view-decided`, `consent-request-invalid`, `consent-approve-new-agent`, `consent-approve-existing-agent`, `consent-approve-other-body`, `consent-deny`, `consent-agent-limit` |
+| Consent retry | `consent-approve-retry-pending`, `consent-approve-retry-completed`, `consent-approve-retry-expired`, `consent-approve-retry-withdrawn`, `consent-approve-lost-response` |
 | Token: authorization code | `token-authorization-code`, `token-pkce-mismatch`, `token-redirect-uri-mismatch`, `token-resource-mismatch`, `token-code-expired`, `token-code-reused`, `token-approval-withdrawn`, `token-public-client-secret` |
 | Token: refresh | `token-refresh`, `token-refresh-recovered`, `token-refresh-replay`, `token-refresh-other-client`, `token-refresh-scope-changed`, `token-refresh-paused`, `token-rate-limited` |
 | Revocation | `revoke-refresh-token`, `revoke-unknown-token`, `revoke-other-client` |
@@ -4537,7 +4556,8 @@ These are Lane A's proposals. Any of them can change before approval.
 8. **Four coarse scopes, one per permission** (§4.3). Finer scopes (for example read-only) would need new permissions in agent-registration first.
 9. **The sealed handle instead of a stored pending request** (§4.2). An unauthenticated `GET` writes nothing. The cost: a handle cannot be revoked before it expires. That is harmless, because a handle grants nothing without a signed-in human's decision.
 10. **`on_demand` for every installation made here** (§1), with the flag waiting for an a5-presence label. The alternative, declaring `envoi_link`, would claim a running host process that a cloud assistant does not have.
-11. **Approval.** Version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. It does not authorize any provider's gate or any flag change.
+11. **The code is returned once; a retry gets a decision outcome** (§5.2, revision 2). The alternative is to keep an encrypted copy of the first response for the code's 60 s life. That needs key binding, a TTL, deletion and replay limits, and it would still have to refuse a retry once the code is used. It adds a stored secret and saves the user nothing: either way, a host that missed the code must start again.
+12. **Approval.** Version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. It does not authorize any provider's gate or any flag change.
 
 ### 14. Implementation notes (Lane A; informative)
 
@@ -4547,3 +4567,11 @@ These are Lane A's proposals. Any of them can change before approval.
 - **Client metadata fetch.** Reuse the http-wake destination module (`src/http-wake-destination.js`) for name rules, resolution and pinning; do not write a second SSRF filter.
 - **Runtime.** These routes run in the Node container. The Cloudflare Worker must route `/.well-known/oauth-*`, `/oauth/*` and `/authorize-agent` to it and must pass the metadata `cache-control` through `withNoStoreHeaders` (as for the wake key set). The new settings are added to `CONTAINER_ENV_KEYS`.
 - **Audit types.** None are new, so Lane B's `WORKSPACE_EVENT_TYPES` needs no pairing change. `agent.installation_revoked` gains the actor value `client`.
+
+### 15. Revisions before approval
+
+**Revision 2** (this publication) answers Lane B's [`MISMATCH` 6319543594](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6319543594) ([review](https://github.com/rachelgonsalves821/Envoi/pull/171#issuecomment-6319539287)) on revision 1 @`f103660`. The contract stays version 1, because nothing has been approved or implemented.
+
+1. **Approval retry and code storage.** Revision 1 replayed the original `200`, code included, while storing the code only as SHA-256; the two cannot both hold. Now the code is in exactly one response and is never stored in clear or in an envelope. A repeated identical approve gets `consentDecided` (§5.2), with no code. The fixture `consent-approve-replayed` is replaced by `consent-approve-retry-pending`.
+2. **The boundary after an exchange or expiry.** `consentDecided` reports `pending_exchange`, `completed`, `expired` or `withdrawn`, and the page never navigates on it. An honest retry therefore never reaches the token endpoint's reuse revocation, which is unchanged (`token-code-reused`). New fixtures: `consent-approve-retry-completed`, `consent-approve-retry-expired`, `consent-approve-retry-withdrawn`, `consent-approve-lost-response` (lost response, then a restart, then expiry) and `consent-view-decided`.
+3. **Additions.** `consentView` gains the optional `decision` (§5.1), and `schemas.json` gains `consentDecided` and `x-consent-decisions`. Nothing else in the wire contract changes.

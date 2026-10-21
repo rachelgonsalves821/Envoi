@@ -1868,7 +1868,7 @@ test('agent-remote-auth fixtures agree across cases', async () => {
   assert.equal(prm.response.body.resource, `${issuer}/mcp`, 'the resource is the canonical /mcp URI');
   assert.deepEqual(prm.response.body.scopes_supported, schemas['x-scopes'].map((entry) => entry.scope), 'scopes_supported is x-scopes in order');
 
-  const [authorize, consent, approve, replayed, token] = await Promise.all(['authorize-redirects-to-consent', 'consent-view', 'consent-approve-new-agent', 'consent-approve-replayed', 'token-authorization-code'].map(load));
+  const [authorize, consent, approve, token] = await Promise.all(['authorize-redirects-to-consent', 'consent-view', 'consent-approve-new-agent', 'token-authorization-code'].map(load));
   const asked = params(authorize);
   assert.equal(asked.get('code_challenge'), s256(authorize.context.codeVerifier), 'the challenge is S256 of the verifier');
   assert.equal(asked.get('resource'), prm.response.body.resource, 'the request names the resource');
@@ -1876,7 +1876,30 @@ test('agent-remote-auth fixtures agree across cases', async () => {
   assert.equal(consent.response.body.client.redirectHost, new URL(asked.get('redirect_uri')).host, 'the page shows the redirect host');
   assert.equal(new URL(authorize.response.headers.location).searchParams.get('request'), consent.request.path.split('/').pop(), 'the page reads the handle it was sent');
   assert.equal(approve.request.path, `${consent.request.path}/approve`, 'the owner approves that handle');
-  assert.deepEqual([replayed.request, replayed.response], [approve.request, approve.response], 'a repeated approve replays the original');
+  // §5.2 revision 2: the code is in exactly one response. A retry gets the decision outcome, never the code,
+  // and the page never navigates on it, so it can never route a used code back to the token endpoint.
+  const decisions = schemas['x-consent-decisions'].map((entry) => entry.status);
+  const { redirectTo: _code, ...decidedFields } = approve.response.body;
+  for (const [name, status] of [['consent-approve-retry-pending', 'pending_exchange'], ['consent-approve-retry-completed', 'completed'], ['consent-approve-retry-expired', 'expired'], ['consent-approve-retry-withdrawn', 'withdrawn']]) {
+    const retry = await load(name);
+    assert.deepEqual(retry.request, approve.request, `${name}: the identical approve`);
+    assert.equal(retry.response.schema, 'consentDecided', `${name}: a decision outcome`);
+    assert.deepEqual(retry.response.body, { status, ...decidedFields }, `${name}: the original decision, without redirectTo`);
+    assert.ok(decisions.includes(status), `${name}: an x-consent-decisions status`);
+    assert.doesNotMatch(JSON.stringify(retry.response), /envoi_oauth_code_/, `${name}: never the code again`);
+    assert.match(retry.client.next, /^Do not navigate\./, `${name}: the page does not navigate`);
+  }
+  assert.deepEqual(decisions, ['pending_exchange', 'completed', 'expired', 'withdrawn'], 'every decision status has a fixture');
+  const lostApproval = await load('consent-approve-lost-response');
+  assert.equal(lostApproval.steps[0].delivered, false, 'the first approve response was lost');
+  assert.deepEqual([lostApproval.steps[0].request, lostApproval.steps[0].response], [approve.request, approve.response], 'it was the ordinary first approve');
+  for (const step of [lostApproval.steps[1], lostApproval.steps[3]]) {
+    assert.deepEqual(step.request, approve.request, 'retries are the identical approve');
+    assert.doesNotMatch(JSON.stringify(step.response), /envoi_oauth_code_/, 'no retry repeats the code');
+  }
+  assert.deepEqual([lostApproval.steps[1].response.body.status, lostApproval.steps[2].response.body.decision.status, lostApproval.steps[3].response.body.status], ['pending_exchange', 'pending_exchange', 'expired'], 'pending after the restart, shown on reload, then expired');
+  const decidedView = await load('consent-view-decided');
+  assert.deepEqual(decidedView.response.body, { ...consent.response.body, decision: { status: 'completed', ...decidedFields } }, 'a decided handle shows its outcome instead of the form');
   const back = new URL(approve.response.body.redirectTo);
   assert.equal(`${back.origin}${back.pathname}`, asked.get('redirect_uri'), 'the code goes to the requested redirect URI');
   assert.deepEqual([back.searchParams.get('state'), back.searchParams.get('iss')], [asked.get('state'), issuer], 'with the state and the issuer');

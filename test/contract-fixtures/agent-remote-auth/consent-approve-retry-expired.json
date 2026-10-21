@@ -1,0 +1,64 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "consent-approve-retry-expired",
+  "description": "The identical approve after codeExpiresAt with no exchange: expired. The hold, slot and waiting-approval count are already released.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_1/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "consentApproveRequest",
+    "body": {
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "consentDecided",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "status": "expired",
+      "registrationId": "registration_oauth_example",
+      "target": "new_agent",
+      "workspaceName": "Example workspace",
+      "agent": {
+        "name": "Example agent",
+        "address": "example@envoi.mail"
+      },
+      "effectivePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "policyProfile": "default",
+      "codeExpiresAt": "2026-10-21T12:02:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Do not navigate. Show \"This approval expired before your assistant finished. Start again from your assistant.\""
+  }
+}

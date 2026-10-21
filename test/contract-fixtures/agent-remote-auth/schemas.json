@@ -21,7 +21,7 @@
     },
     "AUTHORIZATION_REQUEST_INVALID": {
       "status": 404,
-      "when": "§5.1, §5.2, §8: the handle is malformed, tampered, expired or decided by another human, or the client is not a bootstrap client. Identical in every case.",
+      "when": "§5.1, §5.2, §8: the handle is malformed, tampered, decided by another human, or expired without a decision by this human, or the client is not a bootstrap client. Identical in every case.",
       "bySurface": {
         "owner_ui": {
           "lifecycle": "NOT_APPLICABLE",
@@ -477,6 +477,28 @@
       "registration_rechecks"
     ]
   },
+  "x-consent-decisions": [
+    {
+      "status": "pending_exchange",
+      "when": "approved; the code is unused and codeExpiresAt has not passed",
+      "page": "return to the assistant to finish; offer Withdraw; never navigate"
+    },
+    {
+      "status": "completed",
+      "when": "the code was exchanged (activation happened)",
+      "page": "connected; never navigate"
+    },
+    {
+      "status": "expired",
+      "when": "the code was never exchanged and codeExpiresAt passed",
+      "page": "start again from the assistant; never navigate"
+    },
+    {
+      "status": "withdrawn",
+      "when": "withdrawn by a manager, or an exchange-time re-check failed",
+      "page": "start again from the assistant; never navigate"
+    }
+  ],
   "x-consent-display": [
     "client_name_as_claim",
     "client_id_host_or_provider",
@@ -1345,6 +1367,25 @@
         "expiresAt": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "decision": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/consentDecided"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "const": "denied"
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -1392,6 +1433,65 @@
           "type": "string",
           "maxLength": 2048,
           "pattern": "^(?:https://[A-Za-z0-9.-]+(?::\\d{1,5})?(?:/[^\\s#]*)?|http://(?:127\\.0\\.0\\.1|\\[::1\\])(?::\\d{1,5})?(?:/[^\\s#]*)?)$"
+        },
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "target": {
+          "enum": [
+            "new_agent",
+            "existing_agent"
+          ]
+        },
+        "workspaceName": {
+          "$ref": "#/definitions/displayName"
+        },
+        "agent": {
+          "$ref": "#/definitions/approvedAgent"
+        },
+        "effectivePermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "contains": {
+            "const": "receive_agent_messages"
+          }
+        },
+        "policyProfile": {
+          "const": "default"
+        },
+        "codeExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      }
+    },
+    "consentDecided": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "registrationId",
+        "target",
+        "workspaceName",
+        "agent",
+        "effectivePermissions",
+        "policyProfile",
+        "codeExpiresAt"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pending_exchange",
+            "completed",
+            "expired",
+            "withdrawn"
+          ]
         },
         "registrationId": {
           "type": "string",
