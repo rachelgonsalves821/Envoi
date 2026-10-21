@@ -23,6 +23,12 @@ The 2026-10-21 Worker settings show `ENVOI_DEPLOYMENT_ENVIRONMENT=staging` and `
 
 The sanitized observations and unresolved checks are also recorded on [build-board issue #34](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6325917054). The first receiver's OS is an explicit candidate decision: if it uses Windows, or the Windows wake-store repair in #174 is selected, pin a new candidate and served/installed artifact hashes and decide which gates must be rerun. If #174 stays outside this Stage A candidate, record the selected non-Windows receiver platform and the known Windows wake-store limitation. Neither choice is a hosted pass by itself.
 
+### Paired recovery rehearsal required before rollout
+
+Cloudflare's [Worker rollback](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/) activates a previous Worker version; it does not restore connected resources. [Container deployment](https://developers.cloudflare.com/containers/guides/deploy/) activates Worker code before processing the image, and those steps are not transactional. A successful deploy command also does not establish that [every Container instance has converged](https://developers.cloudflare.com/containers/configuration/rollouts/). Therefore a Worker-only rollback is not a rehearsed Worker-and-image recovery.
+
+Before the bounded hosted batch, the staging operator must record the full pre-change Worker version ID, release SHA, Container application ID, immutable image reference/digest, running instance version, and nonsecret settings. Confirm that the old image remains available. On an approved staging rehearsal, use the Cloudflare-supported procedure for this application's scheduling policy to restore **both** components. Observe the mixed-version interval, then verify the restored Worker version, image and running instance, `/health`, `/ready`, a container-reaching read-only request, and unchanged database identity. Record UTC timestamps, the exact actions, and any failure. A source checkout rebuilt into a new image does not by itself prove restoration of the prior image digest. Keep the hosted gate at **NOT RUN** until this paired rehearsal and the separate database restore check have evidence.
+
 ## 2. Bounded test authorization fields
 
 Complete every cell before the live batch; the two approvals distinguish rollout from test traffic.
