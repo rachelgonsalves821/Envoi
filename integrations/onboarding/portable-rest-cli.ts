@@ -14,7 +14,6 @@ interface HostConfig {
   runtime: { type: string; version: string };
   requestedName: string;
 }
-
 const safeFailure = { schemaVersion: '1', state: 'needs_help', reachability: 'not_verified_closed_app',
   nextAction: 'The trusted REST host could not continue. Preserve its private state and check the host configuration or service supervisor.' };
 const samePath = (a: string, b: string) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
