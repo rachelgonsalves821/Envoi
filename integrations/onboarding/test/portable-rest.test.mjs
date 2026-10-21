@@ -25,9 +25,11 @@ async function client(available = true, invalidStep = null) {
   const approved = (await fixture('registration-approved')).response.body;
   const activated = (await fixture('activation-created')).response.body;
   activated.installation.connectionRoute = 'authenticated_rest';
+  activated.installation.runtime = runtime;
   const status = (await fixture('agent-status-installation')).response.body;
   status.installation.connectionRoute = 'authenticated_rest';
   if (invalidStep === 'activation') activated.installation.connectionRoute = 'local_helper';
+  if (invalidStep === 'runtime') activated.installation.runtime = { type: 'another_host', version: '1.0.0' };
   if (invalidStep === 'status') status.installation.connectionRoute = 'local_helper';
   const availability = (await fixture(available ? 'routes-available-rest' : 'routes-available')).response.body;
   const responses = [availability, created, approved, activated, status];
@@ -55,13 +57,13 @@ test('REST route requires independent availability and actual private host capab
   await assert.rejects(createHelper({ contract, origin, runtime, connectionRoute: 'authenticated_rest', deliveryCapabilities, store: privateStore(), adopt: async () => {} }), /HELPER_METADATA_REQUIRED/);
 });
 
-for (const stage of ['activation', 'status']) test(`REST route rejects ${stage} response bound to another route`, async () => {
+for (const stage of ['activation', 'status', 'runtime']) test(`REST route rejects ${stage} response bound to another host or route`, async () => {
   const host = await client(true, stage);
   await host.helper.connect(); host.tick(5000);
   const result = await host.helper.resume();
-  assert.equal(result.state, stage === 'activation' ? 'needs_help' : 'degraded');
+  assert.equal(result.state, stage === 'status' ? 'degraded' : 'needs_help');
   assert.doesNotMatch(JSON.stringify(result), /envoi_agent_|envoi_reg_|private-host-store/);
-  assert.equal(host.adopted.length, stage === 'activation' ? 0 : 1);
+  assert.equal(host.adopted.length, stage === 'status' ? 1 : 0);
 });
 
 test('generic HTTPS host reuses private registration and verifies authenticated identity after activation', async () => {

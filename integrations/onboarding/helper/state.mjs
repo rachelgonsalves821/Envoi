@@ -112,6 +112,7 @@ export async function createHelper(options) {
   function validActivation(body) {
     if (!identifier(body.agent?.id) || !identifier(body.inboxId) || !identifier(body.installation?.id)
       || body.installation.connectionRoute !== route || body.installation.deliveryMode !== 'envoi_link'
+      || (route === 'authenticated_rest' && (body.installation.runtime?.type !== runtime.type || body.installation.runtime.version !== runtime.version))
       || body.installation.status !== 'active' || body.installation.agentId !== body.agent.id || body.installation.legacy !== false || !['active', 'paused'].includes(body.agent.status)
       || typeof body.agent.address !== 'string' || typeof body.agent.name !== 'string'
       || !body.agentApiToken?.startsWith('envoi_agent_access_') || !body.agentRefreshToken?.startsWith('envoi_agent_refresh_')
