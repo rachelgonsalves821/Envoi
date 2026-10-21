@@ -21,6 +21,8 @@ Collect the read-only staging facts with the commands in Stage A packet #172 §2
 
 The 2026-10-21 Worker settings show `ENVOI_DEPLOYMENT_ENVIRONMENT=staging` and `ENVOI_RELEASE_SHA=2b18170d59b0096ff997d9a79487d50ccb627ef9`, while `SINALOA_RELEASE_SHA` still names `8c5f67b…`. Calendar, consequential-action and email flags are `false`. No agent-native flag value was exposed in the read-only view. The Neon console confirms separate named projects and their backup controls, but the encrypted Worker secret prevents matching the live runtime to the intended staging project. These observations establish the old served baseline only; they do not establish candidate deployment, flag readiness, a safe rollback pair, or a hosted gate pass.
 
+The sanitized observations and unresolved checks are also recorded on [build-board issue #34](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6325917054). The first receiver's OS is an explicit candidate decision: if it uses Windows, or the Windows wake-store repair in #174 is selected, pin a new candidate and served/installed artifact hashes and decide which gates must be rerun. If #174 stays outside this Stage A candidate, record the selected non-Windows receiver platform and the known Windows wake-store limitation. Neither choice is a hosted pass by itself.
+
 ## 2. Bounded test authorization fields
 
 Complete every cell before the live batch; the two approvals distinguish rollout from test traffic.
