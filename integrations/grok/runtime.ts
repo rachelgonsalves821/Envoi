@@ -47,7 +47,7 @@ export async function createGrokBridge(config: GrokBridgeConfiguration,
   let connector: EnvoiConnector;
   const approvedAssets = await loadAssetManifest(config.assetManifestPath ?? env.ENVOI_ASSET_MANIFEST_PATH);
   const mcpUrl = config.mcpUrl ?? env.ENVOI_MCP_URL;
-  if (mcpUrl) validateEnvoiMcpDestination(config.apiUrl, mcpUrl, !options.fetch);
+  if (mcpUrl) validateEnvoiMcpDestination(config.apiUrl, mcpUrl);
   const turn = xaiTurn({
     apiKey: config.apiKey, model: config.model,
     ...(options.fetch ? { fetch: options.fetch } : {}),

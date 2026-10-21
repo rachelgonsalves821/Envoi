@@ -25,6 +25,15 @@ describe('Grok unified adapter', () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
+  it('rejects a foreign MCP origin during preflight before the one-use enrollment', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(preflightGrok({ apiKey: 'private-key', model: 'grok-test',
+      mcpUrl: 'https://other.example/mcp' },
+    { apiUrl: 'https://envoi.example', fetch: fetcher }))
+      .rejects.toMatchObject({ code: 'RUNTIME_CONFIGURATION_INVALID' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('requires provider credentials before enrollment and resumes private saved settings with local rotation', async () => {
     await expect(discoverGrok({ env: {} })).rejects.toMatchObject({ code: 'MODEL_CREDENTIAL_MISSING' });
     const prior = { apiKey: 'private-provider-key', model: 'account-custom-model' };
