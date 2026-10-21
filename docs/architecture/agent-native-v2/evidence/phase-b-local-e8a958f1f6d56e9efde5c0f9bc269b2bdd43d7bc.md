@@ -1,4 +1,4 @@
-# Gate B-local evidence: e8a958f1f6d56e9efde5c0f9bc269b2bdd43d7bc (PASS, pending human countersign)
+# Gate B-local evidence: e8a958f1f6d56e9efde5c0f9bc269b2bdd43d7bc (PASS, countersigned)
 
 Copy this file to `phase-b-local-<40-character-sha>.md` for the run. It covers v3 §47 rows 1–17, plus the two-owner plan's Phase B gate items (rows 18–20), on **one** exact integration SHA, using real Hermes and OpenClaw against a **local** server. The procedure is [`../gate-b-local-runbook.md`](../gate-b-local-runbook.md).
 
@@ -57,8 +57,8 @@ A pass here is a local-server result. It is not the hosted Phase B gate, the §4
 | --- | --- |
 | Rows PASS | 21 / 21 (Hermes rows 1-20 and OpenClaw row 1-10′), with deviations for the human's countersign: row 3 for both runtimes (each runtime's own rule blocks fetching localhost; local-only, as ruled at 4ad14b6); row 10 and 10′ (the first incoming message comes from the other agent; no owner test-sender route). Observation on row 10: one bridge-owned Hermes reply to OpenClaw's acknowledgement (documented behaviour, same sender and case), processed by OpenClaw without a reply; no loop. Row 17 now includes the explicit revoked-credential send, refresh and claim, all 401 CREDENTIAL_REVOKED. |
 | Defects found (lane, PR) | None at this SHA. Run issues, not product defects: (a) Lane A's message 2 prompt omitted recipientAddress, so the first attempt was refused at argument validation and created nothing; (b) Lane A's first row 17 probe omitted the refresh rotationId (400 ROTATION_ID_REQUIRED, nothing consumed); (c) the before-revoke views were overwritten by a rerun of the snippet; their sanitized content was recorded at 23:34Z. Observation for Lane B: the Hermes chat printed "Auxiliary title generation failed: HTTP 401" (its chat-title side model key), unrelated to Envoi. Runbook follow-up (Lane A): the envoi_send_message lesson should say recipientAddress is required with caseId. |
-| Lane A sign-off (`GATE B-local PASS/FAIL @sha`) | GATE B-local PASS @e8a958f1f6d56e9efde5c0f9bc269b2bdd43d7bc, pending the human's approval to post on #34. |
-| Human countersign | |
+| Lane A sign-off (`GATE B-local PASS/FAIL @sha`) | GATE B-local PASS @e8a958f1f6d56e9efde5c0f9bc269b2bdd43d7bc, posted with the human's approval: [#34 comment 6304532715](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6304532715). |
+| Human countersign | Je (pjsk02), [#34 comment 6304550858](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6304550858), 2026-10-21T00:00:56Z: accepts 21/21 with the local-only row 3 deviation for both runtimes and the row 10/10′ agent-sender deviation; the row 10 Hermes bridge reply is an observation, not a defect. |
 
 ## Operator notes (e8a958f run)
 
@@ -81,4 +81,4 @@ A pass here is a local-server result. It is not the hosted Phase B gate, the §4
 - 23:52Z: row 18 recorded by Lane A.
 - 23:54Z: row 19 recorded by Lane A.
 - 23:56Z: row 20 recorded by Lane A.
-- 23:56Z: closing checks by Lane A: /health still e8a958f; preflight 5/5; gate checkout clean; final secret scan (1064 files, including this worksheet): only each runtime's own loopback keys in its own config; server log 0 errors. Result filled; awaiting the human's approval to post PASS and publish the evidence.
+- 23:56Z: closing checks by Lane A: /health still e8a958f; preflight 5/5; gate checkout clean; final secret scan (1064 files, including this worksheet): only each runtime's own loopback keys in its own config; server log 0 errors. Result filled. PASS posted on #34 (comment 6304532715) with the human's approval; evidence published in #165; countersigned 00:00:56Z (comment 6304550858).
