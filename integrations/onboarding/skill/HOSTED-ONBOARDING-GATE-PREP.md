@@ -9,15 +9,17 @@ The local 21/21 gate at `e8a958f` is prior evidence only. Hosted Phase B require
 | Field | Required value / evidence | Current state |
 | --- | --- | --- |
 | Candidate source | Full 40-character SHA, clean worktree, exact-head CI and integrated CI URLs | Proposed `25c66372dc16f399cc5b213368246ebba9d65fd1`; final selection open |
-| Staging Worker | Account, Worker name, current version ID, current `/health` release SHA, `/ready`, and routes response | Account `54a5d6c6…`, Worker `sinaloa-staging`; current version and responses unknown |
-| Staging container | Current image digest/reference paired with the current Worker version | Unknown |
-| Staging storage | Sanitized database/storage identity, separation from beta, backup and restore status | Unknown |
-| Rollback | Previous Worker version **and** image, settings/flag values, verified paired restore procedure, rehearsal result, operator | Unknown |
+| Staging Worker | Account, Worker name, current version ID, current `/health` release SHA, `/ready`, and routes response | Read-only dashboard observation 2026-10-21: account `54a5d6c680bd813fa60f8e088b098b8d`, Worker `sinaloa-staging`, active version prefix `0c075364` at 100% traffic. Public `/health` reports `2b18170d59b0096ff997d9a79487d50ccb627ef9`; `/ready` reports ready in staging; `/api/onboarding/routes` returned 404 `Not found`. This is the currently served ancestor, not the proposed candidate. |
+| Staging container | Current image digest/reference paired with the current Worker version | Read-only dashboard observation 2026-10-21: app `sinaloa-beta-staging` (`a03cd3b2-67bf-4626-8444-e89d9114fcb9`), active v57 at 100%, image `registry.cloudflare.com/54a5d6c680bd813fa60f8e088b098b8d/sinaloa-beta-staging@sha256:cf918d33dcfbf8c561c64b4f1f6c7a2f6a9bee61410d9b8e67018b71904a522f`; v56 at 0%, image digest `sha256:da6918267fd409cb6eaeae5a7550d1297b1aa2b905d2fe0fb009d4586efa5047`. Worker/container pairing still needs verification. |
+| Staging storage | Sanitized database/storage identity, separation from beta, backup and restore status | Worker settings show encrypted `DATABASE_URL`; value, staging database identity, beta separation, backup and restore status remain unknown. |
+| Rollback | Previous Worker version **and** image, settings/flag values, verified paired restore procedure, rehearsal result, operator | Container v56 is visible at 0% traffic; its relationship to a previous Worker version is unknown. Paired Worker/image rollback and database restore rehearsal and verification evidence is not yet available. |
 | Served artifacts | SHA-256 of `/connect/SKILL.md`, helper, connector and OpenClaw download as fetched from staging | Not yet checked against staging |
 | Installed artifacts | SHA-256 of the exact local files installed in Hermes/OpenClaw profiles | Not yet installed |
 | Receiver | HTTPS host/URL/TLS operator, route to each runtime, durable private store, restart procedure | Undecided; see Stage A packet #172 §4 |
 
 Collect the read-only staging facts with the commands in Stage A packet #172 §2.2 on the release account. Record only secret **names**, never values. The command operator must check their Wrangler version's help first. An inaccessible account or an unmatched Worker/image pair is a stop, not an inferred pass.
+
+The 2026-10-21 Worker settings show `ENVOI_DEPLOYMENT_ENVIRONMENT=staging` and `ENVOI_RELEASE_SHA=2b18170d59b0096ff997d9a79487d50ccb627ef9`, while `SINALOA_RELEASE_SHA` still names `8c5f67b…`. Calendar, consequential-action and email flags are `false`. No agent-native flag value was exposed in the read-only view. These observations establish the old served baseline only; they do not establish candidate deployment, flag readiness, a safe rollback pair, or a hosted gate pass.
 
 ## 2. Bounded test authorization fields
 
