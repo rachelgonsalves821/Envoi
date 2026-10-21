@@ -49,9 +49,9 @@ afterEach(() => {
 });
 
 describe('agent-registration v1 independent client consumption', () => {
-  it('loads all 79 unique registered fixtures without copies and pins security/recovery limits', () => {
-    expect(fixtures).toHaveLength(79);
-    expect(new Set(fixtures.map(item => item.id)).size).toBe(79);
+  it('loads all 86 revision-5 unique registered fixtures without copies and pins security/recovery limits', () => {
+    expect(fixtures).toHaveLength(86);
+    expect(new Set(fixtures.map(item => item.id)).size).toBe(86);
     expect(schemas['x-limits']).toMatchObject({
       registrationTtlSeconds: 600, activationWindowSeconds: 600, activationRecoverySeconds: 300,
       pollAfterSeconds: 5, pollMinIntervalSeconds: 4, deleteRecordsAfterHours: 24, deleteRecordsByHours: 25, ownerClaimListMax: 20, ownerInstallationEndedMax: 5,
@@ -90,7 +90,17 @@ describe('agent-registration v1 independent client consumption', () => {
         expect(req.headers.cookie).toContain('envoi_session=');
         expect(req.headers.cookie).toContain('envoi_csrf=' + req.headers['x-envoi-csrf']);
       }
-      if (client.surface === 'owner_ui') expect(JSON.stringify(response.body)).not.toMatch(/envoi_(?:reg|agent_access|agent_refresh|mcp_read|enroll)_/);
+      if (client.surface === 'owner_ui') {
+        const visibleBody = JSON.stringify(response.body);
+        expect(visibleBody).not.toMatch(/envoi_(?:reg|agent_access|agent_refresh|mcp_read|enroll)_/);
+        expect(visibleBody).not.toMatch(/"(?:audience|oauthClientId)"/);
+        for (const family of fixture.stored?.credentialFamilies ?? []) {
+          for (const field of ['audience', 'oauthClientId']) {
+            if (family[field]) expect(visibleBody).not.toContain(family[field]);
+          }
+          if (family.oauthClientId && URL.canParse(family.oauthClientId)) expect(visibleBody).not.toContain(new URL(family.oauthClientId).hostname);
+        }
+      }
       if (!client.modelVisible) continue;
       const visible = client.modelVisible;
       for (const key of Object.keys(visible)) expect(modelKeys).toContain(key);
