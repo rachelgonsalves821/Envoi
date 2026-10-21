@@ -235,7 +235,13 @@
         "rollback-flags-off.json",
         "routes-available-rest.json",
         "routes-available.json",
-        "routes-disabled.json"
+        "routes-disabled.json",
+        "stored-oauth-flags-off.json",
+        "stored-oauth-installation.json",
+        "stored-oauth-refresh-recovery.json",
+        "stored-oauth-replaced-by-local-helper.json",
+        "stored-oauth-source-rollback.json",
+        "stored-provider-installation.json"
       ]
     },
     {

@@ -387,6 +387,7 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
     }
   }
   if (fixture.stored) checkInstallationDerivation(fixture, schemas, label);
+  if (fixture.stored) checkStoredOAuthRecords(fixture, label);
   // §6.5, §12: after a restart, every step of a restart fixture still succeeds (nothing was frozen).
   if (fixture.kind === 'restart') checkRestart(fixture, exchanges, label);
   checkOwnerReconnectEligibility(fixture, exchanges, label);
@@ -478,6 +479,60 @@ function checkInstallationDerivation(fixture, schemas, label) {
       assert.ok(match && match.status === 'active', `${label}: agent status names an active derived installation`);
       assert.deepEqual(installation, { id: match.id, connectionRoute: match.connectionRoute, deliveryMode: match.deliveryMode, legacy: match.legacy }, `${label}: agent status installation summary`);
     }
+  }
+}
+
+// agent-registration §14 (revision 5): the records an agent-remote-auth flow stores agree with each other, hold no
+// secret, never reach an owner view, and keep OAuth tokens refused outside /mcp and by an older server.
+const oauthRoutes = ['remote_mcp_oauth', 'provider_connector'];
+function checkStoredOAuthRecords(fixture, label) {
+  const { credentialFamilies = [], installations = [], credentialRecords = [], registrations = [], consentDecisions = [], oauthCodes = [], oauthRefreshRecoveries = [] } = fixture.stored;
+  const familyOf = (familyId) => credentialFamilies.find((family) => family.id === familyId);
+  for (const family of credentialFamilies) {
+    const installation = installations.find((entry) => entry.id === family.installationId);
+    assert.equal(Boolean(family.audience), Boolean(installation && oauthRoutes.includes(installation.connectionRoute)), `${label}: ${family.id} has an audience exactly when its installation is on an agent-remote-auth route`);
+    for (const entry of credentialRecords.filter((item) => item.familyId === family.id)) {
+      assert.equal(entry.tokenType.startsWith('oauth_'), Boolean(family.audience), `${label}: ${family.id}'s token records are oauth_ types exactly when it has an audience`);
+    }
+  }
+  for (const entry of credentialRecords) assert.ok(familyOf(entry.familyId), `${label}: token record ${entry.tokenHash.slice(0, 8)} names a stored family`);
+  for (const registration of registrations) {
+    const family = registration.credentialFamilyId && familyOf(registration.credentialFamilyId);
+    if (registration.status === 'activated') {
+      assert.ok(family, `${label}: an activated registration names a stored family`);
+      assert.equal(registration.oauth.resource, family.audience, `${label}: the family's audience is the registration's resource`);
+      assert.equal(registration.oauth.clientId, family.oauthClientId, `${label}: the family's client is the registration's client`);
+      assert.equal(registration.oauth.codeUsedAt, registration.activatedAt, `${label}: the code was used by the activation`);
+      assert.equal(installations.find((entry) => entry.id === registration.installationId)?.connectionRoute, registration.connectionRoute, `${label}: the installation has the registration's route`);
+    }
+    const code = oauthCodes.find((entry) => entry.codeHash === registration.oauth.codeHash);
+    assert.ok(code, `${label}: ${registration.id}'s code has an index record`);
+    assert.deepEqual([code.registrationId, code.clientId, code.kind, code.expiresAt, code.usedAt], [registration.id, registration.oauth.clientId, registration.oauth.source === 'consent' ? 'authorization_code' : 'bootstrap_code', registration.activationExpiresAt, registration.oauth.codeUsedAt], `${label}: the code index agrees with its registration`);
+    const consent = registration.oauth.source === 'consent';
+    assert.equal(registration.oauth.handleDigest !== null && registration.oauth.redirectUri !== null && registration.oauth.codeChallenge !== null, consent, `${label}: only a consent registration has a handle, a redirect and a challenge`);
+    const decision = consentDecisions.find((entry) => entry.registrationId === registration.id);
+    assert.equal(Boolean(decision), consent, `${label}: a consent registration has exactly one consent decision, a bootstrap one none`);
+    if (decision) assert.deepEqual([decision.handleDigest, decision.bodyDigest, decision.humanId, decision.decidedAt], [registration.oauth.handleDigest, registration.decision.digest, registration.decision.humanId, registration.decision.decidedAt], `${label}: the consent decision agrees with its registration`);
+  }
+  for (const decision of consentDecisions.filter((entry) => entry.decision === 'denied')) assert.ok(Date.parse(decision.handleExpiresAt) - Date.parse(decision.decidedAt) <= 600_000, `${label}: a denial lives no longer than its handle`);
+  for (const recovery of oauthRefreshRecoveries) {
+    const family = familyOf(recovery.familyId);
+    const old = credentialRecords.find((entry) => entry.tokenHash === recovery.tokenHash);
+    assert.ok(family && old && old.tokenType === 'oauth_refresh' && old.familyId === family.id && old.usedAt === recovery.createdAt, `${label}: the envelope is keyed by the family's rotated refresh token`);
+    assert.equal(recovery.oauthClientId, family.oauthClientId, `${label}: the envelope is bound to the family's client`);
+    assert.equal(Date.parse(recovery.expiresAt) - Date.parse(recovery.createdAt), 60_000, `${label}: the envelope lives 60 s`);
+    for (const [hash, type] of [[recovery.successorAccessHash, 'oauth_access'], [recovery.successorRefreshHash, 'oauth_refresh']]) {
+      const successor = credentialRecords.find((entry) => entry.tokenHash === hash);
+      assert.ok(successor && successor.tokenType === type && successor.familyId === family.id && successor.usedAt === null, `${label}: the envelope's ${type} successor is unused`);
+    }
+  }
+  const stored = JSON.stringify(fixture.stored);
+  assert.doesNotMatch(stored, /envoi_oauth_code_|envoi_boot_|envoi_agent_|redirectTo|[?&]code=|code_verifier|client_secret/, `${label}: stored records hold no code, token, verifier, secret or code-bearing URL`);
+  for (const step of fixture.steps) {
+    const shown = JSON.stringify(step.response.body);
+    assert.doesNotMatch(shown, /"audience"|"oauthClientId"|\/mcp"|assistant\.example\.com|client_[a-z0-9-]{3,40}"/, `${label}: owner and agent responses never carry the audience or the client`);
+    const oauthBearer = /PLACEHOLDER_oauth$/.test(step.request.headers?.authorization || '');
+    if (oauthBearer) assert.equal(step.response.body.code, 'AUTHENTICATION_REQUIRED', `${label}: ${step.request.method} ${step.request.path} refuses an OAuth token here`);
   }
 }
 
@@ -1970,4 +2025,37 @@ test('agent-remote-auth fixtures agree across cases', async () => {
   const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
   const index = await readJson(path.join(root, 'index.json'));
   assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'agent-remote-auth').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
+});
+
+// agent-registration §14 (revision 5): every new record is in x-stored-records, the rollback fixtures cover both
+// directions, and the handoff lists exactly the stored-* fixtures.
+test('agent-registration revision 5 stored records agree across cases', async () => {
+  const dir = path.join(root, 'agent-registration');
+  const load = (name) => readJson(path.join(dir, `${name}.json`));
+  const schemas = await load('schemas');
+  const table = schemas['x-stored-records'];
+  for (const prefix of ['auth/agent-credential-families/', 'auth/agent-credentials/', 'auth/agent-registrations/', 'auth/oauth-codes/', 'auth/oauth-consent-decisions/', 'auth/agent-oauth-refresh-recovery/', 'rate-limits/oauth-', 'process memory only']) {
+    assert.ok(table.some((row) => row.path.includes(prefix)), `x-stored-records names ${prefix}`);
+  }
+  for (const row of table) for (const key of ['record', 'path', 'writtenBy', 'transaction', 'secret', 'retention', 'cleanup']) assert.equal(typeof row[key], 'string', `${row.record}: ${key}`);
+  assert.deepEqual(schemas.definitions.storedCredentialFamily.dependencies, { audience: ['oauthClientId'], oauthClientId: ['audience'] }, 'audience and oauthClientId come together');
+
+  const [flagsOff, sourceRollback, installed] = await Promise.all([load('stored-oauth-flags-off'), load('stored-oauth-source-rollback'), load('stored-oauth-installation')]);
+  assert.equal(flagsOff.flags.ENVOI_REMOTE_MCP_OAUTH || flagsOff.flags.ENVOI_PROVIDER_CONNECTORS, false, 'flags-off: both route flags off');
+  assert.equal('ENVOI_REMOTE_MCP_OAUTH' in sourceRollback.flags || 'ENVOI_PROVIDER_CONNECTORS' in sourceRollback.flags, false, 'source rollback: the older server has no route flags');
+  for (const fixture of [flagsOff, sourceRollback]) {
+    assert.deepEqual(fixture.stored, { ...installed.stored, consentDecisions: installed.stored.consentDecisions.filter((entry) => entry.decision === 'approved') }, `${fixture.id}: rollback reads the records the approval left, unchanged`);
+    const paths = fixture.steps.map((step) => `${step.request.method} ${step.request.path.split('/').slice(0, 3).join('/')}`);
+    assert.ok(paths.includes('POST /mcp') && paths.some((entry) => entry.startsWith('GET /api/agent')), `${fixture.id}: OAuth tokens refused at /mcp and on REST`);
+    assert.equal(fixture.steps.at(-1).response.schema, 'installationRevoked', `${fixture.id}: the owner can still revoke`);
+  }
+
+  const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
+  const sectionStart = handoff.indexOf('\n## agent-registration v1');
+  const section = handoff.slice(sectionStart, handoff.indexOf('\n## ', sectionStart + 1));
+  const rev5 = section.slice(section.indexOf('### 14.'));
+  const fixtureTable = rev5.slice(rev5.indexOf('| Fixture | Shows |'));
+  const listed = [...fixtureTable.matchAll(/^\| `([a-z0-9-]+)` \|/gm)].map((match) => `${match[1]}.json`).sort();
+  const index = await readJson(path.join(root, 'index.json'));
+  assert.deepEqual(listed, index.contracts.find((contract) => contract.id === 'agent-registration').fixtures.filter((name) => name.startsWith('stored-')).sort(), 'the handoff lists exactly the stored-* fixtures');
 });

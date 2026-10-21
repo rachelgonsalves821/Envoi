@@ -1042,11 +1042,11 @@ The five `event-*` fixtures are already clean.
 
 ## agent-registration v1
 
-**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** approved, fourth revision (§13). For revision 4, Lane B posted [`CONTRACT-ACK` @532789b](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275137188) and the human posted [`CONTRACT-APPROVED` rev 4](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275502353) on 2026-10-19. Earlier history: the human's first `CONTRACT-APPROVED` preceded Lane B's review, which found a `MISMATCH`. By the human's decision the corrected contract stayed v1. Lane B posted [`CONTRACT-ACK` @4da219e](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134589212) and the human posted a [fresh `CONTRACT-APPROVED`](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134778271) on 2026-10-12, before #76 was integrated. Revision 4 (§13) clarifies which agents the owner UI offers for reconnect. It does not change the wire contract, server behaviour or a5-presence v1. Server code is A-4.x; nothing here is default-on.
+**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** approved, fourth revision (§13). **Revision 5** (§14, stored records for the agent-remote-auth routes) is published and awaits Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-registration v1 revision 5 @<publication sha>`; until then revision 4 is the approved text. For revision 4, Lane B posted [`CONTRACT-ACK` @532789b](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275137188) and the human posted [`CONTRACT-APPROVED` rev 4](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275502353) on 2026-10-19. Earlier history: the human's first `CONTRACT-APPROVED` preceded Lane B's review, which found a `MISMATCH`. By the human's decision the corrected contract stayed v1. Lane B posted [`CONTRACT-ACK` @4da219e](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134589212) and the human posted a [fresh `CONTRACT-APPROVED`](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134778271) on 2026-10-12, before #76 was integrated. Revision 4 (§13) clarifies which agents the owner UI offers for reconnect. It does not change the wire contract, server behaviour or a5-presence v1. Server code is A-4.x; nothing here is default-on.
 
 **Fixtures:** [`test/contract-fixtures/agent-registration/`](../../../test/contract-fixtures/agent-registration/). It holds:
-- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-model-visible`, `x-permission-labels`, `x-route-availability`, `x-delivery-availability`, `x-operations`, `x-legacy-projection` and `x-installation-derivation`;
-- one JSON file per case, including migration, rollback and re-enable fixtures (§9).
+- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-model-visible`, `x-permission-labels`, `x-route-availability`, `x-delivery-availability`, `x-operations`, `x-legacy-projection`, `x-installation-derivation` and `x-stored-records` (revision 5);
+- one JSON file per case, including migration, rollback and re-enable fixtures (§9) and stored-record fixtures (§14).
 
 **Owner:** Lane A. **Consumer:** Lane B. That covers `envoi-link connect`, the `/connect` skill and manifest, the claim UI, and the host planner in PR #72. **Implemented by:** A-4.x. It needed this contract's approval (given above) **and** needs the hosted Phase A gate (two-owner plan A5).
 
@@ -1755,6 +1755,181 @@ The entries before revision 4 were made before Lane B's `CONTRACT-ACK`.
   - **Unchanged:** the wire format, every server behaviour and code, and a5-presence v1.
   - **For consumers of the fixtures:** the registration directory now holds 79 fixtures, up from 78. A step may name another contract's schema as `<contract>/<definition>`. Lane B's consuming reviews (`sdk/typescript/reviews/agent-registration.review.ts`, `integrations/onboarding/test/agent-registration.review.mjs`) pin the count at 78 and look schema names up in this contract only, so they need that update.
   - **Version:** this is a clarification of approved behaviour, so the contract stays v1. The human approved revision 4 ([`CONTRACT-APPROVED` rev 4](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275502353), 2026-10-19), after Lane B's [`CONTRACT-ACK` @532789b](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275137188). Lane B's #156 fixes the owner UI predicate.
+- **Revision 5: stored records for the agent-remote-auth routes (2026-10-21; published, awaiting Lane B's `CONTRACT-ACK` and the human's approval).**
+  - **Why:** agent-remote-auth v1 (approved @`bbd361e`) reaches this contract's approval, activation and family operations, and its §14 deferred the stored-shape note to this contract. The implementation (RA-A1, RA-A2) needs every stored record, transaction, hash rule, retention limit and cleanup path agreed before it starts.
+  - **What changed:**
+    - New §14: `audience` and `oauthClientId` on the credential family (§14.1); `oauth_access` and `oauth_refresh` token records, so a source rollback fails closed (§14.2); OAuth registrations and the code index (§14.3); consent decisions, including the denial record that agent-remote-auth §5.3's "Nothing is created" leaves implicit (§14.4); the refresh recovery envelope (§14.5); cleanup and orphans (§14.6); flags-off and source rollback (§14.7).
+    - `schemas.json`: typed `audience`/`oauthClientId` on `storedCredentialFamily` (present together); a rule that `remote_mcp_oauth`/`provider_connector` installations declare `on_demand` with runtime `remote_mcp`/`provider`; new `storedCredentialRecord`, `storedOAuthRegistration`, `storedConsentDecision`, `storedOAuthCode`, `storedOAuthRefreshRecovery`; fixture kind `stored`; optional fixture flags `ENVOI_REMOTE_MCP_OAUTH`, `ENVOI_PROVIDER_CONNECTORS`; `x-stored-records`.
+    - Six fixtures (§14.8) and `checkStoredOAuthRecords` plus an agreement test in `test/contract-fixtures.test.js`.
+  - **Unchanged:** the wire format, every route, code and owner view, today's server behaviour, and every existing record. No data migration.
+  - **For consumers of the fixtures:** the registration directory now holds 85 fixtures, up from 79. Lane B's consuming review `integrations/onboarding/test/agent-registration.review.mjs` pins 79; it is not in CI, but it needs that update.
+  - **Version:** internal storage plus one clarification of agent-remote-auth §5.3, so the contract stays v1. It needs Lane B's `CONTRACT-ACK` and the human's version-specific approval before RA-A1 or RA-A2 writes any of these records.
+
+### 14. Stored records for the agent-remote-auth routes (revision 5)
+
+agent-remote-auth v1 (revision 2, approved @`bbd361e`) runs this contract's approval, activation, installation and credential family operations from its consent page and token endpoint. This section says what those flows store, so that both storage backends, cleanup and rollback can be checked before any code exists. It is task **RA-0**, part 2.
+
+- **No wire change.** No route, response, code or owner view changes. Every record here is internal.
+- **No data migration.** Each record is either new or gains optional fields. No existing record is rewritten, and every existing family keeps working unchanged. FileStore and PostgreSQL store these as documents at new paths, with no SQL migration.
+- **Hashes.** "Hash" means the lowercase hex SHA-256 of the raw value, as `hashSecret` already does for agent credentials. Raw codes, bootstrap codes, handles, verifiers, client secrets and tokens are never stored. The handle and request body are stored only as digests.
+- **Machine-readable table:** `x-stored-records`, one row per record: path, writer, transaction, secret handling, retention and cleanup.
+
+#### 14.1 Credential family: `audience` and `oauthClientId`
+
+agent-remote-auth §6.1 adds two facts to the family that an exchange creates:
+
+| Field | Value |
+| --- | --- |
+| `audience` | The resource: `${origin}/mcp`, from `ENVOI_PUBLIC_URL` when the family is created. |
+| `oauthClientId` | The client the code or bootstrap code was issued to: a client metadata document URL or a pre-registered `client_…` id. |
+
+- Both are present, or neither is (`storedCredentialFamily.dependencies`). They are present only on families that an agent-remote-auth exchange created. Every family that exists today has neither.
+- They are written once, in the activation transaction, and never change. Refresh, revocation, replacement, owner revoke, rollback and cleanup leave them as they are. A reconnect creates a new family and never copies them.
+- Neither appears in any response, audit body, event or model-visible value.
+- **Origin change.** If `ENVOI_PUBLIC_URL`'s origin changes, a family's `audience` no longer equals the resource. Its tokens are then refused at `/mcp` (`401`), and the user connects again. The server fails closed, and nothing is migrated.
+- **Correction.** agent-remote-auth §14 calls `storedCredentialFamily` "closed". It is open: the server keeps other internal fields in it, such as `rotationCounter` and `updatedAt`. Revision 5 adds the two fields as typed, optional properties. The rest of that §14 note stands.
+
+#### 14.2 Token records: `oauth_access` and `oauth_refresh`
+
+An OAuth family's token index records (`auth/agent-credentials/{hash}`, `auth/agent-refresh-credentials/{hash}`) use `tokenType: "oauth_access"` and `"oauth_refresh"`, not `access` and `refresh`. The raw token formats stay `envoi_agent_access_…` and `envoi_agent_refresh_…` (agent-remote-auth §1).
+
+**Why.** A server that predates agent-remote-auth knows only `access`, `refresh` and `mcp_read`. It refuses any other token type on every route: `401 AUTHENTICATION_REQUIRED`, or `REFRESH_TOKEN_INVALID` at `POST /api/agent-token`. A source rollback therefore fails closed: an audience-bound token never works on REST, not even on a server that has no audience check. Fixture `stored-oauth-source-rollback`.
+
+**Rules**
+- A family has `audience` exactly when every token record of it is an `oauth_` type. The server checks both the record type and the family. If they disagree, the token is refused and the mismatch is logged without token material.
+- `oauth_access` is accepted only at `/mcp` (agent-remote-auth §9). Everywhere else it gets `401 AUTHENTICATION_REQUIRED`, like an unknown token.
+- `oauth_refresh` is accepted only at `POST /oauth/token`. At `POST /api/agent-token` it gets `401 REFRESH_TOKEN_INVALID` and **revokes nothing**: it is not a replay of an A1 family. In the other direction, an A1 `refresh` record is unknown at `/oauth/token` (agent-remote-auth §6.2 row 4).
+- An OAuth family never has `mcp_read` records. `POST /api/agent/mcp-read-token` needs an `access` token, and no `/mcp` tool issues one for an OAuth family.
+- `oauth_access.usedAt` records the first request the token authenticated. The server sets it once, before it dispatches that request, with a conditional write. The refresh recovery check depends on it (§14.5).
+
+#### 14.3 Registrations and the code index
+
+**The registration.** Consent approval (agent-remote-auth §5.2) and bootstrap issue (§8) create a registration that is already `approved` (`storedOAuthRegistration`). It enters the same indexes as every approval: the created and decided hour buckets, the principal's slot index, the approver index and, for `new_agent`, the address hold. It holds the usual decision fields of §5.3, plus `oauth`:
+
+| `oauth` field | Value |
+| --- | --- |
+| `source` | `consent` or `bootstrap` |
+| `clientId` | the client |
+| `redirectUri` | exactly as requested, loopback port included. `null` for a bootstrap code. |
+| `codeChallenge` | the S256 challenge. `null` for a bootstrap code. |
+| `resource` | the resource, which becomes the family's `audience` |
+| `scope` | the effective permissions as scopes, in `x-scopes` order |
+| `handleDigest` | the hash of the authorization request handle. `null` for a bootstrap code. |
+| `codeHash` | the hash of the authorization code or bootstrap code |
+| `codeUsedAt` | `null` until the exchange |
+
+The registration never has `tokenHash` or `codeHmac`. It has no bootstrap token and no verification code, so the agent-registration activation route can never activate it. Its `decision` keeps `kind`, `humanId`, the body `digest` and `decidedAt`. It never keeps `redirectTo`, the code, or any response that contains the code. Its `activationExpiresAt` is the code's expiry: 60 s, or 600 s for a bootstrap code.
+
+**The code index** `auth/oauth-codes/{codeHash}` (`storedOAuthCode`) lets the token endpoint find the registration from the code alone. It holds `kind` (`authorization_code` or `bootstrap_code`), `registrationId`, `clientId`, `expiresAt` and `usedAt`. Approval writes it in the approval transaction.
+
+**The exchange** (agent-remote-auth §6.1) runs in one transaction under the registration's activation lock. It sets:
+- the code index's `usedAt`;
+- the registration's `status: "activated"`, `activatedAt`, `installationId`, `credentialFamilyId`, `agentId` and `oauth.codeUsedAt`;
+- and, as §6.3 does, it creates the installation, the family (with `audience` and `oauthClientId`) and the token records.
+
+So two concurrent exchanges of one code cannot both activate. The second sees `usedAt`, which is reuse (§6.1 row 5), and revokes the installation the first one created. The code index stays until its registration is deleted, so reuse after expiry still revokes, as §6.1 requires.
+
+**Retry outcomes** (agent-remote-auth §5.2, `consentDecided.status`) are derived from these records alone, so they survive a restart:
+
+| Status | Stored state |
+| --- | --- |
+| `pending_exchange` | `status: "approved"`, `codeUsedAt: null`, and `activationExpiresAt` not yet passed |
+| `completed` | `status: "activated"` |
+| `expired` | `status: "approved"` and `activationExpiresAt` passed (§4, derived) |
+| `withdrawn` | `status: "withdrawn"`, from a manager (§5.4) or a failed exchange-time re-check (§6.1 row 11) |
+
+#### 14.4 Consent decisions
+
+`auth/oauth-consent-decisions/{handleDigest}` (`storedConsentDecision`) is the one decision on an authorization request handle.
+- **Fields:** `humanId`, `decision` (`approved` or `denied`), `bodyDigest` and `registrationId` (both `null` for a denial), `decidedAt` and `handleExpiresAt`.
+- **Created only if absent,** with the existing create-if-absent primitive. For an approval this happens inside the approval transaction, together with the registration and the code index. The first decision therefore wins:
+  - a concurrent request by another human gets `404 AUTHORIZATION_REQUEST_INVALID`;
+  - a concurrent identical approve by the same human gets `consentDecided`;
+  - any other body, or a deny after an approve, gets `409 CLAIM_ALREADY_DECIDED`.
+- **A denial creates only this record.** That is what agent-remote-auth §5.3's "Nothing is created" means: no registration, agent, code, hold or slot. The record is still needed so that approving after a deny gets `409 CLAIM_ALREADY_DECIDED`, and so that another human gets `404`. This clarifies §5.3 and changes none of its responses.
+- **Retention.** An approval's record lives as long as its registration and is deleted with it. A denial's record lives until `handleExpiresAt` (at most 600 s after the handle was made), and cleanup then sweeps it. That is the retention agent-remote-auth §5.2 states.
+
+#### 14.5 OAuth refresh rotation and recovery
+
+A refresh (agent-remote-auth §6.2) runs in one transaction under the family's lock. It:
+- sets the old `oauth_refresh` record's `usedAt`;
+- writes the new `oauth_access` and `oauth_refresh` records;
+- extends the family's `refreshExpiresAt` (A1);
+- writes the recovery envelope `auth/agent-oauth-refresh-recovery/{old token hash}` (`storedOAuthRefreshRecovery`).
+
+**The envelope** mirrors A1's rotation recovery:
+- **Key:** HKDF-SHA256 with input key material the **old raw refresh token**, salt the SHA-256 of `ENVOI_DATA_ENCRYPTION_KEY`, and info `envoi-oauth-refresh-recovery-v1`, 32 bytes.
+- **Encryption:** AES-256-GCM, with `familyId` and `oauthClientId` bound as additional data. A database read plus the server key cannot decrypt it, and it cannot be replayed into another family or for another client.
+- **Contents:** the `tokenResponse`. The record also holds the two successor hashes and `expiresAt`, 60 s after the rotation.
+
+**Recovery.** The same client presenting the old token gets the identical response from the envelope, provided all of these hold:
+- the family is not revoked;
+- the envelope exists and has not expired;
+- both successors are unused: the new refresh record's `usedAt` is `null`, and so is the new access record's (§14.2).
+
+Every other presentation of a used refresh token is replay. The family is revoked with `refresh_replay`, and the installation ends with that reason (§6.4).
+
+**Deletion.** The envelope is deleted at the first use of either successor, or when the family is revoked (best effort, because a revoked family is refused anyway). The reaper deletes any envelope past `expiresAt`, as `reapAgentRotationRecovery` does for A1.
+
+#### 14.6 Cleanup and orphans
+
+- **Registrations.** §2's registration cleanup (24 h after `createdAt`) also deletes an OAuth registration's code index and its approved consent decision, in the same lock as the registration.
+- **Sweeps.** Cleanup also sweeps:
+  - denied consent decisions after `handleExpiresAt`;
+  - expired refresh recovery envelopes;
+  - **orphans**: a code index or consent decision whose registration no longer exists.
+- **Orphans are unknown.** At the token endpoint an orphan code is `invalid_grant` and revokes nothing. At the consent routes an orphan handle is `404 AUTHORIZATION_REQUEST_INVALID`.
+- **Families and token records** follow A1's existing retention. Revision 5 deletes none of them.
+- **The client metadata cache** lives in process memory only. It is never stored.
+
+#### 14.7 Compatibility and rollback
+
+- **Flags off** (agent-remote-auth §11; fixture `stored-oauth-flags-off`):
+  - every record stays, and nothing is deleted or rewritten;
+  - OAuth tokens get `401` everywhere;
+  - the installation stays listed and active, and the owner can revoke it;
+  - turning a flag on again restores every family that has not expired or been revoked.
+- **Source rollback** to a release that predates agent-remote-auth (fixture `stored-oauth-source-rollback`):
+  - That server refuses `oauth_` token types everywhere (§14.2).
+  - It lists the installation from the same documents, and the owner can revoke it there.
+  - It ignores `audience`, `oauthClientId`, the `oauth` registration field and the new paths.
+  - Its registration cleanup deletes OAuth registrations after 24 h and leaves their code index and consent decision behind. A revision-5 server treats those as orphans (§14.6).
+  - Rolling forward again needs no repair.
+- **Evidence before any rollout.** Before any rollout is proposed, the implementation PRs name the source rollback SHA. They also demonstrate this compatibility by running that SHA's credential check, owner installation views, owner revoke and registration cleanup over records written by the new server, on FileStore and PostgreSQL.
+
+#### 14.8 Fixtures (`kind: "stored"`, `"rollback"`)
+
+Revision 5 adds the fixture kind `stored`: the records a flow leaves, with the owner views derived from them. It also adds optional `stored` arrays (`credentialRecords`, `registrations`, `consentDecisions`, `oauthCodes`, `oauthRefreshRecoveries`) and the optional fixture flags `ENVOI_REMOTE_MCP_OAUTH` and `ENVOI_PROVIDER_CONNECTORS`.
+
+`test/contract-fixtures.test.js` (`checkStoredOAuthRecords`) checks that:
+- a family has `audience` exactly when its installation is on an agent-remote-auth route, and its token records are `oauth_` types exactly then;
+- an activated registration's `resource` and `clientId` are its family's;
+- the code index and the consent decision agree with their registration;
+- only a consent registration has a handle, a redirect and a challenge, and a bootstrap registration has no consent decision;
+- a denial lives no longer than its handle;
+- a recovery envelope is keyed by a rotated refresh token of its family, bound to its client, lives 60 s, and names unused successors;
+- no stored record holds a code, token, verifier, secret or code-bearing URL;
+- no response carries the audience or the client;
+- every OAuth bearer outside the flow is refused with `AUTHENTICATION_REQUIRED`.
+
+The agreement test checks that `x-stored-records` names every new path, that both rollback fixtures read exactly the records the approval left, and that this table lists exactly the `stored-*` fixtures.
+
+| Fixture | Shows |
+| --- | --- |
+| `stored-oauth-installation` | A consent approval and its exchange: family, installation, token records, registration, code index, consent decision. Also an earlier denial's record. |
+| `stored-provider-installation` | A bootstrap code and its exchange: no handle, redirect, challenge or consent decision. |
+| `stored-oauth-refresh-recovery` | 30 s after a rotation: the used old record, unused successors, and the envelope. |
+| `stored-oauth-replaced-by-local-helper` | A local-helper reconnect replaces the OAuth family. The old family keeps its fields; the new one has none. |
+| `stored-oauth-flags-off` | Flags off: tokens refused at `/mcp` and on REST, installation listed, owner revoke works. |
+| `stored-oauth-source-rollback` | An older server over the same records: tokens refused everywhere, installation listed, owner revoke works. |
+
+#### 14.9 Decisions for review
+
+1. **Separate `oauth_` token types**, so a source rollback fails closed. The alternative is `access`/`refresh` records plus the family's `audience`, which an older server would ignore. That server would then accept OAuth tokens on REST.
+2. **A stored consent decision for a denial.** It is the only way approve-after-deny and another human's request can be told apart, as agent-remote-auth §5.2 and §5.3 require.
+3. **The code index outlives the code** until its registration is deleted, so reuse after expiry still revokes (agent-remote-auth §6.1).
+4. **The first use of an access token is written once, before dispatch.** That is the cost of an exact "neither successor used" rule. The alternative, deleting the envelope only best-effort, could let a replay inside the 60 s window go undetected.
+5. **Approval.** Version-specific `CONTRACT-APPROVED agent-registration v1 revision 5 @<publication sha>` after Lane B's `CONTRACT-ACK`. It authorizes no flag, and no implementation beyond the separately approved RA tasks.
 
 ## Gate GA observability (additive audit data, 2026-10-13)
 
