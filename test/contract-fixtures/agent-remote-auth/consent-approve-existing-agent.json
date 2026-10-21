@@ -1,0 +1,69 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "consent-approve-existing-agent",
+  "description": "A step-up or reconnect: the owner attaches the request to the existing agent, replacing its active installation, with permissions decided again.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "context": {
+    "requestedScope": "envoi.agent envoi.send envoi.cases"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_2/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "consentApproveRequest",
+    "body": {
+      "target": {
+        "kind": "existing_agent",
+        "agentId": "agent_example",
+        "replacesInstallationId": "installation_oauth_example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "execute_cases"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "consentApproved",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "redirectTo": "https://assistant.example.com/oauth/callback?code=envoi_oauth_code_PLACEHOLDER_2&state=af0ifjsldkj-example-state&iss=https%3A%2F%2Fwww.envoi-agents.com",
+      "registrationId": "registration_oauth_example_2",
+      "target": "existing_agent",
+      "workspaceName": "Example workspace",
+      "agent": {
+        "id": "agent_example",
+        "name": "Example agent",
+        "address": "example@envoi.mail"
+      },
+      "effectivePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "execute_cases"
+      ],
+      "policyProfile": "default",
+      "codeExpiresAt": "2026-10-21T13:02:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "The current installation keeps working until the client exchanges the new code."
+  }
+}

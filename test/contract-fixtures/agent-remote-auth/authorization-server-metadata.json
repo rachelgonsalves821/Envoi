@@ -1,0 +1,66 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "authorization-server-metadata",
+  "description": "RFC 8414 metadata with both route flags on, so the bootstrap grant is listed.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/oauth-authorization-server",
+    "auth": "none"
+  },
+  "response": {
+    "status": 200,
+    "schema": "authorizationServerMetadata",
+    "headers": {
+      "cache-control": "public, max-age=300"
+    },
+    "body": {
+      "issuer": "https://www.envoi-agents.com",
+      "authorization_endpoint": "https://www.envoi-agents.com/oauth/authorize",
+      "token_endpoint": "https://www.envoi-agents.com/oauth/token",
+      "revocation_endpoint": "https://www.envoi-agents.com/oauth/revoke",
+      "response_types_supported": [
+        "code"
+      ],
+      "response_modes_supported": [
+        "query"
+      ],
+      "grant_types_supported": [
+        "authorization_code",
+        "refresh_token",
+        "urn:envoi:params:oauth:grant-type:bootstrap_code"
+      ],
+      "code_challenge_methods_supported": [
+        "S256"
+      ],
+      "token_endpoint_auth_methods_supported": [
+        "none",
+        "client_secret_basic"
+      ],
+      "revocation_endpoint_auth_methods_supported": [
+        "none",
+        "client_secret_basic"
+      ],
+      "scopes_supported": [
+        "envoi.agent",
+        "envoi.send",
+        "envoi.files",
+        "envoi.cases"
+      ],
+      "client_id_metadata_document_supported": true,
+      "authorization_response_iss_parameter_supported": true,
+      "service_documentation": "https://www.envoi-agents.com/connect"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Check issuer equals the URL it was built from, and that code_challenge_methods_supported has S256, before authorizing."
+  }
+}

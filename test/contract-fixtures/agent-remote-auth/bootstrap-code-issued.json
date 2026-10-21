@@ -1,0 +1,81 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "bootstrap-code-issued",
+  "description": "The owner issues a single-use bootstrap code for a reviewed provider whose connector has only a private credential field.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "context": {
+    "preRegisteredClient": {
+      "clientId": "client_example-provider",
+      "clientName": "Example Provider connector",
+      "connectionRoute": "provider_connector",
+      "redirectUris": [
+        "https://connectors.provider.example/oauth/envoi/callback"
+      ],
+      "tokenEndpointAuthMethod": "client_secret_basic",
+      "clientSecretSha256": "b29323c2ab9238304c347fca6d33e16dba2a06c45ff3a014118d8fb0ec444d7e",
+      "bootstrapCode": true,
+      "provider": "Example Provider"
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/oauth/bootstrap-codes",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "bootstrapCodeRequest",
+    "body": {
+      "clientId": "client_example-provider",
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "bootstrapCodeIssued",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "bootstrapCode": "envoi_boot_PLACEHOLDER_1",
+      "expiresAt": "2026-10-21T12:10:00.000Z",
+      "registrationId": "registration_boot_example",
+      "clientName": "Example Provider connector",
+      "provider": "Example Provider",
+      "target": "new_agent",
+      "workspaceName": "Example workspace",
+      "agent": {
+        "name": "Example agent",
+        "address": "example@envoi.mail"
+      },
+      "effectivePermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show the code once. Tell the owner to paste it only into Example Provider's credential field, never into a chat."
+  }
+}

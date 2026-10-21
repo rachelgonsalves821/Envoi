@@ -1,0 +1,51 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "consent-view",
+  "description": "The signed-in owner reads the request behind the handle.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_1",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "consentView",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "client": {
+        "name": "Example Assistant",
+        "clientIdHost": "assistant.example.com",
+        "redirectHost": "assistant.example.com",
+        "loopbackRedirect": false,
+        "registration": "metadata_document"
+      },
+      "connectionRoute": "remote_mcp_oauth",
+      "requestedPermissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "grantablePermissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "expiresAt": "2026-10-21T12:10:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Show \"Example Assistant (claims to be)\" beside assistant.example.com, the redirect host, the permissions, and the target choice."
+  }
+}

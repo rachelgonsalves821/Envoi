@@ -1,0 +1,81 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "revoke-refresh-token",
+  "description": "The client revokes its refresh token: the family and its installation end (revoked); the identity is not frozen.",
+  "kind": "sequence",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/oauth/revoke",
+        "auth": "public_client",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        "form": {
+          "token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+          "token_type_hint": "refresh_token",
+          "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "emptyBody",
+        "headers": {
+          "cache-control": "no-store",
+          "pragma": "no-cache"
+        },
+        "bodyText": ""
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "auth": "bearer",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "envoi_agent_info",
+            "arguments": {}
+          }
+        }
+      },
+      "response": {
+        "status": 401,
+        "schema": "errorEnvelope",
+        "body": {
+          "code": "CREDENTIAL_REVOKED",
+          "error": "CREDENTIAL_REVOKED",
+          "message": "This connection was revoked.",
+          "requestId": "req_example",
+          "reason": "revoked"
+        },
+        "headers": {
+          "www-authenticate": "Bearer resource_metadata=\"https://www.envoi-agents.com/.well-known/oauth-protected-resource/mcp\", scope=\"envoi.agent envoi.send\", error=\"invalid_token\""
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "REVOKED",
+        "retry": "none",
+        "guidance": "owner_reconnect",
+        "next": "Disconnected. The owner can reconnect the same agent later."
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "consent-agent-limit",
+  "description": "agent-registration §5.3 slot rules apply unchanged.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_1/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "consentApproveRequest",
+    "body": {
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "ACTIVE_AGENT_LIMIT",
+      "error": "ACTIVE_AGENT_LIMIT",
+      "message": "You already have the maximum number of agents.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "agent_limit",
+    "next": "Offer the existing-agent target instead, or removing an agent."
+  }
+}

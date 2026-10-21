@@ -1,0 +1,35 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "authorize-feature-disabled",
+  "description": "Both route flags off.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fassistant.example.com%2Foauth%2Fenvoi-client.json&redirect_uri=https%3A%2F%2Fassistant.example.com%2Foauth%2Fcallback&code_challenge=M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM&code_challenge_method=S256&resource=https%3A%2F%2Fwww.envoi-agents.com%2Fmcp&scope=envoi.agent+envoi.send&state=af0ifjsldkj-example-state",
+    "auth": "none"
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "Remote connections are not available on this server.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "next": "The route is not offered. Do not retry."
+  }
+}

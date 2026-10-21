@@ -1,0 +1,61 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "bootstrap-code-exchanged",
+  "description": "The provider backend exchanges the code with its client secret: the activation of §6.1, route provider_connector.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "context": {
+    "installation": {
+      "connectionRoute": "provider_connector",
+      "deliveryMode": "on_demand",
+      "runtime": {
+        "type": "provider",
+        "version": null
+      }
+    },
+    "effectivePermissions": [
+      "send_agent_messages",
+      "receive_agent_messages"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/oauth/token",
+    "auth": "client_basic",
+    "headers": {
+      "content-type": "application/x-www-form-urlencoded",
+      "authorization": "Basic PLACEHOLDER_client_secret_basic"
+    },
+    "form": {
+      "grant_type": "urn:envoi:params:oauth:grant-type:bootstrap_code",
+      "bootstrap_code": "envoi_boot_PLACEHOLDER_1",
+      "resource": "https://www.envoi-agents.com/mcp"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "tokenResponse",
+    "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache"
+    },
+    "body": {
+      "access_token": "envoi_agent_access_PLACEHOLDER_oauth_1",
+      "token_type": "Bearer",
+      "expires_in": 900,
+      "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+      "scope": "envoi.agent envoi.send"
+    }
+  },
+  "client": {
+    "surface": "provider_backend",
+    "lifecycle": "CONNECTED",
+    "next": "Keep the tokens in the provider's secure store; the model sees only the provider's opaque credential surrogate."
+  }
+}

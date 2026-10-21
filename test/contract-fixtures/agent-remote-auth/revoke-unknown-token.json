@@ -1,0 +1,39 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "revoke-unknown-token",
+  "description": "An unknown token: 200 and nothing changes (RFC 7009 §2.2).",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/oauth/revoke",
+    "auth": "public_client",
+    "headers": {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    "form": {
+      "token": "envoi_agent_refresh_PLACEHOLDER_unknown",
+      "token_type_hint": "refresh_token",
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "emptyBody",
+    "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache"
+    },
+    "bodyText": ""
+  },
+  "client": {
+    "surface": "host",
+    "next": "Treat as revoked."
+  }
+}

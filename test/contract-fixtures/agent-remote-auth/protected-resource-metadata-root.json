@@ -1,0 +1,46 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "protected-resource-metadata-root",
+  "description": "The root form returns the identical document.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/oauth-protected-resource",
+    "auth": "none"
+  },
+  "response": {
+    "status": 200,
+    "schema": "protectedResourceMetadata",
+    "headers": {
+      "cache-control": "public, max-age=300"
+    },
+    "body": {
+      "resource": "https://www.envoi-agents.com/mcp",
+      "authorization_servers": [
+        "https://www.envoi-agents.com"
+      ],
+      "scopes_supported": [
+        "envoi.agent",
+        "envoi.send",
+        "envoi.files",
+        "envoi.cases"
+      ],
+      "bearer_methods_supported": [
+        "header"
+      ],
+      "resource_name": "Envoi",
+      "resource_documentation": "https://www.envoi-agents.com/connect"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Same as the path form."
+  }
+}

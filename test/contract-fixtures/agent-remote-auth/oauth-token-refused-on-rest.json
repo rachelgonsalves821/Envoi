@@ -1,0 +1,38 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "oauth-token-refused-on-rest",
+  "description": "An audience-bound token used directly on a REST route is an unrecognized bearer.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/agent/status",
+    "auth": "bearer",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "refresh_then_retry_once",
+    "guidance": "none",
+    "next": "Use /mcp. Tokens from this contract work only at the resource they were issued for."
+  }
+}

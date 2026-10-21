@@ -4080,3 +4080,470 @@ Additional owner-confirmation surface: GET /agent-gateway/owner, POST /api/agent
 Notification acknowledgement is host-asserted presentation only and never canonical work claim, acknowledgement, approval, settlement or proof the person saw an alert. Stage 1 is read/notify only. Host scheduling and closed-app proof remain external acceptance gates; both Muse and Instinct remain OPEN. Stage 2 writes, live account operations, deployment and rollout remain separately controlled.
 
 PR #144 review corrections preserve provider-browser-poll v1's public payloads: cursors/notification refs additionally bind a private run nonce and browser generation; retries do not consume new-page budget or refresh successful-check presence. Notification retention starts only from canonical terminal facts, never lease/backoff/block/pause visibility. Renewal uses canonical refresh with one persisted operation and private recovery. Owner-confirmed repair of a live gateway installation reuses that installation/family and ledger, changes the browser generation, and denies the old browser. Unknown/ended bindings and uncertain rotation fail closed; ordinary registration/activation clients gain no attachment authority. Read/notify remains the only exposed scope; both named hosts stay OPEN. Exact review tests and CI are recorded in PR #144 and the implementation guide; no hosted acceptance or deployment is claimed.
+
+## agent-remote-auth v1
+
+**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** draft, not yet published. `index.json` lists it as `published` only because the registry has no draft state; it is published when Lane A posts `CONTRACT-PUBLISHED` on board #34. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
+
+**Fixtures:** [`test/contract-fixtures/agent-remote-auth/`](../../../test/contract-fixtures/agent-remote-auth/). It holds:
+- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-oauth-errors`, `x-limits`, `x-scopes`, `x-route-availability`, `x-delivery-availability`, `x-client-metadata-checks`, `x-redirect-rules`, `x-authorize-checks`, `x-token-checks`, `x-consent-display` and `x-endpoints`;
+- one JSON file per case. The PKCE verifiers and challenges in them are real S256 pairs made for the fixtures; every code, token and secret is a placeholder.
+
+**Owner:** Lane A. **Consumers:** Lane B (B-R3): the owner consent page, `/connect` and `skill.json` route guidance, and the remote MCP and provider host setup notes. Every real remote MCP client and reviewed provider connector consumes it too.
+
+**What it covers.** The two connection routes that agent-registration v1 reserved for A-3.1b (its §1: "never in v1 (A-3.1b)"):
+- **`remote_mcp_oauth`:** a cloud assistant with remote MCP support and no local command runner connects to Envoi's hosted `/mcp` with OAuth 2.1;
+- **`provider_connector`:** a reviewed provider connects through the same OAuth flow as a pre-registered client, or, if it has only a private credential field, through the single-use bootstrap code of v3 §31 and §42 (§8).
+
+It specifies discovery metadata, client identification, the authorization request, the owner consent that **is** the human claim, the token endpoint, refresh, revocation, the resource-server behaviour of `/mcp`, flags and rollback.
+
+**Standards.** Envoi is both the authorization server and the resource server. The contract follows the MCP authorization specification, revision 2026-07-28 (OAuth 2.1 draft 13, RFC 6750, RFC 8414, RFC 8707, RFC 9207, RFC 9728, RFC 7009, and OAuth Client ID Metadata Documents draft 00). Where this contract is stricter than those documents, it says so. It supports no OpenID Connect: Envoi issues no ID tokens, and serves no `openid-configuration`.
+
+**One state machine.** This is not a second onboarding backend. Every route here reaches the same registration, approval, activation, installation, credential family and agent operations as agent-registration v1:
+- the consent page runs agent-registration §5.1 (who may claim) and §5.3 (targets, permissions, slots, holds, staleness);
+- the token exchange runs agent-registration §6.1 rows 10–12 (re-checks) and §6.3 (what activation does);
+- the tokens are ordinary A1 credentials (`envoi_agent_access_…`, `envoi_agent_refresh_…`) of an ordinary credential family, with two additions: an **audience** and an **OAuth client** (§6.1);
+- the agent operations are agent-registration §6.6's, reached through `/mcp`.
+
+It builds on `a3-pause-auth` v3 (envelope, codes, pause), `agent-registration` v1 revision 4 (registrations, installations, owner eligibility), `envoi-names` v1 (credential formats), `envoi-browser-names` v1 (cookies, CSRF) and `http-wake` v1 (destination safety, §4.2 here).
+
+**Not in this contract.**
+- **Wake.** An installation made here declares `on_demand` (§1). A host that can receive signed HTTPS callbacks adds an http-wake v1 subscription to its installation, as any installation may (http-wake §11). Provider-native wake (`provider`) is a later contract.
+- **The owner "On demand" label.** a5-presence v1 has no honest label for `on_demand`. §1 makes the route depend on that revision before its flag is turned on.
+- **Dynamic Client Registration.** Deprecated in the MCP specification; not offered (§3, decision 1).
+- **Authenticated REST.** That route keeps agent-registration v1's bootstrap-token mechanics.
+- **A named provider.** Passing these fixtures does not establish Muse, ChatGPT, Grok/xAI, Instinct or any other host. Each needs its own hosted evidence (v3 §47).
+
+### 1. Flags and route availability
+
+| Flag (server-only, default off) | Turns on |
+| --- | --- |
+| `ENVOI_REMOTE_MCP_OAUTH` | The `remote_mcp_oauth` route: discovery (§2), client metadata documents (§3.1), authorization (§4), consent (§5), the token and revocation endpoints (§6, §7) for clients on this route, and the `/mcp` challenge (§9). |
+| `ENVOI_PROVIDER_CONNECTORS` | The `provider_connector` route: the same endpoints for pre-registered provider clients (§3.2), and the bootstrap code (§8). |
+
+Both require `ENVOI_AGENT_REGISTRATION_V2` and `ENVOI_INSTALLATIONS_V2`. Startup fails closed if either is on while those are off, as agent-registration §1 does.
+
+**Route availability.** `GET /api/onboarding/routes` keeps its agent-registration v1 shape. These rows replace that contract's "never in v1 (A-3.1b)" rows (`x-route-availability`, `x-delivery-availability`):
+
+| Route or mode | Available when |
+| --- | --- |
+| `remote_mcp_oauth` | both V2 flags and `ENVOI_REMOTE_MCP_OAUTH` are on |
+| `provider_connector` | both V2 flags and `ENVOI_PROVIDER_CONNECTORS` are on |
+| delivery mode `on_demand` | both V2 flags, and either route flag, are on |
+| delivery modes `webhook`, `provider`, `poll`, `a2a` | unchanged (never, in this contract) |
+
+`on_demand` means the host acts only while its user has it open, or when another trigger outside Envoi starts it. It is a **declaration**, like every delivery mode. Activation through this contract always declares it; agent-registration's public activation still refuses it for `local_helper` and `authenticated_rest` (§11).
+
+**Before either flag is turned on** (human only):
+1. an a5-presence revision gives `on_demand` an honest owner label and connection state, so an installation that is not running is not shown as failing (v3 §45);
+2. the route's hosted gate passes (v3 §47, breadth items 1 and 2).
+
+**Flag off.** Every endpoint in `x-endpoints` returns `404 FEATURE_DISABLED` (a3 envelope) when no route flag that serves it is on. A pre-registered client whose route flag is off is unknown (§3). The `/mcp` challenge drops `resource_metadata` (§9), and tokens issued here stop working (§11).
+
+### 2. Discovery
+
+Envoi's origin is the origin of `ENVOI_PUBLIC_URL`, the same value `/connect` uses. Every URL below is built from it, never from the `Host` header.
+
+| Name | Value |
+| --- | --- |
+| Resource (canonical MCP server URI) | `${origin}/mcp` |
+| Issuer | `${origin}` (no path, no trailing slash) |
+
+#### 2.1 Protected resource metadata (RFC 9728)
+
+`GET /.well-known/oauth-protected-resource/mcp` (the path form) and `GET /.well-known/oauth-protected-resource` (the root form) take no auth and return the **identical** `protectedResourceMetadata` body, served with `cache-control: public, max-age=300`:
+
+```json
+{ "resource": "https://www.envoi-agents.com/mcp",
+  "authorization_servers": ["https://www.envoi-agents.com"],
+  "scopes_supported": ["envoi.agent", "envoi.send", "envoi.files", "envoi.cases"],
+  "bearer_methods_supported": ["header"],
+  "resource_name": "Envoi",
+  "resource_documentation": "https://www.envoi-agents.com/connect" }
+```
+
+`scopes_supported` lists every scope a client may request (§4.3). The client's usual starting set comes from the `/mcp` challenge (§9).
+
+#### 2.2 Authorization server metadata (RFC 8414)
+
+`GET /.well-known/oauth-authorization-server` takes no auth and returns `authorizationServerMetadata`, with `cache-control: public, max-age=300`:
+
+| Field | Value |
+| --- | --- |
+| `issuer` | `${origin}`, exactly the value the client built the URL from |
+| `authorization_endpoint` | `${origin}/oauth/authorize` |
+| `token_endpoint` | `${origin}/oauth/token` |
+| `revocation_endpoint` | `${origin}/oauth/revoke` |
+| `response_types_supported` | `["code"]` |
+| `response_modes_supported` | `["query"]` |
+| `grant_types_supported` | `["authorization_code", "refresh_token"]`, plus the bootstrap grant (§8) while `ENVOI_PROVIDER_CONNECTORS` is on |
+| `code_challenge_methods_supported` | `["S256"]` |
+| `token_endpoint_auth_methods_supported` | `["none", "client_secret_basic"]` |
+| `revocation_endpoint_auth_methods_supported` | `["none", "client_secret_basic"]` |
+| `scopes_supported` | the four scopes of §2.1 |
+| `client_id_metadata_document_supported` | `true` while `ENVOI_REMOTE_MCP_OAUTH` is on, otherwise `false` |
+| `authorization_response_iss_parameter_supported` | `true` |
+| `service_documentation` | `${origin}/connect` |
+
+There is **no** `registration_endpoint` (§3) and no `jwks_uri`: tokens are opaque.
+
+`GET /.well-known/openid-configuration` is `404`. Clients that try OpenID Connect discovery first fall back to RFC 8414, as the MCP specification requires them to.
+
+### 3. Clients
+
+A `client_id` is either an HTTPS URL (a client metadata document, §3.1) or a pre-registered id (§3.2). Anything else is unknown. An unknown or invalid client is never redirected to (§4.1).
+
+#### 3.1 Client metadata documents (`remote_mcp_oauth`)
+
+Only while `ENVOI_REMOTE_MCP_OAUTH` is on. The `client_id` is the URL of the client's own JSON document.
+
+**The URL** passes every `x-client-metadata-checks` rule, else the client is invalid:
+- at most 2,048 characters; parsed by the WHATWG URL parser;
+- scheme `https`; no user name or password; port 443 or none;
+- a path other than `/`; no query; no fragment;
+- not Envoi's own origin;
+- the http-wake v1 §4.1 name rules (no address literal, no reserved name, not a self host) and §4.2 address rules: every resolved address must be allowed, resolution uses the configured resolvers, and the fetch is pinned to the checked addresses.
+
+**The fetch:** `GET`, with `accept: application/json`, no cookies and no credentials; no redirects; a 5 s deadline; a 5,120-byte body limit; `200` only; content type `application/json`.
+
+**The document** must be a JSON object that satisfies `clientMetadataDocument`:
+- `client_id` equals the URL **exactly** (string comparison);
+- `client_name`: 1–80 characters, refusing the same control, zero-width and bidirectional characters as agent-registration §3;
+- `redirect_uris`: 1–10 URIs, each obeying §3.3;
+- `token_endpoint_auth_method`, if present: `none`. A metadata document client is always a **public** client;
+- `grant_types`, if present: a subset of `authorization_code` and `refresh_token`, containing `authorization_code`;
+- `response_types`, if present: `["code"]`;
+- `client_uri` and `logo_uri`, if present: HTTPS URLs. Envoi never fetches them and never shows the logo (decision 5);
+- other members are ignored.
+
+**Caching.** A valid document is cached for its `cache-control` `max-age`, clamped to 300–86,400 s; `no-store` counts as 300 s. A failed fetch is not cached. The cache is keyed by the exact `client_id`.
+
+**Its route** is always `remote_mcp_oauth`.
+
+#### 3.2 Pre-registered clients
+
+Envoi's operators configure these in `ENVOI_OAUTH_CLIENTS`, a JSON array. Each entry is `preRegisteredClient`:
+
+| Field | Rule |
+| --- | --- |
+| `clientId` | `client_` + 3–40 of `[a-z0-9-]`. Never a URL, so it cannot collide with §3.1. |
+| `clientName` | As `client_name` in §3.1. Shown to owners. |
+| `connectionRoute` | `provider_connector` or `remote_mcp_oauth`. |
+| `redirectUris` | As §3.3. May be empty only for a bootstrap-only client (§8). |
+| `tokenEndpointAuthMethod` | `none` or `client_secret_basic`. |
+| `clientSecretSha256` | Required exactly for `client_secret_basic`: the lowercase hex SHA-256 of the secret. The secret itself is never in configuration or logs. |
+| `bootstrapCode` | `true` lets owners issue bootstrap codes for this client (§8). Requires `client_secret_basic` and `provider_connector`. |
+| `provider` | A short label for the reviewed provider, shown to owners. |
+
+Startup fails closed on an invalid entry. A pre-registered client is usable only while its route's flag is on. Adding one is an operator change reviewed with that provider's own gate; it is not an API.
+
+#### 3.3 Redirect URIs (`x-redirect-rules`)
+
+A redirect URI must be one of:
+- `https:` with a host name (no address literal), no user name or password, and no fragment;
+- `http:` to the loopback address `127.0.0.1` or `[::1]`, with any port, no user name or password, and no fragment (OAuth 2.1 §8.4.2). `localhost` is refused: OAuth 2.1 recommends against it, because a name can resolve elsewhere.
+
+No custom schemes in v1 (decision 6).
+
+**Matching.** The authorization request's `redirect_uri` is required, and must equal one registered URI **exactly**, as strings. The one exception is the loopback rule: for an `http:` loopback URI the port is ignored in the comparison, and everything else must still match exactly.
+
+### 4. Authorization request
+
+`GET /oauth/authorize`. The host's own browser, or the user's, opens it.
+
+#### 4.1 Checks
+
+The server checks the query in `x-authorize-checks` order. The first failing check decides the response:
+
+| # | Check | On failure |
+| --- | --- | --- |
+| 1 | A route flag is on | `404 FEATURE_DISABLED` |
+| 2 | Every parameter appears at most once | `302` to Envoi's own `/authorize-agent?error=invalid_request` |
+| 3 | `client_id` names a valid client (§3) | `302` to `/authorize-agent?error=invalid_client` |
+| 4 | `redirect_uri` matches one of the client's (§3.3) | `302` to `/authorize-agent?error=invalid_redirect_uri` |
+| 5 | `response_type` is `code` | redirect to the client with `unsupported_response_type` |
+| 6 | `code_challenge` is present, 43 base64url characters | redirect to the client with `invalid_request` |
+| 7 | `code_challenge_method` is `S256` (absent counts as `plain`, which is refused) | redirect to the client with `invalid_request` |
+| 8 | `resource` is present and equals the resource exactly (§2) | redirect to the client with `invalid_target` |
+| 9 | `scope`, if present, is a set of `x-scopes` names containing `envoi.agent` | redirect to the client with `invalid_scope` |
+| 10 | `state`, if present, is 1–512 printable ASCII characters | redirect to the client with `invalid_request` |
+
+**Never redirect to an unchecked URI.** Rows 2–4 send the browser to Envoi's own page, which explains the problem and links nowhere else. From row 5 on, the error goes to the checked `redirect_uri` as `error`, `error_description`, `state` (if sent) and `iss` (the issuer), per RFC 6749 §4.1.2.1 and RFC 9207. Every `302` here has `cache-control: no-store` and `referrer-policy: no-referrer`.
+
+`state` is optional on the wire, as OAuth 2.1 allows, but every client should send it. `resource` is **required**: the MCP specification requires clients to send it, so a missing one is a broken client.
+
+#### 4.2 Success
+
+On success the server creates **nothing durable**. It seals the validated request into an **authorization request handle** and returns `302` to `${origin}/authorize-agent?request=<handle>`:
+- the handle is opaque, at most 2,048 characters, and expires `x-limits.authorizationRequestTtlSeconds` (600 s) after it is made;
+- it binds the client, the redirect URI as requested (loopback port included), the code challenge, the scope set, the state and the resource;
+- it is integrity-protected and encrypted under a key derived from `ENVOI_DATA_ENCRYPTION_KEY`, so it cannot be edited or read;
+- it is **not a credential**: holding it does nothing without a signed-in human (§5).
+
+An unauthenticated `GET` therefore writes no store record and cannot fill one. This is the reason it is a sealed value.
+
+#### 4.3 Scopes (`x-scopes`)
+
+| Scope | Permission (agent-registration §5.3) | Notes |
+| --- | --- | --- |
+| `envoi.agent` | `receive_agent_messages` | Required in every request and grant. Identity, work availability, claim, reply to a received case and settlement. |
+| `envoi.send` | `send_agent_messages` | Start cases and message other agents. |
+| `envoi.files` | `create_assets` | Share files. |
+| `envoi.cases` | `execute_cases` | Act on cases (case-tools v1). |
+
+`use_email_transport` has **no** scope in v1. It cannot be granted through this contract (decision 7).
+
+A request without `scope` asks for `envoi.agent envoi.send`, the same set as the `/mcp` challenge. Requested permissions are the scopes mapped through this table. The agent asks; it never grants (v3 §40).
+
+### 5. Consent: the human claim
+
+`/authorize-agent` is an owner page (Lane B). The human signs in there if needed and the page then continues with the same handle. **Approving this page is the human claim** (v3 §45): one consent issues the grant, with no limited first grant to widen later.
+
+#### 5.1 Reading the request
+
+`GET /api/oauth/authorization-requests/{handle}`, human session, returns `consentView`:
+- `client`: `name` (as a `displayName`), `clientIdHost` (the host of a URL client id, or `null` for a pre-registered client), `redirectHost` (the redirect URI's host and, for loopback, the port), `loopbackRedirect` (boolean), `registration` (`metadata_document` or `pre_registered`) and `provider` (pre-registered clients only);
+- `connectionRoute`;
+- `requestedPermissions` and `grantablePermissions` (requested ∩ organization maximum), as in agent-registration §5.2;
+- `expiresAt`, the handle's expiry.
+
+**What the page must show** (`x-consent-display`):
+- the client name **as a claim the client makes**, beside the host it came from (`clientIdHost`) or the provider;
+- `redirectHost`, always. The MCP specification requires it;
+- for a loopback redirect, a warning that any program on that computer could receive the authorization, and that the user should approve only a connection they just started;
+- the requested permissions, through agent-registration's `x-permission-labels`;
+- the target choice of agent-registration §5.3: a new agent in a workspace the human manages, or an existing agent the owner UI offers for reconnect (revision 4 eligibility).
+
+The page never shows the handle's contents in raw form and never fetches `client_uri` or `logo_uri`.
+
+The checks are agent-registration §5.1's: a human session, the beta allowlist re-evaluated now, and the assurance rule. A handle that is malformed, tampered, expired, or already decided by another human gets `404 AUTHORIZATION_REQUEST_INVALID`, identical in every case.
+
+#### 5.2 Approve
+
+`POST /api/oauth/authorization-requests/{handle}/approve`, human session and CSRF. The body is `consentApproveRequest`, which is agent-registration's `claimApproveRequest` without `verificationCode`:
+
+```json
+{ "target": { "kind": "new_agent", "workspaceInboxId": "inbox_…", "name": "…", "localPart": "…" },
+  "grantedPermissions": ["send_agent_messages", "receive_agent_messages"], "policyProfile": "default" }
+```
+
+Everything in agent-registration §5.3 applies unchanged: the permission intersection, agent slots, address holds, `replacesInstallationId`, the live management check and the policy profile. The precedence is §5.3's, with the code step replaced by the handle:
+1. session and CSRF, then `ACCOUNT_CHANGED`;
+2. `RATE_LIMITED` (`x-limits.consentApprovalsPerHumanPerHour`, 10);
+3. **the handle:** a handle this human already decided replays the identical original `200` for the identical body, and gets `409 CLAIM_ALREADY_DECIDED` for any other body or for approving after denying. Any other unusable handle gets `404 AUTHORIZATION_REQUEST_INVALID`;
+4. `CLAIM_INVALID`;
+5. `CLAIM_FORBIDDEN`;
+6. `AGENT_NOT_RECONNECTABLE`, `CLAIM_STALE`, `ADDRESS_TAKEN`, `ACTIVE_AGENT_LIMIT` or `PENDING_ACTIVATION_LIMIT`.
+
+**What approval does.** In one transaction the server:
+- creates an agent registration with `status: approved`, the client's `connectionRoute`, `runtime: { type: "remote_mcp", version: null }` (`provider_connector`: `{ type: "provider", version: null }`), and the decision fields of agent-registration §5.3;
+- records the decision against the handle, so step 3 can replay it;
+- issues one **authorization code**: `envoi_oauth_code_` + 32 random bytes, base64url, stored only as SHA-256, single use, expiring `x-limits.authorizationCodeTtlSeconds` (60 s) after approval. The code's expiry is the registration's `activationExpiresAt`.
+
+The registration then behaves like any approved one: it holds its address and slot, appears in the owner's `GET /api/agent-claims`, and can be withdrawn there (agent-registration §5.4). It has no bootstrap token and no verification code. Audit: `agent.registration_approved`, as today, with the route.
+
+**`200` `consentApproved`**, with `cache-control: no-store`:
+- `redirectTo`: the request's `redirect_uri` with `code`, `state` (if sent) and `iss` added as query parameters;
+- `registrationId`, `target`, `workspaceName`, `agent { name, address, id? }`, `effectivePermissions`, `policyProfile` and `codeExpiresAt`.
+
+The page navigates the browser to `redirectTo`. This is the one place an authorization code crosses a browser, as OAuth requires (v3 §45). It is not an agent credential, and it is useless without the client's PKCE verifier.
+
+#### 5.3 Deny
+
+`POST /api/oauth/authorization-requests/{handle}/deny`, human session and CSRF, empty body → `200 { redirectTo }`, with `error=access_denied`, `state` and `iss`. Nothing is created. The same human repeating it gets the identical `200`. Denying a handle this human approved gets `409 CLAIM_ALREADY_DECIDED`.
+
+### 6. Token endpoint
+
+`POST /oauth/token`, `content-type: application/x-www-form-urlencoded`. It reads no cookies, takes no CSRF header, and is not a browser route. Every response has `cache-control: no-store` and `pragma: no-cache`.
+
+**Errors** use the OAuth error body `oauthError` (`{ error, error_description? }`, RFC 6749 §5.2), not the a3 envelope. `error_description` is fixed text from `x-oauth-errors`, never a token, and never says which check failed beyond the error name. Status `400`, except `invalid_client`, which is `401` and, when the client used `client_secret_basic`, carries `www-authenticate: Basic realm="Envoi"`. Rate limiting is `429` with `retry-after` and `error: temporarily_unavailable` (`x-limits.tokenRequestsPerSourcePerMinute`, 60).
+
+**Client authentication.** A public client sends `client_id` in the body and no secret. A `client_secret_basic` client sends HTTP Basic and no `client_id` in the body, or the same one; any mismatch, a missing or wrong secret, or a secret sent by a public client is `invalid_client`.
+
+#### 6.1 Authorization code grant
+
+Parameters: `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier` (43–128 characters of the RFC 7636 alphabet), `resource`, and `client_id` (public clients).
+
+Checks, in `x-token-checks` order. The first failure decides:
+
+| # | Check | Error |
+| --- | --- | --- |
+| 1 | A route flag is on | `404 FEATURE_DISABLED` (a3 envelope) |
+| 2 | Parameters are present, each once, and well formed | `invalid_request` |
+| 3 | The client authenticates (§6) | `invalid_client` |
+| 4 | The code exists and was issued to this client | `invalid_grant` |
+| 5 | The code has not been used | `invalid_grant`, and the installation the first exchange activated is revoked (below) |
+| 6 | The code has not expired | `invalid_grant` |
+| 7 | `redirect_uri` equals the authorization request's exactly | `invalid_grant` |
+| 8 | `BASE64URL(SHA-256(code_verifier))` equals the code challenge | `invalid_grant` |
+| 9 | `resource` equals the resource | `invalid_target` |
+| 10 | The registration is still `approved`, and agent-registration §6.1's re-checks pass | `invalid_grant`. The registration becomes `withdrawn`, as in agent-registration §6.1 row 11. |
+
+Every failure from row 4 on also counts toward the rate limit. Row 4 comes before row 5, so a code presented by a client it was not issued to revokes nothing; a second exchange by the client it was issued to always does, even after expiry.
+
+**Activation.** When every check passes, the exchange **is** the activation of agent-registration §6.1 row 12 and §6.3, for `deliveryMode: on_demand`:
+- `new_agent` creates the agent, its dedicated inbox and directory entries;
+- `existing_agent` replaces every active installation, sets the permissions, releases held leases, and closes old streams;
+- the installation and its credential family are created together, as in agent-registration §6.3.
+
+The credential family stores two new facts:
+- **`audience`:** the resource. Its tokens are accepted only at `/mcp` (§9);
+- **`oauthClientId`:** the client. Refresh and revocation must come from the same client.
+
+**`200` `tokenResponse`:**
+
+```json
+{ "access_token": "envoi_agent_access_…", "token_type": "Bearer", "expires_in": 900,
+  "refresh_token": "envoi_agent_refresh_…", "scope": "envoi.agent envoi.send" }
+```
+
+- `expires_in` is the configured access-token lifetime (`ENVOI_AGENT_ACCESS_TOKEN_TTL_SECONDS`, default 900);
+- the refresh token follows A1: the family's `refreshExpiresAt` is extended by the inactivity lifetime on every rotation, and is never immortal;
+- `scope` lists the **effective** permissions mapped back through `x-scopes`, in table order. It may be narrower than the request, because the owner can grant less. A client must read it.
+
+Audit: `agent.installation_activated`, as today.
+
+**A used code** (row 5) means two parties may hold one code. As OAuth 2.1 §4.1.3 recommends, the server revokes the installation the first exchange created, if it is still active, exactly as agent-registration §6.1 row 7a does: the family's `revokedReason` is `revoked`, the installation records `replayDetectedAt` and ends with `activation_replay`, and the audit event is `agent.activation_replay_detected`. The identity is not frozen.
+
+**No lost-response recovery.** A token response that never arrives cannot be fetched again, unlike agent-registration §6.2. The client starts a new authorization. The owner then sees the agent under "Reconnect an existing agent" and approves it as `existing_agent`, which replaces the installation the lost response created (decision 2).
+
+#### 6.2 Refresh grant
+
+Parameters: `grant_type=refresh_token`, `refresh_token`, `client_id` (public clients), and optionally `scope` and `resource`.
+
+| # | Check | Error |
+| --- | --- | --- |
+| 1 | A route flag that serves this client is on | `404 FEATURE_DISABLED` |
+| 2 | Parameters are well formed | `invalid_request` |
+| 3 | The client authenticates | `invalid_client` |
+| 4 | The token is a refresh token of a family issued to this client (`oauthClientId`) | `invalid_grant`. A refresh token of a `local_helper` family, or of another client, is unknown here. |
+| 5 | The family is not revoked, and `refreshExpiresAt` has not passed | `invalid_grant` |
+| 6 | The token is the family's **current** refresh token, or the previous one inside the recovery window (below) | otherwise `invalid_grant`, and the family is revoked as `refresh_replay` |
+| 7 | `scope`, if present, equals the family's current scopes | `invalid_scope`. Narrowing is not supported in v1. |
+| 8 | `resource`, if present, equals the family's audience | `invalid_target` |
+
+On success: `200` `tokenResponse` with a **new** access token and a **new** refresh token. Refresh tokens always rotate, which the MCP specification requires for public clients. A1's `rotationId` does not exist in OAuth, so the server keys recovery differently.
+
+**Recovery window** (`x-limits.refreshRecoverySeconds`, 60 s, decision 3). After a rotation the server keeps an AES-GCM envelope of the response, keyed like A1's from the **old** raw refresh token. If the same client presents that old token again within 60 s, **and** neither successor token has been used yet, it gets the identical `200` again. Any other reuse is replay: the family is revoked with `reason: "refresh_replay"`, a3 holders get `CREDENTIAL_REVOKED`, and the installation ends with `refresh_replay` (agent-registration §6.4). The first use of a successor deletes the envelope.
+
+**Paused agents.** Refresh succeeds while the agent is paused (a3 §14). The tokens still get `409 AGENT_PAUSED` at `/mcp`.
+
+### 7. Revocation (RFC 7009)
+
+`POST /oauth/revoke`, form body `token` and optional `token_type_hint`, with the same client authentication as §6.
+- A token of a family issued to this client, access or refresh: the **family is revoked** with `reason: "revoked"`. Its installation ends with `revoked`, holders get `CREDENTIAL_REVOKED`, and streams close with `credential.ended`. The identity is not frozen: the owner can reconnect it (agent-registration revision 4). Audit: `agent.installation_revoked`, with actor `client`.
+- An unknown, expired or already-revoked token: `200`, and nothing changes (RFC 7009 §2.2).
+- A token of a family issued to **another** client, or of a family with no client (`local_helper`): `400 unauthorized_client`, and nothing changes.
+
+The `200` body is empty. A client revokes when its user disconnects Envoi in the host. The owner's own revoke (agent-registration §6.5) is unchanged and works on these installations too.
+
+### 8. Bootstrap code (provider fallback)
+
+v3 §31 and §42 allow one exception to "no operational secret in a human browser": a provider whose connector can store only a **private credential field** can receive a single-use code that the owner pastes into that field. This section defines it. It is available only while `ENVOI_PROVIDER_CONNECTORS` is on, and only for a pre-registered client with `bootstrapCode: true` (§3.2), which in turn needs that provider's reviewed design and gate (v3 §45).
+
+**Issue.** `POST /api/oauth/bootstrap-codes`, human session and CSRF. The body is `bootstrapCodeRequest`: `clientId` plus the approve body of §5.2. The checks and precedence are §5.2's, with step 3 being "the client is a bootstrap client", else `404 AUTHORIZATION_REQUEST_INVALID`. On success the server creates an approved registration exactly as §5.2 does, with `connectionRoute: provider_connector`, and issues:
+- `bootstrapCode`: `envoi_boot_` + 32 random bytes, base64url, stored only as SHA-256, single use;
+- `expiresAt`: `x-limits.bootstrapCodeTtlSeconds` (600 s) after issue. It is the registration's `activationExpiresAt`.
+
+`201` `bootstrapCodeIssued`, with `cache-control: no-store`, carries the code **once**. The owner page shows it once, with the provider's name, and tells the owner to paste it only into that provider's credential field, never into a chat. Issuing again creates a second registration; it does not repeat the code. Not issuing a code for a lost response is safe: the registration expires and grants nothing.
+
+**Exchange.** The provider's backend calls `POST /oauth/token` with `grant_type=urn:envoi:params:oauth:grant-type:bootstrap_code`, `bootstrap_code`, `resource`, and HTTP Basic client authentication. A public client cannot use this grant (`unauthorized_client`). The checks are §6.1 rows 1–6 (reuse revokes the installation it created), 9 and 10, applied to the code. The success response and activation are §6.1's.
+
+**What it never is.** It is never an access or refresh token, never valid at `/mcp` or any other route (`AUTHENTICATION_REQUIRED`), never in a URL or log, and useless without the provider's client secret.
+
+### 9. `/mcp` as the resource server
+
+The existing `/mcp` endpoint keeps its tools and behaviour. While `ENVOI_REMOTE_MCP_OAUTH` or `ENVOI_PROVIDER_CONNECTORS` is on, these rules are added:
+
+**Challenge.** Every `401` from `/mcp` carries:
+
+```text
+WWW-Authenticate: Bearer resource_metadata="https://www.envoi-agents.com/.well-known/oauth-protected-resource/mcp", scope="envoi.agent envoi.send"
+```
+
+When the request carried a bearer token that failed, the header also has `error="invalid_token"`. The body keeps the a3 envelope and code (`AUTHENTICATION_REQUIRED`, `CREDENTIAL_REVOKED`, `CREDENTIAL_EXPIRED` and so on). With both flags off the header is today's `Bearer realm="Envoi agent MCP"`.
+
+**Audience.** A token whose family has an `audience` is accepted **only** at that resource, `/mcp`. On every other route, including `/api/agent/*` and `/api/inboxes/*`, it is an unrecognized bearer: `401 AUTHENTICATION_REQUIRED`, identical to an unknown token. Tokens without an audience (`local_helper`, `authenticated_rest`, legacy) keep working everywhere they work today, `/mcp` included.
+
+**Insufficient scope.** A tool call that needs a permission the family does not have gets `403 INSUFFICIENT_SCOPE` (a3 envelope) with:
+
+```text
+WWW-Authenticate: Bearer error="insufficient_scope", scope="envoi.send", resource_metadata="…"
+```
+
+`scope` names every scope the call needs, in `x-scopes` order. A client may then re-authorize with the union of its scopes and these; the owner approves that as `existing_agent`, which replaces the installation (§5.2). For families without an audience, a missing permission keeps today's response.
+
+**Pause.** Unchanged: `409 AGENT_PAUSED` as an HTTP status, never a JSON-RPC result with an error (a3 §3, agent-registration §6.6).
+
+**No pass-through.** The server never forwards a token it received to any other service.
+
+### 10. What the model may see
+
+Nothing new. The OAuth flow runs between the host, the browser and Envoi:
+- the authorization URL, the handle, the code, the code verifier and every token stay with the host and the browser. The host must keep them out of the model's context; that is part of each host's evidence (v3 §47);
+- tool results through `/mcp` are unchanged, and carry no credential;
+- agent-registration §7's never-list gains `envoi_oauth_code_…`, `envoi_boot_…`, client secrets, authorization request handles and code verifiers.
+
+### 11. Codes, compatibility and rollback
+
+**a3-envelope codes** (`x-codes`), on `/mcp`, the owner routes and the disabled endpoints:
+
+| Code | HTTP | Surface: lifecycle / retry / guidance |
+| --- | --- | --- |
+| `FEATURE_DISABLED` | 404 | host: `REGISTRATION_ENDED` / none / `route_unavailable`; owner_ui: `NOT_APPLICABLE` / none / `route_unavailable` |
+| `AUTHORIZATION_REQUEST_INVALID` | 404 | owner_ui: `NOT_APPLICABLE` / none / `start_again` |
+| `INSUFFICIENT_SCOPE` | 403 | host: `UNCHANGED` / none / `reauthorize` |
+| `AUTHENTICATION_REQUIRED`, `ACCESS_TOKEN_EXPIRED` | 401 | host: `UNCHANGED` / `refresh_then_retry_once` / none (a3's connector row) |
+| `CREDENTIAL_REVOKED` | 401 | host: `REVOKED` / none / `owner_reconnect`. The identity is not frozen, so the owner reconnects it, rather than a3's `owner_reenroll`. |
+| `AGENT_PAUSED` | 409 | host: `PAUSED` / `after_resume` / `wait_for_resume` (a3) |
+
+The owner routes also return agent-registration's `CLAIM_INVALID`, `CLAIM_FORBIDDEN`, `CLAIM_ALREADY_DECIDED`, `AGENT_NOT_RECONNECTABLE`, `CLAIM_STALE`, `ADDRESS_TAKEN`, `ACTIVE_AGENT_LIMIT`, `PENDING_ACTIVATION_LIMIT`, `RATE_LIMITED` and `ACCOUNT_CHANGED`, with their `owner_ui` rows unchanged. `/mcp` keeps every a3 code.
+
+**OAuth errors** (`x-oauth-errors`) are only on `/oauth/token`, `/oauth/revoke` and the client redirect: `invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `unsupported_grant_type`, `unsupported_response_type`, `invalid_scope`, `invalid_target`, `access_denied`, `temporarily_unavailable`.
+
+**Compatibility.**
+- `GET /api/onboarding/routes` keeps its shape and its `contract` value; only availability changes, and only with the new flags.
+- agent-registration's public activation refuses `on_demand` for its own routes (`400 DELIVERY_MODE_NOT_AVAILABLE`), so this contract adds no declarable mode to them.
+- Installation and owner views are unchanged in shape: an installation made here shows `connectionRoute: remote_mcp_oauth` or `provider_connector`, `deliveryMode: on_demand` and its `runtime`.
+- A local-helper token at `/mcp` behaves as today, except that a `401` gains the challenge header while a flag is on.
+
+**Rollback** (flags off): every endpoint here returns `404 FEATURE_DISABLED`; consent pages report the route unavailable; a token whose family has an `audience` gets `401 AUTHENTICATION_REQUIRED` at `/mcp`, without the challenge. **Nothing is revoked or deleted.** Installations stay `active` in the owner views and the owner can still revoke them. Turning the flag on again restores every family that has not expired, and refresh continues. Approved registrations whose codes expire while the flag is off expire normally. No data migration exists in either direction.
+
+### 12. Fixtures
+
+| Group | Fixtures |
+| --- | --- |
+| Availability and discovery | `routes-available-remote-mcp`, `routes-available-provider`, `protected-resource-metadata`, `protected-resource-metadata-root`, `authorization-server-metadata`, `discovery-feature-disabled` |
+| `/mcp` challenge | `mcp-challenge-unauthenticated`, `mcp-challenge-invalid-token`, `mcp-insufficient-scope`, `mcp-paused-oauth-token`, `oauth-token-refused-on-rest` |
+| Authorization request | `authorize-redirects-to-consent`, `authorize-loopback-redirect`, `authorize-unknown-client`, `authorize-client-id-mismatch`, `authorize-redirect-uri-mismatch`, `authorize-pkce-missing`, `authorize-pkce-plain`, `authorize-resource-missing`, `authorize-scope-invalid`, `authorize-feature-disabled` |
+| Consent | `consent-view`, `consent-view-loopback`, `consent-request-invalid`, `consent-approve-new-agent`, `consent-approve-existing-agent`, `consent-approve-replayed`, `consent-approve-other-body`, `consent-deny`, `consent-agent-limit` |
+| Token: authorization code | `token-authorization-code`, `token-pkce-mismatch`, `token-redirect-uri-mismatch`, `token-resource-mismatch`, `token-code-expired`, `token-code-reused`, `token-approval-withdrawn`, `token-public-client-secret` |
+| Token: refresh | `token-refresh`, `token-refresh-recovered`, `token-refresh-replay`, `token-refresh-other-client`, `token-refresh-scope-changed`, `token-refresh-paused`, `token-rate-limited` |
+| Revocation | `revoke-refresh-token`, `revoke-unknown-token`, `revoke-other-client` |
+| Bootstrap code | `bootstrap-code-issued`, `bootstrap-code-exchanged`, `bootstrap-code-public-client`, `bootstrap-code-at-mcp` |
+| Owner view and rollback | `owner-installations-oauth`, `rollback-flags-off` |
+
+### 13. Decisions for review
+
+These are Lane A's proposals. Any of them can change before approval.
+
+1. **Client metadata documents and pre-registration only, no Dynamic Client Registration** (§3). The MCP specification deprecates DCR. Offering it would mean an unauthenticated route that writes client records. The cost: a host that supports only DCR cannot connect until it adopts metadata documents or is pre-registered.
+2. **No lost-response recovery for the code exchange** (§6.1). OAuth codes are single use, and code reuse revokes, as OAuth 2.1 recommends. A lost response costs one more consent and an `existing_agent` reconnect, which is visible and safe. Agent-registration's `activationId` recovery has no OAuth equivalent a generic client would send.
+3. **A 60-second refresh recovery window** (§6.2). Without it, one lost refresh response revokes the installation, because the next try looks like replay. Without `rotationId` the window is keyed by the old token alone, and it closes as soon as a successor is used. The stricter alternative is no window at all, as plain OAuth 2.1 rotation does.
+4. **Audience-bound tokens, accepted only at `/mcp`** (§9). RFC 8707 and the MCP specification require it. The alternative, also accepting them on REST, would make the REST route reachable without its own registration path and gate.
+5. **No logos, and the client name shown as a claim beside its host** (§3.1, §5.1). A logo fetch is another SSRF and tracking surface, and a picture adds no proof.
+6. **No custom-scheme redirect URIs in v1** (§3.3). Desktop clients use loopback; mobile and custom schemes can be a later revision after a real client needs them.
+7. **No email-transport scope** (§4.3). External email through a remote assistant needs its own review.
+8. **Four coarse scopes, one per permission** (§4.3). Finer scopes (for example read-only) would need new permissions in agent-registration first.
+9. **The sealed handle instead of a stored pending request** (§4.2). An unauthenticated `GET` writes nothing. The cost: a handle cannot be revoked before it expires. That is harmless, because a handle grants nothing without a signed-in human's decision.
+10. **`on_demand` for every installation made here** (§1), with the flag waiting for an a5-presence label. The alternative, declaring `envoi_link`, would claim a running host process that a cloud assistant does not have.
+11. **Approval.** Version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. It does not authorize any provider's gate or any flag change.
+
+### 14. Implementation notes (Lane A; informative)
+
+- **One approval module.** Consent and bootstrap issue call the same approval code as `POST …/approve` (agent-registration §5.3, `src/agent-approval.js`), with a decision source of `oauth_consent` instead of a verification code. Activation is the same `activateRegistration` path, entered from the token endpoint.
+- **Stored family fields.** `audience` and `oauthClientId` are new fields on the stored credential family. agent-registration's `storedCredentialFamily` schema is closed, so its stored-shape fixtures need a revision note when this lands.
+- **Audience check.** Do it in `checkAgentCredential`, before route dispatch. The existing `/mcp` handler calls the REST routes over loopback with the caller's `authorization` header. Those internal calls must be marked as coming from `/mcp` in a way no external request can forge, or the handler must call the services directly.
+- **Client metadata fetch.** Reuse the http-wake destination module (`src/http-wake-destination.js`) for name rules, resolution and pinning; do not write a second SSRF filter.
+- **Runtime.** These routes run in the Node container. The Cloudflare Worker must route `/.well-known/oauth-*`, `/oauth/*` and `/authorize-agent` to it and must pass the metadata `cache-control` through `withNoStoreHeaders` (as for the wake key set). The new settings are added to `CONTAINER_ENV_KEYS`.
+- **Audit types.** None are new, so Lane B's `WORKSPACE_EVENT_TYPES` needs no pairing change. `agent.installation_revoked` gains the actor value `client`.

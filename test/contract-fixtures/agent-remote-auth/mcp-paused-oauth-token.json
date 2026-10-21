@@ -1,0 +1,49 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "mcp-paused-oauth-token",
+  "description": "A paused agent: /mcp answers HTTP 409, never a JSON-RPC result.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_agent_info",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AGENT_PAUSED",
+      "error": "AGENT_PAUSED",
+      "message": "This agent is paused by its owner.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "PAUSED",
+    "retry": "after_resume",
+    "guidance": "wait_for_resume",
+    "next": "Tell the user the agent is paused. Refresh keeps working; try again after the owner resumes it."
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "routes-available-remote-mcp",
+  "description": "Both V2 flags and ENVOI_REMOTE_MCP_OAUTH on: remote_mcp_oauth and on_demand become available; the response keeps its agent-registration v1 shape.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/onboarding/routes",
+    "auth": "none"
+  },
+  "response": {
+    "status": 200,
+    "schema": "agent-registration/routeAvailability",
+    "headers": {
+      "cache-control": "public, max-age=60"
+    },
+    "body": {
+      "asOf": "2026-10-21T12:00:00.000Z",
+      "contract": {
+        "id": "agent-registration",
+        "version": 1
+      },
+      "registrationEnabled": true,
+      "installationsEnabled": true,
+      "routes": [
+        {
+          "connectionRoute": "local_helper",
+          "available": true
+        },
+        {
+          "connectionRoute": "remote_mcp_oauth",
+          "available": true
+        },
+        {
+          "connectionRoute": "provider_connector",
+          "available": false
+        },
+        {
+          "connectionRoute": "authenticated_rest",
+          "available": false
+        }
+      ],
+      "deliveryModes": [
+        {
+          "deliveryMode": "envoi_link",
+          "available": true
+        },
+        {
+          "deliveryMode": "webhook",
+          "available": false
+        },
+        {
+          "deliveryMode": "provider",
+          "available": false
+        },
+        {
+          "deliveryMode": "poll",
+          "available": false
+        },
+        {
+          "deliveryMode": "on_demand",
+          "available": true
+        },
+        {
+          "deliveryMode": "a2a",
+          "available": false
+        }
+      ]
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "/connect and skill.json may offer the remote MCP route. The owner label for on_demand comes from the a5-presence revision the flag waits for (§1)."
+  }
+}

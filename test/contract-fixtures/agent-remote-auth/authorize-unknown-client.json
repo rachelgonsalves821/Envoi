@@ -1,0 +1,32 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "authorize-unknown-client",
+  "description": "The client_id is neither a URL nor a pre-registered id: Envoi's own page, never the client.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/oauth/authorize?response_type=code&client_id=some-client&redirect_uri=https%3A%2F%2Fassistant.example.com%2Foauth%2Fcallback&code_challenge=M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM&code_challenge_method=S256&resource=https%3A%2F%2Fwww.envoi-agents.com%2Fmcp&scope=envoi.agent+envoi.send&state=af0ifjsldkj-example-state",
+    "auth": "none"
+  },
+  "response": {
+    "status": 302,
+    "schema": "emptyBody",
+    "headers": {
+      "location": "https://www.envoi-agents.com/authorize-agent?error=invalid_client",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer"
+    },
+    "bodyText": ""
+  },
+  "client": {
+    "surface": "host",
+    "next": "Nothing reaches the client's redirect URI. The page explains that the assistant is not recognized."
+  }
+}

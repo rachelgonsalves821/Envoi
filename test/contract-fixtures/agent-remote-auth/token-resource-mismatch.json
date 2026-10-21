@@ -1,0 +1,45 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "token-resource-mismatch",
+  "description": "resource names another server.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/oauth/token",
+    "auth": "public_client",
+    "headers": {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    "form": {
+      "grant_type": "authorization_code",
+      "code": "envoi_oauth_code_PLACEHOLDER_1",
+      "redirect_uri": "https://assistant.example.com/oauth/callback",
+      "code_verifier": "iOY_y2JNRsKjN4t_WyVeJiT-YAQVoL6MnFjPW6Ks1hU",
+      "resource": "https://mcp.example.net/mcp",
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "oauthError",
+    "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache"
+    },
+    "body": {
+      "error": "invalid_target",
+      "error_description": "The resource must be this server's MCP endpoint."
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Send the canonical MCP URI."
+  }
+}

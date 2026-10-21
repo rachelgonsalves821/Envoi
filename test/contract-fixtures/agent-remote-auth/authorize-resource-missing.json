@@ -1,0 +1,50 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "authorize-resource-missing",
+  "description": "No resource parameter: invalid_target.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "context": {
+    "clientMetadataDocument": {
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+      "client_name": "Example Assistant",
+      "client_uri": "https://assistant.example.com",
+      "redirect_uris": [
+        "https://assistant.example.com/oauth/callback"
+      ],
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "response_types": [
+        "code"
+      ],
+      "token_endpoint_auth_method": "none"
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fassistant.example.com%2Foauth%2Fenvoi-client.json&redirect_uri=https%3A%2F%2Fassistant.example.com%2Foauth%2Fcallback&code_challenge=M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM&code_challenge_method=S256&scope=envoi.agent+envoi.send&state=af0ifjsldkj-example-state",
+    "auth": "none"
+  },
+  "response": {
+    "status": 302,
+    "schema": "emptyBody",
+    "headers": {
+      "location": "https://assistant.example.com/oauth/callback?error=invalid_target&error_description=The+resource+must+be+this+server%27s+MCP+endpoint.&state=af0ifjsldkj-example-state&iss=https%3A%2F%2Fwww.envoi-agents.com",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer"
+    },
+    "bodyText": ""
+  },
+  "client": {
+    "surface": "host",
+    "next": "Send resource equal to the canonical MCP URI from the protected resource metadata."
+  }
+}

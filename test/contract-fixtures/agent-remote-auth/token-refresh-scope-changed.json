@@ -1,0 +1,43 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "token-refresh-scope-changed",
+  "description": "Narrowing or widening scope on refresh is not supported in v1.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/oauth/token",
+    "auth": "public_client",
+    "headers": {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    "form": {
+      "grant_type": "refresh_token",
+      "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+      "scope": "envoi.agent"
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "oauthError",
+    "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache"
+    },
+    "body": {
+      "error": "invalid_scope",
+      "error_description": "The requested scope is invalid."
+    }
+  },
+  "client": {
+    "surface": "host",
+    "next": "Omit scope, or re-authorize for a different set."
+  }
+}

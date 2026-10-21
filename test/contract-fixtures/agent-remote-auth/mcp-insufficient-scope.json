@@ -1,0 +1,55 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "mcp-insufficient-scope",
+  "description": "An audience-bound family without send_agent_messages calls a send tool: 403 with the scope it needs.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "context": {
+    "familyScopes": "envoi.agent"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_start_case",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 403,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "INSUFFICIENT_SCOPE",
+      "error": "INSUFFICIENT_SCOPE",
+      "message": "This connection may not send messages.",
+      "requestId": "req_example"
+    },
+    "headers": {
+      "www-authenticate": "Bearer error=\"insufficient_scope\", scope=\"envoi.send\", resource_metadata=\"https://www.envoi-agents.com/.well-known/oauth-protected-resource/mcp\""
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "reauthorize",
+    "next": "Ask the user before re-authorizing with envoi.agent envoi.send; the owner approves it as the existing agent."
+  }
+}

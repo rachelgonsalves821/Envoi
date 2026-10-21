@@ -1,0 +1,51 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "authorize-redirects-to-consent",
+  "description": "A valid request from a client metadata document creates nothing and redirects to the owner consent page with a sealed handle.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "context": {
+    "clientMetadataDocument": {
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+      "client_name": "Example Assistant",
+      "client_uri": "https://assistant.example.com",
+      "redirect_uris": [
+        "https://assistant.example.com/oauth/callback"
+      ],
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "response_types": [
+        "code"
+      ],
+      "token_endpoint_auth_method": "none"
+    },
+    "codeVerifier": "iOY_y2JNRsKjN4t_WyVeJiT-YAQVoL6MnFjPW6Ks1hU"
+  },
+  "request": {
+    "method": "GET",
+    "path": "/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fassistant.example.com%2Foauth%2Fenvoi-client.json&redirect_uri=https%3A%2F%2Fassistant.example.com%2Foauth%2Fcallback&code_challenge=M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM&code_challenge_method=S256&resource=https%3A%2F%2Fwww.envoi-agents.com%2Fmcp&scope=envoi.agent+envoi.send&state=af0ifjsldkj-example-state",
+    "auth": "none"
+  },
+  "response": {
+    "status": 302,
+    "schema": "emptyBody",
+    "headers": {
+      "location": "https://www.envoi-agents.com/authorize-agent?request=PLACEHOLDER_authorization_request_handle_1",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer"
+    },
+    "bodyText": ""
+  },
+  "client": {
+    "surface": "host",
+    "next": "Keep the code verifier, state and expected issuer for this request. The user continues in the browser."
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "authorize-pkce-missing",
+  "description": "No code_challenge: the error goes to the checked redirect URI with state and iss.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "context": {
+    "clientMetadataDocument": {
+      "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+      "client_name": "Example Assistant",
+      "client_uri": "https://assistant.example.com",
+      "redirect_uris": [
+        "https://assistant.example.com/oauth/callback"
+      ],
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "response_types": [
+        "code"
+      ],
+      "token_endpoint_auth_method": "none"
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fassistant.example.com%2Foauth%2Fenvoi-client.json&redirect_uri=https%3A%2F%2Fassistant.example.com%2Foauth%2Fcallback&resource=https%3A%2F%2Fwww.envoi-agents.com%2Fmcp&scope=envoi.agent+envoi.send&state=af0ifjsldkj-example-state",
+    "auth": "none"
+  },
+  "response": {
+    "status": 302,
+    "schema": "emptyBody",
+    "headers": {
+      "location": "https://assistant.example.com/oauth/callback?error=invalid_request&error_description=The+request+is+missing+a+parameter%2C+repeats+one%2C+or+has+a+malformed+one.&state=af0ifjsldkj-example-state&iss=https%3A%2F%2Fwww.envoi-agents.com",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer"
+    },
+    "bodyText": ""
+  },
+  "client": {
+    "surface": "host",
+    "next": "Validate iss, then fix the client: PKCE with S256 is required."
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "consent-deny",
+  "description": "The owner denies: nothing is created, and the client receives access_denied.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_1/deny",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "consentDenied",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "redirectTo": "https://assistant.example.com/oauth/callback?error=access_denied&error_description=The+owner+denied+the+request.&state=af0ifjsldkj-example-state&iss=https%3A%2F%2Fwww.envoi-agents.com"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Navigate to redirectTo."
+  }
+}

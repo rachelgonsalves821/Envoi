@@ -1,0 +1,35 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "discovery-feature-disabled",
+  "description": "Both route flags off: discovery does not exist.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/oauth-authorization-server",
+    "auth": "none"
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "Remote connections are not available on this server.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "REGISTRATION_ENDED",
+    "retry": "none",
+    "guidance": "route_unavailable",
+    "next": "Tell the user this Envoi server does not offer remote MCP yet. Do not retry."
+  }
+}

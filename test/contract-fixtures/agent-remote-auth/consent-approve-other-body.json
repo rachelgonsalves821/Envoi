@@ -1,0 +1,53 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "consent-approve-other-body",
+  "description": "The same human approves the decided handle with a different body.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_1/approve",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com"
+    },
+    "schema": "consentApproveRequest",
+    "body": {
+      "target": {
+        "kind": "new_agent",
+        "workspaceInboxId": "inbox_workspace_example",
+        "name": "Example agent",
+        "localPart": "example"
+      },
+      "grantedPermissions": [
+        "receive_agent_messages"
+      ],
+      "policyProfile": "default"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "CLAIM_ALREADY_DECIDED",
+      "error": "CLAIM_ALREADY_DECIDED",
+      "message": "You already decided this request.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "lifecycle": "NOT_APPLICABLE",
+    "retry": "none",
+    "guidance": "withdraw_first",
+    "next": "Withdraw the approval in Agent claims, then start again from the assistant."
+  }
+}

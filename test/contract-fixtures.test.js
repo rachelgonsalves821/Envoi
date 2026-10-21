@@ -1195,6 +1195,65 @@ function checkCaseTools(fixture, schemas, check, validator, label) {
   }
 }
 
+// agent-remote-auth §6, §9, §11: OAuth endpoints answer with RFC 6749 error bodies; /mcp challenges
+// follow RFC 9728 and RFC 6750; every step of a sequence obeys the same rules as a single case.
+const remoteAuthFlagOn = (flags = {}) => Boolean(flags.ENVOI_REMOTE_MCP_OAUTH || flags.ENVOI_PROVIDER_CONNECTORS);
+function checkRemoteAuth(fixture, schemas, check, validator, label) {
+  assert.doesNotMatch(JSON.stringify(fixture), /envoi_(?:oauth_code|boot)_(?!PLACEHOLDER)/, `${label}: codes are placeholders`);
+  assert.doesNotMatch(JSON.stringify(fixture), /"authorization":"Basic (?!PLACEHOLDER)/, `${label}: client secrets are placeholders`);
+  const units = fixture.steps ? fixture.steps.map((step, index) => [step, `${label} step ${index}`]) : [[fixture, label]];
+  for (const [unit, unitLabel] of units) {
+    const { request, response } = unit;
+    const flags = unit.flags || fixture.flags || {};
+    if (request.schema) check(validator(request.schema), request.body, `${unitLabel} request`);
+    check(validator(response.schema), 'body' in response ? response.body : response.bodyText, `${unitLabel} response`);
+    if (['/oauth/token', '/oauth/revoke'].includes(request.path)) {
+      assert.equal(request.headers['content-type'], 'application/x-www-form-urlencoded', `${unitLabel}: form body`);
+      assert.equal(request.auth === 'client_basic', Boolean(request.headers.authorization), `${unitLabel}: client_basic sends HTTP Basic, a public client does not`);
+      if (request.auth === 'public_client') assert.ok(request.form.client_id, `${unitLabel}: a public client names itself`);
+      if (response.status !== 404) assert.deepEqual([response.headers['cache-control'], response.headers.pragma], ['no-store', 'no-cache'], `${unitLabel}: token responses are never cached`);
+    }
+    const body = response.body;
+    if (response.schema === 'oauthError') {
+      const row = schemas['x-oauth-errors'][body.error];
+      assert.equal(response.status, row.status, `${unitLabel}: HTTP status for ${body.error}`);
+      assert.equal(body.error_description, row.description, `${unitLabel}: fixed error text`);
+      if (response.status === 429) assert.match(response.headers['retry-after'], /^\d+$/, `${unitLabel}: retry-after`);
+      if (body.error === 'invalid_client' && request.auth === 'client_basic') assert.equal(response.headers['www-authenticate'], 'Basic realm="Envoi"', `${unitLabel}: Basic challenge`);
+    } else if (body && typeof body === 'object' && 'code' in body) {
+      assert.ok(unit.client, `${unitLabel}: an a3 error names its client surface`);
+      const entry = codeEntry(schemas, body.code, unit.client.surface);
+      assert.ok(entry, `${unitLabel}: ${body.code} has an x-codes row for ${unit.client.surface}`);
+      assert.equal(response.status, entry.status, `${unitLabel}: HTTP status for ${body.code}`);
+      assert.deepEqual([unit.client.lifecycle, unit.client.retry, unit.client.guidance], [entry.lifecycle, expectedRetry(entry, body), expectedGuidance(entry, body, unit.client)], `${unitLabel}: client row for ${body.code}`);
+      if (body.code === 'FEATURE_DISABLED') assert.equal(remoteAuthFlagOn(flags), false, `${unitLabel}: FEATURE_DISABLED only with both route flags off`);
+    }
+    if (request.path === '/mcp' && response.status === 401) {
+      const header = response.headers['www-authenticate'];
+      if (!remoteAuthFlagOn(flags)) assert.equal(header, 'Bearer realm="Envoi agent MCP"', `${unitLabel}: flags off keep today's challenge`);
+      else {
+        assert.ok(header.startsWith('Bearer resource_metadata="'), `${unitLabel}: RFC 9728 challenge`);
+        assert.ok(header.includes(`scope="${schemas['x-challenge-scope']}"`), `${unitLabel}: the starting scope set`);
+        assert.equal(header.includes('error="invalid_token"'), Boolean(request.headers.authorization), `${unitLabel}: invalid_token exactly when a token was sent`);
+      }
+    }
+    if (body?.code === 'INSUFFICIENT_SCOPE') {
+      const scope = response.headers['www-authenticate'].match(/scope="([^"]+)"/)[1].split(' ');
+      assert.ok(response.headers['www-authenticate'].startsWith('Bearer error="insufficient_scope"'), `${unitLabel}: RFC 6750 insufficient_scope`);
+      assert.ok(scope.every((name) => schemas['x-scopes'].some((entry) => entry.scope === name)), `${unitLabel}: challenged scopes are x-scopes names`);
+    }
+    if (response.status === 302 && request.path.startsWith('/oauth/authorize')) {
+      const location = new URL(response.headers.location);
+      const sent = new URL(request.path, 'https://fixture.invalid').searchParams;
+      const ownPage = location.pathname === '/authorize-agent';
+      if (!ownPage) {
+        assert.equal(`${location.origin}${location.pathname}`, sent.get('redirect_uri'), `${unitLabel}: errors go only to the checked redirect URI`);
+        assert.deepEqual([location.searchParams.get('state'), location.searchParams.get('iss')], [sent.get('state'), 'https://www.envoi-agents.com'], `${unitLabel}: state and iss`);
+      } else assert.ok(location.searchParams.get('request') || location.searchParams.get('error'), `${unitLabel}: Envoi's page gets a handle or an error`);
+    }
+  }
+}
+
 test('contract fixture registry has a versioned shape', async () => {
   const index = await readJson(path.join(root, 'index.json'));
   assert.equal(Number.isInteger(index.version) && index.version >= 1, true);
@@ -1265,7 +1324,7 @@ test('every fixture matches its declared schema', async () => {
           assert.equal(fixture.client.lifecycle, entry.lifecycle, `${label}: lifecycle for ${value.code}`);
           assert.equal(fixture.client.retry, expectedRetry(entry, value), `${label}: retry for ${value.code}`);
           assert.equal(fixture.client.guidance, expectedGuidance(entry, value, fixture.client), `${label}: guidance for ${value.code}`);
-        } else if (fixture.response.status >= 400 && schemas['x-codes']) {
+        } else if (fixture.response.status >= 400 && schemas['x-codes'] && !(contract.id === 'agent-remote-auth' && fixture.response.schema === 'oauthError')) {
           assert.equal(fixture.response.schema, 'edgeText', `${label}: error responses must use the error envelope`);
         }
         // envoi-browser-names: the plain { error } shape is kept only for browser requests (a3 §1).
@@ -1283,7 +1342,7 @@ test('every fixture matches its declared schema', async () => {
           assert.equal(workMessage.from.agentId, workMessage.senderAgentId, `${label}: from is the sender`);
           assert.ok(workMessage.to.some((recipient) => recipient.agentId === workMessage.recipientAgentId), `${label}: to includes the recipient`);
         }
-        if (fixture.response.status === 429) assert.equal(fixture.response.headers?.['retry-after'], String(value.retryAfterSeconds), `${label}: retry-after`);
+        if (fixture.response.status === 429 && fixture.response.schema !== 'oauthError') assert.equal(fixture.response.headers?.['retry-after'], String(value.retryAfterSeconds), `${label}: retry-after`);
       }
       if (fixture.event) {
         check(validator(fixture.event.schema), fixture.event.data, `${label} event`);
@@ -1307,6 +1366,7 @@ test('every fixture matches its declared schema', async () => {
       if (contract.id === 'agent-registration') checkAgentRegistration(fixture, schemas, check, validator, label);
       if (contract.id === 'case-session') checkCaseSession(fixture, schemas, check, validator, label);
       if (contract.id === 'case-tools') checkCaseTools(fixture, schemas, check, validator, label);
+      if (contract.id === 'agent-remote-auth') checkRemoteAuth(fixture, schemas, check, validator, label);
       assert.doesNotMatch(JSON.stringify(fixture), /(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_|envoi_case_session_)(?!PLACEHOLDER)/, `${label}: tokens must be placeholders`);
     }
   }
@@ -1785,4 +1845,106 @@ test('case-tools fixtures agree across cases', async () => {
   const listed = tables.flatMap((table) => [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`)).sort();
   const index = await readJson(path.join(root, 'index.json'));
   assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'case-tools').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
+});
+
+// agent-remote-auth §2–§8: one authorization, from discovery to revocation, told consistently across cases.
+test('agent-remote-auth fixtures agree across cases', async () => {
+  const dir = path.join(root, 'agent-remote-auth');
+  const load = (name) => readJson(path.join(dir, `${name}.json`));
+  const schemas = await load('schemas');
+  const registration = await readJson(path.join(root, 'agent-registration', 'schemas.json'));
+  const s256 = (value) => crypto.createHash('sha256').update(value).digest('base64url');
+  const scopeOf = (permissions) => schemas['x-scopes'].filter((entry) => permissions.includes(entry.permission)).map((entry) => entry.scope).join(' ');
+  const params = (fixture) => new URL(fixture.request.path, 'https://fixture.invalid').searchParams;
+
+  assert.ok(schemas['x-scopes'].every((entry) => registration.definitions.permission.enum.includes(entry.permission)), 'every scope maps to an agent-registration permission');
+  assert.ok(!schemas['x-scopes'].some((entry) => entry.permission === 'use_email_transport'), 'no email-transport scope in v1');
+  assert.deepEqual(schemas['x-scopes'].filter((entry) => entry.required).map((entry) => entry.scope), ['envoi.agent'], 'envoi.agent is the one required scope');
+
+  const [prm, prmRoot, as] = await Promise.all(['protected-resource-metadata', 'protected-resource-metadata-root', 'authorization-server-metadata'].map(load));
+  assert.deepEqual(prmRoot.response.body, prm.response.body, 'both well-known forms return the identical document');
+  const issuer = as.response.body.issuer;
+  assert.deepEqual(prm.response.body.authorization_servers, [issuer], 'the resource names Envoi as its authorization server');
+  assert.equal(prm.response.body.resource, `${issuer}/mcp`, 'the resource is the canonical /mcp URI');
+  assert.deepEqual(prm.response.body.scopes_supported, schemas['x-scopes'].map((entry) => entry.scope), 'scopes_supported is x-scopes in order');
+
+  const [authorize, consent, approve, replayed, token] = await Promise.all(['authorize-redirects-to-consent', 'consent-view', 'consent-approve-new-agent', 'consent-approve-replayed', 'token-authorization-code'].map(load));
+  const asked = params(authorize);
+  assert.equal(asked.get('code_challenge'), s256(authorize.context.codeVerifier), 'the challenge is S256 of the verifier');
+  assert.equal(asked.get('resource'), prm.response.body.resource, 'the request names the resource');
+  assert.equal(consent.response.body.client.clientIdHost, new URL(asked.get('client_id')).host, 'the page shows the client id host');
+  assert.equal(consent.response.body.client.redirectHost, new URL(asked.get('redirect_uri')).host, 'the page shows the redirect host');
+  assert.equal(new URL(authorize.response.headers.location).searchParams.get('request'), consent.request.path.split('/').pop(), 'the page reads the handle it was sent');
+  assert.equal(approve.request.path, `${consent.request.path}/approve`, 'the owner approves that handle');
+  assert.deepEqual([replayed.request, replayed.response], [approve.request, approve.response], 'a repeated approve replays the original');
+  const back = new URL(approve.response.body.redirectTo);
+  assert.equal(`${back.origin}${back.pathname}`, asked.get('redirect_uri'), 'the code goes to the requested redirect URI');
+  assert.deepEqual([back.searchParams.get('state'), back.searchParams.get('iss')], [asked.get('state'), issuer], 'with the state and the issuer');
+  const form = token.request.form;
+  assert.equal(form.code, back.searchParams.get('code'), 'the client exchanges the code it received');
+  assert.deepEqual([form.client_id, form.redirect_uri, form.resource], [asked.get('client_id'), asked.get('redirect_uri'), asked.get('resource')], 'the exchange repeats client, redirect URI and resource');
+  assert.equal(s256(form.code_verifier), asked.get('code_challenge'), 'the verifier matches the challenge');
+  assert.deepEqual(token.context.effectivePermissions, approve.response.body.effectivePermissions, 'the grant is the approved permissions');
+  assert.equal(token.response.body.scope, scopeOf(approve.response.body.effectivePermissions), 'scope reports the effective permissions');
+  const mismatch = await load('token-pkce-mismatch');
+  assert.notEqual(s256(mismatch.request.form.code_verifier), asked.get('code_challenge'), 'the mismatch case really mismatches');
+
+  const loopback = await Promise.all(['authorize-loopback-redirect', 'consent-view-loopback'].map(load));
+  const loopbackRedirect = new URL(params(loopback[0]).get('redirect_uri'));
+  assert.ok(loopback[0].context.clientMetadataDocument.redirect_uris.includes(`${loopbackRedirect.protocol}//${loopbackRedirect.hostname}${loopbackRedirect.pathname}`), 'a loopback URI matches with its port ignored');
+  assert.equal(loopback[1].response.body.client.redirectHost, loopbackRedirect.host, 'the loopback page shows host and port');
+  assert.equal(loopback[1].response.body.client.loopbackRedirect, true, 'and warns');
+
+  const reused = await load('token-code-reused');
+  assert.deepEqual([reused.steps[0].request, reused.steps[0].response], [token.request, token.response], 'the first exchange is the ordinary one');
+  assert.deepEqual(reused.steps[1].request, reused.steps[0].request, 'the second exchange repeats the code');
+  assert.equal(reused.steps[2].request.headers.authorization, `Bearer ${token.response.body.access_token}`, 'the first exchange\'s token is revoked');
+
+  const [refresh, recovered, replay, revoke, paused] = await Promise.all(['token-refresh', 'token-refresh-recovered', 'token-refresh-replay', 'revoke-refresh-token', 'token-refresh-paused'].map(load));
+  assert.equal(refresh.request.form.refresh_token, token.response.body.refresh_token, 'refresh uses the issued refresh token');
+  assert.notEqual(refresh.response.body.refresh_token, token.response.body.refresh_token, 'refresh tokens rotate');
+  assert.notEqual(refresh.response.body.access_token, token.response.body.access_token, 'with a new access token');
+  assert.equal(refresh.response.body.scope, token.response.body.scope, 'and the same scope');
+  assert.equal(recovered.steps[0].delivered, false, 'the first refresh response was lost');
+  assert.deepEqual([recovered.steps[1].request, recovered.steps[1].response], [recovered.steps[0].request, recovered.steps[0].response], 'recovery repeats the identical response');
+  assert.deepEqual(replay.steps[2].request, replay.steps[0].request, 'replay presents the rotated token again');
+  assert.equal(replay.steps[1].request.headers.authorization, `Bearer ${replay.steps[0].response.body.access_token}`, 'after a successor was used');
+  assert.equal(replay.steps[3].response.body.reason, 'refresh_replay', 'the family ends as refresh_replay');
+  assert.equal(paused.steps[1].request.headers.authorization, `Bearer ${paused.steps[0].response.body.access_token}`, 'the refreshed token is paused at /mcp');
+  assert.equal(revoke.steps[0].request.form.token, token.response.body.refresh_token, 'the client revokes its own refresh token');
+  assert.equal(revoke.steps[1].request.headers.authorization, `Bearer ${token.response.body.access_token}`, 'and its access token stops working');
+
+  const [issued, exchanged, atMcp] = await Promise.all(['bootstrap-code-issued', 'bootstrap-code-exchanged', 'bootstrap-code-at-mcp'].map(load));
+  assert.equal(issued.context.preRegisteredClient.clientId, issued.request.body.clientId, 'the code is issued for the pre-registered client');
+  assert.equal(issued.context.preRegisteredClient.bootstrapCode, true, 'which allows bootstrap codes');
+  assert.equal(exchanged.request.form.bootstrap_code, issued.response.body.bootstrapCode, 'the provider exchanges the issued code');
+  assert.equal(exchanged.response.body.scope, scopeOf(issued.response.body.effectivePermissions), 'for the approved permissions');
+  assert.equal(atMcp.request.headers.authorization, `Bearer ${issued.response.body.bootstrapCode}`, 'the code itself is refused at /mcp');
+
+  const owner = await load('owner-installations-oauth');
+  const [installation] = owner.response.body.installations;
+  assert.deepEqual([installation.connectionRoute, installation.deliveryMode, installation.runtime], [token.context.installation.connectionRoute, token.context.installation.deliveryMode, token.context.installation.runtime], 'the owner sees the installation the exchange created');
+  assert.deepEqual([exchanged.context.installation.connectionRoute, exchanged.context.installation.deliveryMode], ['provider_connector', 'on_demand'], 'a bootstrap exchange creates a provider installation');
+
+  for (const name of ['routes-available-remote-mcp', 'routes-available-provider']) {
+    const fixture = await load(name);
+    const v2 = fixture.flags.ENVOI_AGENT_REGISTRATION_V2 && fixture.flags.ENVOI_INSTALLATIONS_V2;
+    const route = (id) => fixture.response.body.routes.find((entry) => entry.connectionRoute === id).available;
+    const mode = (id) => fixture.response.body.deliveryModes.find((entry) => entry.deliveryMode === id).available;
+    assert.equal(route('remote_mcp_oauth'), v2 && fixture.flags.ENVOI_REMOTE_MCP_OAUTH, `${name}: remote_mcp_oauth`);
+    assert.equal(route('provider_connector'), v2 && fixture.flags.ENVOI_PROVIDER_CONNECTORS, `${name}: provider_connector`);
+    assert.equal(mode('on_demand'), v2 && (fixture.flags.ENVOI_REMOTE_MCP_OAUTH || fixture.flags.ENVOI_PROVIDER_CONNECTORS), `${name}: on_demand`);
+  }
+  const rollback = await load('rollback-flags-off');
+  assert.deepEqual(rollback.steps[2].request, rollback.steps[0].request, 'the same token after re-enabling');
+  assert.deepEqual(rollback.steps[2].response, rollback.steps[0].response, 'works again: nothing was revoked');
+
+  const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
+  const sectionStart = handoff.indexOf('\n## agent-remote-auth v1');
+  const nextSection = handoff.indexOf('\n## ', sectionStart + 1);
+  const section = handoff.slice(sectionStart, nextSection === -1 ? undefined : nextSection);
+  const table = section.slice(section.indexOf('| Group | Fixtures |'), section.indexOf('### 13.'));
+  const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
+  const index = await readJson(path.join(root, 'index.json'));
+  assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'agent-remote-auth').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
 });

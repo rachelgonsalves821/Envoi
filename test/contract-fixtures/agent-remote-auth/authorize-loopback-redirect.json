@@ -1,0 +1,42 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "authorize-loopback-redirect",
+  "description": "A desktop client registered http://127.0.0.1/callback requests it with a port: the port is ignored in the match.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "context": {
+    "clientMetadataDocument": {
+      "client_id": "https://desktop.example.org/envoi/client.json",
+      "client_name": "Example Desktop Assistant",
+      "redirect_uris": [
+        "http://127.0.0.1/callback"
+      ],
+      "token_endpoint_auth_method": "none"
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fdesktop.example.org%2Fenvoi%2Fclient.json&redirect_uri=http%3A%2F%2F127.0.0.1%3A53682%2Fcallback&code_challenge=M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM&code_challenge_method=S256&resource=https%3A%2F%2Fwww.envoi-agents.com%2Fmcp&scope=envoi.agent+envoi.send&state=af0ifjsldkj-example-state",
+    "auth": "none"
+  },
+  "response": {
+    "status": 302,
+    "schema": "emptyBody",
+    "headers": {
+      "location": "https://www.envoi-agents.com/authorize-agent?request=PLACEHOLDER_authorization_request_handle_2",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer"
+    },
+    "bodyText": ""
+  },
+  "client": {
+    "surface": "host",
+    "next": "The consent page shows the loopback warning (§5.1)."
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "consent-view-loopback",
+  "description": "A loopback redirect: the page must warn.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/oauth/authorization-requests/PLACEHOLDER_authorization_request_handle_2",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "consentView",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "client": {
+        "name": "Example Desktop Assistant",
+        "clientIdHost": "desktop.example.org",
+        "redirectHost": "127.0.0.1:53682",
+        "loopbackRedirect": true,
+        "registration": "metadata_document"
+      },
+      "connectionRoute": "remote_mcp_oauth",
+      "requestedPermissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "grantablePermissions": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "expiresAt": "2026-10-21T12:10:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "next": "Warn that any program on this computer could receive the authorization; approve only a connection you just started."
+  }
+}

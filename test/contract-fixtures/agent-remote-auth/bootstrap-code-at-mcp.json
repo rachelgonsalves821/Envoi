@@ -1,0 +1,52 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "bootstrap-code-at-mcp",
+  "description": "A bootstrap code is never a bearer token.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_boot_PLACEHOLDER_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_agent_info",
+        "arguments": {}
+      }
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    },
+    "headers": {
+      "www-authenticate": "Bearer resource_metadata=\"https://www.envoi-agents.com/.well-known/oauth-protected-resource/mcp\", scope=\"envoi.agent envoi.send\", error=\"invalid_token\""
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "refresh_then_retry_once",
+    "guidance": "none",
+    "next": "Exchange the code at the token endpoint from the provider backend."
+  }
+}

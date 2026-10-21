@@ -1,0 +1,1855 @@
+{
+  "$id": "agent-remote-auth/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "agent-remote-auth v1: remote MCP/OAuth and provider-connector authorization (A-3.1b). See handoffs.md#agent-remote-auth-v1.",
+  "x-codes": {
+    "FEATURE_DISABLED": {
+      "status": 404,
+      "when": "§1: no route flag that serves this endpoint is on.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "REGISTRATION_ENDED",
+          "retry": "none",
+          "guidance": "route_unavailable"
+        },
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "route_unavailable"
+        }
+      }
+    },
+    "AUTHORIZATION_REQUEST_INVALID": {
+      "status": 404,
+      "when": "§5.1, §5.2, §8: the handle is malformed, tampered, expired or decided by another human, or the client is not a bootstrap client. Identical in every case.",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "start_again"
+        }
+      }
+    },
+    "INSUFFICIENT_SCOPE": {
+      "status": 403,
+      "when": "§9: the call needs a permission an audience-bound family does not have.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "reauthorize"
+        }
+      }
+    },
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "when": "a3 §2 meaning. Also an audience-bound token on any route other than its resource (§9), and every token issued here while the flags are off (§11).",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "refresh_then_retry_once",
+          "guidance": "none"
+        }
+      }
+    },
+    "ACCESS_TOKEN_EXPIRED": {
+      "status": 401,
+      "when": "a3 meaning, at /mcp.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "refresh_then_retry_once",
+          "guidance": "none"
+        }
+      }
+    },
+    "CREDENTIAL_REVOKED": {
+      "status": 401,
+      "when": "a3 meaning, at /mcp. The identity is not frozen; the owner reconnects it.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "REVOKED",
+          "retry": "none",
+          "guidance": "owner_reconnect",
+          "guidanceByReason": {
+            "revoked": "owner_reconnect",
+            "refresh_replay": "owner_reconnect",
+            "replaced": "owner_reconnect"
+          }
+        }
+      }
+    },
+    "AGENT_PAUSED": {
+      "status": 409,
+      "when": "a3 §3: an HTTP status at /mcp, never a JSON-RPC result.",
+      "bySurface": {
+        "host": {
+          "lifecycle": "PAUSED",
+          "retry": "after_resume",
+          "guidance": "wait_for_resume"
+        }
+      }
+    },
+    "CLAIM_INVALID": {
+      "status": 400,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "fix_claim"
+        }
+      }
+    },
+    "CLAIM_FORBIDDEN": {
+      "status": 403,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "not_permitted"
+        }
+      }
+    },
+    "CLAIM_ALREADY_DECIDED": {
+      "status": 409,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "withdraw_first"
+        }
+      }
+    },
+    "AGENT_NOT_RECONNECTABLE": {
+      "status": 409,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "choose_another_agent"
+        }
+      }
+    },
+    "CLAIM_STALE": {
+      "status": 409,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "reload_claim"
+        }
+      }
+    },
+    "ADDRESS_TAKEN": {
+      "status": 409,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "choose_another_address"
+        }
+      }
+    },
+    "ACTIVE_AGENT_LIMIT": {
+      "status": 409,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "agent_limit"
+        }
+      }
+    },
+    "PENDING_ACTIVATION_LIMIT": {
+      "status": 409,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "withdraw_or_wait"
+        }
+      }
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "after_retry_after",
+          "guidance": "service_busy",
+          "guidanceByReason": {
+            "claim_attempts": "too_many_attempts"
+          }
+        }
+      }
+    },
+    "ACCOUNT_CHANGED": {
+      "status": 409,
+      "when": "agent-registration v1 meaning, owner routes (§5.2).",
+      "bySurface": {
+        "owner_ui": {
+          "lifecycle": "NOT_APPLICABLE",
+          "retry": "none",
+          "guidance": "reload_browser"
+        }
+      }
+    }
+  },
+  "x-oauth-errors": {
+    "invalid_request": {
+      "status": 400,
+      "description": "The request is missing a parameter, repeats one, or has a malformed one.",
+      "endpoints": [
+        "authorization_redirect",
+        "token"
+      ]
+    },
+    "invalid_client": {
+      "status": 401,
+      "description": "Client authentication failed.",
+      "endpoints": [
+        "token",
+        "revoke",
+        "consent_page"
+      ]
+    },
+    "invalid_grant": {
+      "status": 400,
+      "description": "The authorization grant is invalid, expired, already used or revoked.",
+      "endpoints": [
+        "token"
+      ]
+    },
+    "unauthorized_client": {
+      "status": 400,
+      "description": "This client may not use this grant or token.",
+      "endpoints": [
+        "token",
+        "revoke"
+      ]
+    },
+    "unsupported_grant_type": {
+      "status": 400,
+      "description": "The grant type is not supported.",
+      "endpoints": [
+        "token"
+      ]
+    },
+    "unsupported_response_type": {
+      "status": 400,
+      "description": "Only response_type=code is supported.",
+      "endpoints": [
+        "authorization_redirect"
+      ]
+    },
+    "invalid_scope": {
+      "status": 400,
+      "description": "The requested scope is invalid.",
+      "endpoints": [
+        "authorization_redirect",
+        "token"
+      ]
+    },
+    "invalid_target": {
+      "status": 400,
+      "description": "The resource must be this server's MCP endpoint.",
+      "endpoints": [
+        "authorization_redirect",
+        "token"
+      ]
+    },
+    "access_denied": {
+      "status": 400,
+      "description": "The owner denied the request.",
+      "endpoints": [
+        "authorization_redirect"
+      ]
+    },
+    "temporarily_unavailable": {
+      "status": 429,
+      "description": "Too many requests. Retry after the indicated delay.",
+      "endpoints": [
+        "token"
+      ]
+    }
+  },
+  "x-limits": {
+    "authorizationRequestTtlSeconds": 600,
+    "authorizationRequestHandleMaxLength": 2048,
+    "authorizationCodeTtlSeconds": 60,
+    "authorizationCode": {
+      "prefix": "envoi_oauth_code_",
+      "randomBytes": 32,
+      "encoding": "base64url",
+      "storedAs": "SHA-256",
+      "uses": 1
+    },
+    "bootstrapCodeTtlSeconds": 600,
+    "bootstrapCode": {
+      "prefix": "envoi_boot_",
+      "randomBytes": 32,
+      "encoding": "base64url",
+      "storedAs": "SHA-256",
+      "uses": 1
+    },
+    "accessTokenTtlSeconds": {
+      "default": 900,
+      "setting": "ENVOI_AGENT_ACCESS_TOKEN_TTL_SECONDS"
+    },
+    "refreshInactivityDays": {
+      "default": 30,
+      "setting": "ENVOI_AGENT_REFRESH_TOKEN_TTL_DAYS",
+      "rule": "A1: extended on every rotation; never immortal"
+    },
+    "refreshRecoverySeconds": 60,
+    "consentApprovalsPerHumanPerHour": 10,
+    "tokenRequestsPerSourcePerMinute": 60,
+    "codeVerifierLength": {
+      "min": 43,
+      "max": 128,
+      "alphabet": "A-Z a-z 0-9 - . _ ~ (RFC 7636)"
+    },
+    "codeChallengeLength": 43,
+    "stateMaxLength": 512,
+    "clientMetadata": {
+      "urlMaxLength": 2048,
+      "fetchTimeoutSeconds": 5,
+      "maxBodyBytes": 5120,
+      "redirects": "never",
+      "cacheSeconds": {
+        "min": 300,
+        "max": 86400,
+        "noStore": 300
+      },
+      "redirectUrisMax": 10
+    },
+    "metadataCacheControl": "public, max-age=300"
+  },
+  "x-scopes": [
+    {
+      "scope": "envoi.agent",
+      "permission": "receive_agent_messages",
+      "required": true
+    },
+    {
+      "scope": "envoi.send",
+      "permission": "send_agent_messages",
+      "required": false
+    },
+    {
+      "scope": "envoi.files",
+      "permission": "create_assets",
+      "required": false
+    },
+    {
+      "scope": "envoi.cases",
+      "permission": "execute_cases",
+      "required": false
+    }
+  ],
+  "x-challenge-scope": "envoi.agent envoi.send",
+  "x-route-availability": [
+    {
+      "connectionRoute": "remote_mcp_oauth",
+      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2 and ENVOI_REMOTE_MCP_OAUTH"
+    },
+    {
+      "connectionRoute": "provider_connector",
+      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2 and ENVOI_PROVIDER_CONNECTORS"
+    }
+  ],
+  "x-delivery-availability": [
+    {
+      "deliveryMode": "on_demand",
+      "availableWhen": "ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2 and (ENVOI_REMOTE_MCP_OAUTH or ENVOI_PROVIDER_CONNECTORS); declared only by activations through this contract"
+    }
+  ],
+  "x-client-metadata-checks": [
+    "url_too_long",
+    "url_invalid",
+    "scheme_not_https",
+    "userinfo_present",
+    "port_not_allowed",
+    "path_missing",
+    "query_present",
+    "fragment_present",
+    "self_origin",
+    "http_wake_name_rules",
+    "http_wake_address_rules",
+    "fetch_failed",
+    "body_too_large",
+    "not_json",
+    "client_id_mismatch",
+    "client_name_invalid",
+    "redirect_uris_invalid",
+    "auth_method_not_none",
+    "grant_types_invalid",
+    "response_types_invalid"
+  ],
+  "x-redirect-rules": {
+    "https": "https: with a host name (no address literal), no userinfo, no fragment",
+    "loopback": "http: to 127.0.0.1 or [::1], any port, no userinfo, no fragment; localhost is refused",
+    "customSchemes": "refused in v1",
+    "matching": "exact string match against a registered URI; for an http loopback URI the port is ignored"
+  },
+  "x-authorize-checks": [
+    {
+      "check": "route_flag",
+      "onFailure": "FEATURE_DISABLED"
+    },
+    {
+      "check": "single_parameters",
+      "onFailure": "envoi_page:invalid_request"
+    },
+    {
+      "check": "client",
+      "onFailure": "envoi_page:invalid_client"
+    },
+    {
+      "check": "redirect_uri",
+      "onFailure": "envoi_page:invalid_redirect_uri"
+    },
+    {
+      "check": "response_type",
+      "onFailure": "client:unsupported_response_type"
+    },
+    {
+      "check": "code_challenge",
+      "onFailure": "client:invalid_request"
+    },
+    {
+      "check": "code_challenge_method_s256",
+      "onFailure": "client:invalid_request"
+    },
+    {
+      "check": "resource",
+      "onFailure": "client:invalid_target"
+    },
+    {
+      "check": "scope",
+      "onFailure": "client:invalid_scope"
+    },
+    {
+      "check": "state",
+      "onFailure": "client:invalid_request"
+    }
+  ],
+  "x-token-checks": {
+    "authorization_code": [
+      "route_flag",
+      "parameters",
+      "client_authentication",
+      "code_issued_to_client",
+      "code_unused (reuse revokes the installation)",
+      "code_unexpired",
+      "redirect_uri",
+      "pkce_s256",
+      "resource",
+      "registration_rechecks"
+    ],
+    "refresh_token": [
+      "route_flag",
+      "parameters",
+      "client_authentication",
+      "family_of_this_client",
+      "family_live",
+      "current_or_recoverable (otherwise replay revokes the family)",
+      "scope_unchanged",
+      "resource"
+    ],
+    "bootstrap_code": [
+      "route_flag",
+      "parameters",
+      "client_authentication (client_secret_basic only)",
+      "code_issued_to_client",
+      "code_unused (reuse revokes the installation)",
+      "code_unexpired",
+      "resource",
+      "registration_rechecks"
+    ]
+  },
+  "x-consent-display": [
+    "client_name_as_claim",
+    "client_id_host_or_provider",
+    "redirect_host",
+    "loopback_warning",
+    "requested_permissions",
+    "target_choice"
+  ],
+  "x-endpoints": [
+    {
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "method": "GET",
+      "auth": "none",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/.well-known/oauth-protected-resource",
+      "method": "GET",
+      "auth": "none",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/.well-known/oauth-authorization-server",
+      "method": "GET",
+      "auth": "none",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/oauth/authorize",
+      "method": "GET",
+      "auth": "none",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/api/oauth/authorization-requests/{handle}",
+      "method": "GET",
+      "auth": "human_session",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/api/oauth/authorization-requests/{handle}/approve",
+      "method": "POST",
+      "auth": "human_session",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/api/oauth/authorization-requests/{handle}/deny",
+      "method": "POST",
+      "auth": "human_session",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/oauth/token",
+      "method": "POST",
+      "auth": "client",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/oauth/revoke",
+      "method": "POST",
+      "auth": "client",
+      "flags": "either route flag"
+    },
+    {
+      "path": "/api/oauth/bootstrap-codes",
+      "method": "POST",
+      "auth": "human_session",
+      "flags": "ENVOI_PROVIDER_CONNECTORS"
+    }
+  ],
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "UNCHANGED",
+        "PAUSED",
+        "REVOKED",
+        "REGISTRATION_ENDED",
+        "NOT_APPLICABLE",
+        "CONNECTED"
+      ]
+    },
+    "retry": {
+      "enum": [
+        "none",
+        "refresh_then_retry_once",
+        "after_resume",
+        "after_retry_after"
+      ]
+    },
+    "guidance": {
+      "enum": [
+        "none",
+        "route_unavailable",
+        "start_again",
+        "reauthorize",
+        "owner_reconnect",
+        "wait_for_resume",
+        "fix_claim",
+        "withdraw_first",
+        "agent_limit",
+        "service_busy",
+        "claim_forbidden",
+        "agent_not_reconnectable",
+        "claim_stale",
+        "address_taken",
+        "pending_activation_limit",
+        "reload",
+        "too_many_attempts"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "FEATURE_DISABLED",
+        "AUTHORIZATION_REQUEST_INVALID",
+        "INSUFFICIENT_SCOPE",
+        "AUTHENTICATION_REQUIRED",
+        "ACCESS_TOKEN_EXPIRED",
+        "CREDENTIAL_REVOKED",
+        "AGENT_PAUSED",
+        "CLAIM_INVALID",
+        "CLAIM_FORBIDDEN",
+        "CLAIM_ALREADY_DECIDED",
+        "AGENT_NOT_RECONNECTABLE",
+        "CLAIM_STALE",
+        "ADDRESS_TAKEN",
+        "ACTIVE_AGENT_LIMIT",
+        "PENDING_ACTIVATION_LIMIT",
+        "RATE_LIMITED",
+        "ACCOUNT_CHANGED"
+      ]
+    },
+    "permission": {
+      "enum": [
+        "send_agent_messages",
+        "receive_agent_messages",
+        "create_assets",
+        "execute_cases",
+        "use_email_transport"
+      ]
+    },
+    "scopeName": {
+      "enum": [
+        "envoi.agent",
+        "envoi.send",
+        "envoi.files",
+        "envoi.cases"
+      ]
+    },
+    "scopeString": {
+      "type": "string",
+      "pattern": "^envoi\\.agent(?: (?:envoi\\.send|envoi\\.files|envoi\\.cases))*$"
+    },
+    "displayName": {
+      "description": "An agent or workspace name in a response. The server removes control, zero-width and bidi formatting characters, replaces token-like substrings with \"[redacted]\", truncates to 80 characters (79 plus \"…\"), and returns the address local part if nothing is left (§3).",
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {
+          "not": {
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u061C\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+          }
+        }
+      ],
+      "maxLength": 80
+    },
+    "localPart": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 32
+    },
+    "address": {
+      "description": "An agent address in a response. New local parts follow localPart; existing ones may not (§3).",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 254,
+      "pattern": "^[a-z0-9][a-z0-9._-]*@[a-z0-9.-]+$"
+    },
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "workspaceInboxId",
+            "name",
+            "localPart"
+          ],
+          "properties": {
+            "kind": {
+              "const": "new_agent"
+            },
+            "workspaceInboxId": {
+              "type": "string",
+              "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "allOf": [
+                {
+                  "not": {
+                    "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+                  }
+                },
+                {
+                  "not": {
+                    "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u061C\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+                  }
+                }
+              ]
+            },
+            "localPart": {
+              "$ref": "#/definitions/localPart"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "agentId",
+            "replacesInstallationId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "existing_agent"
+            },
+            "agentId": {
+              "type": "string",
+              "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+            },
+            "replacesInstallationId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "approvedAgent": {
+      "type": "object",
+      "required": [
+        "name",
+        "address"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "name": {
+          "$ref": "#/definitions/displayName"
+        },
+        "address": {
+          "$ref": "#/definitions/address"
+        }
+      },
+      "additionalProperties": false
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "not": {
+            "pattern": "envoi_(?:agent_|mcp_read_|reg_|oauth_code_|boot_)"
+          }
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "enum": [
+            "revoked",
+            "refresh_replay",
+            "replaced"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "retryAfterSeconds"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "retryAfterSeconds"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "oauthError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "enum": [
+            "invalid_request",
+            "invalid_client",
+            "invalid_grant",
+            "unauthorized_client",
+            "unsupported_grant_type",
+            "unsupported_response_type",
+            "invalid_scope",
+            "invalid_target",
+            "access_denied",
+            "temporarily_unavailable"
+          ]
+        },
+        "error_description": {
+          "type": "string",
+          "maxLength": 300,
+          "not": {
+            "pattern": "envoi_(?:agent_|oauth_code_|boot_|reg_)"
+          }
+        }
+      }
+    },
+    "emptyBody": {
+      "type": "string",
+      "maxLength": 0
+    },
+    "mcpResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "object"
+        }
+      }
+    },
+    "protectedResourceMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource",
+        "authorization_servers",
+        "scopes_supported",
+        "bearer_methods_supported",
+        "resource_name",
+        "resource_documentation"
+      ],
+      "properties": {
+        "resource": {
+          "type": "string",
+          "pattern": "^https://[^/?#]+/mcp$"
+        },
+        "authorization_servers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^https://[^/?#]+$"
+          }
+        },
+        "scopes_supported": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/scopeName"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "bearer_methods_supported": {
+          "const": [
+            "header"
+          ]
+        },
+        "resource_name": {
+          "const": "Envoi"
+        },
+        "resource_documentation": {
+          "type": "string",
+          "pattern": "^https://[^/?#]+/connect$"
+        }
+      }
+    },
+    "authorizationServerMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issuer",
+        "authorization_endpoint",
+        "token_endpoint",
+        "revocation_endpoint",
+        "response_types_supported",
+        "response_modes_supported",
+        "grant_types_supported",
+        "code_challenge_methods_supported",
+        "token_endpoint_auth_methods_supported",
+        "revocation_endpoint_auth_methods_supported",
+        "scopes_supported",
+        "client_id_metadata_document_supported",
+        "authorization_response_iss_parameter_supported",
+        "service_documentation"
+      ],
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "pattern": "^https://[^/?#]+$"
+        },
+        "authorization_endpoint": {
+          "type": "string",
+          "pattern": "^https://[^/?#]+/oauth/authorize$"
+        },
+        "token_endpoint": {
+          "type": "string",
+          "pattern": "^https://[^/?#]+/oauth/token$"
+        },
+        "revocation_endpoint": {
+          "type": "string",
+          "pattern": "^https://[^/?#]+/oauth/revoke$"
+        },
+        "response_types_supported": {
+          "const": [
+            "code"
+          ]
+        },
+        "response_modes_supported": {
+          "const": [
+            "query"
+          ]
+        },
+        "grant_types_supported": {
+          "oneOf": [
+            {
+              "const": [
+                "authorization_code",
+                "refresh_token"
+              ]
+            },
+            {
+              "const": [
+                "authorization_code",
+                "refresh_token",
+                "urn:envoi:params:oauth:grant-type:bootstrap_code"
+              ]
+            }
+          ]
+        },
+        "code_challenge_methods_supported": {
+          "const": [
+            "S256"
+          ]
+        },
+        "token_endpoint_auth_methods_supported": {
+          "const": [
+            "none",
+            "client_secret_basic"
+          ]
+        },
+        "revocation_endpoint_auth_methods_supported": {
+          "const": [
+            "none",
+            "client_secret_basic"
+          ]
+        },
+        "scopes_supported": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/scopeName"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "client_id_metadata_document_supported": {
+          "type": "boolean"
+        },
+        "authorization_response_iss_parameter_supported": {
+          "const": true
+        },
+        "service_documentation": {
+          "type": "string",
+          "pattern": "^https://[^/?#]+/connect$"
+        }
+      }
+    },
+    "clientMetadataDocument": {
+      "type": "object",
+      "required": [
+        "client_id",
+        "client_name",
+        "redirect_uris"
+      ],
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "pattern": "^https://[^\\s?#]+$",
+          "maxLength": 2048
+        },
+        "client_name": {
+          "description": "An agent or workspace name in a response. The server removes control, zero-width and bidi formatting characters, replaces token-like substrings with \"[redacted]\", truncates to 80 characters (79 plus \"…\"), and returns the address local part if nothing is left (§3).",
+          "type": "string",
+          "minLength": 1,
+          "allOf": [
+            {
+              "not": {
+                "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u061C\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+              }
+            }
+          ],
+          "maxLength": 80
+        },
+        "client_uri": {
+          "type": "string",
+          "pattern": "^https://[^\\s?#]+$",
+          "maxLength": 2048
+        },
+        "logo_uri": {
+          "type": "string",
+          "pattern": "^https://[^\\s?#]+$",
+          "maxLength": 2048
+        },
+        "redirect_uris": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^(?:https://[A-Za-z0-9.-]+(?::\\d{1,5})?(?:/[^\\s#]*)?|http://(?:127\\.0\\.0\\.1|\\[::1\\])(?::\\d{1,5})?(?:/[^\\s#]*)?)$"
+          }
+        },
+        "grant_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "authorization_code",
+              "refresh_token"
+            ]
+          },
+          "contains": {
+            "const": "authorization_code"
+          }
+        },
+        "response_types": {
+          "const": [
+            "code"
+          ]
+        },
+        "token_endpoint_auth_method": {
+          "const": "none"
+        }
+      }
+    },
+    "preRegisteredClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "clientName",
+        "connectionRoute",
+        "redirectUris",
+        "tokenEndpointAuthMethod",
+        "bootstrapCode",
+        "provider"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^client_[a-z0-9-]{3,40}$"
+        },
+        "clientName": {
+          "description": "An agent or workspace name in a response. The server removes control, zero-width and bidi formatting characters, replaces token-like substrings with \"[redacted]\", truncates to 80 characters (79 plus \"…\"), and returns the address local part if nothing is left (§3).",
+          "type": "string",
+          "minLength": 1,
+          "allOf": [
+            {
+              "not": {
+                "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|(?:envoi|sinaloa)_mcp_read_|(?:envoi|sinaloa)_enroll_|envoi_reg_)"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\u061C\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]"
+              }
+            }
+          ],
+          "maxLength": 80
+        },
+        "connectionRoute": {
+          "enum": [
+            "provider_connector",
+            "remote_mcp_oauth"
+          ]
+        },
+        "redirectUris": {
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^(?:https://[A-Za-z0-9.-]+(?::\\d{1,5})?(?:/[^\\s#]*)?|http://(?:127\\.0\\.0\\.1|\\[::1\\])(?::\\d{1,5})?(?:/[^\\s#]*)?)$"
+          }
+        },
+        "tokenEndpointAuthMethod": {
+          "enum": [
+            "none",
+            "client_secret_basic"
+          ]
+        },
+        "clientSecretSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bootstrapCode": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "tokenEndpointAuthMethod": {
+                "const": "client_secret_basic"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "clientSecretSha256"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "clientSecretSha256"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "bootstrapCode": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "tokenEndpointAuthMethod": {
+                "const": "client_secret_basic"
+              },
+              "connectionRoute": {
+                "const": "provider_connector"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "bootstrapCode": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "redirectUris": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "consentView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client",
+        "connectionRoute",
+        "requestedPermissions",
+        "grantablePermissions",
+        "expiresAt"
+      ],
+      "properties": {
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "clientIdHost",
+            "redirectHost",
+            "loopbackRedirect",
+            "registration"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/definitions/displayName"
+            },
+            "clientIdHost": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-z0-9.-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "redirectHost": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9.-]+|127\\.0\\.0\\.1|\\[::1\\])(?::\\d{1,5})?$"
+            },
+            "loopbackRedirect": {
+              "type": "boolean"
+            },
+            "registration": {
+              "enum": [
+                "metadata_document",
+                "pre_registered"
+              ]
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "registration": {
+                    "const": "pre_registered"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "provider"
+                ],
+                "properties": {
+                  "clientIdHost": {
+                    "type": "null"
+                  }
+                }
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "provider"
+                  ]
+                },
+                "properties": {
+                  "clientIdHost": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "connectionRoute": {
+          "enum": [
+            "remote_mcp_oauth",
+            "provider_connector"
+          ]
+        },
+        "requestedPermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "contains": {
+            "const": "receive_agent_messages"
+          }
+        },
+        "grantablePermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "contains": {
+            "const": "receive_agent_messages"
+          }
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      }
+    },
+    "consentApproveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "grantedPermissions",
+        "policyProfile"
+      ],
+      "properties": {
+        "target": {
+          "$ref": "#/definitions/target"
+        },
+        "grantedPermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true
+        },
+        "policyProfile": {
+          "const": "default"
+        }
+      }
+    },
+    "consentApproved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "redirectTo",
+        "registrationId",
+        "target",
+        "workspaceName",
+        "agent",
+        "effectivePermissions",
+        "policyProfile",
+        "codeExpiresAt"
+      ],
+      "properties": {
+        "redirectTo": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^(?:https://[A-Za-z0-9.-]+(?::\\d{1,5})?(?:/[^\\s#]*)?|http://(?:127\\.0\\.0\\.1|\\[::1\\])(?::\\d{1,5})?(?:/[^\\s#]*)?)$"
+        },
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "target": {
+          "enum": [
+            "new_agent",
+            "existing_agent"
+          ]
+        },
+        "workspaceName": {
+          "$ref": "#/definitions/displayName"
+        },
+        "agent": {
+          "$ref": "#/definitions/approvedAgent"
+        },
+        "effectivePermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "contains": {
+            "const": "receive_agent_messages"
+          }
+        },
+        "policyProfile": {
+          "const": "default"
+        },
+        "codeExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      }
+    },
+    "consentDenied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "redirectTo"
+      ],
+      "properties": {
+        "redirectTo": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^(?:https://[A-Za-z0-9.-]+(?::\\d{1,5})?(?:/[^\\s#]*)?|http://(?:127\\.0\\.0\\.1|\\[::1\\])(?::\\d{1,5})?(?:/[^\\s#]*)?)$"
+        }
+      }
+    },
+    "tokenResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "access_token",
+        "token_type",
+        "expires_in",
+        "refresh_token",
+        "scope"
+      ],
+      "properties": {
+        "access_token": {
+          "type": "string",
+          "pattern": "^envoi_agent_access_[A-Za-z0-9_-]{1,86}$"
+        },
+        "token_type": {
+          "const": "Bearer"
+        },
+        "expires_in": {
+          "type": "integer",
+          "minimum": 60
+        },
+        "refresh_token": {
+          "type": "string",
+          "pattern": "^envoi_agent_refresh_[A-Za-z0-9_-]{1,86}$"
+        },
+        "scope": {
+          "$ref": "#/definitions/scopeString"
+        }
+      }
+    },
+    "bootstrapCodeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "target",
+        "grantedPermissions",
+        "policyProfile"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^client_[a-z0-9-]{3,40}$"
+        },
+        "target": {
+          "$ref": "#/definitions/target"
+        },
+        "grantedPermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true
+        },
+        "policyProfile": {
+          "const": "default"
+        }
+      }
+    },
+    "bootstrapCodeIssued": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bootstrapCode",
+        "expiresAt",
+        "registrationId",
+        "clientName",
+        "provider",
+        "target",
+        "workspaceName",
+        "agent",
+        "effectivePermissions",
+        "policyProfile"
+      ],
+      "properties": {
+        "bootstrapCode": {
+          "type": "string",
+          "pattern": "^envoi_boot_[A-Za-z0-9_-]{1,86}$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "clientName": {
+          "$ref": "#/definitions/displayName"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "target": {
+          "enum": [
+            "new_agent",
+            "existing_agent"
+          ]
+        },
+        "workspaceName": {
+          "$ref": "#/definitions/displayName"
+        },
+        "agent": {
+          "$ref": "#/definitions/approvedAgent"
+        },
+        "effectivePermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "contains": {
+            "const": "receive_agent_messages"
+          }
+        },
+        "policyProfile": {
+          "const": "default"
+        }
+      }
+    },
+    "fixtureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "path",
+        "auth"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "auth": {
+          "enum": [
+            "none",
+            "human_session",
+            "bearer",
+            "public_client",
+            "client_basic"
+          ]
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "form": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "schema": {
+          "type": "string"
+        },
+        "body": {}
+      }
+    },
+    "fixtureResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "schema"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "body": {},
+        "bodyText": {
+          "type": "string"
+        }
+      }
+    },
+    "fixtureClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "next"
+      ],
+      "properties": {
+        "surface": {
+          "enum": [
+            "host",
+            "owner_ui",
+            "provider_backend"
+          ]
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/lifecycle"
+        },
+        "retry": {
+          "$ref": "#/definitions/retry"
+        },
+        "guidance": {
+          "$ref": "#/definitions/guidance"
+        },
+        "next": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fixtureFlags": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ENVOI_AGENT_REGISTRATION_V2": {
+          "type": "boolean"
+        },
+        "ENVOI_INSTALLATIONS_V2": {
+          "type": "boolean"
+        },
+        "ENVOI_REMOTE_MCP_OAUTH": {
+          "type": "boolean"
+        },
+        "ENVOI_PROVIDER_CONNECTORS": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fixtureContext": {
+      "type": "object"
+    },
+    "fixtureStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "response"
+      ],
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "delivered": {
+          "type": "boolean"
+        },
+        "flags": {
+          "$ref": "#/definitions/fixtureFlags"
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind"
+      ],
+      "properties": {
+        "contract": {
+          "const": "agent-remote-auth"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "sequence",
+            "rollback"
+          ]
+        },
+        "flags": {
+          "$ref": "#/definitions/fixtureFlags"
+        },
+        "context": {
+          "$ref": "#/definitions/fixtureContext"
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/definitions/fixtureStep"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response",
+              "client"
+            ],
+            "not": {
+              "required": [
+                "steps"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "sequence",
+                  "rollback"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "steps"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                },
+                {
+                  "required": [
+                    "client"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "rollback"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "flags"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
