@@ -4083,7 +4083,7 @@ PR #144 review corrections preserve provider-browser-poll v1's public payloads: 
 
 ## agent-remote-auth v1
 
-**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** draft, not yet published. `index.json` lists it as `published` only because the registry has no draft state; it is published when Lane A posts `CONTRACT-PUBLISHED` on board #34. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
+**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** published, awaiting Lane B's `CONTRACT-ACK`. Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
 
 **Fixtures:** [`test/contract-fixtures/agent-remote-auth/`](../../../test/contract-fixtures/agent-remote-auth/). It holds:
 - `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-oauth-errors`, `x-limits`, `x-scopes`, `x-route-availability`, `x-delivery-availability`, `x-client-metadata-checks`, `x-redirect-rules`, `x-authorize-checks`, `x-token-checks`, `x-consent-display` and `x-endpoints`;
