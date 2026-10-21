@@ -26,7 +26,7 @@
         "agentId": "agent_example",
         "inboxId": "inbox_example",
         "createdAt": "2026-10-22T12:00:20.000Z",
-        "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+        "refreshExpiresAt": "2026-11-21T12:14:30.000Z",
         "revokedAt": null,
         "installationId": "installation_remote_example",
         "audience": "https://www.envoi-agents.com/mcp",
@@ -80,7 +80,7 @@
         "inboxId": "inbox_example",
         "familyId": "credential_family_remote-example",
         "issuedAt": "2026-10-22T12:14:30.000Z",
-        "expiresAt": "2026-11-21T12:00:20.000Z",
+        "expiresAt": "2026-11-21T12:14:30.000Z",
         "revokedAt": null,
         "usedAt": null
       }
@@ -148,6 +148,6 @@
   ],
   "client": {
     "surface": "server",
-    "next": "The same client presenting the old refresh token before expiresAt, while both successors are unused, gets the identical response decrypted from the envelope. The first use of a successor deletes the envelope; any later use of the old token is replay."
+    "next": "The same client presenting the old refresh token before expiresAt, while both successors are unused, gets the identical response decrypted from the envelope. Once either successor is used (checked under the family lock), or after expiresAt, any use of the old token is replay; the reaper deletes the envelope."
   }
 }
