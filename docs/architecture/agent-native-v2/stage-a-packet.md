@@ -13,7 +13,7 @@ Nothing in this packet authorizes a deploy, a flag or secret change, a model cal
 | § | Section | Owner | Status | Blocked on |
 | --- | --- | --- | --- | --- |
 | 1 | Final candidate and inclusion list | Lane A, with Lane B for the client | **Open** | Lane B's client inclusion answer (§1.3) |
-| 2 | Staging baseline and paired rollback | Je (read-only facts), Lane A (write-up) | **Open** | Je's Cloudflare read-only output (§2.2) |
+| 2 | Staging baseline and paired rollback | Rachel (read-only facts, her account), Lane A (write-up) | **Open** | Rachel's Cloudflare read-only output (§2.2) |
 | 3 | Flags, settings and network scope, wake ON | Lane A, Je for key custody | **Open** | §2 facts; key custody decision (§3.3) |
 | 4 | Wake receiver and host handoff | Lane B (receiver), Je (hosting), Lane A (server side) | **Open** | Receiver hosting decision (§4.1) |
 | 5 | Bounded hosted test batch | Lane A drafts, Lane B reviews the client rows | **Open** | §1, §4 |
@@ -66,9 +66,11 @@ The image is not byte-identical to one built at `e8a958f`: the Dockerfile copies
 - **URL on record:** `https://sinaloa-staging.rachelgonsalves821.workers.dev` (2026-09-29). Still to be confirmed current.
 - **No database rollback:** Phase C adds no SQL migration (runbook §6).
 
-### 2.2 Read-only facts Je collects
+### 2.2 Read-only facts Rachel collects
 
-Run these from a clean checkout of `25c6637`, signed in to the Cloudflare account that owns staging. They only read; none of them deploys or changes anything. Check each command's flags with `--help` on the installed Wrangler first. Paste the output, without any secret value.
+Staging runs in the release account `54a5d6c680bd813fa60f8e088b098b8d` (`RELEASE_ACCOUNT_ID` in `scripts/promote-release.mjs`), Worker `sinaloa-staging`. Je has no access to it: his Wrangler login is his own account, and `deployments list --env staging` returns `10007 This Worker does not exist on your account`. So Rachel runs these ([request 6319964774](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6319964774)). Whether Je gets read-only access for the run itself is open (§2.3).
+
+Run these from a clean checkout of `25c6637`, signed in to that account. They only read; none of them deploys or changes anything. Check each command's flags with `--help` on the installed Wrangler first. Paste the output, without any secret value.
 
 | Fact | Command | Records |
 | --- | --- | --- |
@@ -87,6 +89,7 @@ Also needed from Je or Rachel, not from these commands:
 ### 2.3 Rollback plan (filled in from §2.2)
 
 - **Rollback pair:** Worker version **TO CONFIRM**, image **TO CONFIRM**, settings (flag values and secret names) **TO CONFIRM**.
+- **Who operates staging during the run:** Rachel, or Je with read-only access to the release account. **TO DECIDE.** The preflight (runbook §5) records the Worker version and image at every step, so whoever runs it needs that read access.
 - **Rollback by flag** first: flags off in reverse order in one settings-only version, wait for the restart, run the preflight.
 - **Rollback by code** if needed: flags off, restore the pair, confirm `/health` shows the previous SHA, and follow `docs/deployment.md` "Phase B agent-registration code rollback" if the target predates A-4.x.
 - **Stop conditions:** runbook §5 preflight failures and §7 freeze rules.
