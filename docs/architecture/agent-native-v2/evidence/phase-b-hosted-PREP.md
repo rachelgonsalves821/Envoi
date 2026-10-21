@@ -1,0 +1,85 @@
+# Phase B hosted onboarding: execution record (prepare before live run)
+
+**Status:** PREPARED, NOT RUN. This record is for the first hosted Hermes/OpenClaw helper gate. It does not grant authority to deploy, change flags, enroll an agent, send work, call a model, fault a service, or revoke an installation. Fill the release and operation fields, obtain the existing separate rollout and bounded-test approvals, then copy this file to `phase-b-hosted-<40-character-sha>.md` for the run.
+
+The local 21/21 gate at `e8a958f` is prior evidence only. Hosted Phase B requires a fresh user journey on the exact served release and installed artifacts. Run this before dependent Phase C C01–C24 rows. Keep Phase C wake C19–C21 on in the first hosted batch as already selected, but record those results in the Phase C packet rather than silently counting them as Phase B onboarding.
+
+## 1. Immutable release and staging baseline
+
+| Field | Required value / evidence | Current state |
+| --- | --- | --- |
+| Candidate source | Full 40-character SHA, clean worktree, exact-head CI and integrated CI URLs | Proposed `25c66372dc16f399cc5b213368246ebba9d65fd1`; final selection open |
+| Staging Worker | Account, Worker name, current version ID, current `/health` release SHA, `/ready`, and routes response | Account `54a5d6c6…`, Worker `sinaloa-staging`; current version and responses unknown |
+| Staging container | Current image digest/reference paired with the current Worker version | Unknown |
+| Staging storage | Sanitized database/storage identity, separation from beta, backup and restore status | Unknown |
+| Rollback | Previous Worker version **and** image, settings/flag values, verified paired restore procedure, rehearsal result, operator | Unknown |
+| Served artifacts | SHA-256 of `/connect/SKILL.md`, helper, connector and OpenClaw download as fetched from staging | Not yet checked against staging |
+| Installed artifacts | SHA-256 of the exact local files installed in Hermes/OpenClaw profiles | Not yet installed |
+| Receiver | HTTPS host/URL/TLS operator, route to each runtime, durable private store, restart procedure | Undecided; see Stage A packet #172 §4 |
+
+Collect the read-only staging facts with the commands in Stage A packet #172 §2.2 on the release account. Record only secret **names**, never values. The command operator must check their Wrangler version's help first. An inaccessible account or an unmatched Worker/image pair is a stop, not an inferred pass.
+
+## 2. Bounded test authorization fields
+
+Complete every cell before the live batch; the two approvals distinguish rollout from test traffic.
+
+| Field | Value |
+| --- | --- |
+| Rollout approval: candidate, flag sequence, key custody and paired rollback | PENDING |
+| Test approval: exact rows, operations, identities, model budget and cleanup | PENDING |
+| Staging operator and read access for evidence collector | TO DECIDE |
+| UTC window, maximum duration and hard stop time | TO DECIDE |
+| Two disposable owner identities and workspace IDs (private reference only) | TO DECIDE |
+| Hermes version/OS and model provider/model | TO DECIDE |
+| OpenClaw version/OS and model provider/model | TO DECIDE |
+| Maximum model calls, tokens and total cost | TO DECIDE |
+| Maximum approved sends, faults, restarts, pauses, revokes | TO DECIDE |
+| Evidence custodian and sanitized retention location | TO DECIDE |
+| Cleanup operator and deadline | TO DECIDE |
+
+The test plan must enumerate each planned send and intervention by row and target. Do not start with a generic approval to 'run the gate'. Keep test message bodies, codes, tokens, cookies, activation IDs and raw HTTP out of this record.
+
+## 3. Hosted onboarding rows
+
+Use the local [21-row template](phase-b-local-TEMPLATE.md) as the exact behavioral source. Record server event IDs/sequences, owner view, and host observation for every applicable row. A row passes only when the three views agree.
+
+| Group | Required hosted observation | Server/owner evidence | Host evidence | Result |
+| --- | --- | --- | --- | --- |
+| H01–H10 Hermes | Fresh profile; `/connect` and served skill; `envoi-link connect`; private registration; claim URL/code only in chat; owner claim and permission approval; private activation; authenticated connection; one native work item | PENDING | PENDING | NOT RUN |
+| O01–O10 OpenClaw | Same fresh journey and observations on OpenClaw | PENDING | PENDING | NOT RUN |
+| X11–X12 exchange | Approved Hermes send; one OpenClaw reply; canonical receipts | PENDING | PENDING | NOT RUN |
+| R13–R15 recovery | Stop OpenClaw, approve one item while offline, restart with same private state and credential family, process once | PENDING | PENDING | NOT RUN |
+| V16–V17 revoke | Revoke the installation; reject late claim, refresh, send and processing; no automatic reenrollment | PENDING | PENDING | NOT RUN |
+| N18–N19 reconnect | Human-approved new installation for the **same** agent ID and address; prior history retained | PENDING | PENDING | NOT RUN |
+| U20 owner agreement | Revoked and active installation states match server, owner UI and host | PENDING | PENDING | NOT RUN |
+
+Also record two hosted-specific checks:
+
+1. **No source checkout or secret pasting:** the operator gives a fresh agent only the public `/connect` starting point. Record every operator assist. If the agent cannot fetch the public skill unaided, mark the deviation and determine whether the advertised flow still holds.
+2. **Artifact agreement:** compare served skill/download SHA-256 with the candidate manifest and the installed bytes. A mismatch stops the batch until a new exact release is selected and the whole applicable gate is reassessed.
+
+## 4. Phase C dependency and wake boundary
+
+Once Phase B hosted onboarding passes, transfer the two installation IDs and exact release identities (without credentials) to the Stage A Phase C record. The wake-on C19–C21 batch must show: signed raw-byte callback, authenticated canonical fetch, intended runtime claiming scoped work, and one canonical effect. Include missed callback, duplicate callback, restart, pause and revoke. A callback ACK alone does not pass. Do not claim automatic closed-app reachability for a host whose agent process is stopped.
+
+## 5. Stop and cleanup
+
+Stop immediately for failed `/health` or `/ready`; release/artifact mismatch; unexpected flag or route; staging/beta storage overlap; rollback pair not verified; TLS/signature failure; cross-tenant or wrong-agent effect; exposed secret in transcript/log; unbudgeted model or network cost; unauthorized send or lifecycle action; or a row needing a different candidate. Freeze writes, retain sanitized evidence, and use the approved rollback procedure. Every failure opens a fix and a fresh full applicable gate on one new exact candidate.
+
+At the approved end, stop the receiver, end subscriptions/sessions, revoke disposable installations, and preserve sanitized server/owner/host evidence with UTC timestamps. Mark cleanup results explicitly; do not delete raw private evidence before its approved retention point.
+
+## 6. Result and countersign
+
+| Field | Value |
+| --- | --- |
+| Exact release, Worker version and image | NOT RUN |
+| Served/installed artifact agreement | NOT RUN |
+| Hosted template rows | 0/21 passed; no rows run |
+| Per-host observations | Hermes 0/10 run; OpenClaw 0/10 run |
+| Shared observations 11–20 | 0/10 run |
+| Deviations and defects | None observed; test not run |
+| Server, owner and host evidence links | NOT RUN |
+| Phase B hosted result and independent review | PENDING |
+| Human countersign for this exact release | PENDING |
+
+Passing this record closes hosted helper onboarding for the two tested products and versions only. Other route and named-host breadth remains a separate Phase B milestone.
