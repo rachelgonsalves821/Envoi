@@ -6,6 +6,7 @@ import { xaiTurn } from '../agent-bridges/providers';
 import { scopedTurnHandler } from '../agent-bridges/scoped-turn';
 import { xaiScopedTurn } from './scoped-turn';
 import { FileScopedRunStore } from './scoped-store';
+import { validateEnvoiMcpDestination } from './mcp-origin';
 
 export interface GrokBridgeConfiguration {
   apiUrl: string;
@@ -46,6 +47,7 @@ export async function createGrokBridge(config: GrokBridgeConfiguration,
   let connector: EnvoiConnector;
   const approvedAssets = await loadAssetManifest(config.assetManifestPath ?? env.ENVOI_ASSET_MANIFEST_PATH);
   const mcpUrl = config.mcpUrl ?? env.ENVOI_MCP_URL;
+  if (mcpUrl) validateEnvoiMcpDestination(config.apiUrl, mcpUrl, !options.fetch);
   const turn = xaiTurn({
     apiKey: config.apiKey, model: config.model,
     ...(options.fetch ? { fetch: options.fetch } : {}),

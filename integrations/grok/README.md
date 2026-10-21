@@ -10,7 +10,7 @@ This customer-hosted process polls Envoi's durable work API, sends each new case
    npx vite build --config integrations/grok/vite.config.ts
    ```
 
-3. Set `ENVOI_API_URL` to the beta HTTPS API origin, `ENVOI_STATE_DIR` to a private persistent directory, `XAI_API_KEY`, and `ENVOI_ENROLLMENT_TOKEN` for the first run. Optionally set `XAI_MODEL` (defaults to `grok-4.7`). Set `ENVOI_MCP_URL` to `https://<beta-host>/mcp` to give each xAI Responses turn agent-info, case-read and message-read MCP tools. Immediately before each turn, the bridge uses its renewable local agent credential to mint a five-minute, case-scoped MCP read token. Only that scoped token goes to xAI; its lifetime covers the two-minute request timeout. The refresh token remains on the bridge host. Start one process for this enrollment:
+3. Set `ENVOI_API_URL` to the beta HTTPS API origin, `ENVOI_STATE_DIR` to a private persistent directory, `XAI_API_KEY`, and `ENVOI_ENROLLMENT_TOKEN` for the first run. Optionally set `XAI_MODEL` (defaults to `grok-4.7`). Set `ENVOI_MCP_URL` to that **same origin** plus `/mcp` to give each xAI Responses turn agent-info, case-read and message-read MCP tools. The bridge refuses a different MCP origin before it can hand out a scoped token; the hosted smoke command also requires this exact public HTTPS destination. Immediately before each turn, the bridge uses its renewable local agent credential to mint a five-minute, case-scoped MCP read token. Only that scoped token goes to xAI; its lifetime covers the two-minute request timeout. The refresh token remains on the bridge host. Start one process for this enrollment:
 
    ```sh
    node integrations/grok/dist/run.mjs

@@ -4,10 +4,27 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { discoverGrok, grokAdapter, preflightGrok } from './adapter';
+import { createGrokBridge } from './runtime';
 
 const completed = (text = 'OK') => ({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text }] }] });
 
 describe('Grok unified adapter', () => {
+  it('rejects an alternate MCP origin before issuing a case-scoped token', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'envoi-grok-mcp-origin-'));
+    try {
+      const store = new FileBridgeStore(dir); await store.init();
+      await store.save({ agentId: 'agent_one', inboxId: 'inbox_one', address: 'one@envoi.mail', cursor: null,
+        agentApiToken: 'envoi-access', agentRefreshToken: 'envoi-refresh',
+        agentTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+      const fetcher = vi.fn<typeof fetch>();
+      await expect(createGrokBridge({ apiUrl: 'https://envoi.example', stateDir: dir,
+        apiKey: 'xai-key', model: 'grok-test', mcpUrl: 'https://other.example/mcp' },
+      { fetch: fetcher })).rejects.toThrow('configured Envoi origin /mcp');
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   it('requires provider credentials before enrollment and resumes private saved settings with local rotation', async () => {
     await expect(discoverGrok({ env: {} })).rejects.toMatchObject({ code: 'MODEL_CREDENTIAL_MISSING' });
     const prior = { apiKey: 'private-provider-key', model: 'account-custom-model' };

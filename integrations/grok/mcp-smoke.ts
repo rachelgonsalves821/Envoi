@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { EnvoiConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
+import { validateEnvoiMcpDestination } from './mcp-origin';
 
 export interface XaiMcpProbeOptions {
   apiKey: string;
@@ -91,6 +92,7 @@ async function main() {
   if (!apiUrl || !stateDir || !apiKey || !mcpUrl) {
     throw new Error('ENVOI_API_URL, ENVOI_STATE_DIR, XAI_API_KEY and ENVOI_MCP_URL are required');
   }
+  validateEnvoiMcpDestination(apiUrl, mcpUrl);
   const store = new FileBridgeStore(stateDir);
   await store.init();
   const connector = new EnvoiConnector(apiUrl, store);
