@@ -261,48 +261,7 @@
       },
       "client": {
         "surface": "owner_ui",
-        "next": "The installation stays active and listed while the flags are off."
-      }
-    },
-    {
-      "request": {
-        "method": "POST",
-        "path": "/api/inboxes/inbox_example/agents/agent_example/installations/installation_remote_example/revoke",
-        "auth": "human_session",
-        "headers": {
-          "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
-          "x-envoi-csrf": "PLACEHOLDER_csrf",
-          "origin": "https://www.envoi-agents.com"
-        }
-      },
-      "response": {
-        "status": 200,
-        "schema": "installationRevoked",
-        "headers": {
-          "cache-control": "no-store"
-        },
-        "body": {
-          "installation": {
-            "id": "installation_remote_example",
-            "agentId": "agent_example",
-            "connectionRoute": "remote_mcp_oauth",
-            "deliveryMode": "on_demand",
-            "runtime": {
-              "type": "remote_mcp",
-              "version": null
-            },
-            "status": "ended",
-            "endedReason": "revoked",
-            "legacy": false,
-            "createdAt": "2026-10-22T12:00:20.000Z",
-            "activatedAt": "2026-10-22T12:00:20.000Z",
-            "endedAt": "2026-10-22T13:00:00.000Z"
-          }
-        }
-      },
-      "client": {
-        "surface": "owner_ui",
-        "next": "The owner revoke works on OAuth installations with the flags off."
+        "next": "The installation stays active and listed while the flags are off, and it offers Revoke installation: the owner revoke (owner-installation-revoke) does not depend on the route flags."
       }
     }
   ],
