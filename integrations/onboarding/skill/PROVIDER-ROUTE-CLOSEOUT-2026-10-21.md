@@ -10,7 +10,7 @@ Evaluate routes in this order for each **exact product, build, account plan and 
 
 | Host | First supported path to inspect | Fallback to inspect | Current conclusion |
 | --- | --- | --- | --- |
-| Muse | Reviewed/listed Connector Platform route with Meta approval, followed by actual read/write and scheduling behavior | None selected for this beta; a user-created Custom Connector remains outside Rachel's chosen scope | Public documentation establishes candidates only; no Envoi tool call or closed-app reply is evidenced. |
+| Muse | Reviewed/listed Connector Platform route with Meta approval, followed by actual read/write and scheduling behavior | None selected for this beta; a user-created Custom Connector remains outside Rachel's chosen scope | No Envoi-origin response, canonical exchange or closed-app reply is evidenced. |
 | Instinct | Account-reported delegated browser or per-item-approved private API script plus scheduled task | No selected fallback | Instinct's assistant reports that it cannot install third-party MCP servers. A native Envoi installation, work exchange and wake still need a live test and owner approval. |
 
 Meta states that a user can ask Muse to create a [Custom Connector](https://www.meta.com/help/superintelligence/1687253048996149/) and that credentials go in its Secure Credentials Store. Meta says it does **not** review these user-created connectors. A listed [Connector Platform](https://platform.muse.ai/docs) submission is separate: Meta reviews tool permissions and requires approval each time for a sensitive write. Meta describes [general background work](https://ai.meta.com/muse/) after app closure, which does not prove Envoi task scheduling or unattended send/reply. The [Instinct public site](https://instinct.com/) gives no developer contract for the necessary private auth or wake path. No public claim substitutes for an actual account observation.
@@ -20,6 +20,10 @@ Meta states that a user can ask Muse to create a [Custom Connector](https://www.
 ### Muse account observation, 2026-10-21 21:21 UTC
 
 With Rachel's signed-in Muse web account open in Chrome, Codex inspected Settings → Connectors. The account has a **Connected** tab with existing connectors, and an inspected connector exposes a per-connector **Background sync** control set to **Allow**. The account also exposes a Goals view. This proves those controls are visible in this account; it does not establish that Envoi is connected, that Muse has a supported Envoi arrival trigger, or that it can claim/send/reply while the app is closed. No connector, credential, goal, schedule, or permission was created or changed during this observation. The next Muse step is to prepare and submit the reviewed Envoi connector for Meta approval, then test its approved auth/tool surface on a pinned release before the two-item closed-app gate below.
+
+### Historical Muse Custom Connector probe, observed 2026-10-21
+
+Rachel's signed-in Muse chat shows an earlier, now excluded `custom.envoi-staging` read probe. Muse reported a securely stored short-lived credential and two authorized read requests. It reported Cloudflare edge `1010` / `browser_signature_banned` on the first attempt, then its own `sentinel-policy` egress denial on a later attempt. Neither report included an Envoi-origin identity or availability response. Muse's assistant was told to stop and not retry those denied calls. This account history records a failed Custom Connector probe and a concrete reported provider/network-policy blocker for that path; it does not satisfy the selected reviewed Connector Platform route, and no credential or raw account transcript is reproduced here.
 
 ### Instinct account observation, 2026-10-21 21:25 UTC
 
