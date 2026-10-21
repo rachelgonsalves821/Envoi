@@ -301,48 +301,7 @@
       },
       "client": {
         "surface": "owner_ui",
-        "next": "The older server lists the installation from the same documents."
-      }
-    },
-    {
-      "request": {
-        "method": "POST",
-        "path": "/api/inboxes/inbox_example/agents/agent_example/installations/installation_remote_example/revoke",
-        "auth": "human_session",
-        "headers": {
-          "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
-          "x-envoi-csrf": "PLACEHOLDER_csrf",
-          "origin": "https://www.envoi-agents.com"
-        }
-      },
-      "response": {
-        "status": 200,
-        "schema": "installationRevoked",
-        "headers": {
-          "cache-control": "no-store"
-        },
-        "body": {
-          "installation": {
-            "id": "installation_remote_example",
-            "agentId": "agent_example",
-            "connectionRoute": "remote_mcp_oauth",
-            "deliveryMode": "on_demand",
-            "runtime": {
-              "type": "remote_mcp",
-              "version": null
-            },
-            "status": "ended",
-            "endedReason": "revoked",
-            "legacy": false,
-            "createdAt": "2026-10-22T12:00:20.000Z",
-            "activatedAt": "2026-10-22T12:00:20.000Z",
-            "endedAt": "2026-10-22T13:30:00.000Z"
-          }
-        }
-      },
-      "client": {
-        "surface": "owner_ui",
-        "next": "The owner can revoke it on the older server."
+        "next": "The older server lists the installation from the same documents, with Revoke installation: its owner revoke revokes the family whatever the route."
       }
     }
   ],

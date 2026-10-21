@@ -1933,8 +1933,8 @@ The agreement test checks that `x-stored-records` names every new path, that bot
 | `stored-provider-installation` | A bootstrap code and its exchange: no handle, redirect, challenge or consent decision. |
 | `stored-oauth-refresh-recovery` | 30 s after a rotation: the used old record, unused successors, and the envelope. |
 | `stored-oauth-replaced-by-local-helper` | A local-helper reconnect replaces the OAuth family. The old family keeps its fields; the new one has none. |
-| `stored-oauth-flags-off` | Flags off: tokens refused at `/mcp` and on REST, installation listed, owner revoke works. |
-| `stored-oauth-source-rollback` | An older server over the same records: tokens refused everywhere, the approval and the installation listed, owner revoke works. |
+| `stored-oauth-flags-off` | Flags off: tokens refused at `/mcp` and on REST, installation listed and active, so the owner can revoke it. |
+| `stored-oauth-source-rollback` | An older server over the same records: tokens refused everywhere, the approval and the installation listed. The installation is active, so the owner can revoke it. |
 
 #### 14.9 Decisions for review
 

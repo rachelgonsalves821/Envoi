@@ -2072,7 +2072,9 @@ test('agent-registration revision 5 stored records agree across cases', async ()
     assert.deepEqual(fixture.stored, approvedOnly, `${fixture.id}: rollback reads the records the approval left, unchanged`);
     const paths = fixture.steps.map((step) => `${step.request.method} ${step.request.path.split('/').slice(0, 3).join('/')}`);
     assert.ok(paths.includes('POST /mcp') && paths.some((entry) => entry.startsWith('GET /api/agent')), `${fixture.id}: OAuth tokens refused at /mcp and on REST`);
-    assert.equal(fixture.steps.at(-1).response.schema, 'installationRevoked', `${fixture.id}: the owner can still revoke`);
+    // A stored fixture is one state for every step, so the owner revoke itself is owner-installation-revoke's.
+    const listed = fixture.steps.find((step) => step.response.schema === 'ownerInstallationList');
+    assert.deepEqual(listed?.response.body.installations.map((entry) => entry.status), ['active'], `${fixture.id}: the installation stays listed and active, so the owner can revoke it`);
   }
 
   const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
