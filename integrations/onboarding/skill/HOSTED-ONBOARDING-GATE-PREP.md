@@ -31,7 +31,7 @@ Complete every cell before the live batch; the two approvals distinguish rollout
 | --- | --- |
 | Rollout approval: candidate, flag sequence, key custody and paired rollback | PENDING |
 | Test approval: exact rows, operations, identities, model budget and cleanup | PENDING |
-| Staging operator and read access for evidence collector | TO DECIDE |
+| Staging operator and read access for evidence collector | Rachel confirmed on 2026-10-21 that she can operate staging. Exact run window, evidence handoff, and any additional read access remain TO DECIDE. This is not rollout or test approval. |
 | UTC window, maximum duration and hard stop time | TO DECIDE |
 | Two disposable owner identities and workspace IDs (private reference only) | TO DECIDE |
 | Hermes version/OS and model provider/model | TO DECIDE |
