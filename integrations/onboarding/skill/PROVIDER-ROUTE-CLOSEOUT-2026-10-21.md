@@ -11,7 +11,7 @@ Evaluate routes in this order for each **exact product, build, account plan and 
 | Host | First supported path to inspect | Fallback to inspect | Current conclusion |
 | --- | --- | --- | --- |
 | Muse | User-created Custom Connector and its Secure Credentials Store, followed by actual read/write and scheduling behavior | Reviewed/listed Connector Platform route; private browser gateway if an account-visible host task can keep its own delegated session | Public documentation establishes candidates only; no Envoi tool call or closed-app reply is evidenced. |
-| Instinct | Account-visible custom connector, MCP, trusted REST or delegated browser session plus supported recurring task | Separate constrained email feasibility, only after the native investigation | Public site describes phone/computer operation; it does not document a secure Envoi connector or incoming wake contract. |
+| Instinct | Account-reported delegated browser or per-item-approved private API script plus scheduled/event task | Separate constrained email feasibility, only after testing the private paths | Instinct's assistant reports that it cannot install third-party MCP servers. All other claims still need an Envoi-specific live test and owner approval. |
 
 Meta states that a user can ask Muse to create a [Custom Connector](https://www.meta.com/help/superintelligence/1687253048996149/) and that credentials go in its Secure Credentials Store. Meta says it does **not** review these user-created connectors. A listed [Connector Platform](https://platform.muse.ai/docs) submission is separate: Meta reviews tool permissions and requires approval each time for a sensitive write. Meta describes [general background work](https://ai.meta.com/muse/) after app closure, which does not prove Envoi task scheduling or unattended send/reply. The [Instinct public site](https://instinct.com/) gives no developer contract for the necessary private auth or wake path. No public claim substitutes for an actual account observation.
 
@@ -22,6 +22,18 @@ With Rachel's signed-in Muse web account open in Chrome, Codex inspected Setting
 ### Instinct account observation, 2026-10-21 21:25 UTC
 
 Rachel's Instinct contact is a WhatsApp business account whose profile links to the signed-in `app.instinct.co` portal. Its Workspace lists Messages, WhatsApp and an assistant-owned `@mail.instinct.com` address as contact channels. The visible connector catalog offers named services, including Google Workspace, Outlook, Linear, Notion, GitHub, Slack and Granola; no custom API, MCP or generic webhook setup was exposed in that Workspace view. This is **interface observation**, not proof that Instinct lacks another supported route. The email address exists, but receipt, correlation, autonomous handling and permission to use it for Envoi remain untested, and the email proposal remains unapproved. No message, connector, credential, mailbox, schedule or permission was changed during this observation. Ask Instinct or its provider for the supported private third-party connection and incoming/scheduled task contract before choosing a route.
+
+### Instinct assistant reply relayed by Rachel, 2026-10-21 21:34–21:35 UTC
+
+Rachel sent the setup-only question to Instinct in WhatsApp and relayed its reply. This is an **assistant-reported capability claim**, not provider documentation, an approved Envoi route, or a live test. The reply says:
+
+- A delegated browser login can be stored through an Instinct private link; a human approves the first sign-in and any Duo/SMS challenge. A private API credential can be used by a script after approval of the specific item, subject to the API's auth requirements.
+- Instinct cannot install or connect third-party MCP servers. Remove third-party MCP installation from the Instinct candidate route unless a provider-published capability changes.
+- The assistant reports scheduled tasks and email/reply/calendar event triggers while the chat is closed. It says a WhatsApp follow-up after 24 hours uses a short reply-request template, while email lacks that window. No Envoi trigger, run log, or closed-app execution was observed.
+- Its assistant-owned mailbox can reportedly receive an automated notice with a unique reference and send a reply containing that reference. Each recipient and wording needs human approval or a narrowly stated standing authorization. This is a feasibility signal for the **separate email proposal**, not consent to send Envoi case data or evidence of mailbox provenance, sender verification, correlation, deduplication, or a canonical Envoi reply.
+- No service, login, credential, schedule, standing authorization, or Envoi route was connected in this exchange.
+
+The next bounded investigation is to verify one private path on the exact Instinct account: show the private-link/browser session or per-item-approved API setup and a harmless Envoi identity/read call on a pinned release, with no case write. Separately, if Rachel selects email for a scoped test, verify a synthetic notice arrives, the reference is read back accurately after the chat is closed, and the approval prompt/standing authorization boundaries are visible. Do not call either result a canonical reply until Envoi's email bridge contract and effect boundary are approved and exercised.
 
 ## Work Rachel/Codex can drive
 
