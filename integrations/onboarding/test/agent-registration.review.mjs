@@ -1,5 +1,5 @@
 // Explicit Lane B consuming review. Run with ENVOI_AGENT_REGISTRATION_FIXTURES_ROOT
-// pointing at the canonical PR #76 fixture tree; never commit a fixture copy.
+// pointing at the canonical agent-registration v1 revision 5 fixture tree; never commit a fixture copy.
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -27,9 +27,9 @@ function capableProfile(route) {
   return profile;
 }
 
-test('all 79 published fixtures map to v1 code and model-visible allowlists', async () => {
+test('all 86 published revision-5 fixtures map to v1 code and model-visible allowlists', async () => {
   const names = (await readdir(root)).filter((name) => name.endsWith('.json') && name !== 'schemas.json');
-  assert.equal(names.length, 79);
+  assert.equal(names.length, 86);
   const schema = await readFixture('schemas.json');
   const allowed = new Set([
     ...Object.keys(schema['x-model-visible'].serverDerived),
@@ -41,7 +41,7 @@ test('all 79 published fixtures map to v1 code and model-visible allowlists', as
     assert.equal(fixture.id, name.slice(0, -5), name);
     assert.equal(fixture.contract, 'agent-registration', name);
     assert.equal(fixture.version, 1, name);
-    assert.ok(['http', 'migration', 'rollback', 'restart'].includes(fixture.kind), name);
+    assert.ok(['http', 'migration', 'rollback', 'restart', 'stored'].includes(fixture.kind), name);
     for (const step of fixture.steps ?? [fixture]) {
       const code = step.response?.body?.code;
       if (code) {
@@ -54,6 +54,16 @@ test('all 79 published fixtures map to v1 code and model-visible allowlists', as
         const reason = step.response.body.reason;
         assert.equal(step.client.guidance,
           surface.guidanceByHelperState?.[step.client.helperState] ?? surface.guidanceByReason?.[reason] ?? surface.guidance, `${name}:guidance`);
+      }
+      if (step.client?.surface === 'owner_ui') {
+        const visibleBody = JSON.stringify(step.response.body);
+        assert.doesNotMatch(visibleBody, /"(?:audience|oauthClientId)"/, name);
+        for (const family of fixture.stored?.credentialFamilies ?? []) {
+          for (const field of ['audience', 'oauthClientId']) {
+            if (family[field]) assert.ok(!visibleBody.includes(family[field]), `${name}: private ${field}`);
+          }
+          if (family.oauthClientId && URL.canParse(family.oauthClientId)) assert.ok(!visibleBody.includes(new URL(family.oauthClientId).hostname), `${name}: private client host`);
+        }
       }
       const visible = step.client?.modelVisible;
       if (!visible) continue;
@@ -86,6 +96,13 @@ test('the exact published availability fixtures bound host-planner selections', 
   assert.equal(restPlan.selectedConnectionRoute, 'authenticated_rest');
   assert.equal(restPlan.selectedDeliveryMode, 'envoi_link');
   assert.equal(restPlan.plannedHelperInvocation, null);
+  // A published OAuth route is not a public-helper registration/activation path.
+  for (const route of ['remote_mcp_oauth', 'provider_connector']) {
+    const offered = structuredClone(local);
+    offered.routes.find(item => item.connectionRoute === route).available = true;
+    offered.deliveryModes.find(item => item.deliveryMode === 'on_demand').available = true;
+    assert.throws(() => planHost(manifest, capableProfile(route), offered), /Invalid route availability/);
+  }
 });
 
 test('safe examples are sourced from fixture projections and recovery cannot duplicate an agent', async () => {
