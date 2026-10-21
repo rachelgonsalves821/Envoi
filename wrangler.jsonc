@@ -96,7 +96,9 @@
         "ENVOI_AUTHENTICATED_REST_ROUTE": "false",
         "ENVOI_CASE_SESSIONS_V1": "false",
         "ENVOI_HTTP_WAKE_V1": "false",
-        "ENVOI_PROVIDER_BROWSER_POLL": "false"
+        "ENVOI_PROVIDER_BROWSER_POLL": "false",
+        "ENVOI_REMOTE_MCP_OAUTH": "false",
+        "ENVOI_PROVIDER_CONNECTORS": "false"
       },
       "routes": [
         {
