@@ -2,8 +2,9 @@
 // It refuses to run unless the server's FileStore shows the OpenClaw credential family revoked, so it can
 // never send a real message. It prints only HTTP status and error code, never a token or message text.
 //   $env:ROW17_CASE_ID = '<existing case id>'; node scripts/gate-b-local/row17-revoked-probe.mjs <FileStore data dir> [--origin https://localhost:8443]
-// The operator approves the probe send first. The code below is the one run at e8a958f; its recipient and
-// idempotency key are that run's (hermes-gateway@envoi.mail, gate-b-local-e8a958f-row17-revoked-send).
+// The operator approves the probe send first. Its recipient and idempotency key are the e8a958f run's
+// (hermes-gateway@envoi.mail, gate-b-local-e8a958f-row17-revoked-send). The as-run source is commit 6d10a3f; since then
+// (Rachel's review on #170, 6305156369) each check must return exactly 401 CREDENTIAL_REVOKED, and anything else exits 1.
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,7 +34,7 @@ const call = async (label, method, path, { token, body, idempotencyKey } = {}) =
   const res = await fetch(`${origin}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   let code = null; try { code = (await res.json()).code ?? null; } catch {}
   console.log(`${new Date().toISOString()} ${label}: HTTP ${res.status} code ${code}`);
-  return res.status;
+  return res.status === 401 && code === 'CREDENTIAL_REVOKED';
 };
 
 // 2. Send with the revoked access token, in the existing case, to Hermes.
@@ -45,5 +46,6 @@ const send = await call('send (revoked access token)', 'POST', `/api/inboxes/${i
 const refresh = await call('refresh (revoked refresh token)', 'POST', '/api/agent-token', { body: { grantType: 'refresh_token', agentRefreshToken: session.agentRefreshToken, rotationId: `row17probe${Date.now()}` } });
 // 4. Claim work with the revoked access token.
 const claim = await call('work claim (revoked access token)', 'POST', '/api/agent/work/claim', { token: session.agentApiToken, body: {} });
-const refused = [send, refresh, claim].every(s => s === 401 || s === 403);
-console.log(refused ? 'RESULT: all three refused' : 'RESULT: NOT ALL REFUSED (stop condition)');
+const refused = send && refresh && claim;
+console.log(refused ? 'RESULT: all three refused with 401 CREDENTIAL_REVOKED' : 'RESULT: NOT ALL REFUSED WITH 401 CREDENTIAL_REVOKED (stop condition)');
+if (!refused) process.exitCode = 1;
