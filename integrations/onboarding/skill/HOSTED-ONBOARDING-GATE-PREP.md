@@ -1,6 +1,6 @@
 # Phase B hosted onboarding: execution record (prepare before live run)
 
-**Status:** PREPARED, NOT RUN. This record is for the first hosted Hermes/OpenClaw helper gate. It does not grant authority to deploy, change flags, enroll an agent, send work, call a model, fault a service, or revoke an installation. Fill the release and operation fields, obtain the existing separate rollout and bounded-test approvals, then copy this file to `phase-b-hosted-<40-character-sha>.md` for the run.
+**Status:** PREPARED, NOT RUN. This record is for the first hosted Hermes/OpenClaw helper gate. It does not grant authority to deploy, change flags, enroll an agent, send work, call a model, fault a service, or revoke an installation. Fill the release and operation fields, obtain the existing separate rollout and bounded-test approvals, then copy this file to an evidence record for the exact 40-character release SHA for the run.
 
 The local 21/21 gate at `e8a958f` is prior evidence only. Hosted Phase B requires a fresh user journey on the exact served release and installed artifacts. Run this before dependent Phase C C01–C24 rows. Keep Phase C wake C19–C21 on in the first hosted batch as already selected, but record those results in the Phase C packet rather than silently counting them as Phase B onboarding.
 
@@ -41,12 +41,12 @@ The test plan must enumerate each planned send and intervention by row and targe
 
 ## 3. Hosted onboarding rows
 
-Use the local [21-row template](phase-b-local-TEMPLATE.md) as the exact behavioral source. Record server event IDs/sequences, owner view, and host observation for every applicable row. A row passes only when the three views agree.
+Use the local [21-row template](../../../docs/architecture/agent-native-v2/evidence/phase-b-local-TEMPLATE.md) as the exact behavioral source. It scores Hermes rows 1–10 individually, OpenClaw rows 1–10′ as one grouped row with ten required observations, and shared rows 11–20 individually: 21 logical rows, 30 host-level observations. Record server event IDs/sequences, owner view, and host observation for every applicable row. A row passes only when the three views agree.
 
 | Group | Required hosted observation | Server/owner evidence | Host evidence | Result |
 | --- | --- | --- | --- | --- |
 | H01–H10 Hermes | Fresh profile; `/connect` and served skill; `envoi-link connect`; private registration; claim URL/code only in chat; owner claim and permission approval; private activation; authenticated connection; one native work item | PENDING | PENDING | NOT RUN |
-| O01–O10 OpenClaw | Same fresh journey and observations on OpenClaw | PENDING | PENDING | NOT RUN |
+| O01–O10 OpenClaw (one grouped logical row) | Same fresh journey and all ten observations on OpenClaw | PENDING | PENDING | NOT RUN |
 | X11–X12 exchange | Approved Hermes send; one OpenClaw reply; canonical receipts | PENDING | PENDING | NOT RUN |
 | R13–R15 recovery | Stop OpenClaw, approve one item while offline, restart with same private state and credential family, process once | PENDING | PENDING | NOT RUN |
 | V16–V17 revoke | Revoke the installation; reject late claim, refresh, send and processing; no automatic reenrollment | PENDING | PENDING | NOT RUN |
@@ -74,8 +74,8 @@ At the approved end, stop the receiver, end subscriptions/sessions, revoke dispo
 | --- | --- |
 | Exact release, Worker version and image | NOT RUN |
 | Served/installed artifact agreement | NOT RUN |
-| Hosted template rows | 0/21 passed; no rows run |
-| Per-host observations | Hermes 0/10 run; OpenClaw 0/10 run |
+| Hosted template logical rows | 0/21 passed; no rows run |
+| Per-host observations | Hermes 0/10 run; OpenClaw 0/10 run (one grouped logical row) |
 | Shared observations 11–20 | 0/10 run |
 | Deviations and defects | None observed; test not run |
 | Server, owner and host evidence links | NOT RUN |

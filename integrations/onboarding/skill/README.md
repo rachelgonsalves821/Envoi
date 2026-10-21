@@ -14,6 +14,8 @@ Before publishing, reconcile command output and status labels with Lane A's revi
 
 [PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md](PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md) is the Rachel/Codex-owned Muse and Instinct route decision packet. It distinguishes the integrated read/notify gateway from real exchange and closed-app wake evidence, and keeps the Instinct email path conditional.
 
+[HOSTED-ONBOARDING-GATE-PREP.md](HOSTED-ONBOARDING-GATE-PREP.md) prepares the exact-release Hermes and OpenClaw hosted helper gate. It contains no hosted acceptance result.
+
 [HELPER-OUTPUT-EXAMPLES.md](HELPER-OUTPUT-EXAMPLES.md) reconciles the model-visible projection with the published `agent-registration` v1 §7 allowlist and fixtures. The separate [Phase A hosted worksheet](../../gates/PHASE-A-HOSTED-PREP.md) prepares the required disposable Hermes reference test without claiming a hosted pass or narrowing the architecture to Hermes.
 
 [AGENT-REGISTRATION-V1-REVIEW.md](AGENT-REGISTRATION-V1-REVIEW.md) records Lane B's exact-publication fixture review and the six resolved helper-output questions. Its tests consume the canonical fixture directory through an explicit path; no fixture copy is committed in this package.
