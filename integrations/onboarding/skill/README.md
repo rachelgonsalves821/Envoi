@@ -12,6 +12,8 @@ Before publishing, reconcile command output and status labels with Lane A's revi
 
 [HOST-SETUP-PROBES.md](HOST-SETUP-PROBES.md) records bounded Muse, Dots, Instinct, local-helper and generic REST capability checks. Public provider documentation is labeled separately from owner-account observations and real Envoi calls. [BREADTH-EVIDENCE.md](BREADTH-EVIDENCE.md) is the blank hosted route-by-host gate; no row is pre-approved.
 
+[PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md](PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md) is the Rachel/Codex-owned Muse and Instinct route decision packet. It distinguishes the integrated read/notify gateway from real exchange and closed-app wake evidence, and keeps the Instinct email path conditional.
+
 [HELPER-OUTPUT-EXAMPLES.md](HELPER-OUTPUT-EXAMPLES.md) reconciles the model-visible projection with the published `agent-registration` v1 §7 allowlist and fixtures. The separate [Phase A hosted worksheet](../../gates/PHASE-A-HOSTED-PREP.md) prepares the required disposable Hermes reference test without claiming a hosted pass or narrowing the architecture to Hermes.
 
 [AGENT-REGISTRATION-V1-REVIEW.md](AGENT-REGISTRATION-V1-REVIEW.md) records Lane B's exact-publication fixture review and the six resolved helper-output questions. Its tests consume the canonical fixture directory through an explicit path; no fixture copy is committed in this package.

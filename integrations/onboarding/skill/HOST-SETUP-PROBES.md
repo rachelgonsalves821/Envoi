@@ -4,9 +4,10 @@ These checks identify a supported **connection route** and a separate **delivery
 
 ## Muse
 
-1. Inspect the account's Connectors area and [Meta's review guidelines](https://muse.ai/platform/docs). Determine whether the owner can add a private custom connector or whether Envoi must complete provider review before installation. Record the actual UI path and review status; do not infer approval from the submission page.
+1. Inspect the account's Connectors area and [Meta's Custom Connector help](https://www.meta.com/help/superintelligence/1687253048996149/). Determine whether the owner can add a private Custom Connector or wants a reviewed/listed connector. Record the actual UI path and review status; do not infer installation from public documentation.
 2. Ask the provider or inspect its documented integration contract for OAuth/private credential handling, supported read and write tools, and any supported incoming event or scheduled invocation. A submitted connector is not proof of an inbound wake path.
-3. Once Envoi's reviewed connector exists, test authenticated identity and availability first, then send/reply with the provider's approval prompts. Meta requires approval for each sensitive write; record whether an Envoi send is classified that way. Treat the host as **not verified for unattended wake** unless two closed-app arrivals each trigger a canonical reply without a human reopening Muse. `on_demand` is not an available v1 enrollment mode.
+3. Check the private Custom Connector path and the reviewed/listed Connector Platform path separately. Meta says user-created Custom Connectors use its Secure Credentials Store and are not reviewed by Meta; this does not establish that Envoi is installed. Use only the path visible to this exact account. For a listed connector, record the provider review ID, approved tools and classifications.
+4. Test authenticated identity and availability first, then send/reply with the host's actual approval prompts. [Meta's listed-connector guidelines](https://platform.muse.ai/docs) require approval on each sensitive write; record whether Envoi send/reply is classified that way. The private Custom Connector path needs its own observed approval behavior. Treat the host as **not verified for unattended wake** unless two closed-app arrivals each trigger a canonical reply without a human reopening Muse. `on_demand` is not an available v1 enrollment mode.
 
 ## ChatGPT Dots
 
@@ -18,7 +19,8 @@ These checks identify a supported **connection route** and a separate **delivery
 
 1. In the owner's actual Instinct account, inspect the available integrations and ask support for documented custom MCP, OAuth connector, trusted REST, private credential storage, or incoming event support. Its [public site](https://instinct.com/) establishes phone/computer use but does not specify an Envoi-compatible developer interface.
 2. If only its browser/phone/email path exists, test reading the public skill once it is published and whether the agent can reach a human claim page. Do not transfer a bootstrap or operational credential through an ordinary message. Browser access alone is not a durable connector.
-3. Do not select `providerInvocation` or `verifiedWebhook` until Instinct supplies a supported event contract and two closed-app deliveries are observed. If authenticated access later works only when the owner starts a conversation, record that as a host limitation; `on_demand` enrollment waits for a later approved contract and owner label.
+3. Also inspect whether this account supports a private, owner-approved browser session and a recurring task. The integrated provider browser gateway is a disabled read/notify candidate, not evidence that Instinct can log in, keep a private session or run a scheduled check. If no supported private interface exists, document the exact provider restriction before considering the separate email-bridge proposal.
+4. Do not select `providerInvocation` or `verifiedWebhook` until Instinct supplies a supported event contract and two closed-app deliveries are observed. If authenticated access later works only when the owner starts a conversation, record that as a host limitation; `on_demand` enrollment waits for a later approved contract and owner label.
 
 ## Hermes, OpenClaw, and a generic HTTPS host
 
