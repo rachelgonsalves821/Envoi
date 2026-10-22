@@ -846,6 +846,159 @@ Removed agents are not listed, so they need no state.
 - The onboarding step "Observe runtime activity" (`frontend/src/model.ts`) may use `connection.presence.lastProcessedAt`.
 - Connector doctor may print `presence` from `GET /api/agent/status`.
 
+## a5-presence-on-demand v1
+
+**Contract:** `a5-presence-on-demand`, version 1 (task **RA-0**, part 1). **Status:** published, awaiting Lane B's `CONTRACT-ACK`. Lane A posts `CONTRACT-PUBLISHED a5-presence-on-demand v1 @<sha>` on board #34 for the commit that carries this text. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED a5-presence-on-demand v1 @<publication sha>` before any dependent work starts. Nothing here is implemented.
+
+**What it is.** An amendment of a5-presence v1 for installations that declare `deliveryMode: "on_demand"`. It is prerequisite 1 of agent-remote-auth v1 §1: "an a5-presence revision gives `on_demand` an honest owner label and connection state, so an installation that is not running is not shown as failing (v3 §45)". a5-presence v1 is frozen and stays approved and unchanged. For every installation that does not declare `on_demand`, a5-presence v1 alone still decides the owner connection. Once both are approved, the owner connection is a5-presence v1 plus this amendment.
+
+**Why a separate contract.** a5-presence v1 says "changes need a new version", and Lane B's tests pin its fixture set. A separate amendment leaves every v1 fixture, test and consumer untouched, and the new rows can be reviewed on their own.
+
+**Fixtures:** [`test/contract-fixtures/a5-presence-on-demand/`](../../../test/contract-fixtures/a5-presence-on-demand/). `schemas.json` holds a5-presence v1's definitions with one state added, plus the tables `x-connection-states` (the whole ordered table, v1's rows included), `x-seen-at-basis`, `x-presence-updates` and `x-presence-never` (both list only the rows this amendment adds), and `x-agent-labels` (v1's, unchanged).
+
+**Owner:** Lane A. **Consumer:** Lane B (the owner agent list and the claim page; RA-B2). **Implemented by:** RA-A3 (server projection) with RA-B2 (owner UI).
+
+### 1. Scope
+
+- **Which agents.** An agent whose **reported family** (a5-presence v1 §4.2: the newest non-revoked family, else the newest family) belongs to an installation that declares `deliveryMode: "on_demand"` (agent-registration §6.4). Only agent-remote-auth v1 activations create such installations (its §1).
+- **Which family decides.** Only the reported family. When an existing-agent reconnect replaces an on-demand installation with a local-helper one, v1's rows apply again from the new family. When it replaces a local-helper installation with an on-demand one, this amendment applies, and the old family's presence is no longer reported. A family with no installation document is a legacy `envoi_link` installation (agent-registration §9).
+- **What it does not change.**
+  - The shape of every response: `connection` keeps a5-presence v1's fields, and only `state` gains a value. `recentWindowSeconds` stays 300 in every response, but no on-demand row uses it.
+  - Presence storage, the throttle, the write rules and the agent's `GET /api/agent/status` (a5-presence v1 §1–§4.1).
+  - The agent labels (a5-presence v1 §5), pause, resume and every a3 code.
+  - Availability. This amendment makes no delivery mode, route or wake path available. `on_demand` stays available only as agent-remote-auth v1 §1 says. `poll`, `webhook`, `provider` and `a2a` gain no label and stay as before. An http-wake subscription would never change the state. Today an OAuth installation cannot create one at all: its tokens are refused at `/api/agent/wake-subscriptions` (agent-remote-auth §9), and no `/mcp` tool creates one. That gap belongs to agent-remote-auth and is reported separately; this amendment adds no wake path.
+  - The local helper's states (agent-registration §7). The helper's routes refuse `on_demand` (agent-registration §6.1 row 8), so no helper state is added.
+
+### 2. Connection state
+
+The first matching row wins. The whole table, with labels, is `x-connection-states`.
+
+| # | Condition | `state` |
+| --- | --- | --- |
+| 1 | `status` is `revoked`, or `credentialRevoked` is `true` | `revoked` |
+| 2 | `onboardingStatus` is `rejected` | `rejected` |
+| 3 | `onboardingStatus` is any other value except `approved` | `pending_approval` |
+| 4 | No credential family | `not_connected` |
+| 5 | `credentialExpiresAt` ≤ `asOf` | `needs_reconnect` |
+| **6** | **The reported family's installation declares `on_demand`** | **`on_demand`** |
+| 7 | `seenAt` is `null` | `never_seen` |
+| 8 | `asOf − seenAt` ≤ `recentWindowSeconds` | `seen_recently` |
+| 9 | Otherwise | `not_seen_recently` |
+
+Rows 1–5 and 7–9 are a5-presence v1's rows 1–8, unchanged.
+
+**`seenAt` for an on-demand installation** is `presence.lastSeenAt`, whether or not the agent is paused, with no resume grace (`x-seen-at-basis`). An on-demand host has no work loop: it calls `/mcp` only while its user has it open, so `lastWorkClaimAt` says nothing about it. `seenAt` is `null` until the family makes its first authenticated request. Activation (the token exchange) writes no presence, as a5-presence v1 §3 already says for enrollment redemption. Rows 1–5 still report this `seenAt`.
+
+**Precedence, case by case**
+
+| Case | Result | Why |
+| --- | --- | --- |
+| The family was revoked: by the client (`POST /oauth/revoke`), by the owner, or for a replay | `revoked` (row 1), "Access revoked" | v1 row 1. The identity is not frozen, so the owner UI offers "Reconnect an existing agent" (agent-registration revision 4). |
+| The rolling refresh lifetime passed | `needs_reconnect` (row 5) | The user must authorize again; that is a real problem and not "idle". It is v1 row 5 for every mode. |
+| Paused | `on_demand`, agent label "Paused" | Pause belongs to the agent label (a5-presence v1 §4.2, "Pause is separate"). The assistant's tool calls get `409 AGENT_PAUSED`, and refresh still succeeds (agent-remote-auth §6.2). Both still update `lastSeenAt`. |
+| Paused and expired | `needs_reconnect`, agent label "Paused" | Row 5 comes first. |
+| No request since activation | `on_demand`, detail "No requests yet" | Never `never_seen` ("Not checked in yet"), which would suggest that a running process has not started. |
+| Idle, for however long short of credential expiry (row 5) | `on_demand`, detail "Last request {relative}" | Never `not_seen_recently`. Age alone never makes an on-demand installation look stopped or broken. Only the rolling refresh lifetime ending does, and then the state is `needs_reconnect`. |
+| Recently used | `on_demand`, detail "Last request {relative}" | Never `seen_recently`. A recent request is not evidence that the assistant is reachable now. |
+| Route flags off (agent-remote-auth §11 rollback) | `on_demand`, unchanged | The state is derived from the declared mode, not from flags. The installation stays active and revocable while its tokens get `401` at `/mcp`. |
+
+**Reading the installation.** The server already reads the reported family to build `connection`. For on-demand detection it also reads that family's installation document. If that read fails, or the family names an installation whose document is absent, the server omits `connection` and the response still succeeds, exactly like a failed presence read (a5-presence v1 §4.2). It never falls back to v1's rows for a family that names an installation it could not read.
+
+**Owner wording (RA-B2).**
+
+| `state` | Connection label | Detail | Must never claim |
+| --- | --- | --- | --- |
+| `on_demand` | "On demand" | `seenAt` is `null`: "No requests yet". Otherwise "Last request {relative time of `seenAt` from `asOf`}". | That the assistant is running, online, connected or reachable now; that it will receive, process or answer work while its user does not have it open; that it is offline, stopped, broken or failing, or needs attention, because it made no recent request. |
+
+- **Show all three:** the agent label, the connection label and the detail, for example "Active · On demand · Last request 9 days ago" or "Paused · On demand · No requests yet".
+- **Neutral presentation** (`presentation: "neutral"`). An on-demand state is styled neither as a problem (no warning or error colour, icon or "needs attention" badge) nor as online or healthy (no green dot or "connected" mark).
+- **"Request", not "use".** The detail counts any request the installation's credential authenticated, including a token refresh, which a host may make without its user (§3). So the label says "Last request", never "Last used" or "Last active".
+- Every other state keeps a5-presence v1 §5's wording. Unknown states still show "Status unknown".
+
+### 3. Presence updates for these routes
+
+a5-presence v1 §3 applies unchanged: its "authenticated" means a typed `envoi_` access or refresh credential of a family that is not revoked or expired, belonging to an approved agent that is `active` or `paused`. OAuth-family tokens are such credentials. agent-registration revision 5 (§14.2) stores them with the token types `oauth_access` and `oauth_refresh`; presence counts those exactly as it counts `access` and `refresh`. These rows make explicit how its table applies to the agent-remote-auth endpoints (`x-presence-updates`, `x-presence-never`):
+
+| Request | Outcome | Fields |
+| --- | --- | --- |
+| `POST /oauth/token`, `grant_type=refresh_token` | `200`, including the identical response inside the recovery window | `lastSeenAt`, `lastSuccessfulRefreshAt` (the a5 v1 `POST /api/agent-token` row) |
+| `POST /mcp` with an OAuth-family access token | any response after authentication, including `403 INSUFFICIENT_SCOPE` and `409 AGENT_PAUSED` | `lastSeenAt` (the a5 v1 "any other request" row) |
+| An agent operation that a `/mcp` tool call performs: claim, renew, acknowledge, complete, fail, instruction reply | as a5 v1's row for that operation | as a5 v1's row for that operation, recorded for the family that authenticated the `/mcp` request |
+
+**Never** (in addition to a5-presence v1's list):
+- `POST /oauth/token` with `grant_type=authorization_code` or the bootstrap grant. That is activation, like enrollment redemption;
+- `POST /oauth/revoke`;
+- an OAuth-family token presented anywhere except `/mcp`. It gets `401 AUTHENTICATION_REQUIRED` (agent-remote-auth §9, audience), so it is a rejected credential;
+- discovery, client metadata fetches and `GET /oauth/authorize`;
+- the consent page and its approve, deny and withdraw requests, and issuing a bootstrap code. These are human requests.
+
+The last row of the first table holds whatever internal dispatch `/mcp` uses (agent-remote-auth §14). An internal call records presence for the family of the outer `/mcp` request, at most as a5 v1's rows allow, and the throttle makes a double count harmless.
+
+### 4. Compatibility and rollback
+
+- **No change until an on-demand installation exists.** Every installation the server can create today declares `envoi_link`, or `poll` for a provider-browser-poll gateway installation, and this amendment leaves both on v1's rows. Owner responses therefore stay identical until an agent-remote-auth route is turned on and used.
+- **Consumers that know only v1** show "Status unknown" for `on_demand` (a5-presence v1 §4.2). That is honest: it neither claims the assistant is reachable nor says it is broken. Turning a route flag on still waits for RA-B2's rendering (agent-remote-auth §1).
+- **No new storage, endpoint, event, audit type or migration.** The projection reads the installation document that agent-registration already stores.
+- **Rollback of the server change.** Reverting RA-A3's projection makes on-demand installations fall back to v1's rows: "Not checked in yet" or "Last checked in …". That is less accurate but claims nothing false about reachability. No data needs to change in either direction.
+- **Version.** This is v1 of a new contract. a5-presence keeps version 1. A later consolidation into one a5-presence version is optional and would be its own publication.
+
+### 5. Fixtures
+
+Owner fixtures use a5-presence v1 §6's fields, plus:
+- `context.reportedInstallations`: one `{ agentId, installation }` per agent in the body, in order. `installation` is the reported family's installation `{ id, connectionRoute, deliveryMode, legacy }`, or `null` for a legacy family. This is input for re-deriving the state; owner views never carry it;
+- `context.flags` (optional): the two route flags, when the fixture is about them;
+- `client.connectionDetail`: the §2 detail, present exactly when the state is `on_demand`.
+
+**What `test/contract-fixtures.test.js` checks**
+- Every response against its schema, with v1's checks: `seenAt`, `connection.state` and both labels are re-derived from the fixture's own fields, using §2's rows when the reported installation declares `on_demand`.
+- The detail against `x-connection-states`.
+- The amendment against a5-presence v1:
+  - the state table is v1's with exactly one row inserted after `needs_reconnect`;
+  - every other definition and the agent labels are v1's, byte for byte;
+  - a5-presence stays at version 1.
+- The precedence cases of §2:
+  - revoked and expired win, paused or not;
+  - pause stays the agent label;
+  - idle time beyond the recent window stays `on_demand`;
+  - no presence gives "No requests yet";
+  - after the resume grace the basis is still `lastSeenAt`;
+  - only the reported family decides, in both directions;
+  - both routes are covered;
+  - flags off does not change the state.
+- No on-demand fixture uses a v1 check-in label. The added presence rows cover refresh, exchange, revocation and the audience refusal.
+- The table below lists exactly the registered fixtures.
+
+| Group | Fixtures |
+| --- | --- |
+| On demand | `owner-on-demand-no-requests`, `owner-on-demand-recent-request`, `owner-on-demand-idle`, `owner-on-demand-refresh-only`, `owner-on-demand-after-resume` |
+| Pause | `owner-on-demand-paused`, `owner-on-demand-pause-response` |
+| Precedence | `owner-on-demand-needs-reconnect`, `owner-on-demand-paused-needs-reconnect`, `owner-on-demand-revoked-by-client` |
+| Reported family | `owner-on-demand-replaced-by-local-helper`, `owner-local-helper-replaced-by-on-demand` |
+| Rollback | `owner-on-demand-flags-off` |
+
+### 6. Decisions for review
+
+1. **One state with a detail line**, instead of separate "unused", "recent" and "idle" states. A "recent" state would read as "reachable now", and an "idle" state as a problem. One neutral state with a factual detail avoids both.
+2. **`lastSeenAt` as the basis, labelled "Last request".** It includes token refreshes, which a host may make without its user. Counting only `/mcp` calls would need a new presence field, which is a storage change. The label stays accurate either way.
+3. **Age never changes the state.** Only credential expiry (row 5) or revocation (row 1) turns an idle on-demand installation into something the owner must act on.
+4. **The state does not depend on flags.** During an agent-remote-auth rollback the installation still shows "On demand", while its tokens are refused at `/mcp`. A flag-dependent "route unavailable" state would make the projection depend on configuration. The owner UI may read `GET /api/onboarding/routes` to explain the outage.
+5. **A separate amendment contract**, not a new a5-presence version (see "Why a separate contract").
+6. **Approval.** Version-specific `CONTRACT-APPROVED a5-presence-on-demand v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. Approval does not turn on any flag, and does not satisfy agent-remote-auth's other prerequisites: the hosted route gates, and the paired implementation, planner and redaction work.
+
+### 7. Consumer changes for RA-B2 (Lane B; informative)
+
+- Accept `on_demand` in the owner connection type, and render the label, the detail and the neutral style of §2.
+- Keep "Status unknown" for unknown states, and v1's wording for every other state.
+- The claim page's reconnect offer (agent-registration revision 4) is unchanged. A revoked on-demand agent is offered like any other.
+- Installation rows keep showing route, mode and runtime as declared (agent-registration §6.5).
+
+### 8. Implementation notes for RA-A3 (Lane A; informative)
+
+- `ownerConnection` in `src/agent-presence.js` gains the reported family's installation `deliveryMode`. The owner projection reads `installationPath(…, family.installationId)` alongside the presence record, and reads nothing for a family without `installationId`.
+- The precedence stays a single expression, with the on-demand row placed after `needs_reconnect`.
+- Presence recording (`trackAgentPresence` in `src/server.js`) today returns early for every token type except `access`. It must count `oauth_access`, and the OAuth refresh grant must record `lastSuccessfulRefreshAt` as `POST /api/agent-token` does (§3).
+- Server tests run every fixture here through the real owner routes, on FileStore and PostgreSQL, as `test/a5-presence.test.js` does for v1.
+
 ## envoi-browser-names v1
 
 **Contract:** `envoi-browser-names`, version 1. **Status:** approved by the human on 2026-10-11 (`CONTRACT-APPROVED envoi-browser-names v1 @1b88e1d`, build board #34) after Lane B `CONTRACT-ACK` (consuming tests in PR #66). Frozen: changes need a new version.

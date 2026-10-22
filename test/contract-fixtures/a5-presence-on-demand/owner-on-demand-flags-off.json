@@ -1,0 +1,71 @@
+{
+  "contract": "a5-presence-on-demand",
+  "version": 1,
+  "id": "owner-on-demand-flags-off",
+  "description": "Both route flags were turned off (agent-remote-auth §11 rollback). The installation stays active, and its tokens get 401 at /mcp until the flags return. The state does not depend on flags.",
+  "kind": "http",
+  "context": {
+    "reportedInstallations": [
+      {
+        "agentId": "agent_example",
+        "installation": {
+          "id": "installation_remote_example",
+          "connectionRoute": "remote_mcp_oauth",
+          "deliveryMode": "on_demand",
+          "legacy": false
+        }
+      }
+    ],
+    "flags": {
+      "ENVOI_REMOTE_MCP_OAUTH": false,
+      "ENVOI_PROVIDER_CONNECTORS": false
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session"
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentList",
+    "body": [
+      {
+        "id": "agent_example",
+        "name": "Example assistant",
+        "slug": "example",
+        "address": "example@envoi.mail",
+        "platformAddress": "example@envoi.mail",
+        "status": "active",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "send_agent_messages",
+          "receive_agent_messages"
+        ],
+        "createdAt": "2026-10-20T09:00:00.000Z",
+        "paused": false,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "on_demand",
+          "asOf": "2026-10-22T12:00:42.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-10-22T08:10:00.000Z",
+          "credentialExpiresAt": "2026-11-21T08:10:00.000Z",
+          "presence": {
+            "lastSeenAt": "2026-10-22T08:10:00.000Z",
+            "lastSuccessfulRefreshAt": "2026-10-22T08:10:00.000Z",
+            "lastWorkClaimAt": null,
+            "lastProcessedAt": null
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "connectionLabel": "On demand",
+    "connectionDetail": "Last request {relative}",
+    "agentLabel": "Active",
+    "next": "Show \"Active · On demand · Last request 4 hours ago\". The owner UI may add that the route is unavailable, from GET /api/onboarding/routes; it never says the assistant is broken."
+  }
+}

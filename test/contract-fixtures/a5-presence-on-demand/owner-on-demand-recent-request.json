@@ -1,0 +1,67 @@
+{
+  "contract": "a5-presence-on-demand",
+  "version": 1,
+  "id": "owner-on-demand-recent-request",
+  "description": "A remote MCP assistant whose user ran a tool 40 s ago. The /mcp request updated lastSeenAt only; it never claims work.",
+  "kind": "http",
+  "context": {
+    "reportedInstallations": [
+      {
+        "agentId": "agent_example",
+        "installation": {
+          "id": "installation_remote_example",
+          "connectionRoute": "remote_mcp_oauth",
+          "deliveryMode": "on_demand",
+          "legacy": false
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_example/agents",
+    "auth": "human_session"
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgentList",
+    "body": [
+      {
+        "id": "agent_example",
+        "name": "Example assistant",
+        "slug": "example",
+        "address": "example@envoi.mail",
+        "platformAddress": "example@envoi.mail",
+        "status": "active",
+        "onboardingStatus": "approved",
+        "permissions": [
+          "send_agent_messages",
+          "receive_agent_messages"
+        ],
+        "createdAt": "2026-10-20T09:00:00.000Z",
+        "paused": false,
+        "credentialRevoked": false,
+        "connection": {
+          "state": "on_demand",
+          "asOf": "2026-10-22T12:00:42.000Z",
+          "recentWindowSeconds": 300,
+          "seenAt": "2026-10-22T12:00:02.000Z",
+          "credentialExpiresAt": "2026-11-21T11:59:30.000Z",
+          "presence": {
+            "lastSeenAt": "2026-10-22T12:00:02.000Z",
+            "lastSuccessfulRefreshAt": "2026-10-22T11:59:30.000Z",
+            "lastWorkClaimAt": null,
+            "lastProcessedAt": null
+          }
+        }
+      }
+    ]
+  },
+  "client": {
+    "surface": "owner_ui",
+    "connectionLabel": "On demand",
+    "connectionDetail": "Last request {relative}",
+    "agentLabel": "Active",
+    "next": "Show \"Active · On demand · Last request 1 minute ago\", computed from seenAt and asOf. Do not say it is online, running or reachable now."
+  }
+}

@@ -102,29 +102,39 @@ function checkPresence(presence, asOf, label) {
 }
 
 // a5-presence §4.2 and §5: re-derive seenAt, the connection state and both labels from the fixture's own fields.
+// a5-presence-on-demand §2: when the reported family's installation declares on_demand, seenAt is lastSeenAt and
+// the on_demand row comes right after needs_reconnect. a5-presence v1 fixtures carry no context, so nothing changes for them.
 function checkOwnerConnection(fixture, schemas, label) {
   assert.deepEqual(schemas['x-connection-states'].map((entry) => entry.state), schemas.definitions.connectionState.enum, `${label}: state table order`);
   assert.deepEqual(schemas['x-agent-labels'].map((entry) => entry.label), ['Revoked', 'Rejected', 'Pending', 'Paused', 'Active'], `${label}: agent label table order`);
   const agents = Array.isArray(fixture.response.body) ? fixture.response.body : [fixture.response.body];
+  const reported = fixture.context?.reportedInstallations;
+  if (reported) assert.deepEqual(reported.map((entry) => entry.agentId), agents.map((agent) => agent.id), `${label}: one reported installation per agent, in order`);
   for (const [index, agent] of agents.entries()) {
     const agentLabel = `${label} agent ${index}`;
     const { connection } = agent;
+    const onDemand = reported?.[index].installation?.deliveryMode === 'on_demand';
     const revoked = agent.status === 'revoked' || agent.credentialRevoked;
     const { lastSeenAt, lastWorkClaimAt } = connection.presence;
     const resumeGrace = Boolean(agent.resumedAt) && Date.parse(connection.asOf) - Date.parse(agent.resumedAt) <= connection.recentWindowSeconds * 1000
       && (!lastWorkClaimAt || lastWorkClaimAt < agent.resumedAt);
-    const seenAt = agent.paused || resumeGrace ? lastSeenAt : lastWorkClaimAt;
-    assert.equal(connection.seenAt, seenAt, `${agentLabel}: seenAt is lastSeenAt while paused or in the resume grace, otherwise lastWorkClaimAt`);
+    const seenAt = onDemand || agent.paused || resumeGrace ? lastSeenAt : lastWorkClaimAt;
+    assert.equal(connection.seenAt, seenAt, `${agentLabel}: seenAt is lastSeenAt for on_demand, while paused or in the resume grace, otherwise lastWorkClaimAt`);
     const state = revoked ? 'revoked'
       : agent.onboardingStatus === 'rejected' ? 'rejected'
         : agent.onboardingStatus !== 'approved' ? 'pending_approval'
           : connection.credentialExpiresAt === null ? 'not_connected'
             : connection.credentialExpiresAt <= connection.asOf ? 'needs_reconnect'
-              : seenAt === null ? 'never_seen'
-                : Date.parse(connection.asOf) - Date.parse(seenAt) <= connection.recentWindowSeconds * 1000 ? 'seen_recently'
-                  : 'not_seen_recently';
+              : onDemand ? 'on_demand'
+                : seenAt === null ? 'never_seen'
+                  : Date.parse(connection.asOf) - Date.parse(seenAt) <= connection.recentWindowSeconds * 1000 ? 'seen_recently'
+                    : 'not_seen_recently';
     assert.equal(connection.state, state, `${agentLabel}: connection.state follows the first matching row`);
-    assert.equal(fixture.client.connectionLabel, schemas['x-connection-states'].find((entry) => entry.state === state).connectionLabel, `${agentLabel}: connection label`);
+    const row = schemas['x-connection-states'].find((entry) => entry.state === state);
+    assert.ok(row, `${agentLabel}: ${state} is in this contract's state table`);
+    assert.equal(fixture.client.connectionLabel, row.connectionLabel, `${agentLabel}: connection label`);
+    const detail = row.details?.find((entry) => (entry.when === 'seenAt is null' ? seenAt === null : entry.when === 'otherwise')).connectionDetail;
+    assert.equal(fixture.client.connectionDetail, detail, `${agentLabel}: connection detail`);
     const expectedAgentLabel = revoked ? 'Revoked' : agent.onboardingStatus === 'rejected' ? 'Rejected' : agent.onboardingStatus !== 'approved' ? 'Pending' : agent.paused ? 'Paused' : 'Active';
     assert.equal(fixture.client.agentLabel, expectedAgentLabel, `${agentLabel}: agent label`);
     if (['not_connected', 'pending_approval', 'rejected'].includes(state)) assert.deepEqual(Object.values(connection.presence), [null, null, null, null], `${agentLabel}: no family, no presence`);
@@ -2250,4 +2260,84 @@ test('agent-registration revision 5 stored records agree across cases', async ()
   const listed = [...fixtureTable.matchAll(/^\| `([a-z0-9-]+)` \|/gm)].map((match) => `${match[1]}.json`).sort();
   const index = await readJson(path.join(root, 'index.json'));
   assert.deepEqual(listed, index.contracts.find((contract) => contract.id === 'agent-registration').fixtures.filter((name) => name.startsWith('stored-')).sort(), 'the handoff lists exactly the stored-* fixtures');
+});
+
+// a5-presence-on-demand v1: an amendment of a5-presence v1. Its schemas are v1's plus the on_demand row, and its
+// fixtures cover every precedence case the amendment adds.
+test('a5-presence-on-demand fixtures agree with a5-presence v1 and across cases', async () => {
+  const v1 = await readJson(path.join(root, 'a5-presence', 'schemas.json'));
+  const schemas = await readJson(path.join(root, 'a5-presence-on-demand', 'schemas.json'));
+  const index = await readJson(path.join(root, 'index.json'));
+  const contract = index.contracts.find((entry) => entry.id === 'a5-presence-on-demand');
+  assert.equal(index.contracts.find((entry) => entry.id === 'a5-presence').version, 1, 'a5-presence v1 is unchanged');
+
+  // §2: v1's table with exactly one row added, right after needs_reconnect.
+  const rows = schemas['x-connection-states'];
+  const at = rows.findIndex((row) => row.state === 'on_demand');
+  assert.equal(rows[at - 1].state, 'needs_reconnect', 'on_demand comes right after needs_reconnect');
+  assert.deepEqual(rows.filter((row) => row.state !== 'on_demand'), v1['x-connection-states'], 'every other row is a5-presence v1\'s');
+  assert.deepEqual(rows[at].details.map((entry) => entry.when), ['seenAt is null', 'otherwise'], 'two details, null first');
+  assert.equal(rows[at].presentation, 'neutral', 'on_demand is shown neither as a problem nor as online');
+  assert.deepEqual(schemas['x-agent-labels'], v1['x-agent-labels'], 'agent labels are unchanged');
+  for (const name of Object.keys(v1.definitions).filter((key) => !['connectionState', 'fixture'].includes(key))) {
+    assert.deepEqual(schemas.definitions[name], v1.definitions[name], `${name} is a5-presence v1's`);
+  }
+  assert.deepEqual(schemas.definitions.connectionState.enum.filter((state) => state !== 'on_demand'), v1.definitions.connectionState.enum, 'only on_demand is added');
+  assert.equal(schemas['x-seen-at-basis'].on_demand, 'lastSeenAt');
+
+  // §3: the added presence rows never let an exchange, a revocation or a refused token write presence.
+  assert.ok(schemas['x-presence-updates'].some((row) => row.request.startsWith('POST /oauth/token grant_type=refresh_token') && row.fields.join() === 'lastSeenAt,lastSuccessfulRefreshAt'), 'an OAuth refresh counts like POST /api/agent-token');
+  for (const phrase of ['grant_type=authorization_code', 'POST /oauth/revoke', 'anywhere except /mcp']) {
+    assert.ok(schemas['x-presence-never'].some((row) => row.includes(phrase)), `never: ${phrase}`);
+  }
+
+  const fixtures = await Promise.all(contract.fixtures.map((name) => readJson(path.join(root, contract.dir, name))));
+  const byId = Object.fromEntries(fixtures.map((fixture) => [fixture.id, fixture]));
+  const first = (fixture) => (Array.isArray(fixture.response.body) ? fixture.response.body[0] : fixture.response.body);
+  const mode = (fixture) => fixture.context.reportedInstallations[0].installation?.deliveryMode;
+  const recentWindowMs = 300_000;
+  for (const fixture of fixtures) {
+    const { connection } = first(fixture);
+    if (connection.state === 'on_demand') {
+      assert.equal(mode(fixture), 'on_demand', `${fixture.id}: on_demand only for an on-demand installation`);
+      // The text the guidance tells the UI to show: agent label · On demand · detail.
+      const shown = fixture.client.next.match(/^Show "([^"]+)"/)?.[1] || '';
+      assert.ok(shown.startsWith(`${fixture.client.agentLabel} · On demand · ${fixture.client.connectionDetail.replace('{relative}', '')}`), `${fixture.id}: the guidance shows agent label · On demand · detail`);
+      assert.doesNotMatch(shown, /Seen recently|Last checked in|Not checked in yet|Online|Connected|Running/, `${fixture.id}: never a v1 check-in or reachability label`);
+    }
+    if (mode(fixture) === 'on_demand') assert.ok(['revoked', 'rejected', 'pending_approval', 'not_connected', 'needs_reconnect', 'on_demand'].includes(connection.state), `${fixture.id}: an on-demand installation never reaches the v1 check-in rows`);
+  }
+  // Precedence: revoked and needs_reconnect (paused or not) win; pause stays the agent label; idle never degrades.
+  assert.equal(first(byId['owner-on-demand-revoked-by-client']).connection.state, 'revoked');
+  assert.equal(first(byId['owner-on-demand-needs-reconnect']).connection.state, 'needs_reconnect');
+  assert.equal(first(byId['owner-on-demand-paused-needs-reconnect']).paused, true);
+  assert.equal(first(byId['owner-on-demand-paused-needs-reconnect']).connection.state, 'needs_reconnect');
+  assert.equal(byId['owner-on-demand-paused'].client.agentLabel, 'Paused');
+  const idle = first(byId['owner-on-demand-idle']).connection;
+  assert.ok(Date.parse(idle.asOf) - Date.parse(idle.seenAt) > recentWindowMs, 'the idle fixture is outside the recent window');
+  assert.equal(idle.state, 'on_demand', 'idle time never moves on_demand to not_seen_recently');
+  const noRequests = first(byId['owner-on-demand-no-requests']).connection;
+  assert.deepEqual(Object.values(noRequests.presence), [null, null, null, null], 'activation writes no presence');
+  assert.equal(byId['owner-on-demand-no-requests'].client.connectionDetail, 'No requests yet');
+  // Resume: a5-presence v1 would report never_seen here (grace over, no claim since resumedAt).
+  const resumed = first(byId['owner-on-demand-after-resume']);
+  assert.ok(Date.parse(resumed.connection.asOf) - Date.parse(resumed.resumedAt) > recentWindowMs && resumed.connection.presence.lastWorkClaimAt === null, 'the resume grace is over and nothing claimed');
+  // Only the reported family's installation decides, in both directions.
+  assert.equal(mode(byId['owner-on-demand-replaced-by-local-helper']), 'envoi_link');
+  assert.equal(first(byId['owner-on-demand-replaced-by-local-helper']).connection.state, 'seen_recently');
+  assert.equal(first(byId['owner-local-helper-replaced-by-on-demand']).connection.state, 'on_demand');
+  // Both routes, and the state does not depend on flags.
+  assert.deepEqual([...new Set(fixtures.map((fixture) => fixture.context.reportedInstallations[0].installation?.connectionRoute))].sort(), ['local_helper', 'provider_connector', 'remote_mcp_oauth']);
+  assert.deepEqual(byId['owner-on-demand-flags-off'].context.flags, { ENVOI_REMOTE_MCP_OAUTH: false, ENVOI_PROVIDER_CONNECTORS: false });
+  assert.equal(first(byId['owner-on-demand-flags-off']).connection.state, 'on_demand');
+  assert.equal(byId['owner-on-demand-pause-response'].response.schema, 'ownerAgent');
+
+  const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
+  const sectionStart = handoff.indexOf('\n## a5-presence-on-demand v1');
+  assert.notEqual(sectionStart, -1, 'the handoff has the section');
+  const nextSection = handoff.indexOf('\n## ', sectionStart + 1);
+  const section = handoff.slice(sectionStart, nextSection === -1 ? undefined : nextSection);
+  const table = section.slice(section.indexOf('| Group | Fixtures |'), section.indexOf('### 6.'));
+  const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
+  assert.deepEqual(listed, [...contract.fixtures].sort(), 'the handoff lists exactly the registered fixtures');
 });

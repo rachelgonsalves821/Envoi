@@ -1,0 +1,697 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "a5-presence-on-demand/schemas.json",
+  "description": "a5-presence-on-demand v1 schemas: a5-presence v1's definitions with the on_demand connection state added. x-connection-states is handoffs.md a5-presence-on-demand §2 (ordered, first match wins); x-seen-at-basis is §2; x-presence-updates and x-presence-never are §3 and list only the rows this amendment adds to a5-presence v1's tables.",
+  "x-seen-at-basis": {
+    "on_demand": "lastSeenAt",
+    "otherwise": "a5-presence v1 x-presence-throttle.seenAtBasis (lastSeenAt while paused or in the resume grace, otherwise lastWorkClaimAt)"
+  },
+  "x-presence-updates": [
+    {
+      "request": "POST /oauth/token grant_type=refresh_token",
+      "credential": "refresh",
+      "outcome": "200, including the identical response inside the recovery window",
+      "fields": [
+        "lastSeenAt",
+        "lastSuccessfulRefreshAt"
+      ]
+    },
+    {
+      "request": "POST /mcp with an access token of an OAuth family (audience /mcp)",
+      "credential": "access",
+      "outcome": "any response after authentication, including 403 INSUFFICIENT_SCOPE and 409 AGENT_PAUSED",
+      "fields": [
+        "lastSeenAt"
+      ]
+    },
+    {
+      "request": "an agent operation a /mcp tool call performs (claim, renew, acknowledge, complete, fail, instruction reply)",
+      "credential": "access",
+      "outcome": "as the a5-presence v1 row for that operation",
+      "fields": [
+        "as the a5-presence v1 row for that operation"
+      ]
+    }
+  ],
+  "x-presence-never": [
+    "POST /oauth/token grant_type=authorization_code or the bootstrap grant (activation, like POST /api/agent-enroll)",
+    "POST /oauth/revoke",
+    "an OAuth-family token presented anywhere except /mcp (401 AUTHENTICATION_REQUIRED, a rejected credential)",
+    "discovery, client metadata fetches and GET /oauth/authorize",
+    "the consent page and its approve, deny and withdraw requests, and issuing a bootstrap code (human requests)"
+  ],
+  "x-connection-states": [
+    {
+      "state": "revoked",
+      "condition": "status is revoked, or credentialRevoked is true (every credential family revoked).",
+      "connectionLabel": "Access revoked",
+      "mustNotClaim": []
+    },
+    {
+      "state": "rejected",
+      "condition": "onboardingStatus is rejected.",
+      "connectionLabel": "Not approved",
+      "mustNotClaim": []
+    },
+    {
+      "state": "pending_approval",
+      "condition": "onboardingStatus is any other value except approved.",
+      "connectionLabel": "Waiting for approval",
+      "mustNotClaim": []
+    },
+    {
+      "state": "not_connected",
+      "condition": "The agent has no credential family.",
+      "connectionLabel": "Not connected",
+      "mustNotClaim": []
+    },
+    {
+      "state": "needs_reconnect",
+      "condition": "credentialExpiresAt <= asOf.",
+      "connectionLabel": "Needs reconnect",
+      "mustNotClaim": []
+    },
+    {
+      "state": "on_demand",
+      "condition": "The reported family's installation declares deliveryMode on_demand (agent-registration §6.4). seenAt is presence.lastSeenAt, paused or not, with no resume grace; its age never changes the state.",
+      "connectionLabel": "On demand",
+      "details": [
+        {
+          "when": "seenAt is null",
+          "connectionDetail": "No requests yet"
+        },
+        {
+          "when": "otherwise",
+          "connectionDetail": "Last request {relative}"
+        }
+      ],
+      "presentation": "neutral",
+      "mustNotClaim": [
+        "that the assistant is running, online, connected or reachable now",
+        "that it will receive, process or answer work while its user does not have it open",
+        "that it is offline, stopped, broken or failing, or needs attention, because it made no recent request"
+      ]
+    },
+    {
+      "state": "never_seen",
+      "condition": "seenAt is null.",
+      "connectionLabel": "Not checked in yet",
+      "mustNotClaim": [
+        "that enrollment or a passed setup check means the runtime runs"
+      ]
+    },
+    {
+      "state": "seen_recently",
+      "condition": "asOf - seenAt <= recentWindowSeconds.",
+      "connectionLabel": "Seen recently",
+      "mustNotClaim": [
+        "that the runtime is online, running or will process work"
+      ]
+    },
+    {
+      "state": "not_seen_recently",
+      "condition": "Otherwise.",
+      "connectionLabel": "Last checked in {relative}",
+      "mustNotClaim": [
+        "that the runtime is stopped or broken"
+      ]
+    }
+  ],
+  "x-agent-labels": [
+    {
+      "label": "Revoked",
+      "when": "status is revoked, or credentialRevoked is true"
+    },
+    {
+      "label": "Rejected",
+      "when": "onboardingStatus is rejected"
+    },
+    {
+      "label": "Pending",
+      "when": "onboardingStatus is any other value except approved"
+    },
+    {
+      "label": "Paused",
+      "when": "paused is true"
+    },
+    {
+      "label": "Active",
+      "when": "otherwise"
+    }
+  ],
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "nullableTimestamp": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "presence": {
+      "description": "Producer shape (closed). One credential family; handoffs.md a5-presence §2.",
+      "type": "object",
+      "required": [
+        "lastSeenAt",
+        "lastSuccessfulRefreshAt",
+        "lastWorkClaimAt",
+        "lastProcessedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lastSeenAt": {
+          "$ref": "#/definitions/nullableTimestamp"
+        },
+        "lastSuccessfulRefreshAt": {
+          "$ref": "#/definitions/nullableTimestamp"
+        },
+        "lastWorkClaimAt": {
+          "$ref": "#/definitions/nullableTimestamp"
+        },
+        "lastProcessedAt": {
+          "$ref": "#/definitions/nullableTimestamp"
+        }
+      }
+    },
+    "connectionState": {
+      "enum": [
+        "revoked",
+        "rejected",
+        "pending_approval",
+        "not_connected",
+        "needs_reconnect",
+        "on_demand",
+        "never_seen",
+        "seen_recently",
+        "not_seen_recently"
+      ]
+    },
+    "connection": {
+      "description": "Producer shape (closed). Consumers must accept unknown state values and fields.",
+      "type": "object",
+      "required": [
+        "state",
+        "asOf",
+        "recentWindowSeconds",
+        "seenAt",
+        "credentialExpiresAt",
+        "presence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/connectionState"
+        },
+        "asOf": {
+          "$ref": "#/definitions/timestamp"
+        },
+        "recentWindowSeconds": {
+          "const": 300
+        },
+        "seenAt": {
+          "$ref": "#/definitions/nullableTimestamp"
+        },
+        "credentialExpiresAt": {
+          "$ref": "#/definitions/nullableTimestamp"
+        },
+        "presence": {
+          "$ref": "#/definitions/presence"
+        }
+      }
+    },
+    "ownerAgent": {
+      "description": "An owner view of one agent (human session only). Fields other than those listed are unchanged by this contract.",
+      "type": "object",
+      "required": [
+        "id",
+        "address",
+        "status",
+        "onboardingStatus",
+        "paused",
+        "credentialRevoked",
+        "connection"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "onboardingStatus": {
+          "type": "string"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "credentialRevoked": {
+          "type": "boolean"
+        },
+        "connection": {
+          "$ref": "#/definitions/connection"
+        }
+      }
+    },
+    "ownerAgentList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/ownerAgent"
+      }
+    },
+    "agentStatusWithPresence": {
+      "description": "a3-pause-auth v2 agentStatus plus presence for the calling credential family.",
+      "type": "object",
+      "required": [
+        "state",
+        "agent",
+        "inboxId",
+        "asOf",
+        "presence"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "active",
+            "paused"
+          ]
+        },
+        "agent": {
+          "type": "object",
+          "required": [
+            "id",
+            "address",
+            "status"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "address": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "paused"
+              ]
+            }
+          }
+        },
+        "inboxId": {
+          "type": "string"
+        },
+        "asOf": {
+          "$ref": "#/definitions/timestamp"
+        },
+        "presence": {
+          "$ref": "#/definitions/presence"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "paused"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "agent": {
+                "properties": {
+                  "status": {
+                    "const": "paused"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "active"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "agent": {
+                "properties": {
+                  "status": {
+                    "const": "active"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fixture": {
+      "type": "object",
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "request",
+        "response",
+        "client",
+        "context"
+      ],
+      "properties": {
+        "contract": {
+          "const": "a5-presence-on-demand"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "http"
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "method",
+            "path",
+            "auth"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "GET",
+                "POST"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "auth": {
+              "const": "human_session"
+            },
+            "headers": {
+              "type": "object"
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "status",
+            "schema",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "const": 200
+            },
+            "schema": {
+              "enum": [
+                "ownerAgentList",
+                "ownerAgent"
+              ]
+            }
+          }
+        },
+        "client": {
+          "type": "object",
+          "required": [
+            "surface",
+            "next"
+          ],
+          "properties": {
+            "surface": {
+              "const": "owner_ui"
+            },
+            "connectionLabel": {
+              "enum": [
+                "Access revoked",
+                "Not approved",
+                "Waiting for approval",
+                "Not connected",
+                "Needs reconnect",
+                "Not checked in yet",
+                "Seen recently",
+                "Last checked in {relative}",
+                "On demand"
+              ]
+            },
+            "agentLabel": {
+              "enum": [
+                "Revoked",
+                "Rejected",
+                "Pending",
+                "Paused",
+                "Active"
+              ]
+            },
+            "lifecycle": {
+              "$ref": "#/definitions/lifecycle"
+            },
+            "next": {
+              "type": "string",
+              "minLength": 1
+            },
+            "connectionDetail": {
+              "enum": [
+                "No requests yet",
+                "Last request {relative}"
+              ],
+              "description": "on_demand only (x-connection-states details)."
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "surface": {
+                    "const": "owner_ui"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "connectionLabel",
+                  "agentLabel"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "surface": {
+                    "const": "connector"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "lifecycle"
+                ]
+              }
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "required": [
+            "reportedInstallations"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "reportedInstallations": {
+              "description": "One entry per agent in the response body, in the same order.",
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "agentId",
+                  "installation"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "agentId": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+                  },
+                  "installation": {
+                    "description": "The installation of the agent's reported family (a5-presence v1 §4.2), as the server reads it to build the owner view. null: the family has no installation document, so it is a legacy envoi_link installation (agent-registration §9). Fixture input only: owner views never carry it.",
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "connectionRoute",
+                          "deliveryMode",
+                          "legacy"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+                          },
+                          "connectionRoute": {
+                            "enum": [
+                              "local_helper",
+                              "remote_mcp_oauth",
+                              "provider_connector",
+                              "authenticated_rest"
+                            ]
+                          },
+                          "deliveryMode": {
+                            "enum": [
+                              "envoi_link",
+                              "webhook",
+                              "provider",
+                              "poll",
+                              "on_demand",
+                              "a2a"
+                            ]
+                          },
+                          "legacy": {
+                            "const": false
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "flags": {
+              "description": "Route flags at the time of the request. Absent: both V2 flags and at least one route flag are on.",
+              "type": "object",
+              "required": [
+                "ENVOI_REMOTE_MCP_OAUTH",
+                "ENVOI_PROVIDER_CONNECTORS"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "ENVOI_REMOTE_MCP_OAUTH": {
+                  "type": "boolean"
+                },
+                "ENVOI_PROVIDER_CONNECTORS": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "auth": {
+                    "const": "human_session"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "response": {
+                "properties": {
+                  "schema": {
+                    "enum": [
+                      "ownerAgentList",
+                      "ownerAgent"
+                    ]
+                  }
+                }
+              },
+              "client": {
+                "properties": {
+                  "surface": {
+                    "const": "owner_ui"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "auth": {
+                    "const": "agent_access"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "request": {
+                "required": [
+                  "headers"
+                ]
+              },
+              "response": {
+                "properties": {
+                  "schema": {
+                    "const": "agentStatusWithPresence"
+                  }
+                }
+              },
+              "client": {
+                "properties": {
+                  "surface": {
+                    "const": "connector"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
