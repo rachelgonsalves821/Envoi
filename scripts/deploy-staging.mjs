@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDeploymentConfiguration } from './check-deployment.mjs';
-import { RELEASE_ACCOUNT_ID } from './promote-release.mjs';
+import { RELEASE_ACCOUNT_ID, requireStagingSecretNames, secretInventory } from './promote-release.mjs';
 
 export function stagingDeployArgs({ sha, clean }) {
   if (!/^[a-f0-9]{40}$/.test(sha || '')) throw new Error('Staging deploy requires a full lowercase 40-hex Git commit SHA');
@@ -11,13 +11,15 @@ export function stagingDeployArgs({ sha, clean }) {
   return ['deploy', '--env', 'staging', '--var', `ENVOI_RELEASE_SHA:${sha}`];
 }
 
-export async function deployStaging({ cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env } = {}) {
+export async function deployStaging({ cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env,
+  inventory = (...argv) => secretInventory({ cwd, env }, ...argv), run = spawnSync,
+  readGit = (...argv) => execFileSync('git', argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() } = {}) {
   await checkDeploymentConfiguration();
-  const git = (...argv) => execFileSync('git', argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  const sha = git('rev-parse', 'HEAD');
-  const args = stagingDeployArgs({ sha, clean: git('status', '--porcelain', '--untracked-files=all').length === 0 });
+  const sha = readGit('rev-parse', 'HEAD');
+  const args = stagingDeployArgs({ sha, clean: readGit('status', '--porcelain', '--untracked-files=all').length === 0 });
+  requireStagingSecretNames(inventory);
   const wrangler = resolve(cwd, 'node_modules/wrangler/bin/wrangler.js');
-  const result = spawnSync(process.execPath, [wrangler, ...args], {
+  const result = run(process.execPath, [wrangler, ...args], {
     cwd, env: { ...env, CLOUDFLARE_ACCOUNT_ID: RELEASE_ACCOUNT_ID }, stdio: 'inherit'
   });
   if (result.error || result.status !== 0) throw new Error('Staging deployment failed');

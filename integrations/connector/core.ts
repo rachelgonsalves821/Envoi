@@ -15,6 +15,7 @@ import { startControl, queryControl } from './control';
 import { enrollmentSetupError, readEnrollmentDiagnostic } from './enrollment-error';
 import { migrateConnectionDirectory } from './migrate';
 import { waitForRuntimeTools } from './runtime-readiness';
+import { parseHostedWakeConfig, runHostedWake } from './hosted-wake-runner';
 
 export interface InstalledConnection {
   version: 1;
@@ -387,6 +388,7 @@ export async function operationalConnectionStatus(context: OperationalStatusCont
 
 export async function startConnection(stateDir: string, signal: AbortSignal, resolveAdapter: AdapterResolver,
   options: AdapterOptions & { secureDirectory?: typeof privateDirectory; pollIntervalMs?: number; onReady?: () => void; onWaiting?: (code: string) => void; retryDelayMs?: number; toolRecoveryTimeoutMs?: number; toolRecoveryRetryMs?: number; control?: boolean } = {}) {
+  const wake = parseHostedWakeConfig(options.env ?? process.env);
   const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(stateDir, options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = noRedirectFetch(options.fetch);
@@ -416,6 +418,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
         saved.configuration = config;
         await privateJson(path.join(directory, 'connection.json'), saved);
         bridge = await adapter.createBridge(config, context);
+        if (wake) bridge.connector.scopedWakeWorkDriver();
         bridge.connector.onState(lifecycle => { diagnostics = { ...diagnostics, status: lifecycle.state === 'DEGRADED' ? 'waiting' : lifecycle.state.toLowerCase(), lifecycle, guidance: lifecycle.guidance }; });
         await bridge.connector.start();
         await bridge.connector.checkStatus();
@@ -450,8 +453,12 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
       }
     }
     if (stop.signal.aborted || !bridge) return;
-    options.onReady?.();
-    await bridge.connector.run(stop.signal);
+    if (wake) {
+      const session = await new FileBridgeStore(directory).load();
+      if (!session) throw new ConnectorSetupError('STATE_INVALID', 'Hosted wake needs saved connector identity');
+      await runHostedWake({ connector: bridge.connector, session, stateDir: directory, config: wake, signal: stop.signal,
+        onListening: options.onReady });
+    } else { options.onReady?.(); await bridge.connector.run(stop.signal); }
   } catch (error) {
     if (saved && bridge && !stop.signal.aborted) await report(saved, bridge.connector, 'error', fetcher, 'CONNECTOR_START_FAILED').catch(() => {});
     if (!stop.signal.aborted) throw error;

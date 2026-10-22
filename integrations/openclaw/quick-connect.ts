@@ -13,6 +13,7 @@ import { assertOpenClawScopedAdmission, openClawRuntimeEnvironment, saveOpenClaw
 import { privateDirectory, privateJson, acquireConnectorLock } from './quick-connect-store';
 import { checkServiceManager, installConnectorService } from './quick-connect-service';
 import { createOpenClawBridge } from './runtime';
+import { parseHostedWakeConfig, runHostedWake } from '../connector/hosted-wake-runner';
 
 interface InstalledConnection {
   version: 1;
@@ -153,6 +154,7 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
 /** Starts the same bridge as manual onboarding, using saved state and enforcing one process. */
 export async function startQuickConnect(stateDir: string, signal: AbortSignal, options: { fetch?: typeof fetch; secureDirectory?: typeof privateDirectory; env?: NodeJS.ProcessEnv; pollIntervalMs?: number; onReady?: () => void } = {}) {
   assertOpenClawScopedAdmission(options.env ?? process.env);
+  const wake = parseHostedWakeConfig(options.env ?? process.env);
   const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(stateDir, options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = connectionFetch(options.fetch);
@@ -164,11 +166,19 @@ export async function startQuickConnect(stateDir: string, signal: AbortSignal, o
     const openclaw = await discoverOpenClaw(resumeDiscovery(saved.openclaw, { env }));
     await preflightOpenClaw(openclaw, { fetch: fetcher, signal, env });
     bridge = await createOpenClawBridge({ ...openclaw, apiUrl: saved.apiUrl, stateDir: directory }, { ...options, env, fetch: fetcher });
+    if (wake) bridge.connector.scopedWakeWorkDriver();
     reporter = new EnvoiConnector(saved.apiUrl, bridge.store, { fetch: fetcher });
     await reporter.checkStatus();
-    await reportChecks(saved.apiUrl, reporter, 'ready', fetcher);
-    options.onReady?.();
-    await bridge.connector.run(signal);
+    if (wake) {
+      const session = await bridge.store.load();
+      if (!session) throw new QuickConnectError('Hosted wake needs saved connector identity');
+      await runHostedWake({ connector: bridge.connector, session, stateDir: directory, config: wake, signal,
+        onListening: async () => { await reportChecks(saved.apiUrl, reporter!, 'ready', fetcher); options.onReady?.(); } });
+    } else {
+      await reportChecks(saved.apiUrl, reporter, 'ready', fetcher);
+      options.onReady?.();
+      await bridge.connector.run(signal);
+    }
   } catch (error) {
     if (reporter) {
       const saved = await readConnection(directory).catch(() => null);

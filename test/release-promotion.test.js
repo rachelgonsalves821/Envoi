@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { APP_SECRET_NAMES, RELEASE_ACCOUNT_ID, promotionPlan, requireBetaSecretNames, requireSecretNames } from '../scripts/promote-release.mjs';
+import { APP_SECRET_NAMES, RELEASE_ACCOUNT_ID, promotionPlan, requireBetaSecretNames, requireStagingSecretNames, requireSecretNames } from '../scripts/promote-release.mjs';
 import { deployScanner } from '../scripts/deploy-scanner.mjs';
-import { deployBetaBuild } from '../scripts/deploy-beta-build.mjs';
+import { deployBetaBuild, readBetaBuildSource } from '../scripts/deploy-beta-build.mjs';
 import { secretInventory } from '../scripts/promote-release.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -97,10 +97,10 @@ test('scanner deploys check the target scanner token name before running Wrangle
 test('the direct beta deploy checks secret names before running Wrangler', async () => {
   const runs = [];
   const run = (command, args) => { runs.push(args.slice(1)); return { status: 0 }; };
-  const headSha = () => main;
-  await assert.rejects(deployBetaBuild({ inventory: betaInventory({ app: migratedApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), run, headSha }), /ENVOI_SCANNER_TOKEN/);
+  const source = () => ({ headSha: main, mainSha: main, clean: true, descendedFromMain: true });
+  await assert.rejects(deployBetaBuild({ inventory: betaInventory({ app: migratedApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), run, source }), /ENVOI_SCANNER_TOKEN/);
   assert.equal(runs.length, 0);
-  await deployBetaBuild({ inventory: betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, headSha });
+  await deployBetaBuild({ inventory: betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, source });
   assert.deepEqual(runs, [['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]]);
 });
 test('automatic beta Builds pins the exact Git SHA and never selects the old production Worker', () => {
@@ -129,4 +129,80 @@ test('staging deploy refuses an untracked file before invoking Wrangler', async 
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test('both staging secret inventories are checked on their isolated targets', () => {
+  const calls = [];
+  requireStagingSecretNames((...args) => {
+    calls.push(args);
+    return secretList(args.includes('scanner/wrangler.jsonc') ? ['ENVOI_SCANNER_TOKEN'] : migratedApp);
+  });
+  assert.deepEqual(calls, [['--env', 'staging'], ['--config', 'scanner/wrangler.jsonc']]);
+});
+
+test('direct staging refuses missing app or scanner names before deploying, and preserves the legacy encryption key', async () => {
+  const runs = [];
+  const inventories = [];
+  const run = (_command, args, options) => { runs.push({ args: args.slice(1), account: options.env.CLOUDFLARE_ACCOUNT_ID }); return { status: 0 }; };
+  const readGit = (...args) => args[0] === 'rev-parse' ? main : '';
+  const inventory = (app, scanner) => (...args) => {
+    inventories.push(args);
+    return secretList(args.includes('scanner/wrangler.jsonc') ? scanner : app);
+  };
+  await assert.rejects(deployStaging({ inventory: inventory(migratedApp.filter(name => name !== 'ENVOI_POLICY_SIGNING_KEY'), ['ENVOI_SCANNER_TOKEN']), readGit, run }), /ENVOI_POLICY_SIGNING_KEY/);
+  await assert.rejects(deployStaging({ inventory: inventory(migratedApp, ['SINALOA_SCANNER_TOKEN']), readGit, run }), /ENVOI_SCANNER_TOKEN/);
+  assert.deepEqual(runs, []);
+  await deployStaging({ inventory: inventory(migratedApp, ['ENVOI_SCANNER_TOKEN']), readGit, run, env: { CLOUDFLARE_ACCOUNT_ID: 'wrong-account' } });
+  assert.deepEqual(runs, [{ args: ['deploy', '--env', 'staging', '--var', `ENVOI_RELEASE_SHA:${main}`], account: RELEASE_ACCOUNT_ID }]);
+  assert.ok(inventories.every(args => !args.includes('beta') && !args.includes('scanner/wrangler.beta.jsonc')));
+});
+
+for (const [label, overrides, expected] of [
+  ['dirty source', { clean: false }, /must be clean/],
+  ['unmerged branch', { headSha: candidate }, /merge and fetch/],
+  ['divergent branch', { headSha: candidate, descendedFromMain: false }, /descend/],
+  ['invalid source SHA', { headSha: 'short' }, /40-hex/]
+]) test(`direct beta refuses ${label} before secret access or deployment`, async () => {
+  const calls = [];
+  await assert.rejects(deployBetaBuild({
+    source: () => ({ headSha: main, mainSha: main, clean: true, descendedFromMain: true, ...overrides }),
+    inventory: () => { calls.push('inventory'); return secretList(migratedApp); },
+    run: () => { calls.push('deploy'); return { status: 0 }; }
+  }), expected);
+  assert.deepEqual(calls, []);
+});
+
+test('direct beta stops if refreshing the main reference fails', async () => {
+  const calls = [];
+  await assert.rejects(deployBetaBuild({
+    source: () => readBetaBuildSource({ cwd: process.cwd(), execute: () => { throw new Error('fetch failed'); } }),
+    inventory: () => { calls.push('inventory'); return []; },
+    run: () => { calls.push('deploy'); return { status: 0 }; }
+  }), /fetch failed/);
+  assert.deepEqual(calls, []);
+});
+
+test('beta source refreshes an advanced local origin/main and detects hidden untracked work', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'envoi-beta-build-source-'));
+  try {
+    const remote = join(root, 'remote.git');
+    const author = join(root, 'author');
+    const build = join(root, 'build');
+    const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    git(root, 'init', '--bare', '--quiet', remote);
+    git(root, 'init', '-b', 'main', '--quiet', author);
+    git(author, 'commit', '--quiet', '--allow-empty', '-m', 'accepted main');
+    git(author, 'remote', 'add', 'origin', remote);
+    git(author, 'push', '--quiet', 'origin', 'main');
+    git(root, 'clone', '--quiet', '--branch', 'main', remote, build);
+    const accepted = git(build, 'rev-parse', 'HEAD');
+    git(author, 'commit', '--quiet', '--allow-empty', '-m', 'new main');
+    git(author, 'push', '--quiet', 'origin', 'main');
+    const advanced = git(author, 'rev-parse', 'HEAD');
+    assert.equal(git(build, 'rev-parse', 'origin/main'), accepted, 'the checkout begins with a stale remote ref');
+    assert.deepEqual(readBetaBuildSource({ cwd: build }), { headSha: accepted, mainSha: advanced, clean: true, descendedFromMain: false });
+    git(build, 'config', 'status.showUntrackedFiles', 'no');
+    await writeFile(join(build, 'stray.txt'), 'uncommitted');
+    assert.equal(readBetaBuildSource({ cwd: build }).clean, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

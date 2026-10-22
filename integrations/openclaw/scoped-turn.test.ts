@@ -235,10 +235,8 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
 
   it('refuses the manual runner before migration, local state initialization or enrollment', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'envoi-openclaw-run-refusal-'));
-    const priorExitCode = process.exitCode;
     const fetcher = vi.fn();
     const init = vi.spyOn(FileBridgeStore.prototype, 'init');
-    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     vi.stubGlobal('fetch', fetcher);
     vi.stubEnv('ENVOI_SCOPED_TOOLS', 'true');
     vi.stubEnv('ENVOI_MCP_URL', 'https://private-legacy.example');
@@ -249,13 +247,12 @@ describe('OpenClaw scoped Responses transport fixtures (not Gateway isolation ev
     vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'fixture-gateway-token');
     vi.stubEnv('OPENCLAW_AGENT_ID', 'fixture');
     try {
-      await import('./run');
-      await vi.waitFor(() => expect(stderr).toHaveBeenCalled());
+      const { runOpenClaw } = await import('./run');
+      await expect(runOpenClaw()).rejects.toMatchObject({ code: 'SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE' });
       expect(init).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled();
       expect(await readdir(directory)).toEqual([]);
     } finally {
-      process.exitCode = priorExitCode;
-      stderr.mockRestore(); init.mockRestore(); vi.unstubAllEnvs(); vi.unstubAllGlobals();
+      init.mockRestore(); vi.unstubAllEnvs(); vi.unstubAllGlobals();
       await rm(directory, { recursive: true, force: true });
     }
   });
