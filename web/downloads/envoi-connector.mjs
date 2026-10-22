@@ -11261,24 +11261,34 @@ var io = class e {
 		return d.join(this.directory, "wake.json");
 	}
 	async read() {
-		let e = await this.filename(), t;
+		let e = await this.filename(), t, r = !1;
 		try {
-			let r = await n(e);
-			if (!r.isFile() || r.isSymbolicLink() || r.size > to) throw Error();
+			let a = await n(e, { bigint: !0 });
+			if (r = !0, !a.isFile() || a.isSymbolicLink() || a.size > to) throw Error();
 			t = await i(e, "r");
-			let a = await t.stat();
-			if (!a.isFile() || a.size > to || a.dev !== r.dev || a.ino !== r.ino) throw Error();
-			let o = Buffer.alloc(4194305), s = 0;
-			for (; s < o.length;) {
-				let e = await t.read(o, s, o.length - s, null);
-				if (!e.bytesRead) break;
-				s += e.bytesRead;
+			let o = await t.stat({ bigint: !0 });
+			if (!o.isFile() || o.size > to || o.ino !== a.ino) throw Error();
+			if (o.dev !== a.dev) {
+				if (process.platform !== "win32" || a.dev !== 0n || o.dev === 0n || a.ino === 0n) throw Error();
+				let t = await i(e, "r");
+				try {
+					let r = await t.stat({ bigint: !0 }), i = await n(e, { bigint: !0 });
+					if (!r.isFile() || r.size > to || r.dev !== o.dev || r.ino !== o.ino || !i.isFile() || i.isSymbolicLink() || i.size > to || i.dev !== a.dev || i.ino !== a.ino || await this.filename() !== e) throw Error();
+				} finally {
+					await t.close();
+				}
 			}
-			if (s > to) throw Error();
-			let c = JSON.parse(o.subarray(0, s).toString("utf8"));
-			return ro(c), c;
+			let s = Buffer.alloc(4194305), c = 0;
+			for (; c < s.length;) {
+				let e = await t.read(s, c, s.length - c, null);
+				if (!e.bytesRead) break;
+				c += e.bytesRead;
+			}
+			if (c > to) throw Error();
+			let l = JSON.parse(s.subarray(0, c).toString("utf8"));
+			return ro(l), l;
 		} catch (e) {
-			if (e.code === "ENOENT") return no();
+			if (!r && e.code === "ENOENT") return no();
 			throw Error("Private wake state is unreadable");
 		} finally {
 			await t?.close();
