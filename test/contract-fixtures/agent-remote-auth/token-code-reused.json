@@ -2,7 +2,7 @@
   "contract": "agent-remote-auth",
   "version": 1,
   "id": "token-code-reused",
-  "description": "A second exchange of a used code fails, and the installation the first exchange created is revoked (activation_replay).",
+  "description": "A genuine replay: the same client presents the used code again with the correct verifier, redirect_uri and resource while the code is unexpired. Every validity check passes, so check 9 denies it and revokes the installation the first exchange created (activation_replay).",
   "kind": "sequence",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": true,

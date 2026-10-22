@@ -1,0 +1,118 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "token-code-reused-wrong-verifier",
+  "description": "A used code presented again with its own public client_id and a well-formed but wrong verifier: PKCE (check 7) fails before the reuse check (check 9), so it is refused and nothing is revoked.",
+  "kind": "sequence",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "steps": [
+    {
+      "note": "First exchange succeeds.",
+      "request": {
+        "method": "POST",
+        "path": "/oauth/token",
+        "auth": "public_client",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        "form": {
+          "grant_type": "authorization_code",
+          "code": "envoi_oauth_code_PLACEHOLDER_1",
+          "redirect_uri": "https://assistant.example.com/oauth/callback",
+          "code_verifier": "iOY_y2JNRsKjN4t_WyVeJiT-YAQVoL6MnFjPW6Ks1hU",
+          "resource": "https://www.envoi-agents.com/mcp",
+          "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "tokenResponse",
+        "headers": {
+          "cache-control": "no-store",
+          "pragma": "no-cache"
+        },
+        "body": {
+          "access_token": "envoi_agent_access_PLACEHOLDER_oauth_1",
+          "token_type": "Bearer",
+          "expires_in": 900,
+          "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+          "scope": "envoi.agent envoi.send"
+        }
+      }
+    },
+    {
+      "note": "Someone holding the leaked code and the public client_id, without the verifier.",
+      "request": {
+        "method": "POST",
+        "path": "/oauth/token",
+        "auth": "public_client",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        "form": {
+          "grant_type": "authorization_code",
+          "code": "envoi_oauth_code_PLACEHOLDER_1",
+          "redirect_uri": "https://assistant.example.com/oauth/callback",
+          "code_verifier": "1_KKg7vHxgFAoiJF-Y0M3TbN0cAY505i2tm-V1QmxHE",
+          "resource": "https://www.envoi-agents.com/mcp",
+          "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+        }
+      },
+      "response": {
+        "status": 400,
+        "schema": "oauthError",
+        "headers": {
+          "cache-control": "no-store",
+          "pragma": "no-cache"
+        },
+        "body": {
+          "error": "invalid_grant",
+          "error_description": "The authorization grant is invalid, expired, already used or revoked."
+        }
+      }
+    },
+    {
+      "note": "Nothing was revoked: the first exchange's token still works.",
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "auth": "bearer",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "envoi_agent_info",
+            "arguments": {}
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "mcpResult",
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "identity"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

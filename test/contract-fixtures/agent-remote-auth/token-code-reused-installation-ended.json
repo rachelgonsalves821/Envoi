@@ -1,0 +1,105 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "token-code-reused-installation-ended",
+  "description": "A used code presented again after the installation it activated has already ended: invalid_grant, and nothing else is revoked.",
+  "kind": "sequence",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "steps": [
+    {
+      "note": "First exchange succeeds.",
+      "request": {
+        "method": "POST",
+        "path": "/oauth/token",
+        "auth": "public_client",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        "form": {
+          "grant_type": "authorization_code",
+          "code": "envoi_oauth_code_PLACEHOLDER_1",
+          "redirect_uri": "https://assistant.example.com/oauth/callback",
+          "code_verifier": "iOY_y2JNRsKjN4t_WyVeJiT-YAQVoL6MnFjPW6Ks1hU",
+          "resource": "https://www.envoi-agents.com/mcp",
+          "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "tokenResponse",
+        "headers": {
+          "cache-control": "no-store",
+          "pragma": "no-cache"
+        },
+        "body": {
+          "access_token": "envoi_agent_access_PLACEHOLDER_oauth_1",
+          "token_type": "Bearer",
+          "expires_in": 900,
+          "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+          "scope": "envoi.agent envoi.send"
+        }
+      }
+    },
+    {
+      "note": "The client disconnects: the installation ends as revoked.",
+      "request": {
+        "method": "POST",
+        "path": "/oauth/revoke",
+        "auth": "public_client",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        "form": {
+          "token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+          "token_type_hint": "refresh_token",
+          "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "emptyBody",
+        "headers": {
+          "cache-control": "no-store",
+          "pragma": "no-cache"
+        },
+        "bodyText": ""
+      }
+    },
+    {
+      "note": "The code again: check 5 finds no active installation to revoke.",
+      "request": {
+        "method": "POST",
+        "path": "/oauth/token",
+        "auth": "public_client",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        "form": {
+          "grant_type": "authorization_code",
+          "code": "envoi_oauth_code_PLACEHOLDER_1",
+          "redirect_uri": "https://assistant.example.com/oauth/callback",
+          "code_verifier": "iOY_y2JNRsKjN4t_WyVeJiT-YAQVoL6MnFjPW6Ks1hU",
+          "resource": "https://www.envoi-agents.com/mcp",
+          "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+        }
+      },
+      "response": {
+        "status": 400,
+        "schema": "oauthError",
+        "headers": {
+          "cache-control": "no-store",
+          "pragma": "no-cache"
+        },
+        "body": {
+          "error": "invalid_grant",
+          "error_description": "The authorization grant is invalid, expired, already used or revoked."
+        }
+      }
+    }
+  ]
+}

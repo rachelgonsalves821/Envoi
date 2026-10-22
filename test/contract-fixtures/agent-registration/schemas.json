@@ -2379,8 +2379,37 @@
         "installationId": {
           "type": "string",
           "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+        },
+        "audience": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https://[^/?#@]+/mcp$",
+          "description": "The resource the family was issued for: the canonical MCP server URI (agent-remote-auth §2). Set once by the exchange; never changed."
+        },
+        "oauthClientId": {
+          "description": "The client the family was issued to (agent-remote-auth §3): a client metadata document URL or a pre-registered id. Set once by the exchange; never changed.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^client_[a-z0-9-]{3,40}$"
+            },
+            {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^https://"
+            }
+          ]
         }
-      }
+      },
+      "dependencies": {
+        "audience": [
+          "oauthClientId"
+        ],
+        "oauthClientId": [
+          "audience"
+        ]
+      },
+      "description": "A stored credential family. Open: the server keeps further internal fields (for example rotationCounter and updatedAt). audience and oauthClientId are present together, only on families an agent-remote-auth exchange created (revision 5, §14.1)."
     },
     "storedInstallation": {
       "type": "object",
@@ -2442,7 +2471,67 @@
           ]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "connectionRoute": {
+                "const": "remote_mcp_oauth"
+              }
+            },
+            "required": [
+              "connectionRoute"
+            ]
+          },
+          "then": {
+            "properties": {
+              "deliveryMode": {
+                "const": "on_demand"
+              },
+              "runtime": {
+                "properties": {
+                  "type": {
+                    "const": "remote_mcp"
+                  },
+                  "version": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "connectionRoute": {
+                "const": "provider_connector"
+              }
+            },
+            "required": [
+              "connectionRoute"
+            ]
+          },
+          "then": {
+            "properties": {
+              "deliveryMode": {
+                "const": "on_demand"
+              },
+              "runtime": {
+                "properties": {
+                  "type": {
+                    "const": "provider"
+                  },
+                  "version": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "fixture": {
       "type": "object",
@@ -2475,7 +2564,8 @@
             "http",
             "migration",
             "rollback",
-            "restart"
+            "restart",
+            "stored"
           ]
         },
         "flags": {
@@ -2493,6 +2583,12 @@
               "type": "boolean"
             },
             "ENVOI_AUTHENTICATED_REST_ROUTE": {
+              "type": "boolean"
+            },
+            "ENVOI_REMOTE_MCP_OAUTH": {
+              "type": "boolean"
+            },
+            "ENVOI_PROVIDER_CONNECTORS": {
               "type": "boolean"
             }
           },
@@ -2537,6 +2633,42 @@
               "items": {
                 "$ref": "#/definitions/storedInstallation"
               }
+            },
+            "credentialRecords": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedCredentialRecord"
+              }
+            },
+            "registrations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedOAuthRegistration"
+              }
+            },
+            "consentDecisions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedConsentDecision"
+              }
+            },
+            "oauthCodes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedOAuthCode"
+              }
+            },
+            "oauthRefreshRecoveries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedOAuthRefreshRecovery"
+              }
+            },
+            "oauthCleanupIndex": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/storedOAuthCleanupIndex"
+              }
             }
           },
           "additionalProperties": false
@@ -2565,6 +2697,9 @@
               },
               "client": {
                 "$ref": "#/definitions/fixtureClient"
+              },
+              "storedAfter": {
+                "$ref": "#/definitions/fixture/properties/stored"
               }
             },
             "additionalProperties": false
@@ -2573,6 +2708,67 @@
         },
         "client": {
           "$ref": "#/definitions/fixtureClient"
+        },
+        "timeline": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "event",
+              "at",
+              "storedAfter"
+            ],
+            "properties": {
+              "event": {
+                "enum": [
+                  "old_refresh_presented",
+                  "successor_access_used",
+                  "successor_refresh_used",
+                  "index_sweep",
+                  "registration_cleanup",
+                  "restart"
+                ]
+              },
+              "at": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+              },
+              "tokenHash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$",
+                "description": "The token record the event presents or uses."
+              },
+              "storedAfter": {
+                "$ref": "#/definitions/fixture/properties/stored"
+              },
+              "outcome": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "oldRefreshToken": {
+                    "enum": [
+                      "recovered_identical_response",
+                      "replay_revokes_family"
+                    ]
+                  },
+                  "codePresented": {
+                    "enum": [
+                      "reuse_revokes_installation",
+                      "invalid_grant_revokes_nothing"
+                    ]
+                  },
+                  "consentRetry": {
+                    "enum": [
+                      "consentDecided",
+                      "AUTHORIZATION_REQUEST_INVALID"
+                    ]
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "allOf": [
@@ -2603,7 +2799,8 @@
                 "enum": [
                   "migration",
                   "rollback",
-                  "restart"
+                  "restart",
+                  "stored"
                 ]
               }
             }
@@ -2792,6 +2989,787 @@
       "type": "string",
       "pattern": "^[^@\\s*]\\*\\*\\*@[a-z0-9.-]+\\.[a-z]{2,}$",
       "maxLength": 260
+    },
+    "storedCredentialRecord": {
+      "description": "A credential index record at auth/agent-credentials/{tokenHash} (access, mcp_read, oauth_access) or auth/agent-refresh-credentials/{tokenHash} (refresh, oauth_refresh). Open. tokenHash is the document path key, surfaced so fixtures can link records; it is not a stored field. OAuth families use only the oauth_ types (revision 5, §14.2).",
+      "type": "object",
+      "required": [
+        "tokenHash",
+        "tokenType",
+        "agentId",
+        "inboxId",
+        "familyId",
+        "issuedAt",
+        "expiresAt",
+        "revokedAt"
+      ],
+      "properties": {
+        "tokenHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "tokenType": {
+          "enum": [
+            "access",
+            "refresh",
+            "mcp_read",
+            "oauth_access",
+            "oauth_refresh"
+          ]
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "inboxId": {
+          "type": "string",
+          "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+        },
+        "familyId": {
+          "type": "string",
+          "pattern": "^credential_family_[A-Za-z0-9_-]{1,80}$"
+        },
+        "issuedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "revokedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Refresh records: when the token was rotated. oauth_access records: the first /mcp request it authenticated, written under the family lock (recovery check, §14.5)."
+        },
+        "recoveryTokenHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The two successors of an OAuth rotation: the hash of the old refresh token, which keys the recovery envelope. The first use of either successor deletes that envelope and clears this field on both, in one write under the family lock (§14.5)."
+        }
+      }
+    },
+    "storedOAuthRegistration": {
+      "description": "A registration that an agent-remote-auth approval or bootstrap issue created (revision 5, §14.3). It is created already approved; it never has a bootstrap token or a verification code.",
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "connectionRoute",
+        "runtime",
+        "createdAt",
+        "approvedAt",
+        "activationExpiresAt",
+        "target",
+        "workspaceName",
+        "approverHumanId",
+        "principalHumanId",
+        "effectivePermissions",
+        "policyProfile",
+        "oauth",
+        "decision"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "tokenHash"
+            ]
+          },
+          {
+            "required": [
+              "codeHmac"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "activated",
+            "withdrawn"
+          ]
+        },
+        "connectionRoute": {
+          "enum": [
+            "remote_mcp_oauth",
+            "provider_connector"
+          ]
+        },
+        "runtime": {
+          "$ref": "#/definitions/runtime"
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "approvedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "activationExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "activatedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "target": {
+          "description": "As every approval stores it (§5.3). GET /api/agent-claims reads it on every server version, including one that predates revision 5.",
+          "type": "object",
+          "required": [
+            "kind",
+            "agentName",
+            "address"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "new_agent",
+                "existing_agent"
+              ]
+            },
+            "agentName": {
+              "type": "string"
+            },
+            "address": {
+              "type": "string"
+            },
+            "workspaceInboxId": {
+              "type": "string",
+              "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+            },
+            "agentInboxId": {
+              "type": "string",
+              "pattern": "^inbox_[A-Za-z0-9_-]{1,80}$"
+            },
+            "agentId": {
+              "type": "string",
+              "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "new_agent"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "workspaceInboxId"
+                ]
+              },
+              "else": {
+                "required": [
+                  "agentInboxId",
+                  "agentId"
+                ]
+              }
+            }
+          ]
+        },
+        "workspaceName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approverHumanId": {
+          "type": "string",
+          "pattern": "^human_[A-Za-z0-9_-]{1,80}$"
+        },
+        "principalHumanId": {
+          "type": "string",
+          "pattern": "^human_[A-Za-z0-9_-]{1,80}$"
+        },
+        "effectivePermissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/permission"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "policyProfile": {
+          "const": "default"
+        },
+        "installationId": {
+          "type": "string",
+          "pattern": "^installation_[A-Za-z0-9_-]{1,80}$"
+        },
+        "credentialFamilyId": {
+          "type": "string",
+          "pattern": "^credential_family_[A-Za-z0-9_-]{1,80}$"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[A-Za-z0-9_-]{1,80}$"
+        },
+        "oauth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "clientId",
+            "redirectUri",
+            "codeChallenge",
+            "resource",
+            "scope",
+            "handleDigest",
+            "codeHash",
+            "codeUsedAt"
+          ],
+          "properties": {
+            "source": {
+              "enum": [
+                "consent",
+                "bootstrap"
+              ]
+            },
+            "clientId": {
+              "description": "The client the family was issued to (agent-remote-auth §3): a client metadata document URL or a pre-registered id. Set once by the exchange; never changed.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^client_[a-z0-9-]{3,40}$"
+                },
+                {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "pattern": "^https://"
+                }
+              ]
+            },
+            "redirectUri": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "pattern": "^(?:https|http)://"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The redirect URI exactly as requested, loopback port included. null for a bootstrap code."
+            },
+            "codeChallenge": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{43}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "S256 challenge. null for a bootstrap code."
+            },
+            "resource": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^https://[^/?#@]+/mcp$",
+              "description": "The resource the family was issued for: the canonical MCP server URI (agent-remote-auth §2). Set once by the exchange; never changed."
+            },
+            "scope": {
+              "type": "string",
+              "pattern": "^envoi\\.[a-z]+(?: envoi\\.[a-z]+)*$",
+              "description": "The effective permissions mapped back through x-scopes, in table order (agent-remote-auth §6.1)."
+            },
+            "handleDigest": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "SHA-256 of the authorization request handle. null for a bootstrap code."
+            },
+            "codeHash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "codeUsedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "decision": {
+          "type": "object",
+          "required": [
+            "kind",
+            "humanId",
+            "digest",
+            "decidedAt"
+          ],
+          "properties": {
+            "kind": {
+              "const": "approve"
+            },
+            "humanId": {
+              "type": "string",
+              "pattern": "^human_[A-Za-z0-9_-]{1,80}$"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "decidedAt": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "redirectTo"
+                ]
+              },
+              {
+                "required": [
+                  "code"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "storedConsentDecision": {
+      "description": "auth/oauth-consent-decisions/{handleDigest}: the one decision on an authorization request handle (revision 5, §14.4). A deny creates no registration, agent, code or hold, only this record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handleDigest",
+        "humanId",
+        "decision",
+        "bodyDigest",
+        "registrationId",
+        "decidedAt",
+        "handleExpiresAt"
+      ],
+      "properties": {
+        "handleDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "humanId": {
+          "type": "string",
+          "pattern": "^human_[A-Za-z0-9_-]{1,80}$"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "denied"
+          ]
+        },
+        "bodyDigest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "registrationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decidedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "handleExpiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "approved"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "bodyDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "registrationId": {
+                "type": "string",
+                "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "bodyDigest": {
+                "type": "null"
+              },
+              "registrationId": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "storedOAuthCode": {
+      "description": "auth/oauth-codes/{codeHash}: finds the registration of an authorization or bootstrap code at the token endpoint (revision 5, §14.3).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "codeHash",
+        "kind",
+        "registrationId",
+        "clientId",
+        "expiresAt",
+        "usedAt"
+      ],
+      "properties": {
+        "codeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "kind": {
+          "enum": [
+            "authorization_code",
+            "bootstrap_code"
+          ]
+        },
+        "registrationId": {
+          "type": "string",
+          "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+        },
+        "clientId": {
+          "description": "The client the family was issued to (agent-remote-auth §3): a client metadata document URL or a pre-registered id. Set once by the exchange; never changed.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^client_[a-z0-9-]{3,40}$"
+            },
+            {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^https://"
+            }
+          ]
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "usedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "storedOAuthRefreshRecovery": {
+      "description": "auth/agent-oauth-refresh-recovery/{tokenHash}: the 60 s recovery envelope of one OAuth refresh rotation, keyed by the old refresh token (revision 5, §14.5).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokenHash",
+        "familyId",
+        "oauthClientId",
+        "successorAccessHash",
+        "successorRefreshHash",
+        "envelope",
+        "createdAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "tokenHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "familyId": {
+          "type": "string",
+          "pattern": "^credential_family_[A-Za-z0-9_-]{1,80}$"
+        },
+        "oauthClientId": {
+          "description": "The client the family was issued to (agent-remote-auth §3): a client metadata document URL or a pre-registered id. Set once by the exchange; never changed.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^client_[a-z0-9-]{3,40}$"
+            },
+            {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^https://"
+            }
+          ]
+        },
+        "successorAccessHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "successorRefreshHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "envelope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "iv",
+            "ciphertext",
+            "tag"
+          ],
+          "properties": {
+            "iv": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16}$"
+            },
+            "ciphertext": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "tag": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22}$"
+            }
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      }
+    },
+    "storedOAuthCleanupIndex": {
+      "description": "auth/oauth-cleanup/{hour of createdAt}/{key}: one entry per code index and consent decision, so cleanup walks bounded hour buckets and also finds records an older server orphaned (revision 5, §14.6).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "key",
+        "registrationId",
+        "createdAt",
+        "deleteAfter"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "oauth_code",
+            "consent_decision"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "registrationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^registration_[A-Za-z0-9_-]{1,80}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "deleteAfter": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null for a record that has a registration: it lives exactly as long as that registration, which deletes it in its own cleanup. A denial (no registration): its handleExpiresAt."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "registrationId": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "consent_decision"
+              },
+              "deleteAfter": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "deleteAfter": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     }
-  }
+  },
+  "x-stored-records": [
+    {
+      "record": "credential family: audience, oauthClientId",
+      "path": "auth/agent-credential-families/{inboxId}/{agentId}/{familyId}",
+      "writtenBy": "the code or bootstrap exchange (agent-remote-auth §6.1, §8)",
+      "transaction": "activation",
+      "secret": "none",
+      "retention": "as every family: never deleted except with the agent",
+      "cleanup": "agent removal"
+    },
+    {
+      "record": "credential index: oauth_access, oauth_refresh",
+      "path": "auth/agent-credentials/{sha256}, auth/agent-refresh-credentials/{sha256}",
+      "writtenBy": "the exchange and every OAuth refresh",
+      "transaction": "activation, or the refresh rotation",
+      "secret": "SHA-256 of the raw token; the token is never stored",
+      "retention": "as A1 credential records",
+      "cleanup": "as A1 credential records"
+    },
+    {
+      "record": "registration with oauth",
+      "path": "auth/agent-registrations/{registrationId}",
+      "writtenBy": "consent approve, bootstrap issue; then exchange, withdraw, re-check failure",
+      "transaction": "approval; then activation or withdrawal",
+      "secret": "codeHash (SHA-256); no code, no redirectTo",
+      "retention": "agent-registration §2: at least 24 h after createdAt",
+      "cleanup": "agent-registration §2 cleanup, with its oauth indexes"
+    },
+    {
+      "record": "oauth code index",
+      "path": "auth/oauth-codes/{sha256}",
+      "writtenBy": "consent approve, bootstrap issue; usedAt by the exchange",
+      "transaction": "approval; activation",
+      "secret": "SHA-256 of the raw code",
+      "retention": "with its registration",
+      "cleanup": "deleted with its registration, in the same transaction as the registration itself; an orphan (registration already gone) is swept through the cleanup index"
+    },
+    {
+      "record": "consent decision",
+      "path": "auth/oauth-consent-decisions/{sha256(handle)}",
+      "writtenBy": "consent approve (with the registration) or deny (alone)",
+      "transaction": "approval, or the deny write; created only if absent",
+      "secret": "SHA-256 of the handle and of the body; no handle",
+      "retention": "approved: with its registration; denied: until handleExpiresAt",
+      "cleanup": "approved: deleted with its registration, in the same transaction; denied: swept after handleExpiresAt; an orphan is swept through the cleanup index"
+    },
+    {
+      "record": "OAuth cleanup index",
+      "path": "auth/oauth-cleanup/{hour}/{key}",
+      "writtenBy": "every code index and consent decision write",
+      "transaction": "the same write as its record",
+      "secret": "the record key only (a SHA-256)",
+      "retention": "until its record is deleted",
+      "cleanup": "registration cleanup deletes the entries of its registration with it; the index sweep never deletes a record whose registration still exists (it revisits it), deletes an orphan whose registration is gone, and deletes a denial after its deleteAfter"
+    },
+    {
+      "record": "OAuth refresh recovery envelope",
+      "path": "auth/agent-oauth-refresh-recovery/{sha256(old refresh token)}",
+      "writtenBy": "every OAuth refresh rotation",
+      "transaction": "the refresh rotation",
+      "secret": "AES-256-GCM under HKDF-SHA256(old raw refresh token, salt SHA-256(ENVOI_DATA_ENCRYPTION_KEY), info envoi-oauth-refresh-recovery-v1); AAD familyId and oauthClientId",
+      "retention": "60 s (x-limits.refreshRecoverySeconds of agent-remote-auth)",
+      "cleanup": "deleted at the first use of either successor (agent-remote-auth §6.2), found through the successors' recoveryTokenHash, in one write under the family lock; also at family revocation (best effort) and by the reaper after expiresAt"
+    },
+    {
+      "record": "rate-limit windows",
+      "path": "rate-limits/oauth-consent-approvals/{key}, rate-limits/oauth-token/{key}",
+      "writtenBy": "consent approve; token endpoint",
+      "transaction": "own write, outside the request transaction",
+      "secret": "keyed HMAC of the human id or source, as agent-registration §2",
+      "retention": "one window",
+      "cleanup": "as agent-registration-limits windows"
+    },
+    {
+      "record": "client metadata document cache",
+      "path": "process memory only",
+      "writtenBy": "a successful metadata fetch",
+      "transaction": "none",
+      "secret": "none",
+      "retention": "max-age clamped to 300–86,400 s",
+      "cleanup": "process exit or expiry; never stored"
+    }
+  ]
 }

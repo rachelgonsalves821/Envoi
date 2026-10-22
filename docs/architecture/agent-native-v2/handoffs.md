@@ -846,6 +846,159 @@ Removed agents are not listed, so they need no state.
 - The onboarding step "Observe runtime activity" (`frontend/src/model.ts`) may use `connection.presence.lastProcessedAt`.
 - Connector doctor may print `presence` from `GET /api/agent/status`.
 
+## a5-presence-on-demand v1
+
+**Contract:** `a5-presence-on-demand`, version 1 (task **RA-0**, part 1). **Status:** published, awaiting Lane B's `CONTRACT-ACK`. Lane A posts `CONTRACT-PUBLISHED a5-presence-on-demand v1 @<sha>` on board #34 for the commit that carries this text. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED a5-presence-on-demand v1 @<publication sha>` before any dependent work starts. Nothing here is implemented.
+
+**What it is.** An amendment of a5-presence v1 for installations that declare `deliveryMode: "on_demand"`. It is prerequisite 1 of agent-remote-auth v1 §1: "an a5-presence revision gives `on_demand` an honest owner label and connection state, so an installation that is not running is not shown as failing (v3 §45)". a5-presence v1 is frozen and stays approved and unchanged. For every installation that does not declare `on_demand`, a5-presence v1 alone still decides the owner connection. Once both are approved, the owner connection is a5-presence v1 plus this amendment.
+
+**Why a separate contract.** a5-presence v1 says "changes need a new version", and Lane B's tests pin its fixture set. A separate amendment leaves every v1 fixture, test and consumer untouched, and the new rows can be reviewed on their own.
+
+**Fixtures:** [`test/contract-fixtures/a5-presence-on-demand/`](../../../test/contract-fixtures/a5-presence-on-demand/). `schemas.json` holds a5-presence v1's definitions with one state added, plus the tables `x-connection-states` (the whole ordered table, v1's rows included), `x-seen-at-basis`, `x-presence-updates` and `x-presence-never` (both list only the rows this amendment adds), and `x-agent-labels` (v1's, unchanged).
+
+**Owner:** Lane A. **Consumer:** Lane B (the owner agent list and the claim page; RA-B2). **Implemented by:** RA-A3 (server projection) with RA-B2 (owner UI).
+
+### 1. Scope
+
+- **Which agents.** An agent whose **reported family** (a5-presence v1 §4.2: the newest non-revoked family, else the newest family) belongs to an installation that declares `deliveryMode: "on_demand"` (agent-registration §6.4). Only agent-remote-auth v1 activations create such installations (its §1).
+- **Which family decides.** Only the reported family. When an existing-agent reconnect replaces an on-demand installation with a local-helper one, v1's rows apply again from the new family. When it replaces a local-helper installation with an on-demand one, this amendment applies, and the old family's presence is no longer reported. A family with no installation document is a legacy `envoi_link` installation (agent-registration §9).
+- **What it does not change.**
+  - The shape of every response: `connection` keeps a5-presence v1's fields, and only `state` gains a value. `recentWindowSeconds` stays 300 in every response, but no on-demand row uses it.
+  - Presence storage, the throttle, the write rules and the agent's `GET /api/agent/status` (a5-presence v1 §1–§4.1).
+  - The agent labels (a5-presence v1 §5), pause, resume and every a3 code.
+  - Availability. This amendment makes no delivery mode, route or wake path available. `on_demand` stays available only as agent-remote-auth v1 §1 says. `poll`, `webhook`, `provider` and `a2a` gain no label and stay as before. An http-wake subscription would never change the state. Today an OAuth installation cannot create one at all: its tokens are refused at `/api/agent/wake-subscriptions` (agent-remote-auth §9), and no `/mcp` tool creates one. That gap belongs to agent-remote-auth and is reported separately; this amendment adds no wake path.
+  - The local helper's states (agent-registration §7). The helper's routes refuse `on_demand` (agent-registration §6.1 row 8), so no helper state is added.
+
+### 2. Connection state
+
+The first matching row wins. The whole table, with labels, is `x-connection-states`.
+
+| # | Condition | `state` |
+| --- | --- | --- |
+| 1 | `status` is `revoked`, or `credentialRevoked` is `true` | `revoked` |
+| 2 | `onboardingStatus` is `rejected` | `rejected` |
+| 3 | `onboardingStatus` is any other value except `approved` | `pending_approval` |
+| 4 | No credential family | `not_connected` |
+| 5 | `credentialExpiresAt` ≤ `asOf` | `needs_reconnect` |
+| **6** | **The reported family's installation declares `on_demand`** | **`on_demand`** |
+| 7 | `seenAt` is `null` | `never_seen` |
+| 8 | `asOf − seenAt` ≤ `recentWindowSeconds` | `seen_recently` |
+| 9 | Otherwise | `not_seen_recently` |
+
+Rows 1–5 and 7–9 are a5-presence v1's rows 1–8, unchanged.
+
+**`seenAt` for an on-demand installation** is `presence.lastSeenAt`, whether or not the agent is paused, with no resume grace (`x-seen-at-basis`). An on-demand host has no work loop: it calls `/mcp` only while its user has it open, so `lastWorkClaimAt` says nothing about it. `seenAt` is `null` until the family makes its first authenticated request. Activation (the token exchange) writes no presence, as a5-presence v1 §3 already says for enrollment redemption. Rows 1–5 still report this `seenAt`.
+
+**Precedence, case by case**
+
+| Case | Result | Why |
+| --- | --- | --- |
+| The family was revoked: by the client (`POST /oauth/revoke`), by the owner, or for a replay | `revoked` (row 1), "Access revoked" | v1 row 1. The identity is not frozen, so the owner UI offers "Reconnect an existing agent" (agent-registration revision 4). |
+| The rolling refresh lifetime passed | `needs_reconnect` (row 5) | The user must authorize again; that is a real problem and not "idle". It is v1 row 5 for every mode. |
+| Paused | `on_demand`, agent label "Paused" | Pause belongs to the agent label (a5-presence v1 §4.2, "Pause is separate"). The assistant's tool calls get `409 AGENT_PAUSED`, and refresh still succeeds (agent-remote-auth §6.2). Both still update `lastSeenAt`. |
+| Paused and expired | `needs_reconnect`, agent label "Paused" | Row 5 comes first. |
+| No request since activation | `on_demand`, detail "No requests yet" | Never `never_seen` ("Not checked in yet"), which would suggest that a running process has not started. |
+| Idle, for however long short of credential expiry (row 5) | `on_demand`, detail "Last request {relative}" | Never `not_seen_recently`. Age alone never makes an on-demand installation look stopped or broken. Only the rolling refresh lifetime ending does, and then the state is `needs_reconnect`. |
+| Recently used | `on_demand`, detail "Last request {relative}" | Never `seen_recently`. A recent request is not evidence that the assistant is reachable now. |
+| Route flags off (agent-remote-auth §11 rollback) | `on_demand`, unchanged | The state is derived from the declared mode, not from flags. The installation stays active and revocable while its tokens get `401` at `/mcp`. |
+
+**Reading the installation.** The server already reads the reported family to build `connection`. For on-demand detection it also reads that family's installation document. If that read fails, or the family names an installation whose document is absent, the server omits `connection` and the response still succeeds, exactly like a failed presence read (a5-presence v1 §4.2). It never falls back to v1's rows for a family that names an installation it could not read.
+
+**Owner wording (RA-B2).**
+
+| `state` | Connection label | Detail | Must never claim |
+| --- | --- | --- | --- |
+| `on_demand` | "On demand" | `seenAt` is `null`: "No requests yet". Otherwise "Last request {relative time of `seenAt` from `asOf`}". | That the assistant is running, online, connected or reachable now; that it will receive, process or answer work while its user does not have it open; that it is offline, stopped, broken or failing, or needs attention, because it made no recent request. |
+
+- **Show all three:** the agent label, the connection label and the detail, for example "Active · On demand · Last request 9 days ago" or "Paused · On demand · No requests yet".
+- **Neutral presentation** (`presentation: "neutral"`). An on-demand state is styled neither as a problem (no warning or error colour, icon or "needs attention" badge) nor as online or healthy (no green dot or "connected" mark).
+- **"Request", not "use".** The detail counts any request the installation's credential authenticated, including a token refresh, which a host may make without its user (§3). So the label says "Last request", never "Last used" or "Last active".
+- Every other state keeps a5-presence v1 §5's wording. Unknown states still show "Status unknown".
+
+### 3. Presence updates for these routes
+
+a5-presence v1 §3 applies unchanged: its "authenticated" means a typed `envoi_` access or refresh credential of a family that is not revoked or expired, belonging to an approved agent that is `active` or `paused`. OAuth-family tokens are such credentials. agent-registration revision 5 (§14.2) stores them with the token types `oauth_access` and `oauth_refresh`; presence counts those exactly as it counts `access` and `refresh`. These rows make explicit how its table applies to the agent-remote-auth endpoints (`x-presence-updates`, `x-presence-never`):
+
+| Request | Outcome | Fields |
+| --- | --- | --- |
+| `POST /oauth/token`, `grant_type=refresh_token` | `200`, including the identical response inside the recovery window | `lastSeenAt`, `lastSuccessfulRefreshAt` (the a5 v1 `POST /api/agent-token` row) |
+| `POST /mcp` with an OAuth-family access token | any response after authentication, including `403 INSUFFICIENT_SCOPE` and `409 AGENT_PAUSED` | `lastSeenAt` (the a5 v1 "any other request" row) |
+| An agent operation that a `/mcp` tool call performs: claim, renew, acknowledge, complete, fail, instruction reply | as a5 v1's row for that operation | as a5 v1's row for that operation, recorded for the family that authenticated the `/mcp` request |
+
+**Never** (in addition to a5-presence v1's list):
+- `POST /oauth/token` with `grant_type=authorization_code` or the bootstrap grant. That is activation, like enrollment redemption;
+- `POST /oauth/revoke`;
+- an OAuth-family token presented anywhere except `/mcp`. It gets `401 AUTHENTICATION_REQUIRED` (agent-remote-auth §9, audience), so it is a rejected credential;
+- discovery, client metadata fetches and `GET /oauth/authorize`;
+- the consent page and its approve, deny and withdraw requests, and issuing a bootstrap code. These are human requests.
+
+The last row of the first table holds whatever internal dispatch `/mcp` uses (agent-remote-auth §14). An internal call records presence for the family of the outer `/mcp` request, at most as a5 v1's rows allow, and the throttle makes a double count harmless.
+
+### 4. Compatibility and rollback
+
+- **No change until an on-demand installation exists.** Every installation the server can create today declares `envoi_link`, or `poll` for a provider-browser-poll gateway installation, and this amendment leaves both on v1's rows. Owner responses therefore stay identical until an agent-remote-auth route is turned on and used.
+- **Consumers that know only v1** show "Status unknown" for `on_demand` (a5-presence v1 §4.2). That is honest: it neither claims the assistant is reachable nor says it is broken. Turning a route flag on still waits for RA-B2's rendering (agent-remote-auth §1).
+- **No new storage, endpoint, event, audit type or migration.** The projection reads the installation document that agent-registration already stores.
+- **Rollback of the server change.** Reverting RA-A3's projection makes on-demand installations fall back to v1's rows: "Not checked in yet" or "Last checked in …". That is less accurate but claims nothing false about reachability. No data needs to change in either direction.
+- **Version.** This is v1 of a new contract. a5-presence keeps version 1. A later consolidation into one a5-presence version is optional and would be its own publication.
+
+### 5. Fixtures
+
+Owner fixtures use a5-presence v1 §6's fields, plus:
+- `context.reportedInstallations`: one `{ agentId, installation }` per agent in the body, in order. `installation` is the reported family's installation `{ id, connectionRoute, deliveryMode, legacy }`, or `null` for a legacy family. This is input for re-deriving the state; owner views never carry it;
+- `context.flags` (optional): the two route flags, when the fixture is about them;
+- `client.connectionDetail`: the §2 detail, present exactly when the state is `on_demand`.
+
+**What `test/contract-fixtures.test.js` checks**
+- Every response against its schema, with v1's checks: `seenAt`, `connection.state` and both labels are re-derived from the fixture's own fields, using §2's rows when the reported installation declares `on_demand`.
+- The detail against `x-connection-states`.
+- The amendment against a5-presence v1:
+  - the state table is v1's with exactly one row inserted after `needs_reconnect`;
+  - every other definition and the agent labels are v1's, byte for byte;
+  - a5-presence stays at version 1.
+- The precedence cases of §2:
+  - revoked and expired win, paused or not;
+  - pause stays the agent label;
+  - idle time beyond the recent window stays `on_demand`;
+  - no presence gives "No requests yet";
+  - after the resume grace the basis is still `lastSeenAt`;
+  - only the reported family decides, in both directions;
+  - both routes are covered;
+  - flags off does not change the state.
+- No on-demand fixture uses a v1 check-in label. The added presence rows cover refresh, exchange, revocation and the audience refusal.
+- The table below lists exactly the registered fixtures.
+
+| Group | Fixtures |
+| --- | --- |
+| On demand | `owner-on-demand-no-requests`, `owner-on-demand-recent-request`, `owner-on-demand-idle`, `owner-on-demand-refresh-only`, `owner-on-demand-after-resume` |
+| Pause | `owner-on-demand-paused`, `owner-on-demand-pause-response` |
+| Precedence | `owner-on-demand-needs-reconnect`, `owner-on-demand-paused-needs-reconnect`, `owner-on-demand-revoked-by-client` |
+| Reported family | `owner-on-demand-replaced-by-local-helper`, `owner-local-helper-replaced-by-on-demand` |
+| Rollback | `owner-on-demand-flags-off` |
+
+### 6. Decisions for review
+
+1. **One state with a detail line**, instead of separate "unused", "recent" and "idle" states. A "recent" state would read as "reachable now", and an "idle" state as a problem. One neutral state with a factual detail avoids both.
+2. **`lastSeenAt` as the basis, labelled "Last request".** It includes token refreshes, which a host may make without its user. Counting only `/mcp` calls would need a new presence field, which is a storage change. The label stays accurate either way.
+3. **Age never changes the state.** Only credential expiry (row 5) or revocation (row 1) turns an idle on-demand installation into something the owner must act on.
+4. **The state does not depend on flags.** During an agent-remote-auth rollback the installation still shows "On demand", while its tokens are refused at `/mcp`. A flag-dependent "route unavailable" state would make the projection depend on configuration. The owner UI may read `GET /api/onboarding/routes` to explain the outage.
+5. **A separate amendment contract**, not a new a5-presence version (see "Why a separate contract").
+6. **Approval.** Version-specific `CONTRACT-APPROVED a5-presence-on-demand v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. Approval does not turn on any flag, and does not satisfy agent-remote-auth's other prerequisites: the hosted route gates, and the paired implementation, planner and redaction work.
+
+### 7. Consumer changes for RA-B2 (Lane B; informative)
+
+- Accept `on_demand` in the owner connection type, and render the label, the detail and the neutral style of §2.
+- Keep "Status unknown" for unknown states, and v1's wording for every other state.
+- The claim page's reconnect offer (agent-registration revision 4) is unchanged. A revoked on-demand agent is offered like any other.
+- Installation rows keep showing route, mode and runtime as declared (agent-registration §6.5).
+
+### 8. Implementation notes for RA-A3 (Lane A; informative)
+
+- `ownerConnection` in `src/agent-presence.js` gains the reported family's installation `deliveryMode`. The owner projection reads `installationPath(…, family.installationId)` alongside the presence record, and reads nothing for a family without `installationId`.
+- The precedence stays a single expression, with the on-demand row placed after `needs_reconnect`.
+- Presence recording (`trackAgentPresence` in `src/server.js`) today returns early for every token type except `access`. It must count `oauth_access`, and the OAuth refresh grant must record `lastSuccessfulRefreshAt` as `POST /api/agent-token` does (§3).
+- Server tests run every fixture here through the real owner routes, on FileStore and PostgreSQL, as `test/a5-presence.test.js` does for v1.
+
 ## envoi-browser-names v1
 
 **Contract:** `envoi-browser-names`, version 1. **Status:** approved by the human on 2026-10-11 (`CONTRACT-APPROVED envoi-browser-names v1 @1b88e1d`, build board #34) after Lane B `CONTRACT-ACK` (consuming tests in PR #66). Frozen: changes need a new version.
@@ -1042,11 +1195,11 @@ The five `event-*` fixtures are already clean.
 
 ## agent-registration v1
 
-**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** approved, fourth revision (§13). For revision 4, Lane B posted [`CONTRACT-ACK` @532789b](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275137188) and the human posted [`CONTRACT-APPROVED` rev 4](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275502353) on 2026-10-19. Earlier history: the human's first `CONTRACT-APPROVED` preceded Lane B's review, which found a `MISMATCH`. By the human's decision the corrected contract stayed v1. Lane B posted [`CONTRACT-ACK` @4da219e](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134589212) and the human posted a [fresh `CONTRACT-APPROVED`](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134778271) on 2026-10-12, before #76 was integrated. Revision 4 (§13) clarifies which agents the owner UI offers for reconnect. It does not change the wire contract, server behaviour or a5-presence v1. Server code is A-4.x; nothing here is default-on.
+**Contract:** `agent-registration`, version 1 (build-plan task **A-3.1a**). **Status:** approved, fourth revision (§13). **Revision 5** (§14, stored records for the agent-remote-auth routes) is published and awaits Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-registration v1 revision 5 @<publication sha>`; until then revision 4 is the approved text. For revision 4, Lane B posted [`CONTRACT-ACK` @532789b](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275137188) and the human posted [`CONTRACT-APPROVED` rev 4](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275502353) on 2026-10-19. Earlier history: the human's first `CONTRACT-APPROVED` preceded Lane B's review, which found a `MISMATCH`. By the human's decision the corrected contract stayed v1. Lane B posted [`CONTRACT-ACK` @4da219e](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134589212) and the human posted a [fresh `CONTRACT-APPROVED`](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6134778271) on 2026-10-12, before #76 was integrated. Revision 4 (§13) clarifies which agents the owner UI offers for reconnect. It does not change the wire contract, server behaviour or a5-presence v1. Server code is A-4.x; nothing here is default-on.
 
 **Fixtures:** [`test/contract-fixtures/agent-registration/`](../../../test/contract-fixtures/agent-registration/). It holds:
-- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-model-visible`, `x-permission-labels`, `x-route-availability`, `x-delivery-availability`, `x-operations`, `x-legacy-projection` and `x-installation-derivation`;
-- one JSON file per case, including migration, rollback and re-enable fixtures (§9).
+- `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-limits`, `x-model-visible`, `x-permission-labels`, `x-route-availability`, `x-delivery-availability`, `x-operations`, `x-legacy-projection`, `x-installation-derivation` and `x-stored-records` (revision 5);
+- one JSON file per case, including migration, rollback and re-enable fixtures (§9) and stored-record fixtures (§14).
 
 **Owner:** Lane A. **Consumer:** Lane B. That covers `envoi-link connect`, the `/connect` skill and manifest, the claim UI, and the host planner in PR #72. **Implemented by:** A-4.x. It needed this contract's approval (given above) **and** needs the hosted Phase A gate (two-owner plan A5).
 
@@ -1755,6 +1908,230 @@ The entries before revision 4 were made before Lane B's `CONTRACT-ACK`.
   - **Unchanged:** the wire format, every server behaviour and code, and a5-presence v1.
   - **For consumers of the fixtures:** the registration directory now holds 79 fixtures, up from 78. A step may name another contract's schema as `<contract>/<definition>`. Lane B's consuming reviews (`sdk/typescript/reviews/agent-registration.review.ts`, `integrations/onboarding/test/agent-registration.review.mjs`) pin the count at 78 and look schema names up in this contract only, so they need that update.
   - **Version:** this is a clarification of approved behaviour, so the contract stays v1. The human approved revision 4 ([`CONTRACT-APPROVED` rev 4](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275502353), 2026-10-19), after Lane B's [`CONTRACT-ACK` @532789b](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6275137188). Lane B's #156 fixes the owner UI predicate.
+- **Revision 5: stored records for the agent-remote-auth routes (2026-10-21; published, awaiting Lane B's `CONTRACT-ACK` and the human's approval).**
+  - **Why:** agent-remote-auth v1 (approved @`bbd361e`) reaches this contract's approval, activation and family operations, and its §14 deferred the stored-shape note to this contract. The implementation (RA-A1, RA-A2) needs every stored record, transaction, hash rule, retention limit and cleanup path agreed before it starts.
+  - **What changed:**
+    - New §14: `audience` and `oauthClientId` on the credential family (§14.1); `oauth_access` and `oauth_refresh` token records, so a source rollback fails closed (§14.2); OAuth registrations and the code index (§14.3); consent decisions, including the denial record that agent-remote-auth §5.3's "Nothing is created" leaves implicit (§14.4); the refresh recovery envelope (§14.5); cleanup, the cleanup index and orphans (§14.6); flags-off and source rollback (§14.7).
+    - `schemas.json`: typed `audience`/`oauthClientId` on `storedCredentialFamily` (present together); a rule that `remote_mcp_oauth` installations declare `on_demand` with runtime `remote_mcp`, and `provider_connector` installations `on_demand` with runtime `provider`; new `storedCredentialRecord`, `storedOAuthRegistration`, `storedConsentDecision`, `storedOAuthCode`, `storedOAuthRefreshRecovery`, `storedOAuthCleanupIndex`; fixture kind `stored`; optional fixture flags `ENVOI_REMOTE_MCP_OAUTH`, `ENVOI_PROVIDER_CONNECTORS`; `x-stored-records`.
+    - Eleven fixtures (§14.0, §14.8) and `checkStoredOAuthRecords` plus an agreement test in `test/contract-fixtures.test.js`.
+    - §14.0: the public registration and activation routes never create a remote-auth registration or installation, whatever the flags (clarifies agent-remote-auth §1).
+  - **Unchanged:** the wire format, every route, code and owner view, today's server behaviour, and every existing record. No data migration.
+  - **For consumers of the fixtures:** the registration directory now holds 90 fixtures, up from 79. Lane B's consuming reviews `integrations/onboarding/test/agent-registration.review.mjs` and `sdk/typescript/reviews/agent-registration.review.ts` pin 79. The `.mjs` also allows only the kinds `http`, `migration`, `rollback` and `restart`. Neither runs in CI, but both need the new count and the kind `stored`.
+  - **Second review round** (Lane B `MISMATCH` [6324725735](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6324725735), [review](https://github.com/rachelgonsalves821/Envoi/pull/176#issuecomment-6324721163), @`b099fc9`):
+    1. **Envelope deletion.** §14.5 had kept the envelope after a successor's first use. It now deletes it, as agent-remote-auth §6.2 requires, found through the successors' new `recoveryTokenHash`. New fixtures: `stored-oauth-successor-access-used` and `stored-oauth-successor-refresh-used`.
+    2. **Parent and child retention.** A `+24 h` `deleteAfter` could delete the children of a registration that is legitimately kept until 25 h. Children now have no deadline of their own: registration cleanup deletes them with their registration, in one transaction, and the index sweep only deletes orphans and expired denials. New fixtures: `stored-oauth-retention-boundary` and `stored-oauth-orphan-sweep`.
+    3. **Revoke coverage.** The rollback fixtures had lost their revoke steps. These are restored as transitions (`storedAfter`), with a listing after them. `test/agent-registration-stored-revoke.test.js` runs the real revoke route over the seeded OAuth state in both contexts. It showed that the real revoke also writes `revokedByHumanId`, which the fixtures now record.
+  - **Version:** internal storage plus one clarification of agent-remote-auth §5.3, so the contract stays v1. It needs Lane B's `CONTRACT-ACK` and the human's version-specific approval before RA-A1 or RA-A2 writes any of these records.
+
+### 14. Stored records for the agent-remote-auth routes (revision 5)
+
+agent-remote-auth v1 (revision 2, approved @`bbd361e`) runs this contract's approval, activation, installation and credential family operations from its consent page and token endpoint. This section says what those flows store, so that both storage backends, cleanup and rollback can be checked before any code exists. It is task **RA-0**, part 2.
+
+- **No wire change.** No route, response, code or owner view changes. Every record here is internal.
+- **No data migration.** Each record is either new or gains optional fields. No existing record is rewritten, and every existing family keeps working unchanged. FileStore and PostgreSQL store these as documents at new paths, with no SQL migration.
+- **Hashes.** "Hash" means the lowercase hex SHA-256 of the raw value, as `hashSecret` already does for agent credentials. Raw codes, bootstrap codes, handles, verifiers, client secrets and tokens are never stored. The handle and request body are stored only as digests.
+- **Machine-readable table:** `x-stored-records`, one row per record: path, writer, transaction, secret handling, retention and cleanup.
+
+#### 14.0 Public routes never create these records
+
+agent-remote-auth §1 makes `remote_mcp_oauth` and `provider_connector` available in `GET /api/onboarding/routes` when their flags are on. That availability means "through agent-remote-auth's own flow": consent (§5) or a bootstrap code (§8). This contract's own public routes still never create such a registration or installation, whatever the flags:
+- `POST /api/agent-registrations` with either route gets `400 ROUTE_NOT_AVAILABLE`, as it does today (x-route-availability: "never in v1"). Fixture `registration-remote-route-refused`;
+- `POST /api/agent-installations/activate` with `deliveryMode: on_demand` gets `400 DELIVERY_MODE_NOT_AVAILABLE` (agent-remote-auth §11).
+
+Otherwise a bootstrap-token registration could create an installation on an OAuth route with no `audience`, which §14.1 forbids. This clarifies agent-remote-auth §1, and no response changes.
+
+#### 14.1 Credential family: `audience` and `oauthClientId`
+
+agent-remote-auth §6.1 adds two facts to the family that an exchange creates:
+
+| Field | Value |
+| --- | --- |
+| `audience` | The resource: `${origin}/mcp`, from `ENVOI_PUBLIC_URL` when the family is created. |
+| `oauthClientId` | The client the code or bootstrap code was issued to: a client metadata document URL or a pre-registered `client_…` id. |
+
+- Both are present, or neither is (`storedCredentialFamily.dependencies`). They are present only on families that an agent-remote-auth exchange created. Every family that exists today has neither.
+- They are written once, in the activation transaction, and never change. Refresh, revocation, replacement, owner revoke, rollback and cleanup leave them as they are. A reconnect creates a new family and never copies them.
+- Neither appears in any response, audit body, event or model-visible value.
+- **Origin change.** If `ENVOI_PUBLIC_URL`'s origin changes, a family's `audience` no longer equals the resource. Its tokens are then refused at `/mcp` (`401`), and the user connects again. The server fails closed, and nothing is migrated.
+- **Correction.** agent-remote-auth §14 calls `storedCredentialFamily` "closed". It is open: the server keeps other internal fields in it, such as `rotationCounter` and `updatedAt`. Revision 5 adds the two fields as typed, optional properties. The rest of that §14 note stands.
+
+#### 14.2 Token records: `oauth_access` and `oauth_refresh`
+
+An OAuth family's token index records (`auth/agent-credentials/{hash}`, `auth/agent-refresh-credentials/{hash}`) use `tokenType: "oauth_access"` and `"oauth_refresh"`, not `access` and `refresh`. The raw token formats stay `envoi_agent_access_…` and `envoi_agent_refresh_…` (agent-remote-auth §1).
+
+**Why.** A server that predates agent-remote-auth knows only `access`, `refresh` and `mcp_read`. It refuses any other token type on every route: `401 AUTHENTICATION_REQUIRED`, or `REFRESH_TOKEN_INVALID` at `POST /api/agent-token`. A source rollback therefore fails closed: an audience-bound token never works on REST, not even on a server that has no audience check. Fixture `stored-oauth-source-rollback`.
+
+**Rules**
+- A family has `audience` exactly when every token record of it is an `oauth_` type. The server checks both the record type and the family. If they disagree, the token is refused and the mismatch is logged without token material.
+- `oauth_access` is accepted only at `/mcp` (agent-remote-auth §9). Everywhere else it gets `401 AUTHENTICATION_REQUIRED`, like an unknown token. The one exception is agent-remote-auth §14's internal dispatch: the agent operations a `/mcp` tool call performs on behalf of the outer `/mcp` request. That dispatch must be marked in a way no external request can forge (a header or a loopback address is not enough), or call the services directly. Either way, the outer request is what authenticated the token.
+- `oauth_refresh` is accepted only at `POST /oauth/token`. At `POST /api/agent-token` it gets `401 REFRESH_TOKEN_INVALID` and **revokes nothing**: it is not a replay of an A1 family. In the other direction, an A1 `refresh` record is unknown at `/oauth/token` (agent-remote-auth §6.2 row 4).
+- An OAuth family never has `mcp_read` records. `POST /api/agent/mcp-read-token` needs an `access` token, and no `/mcp` tool issues one for an OAuth family.
+- `oauth_access.usedAt` records the first outer `/mcp` request the token authenticated. The server sets it once, before it dispatches that request, with a conditional write under the family's lock, the same lock a refresh takes. Internal dispatch never writes it.
+- The two successors of a rotation carry `recoveryTokenHash`: the hash of the old refresh token, which keys that rotation's recovery envelope. It is how the first use of a successor finds the envelope it must delete (§14.5). It is cleared then.
+
+#### 14.3 Registrations and the code index
+
+**The registration.** Consent approval (agent-remote-auth §5.2) and bootstrap issue (§8) create a registration that is already `approved` (`storedOAuthRegistration`). It enters the same indexes as every approval: the created and decided hour buckets, the principal's slot index, the approver index and, for `new_agent`, the address hold. It holds the usual decision fields of §5.3: `target`, `workspaceName`, `approverHumanId`, `principalHumanId`, `effectivePermissions`, `policyProfile`, `approvedAt` and `activationExpiresAt`. Every server version reads those, including one that predates this revision (`GET /api/agent-claims`). It also holds `oauth`:
+
+| `oauth` field | Value |
+| --- | --- |
+| `source` | `consent` or `bootstrap` |
+| `clientId` | the client |
+| `redirectUri` | exactly as requested, loopback port included. `null` for a bootstrap code. |
+| `codeChallenge` | the S256 challenge. `null` for a bootstrap code. |
+| `resource` | the resource, which becomes the family's `audience` |
+| `scope` | the effective permissions as scopes, in `x-scopes` order |
+| `handleDigest` | the hash of the authorization request handle. `null` for a bootstrap code. |
+| `codeHash` | the hash of the authorization code or bootstrap code |
+| `codeUsedAt` | `null` until the exchange |
+
+The registration never has `tokenHash` or `codeHmac`. It has no bootstrap token and no verification code, so the agent-registration activation route can never activate it. Its `decision` keeps `kind`, `humanId`, the body `digest` and `decidedAt`. It never keeps `redirectTo`, the code, or any response that contains the code. Its `activationExpiresAt` is the code's expiry: 60 s, or 600 s for a bootstrap code.
+
+**The code index** `auth/oauth-codes/{codeHash}` (`storedOAuthCode`) lets the token endpoint find the registration from the code alone. It holds `kind` (`authorization_code` or `bootstrap_code`), `registrationId`, `clientId`, `expiresAt` and `usedAt`. Approval writes it in the approval transaction.
+
+**The exchange** (agent-remote-auth §6.1) runs in one transaction under the registration's activation lock. It sets:
+- the code index's `usedAt`;
+- the registration's `status: "activated"`, `activatedAt`, `installationId`, `credentialFamilyId`, `agentId` and `oauth.codeUsedAt`;
+- and, as §6.3 does, it creates the installation, the family (with `audience` and `oauthClientId`) and the token records.
+
+So two concurrent exchanges of one code cannot both activate. The second sees `usedAt`, which is reuse (§6.1 row 5), and revokes the installation the first one created. The code index stays until its registration is deleted, so reuse after expiry still revokes, as §6.1 requires.
+
+**Retry outcomes** (agent-remote-auth §5.2, `consentDecided.status`) are derived from these records alone, so they survive a restart:
+
+| Status | Stored state |
+| --- | --- |
+| `pending_exchange` | `status: "approved"`, `codeUsedAt: null`, and `activationExpiresAt` not yet passed |
+| `completed` | `status: "activated"` |
+| `expired` | `status: "approved"` and `activationExpiresAt` passed (§4, derived) |
+| `withdrawn` | `status: "withdrawn"`, from a manager (§5.4) or a failed exchange-time re-check (§6.1 row 11) |
+
+#### 14.4 Consent decisions
+
+`auth/oauth-consent-decisions/{handleDigest}` (`storedConsentDecision`) is the one decision on an authorization request handle.
+- **Fields:** `humanId`, `decision` (`approved` or `denied`), `bodyDigest` and `registrationId` (both `null` for a denial), `decidedAt` and `handleExpiresAt`.
+- **Created only if absent,** with the existing create-if-absent primitive. For an approval this happens inside the approval transaction, together with the registration and the code index. The first decision therefore wins:
+  - a concurrent request by another human gets `404 AUTHORIZATION_REQUEST_INVALID`;
+  - a concurrent identical approve by the same human gets `consentDecided`;
+  - any other body, or a deny after an approve, gets `409 CLAIM_ALREADY_DECIDED`.
+- **A denial creates only this record.** That is what agent-remote-auth §5.3's "Nothing is created" means: no registration, agent, code, hold or slot. The record is still needed so that approving after a deny gets `409 CLAIM_ALREADY_DECIDED`, and so that another human gets `404`. This clarifies §5.3 and changes none of its responses.
+- **Retention.** An approval's record lives as long as its registration and is deleted with it. A denial's record lives until `handleExpiresAt` (at most 600 s after the handle was made), and cleanup then sweeps it. That is the retention agent-remote-auth §5.2 states.
+
+#### 14.5 OAuth refresh rotation and recovery
+
+A refresh (agent-remote-auth §6.2) runs in one transaction under the family's lock. It:
+- sets the old `oauth_refresh` record's `usedAt`;
+- writes the new `oauth_access` and `oauth_refresh` records, each with `recoveryTokenHash` set to the old token's hash;
+- extends the family's `refreshExpiresAt` (A1);
+- writes the recovery envelope `auth/agent-oauth-refresh-recovery/{old token hash}` (`storedOAuthRefreshRecovery`).
+
+**The envelope** mirrors A1's rotation recovery:
+- **Key:** HKDF-SHA256 with input key material the **old raw refresh token**, salt the SHA-256 of `ENVOI_DATA_ENCRYPTION_KEY`, and info `envoi-oauth-refresh-recovery-v1`, 32 bytes.
+- **Encryption:** AES-256-GCM, with `familyId` and `oauthClientId` bound as additional data. A database read plus the server key cannot decrypt it, and it cannot be replayed into another family or for another client.
+- **Contents:** the `tokenResponse`. The record also holds the two successor hashes and `expiresAt`, 60 s after the rotation.
+
+**Recovery.** The same client presenting the old token gets the identical response from the envelope, provided all of these hold, checked under the family's lock:
+- the family is not revoked;
+- the envelope exists and has not expired;
+- both successors are unused: the new refresh record's `usedAt` is `null`, and so is the new access record's (§14.2).
+
+Every other presentation of a used refresh token is replay. The family is revoked with `refresh_replay`, and the installation ends with that reason (§6.4).
+
+**Deletion at first successor use** (agent-remote-auth §6.2: "The first use of a successor deletes the envelope"). The first use of **either** successor runs in one write under the family's lock:
+- **the successor access token at `/mcp`:** its `usedAt` is set before the request is dispatched;
+- **the successor refresh token at `/oauth/token`:** this is the next rotation, and its transaction does this write too;
+- **in both cases:** the envelope named by `recoveryTokenHash` is deleted, and `recoveryTokenHash` is cleared on both successors.
+
+Because a recovery checks the envelope under the same lock, it can never race a successor's first use. From then on the old token finds no envelope, so it is replay: `invalid_grant`, the family is revoked as `refresh_replay`, and a3 holders get `CREDENTIAL_REVOKED` (fixture `token-refresh-replay`, unchanged). Each rotation has its own envelope, keyed by the token it rotated. Using a successor deletes only the envelope that names it. Fixtures: `stored-oauth-successor-access-used` and `stored-oauth-successor-refresh-used`.
+
+**Other deletion.** The reaper deletes any envelope past `expiresAt`, as `reapAgentRotationRecovery` does for A1. Revoking the family also deletes the family's envelopes; this is best effort, because a revoked family is refused anyway. After either, a successor's `recoveryTokenHash` may name no envelope, and its first use then deletes nothing.
+
+#### 14.6 Cleanup and orphans
+
+**Parent and children.** A registration is the parent of its code index and its approved consent decision. The children live exactly as long as the parent, and never by a clock of their own.
+- **Registration cleanup.** §2 keeps a registration at least 24 h after `createdAt` and deletes it by 25 h (`x-limits` `deleteRecordsAfterHours` and `deleteRecordsByHours`). When it deletes an OAuth registration, it deletes the code index, the approved consent decision and their cleanup entries **in the same transaction**, under the registration's lock. There is never a moment when the registration exists without its children, or the children exist without the registration, except for an orphan an older server left.
+- **Cleanup index.** Every code index and consent decision write also writes an entry `auth/oauth-cleanup/{hour of createdAt}/{key}` (`storedOAuthCleanupIndex`: `kind`, `key`, `registrationId`, `createdAt`, `deleteAfter`), in the same write. Cleanup walks these hour buckets, so its work stays bounded.
+  - **An entry with a registration** has `deleteAfter: null`. The index sweep reads that registration. While it exists, the sweep keeps the entry and its record and revisits them on a later run. It never deletes them because time has passed. Only when the registration is gone (an orphan) does it delete the record and then the entry.
+  - **A denial** has no registration. Its entry's `deleteAfter` is its `handleExpiresAt`, and the sweep deletes it after that. This is separate from every registration-backed rule.
+- **What survives the boundary.** Until registration cleanup removes the registration, a consent retry still gets `consentDecided`, and a reused code still revokes the installation it activated, across restarts. That holds at 24 h 30 min, at 24 h 59 min, and at any later sweep that finds the registration. After the registration is gone, both are unknown. Fixture: `stored-oauth-retention-boundary`.
+- **Sweeps.** Through that index, cleanup also sweeps:
+  - denied consent decisions after `handleExpiresAt`;
+  - **orphans**: a code index or consent decision whose registration no longer exists. Fixture: `stored-oauth-orphan-sweep`.
+
+  Expired refresh recovery envelopes are reaped separately (§14.5).
+- **Orphans are unknown.** At the token endpoint an orphan code is `invalid_grant` and revokes nothing. At the consent routes an orphan handle is `404 AUTHORIZATION_REQUEST_INVALID`.
+- **Families and token records** follow A1's existing retention. Revision 5 deletes none of them.
+- **The client metadata cache** lives in process memory only. It is never stored.
+
+#### 14.7 Compatibility and rollback
+
+- **Flags off** (agent-remote-auth §11; fixture `stored-oauth-flags-off`):
+  - every record stays, and nothing is deleted or rewritten;
+  - OAuth tokens get `401` everywhere;
+  - the installation stays listed and active, and the owner revoke ends it as `revoked`, at the family's `revokedAt`;
+  - turning a flag on again restores every family that has not expired or been revoked.
+- **Source rollback** to a release that predates agent-remote-auth (fixture `stored-oauth-source-rollback`):
+  - That server refuses `oauth_` token types everywhere (§14.2).
+  - It lists the installation from the same documents, and lists the approval in `GET /api/agent-claims`. Its owner revoke ends the installation as `revoked`.
+  - It ignores `audience`, `oauthClientId`, the `oauth` registration field and the new paths.
+  - Its registration cleanup deletes OAuth registrations after 24 h and leaves their code index and consent decision behind. A revision-5 server treats those as orphans (§14.6).
+  - Rolling forward again needs no repair.
+- **Evidence before any rollout.** Before any rollout is proposed, the implementation PRs name the source rollback SHA. They also demonstrate this compatibility by running that SHA's credential check, owner installation views, owner revoke and registration cleanup over records written by the new server, on FileStore and PostgreSQL.
+
+#### 14.8 Fixtures (`kind: "stored"`, `"rollback"`)
+
+Revision 5 adds the fixture kind `stored`: the records a flow leaves, with the owner views derived from them. It also adds:
+- **`storedAfter` on a step:** the state after a step that changes storage. That step's response and every later step read it. The two rollback fixtures use it for the owner revoke;
+- **`timeline`:** internal events, each with `event`, `at`, `storedAfter` and the `outcome` a request would get then. An event may also carry `tokenHash`. The events are `old_refresh_presented`, `successor_access_used`, `successor_refresh_used`, `index_sweep`, `registration_cleanup` and `restart`;
+- optional `stored` arrays (`credentialRecords`, `registrations`, `consentDecisions`, `oauthCodes`, `oauthRefreshRecoveries`, `oauthCleanupIndex`) and the optional fixture flags `ENVOI_REMOTE_MCP_OAUTH` and `ENVOI_PROVIDER_CONNECTORS`.
+
+`test/contract-fixtures.test.js` (`checkStoredOAuthRecords`) checks that:
+- a family has `audience` exactly when its installation is on an agent-remote-auth route, and its token records are `oauth_` types exactly then;
+- an activated registration's `resource` and `clientId` are its family's;
+- the code index and the consent decision agree with their registration;
+- only a consent registration has a handle, a redirect and a challenge, and a bootstrap registration has no consent decision;
+- a denial lives no longer than its handle;
+- a recovery envelope is keyed by a rotated refresh token of its family, bound to its client, and lives 60 s. It names unused successors issued by that rotation, and the successor refresh token carries the family's rolled expiry;
+- every code index and consent decision has exactly one cleanup entry. Only a denial's entry has a deadline, its `handleExpiresAt`. An entry with a registration has `deleteAfter: null`;
+- an existing envelope names two unused successors, both pointing back to it;
+- every state the fixture describes passes these checks: the initial state, the state after each step that changes storage, and the state after each timeline event;
+- each timeline state is the previous state with that event's rule applied. The rules are written in the test, independently of any server code. Each outcome is derived from the state the event leaves: recovery or replay; reuse revokes or `invalid_grant`; `consentDecided` or `404`;
+- a revoke step's response and every later listing are derived from its `storedAfter`;
+- no stored record holds a code, token, verifier, secret or code-bearing URL;
+- no response carries the audience, the client or the client's host, derived from the fixture's own records;
+- every OAuth bearer outside the flow is refused with `AUTHENTICATION_REQUIRED`.
+
+The agreement test checks that:
+- `x-stored-records` names every new path;
+- both rollback fixtures read exactly the records the approval left. Each lists the installation active, revokes it (the state after changes only the family's `revokedAt`, `revokedReason` and `revokedByHumanId`), and lists it ended/revoked at the revoke time;
+- both successor kinds delete the envelope, and the old token is then replay, as the approved `token-refresh-replay` fixture says;
+- a sweep keeps a present registration's children before 24 h, at 24 h 30 min and near 25 h, including across a restart;
+- no registration cleanup happens before 24 h, and the registration and its children are deleted together between 24 h and 25 h;
+- orphans are swept;
+- this table lists exactly the `stored-*` fixtures.
+
+**The real revoke route.** `test/agent-registration-stored-revoke.test.js` seeds each rollback fixture's OAuth records onto a real enrolled agent, on FileStore. It then checks that OAuth tokens are refused on REST, at `/mcp` and at `/api/agent-token`, and that trying revokes nothing. Next it runs the existing owner revoke route and checks that the installation ends `revoked` at the family's `revokedAt`, that only the fields in the fixture's `storedAfter` change, and that audience and client stay. At this PR's head the server is the source-rollback server itself: it has no remote-auth code. Each RA implementation PR reruns the same test with its own server and the flags off.
+
+| Fixture | Shows |
+| --- | --- |
+| `stored-oauth-installation` | A consent approval and its exchange: family, installation, token records, registration, code index, consent decision and cleanup entries. Also an earlier denial's record. |
+| `stored-provider-installation` | A bootstrap code and its exchange: no handle, redirect, challenge or consent decision. |
+| `stored-oauth-refresh-recovery` | 30 s after a rotation: the used old record, unused successors pointing to the envelope, and the envelope. |
+| `stored-oauth-successor-access-used` | The old token recovered once; the successor access token's first use deletes the envelope; the old token is then replay and revokes the family. |
+| `stored-oauth-successor-refresh-used` | The successor refresh token's first use (the next rotation) deletes the first envelope and writes the second; the first token is then replay; revocation deletes the second envelope. |
+| `stored-oauth-retention-boundary` | Sweeps at 23 h, 24 h 30 min and 24 h 59 min, and a restart, keep a present registration's children and protections. Registration cleanup deletes them all together before 25 h. The denial lapses on its own. |
+| `stored-oauth-orphan-sweep` | Children an older server orphaned are unknown, and the next sweep deletes them. |
+| `stored-oauth-replaced-by-local-helper` | A local-helper reconnect replaces the OAuth family. The old family keeps its fields; the new one has none. |
+| `stored-oauth-flags-off` | Flags off: tokens refused at `/mcp` and on REST; listed active, owner revoke, then listed ended/revoked. |
+| `stored-oauth-source-rollback` | An older server over the same records: tokens refused everywhere; the approval listed; installation listed active, owner revoke, then listed ended/revoked. |
+
+#### 14.9 Decisions for review
+
+1. **Separate `oauth_` token types**, so a source rollback fails closed. The alternative is `access`/`refresh` records plus the family's `audience`, which an older server would ignore. That server would then accept OAuth tokens on REST.
+2. **A stored consent decision for a denial.** It is the only way approve-after-deny and another human's request can be told apart, as agent-remote-auth §5.2 and §5.3 require.
+3. **The code index outlives the code** until its registration is deleted, so reuse after expiry still revokes (agent-remote-auth §6.1).
+4. **The first use of either successor deletes the envelope under the family lock**, as agent-remote-auth §6.2 requires. The successors' `recoveryTokenHash` finds the envelope. For the access token this costs one write, before dispatch.
+5. **A cleanup index for OAuth records, with children tied to their parent.** It keeps cleanup bounded, and lets a revision-5 server find the code indexes and decisions that an older server's cleanup left behind. Children never get a deadline of their own, so no clock can delete them while their registration is retained.
+6. **Approval.** Version-specific `CONTRACT-APPROVED agent-registration v1 revision 5 @<publication sha>` after Lane B's `CONTRACT-ACK`. It authorizes no flag, and no implementation beyond the separately approved RA tasks.
 
 ## Gate GA observability (additive audit data, 2026-10-13)
 
@@ -4083,7 +4460,7 @@ PR #144 review corrections preserve provider-browser-poll v1's public payloads: 
 
 ## agent-remote-auth v1
 
-**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** published (revision 2, §15), awaiting Lane B's `CONTRACT-ACK`. Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
+**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** revision 2 approved (`CONTRACT-APPROVED agent-remote-auth v1 revision 2 @bbd361e`, board #34 comment 6321077051). **Revision 3** (§15) is published and awaits Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 revision 3 @<publication sha>`. **Revision 4** (§15, this text) is a separate proposed amendment on top of revision 3. It changes when a used code revokes (Policy B, decision 13) and awaits its own `CONTRACT-ACK` and `CONTRACT-APPROVED agent-remote-auth v1 revision 4 @<publication sha>`. Until then revision 2 is the approved text, and revision 3 keeps revision 2's check order. The revision-2 status text that follows is kept for history: Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
 
 **Fixtures:** [`test/contract-fixtures/agent-remote-auth/`](../../../test/contract-fixtures/agent-remote-auth/). It holds:
 - `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-oauth-errors`, `x-limits`, `x-scopes`, `x-route-availability`, `x-delivery-availability`, `x-client-metadata-checks`, `x-redirect-rules`, `x-authorize-checks`, `x-token-checks`, `x-consent-display`, `x-consent-decisions` and `x-endpoints`;
@@ -4108,7 +4485,11 @@ It specifies discovery metadata, client identification, the authorization reques
 It builds on `a3-pause-auth` v3 (envelope, codes, pause), `agent-registration` v1 revision 4 (registrations, installations, owner eligibility), `envoi-names` v1 (credential formats), `envoi-browser-names` v1 (cookies, CSRF) and `http-wake` v1 (destination safety, §4.2 here).
 
 **Not in this contract.**
-- **Wake.** An installation made here declares `on_demand` (§1). A host that can receive signed HTTPS callbacks adds an http-wake v1 subscription to its installation, as any installation may (http-wake §11). Provider-native wake (`provider`) is a later contract.
+- **Wake (corrected in revision 3).** An installation made here declares `on_demand` (§1). In v1 it has **no wake path**:
+  - its audience-bound tokens are refused at `/api/agent/wake-subscriptions`, like every route except `/mcp` (§9);
+  - no `/mcp` tool creates a subscription, so it cannot add an http-wake v1 subscription.
+
+  Nothing here claims that such an assistant can be reached while its user does not have it open. A wake path would need its own contract and review, for example a `/mcp`-scoped wake tool. This contract adds no audience exception for REST. Provider-native wake (`provider`) is a later contract too.
 - **The owner "On demand" label.** a5-presence v1 has no honest label for `on_demand`. §1 makes the route depend on that revision before its flag is turned on.
 - **Dynamic Client Registration.** Deprecated in the MCP specification; not offered (§3, decision 1).
 - **Authenticated REST.** That route keeps agent-registration v1's bootstrap-token mechanics.
@@ -4267,6 +4648,15 @@ The server checks the query in `x-authorize-checks` order. The first failing che
 | 8 | `resource` is present and equals the resource exactly (§2) | redirect to the client with `invalid_target` |
 | 9 | `scope`, if present, is a set of `x-scopes` names containing `envoi.agent` | redirect to the client with `invalid_scope` |
 | 10 | `state`, if present, is 1–512 printable ASCII characters | redirect to the client with `invalid_request` |
+| 11 | The encoded handle (§4.2) is at most 2,048 characters (revision 3) | redirect to the client with `invalid_request` |
+
+**Row 11 (revision 3).** Each parameter can be valid on its own and the request still too large to seal. That can happen with a `client_id` of up to 2,048 characters, a `state` of up to 512 and the redirect URI, plus the encryption and encoding overhead. The server therefore measures the handle it would issue: the exact string after encryption and base64url encoding, which is what appears in the URL. It does this after rows 1–10 pass.
+- Up to 2,048 characters: the handle is issued.
+- Longer: `invalid_request` to the checked `redirect_uri`, with `state` and `iss`.
+- The server never truncates a bound field, never drops one from the seal, and never weakens the seal to fit.
+- Like every authorization `GET`, a refused request stores nothing.
+
+Fixtures: `authorize-handle-at-limit` and `authorize-handle-overflow`. They carry the measured length in `context.sealedHandleLength`, because the exact length depends on the implementation's sealing format.
 
 **Never redirect to an unchecked URI.** Rows 2–4 send the browser to Envoi's own page, which explains the problem and links nowhere else. From row 5 on, the error goes to the checked `redirect_uri` as `error`, `error_description`, `state` (if sent) and `iss` (the issuer), per RFC 6749 §4.1.2.1 and RFC 9207. Every `302` here has `cache-control: no-store` and `referrer-policy: no-referrer`.
 
@@ -4275,7 +4665,7 @@ The server checks the query in `x-authorize-checks` order. The first failing che
 #### 4.2 Success
 
 On success the server creates **nothing durable**. It seals the validated request into an **authorization request handle** and returns `302` to `${origin}/authorize-agent?request=<handle>`:
-- the handle is opaque, at most 2,048 characters, and expires `x-limits.authorizationRequestTtlSeconds` (600 s) after it is made;
+- the handle is opaque, at most 2,048 characters as encoded (row 11 refuses a request whose handle would be longer), and expires `x-limits.authorizationRequestTtlSeconds` (600 s) after it is made;
 - it binds the client, the redirect URI as requested (loopback port included), the code challenge, the scope set, the state and the resource;
 - it is integrity-protected and encrypted under a key derived from `ENVOI_DATA_ENCRYPTION_KEY`, so it cannot be edited or read;
 - it is **not a credential**: holding it does nothing without a signed-in human (§5).
@@ -4360,7 +4750,7 @@ The page navigates the browser to `redirectTo`. This is the one place an authori
 
 `consentDecided` carries `status`, `registrationId`, `target`, `workspaceName`, `agent`, `effectivePermissions`, `policyProfile` and `codeExpiresAt`. It has **no** `redirectTo` and no code.
 
-**The page never navigates on `consentDecided`.** It navigates to the client only on the first `200 consentApproved`. So an honest retry can never send a used code back through the token endpoint, where §6.1 row 5 would revoke the installation. It can never strand the user at the client with an expired code either. The token endpoint's reuse check and revocation are unchanged.
+**The page never navigates on `consentDecided`.** It navigates to the client only on the first `200 consentApproved`. So an honest retry can never send a used code back through the token endpoint, where §6.1 row 9 would revoke the installation. It can never strand the user at the client with an expired code either. The token endpoint's reuse check and revocation are unchanged.
 
 **Recovery is a new authorization.** If the first response never reached the page, the host never receives the code, and its authorization never completes. The user starts again from the assistant, which sends a new authorization request with a new handle. The server never issues a second code for a decided handle, and never creates a second registration for it. The unused approval holds its address, slot and waiting-approval count only until `codeExpiresAt` (60 s), or until it is withdrawn. A new `new_agent` approval for the same address inside that window gets `ADDRESS_TAKEN`, so the page offers withdrawing the pending approval first.
 
@@ -4390,14 +4780,14 @@ Checks, in `x-token-checks` order. The first failure decides:
 | 2 | Parameters are present, each once, and well formed | `invalid_request` |
 | 3 | The client authenticates (§6) | `invalid_client` |
 | 4 | The code exists and was issued to this client | `invalid_grant` |
-| 5 | The code has not been used | `invalid_grant`, and the installation the first exchange activated is revoked (below) |
-| 6 | The code has not expired | `invalid_grant` |
-| 7 | `redirect_uri` equals the authorization request's exactly | `invalid_grant` |
-| 8 | `BASE64URL(SHA-256(code_verifier))` equals the code challenge | `invalid_grant` |
-| 9 | `resource` equals the resource | `invalid_target` |
+| 5 | The code has not expired | `invalid_grant` |
+| 6 | `redirect_uri` equals the authorization request's exactly | `invalid_grant` |
+| 7 | `BASE64URL(SHA-256(code_verifier))` equals the code challenge | `invalid_grant` |
+| 8 | `resource` equals the resource | `invalid_target` |
+| 9 | The code has not been used | `invalid_grant`, and the installation the first exchange activated is revoked (below) |
 | 10 | The registration is still `approved`, and agent-registration §6.1's re-checks pass | `invalid_grant`. The registration becomes `withdrawn`, as in agent-registration §6.1 row 11. |
 
-Every failure from row 4 on also counts toward the rate limit. Row 4 comes before row 5, so a code presented by a client it was not issued to revokes nothing; a second exchange by the client it was issued to always does, even after expiry.
+Every failure from row 4 on also counts toward the rate limit. **Revision 4 (Policy B).** The reuse check, row 9, comes after every check that makes a request valid: parameters, client authentication, the client binding, expiry, the exact redirect, PKCE and the resource. A used code is therefore always denied. It revokes only when the replay is otherwise a valid token request, as OAuth 2.1 draft-16 §4.1.3 and §7.5.3 require. A replay that fails an earlier row gets that row's error and revokes nothing. Revision 2's order (reuse at row 5, before expiry, redirect, PKCE and resource) is replaced.
 
 **Activation.** When every check passes, the exchange **is** the activation of agent-registration §6.1 row 12 and §6.3, for `deliveryMode: on_demand`:
 - `new_agent` creates the agent, its dedicated inbox and directory entries;
@@ -4421,7 +4811,27 @@ The credential family stores two new facts:
 
 Audit: `agent.installation_activated`, as today.
 
-**A used code** (row 5) means two parties may hold one code. As OAuth 2.1 §4.1.3 recommends, the server revokes the installation the first exchange created, if it is still active, exactly as agent-registration §6.1 row 7a does: the family's `revokedReason` is `revoked`, the installation records `replayDetectedAt` and ends with `activation_replay`, and the audit event is `agent.activation_replay_detected`. The identity is not frozen.
+**A used code** (row 9) means two parties may hold one code. As OAuth 2.1 §4.1.3 recommends, the server revokes the installation the first exchange created, if it is still active, exactly as agent-registration §6.1 row 7a does: the family's `revokedReason` is `revoked`, the installation records `replayDetectedAt` and ends with `activation_replay`, and the audit event is `agent.activation_replay_detected`. The identity is not frozen.
+
+**Who can trigger that revocation (revision 4, Policy B; decision 13).** Only a party that sends an otherwise valid token request: the right client, authenticated, with the exact `redirect_uri`, the matching verifier and the resource, while the code is unexpired. That is the genuine replay case (`token-code-reused`), and it still revokes.
+- **A leaked code and the public `client_id` alone revoke nothing.** A missing or malformed verifier fails row 2 with `invalid_request` (`token-code-reused-missing-verifier`, `token-code-reused-malformed-verifier`). A well-formed but wrong verifier fails row 7 with `invalid_grant` (`token-code-reused-wrong-verifier`).
+- **Other invalid replays revoke nothing either:**
+  - a wrong `redirect_uri` fails row 6 (`token-code-reused-wrong-redirect`);
+  - a wrong resource fails row 8 with `invalid_target` (`token-code-reused-wrong-resource`);
+  - the identical request after the code's 60 s fails row 5 (`token-code-reused-expired`).
+- **A genuine replay is not an escalation.** It never yields a token, it never touches any other installation, and the identity stays unfrozen, so the owner reconnects the same agent.
+- **It is confined to the original installation, while that installation is still active:**
+  - a code presented by another client revokes nothing (row 4; `token-code-reused-other-client`);
+  - a confidential client whose authentication fails revokes nothing (row 3; `token-code-reused-confidential-auth-failed`);
+  - a code whose installation has already ended revokes nothing further (`token-code-reused-installation-ended`).
+- **The code never leaves the browser redirect or the host:** codes, verifiers and code-bearing URLs stay out of logs, audits, model context and browser storage (§10).
+
+**Standards note (revision 3).** Revision 2's phrase "As OAuth 2.1 §4.1.3 recommends" is accurate about *revoking* on reuse, but not about *when*. OAuth 2.1 (draft-ietf-oauth-v2-1-16) words it conditionally:
+- **§4.1.3** has the server deny a *second valid* token request for a used code, and revoke what that code issued where possible;
+- **§7.5.3** says to revoke only when the request, including `code_verifier` and client authentication, is valid. It recommends against revoking for a replay with invalid parameters, because invalid requests would then let an attacker revoke a legitimate client's tokens;
+- **RFC 7636 §4.6** has a matching verifier continue normal processing, and a mismatch get `invalid_grant`.
+
+Revision 2's row 5, which revoked before the redirect, PKCE and resource checks, was **Envoi's own, earlier revocation policy**. It was stricter than that draft's validity condition, and the standard does not require it. Revision 4 adopts the draft's condition (Policy B, decision 13).
 
 **No lost-response recovery.** A token response that never arrives cannot be fetched again, unlike agent-registration §6.2. The client starts a new authorization. The owner then sees the agent under "Reconnect an existing agent" and approves it as `existing_agent`, which replaces the installation the lost response created (decision 2).
 
@@ -4465,7 +4875,7 @@ v3 §31 and §42 allow one exception to "no operational secret in a human browse
 
 `201` `bootstrapCodeIssued`, with `cache-control: no-store`, carries the code **once**. The owner page shows it once, with the provider's name, and tells the owner to paste it only into that provider's credential field, never into a chat. Issuing again creates a second registration; it does not repeat the code. Not issuing a code for a lost response is safe: the registration expires and grants nothing.
 
-**Exchange.** The provider's backend calls `POST /oauth/token` with `grant_type=urn:envoi:params:oauth:grant-type:bootstrap_code`, `bootstrap_code`, `resource`, and HTTP Basic client authentication. A public client cannot use this grant (`unauthorized_client`). The checks are §6.1 rows 1–6 (reuse revokes the installation it created), 9 and 10, applied to the code. The success response and activation are §6.1's.
+**Exchange.** The provider's backend calls `POST /oauth/token` with `grant_type=urn:envoi:params:oauth:grant-type:bootstrap_code`, `bootstrap_code`, `resource`, and HTTP Basic client authentication. A public client cannot use this grant (`unauthorized_client`). The checks are §6.1 rows 1–5 and 8, then row 9 (reuse; an otherwise valid replay revokes the installation it created), then row 10, applied to the code. As in §6.1, the reuse check comes after every validity check (revision 4). The success response and activation are §6.1's.
 
 **What it never is.** It is never an access or refresh token, never valid at `/mcp` or any other route (`AUTHENTICATION_REQUIRED`), never in a URL or log, and useless without the provider's client secret.
 
@@ -4533,10 +4943,10 @@ The owner routes also return agent-registration's `CLAIM_INVALID`, `CLAIM_FORBID
 | --- | --- |
 | Availability and discovery | `routes-available-remote-mcp`, `routes-available-provider`, `protected-resource-metadata`, `protected-resource-metadata-root`, `authorization-server-metadata`, `discovery-feature-disabled` |
 | `/mcp` challenge | `mcp-challenge-unauthenticated`, `mcp-challenge-invalid-token`, `mcp-insufficient-scope`, `mcp-paused-oauth-token`, `oauth-token-refused-on-rest` |
-| Authorization request | `authorize-redirects-to-consent`, `authorize-loopback-redirect`, `authorize-unknown-client`, `authorize-client-id-mismatch`, `authorize-redirect-uri-mismatch`, `authorize-pkce-missing`, `authorize-pkce-plain`, `authorize-resource-missing`, `authorize-scope-invalid`, `authorize-feature-disabled` |
+| Authorization request | `authorize-redirects-to-consent`, `authorize-loopback-redirect`, `authorize-unknown-client`, `authorize-client-id-mismatch`, `authorize-redirect-uri-mismatch`, `authorize-pkce-missing`, `authorize-pkce-plain`, `authorize-resource-missing`, `authorize-scope-invalid`, `authorize-feature-disabled`, `authorize-handle-at-limit`, `authorize-handle-overflow` |
 | Consent | `consent-view`, `consent-view-loopback`, `consent-view-decided`, `consent-request-invalid`, `consent-approve-new-agent`, `consent-approve-existing-agent`, `consent-approve-other-body`, `consent-deny`, `consent-agent-limit` |
 | Consent retry | `consent-approve-retry-pending`, `consent-approve-retry-completed`, `consent-approve-retry-expired`, `consent-approve-retry-withdrawn`, `consent-approve-lost-response` |
-| Token: authorization code | `token-authorization-code`, `token-pkce-mismatch`, `token-redirect-uri-mismatch`, `token-resource-mismatch`, `token-code-expired`, `token-code-reused`, `token-approval-withdrawn`, `token-public-client-secret` |
+| Token: authorization code | `token-authorization-code`, `token-pkce-mismatch`, `token-redirect-uri-mismatch`, `token-resource-mismatch`, `token-code-expired`, `token-code-reused`, `token-code-reused-wrong-verifier`, `token-code-reused-missing-verifier`, `token-code-reused-malformed-verifier`, `token-code-reused-wrong-redirect`, `token-code-reused-wrong-resource`, `token-code-reused-expired`, `token-code-reused-other-client`, `token-code-reused-confidential-auth-failed`, `token-code-reused-installation-ended`, `token-approval-withdrawn`, `token-public-client-secret` |
 | Token: refresh | `token-refresh`, `token-refresh-recovered`, `token-refresh-replay`, `token-refresh-other-client`, `token-refresh-scope-changed`, `token-refresh-paused`, `token-rate-limited` |
 | Revocation | `revoke-refresh-token`, `revoke-unknown-token`, `revoke-other-client` |
 | Bootstrap code | `bootstrap-code-issued`, `bootstrap-code-exchanged`, `bootstrap-code-public-client`, `bootstrap-code-at-mcp` |
@@ -4558,6 +4968,41 @@ These are Lane A's proposals. Any of them can change before approval.
 10. **`on_demand` for every installation made here** (§1), with the flag waiting for an a5-presence label. The alternative, declaring `envoi_link`, would claim a running host process that a cloud assistant does not have.
 11. **The code is returned once; a retry gets a decision outcome** (§5.2, revision 2). The alternative is to keep an encrypted copy of the first response for the code's 60 s life. That needs key binding, a TTL, deletion and replay limits, and it would still have to refuse a retry once the code is used. It adds a stored secret and saves the user nothing: either way, a host that missed the code must start again.
 12. **Approval.** Version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. It does not authorize any provider's gate or any flag change.
+13. **When a used code revokes (revisions 3 and 4; Je's decision).** Two policies, compared with revision 2's row numbers:
+   - **Policy A (revision 2, approved; kept by revision 3).** Row 5 checks reuse after client authentication (row 3) and the client check (row 4), and revokes before the expiry, redirect, PKCE and resource checks (rows 6–9).
+   - **Policy B (revision 4, this amendment).** Reuse is still always denied. But it revokes only when the rest of the request is valid. In revision 4's numbering, the order is: parameters (2), client authentication (3), client binding (4), expiry (5), redirect (6), PKCE (7), resource (8), then reuse (9), then the registration re-checks (10). This is OAuth 2.1 draft-16 §4.1.3 and §7.5.3.
+
+   | Replayed used code, still-active original installation | Policy A (approved) | Policy B |
+   | --- | --- | --- |
+   | Same client; correct verifier, `redirect_uri` and resource; code unexpired (`token-code-reused`) | `invalid_grant`, **revokes** | `invalid_grant`, **revokes** |
+   | Same public `client_id`; verifier **missing or malformed** (not 43–128 characters of the RFC 7636 alphabet) | `invalid_request` at row 2, **no revoke** | `invalid_request` at row 2, **no revoke** |
+   | Same public `client_id`; verifier **well formed but wrong** (`token-code-reused-wrong-verifier`) | reaches row 5: `invalid_grant`, **revokes** | `invalid_grant` at the PKCE check, **no revoke** |
+   | Same client; wrong `redirect_uri` or resource | `invalid_grant`, **revokes** | `invalid_grant` or `invalid_target`, **no revoke** |
+   | Same client and verifier, but the code is past its 60 s | `invalid_grant`, **revokes** ("even after expiry") | `invalid_grant`, **no revoke** |
+   | Another client (`token-code-reused-other-client`) | `invalid_grant`, no revoke | same |
+   | Confidential client, failed authentication (`token-code-reused-confidential-auth-failed`) | `401 invalid_client`, no revoke | same |
+   | Original installation already ended (`token-code-reused-installation-ended`) | `invalid_grant`, nothing further | same |
+
+   In both policies:
+   - a replay never yields a token;
+   - revocation ends only the original installation, and only while it is still active;
+   - the identity stays unfrozen.
+
+   Row 2, parameter validation, comes first in both policies. A missing or malformed verifier therefore never reaches a reuse check, and never revokes.
+
+   **What the choice is.** Should a party holding a leaked code and the public `client_id`, but **not** the verifier, be able to end the original installation by sending any well-formed verifier? Under Policy A it can; that is a denial of service the owner repairs by reconnecting. Under Policy B it cannot. A holder of both code and verifier can still trigger revocation under either policy while the code is unexpired.
+   - **What Policy B gives up:** revocation for a replay that arrives after the code's 60 s lifetime, and for a replay that fails another check (wrong redirect or resource).
+   - **What it gains:** it follows the draft's validity condition, and removes the code-only denial of service. With a 60 s single-use code, PKCE and an exact redirect match, a replay with the verifier inside the code's lifetime is the case that indicates a real second holder. Policy B still revokes then.
+
+   **Lane A's recommendation (corrected).** Policy B, which revision 4 specifies. It aligns with OAuth 2.1 draft-16 §7.5.3 and narrows the trigger to a holder of the verifier, without weakening the genuine-replay revocation. An earlier version of this decision said that under Policy B a code stolen together with its verifier would revoke nothing. That was wrong, as the first row of the table shows.
+
+   **The choice.**
+   - **Policy A:** approve revision 3 and not revision 4.
+   - **Policy B:** approve revision 4. It contains revision 3, changes `x-token-checks` and §6.1's table, turns `token-code-reused-wrong-verifier` into a no-revoke case, and adds the missing-verifier, malformed-verifier, wrong-redirect, wrong-resource and expired replay cases. The genuine replay (`token-code-reused`) still revokes.
+
+   Nothing here selects a policy for Je.
+14. **Refuse an oversized handle rather than shrink it (revision 3).** Row 11 refuses with `invalid_request`. The alternative, storing a pending request and sending only its id, would make an unauthenticated `GET` write storage (decision 9).
+15. **No wake path for these installations in v1 (revision 3).** The revision-2 text promised an http-wake subscription that audience binding makes impossible. A `/mcp`-scoped wake tool, or any other path, is a separate contract.
 
 ### 14. Implementation notes (Lane A; informative)
 
@@ -4569,6 +5014,31 @@ These are Lane A's proposals. Any of them can change before approval.
 - **Audit types.** None are new, so Lane B's `WORKSPACE_EVENT_TYPES` needs no pairing change. `agent.installation_revoked` gains the actor value `client`.
 
 ### 15. Revisions before approval
+
+**Revision 4: Policy B** (proposed amendment on top of revision 3; Je asked for it to be prepared for Lane B review). This is not an approval of either revision.
+1. **Check order** (§6.1 table, `x-token-checks`): the reuse check moves after every validity check. Code grant: route flag, parameters, client authentication, client binding, expiry, redirect, PKCE, resource, **reuse**, registration re-checks. Bootstrap grant: route flag, parameters, client authentication, client binding, expiry, resource, **reuse**, registration re-checks.
+2. **Effects.** A used code is always denied, and only an otherwise valid replay revokes the original installation. Client authentication, the client binding (row 4) and installation-only revocation are unchanged; so are the unfrozen identity and the denial of every replay.
+3. **Fixtures.**
+   - `token-code-reused` (the genuine replay) still revokes.
+   - `token-code-reused-wrong-verifier` now revokes nothing.
+   - New: `token-code-reused-missing-verifier`, `token-code-reused-malformed-verifier`, `token-code-reused-wrong-redirect`, `token-code-reused-wrong-resource` and `token-code-reused-expired`. Each refuses at its own row and revokes nothing.
+   - `token-code-reused-other-client`, `-confidential-auth-failed` and `-installation-ended` are unchanged. There are 70 fixtures.
+4. **Text.** §5.2's reference moves to row 9. The §6.1 trigger paragraph and standards note, §8's bootstrap checks and decision 13 are updated.
+
+
+**Revision 3** (after approval of revision 2). This answers the gaps Lane A reported in [6324594912](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6324594912), which Lane B confirmed in [6325070244](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6325070244). The approved check order and every revision-2 response are unchanged.
+1. **Wake.** The "Not in this contract" text claimed an http-wake subscription for these installations. Audience binding refuses that, and no MCP tool exists for it. The text now says there is no wake path in v1 and no audience exception (decision 15).
+2. **Used-code revocation.** §6.1 now states who can trigger row 5's revocation and what it is confined to. New fixtures: `token-code-reused-wrong-verifier`, `token-code-reused-other-client`, `token-code-reused-confidential-auth-failed` and `token-code-reused-installation-ended`. The policy is a decision for Je (decision 13).
+   - **Correction** (Lane B MISMATCH [6330139979](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6330139979), [review](https://github.com/rachelgonsalves821/Envoi/pull/187#issuecomment-6330134936), [standards](https://github.com/rachelgonsalves821/Envoi/pull/187#issuecomment-6330122547)):
+     - decision 13 no longer claims that revoking after PKCE would spare a code stolen with its verifier;
+     - it compares Policy A and Policy B case by case;
+     - it attributes the validity condition to OAuth 2.1 draft-16 §4.1.3 and §7.5.3, and RFC 7636 §4.6;
+     - the §6.1 standards note states that revision 2's early revocation is Envoi's policy, not the standard's;
+     - Lane A's recommendation changes to Policy B, which would be a separate amendment. The fixtures and the approved order are unchanged.
+3. **Handle length.** New check, row 11 (`x-authorize-checks`, after `state`). It measures the encoded handle and refuses one over 2,048 characters with `invalid_request` at the checked redirect, with `state` and `iss`, never truncating. New fixtures: `authorize-handle-at-limit` and `authorize-handle-overflow` (decision 14).
+
+The contract stays v1: this clarifies approved behaviour and adds no wire field. It needs Lane B's `CONTRACT-ACK` and Je's `CONTRACT-APPROVED agent-remote-auth v1 revision 3 @<publication sha>`. RA-A1 part 1 (#177) already implements row 11 as published here, behind flags that are off. It is not integrated before that approval.
+
 
 **Revision 2** (this publication) answers Lane B's [`MISMATCH` 6319543594](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6319543594) ([review](https://github.com/rachelgonsalves821/Envoi/pull/171#issuecomment-6319539287)) on revision 1 @`f103660`. The contract stays version 1, because nothing has been approved or implemented.
 

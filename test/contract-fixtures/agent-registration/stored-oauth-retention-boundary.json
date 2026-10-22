@@ -1,0 +1,1190 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "stored-oauth-retention-boundary",
+  "kind": "stored",
+  "description": "An approved, exchanged registration across its retention boundary. The index sweep never deletes children while the registration exists; registration cleanup deletes the registration and its children together, between 24 h and 25 h. The denial has its own 600 s lifetime.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "stored": {
+    "agents": [
+      {
+        "id": "agent_example",
+        "onboardingStatus": "approved",
+        "status": "active",
+        "runtime": "remote_mcp"
+      }
+    ],
+    "credentialFamilies": [
+      {
+        "id": "credential_family_remote-example",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-10-22T12:00:20.000Z",
+        "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+        "revokedAt": null,
+        "installationId": "installation_remote_example",
+        "audience": "https://www.envoi-agents.com/mcp",
+        "oauthClientId": "https://assistant.example.com/oauth/envoi-client.json"
+      }
+    ],
+    "installations": [
+      {
+        "id": "installation_remote_example",
+        "agentId": "agent_example",
+        "credentialFamilyId": "credential_family_remote-example",
+        "registrationId": "registration_remote_example",
+        "connectionRoute": "remote_mcp_oauth",
+        "deliveryMode": "on_demand",
+        "runtime": {
+          "type": "remote_mcp",
+          "version": null
+        },
+        "createdAt": "2026-10-22T12:00:20.000Z",
+        "activatedAt": "2026-10-22T12:00:20.000Z",
+        "replayDetectedAt": null
+      }
+    ],
+    "credentialRecords": [
+      {
+        "tokenHash": "e7e142a3e1828bca5bf8628cd1b9b0dd1ae1e599099dec1d3e91d0a953feff9b",
+        "tokenType": "oauth_access",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "familyId": "credential_family_remote-example",
+        "issuedAt": "2026-10-22T12:00:20.000Z",
+        "expiresAt": "2026-10-22T12:15:20.000Z",
+        "revokedAt": null,
+        "usedAt": "2026-10-22T12:00:31.000Z"
+      },
+      {
+        "tokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795",
+        "tokenType": "oauth_refresh",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "familyId": "credential_family_remote-example",
+        "issuedAt": "2026-10-22T12:00:20.000Z",
+        "expiresAt": "2026-11-21T12:00:20.000Z",
+        "revokedAt": null,
+        "usedAt": null
+      }
+    ],
+    "registrations": [
+      {
+        "id": "registration_remote_example",
+        "status": "activated",
+        "connectionRoute": "remote_mcp_oauth",
+        "runtime": {
+          "type": "remote_mcp",
+          "version": null
+        },
+        "createdAt": "2026-10-22T12:00:00.000Z",
+        "approvedAt": "2026-10-22T12:00:00.000Z",
+        "activationExpiresAt": "2026-10-22T12:01:00.000Z",
+        "activatedAt": "2026-10-22T12:00:20.000Z",
+        "target": {
+          "kind": "new_agent",
+          "workspaceInboxId": "inbox_workspace",
+          "organizationId": "org_example",
+          "agentName": "Example assistant",
+          "name": "Example assistant",
+          "localPart": "example",
+          "address": "example@envoi.mail"
+        },
+        "workspaceName": "Example workspace",
+        "approverHumanId": "human_example",
+        "principalHumanId": "human_example",
+        "effectivePermissions": [
+          "send_agent_messages",
+          "receive_agent_messages"
+        ],
+        "policyProfile": "default",
+        "installationId": "installation_remote_example",
+        "credentialFamilyId": "credential_family_remote-example",
+        "agentId": "agent_example",
+        "oauth": {
+          "source": "consent",
+          "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+          "redirectUri": "https://assistant.example.com/oauth/callback",
+          "codeChallenge": "muWCYy0bKAm3EgsqCoKtt_PEs51XyN8zPWzsWcrYrxM",
+          "resource": "https://www.envoi-agents.com/mcp",
+          "scope": "envoi.agent envoi.send",
+          "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+          "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+          "codeUsedAt": "2026-10-22T12:00:20.000Z"
+        },
+        "decision": {
+          "kind": "approve",
+          "humanId": "human_example",
+          "digest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+          "decidedAt": "2026-10-22T12:00:00.000Z"
+        }
+      }
+    ],
+    "consentDecisions": [
+      {
+        "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+        "humanId": "human_example",
+        "decision": "approved",
+        "bodyDigest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+        "registrationId": "registration_remote_example",
+        "decidedAt": "2026-10-22T12:00:00.000Z",
+        "handleExpiresAt": "2026-10-22T12:09:40.000Z"
+      },
+      {
+        "handleDigest": "a8e1602a7a860792d9df31a4d3bc5bbd960b89a711b9525f19480c8350b5829e",
+        "humanId": "human_example",
+        "decision": "denied",
+        "bodyDigest": null,
+        "registrationId": null,
+        "decidedAt": "2026-10-22T11:58:10.000Z",
+        "handleExpiresAt": "2026-10-22T12:07:50.000Z"
+      }
+    ],
+    "oauthCodes": [
+      {
+        "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+        "kind": "authorization_code",
+        "registrationId": "registration_remote_example",
+        "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+        "expiresAt": "2026-10-22T12:01:00.000Z",
+        "usedAt": "2026-10-22T12:00:20.000Z"
+      }
+    ],
+    "oauthCleanupIndex": [
+      {
+        "kind": "oauth_code",
+        "key": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+        "registrationId": "registration_remote_example",
+        "createdAt": "2026-10-22T12:00:00.000Z",
+        "deleteAfter": null
+      },
+      {
+        "kind": "consent_decision",
+        "key": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+        "registrationId": "registration_remote_example",
+        "createdAt": "2026-10-22T12:00:00.000Z",
+        "deleteAfter": null
+      },
+      {
+        "kind": "consent_decision",
+        "key": "a8e1602a7a860792d9df31a4d3bc5bbd960b89a711b9525f19480c8350b5829e",
+        "registrationId": null,
+        "createdAt": "2026-10-22T11:58:10.000Z",
+        "deleteAfter": "2026-10-22T12:07:50.000Z"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerInstallationList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "agentId": "agent_example",
+          "installations": [
+            {
+              "id": "installation_remote_example",
+              "agentId": "agent_example",
+              "connectionRoute": "remote_mcp_oauth",
+              "deliveryMode": "on_demand",
+              "runtime": {
+                "type": "remote_mcp",
+                "version": null
+              },
+              "status": "active",
+              "endedReason": null,
+              "legacy": false,
+              "createdAt": "2026-10-22T12:00:20.000Z",
+              "activatedAt": "2026-10-22T12:00:20.000Z",
+              "endedAt": null
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner_ui",
+        "next": "Retention changes nothing in the owner view: the installation outlives its registration."
+      }
+    }
+  ],
+  "timeline": [
+    {
+      "event": "index_sweep",
+      "at": "2026-10-23T11:00:00.000Z",
+      "storedAfter": {
+        "agents": [
+          {
+            "id": "agent_example",
+            "onboardingStatus": "approved",
+            "status": "active",
+            "runtime": "remote_mcp"
+          }
+        ],
+        "credentialFamilies": [
+          {
+            "id": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "installationId": "installation_remote_example",
+            "audience": "https://www.envoi-agents.com/mcp",
+            "oauthClientId": "https://assistant.example.com/oauth/envoi-client.json"
+          }
+        ],
+        "installations": [
+          {
+            "id": "installation_remote_example",
+            "agentId": "agent_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "registrationId": "registration_remote_example",
+            "connectionRoute": "remote_mcp_oauth",
+            "deliveryMode": "on_demand",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "replayDetectedAt": null
+          }
+        ],
+        "credentialRecords": [
+          {
+            "tokenHash": "e7e142a3e1828bca5bf8628cd1b9b0dd1ae1e599099dec1d3e91d0a953feff9b",
+            "tokenType": "oauth_access",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-10-22T12:15:20.000Z",
+            "revokedAt": null,
+            "usedAt": "2026-10-22T12:00:31.000Z"
+          },
+          {
+            "tokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795",
+            "tokenType": "oauth_refresh",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "usedAt": null
+          }
+        ],
+        "registrations": [
+          {
+            "id": "registration_remote_example",
+            "status": "activated",
+            "connectionRoute": "remote_mcp_oauth",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "approvedAt": "2026-10-22T12:00:00.000Z",
+            "activationExpiresAt": "2026-10-22T12:01:00.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "target": {
+              "kind": "new_agent",
+              "workspaceInboxId": "inbox_workspace",
+              "organizationId": "org_example",
+              "agentName": "Example assistant",
+              "name": "Example assistant",
+              "localPart": "example",
+              "address": "example@envoi.mail"
+            },
+            "workspaceName": "Example workspace",
+            "approverHumanId": "human_example",
+            "principalHumanId": "human_example",
+            "effectivePermissions": [
+              "send_agent_messages",
+              "receive_agent_messages"
+            ],
+            "policyProfile": "default",
+            "installationId": "installation_remote_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "oauth": {
+              "source": "consent",
+              "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+              "redirectUri": "https://assistant.example.com/oauth/callback",
+              "codeChallenge": "muWCYy0bKAm3EgsqCoKtt_PEs51XyN8zPWzsWcrYrxM",
+              "resource": "https://www.envoi-agents.com/mcp",
+              "scope": "envoi.agent envoi.send",
+              "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+              "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+              "codeUsedAt": "2026-10-22T12:00:20.000Z"
+            },
+            "decision": {
+              "kind": "approve",
+              "humanId": "human_example",
+              "digest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+              "decidedAt": "2026-10-22T12:00:00.000Z"
+            }
+          }
+        ],
+        "consentDecisions": [
+          {
+            "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "humanId": "human_example",
+            "decision": "approved",
+            "bodyDigest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+            "registrationId": "registration_remote_example",
+            "decidedAt": "2026-10-22T12:00:00.000Z",
+            "handleExpiresAt": "2026-10-22T12:09:40.000Z"
+          }
+        ],
+        "oauthCodes": [
+          {
+            "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "kind": "authorization_code",
+            "registrationId": "registration_remote_example",
+            "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+            "expiresAt": "2026-10-22T12:01:00.000Z",
+            "usedAt": "2026-10-22T12:00:20.000Z"
+          }
+        ],
+        "oauthCleanupIndex": [
+          {
+            "kind": "oauth_code",
+            "key": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          },
+          {
+            "kind": "consent_decision",
+            "key": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          }
+        ]
+      },
+      "outcome": {
+        "codePresented": "reuse_revokes_installation",
+        "consentRetry": "consentDecided"
+      }
+    },
+    {
+      "event": "registration_cleanup",
+      "at": "2026-10-23T11:30:00.000Z",
+      "storedAfter": {
+        "agents": [
+          {
+            "id": "agent_example",
+            "onboardingStatus": "approved",
+            "status": "active",
+            "runtime": "remote_mcp"
+          }
+        ],
+        "credentialFamilies": [
+          {
+            "id": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "installationId": "installation_remote_example",
+            "audience": "https://www.envoi-agents.com/mcp",
+            "oauthClientId": "https://assistant.example.com/oauth/envoi-client.json"
+          }
+        ],
+        "installations": [
+          {
+            "id": "installation_remote_example",
+            "agentId": "agent_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "registrationId": "registration_remote_example",
+            "connectionRoute": "remote_mcp_oauth",
+            "deliveryMode": "on_demand",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "replayDetectedAt": null
+          }
+        ],
+        "credentialRecords": [
+          {
+            "tokenHash": "e7e142a3e1828bca5bf8628cd1b9b0dd1ae1e599099dec1d3e91d0a953feff9b",
+            "tokenType": "oauth_access",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-10-22T12:15:20.000Z",
+            "revokedAt": null,
+            "usedAt": "2026-10-22T12:00:31.000Z"
+          },
+          {
+            "tokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795",
+            "tokenType": "oauth_refresh",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "usedAt": null
+          }
+        ],
+        "registrations": [
+          {
+            "id": "registration_remote_example",
+            "status": "activated",
+            "connectionRoute": "remote_mcp_oauth",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "approvedAt": "2026-10-22T12:00:00.000Z",
+            "activationExpiresAt": "2026-10-22T12:01:00.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "target": {
+              "kind": "new_agent",
+              "workspaceInboxId": "inbox_workspace",
+              "organizationId": "org_example",
+              "agentName": "Example assistant",
+              "name": "Example assistant",
+              "localPart": "example",
+              "address": "example@envoi.mail"
+            },
+            "workspaceName": "Example workspace",
+            "approverHumanId": "human_example",
+            "principalHumanId": "human_example",
+            "effectivePermissions": [
+              "send_agent_messages",
+              "receive_agent_messages"
+            ],
+            "policyProfile": "default",
+            "installationId": "installation_remote_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "oauth": {
+              "source": "consent",
+              "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+              "redirectUri": "https://assistant.example.com/oauth/callback",
+              "codeChallenge": "muWCYy0bKAm3EgsqCoKtt_PEs51XyN8zPWzsWcrYrxM",
+              "resource": "https://www.envoi-agents.com/mcp",
+              "scope": "envoi.agent envoi.send",
+              "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+              "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+              "codeUsedAt": "2026-10-22T12:00:20.000Z"
+            },
+            "decision": {
+              "kind": "approve",
+              "humanId": "human_example",
+              "digest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+              "decidedAt": "2026-10-22T12:00:00.000Z"
+            }
+          }
+        ],
+        "consentDecisions": [
+          {
+            "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "humanId": "human_example",
+            "decision": "approved",
+            "bodyDigest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+            "registrationId": "registration_remote_example",
+            "decidedAt": "2026-10-22T12:00:00.000Z",
+            "handleExpiresAt": "2026-10-22T12:09:40.000Z"
+          }
+        ],
+        "oauthCodes": [
+          {
+            "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "kind": "authorization_code",
+            "registrationId": "registration_remote_example",
+            "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+            "expiresAt": "2026-10-22T12:01:00.000Z",
+            "usedAt": "2026-10-22T12:00:20.000Z"
+          }
+        ],
+        "oauthCleanupIndex": [
+          {
+            "kind": "oauth_code",
+            "key": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          },
+          {
+            "kind": "consent_decision",
+            "key": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          }
+        ]
+      },
+      "outcome": {
+        "codePresented": "reuse_revokes_installation",
+        "consentRetry": "consentDecided"
+      }
+    },
+    {
+      "event": "restart",
+      "at": "2026-10-23T12:10:00.000Z",
+      "storedAfter": {
+        "agents": [
+          {
+            "id": "agent_example",
+            "onboardingStatus": "approved",
+            "status": "active",
+            "runtime": "remote_mcp"
+          }
+        ],
+        "credentialFamilies": [
+          {
+            "id": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "installationId": "installation_remote_example",
+            "audience": "https://www.envoi-agents.com/mcp",
+            "oauthClientId": "https://assistant.example.com/oauth/envoi-client.json"
+          }
+        ],
+        "installations": [
+          {
+            "id": "installation_remote_example",
+            "agentId": "agent_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "registrationId": "registration_remote_example",
+            "connectionRoute": "remote_mcp_oauth",
+            "deliveryMode": "on_demand",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "replayDetectedAt": null
+          }
+        ],
+        "credentialRecords": [
+          {
+            "tokenHash": "e7e142a3e1828bca5bf8628cd1b9b0dd1ae1e599099dec1d3e91d0a953feff9b",
+            "tokenType": "oauth_access",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-10-22T12:15:20.000Z",
+            "revokedAt": null,
+            "usedAt": "2026-10-22T12:00:31.000Z"
+          },
+          {
+            "tokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795",
+            "tokenType": "oauth_refresh",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "usedAt": null
+          }
+        ],
+        "registrations": [
+          {
+            "id": "registration_remote_example",
+            "status": "activated",
+            "connectionRoute": "remote_mcp_oauth",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "approvedAt": "2026-10-22T12:00:00.000Z",
+            "activationExpiresAt": "2026-10-22T12:01:00.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "target": {
+              "kind": "new_agent",
+              "workspaceInboxId": "inbox_workspace",
+              "organizationId": "org_example",
+              "agentName": "Example assistant",
+              "name": "Example assistant",
+              "localPart": "example",
+              "address": "example@envoi.mail"
+            },
+            "workspaceName": "Example workspace",
+            "approverHumanId": "human_example",
+            "principalHumanId": "human_example",
+            "effectivePermissions": [
+              "send_agent_messages",
+              "receive_agent_messages"
+            ],
+            "policyProfile": "default",
+            "installationId": "installation_remote_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "oauth": {
+              "source": "consent",
+              "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+              "redirectUri": "https://assistant.example.com/oauth/callback",
+              "codeChallenge": "muWCYy0bKAm3EgsqCoKtt_PEs51XyN8zPWzsWcrYrxM",
+              "resource": "https://www.envoi-agents.com/mcp",
+              "scope": "envoi.agent envoi.send",
+              "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+              "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+              "codeUsedAt": "2026-10-22T12:00:20.000Z"
+            },
+            "decision": {
+              "kind": "approve",
+              "humanId": "human_example",
+              "digest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+              "decidedAt": "2026-10-22T12:00:00.000Z"
+            }
+          }
+        ],
+        "consentDecisions": [
+          {
+            "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "humanId": "human_example",
+            "decision": "approved",
+            "bodyDigest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+            "registrationId": "registration_remote_example",
+            "decidedAt": "2026-10-22T12:00:00.000Z",
+            "handleExpiresAt": "2026-10-22T12:09:40.000Z"
+          }
+        ],
+        "oauthCodes": [
+          {
+            "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "kind": "authorization_code",
+            "registrationId": "registration_remote_example",
+            "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+            "expiresAt": "2026-10-22T12:01:00.000Z",
+            "usedAt": "2026-10-22T12:00:20.000Z"
+          }
+        ],
+        "oauthCleanupIndex": [
+          {
+            "kind": "oauth_code",
+            "key": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          },
+          {
+            "kind": "consent_decision",
+            "key": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          }
+        ]
+      },
+      "outcome": {
+        "codePresented": "reuse_revokes_installation",
+        "consentRetry": "consentDecided"
+      }
+    },
+    {
+      "event": "index_sweep",
+      "at": "2026-10-23T12:30:00.000Z",
+      "storedAfter": {
+        "agents": [
+          {
+            "id": "agent_example",
+            "onboardingStatus": "approved",
+            "status": "active",
+            "runtime": "remote_mcp"
+          }
+        ],
+        "credentialFamilies": [
+          {
+            "id": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "installationId": "installation_remote_example",
+            "audience": "https://www.envoi-agents.com/mcp",
+            "oauthClientId": "https://assistant.example.com/oauth/envoi-client.json"
+          }
+        ],
+        "installations": [
+          {
+            "id": "installation_remote_example",
+            "agentId": "agent_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "registrationId": "registration_remote_example",
+            "connectionRoute": "remote_mcp_oauth",
+            "deliveryMode": "on_demand",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "replayDetectedAt": null
+          }
+        ],
+        "credentialRecords": [
+          {
+            "tokenHash": "e7e142a3e1828bca5bf8628cd1b9b0dd1ae1e599099dec1d3e91d0a953feff9b",
+            "tokenType": "oauth_access",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-10-22T12:15:20.000Z",
+            "revokedAt": null,
+            "usedAt": "2026-10-22T12:00:31.000Z"
+          },
+          {
+            "tokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795",
+            "tokenType": "oauth_refresh",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "usedAt": null
+          }
+        ],
+        "registrations": [
+          {
+            "id": "registration_remote_example",
+            "status": "activated",
+            "connectionRoute": "remote_mcp_oauth",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "approvedAt": "2026-10-22T12:00:00.000Z",
+            "activationExpiresAt": "2026-10-22T12:01:00.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "target": {
+              "kind": "new_agent",
+              "workspaceInboxId": "inbox_workspace",
+              "organizationId": "org_example",
+              "agentName": "Example assistant",
+              "name": "Example assistant",
+              "localPart": "example",
+              "address": "example@envoi.mail"
+            },
+            "workspaceName": "Example workspace",
+            "approverHumanId": "human_example",
+            "principalHumanId": "human_example",
+            "effectivePermissions": [
+              "send_agent_messages",
+              "receive_agent_messages"
+            ],
+            "policyProfile": "default",
+            "installationId": "installation_remote_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "oauth": {
+              "source": "consent",
+              "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+              "redirectUri": "https://assistant.example.com/oauth/callback",
+              "codeChallenge": "muWCYy0bKAm3EgsqCoKtt_PEs51XyN8zPWzsWcrYrxM",
+              "resource": "https://www.envoi-agents.com/mcp",
+              "scope": "envoi.agent envoi.send",
+              "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+              "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+              "codeUsedAt": "2026-10-22T12:00:20.000Z"
+            },
+            "decision": {
+              "kind": "approve",
+              "humanId": "human_example",
+              "digest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+              "decidedAt": "2026-10-22T12:00:00.000Z"
+            }
+          }
+        ],
+        "consentDecisions": [
+          {
+            "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "humanId": "human_example",
+            "decision": "approved",
+            "bodyDigest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+            "registrationId": "registration_remote_example",
+            "decidedAt": "2026-10-22T12:00:00.000Z",
+            "handleExpiresAt": "2026-10-22T12:09:40.000Z"
+          }
+        ],
+        "oauthCodes": [
+          {
+            "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "kind": "authorization_code",
+            "registrationId": "registration_remote_example",
+            "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+            "expiresAt": "2026-10-22T12:01:00.000Z",
+            "usedAt": "2026-10-22T12:00:20.000Z"
+          }
+        ],
+        "oauthCleanupIndex": [
+          {
+            "kind": "oauth_code",
+            "key": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          },
+          {
+            "kind": "consent_decision",
+            "key": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          }
+        ]
+      },
+      "outcome": {
+        "codePresented": "reuse_revokes_installation",
+        "consentRetry": "consentDecided"
+      }
+    },
+    {
+      "event": "index_sweep",
+      "at": "2026-10-23T12:59:00.000Z",
+      "storedAfter": {
+        "agents": [
+          {
+            "id": "agent_example",
+            "onboardingStatus": "approved",
+            "status": "active",
+            "runtime": "remote_mcp"
+          }
+        ],
+        "credentialFamilies": [
+          {
+            "id": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "installationId": "installation_remote_example",
+            "audience": "https://www.envoi-agents.com/mcp",
+            "oauthClientId": "https://assistant.example.com/oauth/envoi-client.json"
+          }
+        ],
+        "installations": [
+          {
+            "id": "installation_remote_example",
+            "agentId": "agent_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "registrationId": "registration_remote_example",
+            "connectionRoute": "remote_mcp_oauth",
+            "deliveryMode": "on_demand",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "replayDetectedAt": null
+          }
+        ],
+        "credentialRecords": [
+          {
+            "tokenHash": "e7e142a3e1828bca5bf8628cd1b9b0dd1ae1e599099dec1d3e91d0a953feff9b",
+            "tokenType": "oauth_access",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-10-22T12:15:20.000Z",
+            "revokedAt": null,
+            "usedAt": "2026-10-22T12:00:31.000Z"
+          },
+          {
+            "tokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795",
+            "tokenType": "oauth_refresh",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "usedAt": null
+          }
+        ],
+        "registrations": [
+          {
+            "id": "registration_remote_example",
+            "status": "activated",
+            "connectionRoute": "remote_mcp_oauth",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "approvedAt": "2026-10-22T12:00:00.000Z",
+            "activationExpiresAt": "2026-10-22T12:01:00.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "target": {
+              "kind": "new_agent",
+              "workspaceInboxId": "inbox_workspace",
+              "organizationId": "org_example",
+              "agentName": "Example assistant",
+              "name": "Example assistant",
+              "localPart": "example",
+              "address": "example@envoi.mail"
+            },
+            "workspaceName": "Example workspace",
+            "approverHumanId": "human_example",
+            "principalHumanId": "human_example",
+            "effectivePermissions": [
+              "send_agent_messages",
+              "receive_agent_messages"
+            ],
+            "policyProfile": "default",
+            "installationId": "installation_remote_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "oauth": {
+              "source": "consent",
+              "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+              "redirectUri": "https://assistant.example.com/oauth/callback",
+              "codeChallenge": "muWCYy0bKAm3EgsqCoKtt_PEs51XyN8zPWzsWcrYrxM",
+              "resource": "https://www.envoi-agents.com/mcp",
+              "scope": "envoi.agent envoi.send",
+              "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+              "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+              "codeUsedAt": "2026-10-22T12:00:20.000Z"
+            },
+            "decision": {
+              "kind": "approve",
+              "humanId": "human_example",
+              "digest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+              "decidedAt": "2026-10-22T12:00:00.000Z"
+            }
+          }
+        ],
+        "consentDecisions": [
+          {
+            "handleDigest": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "humanId": "human_example",
+            "decision": "approved",
+            "bodyDigest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+            "registrationId": "registration_remote_example",
+            "decidedAt": "2026-10-22T12:00:00.000Z",
+            "handleExpiresAt": "2026-10-22T12:09:40.000Z"
+          }
+        ],
+        "oauthCodes": [
+          {
+            "codeHash": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "kind": "authorization_code",
+            "registrationId": "registration_remote_example",
+            "clientId": "https://assistant.example.com/oauth/envoi-client.json",
+            "expiresAt": "2026-10-22T12:01:00.000Z",
+            "usedAt": "2026-10-22T12:00:20.000Z"
+          }
+        ],
+        "oauthCleanupIndex": [
+          {
+            "kind": "oauth_code",
+            "key": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          },
+          {
+            "kind": "consent_decision",
+            "key": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
+            "registrationId": "registration_remote_example",
+            "createdAt": "2026-10-22T12:00:00.000Z",
+            "deleteAfter": null
+          }
+        ]
+      },
+      "outcome": {
+        "codePresented": "reuse_revokes_installation",
+        "consentRetry": "consentDecided"
+      }
+    },
+    {
+      "event": "registration_cleanup",
+      "at": "2026-10-23T12:59:30.000Z",
+      "storedAfter": {
+        "agents": [
+          {
+            "id": "agent_example",
+            "onboardingStatus": "approved",
+            "status": "active",
+            "runtime": "remote_mcp"
+          }
+        ],
+        "credentialFamilies": [
+          {
+            "id": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "installationId": "installation_remote_example",
+            "audience": "https://www.envoi-agents.com/mcp",
+            "oauthClientId": "https://assistant.example.com/oauth/envoi-client.json"
+          }
+        ],
+        "installations": [
+          {
+            "id": "installation_remote_example",
+            "agentId": "agent_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "registrationId": "registration_remote_example",
+            "connectionRoute": "remote_mcp_oauth",
+            "deliveryMode": "on_demand",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "replayDetectedAt": null
+          }
+        ],
+        "credentialRecords": [
+          {
+            "tokenHash": "e7e142a3e1828bca5bf8628cd1b9b0dd1ae1e599099dec1d3e91d0a953feff9b",
+            "tokenType": "oauth_access",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-10-22T12:15:20.000Z",
+            "revokedAt": null,
+            "usedAt": "2026-10-22T12:00:31.000Z"
+          },
+          {
+            "tokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795",
+            "tokenType": "oauth_refresh",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "usedAt": null
+          }
+        ],
+        "registrations": [],
+        "consentDecisions": [],
+        "oauthCodes": [],
+        "oauthCleanupIndex": []
+      },
+      "outcome": {
+        "codePresented": "invalid_grant_revokes_nothing",
+        "consentRetry": "AUTHORIZATION_REQUEST_INVALID"
+      }
+    },
+    {
+      "event": "index_sweep",
+      "at": "2026-10-23T13:01:00.000Z",
+      "storedAfter": {
+        "agents": [
+          {
+            "id": "agent_example",
+            "onboardingStatus": "approved",
+            "status": "active",
+            "runtime": "remote_mcp"
+          }
+        ],
+        "credentialFamilies": [
+          {
+            "id": "credential_family_remote-example",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "installationId": "installation_remote_example",
+            "audience": "https://www.envoi-agents.com/mcp",
+            "oauthClientId": "https://assistant.example.com/oauth/envoi-client.json"
+          }
+        ],
+        "installations": [
+          {
+            "id": "installation_remote_example",
+            "agentId": "agent_example",
+            "credentialFamilyId": "credential_family_remote-example",
+            "registrationId": "registration_remote_example",
+            "connectionRoute": "remote_mcp_oauth",
+            "deliveryMode": "on_demand",
+            "runtime": {
+              "type": "remote_mcp",
+              "version": null
+            },
+            "createdAt": "2026-10-22T12:00:20.000Z",
+            "activatedAt": "2026-10-22T12:00:20.000Z",
+            "replayDetectedAt": null
+          }
+        ],
+        "credentialRecords": [
+          {
+            "tokenHash": "e7e142a3e1828bca5bf8628cd1b9b0dd1ae1e599099dec1d3e91d0a953feff9b",
+            "tokenType": "oauth_access",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-10-22T12:15:20.000Z",
+            "revokedAt": null,
+            "usedAt": "2026-10-22T12:00:31.000Z"
+          },
+          {
+            "tokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795",
+            "tokenType": "oauth_refresh",
+            "agentId": "agent_example",
+            "inboxId": "inbox_example",
+            "familyId": "credential_family_remote-example",
+            "issuedAt": "2026-10-22T12:00:20.000Z",
+            "expiresAt": "2026-11-21T12:00:20.000Z",
+            "revokedAt": null,
+            "usedAt": null
+          }
+        ],
+        "registrations": [],
+        "consentDecisions": [],
+        "oauthCodes": [],
+        "oauthCleanupIndex": []
+      },
+      "outcome": {
+        "codePresented": "invalid_grant_revokes_nothing",
+        "consentRetry": "AUTHORIZATION_REQUEST_INVALID"
+      }
+    }
+  ],
+  "client": {
+    "surface": "server",
+    "next": "Until registration cleanup removes the registration, a retry still gets consentDecided and a reused code still revokes the installation it activated, across restarts. After it, both are unknown."
+  }
+}

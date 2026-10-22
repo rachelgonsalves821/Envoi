@@ -1,0 +1,65 @@
+{
+  "contract": "a5-presence-on-demand",
+  "version": 1,
+  "id": "owner-on-demand-pause-response",
+  "description": "The owner pauses an on-demand assistant last used 6 min ago. The pause response carries the same connection.",
+  "kind": "http",
+  "context": {
+    "reportedInstallations": [
+      {
+        "agentId": "agent_example",
+        "installation": {
+          "id": "installation_remote_example",
+          "connectionRoute": "remote_mcp_oauth",
+          "deliveryMode": "on_demand",
+          "legacy": false
+        }
+      }
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_example/agents/agent_example/pause",
+    "auth": "human_session"
+  },
+  "response": {
+    "status": 200,
+    "schema": "ownerAgent",
+    "body": {
+      "id": "agent_example",
+      "name": "Example assistant",
+      "slug": "example",
+      "address": "example@envoi.mail",
+      "platformAddress": "example@envoi.mail",
+      "status": "paused",
+      "onboardingStatus": "approved",
+      "permissions": [
+        "send_agent_messages",
+        "receive_agent_messages"
+      ],
+      "createdAt": "2026-10-20T09:00:00.000Z",
+      "paused": true,
+      "credentialRevoked": false,
+      "connection": {
+        "state": "on_demand",
+        "asOf": "2026-10-22T12:00:42.000Z",
+        "recentWindowSeconds": 300,
+        "seenAt": "2026-10-22T11:54:40.000Z",
+        "credentialExpiresAt": "2026-11-21T11:54:40.000Z",
+        "presence": {
+          "lastSeenAt": "2026-10-22T11:54:40.000Z",
+          "lastSuccessfulRefreshAt": "2026-10-22T11:54:40.000Z",
+          "lastWorkClaimAt": null,
+          "lastProcessedAt": null
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "owner_ui",
+    "connectionLabel": "On demand",
+    "connectionDetail": "Last request {relative}",
+    "agentLabel": "Paused",
+    "next": "Show \"Paused · On demand · Last request 6 minutes ago\"."
+  }
+}

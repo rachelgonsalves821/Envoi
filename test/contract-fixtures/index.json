@@ -131,6 +131,29 @@
       ]
     },
     {
+      "id": "a5-presence-on-demand",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#a5-presence-on-demand-v1",
+      "dir": "a5-presence-on-demand",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "owner-local-helper-replaced-by-on-demand.json",
+        "owner-on-demand-after-resume.json",
+        "owner-on-demand-flags-off.json",
+        "owner-on-demand-idle.json",
+        "owner-on-demand-needs-reconnect.json",
+        "owner-on-demand-no-requests.json",
+        "owner-on-demand-pause-response.json",
+        "owner-on-demand-paused-needs-reconnect.json",
+        "owner-on-demand-paused.json",
+        "owner-on-demand-recent-request.json",
+        "owner-on-demand-refresh-only.json",
+        "owner-on-demand-replaced-by-local-helper.json",
+        "owner-on-demand-revoked-by-client.json"
+      ]
+    },
+    {
       "id": "envoi-browser-names",
       "version": 1,
       "status": "approved",
@@ -227,6 +250,7 @@
         "registration-poll-too-fast.json",
         "registration-rate-limited.json",
         "registration-rejected.json",
+        "registration-remote-route-refused.json",
         "registration-rest-not-enabled.json",
         "registration-route-not-available.json",
         "registration-token-invalid.json",
@@ -235,7 +259,17 @@
         "rollback-flags-off.json",
         "routes-available-rest.json",
         "routes-available.json",
-        "routes-disabled.json"
+        "routes-disabled.json",
+        "stored-oauth-flags-off.json",
+        "stored-oauth-installation.json",
+        "stored-oauth-orphan-sweep.json",
+        "stored-oauth-refresh-recovery.json",
+        "stored-oauth-replaced-by-local-helper.json",
+        "stored-oauth-retention-boundary.json",
+        "stored-oauth-source-rollback.json",
+        "stored-oauth-successor-access-used.json",
+        "stored-oauth-successor-refresh-used.json",
+        "stored-provider-installation.json"
       ]
     },
     {
@@ -642,7 +676,18 @@
         "token-refresh-replay.json",
         "token-refresh-scope-changed.json",
         "token-refresh.json",
-        "token-resource-mismatch.json"
+        "token-resource-mismatch.json",
+        "authorize-handle-at-limit.json",
+        "authorize-handle-overflow.json",
+        "token-code-reused-confidential-auth-failed.json",
+        "token-code-reused-installation-ended.json",
+        "token-code-reused-other-client.json",
+        "token-code-reused-wrong-verifier.json",
+        "token-code-reused-expired.json",
+        "token-code-reused-malformed-verifier.json",
+        "token-code-reused-missing-verifier.json",
+        "token-code-reused-wrong-redirect.json",
+        "token-code-reused-wrong-resource.json"
       ]
     }
   ]

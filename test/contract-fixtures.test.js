@@ -102,29 +102,39 @@ function checkPresence(presence, asOf, label) {
 }
 
 // a5-presence §4.2 and §5: re-derive seenAt, the connection state and both labels from the fixture's own fields.
+// a5-presence-on-demand §2: when the reported family's installation declares on_demand, seenAt is lastSeenAt and
+// the on_demand row comes right after needs_reconnect. a5-presence v1 fixtures carry no context, so nothing changes for them.
 function checkOwnerConnection(fixture, schemas, label) {
   assert.deepEqual(schemas['x-connection-states'].map((entry) => entry.state), schemas.definitions.connectionState.enum, `${label}: state table order`);
   assert.deepEqual(schemas['x-agent-labels'].map((entry) => entry.label), ['Revoked', 'Rejected', 'Pending', 'Paused', 'Active'], `${label}: agent label table order`);
   const agents = Array.isArray(fixture.response.body) ? fixture.response.body : [fixture.response.body];
+  const reported = fixture.context?.reportedInstallations;
+  if (reported) assert.deepEqual(reported.map((entry) => entry.agentId), agents.map((agent) => agent.id), `${label}: one reported installation per agent, in order`);
   for (const [index, agent] of agents.entries()) {
     const agentLabel = `${label} agent ${index}`;
     const { connection } = agent;
+    const onDemand = reported?.[index].installation?.deliveryMode === 'on_demand';
     const revoked = agent.status === 'revoked' || agent.credentialRevoked;
     const { lastSeenAt, lastWorkClaimAt } = connection.presence;
     const resumeGrace = Boolean(agent.resumedAt) && Date.parse(connection.asOf) - Date.parse(agent.resumedAt) <= connection.recentWindowSeconds * 1000
       && (!lastWorkClaimAt || lastWorkClaimAt < agent.resumedAt);
-    const seenAt = agent.paused || resumeGrace ? lastSeenAt : lastWorkClaimAt;
-    assert.equal(connection.seenAt, seenAt, `${agentLabel}: seenAt is lastSeenAt while paused or in the resume grace, otherwise lastWorkClaimAt`);
+    const seenAt = onDemand || agent.paused || resumeGrace ? lastSeenAt : lastWorkClaimAt;
+    assert.equal(connection.seenAt, seenAt, `${agentLabel}: seenAt is lastSeenAt for on_demand, while paused or in the resume grace, otherwise lastWorkClaimAt`);
     const state = revoked ? 'revoked'
       : agent.onboardingStatus === 'rejected' ? 'rejected'
         : agent.onboardingStatus !== 'approved' ? 'pending_approval'
           : connection.credentialExpiresAt === null ? 'not_connected'
             : connection.credentialExpiresAt <= connection.asOf ? 'needs_reconnect'
-              : seenAt === null ? 'never_seen'
-                : Date.parse(connection.asOf) - Date.parse(seenAt) <= connection.recentWindowSeconds * 1000 ? 'seen_recently'
-                  : 'not_seen_recently';
+              : onDemand ? 'on_demand'
+                : seenAt === null ? 'never_seen'
+                  : Date.parse(connection.asOf) - Date.parse(seenAt) <= connection.recentWindowSeconds * 1000 ? 'seen_recently'
+                    : 'not_seen_recently';
     assert.equal(connection.state, state, `${agentLabel}: connection.state follows the first matching row`);
-    assert.equal(fixture.client.connectionLabel, schemas['x-connection-states'].find((entry) => entry.state === state).connectionLabel, `${agentLabel}: connection label`);
+    const row = schemas['x-connection-states'].find((entry) => entry.state === state);
+    assert.ok(row, `${agentLabel}: ${state} is in this contract's state table`);
+    assert.equal(fixture.client.connectionLabel, row.connectionLabel, `${agentLabel}: connection label`);
+    const detail = row.details?.find((entry) => (entry.when === 'seenAt is null' ? seenAt === null : entry.when === 'otherwise')).connectionDetail;
+    assert.equal(fixture.client.connectionDetail, detail, `${agentLabel}: connection detail`);
     const expectedAgentLabel = revoked ? 'Revoked' : agent.onboardingStatus === 'rejected' ? 'Rejected' : agent.onboardingStatus !== 'approved' ? 'Pending' : agent.paused ? 'Paused' : 'Active';
     assert.equal(fixture.client.agentLabel, expectedAgentLabel, `${agentLabel}: agent label`);
     if (['not_connected', 'pending_approval', 'rejected'].includes(state)) assert.deepEqual(Object.values(connection.presence), [null, null, null, null], `${agentLabel}: no family, no presence`);
@@ -387,6 +397,7 @@ function checkAgentRegistration(fixture, schemas, check, validator, label) {
     }
   }
   if (fixture.stored) checkInstallationDerivation(fixture, schemas, label);
+  if (fixture.stored) checkStoredOAuthRecords(fixture, label);
   // §6.5, §12: after a restart, every step of a restart fixture still succeeds (nothing was frozen).
   if (fixture.kind === 'restart') checkRestart(fixture, exchanges, label);
   checkOwnerReconnectEligibility(fixture, exchanges, label);
@@ -444,9 +455,22 @@ function checkRestart(fixture, exchanges, label) {
   }
 }
 
+// agent-registration §14.8 (revision 5): a step that changes storage carries storedAfter; it and every later step
+// read that state. Returns [step, state] pairs.
+const stepStates = (fixture) => {
+  let state = fixture.stored;
+  return fixture.steps.map((step) => [step, (state = step.storedAfter || state)]);
+};
+
 // agent-registration §6.4 and §9: every listed installation is derived from the stored families.
 function checkInstallationDerivation(fixture, schemas, label) {
-  const { agents = [], credentialFamilies = [], installations: storedInstallations = [] } = fixture.stored;
+  for (const [step, state] of stepStates(fixture)) {
+    if (!['ownerInstallationList', 'agentStatusWithInstallation', 'installationRevoked'].includes(step.response.schema)) continue;
+    checkStepInstallations(step, state, schemas, label);
+  }
+}
+function checkStepInstallations(step, state, schemas, label) {
+  const { agents = [], credentialFamilies = [], installations: storedInstallations = [] } = state;
   const derived = [];
   for (const family of credentialFamilies) {
     const agent = agents.find((entry) => entry.id === family.agentId);
@@ -455,8 +479,7 @@ function checkInstallationDerivation(fixture, schemas, label) {
     if (!family.installationId && !['approved', 'revoked'].includes(agent.onboardingStatus)) continue;
     derived.push({ family, agent });
   }
-  const steps = fixture.steps.filter((entry) => ['ownerInstallationList', 'agentStatusWithInstallation'].includes(entry.response.schema));
-  for (const step of steps) {
+  {
     const expected = [];
     for (const { family, agent } of derived) {
       const ended = Boolean(family.revokedAt);
@@ -472,11 +495,197 @@ function checkInstallationDerivation(fixture, schemas, label) {
       const shown = [...listed.filter((entry) => entry.status === 'active'),
         ...listed.filter((entry) => entry.status === 'ended').sort((a, b) => b.endedAt.localeCompare(a.endedAt)).slice(0, schemas['x-limits'].ownerInstallationEndedMax)];
       assert.deepEqual(byId(step.response.body.installations), byId(shown), `${label}: installations are derived from the stored families (x-legacy-projection, x-installation-derivation)`);
+    } else if (step.response.schema === 'installationRevoked') {
+      // The revoke response is the installation in the state after the revoke (step.storedAfter).
+      const match = expected.find((entry) => entry.id === step.response.body.installation.id);
+      assert.ok(step.storedAfter, `${label}: a revoke step carries the state after it`);
+      assert.deepEqual(step.response.body.installation, match, `${label}: the revoke response is derived from the state after the revoke`);
+      assert.deepEqual([match.status, match.endedReason], ['ended', 'revoked'], `${label}: the revoked installation is ended/revoked`);
     } else if (step.response.body.installation) {
       const { installation } = step.response.body;
       const match = expected.find((entry) => entry.id === installation.id);
       assert.ok(match && match.status === 'active', `${label}: agent status names an active derived installation`);
       assert.deepEqual(installation, { id: match.id, connectionRoute: match.connectionRoute, deliveryMode: match.deliveryMode, legacy: match.legacy }, `${label}: agent status installation summary`);
+    }
+  }
+}
+
+// agent-registration §14 (revision 5): the records an agent-remote-auth flow stores agree with each other, hold no
+// secret, never reach an owner view, and keep OAuth tokens refused outside /mcp and by an older server.
+const oauthRoutes = ['remote_mcp_oauth', 'provider_connector'];
+function checkStoredOAuthRecords(fixture, label) {
+  // Every state the fixture describes: the initial one, after each step that changes storage, after each event.
+  const states = [['stored', fixture.stored], ...fixture.steps.filter((step) => step.storedAfter).map((step, index) => [`storedAfter of transition ${index}`, step.storedAfter]),
+    ...(fixture.timeline || []).map((event, index) => [`timeline ${index} (${event.event})`, event.storedAfter])];
+  for (const [name, state] of states) checkStoredState(state, `${label} ${name}`);
+  checkStoredResponses(fixture, label);
+  if (fixture.timeline) checkStoredTimeline(fixture, label);
+}
+
+function checkStoredState(state, label) {
+  const { credentialFamilies = [], installations = [], credentialRecords = [], registrations = [], consentDecisions = [], oauthCodes = [], oauthRefreshRecoveries = [] } = state;
+  const familyOf = (familyId) => credentialFamilies.find((family) => family.id === familyId);
+  for (const family of credentialFamilies) {
+    const installation = installations.find((entry) => entry.id === family.installationId);
+    assert.equal(Boolean(family.audience), Boolean(installation && oauthRoutes.includes(installation.connectionRoute)), `${label}: ${family.id} has an audience exactly when its installation is on an agent-remote-auth route`);
+    for (const entry of credentialRecords.filter((item) => item.familyId === family.id)) {
+      assert.equal(entry.tokenType.startsWith('oauth_'), Boolean(family.audience), `${label}: ${family.id}'s token records are oauth_ types exactly when it has an audience`);
+    }
+  }
+  for (const entry of credentialRecords) assert.ok(familyOf(entry.familyId), `${label}: token record ${entry.tokenHash.slice(0, 8)} names a stored family`);
+  for (const registration of registrations) {
+    const family = registration.credentialFamilyId && familyOf(registration.credentialFamilyId);
+    if (registration.status === 'activated') {
+      assert.ok(family, `${label}: an activated registration names a stored family`);
+      assert.equal(registration.oauth.resource, family.audience, `${label}: the family's audience is the registration's resource`);
+      assert.equal(registration.oauth.clientId, family.oauthClientId, `${label}: the family's client is the registration's client`);
+      assert.equal(registration.oauth.codeUsedAt, registration.activatedAt, `${label}: the code was used by the activation`);
+      assert.equal(installations.find((entry) => entry.id === registration.installationId)?.connectionRoute, registration.connectionRoute, `${label}: the installation has the registration's route`);
+    }
+    const code = oauthCodes.find((entry) => entry.codeHash === registration.oauth.codeHash);
+    assert.ok(code, `${label}: ${registration.id}'s code has an index record`);
+    assert.deepEqual([code.registrationId, code.clientId, code.kind, code.expiresAt, code.usedAt], [registration.id, registration.oauth.clientId, registration.oauth.source === 'consent' ? 'authorization_code' : 'bootstrap_code', registration.activationExpiresAt, registration.oauth.codeUsedAt], `${label}: the code index agrees with its registration`);
+    const consent = registration.oauth.source === 'consent';
+    assert.equal(registration.oauth.handleDigest !== null && registration.oauth.redirectUri !== null && registration.oauth.codeChallenge !== null, consent, `${label}: only a consent registration has a handle, a redirect and a challenge`);
+    const decision = consentDecisions.find((entry) => entry.registrationId === registration.id);
+    assert.equal(Boolean(decision), consent, `${label}: a consent registration has exactly one consent decision, a bootstrap one none`);
+    if (decision) assert.deepEqual([decision.handleDigest, decision.bodyDigest, decision.humanId, decision.decidedAt], [registration.oauth.handleDigest, registration.decision.digest, registration.decision.humanId, registration.decision.decidedAt], `${label}: the consent decision agrees with its registration`);
+  }
+  for (const decision of consentDecisions.filter((entry) => entry.decision === 'denied')) assert.ok(Date.parse(decision.handleExpiresAt) - Date.parse(decision.decidedAt) <= 600_000, `${label}: a denial lives no longer than its handle`);
+  for (const recovery of oauthRefreshRecoveries) {
+    const family = familyOf(recovery.familyId);
+    const old = credentialRecords.find((entry) => entry.tokenHash === recovery.tokenHash);
+    assert.ok(family && old && old.tokenType === 'oauth_refresh' && old.familyId === family.id && old.usedAt === recovery.createdAt, `${label}: the envelope is keyed by the family's rotated refresh token`);
+    assert.equal(recovery.oauthClientId, family.oauthClientId, `${label}: the envelope is bound to the family's client`);
+    assert.equal(Date.parse(recovery.expiresAt) - Date.parse(recovery.createdAt), 60_000, `${label}: the envelope lives 60 s`);
+    // agent-remote-auth §6.2: the first use of a successor deletes the envelope, so an existing envelope names two
+    // unused successors, and both point back to it.
+    for (const [hash, type] of [[recovery.successorAccessHash, 'oauth_access'], [recovery.successorRefreshHash, 'oauth_refresh']]) {
+      const successor = credentialRecords.find((entry) => entry.tokenHash === hash);
+      assert.ok(successor && successor.tokenType === type && successor.familyId === family.id && successor.usedAt === null && successor.issuedAt === recovery.createdAt, `${label}: the envelope's ${type} successor was issued by this rotation and is unused`);
+      assert.equal(successor.recoveryTokenHash, recovery.tokenHash, `${label}: the ${type} successor points to the envelope its first use deletes`);
+    }
+    assert.ok(!family.revokedAt, `${label}: a revoked family keeps no recovery envelope`);
+    // A1: the rotation rolls the family's expiry, and the successor refresh token carries it.
+    const successorRefresh = credentialRecords.find((entry) => entry.tokenHash === recovery.successorRefreshHash);
+    assert.equal(successorRefresh.expiresAt, family.refreshExpiresAt, `${label}: the successor refresh token expires with the family`);
+    assert.ok(family.refreshExpiresAt > old.expiresAt, `${label}: the rotation extended refreshExpiresAt`);
+  }
+  // §14.6: every code index and consent decision has exactly one cleanup entry. A record with a registration has no
+  // fixed deadline: it lives exactly as long as that registration. Only a denial has its own deadline.
+  const { oauthCleanupIndex = [] } = state;
+  const indexed = [...oauthCodes.map((entry) => ['oauth_code', entry.codeHash, entry.registrationId]), ...consentDecisions.map((entry) => ['consent_decision', entry.handleDigest, entry.registrationId])];
+  assert.deepEqual(oauthCleanupIndex.map((entry) => [entry.kind, entry.key, entry.registrationId]).sort(), indexed.sort(), `${label}: one cleanup entry per code index and consent decision`);
+  for (const entry of oauthCleanupIndex) {
+    const denial = consentDecisions.find((item) => item.handleDigest === entry.key && item.decision === 'denied');
+    assert.equal(entry.deleteAfter, entry.registrationId === null ? denial?.handleExpiresAt : null, `${label}: only a denial's cleanup entry has a deadline, its handleExpiresAt`);
+  }
+  assert.doesNotMatch(JSON.stringify(state), /envoi_oauth_code_|envoi_boot_|envoi_agent_|redirectTo|[?&]code=|code_verifier|client_secret/, `${label}: stored records hold no code, token, verifier, secret or code-bearing URL`);
+}
+
+function checkStoredResponses(fixture, label) {
+  // Every client and audience this fixture stores, derived from its own records.
+  const { credentialFamilies = [], registrations = [] } = fixture.stored;
+  const clientValues = [...new Set([...credentialFamilies, ...registrations.map((entry) => entry.oauth)].flatMap((entry) => [entry.oauthClientId, entry.clientId, entry.audience, entry.resource]).filter(Boolean))];
+  const hosts = [...new Set(clientValues.filter((value) => value.startsWith('https://')).map((value) => new URL(value).host).filter((host) => !['www.envoi-agents.com'].includes(host)))];
+  for (const step of fixture.steps) {
+    const shown = JSON.stringify(step.response.body);
+    assert.doesNotMatch(shown, /"audience"|"oauthClientId"|\/mcp"/, `${label}: owner and agent responses never carry the audience or the client`);
+    for (const value of [...clientValues, ...hosts]) assert.ok(!shown.includes(value), `${label}: responses never include ${value}`);
+    // Fixtures name an OAuth-family bearer envoi_agent_access_PLACEHOLDER_oauth (only these stored-* fixtures use it).
+    const oauthBearer = /PLACEHOLDER_oauth$/.test(step.request.headers?.authorization || '');
+    if (oauthBearer) assert.equal(step.response.body.code, 'AUTHENTICATION_REQUIRED', `${label}: ${step.request.method} ${step.request.path} refuses an OAuth token here`);
+  }
+}
+
+// agent-registration §14.5-§14.6 (revision 5): each timeline event's state is the previous state with that event's
+// rule applied, written here independently of any server code, and each outcome is derived from the state.
+const copy = (value) => JSON.parse(JSON.stringify(value));
+const retainMs = 24 * 3_600_000;
+const timelineRules = {
+  restart: (state) => copy(state),
+  // §14.6: the index sweep never deletes a record whose registration exists; it deletes orphans and expired denials.
+  index_sweep: (state, event) => {
+    const next = copy(state);
+    const registrationIds = new Set((next.registrations || []).map((entry) => entry.id));
+    const drop = (next.oauthCleanupIndex || []).filter((entry) => (entry.registrationId === null ? Date.parse(event.at) >= Date.parse(entry.deleteAfter) : !registrationIds.has(entry.registrationId)));
+    const dropKey = (kind, key) => drop.some((entry) => entry.kind === kind && entry.key === key);
+    if (next.oauthCodes) next.oauthCodes = next.oauthCodes.filter((entry) => !dropKey('oauth_code', entry.codeHash));
+    if (next.consentDecisions) next.consentDecisions = next.consentDecisions.filter((entry) => !dropKey('consent_decision', entry.handleDigest));
+    if (next.oauthCleanupIndex) next.oauthCleanupIndex = next.oauthCleanupIndex.filter((entry) => !drop.includes(entry));
+    return JSON.parse(JSON.stringify(next));
+  },
+  // §2 and §14.6: a registration past 24 h is deleted together with its code index, consent decision and entries.
+  registration_cleanup: (state, event) => {
+    const next = copy(state);
+    const gone = new Set((next.registrations || []).filter((entry) => Date.parse(entry.createdAt) <= Date.parse(event.at) - retainMs).map((entry) => entry.id));
+    if (next.registrations) next.registrations = next.registrations.filter((entry) => !gone.has(entry.id));
+    if (next.oauthCodes) next.oauthCodes = next.oauthCodes.filter((entry) => !gone.has(entry.registrationId));
+    if (next.consentDecisions) next.consentDecisions = next.consentDecisions.filter((entry) => !gone.has(entry.registrationId));
+    if (next.oauthCleanupIndex) next.oauthCleanupIndex = next.oauthCleanupIndex.filter((entry) => !gone.has(entry.registrationId));
+    return next;
+  },
+  // agent-remote-auth §6.2: recovery while the envelope exists; otherwise replay, which revokes the family.
+  old_refresh_presented: (state, event) => {
+    const envelope = (state.oauthRefreshRecoveries || []).find((entry) => entry.tokenHash === event.tokenHash);
+    if (envelope && Date.parse(event.at) < Date.parse(envelope.expiresAt)) return copy(state);
+    const next = copy(state);
+    const record = next.credentialRecords.find((entry) => entry.tokenHash === event.tokenHash);
+    for (const family of next.credentialFamilies) if (family.id === record.familyId) Object.assign(family, { revokedAt: event.at, revokedReason: 'refresh_replay' });
+    next.oauthRefreshRecoveries = next.oauthRefreshRecoveries.filter((entry) => entry.familyId !== record.familyId);
+    return next;
+  },
+  // §14.5: the first use of either successor deletes the envelope it points to and clears both pointers.
+  successor_access_used: (state, event) => {
+    const next = copy(state);
+    const record = next.credentialRecords.find((entry) => entry.tokenHash === event.tokenHash);
+    assert.equal(record.usedAt, null, 'a first use');
+    const pointer = record.recoveryTokenHash;
+    record.usedAt = event.at;
+    for (const entry of next.credentialRecords) if (pointer && entry.recoveryTokenHash === pointer) entry.recoveryTokenHash = null;
+    next.oauthRefreshRecoveries = next.oauthRefreshRecoveries.filter((entry) => entry.tokenHash !== pointer);
+    return next;
+  }
+};
+// Using the successor refresh token is itself a rotation: the access-use rule, plus the new rotation's records.
+timelineRules.successor_refresh_used = (state, event) => timelineRules.successor_access_used(state, event);
+
+function checkStoredTimeline(fixture, label) {
+  let state = fixture.stored;
+  let at = null;
+  for (const [index, event] of fixture.timeline.entries()) {
+    const name = `${label} timeline ${index} (${event.event})`;
+    if (at) assert.ok(event.at > at, `${name}: events are in time order`);
+    at = event.at;
+    const expected = timelineRules[event.event](state, event);
+    let actual = event.storedAfter;
+    if (event.event === 'successor_refresh_used') {
+      // The new rotation: exactly two new records issued now, pointing to a new envelope keyed by the used token.
+      const before = new Set(expected.credentialRecords.map((entry) => entry.tokenHash));
+      const added = actual.credentialRecords.filter((entry) => !before.has(entry.tokenHash));
+      assert.deepEqual(added.map((entry) => [entry.tokenType, entry.issuedAt, entry.recoveryTokenHash]).sort(), [['oauth_access', event.at, event.tokenHash], ['oauth_refresh', event.at, event.tokenHash]], `${name}: the rotation issues two successors`);
+      const envelope = actual.oauthRefreshRecoveries.find((entry) => entry.tokenHash === event.tokenHash);
+      assert.ok(envelope && envelope.createdAt === event.at, `${name}: the rotation writes its own envelope`);
+      actual = { ...copy(actual), credentialRecords: actual.credentialRecords.filter((entry) => before.has(entry.tokenHash)), oauthRefreshRecoveries: actual.oauthRefreshRecoveries.filter((entry) => entry !== envelope) };
+      actual.credentialFamilies = actual.credentialFamilies.map((family) => ({ ...family, refreshExpiresAt: expected.credentialFamilies.find((item) => item.id === family.id).refreshExpiresAt }));
+      assert.equal(event.storedAfter.credentialFamilies[0].refreshExpiresAt, new Date(Date.parse(event.at) + 30 * 86_400_000).toISOString(), `${name}: the rotation rolls refreshExpiresAt`);
+    }
+    assert.deepEqual(actual, expected, `${name}: storedAfter is the previous state with the event's rule applied`);
+    state = event.storedAfter;
+    // Outcomes, derived from the state the event leaves.
+    const outcome = event.outcome || {};
+    if (outcome.oldRefreshToken) {
+      const family = state.credentialFamilies.find((entry) => entry.id === state.credentialRecords.find((item) => item.tokenHash === event.tokenHash).familyId);
+      assert.equal(outcome.oldRefreshToken, family.revokedReason === 'refresh_replay' ? 'replay_revokes_family' : 'recovered_identical_response', `${name}: old refresh token outcome`);
+    }
+    if (outcome.codePresented) {
+      const live = (state.oauthCodes || []).some((code) => (state.registrations || []).some((entry) => entry.id === code.registrationId && entry.status === 'activated'
+        && state.credentialFamilies.some((family) => family.id === entry.credentialFamilyId && !family.revokedAt)));
+      assert.equal(outcome.codePresented, live ? 'reuse_revokes_installation' : 'invalid_grant_revokes_nothing', `${name}: a reused code revokes only while its registration and installation exist`);
+    }
+    if (outcome.consentRetry) {
+      const decided = (state.consentDecisions || []).some((decision) => decision.decision === 'approved' && (state.registrations || []).some((entry) => entry.id === decision.registrationId));
+      assert.equal(outcome.consentRetry, decided ? 'consentDecided' : 'AUTHORIZATION_REQUEST_INVALID', `${name}: a consent retry is answered while the registration exists`);
     }
   }
 }
@@ -1970,4 +2179,234 @@ test('agent-remote-auth fixtures agree across cases', async () => {
   const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
   const index = await readJson(path.join(root, 'index.json'));
   assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'agent-remote-auth').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
+});
+
+// agent-registration §14 (revision 5): every new record is in x-stored-records, the rollback fixtures cover both
+// directions, and the handoff lists exactly the stored-* fixtures.
+test('agent-registration revision 5 stored records agree across cases', async () => {
+  const dir = path.join(root, 'agent-registration');
+  const load = (name) => readJson(path.join(dir, `${name}.json`));
+  const schemas = await load('schemas');
+  const table = schemas['x-stored-records'];
+  for (const prefix of ['auth/agent-credential-families/', 'auth/agent-credentials/', 'auth/agent-registrations/', 'auth/oauth-codes/', 'auth/oauth-consent-decisions/', 'auth/agent-oauth-refresh-recovery/', 'auth/oauth-cleanup/', 'rate-limits/oauth-', 'process memory only']) {
+    assert.ok(table.some((row) => row.path.includes(prefix)), `x-stored-records names ${prefix}`);
+  }
+  for (const row of table) for (const key of ['record', 'path', 'writtenBy', 'transaction', 'secret', 'retention', 'cleanup']) assert.equal(typeof row[key], 'string', `${row.record}: ${key}`);
+  assert.deepEqual(schemas.definitions.storedCredentialFamily.dependencies, { audience: ['oauthClientId'], oauthClientId: ['audience'] }, 'audience and oauthClientId come together');
+
+  const [flagsOff, sourceRollback, installed] = await Promise.all([load('stored-oauth-flags-off'), load('stored-oauth-source-rollback'), load('stored-oauth-installation')]);
+  assert.equal(flagsOff.flags.ENVOI_REMOTE_MCP_OAUTH || flagsOff.flags.ENVOI_PROVIDER_CONNECTORS, false, 'flags-off: both route flags off');
+  assert.equal('ENVOI_REMOTE_MCP_OAUTH' in sourceRollback.flags || 'ENVOI_PROVIDER_CONNECTORS' in sourceRollback.flags, false, 'source rollback: the older server has no route flags');
+  for (const fixture of [flagsOff, sourceRollback]) {
+    // The earlier denial has expired by then and was swept with its cleanup entry.
+    const approvedOnly = {
+      ...installed.stored,
+      consentDecisions: installed.stored.consentDecisions.filter((entry) => entry.decision === 'approved'),
+      oauthCleanupIndex: installed.stored.oauthCleanupIndex.filter((entry) => entry.registrationId !== null)
+    };
+    assert.deepEqual(fixture.stored, approvedOnly, `${fixture.id}: rollback reads the records the approval left, unchanged`);
+    const paths = fixture.steps.map((step) => `${step.request.method} ${step.request.path.split('/').slice(0, 3).join('/')}`);
+    assert.ok(paths.includes('POST /mcp') && paths.some((entry) => entry.startsWith('GET /api/agent')), `${fixture.id}: OAuth tokens refused at /mcp and on REST`);
+    // The owner revoke on OAuth stored state, in this rollback context: listed active, revoked (the state after it
+    // differs only in the family's revocation), then listed ended/revoked at the revoke time.
+    const lists = fixture.steps.filter((step) => step.response.schema === 'ownerInstallationList');
+    const revoke = fixture.steps.find((step) => step.response.schema === 'installationRevoked');
+    assert.ok(revoke && revoke.storedAfter, `${fixture.id}: an owner revoke step with the state after it`);
+    assert.ok(fixture.steps.indexOf(lists[0]) < fixture.steps.indexOf(revoke) && fixture.steps.indexOf(revoke) < fixture.steps.indexOf(lists.at(-1)), `${fixture.id}: listed before and after the revoke`);
+    assert.deepEqual(lists[0].response.body.installations.map((entry) => entry.status), ['active'], `${fixture.id}: active before`);
+    const revokedAt = revoke.response.body.installation.endedAt;
+    const expectedAfter = { ...fixture.stored, credentialFamilies: fixture.stored.credentialFamilies.map((family) => ({ ...family, revokedAt, revokedReason: 'revoked', revokedByHumanId: 'human_example' })) };
+    assert.deepEqual(revoke.storedAfter, expectedAfter, `${fixture.id}: the revoke changes only the family's revokedAt, revokedReason and revokedByHumanId`);
+    assert.deepEqual(lists.at(-1).response.body.installations.map((entry) => [entry.status, entry.endedReason, entry.endedAt]), [['ended', 'revoked', revokedAt]], `${fixture.id}: ended/revoked at the revoke time after it`);
+    assert.ok(revokedAt > fixture.stored.credentialFamilies[0].createdAt, `${fixture.id}: the revoke follows the activation`);
+  }
+
+  // §14.5 (agent-remote-auth §6.2): both successor kinds delete the envelope at first use; the old token is then replay.
+  for (const [name, event] of [['stored-oauth-successor-access-used', 'successor_access_used'], ['stored-oauth-successor-refresh-used', 'successor_refresh_used']]) {
+    const fixture = await load(name);
+    const use = fixture.timeline.findIndex((entry) => entry.event === event);
+    assert.ok(use >= 0, `${name}: the successor is used`);
+    const pointer = fixture.stored.credentialRecords.find((entry) => entry.tokenHash === fixture.timeline[use].tokenHash).recoveryTokenHash;
+    assert.ok(fixture.stored.oauthRefreshRecoveries.some((entry) => entry.tokenHash === pointer), `${name}: the envelope exists before`);
+    assert.ok(!fixture.timeline[use].storedAfter.oauthRefreshRecoveries.some((entry) => entry.tokenHash === pointer), `${name}: zero envelopes for that rotation after the first successor use`);
+    const replay = fixture.timeline.slice(use + 1).find((entry) => entry.event === 'old_refresh_presented' && entry.tokenHash === pointer);
+    assert.equal(replay?.outcome.oldRefreshToken, 'replay_revokes_family', `${name}: the old token is replay afterwards`);
+    assert.equal(replay.storedAfter.credentialFamilies[0].revokedReason, 'refresh_replay', `${name}: refresh_replay, as token-refresh-replay`);
+  }
+  const replayFixture = JSON.parse(await readFile(path.join(root, 'agent-remote-auth', 'token-refresh-replay.json'), 'utf8'));
+  assert.match(JSON.stringify(replayFixture), /refresh_replay/, 'the approved token-refresh-replay fixture still ends refresh_replay');
+
+  // §14.6: retention boundaries and orphans.
+  const retention = await load('stored-oauth-retention-boundary');
+  const hoursAfter = (event) => (Date.parse(event.at) - Date.parse(retention.stored.registrations[0].createdAt)) / 3_600_000;
+  const sweeps = retention.timeline.filter((entry) => entry.event === 'index_sweep');
+  for (const [low, high] of [[0, 24], [24.5, 24.5], [24.98, 25]]) {
+    assert.ok(sweeps.some((entry) => hoursAfter(entry) >= low && hoursAfter(entry) <= high && entry.storedAfter.registrations.length === 1 && entry.storedAfter.oauthCodes.length === 1), `retention: a sweep between ${low} h and ${high} h keeps the children of a present registration`);
+  }
+  assert.ok(retention.timeline.some((entry) => entry.event === 'restart' && hoursAfter(entry) > 24 && entry.outcome.codePresented === 'reuse_revokes_installation' && entry.outcome.consentRetry === 'consentDecided'), 'retention: retry and reuse protections survive a restart past 24 h');
+  const parentDeletion = retention.timeline.find((entry) => entry.event === 'registration_cleanup' && entry.storedAfter.registrations.length === 0);
+  assert.ok(parentDeletion && hoursAfter(parentDeletion) > 24 && hoursAfter(parentDeletion) <= 25, 'retention: the registration is deleted between 24 h and 25 h, with its children');
+  assert.ok(retention.timeline.some((entry) => entry.event === 'registration_cleanup' && hoursAfter(entry) < 24 && entry.storedAfter.registrations.length === 1), 'retention: no registration cleanup before 24 h');
+  assert.ok(!retention.timeline[0].storedAfter.consentDecisions.some((entry) => entry.decision === 'denied'), 'retention: the denial follows its own handle deadline');
+  const orphans = await load('stored-oauth-orphan-sweep');
+  assert.equal((orphans.stored.registrations || []).length, 0, 'orphans: no registration');
+  assert.deepEqual([orphans.timeline.at(-1).storedAfter.oauthCodes.length, orphans.timeline.at(-1).storedAfter.consentDecisions.length], [0, 0], 'orphans: swept');
+
+  const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
+  const sectionStart = handoff.indexOf('\n## agent-registration v1');
+  const section = handoff.slice(sectionStart, handoff.indexOf('\n## ', sectionStart + 1));
+  const rev5 = section.slice(section.indexOf('### 14.'));
+  const fixtureTable = rev5.slice(rev5.indexOf('| Fixture | Shows |'));
+  const listed = [...fixtureTable.matchAll(/^\| `([a-z0-9-]+)` \|/gm)].map((match) => `${match[1]}.json`).sort();
+  const index = await readJson(path.join(root, 'index.json'));
+  assert.deepEqual(listed, index.contracts.find((contract) => contract.id === 'agent-registration').fixtures.filter((name) => name.startsWith('stored-')).sort(), 'the handoff lists exactly the stored-* fixtures');
+});
+
+// a5-presence-on-demand v1: an amendment of a5-presence v1. Its schemas are v1's plus the on_demand row, and its
+// fixtures cover every precedence case the amendment adds.
+test('a5-presence-on-demand fixtures agree with a5-presence v1 and across cases', async () => {
+  const v1 = await readJson(path.join(root, 'a5-presence', 'schemas.json'));
+  const schemas = await readJson(path.join(root, 'a5-presence-on-demand', 'schemas.json'));
+  const index = await readJson(path.join(root, 'index.json'));
+  const contract = index.contracts.find((entry) => entry.id === 'a5-presence-on-demand');
+  assert.equal(index.contracts.find((entry) => entry.id === 'a5-presence').version, 1, 'a5-presence v1 is unchanged');
+
+  // §2: v1's table with exactly one row added, right after needs_reconnect.
+  const rows = schemas['x-connection-states'];
+  const at = rows.findIndex((row) => row.state === 'on_demand');
+  assert.equal(rows[at - 1].state, 'needs_reconnect', 'on_demand comes right after needs_reconnect');
+  assert.deepEqual(rows.filter((row) => row.state !== 'on_demand'), v1['x-connection-states'], 'every other row is a5-presence v1\'s');
+  assert.deepEqual(rows[at].details.map((entry) => entry.when), ['seenAt is null', 'otherwise'], 'two details, null first');
+  assert.equal(rows[at].presentation, 'neutral', 'on_demand is shown neither as a problem nor as online');
+  assert.deepEqual(schemas['x-agent-labels'], v1['x-agent-labels'], 'agent labels are unchanged');
+  for (const name of Object.keys(v1.definitions).filter((key) => !['connectionState', 'fixture'].includes(key))) {
+    assert.deepEqual(schemas.definitions[name], v1.definitions[name], `${name} is a5-presence v1's`);
+  }
+  assert.deepEqual(schemas.definitions.connectionState.enum.filter((state) => state !== 'on_demand'), v1.definitions.connectionState.enum, 'only on_demand is added');
+  assert.equal(schemas['x-seen-at-basis'].on_demand, 'lastSeenAt');
+
+  // §3: the added presence rows never let an exchange, a revocation or a refused token write presence.
+  assert.ok(schemas['x-presence-updates'].some((row) => row.request.startsWith('POST /oauth/token grant_type=refresh_token') && row.fields.join() === 'lastSeenAt,lastSuccessfulRefreshAt'), 'an OAuth refresh counts like POST /api/agent-token');
+  for (const phrase of ['grant_type=authorization_code', 'POST /oauth/revoke', 'anywhere except /mcp']) {
+    assert.ok(schemas['x-presence-never'].some((row) => row.includes(phrase)), `never: ${phrase}`);
+  }
+
+  const fixtures = await Promise.all(contract.fixtures.map((name) => readJson(path.join(root, contract.dir, name))));
+  const byId = Object.fromEntries(fixtures.map((fixture) => [fixture.id, fixture]));
+  const first = (fixture) => (Array.isArray(fixture.response.body) ? fixture.response.body[0] : fixture.response.body);
+  const mode = (fixture) => fixture.context.reportedInstallations[0].installation?.deliveryMode;
+  const recentWindowMs = 300_000;
+  for (const fixture of fixtures) {
+    const { connection } = first(fixture);
+    if (connection.state === 'on_demand') {
+      assert.equal(mode(fixture), 'on_demand', `${fixture.id}: on_demand only for an on-demand installation`);
+      // The text the guidance tells the UI to show: agent label · On demand · detail.
+      const shown = fixture.client.next.match(/^Show "([^"]+)"/)?.[1] || '';
+      assert.ok(shown.startsWith(`${fixture.client.agentLabel} · On demand · ${fixture.client.connectionDetail.replace('{relative}', '')}`), `${fixture.id}: the guidance shows agent label · On demand · detail`);
+      assert.doesNotMatch(shown, /Seen recently|Last checked in|Not checked in yet|Online|Connected|Running/, `${fixture.id}: never a v1 check-in or reachability label`);
+    }
+    if (mode(fixture) === 'on_demand') assert.ok(['revoked', 'rejected', 'pending_approval', 'not_connected', 'needs_reconnect', 'on_demand'].includes(connection.state), `${fixture.id}: an on-demand installation never reaches the v1 check-in rows`);
+  }
+  // Precedence: revoked and needs_reconnect (paused or not) win; pause stays the agent label; idle never degrades.
+  assert.equal(first(byId['owner-on-demand-revoked-by-client']).connection.state, 'revoked');
+  assert.equal(first(byId['owner-on-demand-needs-reconnect']).connection.state, 'needs_reconnect');
+  assert.equal(first(byId['owner-on-demand-paused-needs-reconnect']).paused, true);
+  assert.equal(first(byId['owner-on-demand-paused-needs-reconnect']).connection.state, 'needs_reconnect');
+  assert.equal(byId['owner-on-demand-paused'].client.agentLabel, 'Paused');
+  const idle = first(byId['owner-on-demand-idle']).connection;
+  assert.ok(Date.parse(idle.asOf) - Date.parse(idle.seenAt) > recentWindowMs, 'the idle fixture is outside the recent window');
+  assert.equal(idle.state, 'on_demand', 'idle time never moves on_demand to not_seen_recently');
+  const noRequests = first(byId['owner-on-demand-no-requests']).connection;
+  assert.deepEqual(Object.values(noRequests.presence), [null, null, null, null], 'activation writes no presence');
+  assert.equal(byId['owner-on-demand-no-requests'].client.connectionDetail, 'No requests yet');
+  // Resume: a5-presence v1 would report never_seen here (grace over, no claim since resumedAt).
+  const resumed = first(byId['owner-on-demand-after-resume']);
+  assert.ok(Date.parse(resumed.connection.asOf) - Date.parse(resumed.resumedAt) > recentWindowMs && resumed.connection.presence.lastWorkClaimAt === null, 'the resume grace is over and nothing claimed');
+  // Only the reported family's installation decides, in both directions.
+  assert.equal(mode(byId['owner-on-demand-replaced-by-local-helper']), 'envoi_link');
+  assert.equal(first(byId['owner-on-demand-replaced-by-local-helper']).connection.state, 'seen_recently');
+  assert.equal(first(byId['owner-local-helper-replaced-by-on-demand']).connection.state, 'on_demand');
+  // Both routes, and the state does not depend on flags.
+  assert.deepEqual([...new Set(fixtures.map((fixture) => fixture.context.reportedInstallations[0].installation?.connectionRoute))].sort(), ['local_helper', 'provider_connector', 'remote_mcp_oauth']);
+  assert.deepEqual(byId['owner-on-demand-flags-off'].context.flags, { ENVOI_REMOTE_MCP_OAUTH: false, ENVOI_PROVIDER_CONNECTORS: false });
+  assert.equal(first(byId['owner-on-demand-flags-off']).connection.state, 'on_demand');
+  assert.equal(byId['owner-on-demand-pause-response'].response.schema, 'ownerAgent');
+
+  const handoff = (await readFile(path.join(root, '..', '..', 'docs', 'architecture', 'agent-native-v2', 'handoffs.md'), 'utf8')).split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
+  const sectionStart = handoff.indexOf('\n## a5-presence-on-demand v1');
+  assert.notEqual(sectionStart, -1, 'the handoff has the section');
+  const nextSection = handoff.indexOf('\n## ', sectionStart + 1);
+  const section = handoff.slice(sectionStart, nextSection === -1 ? undefined : nextSection);
+  const table = section.slice(section.indexOf('| Group | Fixtures |'), section.indexOf('### 6.'));
+  const listed = [...table.matchAll(/`([a-z0-9-]+)`/g)].map((match) => `${match[1]}.json`).sort();
+  assert.deepEqual(listed, [...contract.fixtures].sort(), 'the handoff lists exactly the registered fixtures');
+});
+
+// agent-remote-auth v1 revision 3: check 11 (the sealed handle length) and who can trigger the used-code revocation.
+test('agent-remote-auth revisions 3 and 4: handle length, and used-code replay under Policy B', async () => {
+  const dir = path.join(root, 'agent-remote-auth');
+  const load = async (name) => readJson(path.join(dir, `${name}.json`));
+  const schemas = await load('schemas');
+  const checks = schemas['x-authorize-checks'];
+  assert.deepEqual(checks.at(-1), { check: 'sealed_handle_length', onFailure: 'client:invalid_request' }, 'check 11 runs last, after state');
+  assert.deepEqual(checks.slice(0, 10).map((row) => row.check), ['route_flag', 'single_parameters', 'client', 'redirect_uri', 'response_type', 'code_challenge', 'code_challenge_method_s256', 'resource', 'scope', 'state'], 'checks 1-10 unchanged');
+  const max = schemas['x-limits'].authorizationRequestHandleMaxLength;
+  const [atLimit, overflow] = await Promise.all([load('authorize-handle-at-limit'), load('authorize-handle-overflow')]);
+  assert.equal(atLimit.context.sealedHandleLength, max, 'the boundary itself is accepted');
+  assert.equal(new URL(atLimit.response.headers.location).searchParams.get('request') !== null, true, 'at the limit: a handle');
+  assert.equal(overflow.context.sealedHandleLength, max + 1, 'one past the boundary');
+  const refused = new URL(overflow.response.headers.location);
+  const sent = new URL(overflow.request.path, 'https://fixture.invalid').searchParams;
+  assert.equal(`${refused.origin}${refused.pathname}`, sent.get('redirect_uri'), 'refused at the checked redirect URI');
+  assert.deepEqual([refused.searchParams.get('error'), refused.searchParams.get('state'), refused.searchParams.get('iss')], ['invalid_request', sent.get('state'), 'https://www.envoi-agents.com'], 'invalid_request with the untruncated state and iss');
+  for (const fixture of [atLimit, overflow]) {
+    assert.ok(sent.get('state').length <= schemas['x-limits'].stateMaxLength, `${fixture.id}: the inputs are individually valid`);
+    assert.ok(fixture.context.clientMetadataDocument.client_id.length <= schemas['x-limits'].clientMetadata.urlMaxLength, `${fixture.id}: the client id is individually valid`);
+  }
+
+  const [first, wrongVerifier, otherClient, confidential, ended] = await Promise.all(['token-code-reused', 'token-code-reused-wrong-verifier', 'token-code-reused-other-client', 'token-code-reused-confidential-auth-failed', 'token-code-reused-installation-ended'].map(load));
+  const form = (step) => step.request.form;
+  // Revision 4 (Policy B): every validity check runs before the reuse check, which is last but the registration
+  // re-checks. A used code is always denied; only an otherwise valid replay revokes.
+  const codeChecks = schemas['x-token-checks'].authorization_code;
+  assert.deepEqual(codeChecks.map((entry) => entry.split(' ')[0]), ['route_flag', 'parameters', 'client_authentication', 'code_issued_to_client', 'code_unexpired', 'redirect_uri', 'pkce_s256', 'resource', 'code_unused', 'registration_rechecks'], 'Policy B order for the code grant');
+  const bootChecks = schemas['x-token-checks'].bootstrap_code.map((entry) => entry.split(' ')[0]);
+  assert.ok(bootChecks.indexOf('code_unused') > Math.max(bootChecks.indexOf('client_authentication'), bootChecks.indexOf('code_unexpired'), bootChecks.indexOf('resource')), 'Policy B order for the bootstrap grant');
+  // The genuine replay still revokes: the identical, otherwise valid request.
+  assert.deepEqual(form(first.steps[1]), form(first.steps[0]), 'genuine replay: the identical request');
+  assert.deepEqual([first.steps[1].response.body.error, first.steps[2].response.body.code], ['invalid_grant', 'CREDENTIAL_REVOKED'], 'genuine replay: denied, and the first installation is revoked');
+  // Invalid replays: the same code and client, exactly one thing wrong, refused at that check, nothing revoked.
+  const invalid = {
+    'token-code-reused-wrong-verifier': ['code_verifier', 'invalid_grant', (value) => /^[A-Za-z0-9._~-]{43,128}$/.test(value)],
+    'token-code-reused-missing-verifier': ['code_verifier', 'invalid_request', (value) => value === undefined],
+    'token-code-reused-malformed-verifier': ['code_verifier', 'invalid_request', (value) => typeof value === 'string' && !/^[A-Za-z0-9._~-]{43,128}$/.test(value)],
+    'token-code-reused-wrong-redirect': ['redirect_uri', 'invalid_grant', (value) => typeof value === 'string'],
+    'token-code-reused-wrong-resource': ['resource', 'invalid_target', (value) => typeof value === 'string']
+  };
+  for (const [name, [field, error, shape]] of Object.entries(invalid)) {
+    const fixture = await load(name);
+    const [exchange, replay, after] = fixture.steps;
+    assert.deepEqual(form(exchange), form(first.steps[0]), `${name}: the first exchange is token-code-reused's`);
+    const changed = Object.keys({ ...form(exchange), ...form(replay) }).filter((key) => form(exchange)[key] !== form(replay)[key]);
+    assert.deepEqual(changed, [field], `${name}: only ${field} differs from the valid request`);
+    assert.ok(shape(form(replay)[field]), `${name}: ${field} has the intended shape`);
+    assert.equal(replay.response.body.error, error, `${name}: refused with ${error}`);
+    assert.deepEqual([after.request.headers.authorization, after.response.status], [first.steps[2].request.headers.authorization, 200], `${name}: the first installation's token still works`);
+  }
+  const expired = await load('token-code-reused-expired');
+  assert.deepEqual(form(expired.steps[1]), form(expired.steps[0]), 'expired: the identical request');
+  assert.match(expired.steps[1].note, /70 seconds/, 'expired: after the 60 s code lifetime');
+  assert.deepEqual([expired.steps[1].response.body.error, expired.steps[2].response.status], ['invalid_grant', 200], 'expired: refused, nothing revoked');
+  assert.equal(wrongVerifier.steps[2].request.headers.authorization, first.steps[2].request.headers.authorization, 'the same installation token as token-code-reused');
+  // Another client: no revocation.
+  assert.notEqual(form(otherClient.steps[1]).client_id, form(otherClient.steps[0]).client_id, 'other client: another client_id');
+  assert.deepEqual([otherClient.steps[1].response.body.error, otherClient.steps[2].response.status], ['invalid_grant', 200], 'other client: invalid_grant, and the token still works');
+  // Confidential client with a failed authentication: no revocation.
+  assert.deepEqual([confidential.steps[0].request.auth, confidential.steps[1].request.auth], ['client_basic', 'client_basic']);
+  assert.notEqual(confidential.steps[1].request.headers.authorization, confidential.steps[0].request.headers.authorization, 'confidential: another secret');
+  assert.deepEqual([confidential.steps[1].response.status, confidential.steps[1].response.body.error, confidential.steps[2].response.status], [401, 'invalid_client', 200], 'confidential: invalid_client, and the token still works');
+  // Confinement: an installation that already ended revokes nothing more.
+  assert.equal(ended.steps[1].request.path, '/oauth/revoke', 'ended: the installation ended first');
+  assert.equal(ended.steps[2].response.body.error, 'invalid_grant', 'ended: invalid_grant');
+  assert.equal(ended.steps.length, 3, 'ended: no further revocation step');
 });

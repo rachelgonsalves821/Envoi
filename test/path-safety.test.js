@@ -25,3 +25,12 @@ test('HTTP request targets reject encoded separators, traversal, malformed escap
   }
   assert.equal(assertSafeRequestTarget('/api/inboxes/inbox_1/messages?limit=10'), true);
 });
+
+test('only the consent route handle segment may exceed 255 characters', () => {
+  const handle = `v1.${'a'.repeat(2100)}`;
+  for (const suffix of ['', '/approve', '/deny']) assert.equal(assertSafeRequestTarget(`/api/oauth/authorization-requests/${handle}${suffix}`), true, suffix || 'view');
+  for (const target of [
+    `/api/inboxes/${'a'.repeat(256)}/messages`, `/api/oauth/authorization-requests/${handle}/other`, `/api/oauth/${handle}`,
+    `/api/oauth/authorization-requests/${'a'.repeat(300)}%2Fb`, `/api/oauth/authorization-requests/${'a'.repeat(300)}%00`, '/api/oauth/authorization-requests/%2e%2e/approve'
+  ]) assert.throws(() => assertSafeRequestTarget(target), /path/i, target.slice(0, 60));
+});

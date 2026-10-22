@@ -17,6 +17,13 @@ const claimFailureLimit = { max: 5, windowMs: 900_000 };
 
 const creationDirectory = path.join('rate-limits', 'agent-registrations');
 const claimDirectory = path.join('rate-limits', 'agent-claims');
+// agent-remote-auth x-limits.consentApprovalsPerHumanPerHour: consent approvals, counted per human.
+const consentApprovalLimit = { max: 10, windowMs: hourMs };
+const consentDirectory = path.join('rate-limits', 'oauth-consent-approvals');
+// agent-remote-auth x-limits.tokenRequestsPerSourcePerMinute: token and revocation requests, counted per source. A failure
+// from §6.1 row 4 on counts once more.
+const tokenRequestLimit = { max: 60, windowMs: 60_000 };
+const tokenDirectory = path.join('rate-limits', 'oauth-token');
 
 // §2 keys, from clientIp: source = IPv4 address or IPv6 /64, network = IPv4 /24 or IPv6 /48,
 // wide = IPv6 /32 (null for IPv4). An IPv4-mapped IPv6 address counts as IPv4. A value that is not
@@ -152,7 +159,45 @@ export function createRegistrationLimits({ store, now = () => new Date(), key = 
     });
   }
 
-  return { consumeCreation, claimLockRetryAfter, recordClaimFailure, reserveClaimAttempt, releaseClaimAttempt };
+  // agent-remote-auth §5.2 step 2: every approve request counts, checked and recorded in one transaction.
+  async function consumeConsentApproval(humanId) {
+    const name = hash(humanId);
+    const target = path.join(consentDirectory, `${name}.json`);
+    return store.withTransaction([`rate:oauth-consent:${name}`], async () => {
+      const at = nowMs();
+      const times = recent((await store.getJson(target, null))?.times, at, consentApprovalLimit.windowMs);
+      const wait = retryAfter(times, at, consentApprovalLimit);
+      if (wait > 0) return { allowed: false, retryAfterSeconds: wait };
+      await store.putJson(target, { times: toIso([...times, at]) });
+      return { allowed: true };
+    });
+  }
+
+  // agent-remote-auth §6: checked and recorded in one transaction. A refused request is not recorded, so it never extends
+  // its own wait.
+  const tokenPath = ip => path.join(tokenDirectory, `${hash(networkKeys(ip).source)}.json`);
+  async function consumeTokenRequest(ip) {
+    const target = tokenPath(ip);
+    return store.withTransaction([`rate:oauth-token:${hash(networkKeys(ip).source)}`], async () => {
+      const at = nowMs();
+      const times = recent((await store.getJson(target, null))?.times, at, tokenRequestLimit.windowMs);
+      const wait = retryAfter(times, at, tokenRequestLimit);
+      if (wait > 0) return { allowed: false, retryAfterSeconds: wait };
+      await store.putJson(target, { times: toIso([...times, at]) });
+      return { allowed: true };
+    });
+  }
+  // A failed request from §6.1 row 4 on counts once more. Recorded even over the limit: the next request is refused anyway.
+  async function recordTokenFailure(ip) {
+    const target = tokenPath(ip);
+    await store.withTransaction([`rate:oauth-token:${hash(networkKeys(ip).source)}`], async () => {
+      const at = nowMs();
+      const times = recent((await store.getJson(target, null))?.times, at, tokenRequestLimit.windowMs);
+      await store.putJson(target, { times: toIso([...times, at]) });
+    });
+  }
+
+  return { consumeCreation, claimLockRetryAfter, recordClaimFailure, reserveClaimAttempt, releaseClaimAttempt, consumeConsentApproval, consumeTokenRequest, recordTokenFailure };
 }
 
 // §2 "Polling": a poll less than 4 s after the previous recorded one gets retry-after 5 s and is not

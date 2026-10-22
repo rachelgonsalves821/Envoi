@@ -1,0 +1,197 @@
+{
+  "contract": "agent-registration",
+  "version": 1,
+  "id": "stored-provider-installation",
+  "kind": "stored",
+  "description": "What a provider bootstrap code and its exchange leave: the same records as a consent, with no redirect, no challenge and no consent decision.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_AUTHENTICATED_REST_ROUTE": false,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "stored": {
+    "agents": [
+      {
+        "id": "agent_example",
+        "onboardingStatus": "approved",
+        "status": "active",
+        "runtime": "provider"
+      }
+    ],
+    "credentialFamilies": [
+      {
+        "id": "credential_family_provider-example",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "createdAt": "2026-10-22T12:00:20.000Z",
+        "refreshExpiresAt": "2026-11-21T12:00:20.000Z",
+        "revokedAt": null,
+        "installationId": "installation_provider_example",
+        "audience": "https://www.envoi-agents.com/mcp",
+        "oauthClientId": "client_example-provider"
+      }
+    ],
+    "installations": [
+      {
+        "id": "installation_provider_example",
+        "agentId": "agent_example",
+        "credentialFamilyId": "credential_family_provider-example",
+        "registrationId": "registration_provider_example",
+        "connectionRoute": "provider_connector",
+        "deliveryMode": "on_demand",
+        "runtime": {
+          "type": "provider",
+          "version": null
+        },
+        "createdAt": "2026-10-22T12:00:20.000Z",
+        "activatedAt": "2026-10-22T12:00:20.000Z",
+        "replayDetectedAt": null
+      }
+    ],
+    "credentialRecords": [
+      {
+        "tokenHash": "477e1c887de684ff5c490d8d12c5b84a95781f62c11a2c56531da1291e4ee319",
+        "tokenType": "oauth_access",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "familyId": "credential_family_provider-example",
+        "issuedAt": "2026-10-22T12:00:20.000Z",
+        "expiresAt": "2026-10-22T12:15:20.000Z",
+        "revokedAt": null,
+        "usedAt": null
+      },
+      {
+        "tokenHash": "c5eba80767944d7c48fa9f79ea6836558f33d47ac9cac039bd7ca379a98864a3",
+        "tokenType": "oauth_refresh",
+        "agentId": "agent_example",
+        "inboxId": "inbox_example",
+        "familyId": "credential_family_provider-example",
+        "issuedAt": "2026-10-22T12:00:20.000Z",
+        "expiresAt": "2026-11-21T12:00:20.000Z",
+        "revokedAt": null,
+        "usedAt": null
+      }
+    ],
+    "registrations": [
+      {
+        "id": "registration_provider_example",
+        "status": "activated",
+        "connectionRoute": "provider_connector",
+        "runtime": {
+          "type": "provider",
+          "version": null
+        },
+        "createdAt": "2026-10-22T12:00:00.000Z",
+        "approvedAt": "2026-10-22T12:00:00.000Z",
+        "activationExpiresAt": "2026-10-22T12:10:00.000Z",
+        "activatedAt": "2026-10-22T12:00:20.000Z",
+        "target": {
+          "kind": "new_agent",
+          "workspaceInboxId": "inbox_workspace",
+          "organizationId": "org_example",
+          "agentName": "Example assistant",
+          "name": "Example assistant",
+          "localPart": "example",
+          "address": "example@envoi.mail"
+        },
+        "workspaceName": "Example workspace",
+        "approverHumanId": "human_example",
+        "principalHumanId": "human_example",
+        "effectivePermissions": [
+          "send_agent_messages",
+          "receive_agent_messages"
+        ],
+        "policyProfile": "default",
+        "installationId": "installation_provider_example",
+        "credentialFamilyId": "credential_family_provider-example",
+        "agentId": "agent_example",
+        "oauth": {
+          "source": "bootstrap",
+          "clientId": "client_example-provider",
+          "redirectUri": null,
+          "codeChallenge": null,
+          "resource": "https://www.envoi-agents.com/mcp",
+          "scope": "envoi.agent envoi.send",
+          "handleDigest": null,
+          "codeHash": "499edd40f77f26ba81ccb773945f685719525c4224def777fa94ffa4811fe908",
+          "codeUsedAt": "2026-10-22T12:00:20.000Z"
+        },
+        "decision": {
+          "kind": "approve",
+          "humanId": "human_example",
+          "digest": "61cb8b49677d11a64a79cbc0a6824e3de8ca51982ebd6682941e0e4f5f1c56a5",
+          "decidedAt": "2026-10-22T12:00:00.000Z"
+        }
+      }
+    ],
+    "oauthCodes": [
+      {
+        "codeHash": "499edd40f77f26ba81ccb773945f685719525c4224def777fa94ffa4811fe908",
+        "kind": "bootstrap_code",
+        "registrationId": "registration_provider_example",
+        "clientId": "client_example-provider",
+        "expiresAt": "2026-10-22T12:10:00.000Z",
+        "usedAt": "2026-10-22T12:00:20.000Z"
+      }
+    ],
+    "oauthCleanupIndex": [
+      {
+        "kind": "oauth_code",
+        "key": "499edd40f77f26ba81ccb773945f685719525c4224def777fa94ffa4811fe908",
+        "registrationId": "registration_provider_example",
+        "createdAt": "2026-10-22T12:00:00.000Z",
+        "deleteAfter": null
+      }
+    ]
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/inboxes/inbox_example/agents/agent_example/installations",
+        "auth": "human_session",
+        "headers": {
+          "cookie": "envoi_session=PLACEHOLDER_session"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "ownerInstallationList",
+        "headers": {
+          "cache-control": "no-store"
+        },
+        "body": {
+          "agentId": "agent_example",
+          "installations": [
+            {
+              "id": "installation_provider_example",
+              "agentId": "agent_example",
+              "connectionRoute": "provider_connector",
+              "deliveryMode": "on_demand",
+              "runtime": {
+                "type": "provider",
+                "version": null
+              },
+              "status": "active",
+              "endedReason": null,
+              "legacy": false,
+              "createdAt": "2026-10-22T12:00:20.000Z",
+              "activatedAt": "2026-10-22T12:00:20.000Z",
+              "endedAt": null
+            }
+          ]
+        }
+      },
+      "client": {
+        "surface": "owner_ui",
+        "next": "Show route provider_connector, mode on_demand and runtime provider as declared."
+      }
+    }
+  ],
+  "client": {
+    "surface": "server",
+    "next": "A bootstrap registration has no handle, so no consent decision exists for it. Its code index has kind bootstrap_code."
+  }
+}

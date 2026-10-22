@@ -171,7 +171,7 @@ export async function readMcpRequest(req, res, { maxRequestBytes = 64 * 1024 } =
 
 export const mcpReply = { sendJson, rpcError, rpcResult, toolResult };
 
-export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024 }) {
+export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null }) {
   const read = await readMcpRequest(req, res, { maxRequestBytes });
   if (!read?.request) return;
   const { request } = read;
@@ -184,6 +184,8 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   if (request.method !== 'tools/call') return sendJson(res, 200, rpcError(id, -32601, 'Method not found'));
   const name = request.params?.name;
   const tool = agentMcpTools.find(candidate => candidate.name === name);
+  // A credential with its own scope (agent-remote-auth §9) is refused with a scope error, before the arguments are read.
+  if (tool && !toolAvailable(identity, tool) && denyUnavailable) denyUnavailable(tool);
   if (!tool || !toolAvailable(identity, tool)) return sendJson(res, 200, rpcError(id, -32602, 'Tool not available to this agent'));
   const args = request.params?.arguments ?? {};
   if (!validators.get(name)(args)) return sendJson(res, 200, rpcError(id, -32602, 'Invalid tool arguments'));
