@@ -46,6 +46,11 @@ export function requireBetaSecretNames(inventory) {
   requireSecretNames(inventory('--config', 'scanner/wrangler.beta.jsonc'), ['ENVOI_SCANNER_TOKEN']);
 }
 
+export function requireStagingSecretNames(inventory) {
+  requireSecretNames(inventory('--env', 'staging'));
+  requireSecretNames(inventory('--config', 'scanner/wrangler.jsonc'), ['ENVOI_SCANNER_TOKEN']);
+}
+
 export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedFromMain, deploy = false }) {
   if (!['staging', 'beta'].includes(target)) throw new Error('Choose the explicit staging or beta release target');
   for (const value of [sha, headSha, mainSha]) {
@@ -81,7 +86,7 @@ export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', 
   if (plan.deploy) {
     const inventory = (...argv) => secretInventory({ cwd, env }, ...argv);
     if (target === 'beta') requireBetaSecretNames(inventory);
-    else requireSecretNames(inventory('--env', target));
+    else requireStagingSecretNames(inventory);
   }
   console.log(JSON.stringify({ target: plan.target, releaseSha: plan.sha, accountId: plan.accountId,
     action: plan.deploy ? 'deploy' : 'dry-run',
