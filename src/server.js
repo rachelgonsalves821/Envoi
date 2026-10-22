@@ -451,7 +451,6 @@ async function issueAgentCredentials(agentId, inboxId, familyId = store.id('cred
   const familyPath = agentCredentialFamilyPath(inboxId, agentId, familyId);
   const existingFamily = await store.getJson(familyPath);
   if (existingFamily?.revokedAt) throw Object.assign(new Error('Agent credential family is revoked'), { statusCode: 401 });
-  if (existingFamily && Boolean(existingFamily.audience) !== oauth) throw Object.assign(new Error('Agent credential family has another token kind'), { statusCode: 401 });
   const family = existingFamily || {
     id: familyId,
     agentId,
