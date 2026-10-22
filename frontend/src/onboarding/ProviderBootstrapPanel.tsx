@@ -37,7 +37,11 @@ export class BootstrapController {
 /** Mounted only by a future reviewed provider setup flow, never a provider catalog. */
 export function ProviderBootstrapPanel({ humanId, request, client = remoteAuthApi, controller: supplied }: {
   humanId: string; request: BootstrapRequest; client?: RemoteAuthApi; controller?: BootstrapController;
-}) { return <ProviderBootstrapSession key={humanId + ':' + request.clientId} request={request} client={client} controller={supplied} />; }
+}) {
+  // A different target or grant must never inherit a displayed code or pending issuance.
+  const key = JSON.stringify([humanId, request.clientId, request.target, request.grantedPermissions, request.policyProfile]);
+  return <ProviderBootstrapSession key={key} request={request} client={client} controller={supplied} />;
+}
 function ProviderBootstrapSession({ request, client, controller: supplied }: { request: BootstrapRequest; client: RemoteAuthApi; controller?: BootstrapController }) {
   const controller = useMemo(() => supplied ?? new BootstrapController(client), [client, supplied]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);

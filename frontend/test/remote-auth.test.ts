@@ -242,6 +242,26 @@ describe('consent revision 2 owner behavior', () => {
 });
 
 describe('one-time provider bootstrap component', () => {
+  it('starts a new display session when the owner, target or granted permissions change', () => {
+    const request = fixture('bootstrap-code-issued').request.body;
+    const panel = (body = request, humanId = 'human_example') => ProviderBootstrapPanel({ humanId, request: body });
+    const original = panel();
+    expect(panel(structuredClone(request)).key).toBe(original.key);
+    expect(panel(request, 'human_other').key).not.toBe(original.key);
+    expect(panel({ ...request, target: { ...request.target, name: 'Different agent' } }).key).not.toBe(original.key);
+    expect(panel({ ...request, grantedPermissions: ['receive_agent_messages'] }).key).not.toBe(original.key);
+    expect(panel({ ...request, clientId: 'client_other' }).key).not.toBe(original.key);
+  });
+  it('discards a late response from a retired bootstrap session', async () => {
+    const api = client(); let finish!: (value: unknown) => void;
+    vi.mocked(api.bootstrap).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const controller = new BootstrapController(api, () => initialTime);
+    const pending = controller.issue(fixture('bootstrap-code-issued').request.body);
+    controller.dispose(); finish(body('bootstrap-code-issued'));
+    expect(await pending).toBe(false);
+    expect(controller.getSnapshot().issued).toBeNull();
+    expect(vi.mocked(api.bootstrap).mock.calls[0][1]?.aborted).toBe(true);
+  });
   it('issues once, identifies the provider, and erases the code on hide', async () => {
     const api = client(); const controller = new BootstrapController(api, () => initialTime); const request = fixture('bootstrap-code-issued').request.body;
     await controller.issue(request); await controller.issue(request);
