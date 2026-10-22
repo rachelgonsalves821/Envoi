@@ -19,17 +19,20 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const loadSchemas = async name => JSON.parse(await readFile(path.join(here, 'contract-fixtures', name, 'schemas.json'), 'utf8'));
 export const remoteSchemas = await loadSchemas('agent-remote-auth');
 export const registrationSchemas = await loadSchemas('agent-registration');
+export const onDemandSchemas = await loadSchemas('a5-presence-on-demand');
 export const remoteFixture = async id => JSON.parse(await readFile(path.join(here, 'contract-fixtures', 'agent-remote-auth', `${id}.json`), 'utf8'));
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
 ajv.addSchema(remoteSchemas);
 ajv.addSchema(registrationSchemas);
+ajv.addSchema(onDemandSchemas);
 export function assertSchema(contract, name, value) {
   const validate = ajv.getSchema(`${contract.$id}#/definitions/${name}`);
   assert.ok(validate, `${name} exists`);
   assert.ok(validate(value), `${name}: ${ajv.errorsText(validate.errors)}\n${JSON.stringify(value)}`);
 }
 export const assertRemote = (name, value) => assertSchema(remoteSchemas, name, value);
+export const assertOnDemand = (name, value) => assertSchema(onDemandSchemas, name, value);
 // The stored-record schemas pin the canonical https origin; a test server is a loopback origin, so a record is checked with
 // its origin replaced by the production one.
 const canonical = value => JSON.parse(JSON.stringify(value).replace(/http:\/\/127\.0\.0\.1:\d+\/mcp/g, 'https://www.envoi-agents.com/mcp'));
@@ -66,12 +69,14 @@ export async function remoteServer(t, backend, { providers = false, clients = [p
   t.after(() => server.stop());
   return Object.assign(server, { origin, resource: `${origin}/mcp`, serverEnv, port: chosen, backend });
 }
-// Restart on the same port and the same data.
-export async function restart(t, server) {
+// Restart on the same port and the same data. `env` replaces or (with undefined) removes variables.
+export async function restart(t, server, env = {}) {
   await server.stop(true);
-  const next = await launch(server.serverEnv, server.backend.name === 'FileStore' ? server.dataDir : null);
+  const serverEnv = { ...server.serverEnv, ...env };
+  for (const [key, value] of Object.entries(env)) if (value === undefined) delete serverEnv[key];
+  const next = await launch(serverEnv, server.backend.name === 'FileStore' ? server.dataDir : null);
   t.after(() => next.stop());
-  return Object.assign(next, { origin: server.origin, resource: server.resource, serverEnv: server.serverEnv, port: server.port, backend: server.backend });
+  return Object.assign(next, { origin: server.origin, resource: server.resource, serverEnv, port: server.port, backend: server.backend });
 }
 
 // Stored documents, read and edited the same way on both stores. `list` returns every document in a directory.
