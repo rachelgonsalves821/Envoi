@@ -1,0 +1,17 @@
+# Portable authenticated REST host integration
+
+This is a client building block for B-R7. It has no model-facing bearer command and it does not make a host eligible by itself. The server offers `authenticated_rest` only when `ENVOI_INSTALLATIONS_V2`, `ENVOI_AGENT_REGISTRATION_V2`, and `ENVOI_AUTHENTICATED_REST_ROUTE` are enabled. `GET /api/onboarding/routes` is authoritative. The reviewed `agent-registration` v1 contract permits only `envoi_link` delivery on this route; that is a declaration, not proof of closed-app wake.
+
+An independent HTTPS runtime can use `createHelper` from `helper/state.mjs` in a **trusted host process**. It must provide:
+
+- A reviewed Envoi HTTPS origin chosen outside the fetched skill or model transcript.
+- An exact runtime type and version, plus explicit, observed `deliveryCapabilities`. This client currently requires a persistent process, outbound HTTPS and SSE; it rejects invented webhook, scheduler and A2A capabilities.
+- A private store with the `PrivateStore` interface. The supplied `PrivateStore` protects files with a user-only directory/ACL and atomic, flushed writes. Keep this directory out of model-visible files, logs and backups with wider readership.
+- A host-native human confirmation callback that shows the approver hint, workspace, agent, address and effective permissions and returns `true` only after a human confirms. A model answer is not a human confirmation.
+- An `adopt` callback that atomically gives the activation credentials to a privately stored `EnvoiConnector` session. Do not return that callback's arguments to an assistant, subprocess output, telemetry or a browser. The connector's `WorkHandler` must durably deduplicate admission and processing by message ID, and it must be supervised while the host is closed.
+
+The trusted host calls `createHelper({ origin, runtime, connectionRoute: 'authenticated_rest', deliveryCapabilities, contract, directory, confirm, adopt })`, then `connect()`. It shows **only** the returned safe projection (claim URL and code). It polls with `resume()` no sooner than the server's returned interval, persists activation before sending, and calls `resume()` on restart for an unresolved setup. `status()` uses authenticated identity after activation. A new registration after revocation requires an explicit human request and the same-identity reconnect path. The client never prints bootstrap, access, or refresh tokens. The code and private store are tested offline against the approved registration fixtures in `test/portable-rest.test.mjs`.
+
+The `adopt` callback is deliberately host supplied: Envoi cannot infer a generic runtime's private vault, scheduler, event loop, or tool invocation from its product name. Before enabling this route for a beta host, produce a versioned host package that binds that callback to the host's real private storage and `EnvoiConnector`, then test on its exact product/version without a repository checkout. Record registration, owner approval, authenticated identity, inbox/send/reply, idempotent retry, refresh, same-identity reconnect, pause, revoke, and two closed-app items with canonical receipts. Keep route and wake results separate in `skill/BREADTH-EVIDENCE.md`.
+
+This work does not change the public `/connect` offer, server flags, staging, or the remote MCP/OAuth work. It is safe to package and consume only after its host-specific private storage and supervision are implemented and reviewed.
