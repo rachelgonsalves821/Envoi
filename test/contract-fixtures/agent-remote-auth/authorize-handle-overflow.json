@@ -1,0 +1,51 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "authorize-handle-overflow",
+  "description": "The sealed handle for this request would be 2,049 characters long: refused with invalid_request at the checked redirect URI, with state and iss. Nothing is truncated and nothing is stored.",
+  "kind": "http",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "context": {
+    "clientMetadataDocument": {
+      "client_id": "https://assistant.example.com/oauth/envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-json",
+      "client_name": "Example Assistant",
+      "client_uri": "https://assistant.example.com",
+      "redirect_uris": [
+        "https://assistant.example.com/oauth/callback"
+      ],
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "response_types": [
+        "code"
+      ],
+      "token_endpoint_auth_method": "none"
+    },
+    "sealedHandleLength": 2049
+  },
+  "request": {
+    "method": "GET",
+    "path": "/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fassistant.example.com%2Foauth%2Fenvoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-envoi-client-json&redirect_uri=https%3A%2F%2Fassistant.example.com%2Foauth%2Fcallback&code_challenge=M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM&code_challenge_method=S256&resource=https%3A%2F%2Fwww.envoi-agents.com%2Fmcp&scope=envoi.agent+envoi.send&state=af0ifjsldkj-example-state-ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+    "auth": "none"
+  },
+  "response": {
+    "status": 302,
+    "schema": "emptyBody",
+    "headers": {
+      "location": "https://assistant.example.com/oauth/callback?error=invalid_request&error_description=The+request+is+missing+a+parameter%2C+repeats+one%2C+or+has+a+malformed+one.&state=af0ifjsldkj-example-state-ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss&iss=https%3A%2F%2Fwww.envoi-agents.com",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer"
+    },
+    "bodyText": ""
+  },
+  "client": {
+    "surface": "host",
+    "next": "Shorten the state (or use a shorter client metadata URL) and start again. No field is truncated to fit."
+  }
+}

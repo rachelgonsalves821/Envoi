@@ -676,7 +676,18 @@
         "token-refresh-replay.json",
         "token-refresh-scope-changed.json",
         "token-refresh.json",
-        "token-resource-mismatch.json"
+        "token-resource-mismatch.json",
+        "authorize-handle-at-limit.json",
+        "authorize-handle-overflow.json",
+        "token-code-reused-confidential-auth-failed.json",
+        "token-code-reused-installation-ended.json",
+        "token-code-reused-other-client.json",
+        "token-code-reused-wrong-verifier.json",
+        "token-code-reused-expired.json",
+        "token-code-reused-malformed-verifier.json",
+        "token-code-reused-missing-verifier.json",
+        "token-code-reused-wrong-redirect.json",
+        "token-code-reused-wrong-resource.json"
       ]
     }
   ]
