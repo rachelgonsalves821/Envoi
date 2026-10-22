@@ -2,7 +2,7 @@
   "contract": "agent-remote-auth",
   "version": 1,
   "id": "token-code-reused-wrong-verifier",
-  "description": "A used code presented again with its own public client_id and a well-formed but wrong verifier: check 5 runs before PKCE (check 8), so this still revokes the installation the first exchange created. This is the denial-of-service trade-off of §6.1.",
+  "description": "A used code presented again with its own public client_id and a well-formed but wrong verifier: PKCE (check 7) fails before the reuse check (check 9), so it is refused and nothing is revoked.",
   "kind": "sequence",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": true,
@@ -77,7 +77,7 @@
       }
     },
     {
-      "note": "Only the installation that code activated is revoked; the identity is not frozen.",
+      "note": "Nothing was revoked: the first exchange's token still works.",
       "request": {
         "method": "POST",
         "path": "/mcp",
@@ -98,25 +98,20 @@
         }
       },
       "response": {
-        "status": 401,
-        "schema": "errorEnvelope",
+        "status": 200,
+        "schema": "mcpResult",
         "body": {
-          "code": "CREDENTIAL_REVOKED",
-          "error": "CREDENTIAL_REVOKED",
-          "message": "This connection was revoked.",
-          "requestId": "req_example",
-          "reason": "revoked"
-        },
-        "headers": {
-          "www-authenticate": "Bearer resource_metadata=\"https://www.envoi-agents.com/.well-known/oauth-protected-resource/mcp\", scope=\"envoi.agent envoi.send\", error=\"invalid_token\""
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "identity"
+              }
+            ]
+          }
         }
-      },
-      "client": {
-        "surface": "host",
-        "lifecycle": "REVOKED",
-        "retry": "none",
-        "guidance": "owner_reconnect",
-        "next": "The owner sees the installation ended with activation_replay and can reconnect the same agent."
       }
     }
   ]

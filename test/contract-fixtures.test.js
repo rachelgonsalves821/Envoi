@@ -1973,7 +1973,7 @@ test('agent-remote-auth fixtures agree across cases', async () => {
 });
 
 // agent-remote-auth v1 revision 3: check 11 (the sealed handle length) and who can trigger the used-code revocation.
-test('agent-remote-auth revision 3: handle length and used-code revocation cases', async () => {
+test('agent-remote-auth revisions 3 and 4: handle length, and used-code replay under Policy B', async () => {
   const dir = path.join(root, 'agent-remote-auth');
   const load = async (name) => readJson(path.join(dir, `${name}.json`));
   const schemas = await load('schemas');
@@ -1996,12 +1996,37 @@ test('agent-remote-auth revision 3: handle length and used-code revocation cases
 
   const [first, wrongVerifier, otherClient, confidential, ended] = await Promise.all(['token-code-reused', 'token-code-reused-wrong-verifier', 'token-code-reused-other-client', 'token-code-reused-confidential-auth-failed', 'token-code-reused-installation-ended'].map(load));
   const form = (step) => step.request.form;
-  // Public client, same client_id, wrong verifier: still revoked (check 5 before check 8).
-  assert.equal(form(wrongVerifier.steps[1]).code, form(wrongVerifier.steps[0]).code, 'wrong verifier: the same code');
-  assert.equal(form(wrongVerifier.steps[1]).client_id, form(wrongVerifier.steps[0]).client_id, 'wrong verifier: the same public client_id');
-  assert.notEqual(form(wrongVerifier.steps[1]).code_verifier, form(wrongVerifier.steps[0]).code_verifier, 'wrong verifier: another verifier');
-  assert.match(form(wrongVerifier.steps[1]).code_verifier, /^[A-Za-z0-9._~-]{43,128}$/, 'wrong verifier: well formed');
-  assert.deepEqual([wrongVerifier.steps[1].response.body.error, wrongVerifier.steps[2].response.body.code], ['invalid_grant', 'CREDENTIAL_REVOKED'], 'wrong verifier: invalid_grant, and the first installation is revoked');
+  // Revision 4 (Policy B): every validity check runs before the reuse check, which is last but the registration
+  // re-checks. A used code is always denied; only an otherwise valid replay revokes.
+  const codeChecks = schemas['x-token-checks'].authorization_code;
+  assert.deepEqual(codeChecks.map((entry) => entry.split(' ')[0]), ['route_flag', 'parameters', 'client_authentication', 'code_issued_to_client', 'code_unexpired', 'redirect_uri', 'pkce_s256', 'resource', 'code_unused', 'registration_rechecks'], 'Policy B order for the code grant');
+  const bootChecks = schemas['x-token-checks'].bootstrap_code.map((entry) => entry.split(' ')[0]);
+  assert.ok(bootChecks.indexOf('code_unused') > Math.max(bootChecks.indexOf('client_authentication'), bootChecks.indexOf('code_unexpired'), bootChecks.indexOf('resource')), 'Policy B order for the bootstrap grant');
+  // The genuine replay still revokes: the identical, otherwise valid request.
+  assert.deepEqual(form(first.steps[1]), form(first.steps[0]), 'genuine replay: the identical request');
+  assert.deepEqual([first.steps[1].response.body.error, first.steps[2].response.body.code], ['invalid_grant', 'CREDENTIAL_REVOKED'], 'genuine replay: denied, and the first installation is revoked');
+  // Invalid replays: the same code and client, exactly one thing wrong, refused at that check, nothing revoked.
+  const invalid = {
+    'token-code-reused-wrong-verifier': ['code_verifier', 'invalid_grant', (value) => /^[A-Za-z0-9._~-]{43,128}$/.test(value)],
+    'token-code-reused-missing-verifier': ['code_verifier', 'invalid_request', (value) => value === undefined],
+    'token-code-reused-malformed-verifier': ['code_verifier', 'invalid_request', (value) => typeof value === 'string' && !/^[A-Za-z0-9._~-]{43,128}$/.test(value)],
+    'token-code-reused-wrong-redirect': ['redirect_uri', 'invalid_grant', (value) => typeof value === 'string'],
+    'token-code-reused-wrong-resource': ['resource', 'invalid_target', (value) => typeof value === 'string']
+  };
+  for (const [name, [field, error, shape]] of Object.entries(invalid)) {
+    const fixture = await load(name);
+    const [exchange, replay, after] = fixture.steps;
+    assert.deepEqual(form(exchange), form(first.steps[0]), `${name}: the first exchange is token-code-reused's`);
+    const changed = Object.keys({ ...form(exchange), ...form(replay) }).filter((key) => form(exchange)[key] !== form(replay)[key]);
+    assert.deepEqual(changed, [field], `${name}: only ${field} differs from the valid request`);
+    assert.ok(shape(form(replay)[field]), `${name}: ${field} has the intended shape`);
+    assert.equal(replay.response.body.error, error, `${name}: refused with ${error}`);
+    assert.deepEqual([after.request.headers.authorization, after.response.status], [first.steps[2].request.headers.authorization, 200], `${name}: the first installation's token still works`);
+  }
+  const expired = await load('token-code-reused-expired');
+  assert.deepEqual(form(expired.steps[1]), form(expired.steps[0]), 'expired: the identical request');
+  assert.match(expired.steps[1].note, /70 seconds/, 'expired: after the 60 s code lifetime');
+  assert.deepEqual([expired.steps[1].response.body.error, expired.steps[2].response.status], ['invalid_grant', 200], 'expired: refused, nothing revoked');
   assert.equal(wrongVerifier.steps[2].request.headers.authorization, first.steps[2].request.headers.authorization, 'the same installation token as token-code-reused');
   // Another client: no revocation.
   assert.notEqual(form(otherClient.steps[1]).client_id, form(otherClient.steps[0]).client_id, 'other client: another client_id');
