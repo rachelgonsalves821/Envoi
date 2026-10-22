@@ -6,12 +6,11 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import {
-  api, assertOAuthError, installationsRoute, launch, listFilesRecursive, assertRemote, assertStored, assertTokenResponse, backends, clientSecret, codeParams, confidentialClient, connect, documents, edit, exchange, familyParts, formPost, freshIp, installationView, owner,
-  publicClient, refreshParams, registrationParts, remoteFixture, remoteServer, stored, tokenPost, withdrawRequest, accessParts, refreshParts, codeParts, sha256, PAST
+  api, assertOAuthError, installationsRoute, launch, listFilesRecursive, assertRemote, assertStored, assertTokenResponse, backends, clientSecret, codeParams, confidentialClient, connect, documents, edit, exchange, familyParts, formPost, freshIp, installationView, freshOwner, owner,
+  publicClient, refreshParams, registrationParts, remoteFixture, remoteServer, retryApprove, stored, tokenPost, withdrawRequest, accessParts, refreshParts, codeParts, sha256, PAST
 } from './agent-remote-auth-token-harness.js';
 
-let ownerSerial = 8000;
-const newOwner = server => owner(server.baseUrl, String(ownerSerial += 1));
+const newOwner = freshOwner;
 
 for (const backend of backends) {
   test(`[${backend.name}] the exchange issues oauth_ tokens, an audience-bound family and an on_demand installation`, { timeout: 120000 }, async t => {
@@ -196,12 +195,17 @@ for (const backend of backends) {
     const withdrawn = await connect(server, second);
     const gone = await withdrawRequest(server.baseUrl, second, withdrawn.registrationId);
     assert.equal(gone.status, 200, gone.text);
+    const retriedWithdrawn = await retryApprove(server, withdrawn);
+    assert.deepEqual([retriedWithdrawn.status, retriedWithdrawn.payload.status, 'redirectTo' in retriedWithdrawn.payload], [200, 'withdrawn', false], 'consent-approve-retry-withdrawn');
     assertOAuthError(await exchange(server, withdrawn), 'invalid_grant');
     assert.equal((await docs.get(registrationParts(withdrawn.registrationId))).status, 'withdrawn');
 
     // An approval that lapsed unexchanged.
     const lapsed = await connect(server, await newOwner(server));
     await edit(docs, codeParts(lapsed.code), value => { value.expiresAt = PAST; });
+    await edit(docs, registrationParts(lapsed.registrationId), value => { value.activationExpiresAt = PAST; });
+    const retriedLapsed = await retryApprove(server, lapsed);
+    assert.deepEqual([retriedLapsed.status, retriedLapsed.payload.status, 'redirectTo' in retriedLapsed.payload], [200, 'expired', false], 'consent-approve-retry-expired');
     assertOAuthError(await exchange(server, lapsed), 'invalid_grant');
 
     // Row 10: a re-check that fails at exchange time (here the route flag's client vanishing is covered elsewhere; the owner

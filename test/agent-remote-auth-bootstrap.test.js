@@ -5,13 +5,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
-  api, assertOAuthError, assertRemote, assertStored, assertTokenResponse, backends, codeParts, confidentialClient, documents, edit, familyParts, installationView, owner,
+  api, assertOAuthError, assertRemote, assertStored, assertTokenResponse, backends, codeParts, confidentialClient, documents, edit, familyParts, installationView, freshOwner, owner,
   plainProviderClient, providerClient, providerSecret, publicClient, registrationParts, remoteFixture, remoteServer, sha256, stored, tokenPost, PAST
 } from './agent-remote-auth-token-harness.js';
 
 const grant = 'urn:envoi:params:oauth:grant-type:bootstrap_code';
-let ownerSerial = 8400;
-const newOwner = server => owner(server.baseUrl, String(ownerSerial += 1));
+const newOwner = freshOwner;
 const clients = [publicClient, confidentialClient, providerClient, plainProviderClient];
 const issueBody = (who, overrides = {}) => ({
   clientId: providerClient.clientId,
