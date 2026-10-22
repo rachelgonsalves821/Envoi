@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 import { planHost, planApprovalConfirmation } from '../host-plan.mjs';
 
 const root = process.env.ENVOI_AGENT_REGISTRATION_FIXTURES_ROOT;
@@ -27,10 +29,13 @@ function capableProfile(route) {
   return profile;
 }
 
-test('all 86 published revision-5 fixtures map to v1 code and model-visible allowlists', async () => {
+test('all 90 published revision-5 fixtures map to v1 code and model-visible allowlists', async () => {
   const names = (await readdir(root)).filter((name) => name.endsWith('.json') && name !== 'schemas.json');
-  assert.equal(names.length, 86);
+  assert.equal(names.length, 90);
   const schema = await readFixture('schemas.json');
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  addFormats(ajv); ajv.addSchema(schema);
+  const validateFixture = ajv.getSchema(schema.$id + '#/definitions/fixture');
   const allowed = new Set([
     ...Object.keys(schema['x-model-visible'].serverDerived),
     ...Object.keys(schema['x-model-visible'].helperDerived),
@@ -38,6 +43,9 @@ test('all 86 published revision-5 fixtures map to v1 code and model-visible allo
   assert.equal(allowed.size, 17);
   for (const name of names) {
     const fixture = await readFixture(name);
+    assert.ok(validateFixture(fixture), `${name}: ${ajv.errorsText(validateFixture.errors)}`);
+    const snapshots = [fixture.stored, ...(fixture.steps ?? []).map(step => step.storedAfter),
+      ...(fixture.timeline ?? []).map(event => event.storedAfter)].filter(Boolean);
     assert.equal(fixture.id, name.slice(0, -5), name);
     assert.equal(fixture.contract, 'agent-registration', name);
     assert.equal(fixture.version, 1, name);
@@ -58,7 +66,7 @@ test('all 86 published revision-5 fixtures map to v1 code and model-visible allo
       if (step.client?.surface === 'owner_ui') {
         const visibleBody = JSON.stringify(step.response.body);
         assert.doesNotMatch(visibleBody, /"(?:audience|oauthClientId)"/, name);
-        for (const family of fixture.stored?.credentialFamilies ?? []) {
+        for (const family of snapshots.flatMap(state => state.credentialFamilies ?? [])) {
           for (const field of ['audience', 'oauthClientId']) {
             if (family[field]) assert.ok(!visibleBody.includes(family[field]), `${name}: private ${field}`);
           }
