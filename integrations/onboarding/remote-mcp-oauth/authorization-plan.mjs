@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 
 const invalid = () => { throw new Error('Invalid remote MCP authorization setup'); };
 const knownScopes = ['envoi.agent', 'envoi.send', 'envoi.files', 'envoi.cases'];
@@ -16,8 +17,9 @@ function validRedirect(value) {
   if (typeof value !== 'string') return false;
   let url;
   try { url = new URL(value); } catch { return false; }
-  if (url.username || url.password || url.hash || url.href !== value) return false;
-  if (url.protocol === 'https:') return Boolean(url.hostname) && !/^\[?[\da-f:.]+\]?$/i.test(url.hostname);
+  if (url.username || url.password || url.hash) return false;
+  if (url.protocol === 'https:') return Boolean(url.hostname)
+    && isIP(url.hostname.replace(/^\[|\]$/g, '')) === 0;
   return url.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(url.hostname);
 }
 
@@ -30,21 +32,28 @@ export function planRemoteMcpAuthorization({ origin, protectedResource, authoriz
   const resource = `${issuer}/mcp`;
   if (protectedResource?.resource !== resource
     || JSON.stringify(protectedResource.authorization_servers) !== JSON.stringify([issuer])
-    || !protectedResource.bearer_methods_supported?.includes('header')
+    || !Array.isArray(protectedResource.bearer_methods_supported)
+    || !protectedResource.bearer_methods_supported.includes('header')
+    || !Array.isArray(protectedResource.scopes_supported)
     || authorizationServer?.issuer !== issuer
     || authorizationServer.authorization_endpoint !== `${issuer}/oauth/authorize`
     || authorizationServer.token_endpoint !== `${issuer}/oauth/token`
     || authorizationServer.revocation_endpoint !== `${issuer}/oauth/revoke`
-    || !authorizationServer.code_challenge_methods_supported?.includes('S256')
-    || !authorizationServer.grant_types_supported?.includes('authorization_code')
-    || !authorizationServer.token_endpoint_auth_methods_supported?.includes('none')
+    || !Array.isArray(authorizationServer.code_challenge_methods_supported)
+    || !authorizationServer.code_challenge_methods_supported.includes('S256')
+    || !Array.isArray(authorizationServer.grant_types_supported)
+    || !authorizationServer.grant_types_supported.includes('authorization_code')
+    || !Array.isArray(authorizationServer.token_endpoint_auth_methods_supported)
+    || !authorizationServer.token_endpoint_auth_methods_supported.includes('none')
+    || !Array.isArray(authorizationServer.scopes_supported)
     || authorizationServer.client_id_metadata_document_supported !== true) invalid();
 
   let clientUrl;
   try { clientUrl = new URL(clientMetadata?.client_id); } catch { invalid(); }
   if (clientUrl.protocol !== 'https:' || clientUrl.username || clientUrl.password
     || clientUrl.search || clientUrl.hash || clientUrl.pathname === '/'
-    || clientUrl.href !== clientMetadata.client_id || clientUrl.origin === issuer
+    || clientUrl.origin === issuer
+    || isIP(clientUrl.hostname.replace(/^\[|\]$/g, '')) !== 0
     || clientUrl.port || clientMetadata.client_id.length > 2048
     || (clientMetadata.token_endpoint_auth_method !== undefined
       && clientMetadata.token_endpoint_auth_method !== 'none')
@@ -64,7 +73,7 @@ export function planRemoteMcpAuthorization({ origin, protectedResource, authoriz
     || !scopes.includes('envoi.agent') || scopes.some(scope => !knownScopes.includes(scope))) invalid();
   const supported = new Set(protectedResource.scopes_supported);
   if (scopes.some(scope => !supported.has(scope)
-    || !authorizationServer.scopes_supported?.includes(scope))) invalid();
+    || !authorizationServer.scopes_supported.includes(scope))) invalid();
 
   const challenge = createHash('sha256').update(codeVerifier).digest('base64url');
   const authorizationUrl = new URL(`${issuer}/oauth/authorize`);

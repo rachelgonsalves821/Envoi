@@ -41,13 +41,18 @@ test('trusted issuer, resource, client and redirect must agree before a browser 
     { origin: 'https://other.example' },
     { origin: 'https://www.envoi-agents.com/path' },
     { protectedResource: { ...input.protectedResource, resource: 'https://other.example/mcp' } },
+    { protectedResource: { ...input.protectedResource, scopes_supported: 3 } },
+    { protectedResource: { ...input.protectedResource, scopes_supported: undefined } },
     { authorizationServer: { ...input.authorizationServer, issuer: 'https://other.example' } },
+    { authorizationServer: { ...input.authorizationServer, scopes_supported: 3 } },
     { authorizationServer: { ...input.authorizationServer, code_challenge_methods_supported: ['plain'] } },
     { authorizationServer: { ...input.authorizationServer, client_id_metadata_document_supported: false } },
     { clientMetadata: { ...input.clientMetadata, client_id: 'http://other.example/client.json' } },
+    { clientMetadata: { ...input.clientMetadata, client_id: 'https://127.0.0.1/client.json' } },
     { clientMetadata: { ...input.clientMetadata, token_endpoint_auth_method: 'client_secret_basic' } },
     { redirectUri: 'https://other.example/callback' },
     { redirectUri: 'http://localhost/callback' },
+    { redirectUri: 'https://127.0.0.1/callback' },
   ];
   for (const change of changes) {
     assert.throws(() => planRemoteMcpAuthorization({ ...input, ...change }),
@@ -68,4 +73,25 @@ test('the caller must hold a valid private verifier and state; scopes stay withi
   }
   const narrowed = planRemoteMcpAuthorization({ ...input, scopes: ['envoi.agent'] });
   assert.equal(new URL(narrowed.authorizationUrl).searchParams.get('scope'), 'envoi.agent');
+});
+
+test('valid explicit HTTPS default ports retain the registered redirect string', async () => {
+  const { expected: _expected, ...input } = await inputs();
+  const clientId = 'https://assistant.example.com:443/oauth/envoi-client.json';
+  const redirectUri = 'https://assistant.example.com:443/oauth/callback';
+  const plan = planRemoteMcpAuthorization({ ...input, clientMetadata: {
+    ...input.clientMetadata, client_id: clientId, redirect_uris: [redirectUri],
+  }, redirectUri });
+  const params = new URL(plan.authorizationUrl).searchParams;
+  assert.equal(params.get('client_id'), clientId);
+  assert.equal(params.get('redirect_uri'), redirectUri);
+});
+
+test('a hostname containing hex letters remains a valid HTTPS redirect', async () => {
+  const { expected: _expected, ...input } = await inputs();
+  const redirectUri = 'https://face.example/callback';
+  const plan = planRemoteMcpAuthorization({ ...input, clientMetadata: {
+    ...input.clientMetadata, redirect_uris: [redirectUri],
+  }, redirectUri });
+  assert.equal(new URL(plan.authorizationUrl).searchParams.get('redirect_uri'), redirectUri);
 });
