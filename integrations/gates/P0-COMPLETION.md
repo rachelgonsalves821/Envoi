@@ -30,6 +30,20 @@ Current known matched staging baseline is Worker `0c075364-f7c0-458c-a297-edd05e
 
 Lane B does not edit `src/**`, `db/**`, `worker/**`, `scanner/**`, root manifests/scripts or canonical contracts. Those remaining actions are an explicit `REQUEST lane-a`, not hidden client implementation work. Remote OAuth/provider routes are conditional on the selected cohort and retain their own approved-contract dependencies. This branch does not expand the release promise to unaccepted Muse, Instinct, Dots or Grok routes.
 
+## Exact configuration handoff (names only)
+
+The existing promotion guard and production configuration already implement these checks; do not build a second release or secret-management system.
+
+| Target | Names / action |
+| --- | --- |
+| Beta application Worker | Verify `DATABASE_URL`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`, `ENVOI_BETA_INVITED_EMAILS`, `ENVOI_POLICY_SIGNING_KEY` (or `ENVOI_POLICY_SIGNING_KEYS`), `ENVOI_S3_ACCESS_KEY_ID`, `ENVOI_S3_SECRET_ACCESS_KEY`, `ENVOI_MALWARE_SCANNER_TOKEN`. Provision only the missing approved values privately. |
+| Existing storage encryption | Preserve the existing `SINALOA_DATA_ENCRYPTION_KEY`. `worker/runtime-config.js` explicitly forwards that supported legacy name as `ENVOI_DATA_ENCRYPTION_KEY`. Its absence under the newer name alone is not a missing-key defect. Do not rotate/recreate it as part of this release. |
+| Beta scanner Worker | `ENVOI_SCANNER_TOKEN` must match the application's beta-only `ENVOI_MALWARE_SCANNER_TOKEN`; retain staging/beta separation and prove authenticated scanner health. |
+| Production WorkOS | After the human's deferred billing/unlock decision, pin actual Production `WORKOS_CLIENT_ID`, API key, issuer and `WORKOS_REDIRECT_URI` to the approved HTTPS app origin. Review cookie/session/MFA/admission and owner identity continuity before switching; no identity is silently remapped by email. |
+| Root configuration | Lane A reconciles actual Production bindings in `wrangler.jsonc` and the existing pinned expectations in `scripts/check-deployment.mjs`, plus any approved identity mapping with rollback. No placeholder Production ID is supplied by this branch. |
+
+`scripts/promote-release.mjs` requires the live promoted SHA to equal fetched `origin/main`, and checks application/scanner secret names. `scripts/deploy-staging.mjs` is the separate clean-worktree exact-HEAD staging path. The human/Lane A should select one reviewed route and resulting SHA rather than assume an integration-only hosted SHA will promote unchanged.
+
 ## Offline checks
 
 Run in PowerShell at this branch's exact head:
