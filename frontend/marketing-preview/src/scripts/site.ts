@@ -1,7 +1,9 @@
-import { advancePlayback, createPlaybackState, selectScenario, acceptedWaitlistResponse } from './playback.mjs';
+import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, acceptedWaitlistResponse } from './playback.mjs';
 
 const productAnchors = new Set(['#your-view', '#oversight', '#principles', '#features-title', '#demo-title', '#conversations']);
-if (document.documentElement.dataset.page === 'about' && (productAnchors.has(location.hash) || location.hash.startsWith('#feature-'))) {
+if (location.hash === '#oversight') {
+  location.replace('/product/#feature-4');
+} else if (document.documentElement.dataset.page === 'about' && (productAnchors.has(location.hash) || location.hash.startsWith('#feature-'))) {
   location.replace(`/product/${location.hash}`);
 }
 
@@ -65,7 +67,7 @@ if (thread) {
         list.scrollTo({ top: newest.offsetTop + newest.offsetHeight - list.clientHeight + 20, behavior: 'smooth' });
       }
       schedule();
-    }, complete ? 3000 : 1100);
+    }, playbackDelay(state));
   };
   const choose = (index: number) => {
     activeIndex = index;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createPlaybackState, advancePlayback, selectScenario, acceptedWaitlistResponse } from '../src/scripts/playback.mjs';
+import { createPlaybackState, advancePlayback, playbackDelay, selectScenario, acceptedWaitlistResponse } from '../src/scripts/playback.mjs';
 
 const scenarios = JSON.parse(await readFile(new URL('../src/data/scenarios.json', import.meta.url)));
 
@@ -35,6 +35,19 @@ test('automatic playback reveals exactly one step and stops at the receipt', () 
   assert.equal(state.visibleCount, 2);
   for (let iteration = 0; iteration < 8; iteration++) state = advancePlayback(state);
   assert.equal(state.visibleCount, 5);
+});
+
+test('every demo reveals its full conversation within three seconds of uninterrupted playback', () => {
+  for (const scenario of scenarios) {
+    let state = createPlaybackState(scenario.steps.length);
+    let elapsed = 0;
+    while (state.visibleCount < state.stepCount) {
+      elapsed += playbackDelay(state);
+      state = advancePlayback(state);
+    }
+    assert.ok(elapsed <= 3000, `${scenario.id}: ${elapsed}ms`);
+    assert.equal(playbackDelay(state), 1500);
+  }
 });
 
 test('paused playback never advances', () => {
@@ -214,7 +227,16 @@ test('the header keeps the circle mark and the full logo appears above the About
 test('sections keep their main headings without numbered eyebrow labels', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   assert.doesNotMatch(page, /<p\b[^>]*class="eyebrow"[^>]*>\s*\d{2}\s*\//);
-  for (const headingId of ['mechanism-title', 'product-title', 'oversight-title']) assert.ok(page.includes(`id="${headingId}"`));
+  for (const headingId of ['mechanism-title', 'product-title', 'features-title']) assert.ok(page.includes(`id="${headingId}"`));
+});
+
+test('Product uses the requested agent messaging headline without a negotiation-only spotlight', async () => {
+  const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
+  const footer = await readFile(new URL('../src/components/Footer.astro', import.meta.url), 'utf8');
+  assert.match(page, /<h1 id="product-overview-title">Native messaging between agents with human oversight\.<\/h1>/);
+  assert.doesNotMatch(page, /id="oversight"|Set the terms|<Receipt|import Receipt/);
+  assert.match(footer, /href="\/product\/#feature-4">Permissions & approvals/);
+  assert.doesNotMatch(footer, /href="\/product\/#oversight"/);
 });
 
 test('the owner view uses the requested email-thread heading without its old supporting copy', async () => {

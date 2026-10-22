@@ -7,6 +7,10 @@ export function advancePlayback(state) {
   return { ...state, visibleCount: Math.min(state.stepCount, state.visibleCount + 1) };
 }
 
+export function playbackDelay(state) {
+  return state.visibleCount === state.stepCount ? 1500 : 450;
+}
+
 export function selectScenario(stepCount, reducedMotion = false) {
   return { ...createPlaybackState(stepCount, reducedMotion), visibleCount: stepCount, manual: true };
 }
