@@ -18,7 +18,7 @@ function themeHarness({ saved = null, systemDark = false, blockedRead = false, b
   const media = { matches: systemDark, addEventListener: (type, callback) => mediaListeners.set(type, callback) };
   const browser = { localStorage: storage, matchMedia: () => media, addEventListener: (type, callback) => browserListeners.set(type, callback) };
   if (blockedAccess) Object.defineProperty(browser, 'localStorage', { get() { throw new Error('Storage access blocked'); } });
-  const controls = ['light', 'dark', 'system'].map(value => ({ value, checked: false, listeners: new Map(), addEventListener(type, callback) { this.listeners.set(type, callback); } }));
+  const controls = ['light', 'dark'].map(value => ({ value, checked: false, listeners: new Map(), addEventListener(type, callback) { this.listeners.set(type, callback); } }));
   const group = { hidden: true };
   const meta = { content: '', setAttribute(name, value) { this[name] = value; } };
   const page = {
@@ -56,7 +56,7 @@ test('blocked storage reads do not prevent bootstrap or theme controls', () => {
   const harness = themeHarness({ blockedRead: true, systemDark: true });
   harness.mount();
   assert.equal(harness.root.dataset.theme, 'dark');
-  assert.deepEqual(harness.selected(), ['system']);
+  assert.deepEqual(harness.selected(), ['dark']);
   assert.equal(harness.group.hidden, false);
 });
 
@@ -81,17 +81,18 @@ test('Light and Dark persist across page loads and ignore system changes', () =>
   }
 });
 
-test('System responds to operating-system theme changes without overwriting the preference', () => {
-  const harness = themeHarness({ saved: 'light' });
+test('automatic defaults and legacy System preferences select the actual Light or Dark icon', () => {
+  const harness = themeHarness({ saved: 'system' });
   harness.mount();
-  harness.select('system');
+  assert.deepEqual(harness.selected(), ['light']);
   harness.systemChange(true);
   assert.equal(harness.root.dataset.theme, 'dark');
-  assert.equal(harness.savedValues.get('envoi-theme'), 'system');
+  assert.deepEqual(harness.selected(), ['dark']);
   assert.equal(harness.meta.content, '#101923');
   harness.systemChange(false);
   assert.equal(harness.root.dataset.theme, 'light');
   assert.equal(harness.meta.content, '#f6f9fc');
+  assert.deepEqual(harness.selected(), ['light']);
 });
 
 test('theme changes remain usable if local storage writes are blocked', () => {
@@ -111,7 +112,7 @@ test('cross-tab preference changes and storage clearing synchronize without resp
   assert.equal(harness.root.dataset.theme, 'dark');
   harness.storageChange(null, null);
   assert.equal(harness.root.dataset.themePreference, 'system');
-  assert.deepEqual(harness.selected(), ['system']);
+  assert.deepEqual(harness.selected(), ['light']);
 });
 
 test('native theme radios support keyboard operation and bootstrap runs in the document head', async () => {
@@ -124,7 +125,8 @@ test('native theme radios support keyboard operation and bootstrap runs in the d
   assert.match(control, /<svg[^>]+aria-hidden="true"/);
   assert.doesNotMatch(control, /<span>\{preference/);
   assert.ok(page.indexOf('<ThemeToggle />') > page.indexOf('class="sign-in"'));
-  assert.match(control, /\['light', 'dark', 'system'\]/);
+  assert.match(control, /\['light', 'dark'\]/);
+  assert.doesNotMatch(control, /'system'|<rect/);
   const bootstrapIndex = page.indexOf('<script is:inline set:html={themeBootstrap}>');
   assert.ok(bootstrapIndex >= 0 && bootstrapIndex < page.indexOf('<body>'));
 });

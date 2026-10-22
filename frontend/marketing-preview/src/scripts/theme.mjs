@@ -21,7 +21,7 @@ export function mountThemeControls(page, browser) {
     const theme = resolveTheme(preference, media.matches);
     root.dataset.themePreference = preference;
     root.dataset.theme = theme;
-    for (const control of controls) control.checked = control.value === preference;
+    for (const control of controls) control.checked = control.value === theme;
     page.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#101923' : '#f6f9fc');
     if (persist) {
       try { storage?.setItem(themeStorageKey, preference); } catch {}
