@@ -80,7 +80,7 @@
         "ENVOI_EDGE_ALLOWED_HOSTS": "www.envoi-agents.com,beta.sinaloa-inbox.com",
         "ENVOI_AGENT_DOMAIN": "agents.envoi-agents.com",
         "ENVOI_DB_SSL_MODE": "verify-full",
-        "WORKOS_CLIENT_ID": "client_01M3QMT1BN3HEBGE4VPEAQA0GT",
+        "WORKOS_CLIENT_ID": "client_01M3NESPM075W2JNEB3N7FRVZF",
         "WORKOS_REDIRECT_URI": "https://www.envoi-agents.com/api/auth/workos/callback",
         "ENVOI_POLICY_ACTIVE_KEY_ID": "primary",
         "ENVOI_OBJECT_STORAGE_PROVIDER": "s3",
