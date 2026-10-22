@@ -69,11 +69,16 @@ const fixtureResolver = (entry, options = {}) => createClientResolver({
 
 test('every authorize fixture: the same checks, in order, give the contracted redirect', async () => {
   const names = (await readdir(fixtureDir)).filter(name => name.startsWith('authorize-')).map(name => name.replace(/\.json$/, ''));
-  assert.equal(names.length, 10, 'all ten authorize fixtures');
-  const sealer = createAuthorizationRequestSealer({ keyMaterial });
+  assert.equal(names.length, 12, 'all twelve authorize fixtures (revision 3 adds the two check-11 cases)');
+  const realSealer = createAuthorizationRequestSealer({ keyMaterial });
   for (const name of names) {
     const entry = await fixture(name);
     const url = new URL(entry.request.path, origin);
+    // Check 11's fixtures state the encoded length the server would issue (context.sealedHandleLength), because the
+    // exact length depends on this implementation's sealing format. Seal to exactly that length here; the real
+    // encoding's boundary is covered by the check-11 test below.
+    const length = entry.context?.sealedHandleLength;
+    const sealer = length ? { seal: () => `v1.${'A'.repeat(length - 3)}`, open: () => null } : realSealer;
     const handler = createAuthorizeRequestHandler({ origin, flags: flagsOf(entry), resolveClient: fixtureResolver(entry), sealer });
     const outcome = await handler(url.searchParams);
     if (entry.response.status === 404) {
@@ -92,6 +97,7 @@ test('every authorize fixture: the same checks, in order, give the contracted re
     assert.deepEqual([...location.searchParams.keys()], ['request'], `${name}: only the handle`);
     const handle = location.searchParams.get('request');
     assert.ok(handle.length <= remoteAuthLimits.authorizationRequestHandleMaxLength, `${name}: handle length`);
+    if (length) { assert.equal(handle.length, length, `${name}: issued at exactly the stated length`); continue; }
     for (const secret of [url.searchParams.get('code_challenge'), url.searchParams.get('state'), url.searchParams.get('client_id')]) assert.ok(!handle.includes(secret), `${name}: the handle cannot be read`);
     const opened = sealer.open(handle);
     assert.deepEqual(
@@ -162,7 +168,7 @@ test('an authorization request too large to seal is refused, not truncated', asy
   assert.equal(location.origin, 'https://assistant.example.com');
 });
 
-// agent-remote-auth revision 3, check 11 (proposed, #187): measured on the encoded handle, after check 10. With the
+// agent-remote-auth revision 3, check 11 (kept in approved revision 4): measured on the encoded handle, after check 10. With the
 // "v1." prefix and unpadded base64url, a handle length of 4n + 1 after the prefix cannot occur, so 2,048 itself is
 // unreachable: the exact boundary is the largest accepted length (2,047) and the smallest refused one (2,049).
 test('check 11: the exact encoded-length boundary, state and iss kept, nothing truncated', async () => {
