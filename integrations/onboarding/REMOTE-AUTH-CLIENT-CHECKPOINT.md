@@ -54,7 +54,7 @@ npx vitest run --config vitest.remote-auth.config.ts
 ```
 
 The same five checks run automatically in the normal frontend suite/CI from this stacked source. The standalone config is for focused reproduction. A separate clean local server snapshot may also be selected. The suite accepts a
-filesystem tree, not a hosted URL; checks full Git SHA and source cleanliness; and
+filesystem tree, not a hosted URL; checks the full Git SHA (and requires source cleanliness in CI or when an explicit server path is selected); and
 uses disposable loopback FileStore/development-auth child processes. Shared/default
 flags remain OFF. Only selected child processes enable synthetic fixture clients.
 The browser shim supplies origin/cookies; production request code supplies CSRF and

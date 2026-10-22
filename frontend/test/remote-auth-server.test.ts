@@ -19,10 +19,13 @@ import type { BootstrapRequest, ConsentApproval } from '../src/onboarding/remote
 
 // Select an exact, clean local source tree, never a URL or an installed service.
 // This suite intentionally fails on an incomplete server; it never silently skips.
-const serverRoot = resolve(process.env.ENVOI_REMOTE_AUTH_SERVER_ROOT ?? '.');
+const selectedServerRoot = process.env.ENVOI_REMOTE_AUTH_SERVER_ROOT;
+const serverRoot = resolve(selectedServerRoot ?? '.');
 const git = (...args: string[]) => execFileSync('git', ['-C', serverRoot, ...args], { encoding: 'utf8', windowsHide: true }).trim();
 const serverSha = git('rev-parse', 'HEAD');
-if (!/^[a-f0-9]{40}$/.test(serverSha) || git('status', '--porcelain')) throw new Error('Select a clean exact local server source tree');
+if (!/^[a-f0-9]{40}$/.test(serverSha)) throw new Error('Select a local server source tree with a full Git SHA');
+// Exact-source evidence and CI require a clean tree; ordinary local development may test edits.
+if ((selectedServerRoot || process.env.CI === 'true') && git('status', '--porcelain')) throw new Error('Select a clean exact local server source tree');
 const harness = await import(/* @vite-ignore */ pathToFileURL(resolve(serverRoot, 'test/a3-harness.js')).href);
 const nativeFetch = globalThis.fetch;
 const verifier = 'a'.repeat(43);
