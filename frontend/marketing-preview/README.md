@@ -8,6 +8,8 @@ Slide 2 supplies About's collaboration problem and high-level infrastructure sol
 
 ## Preview
 
+Requires Node.js 22.23.4 or newer and npm 9.6.5 or newer, matching the patched Astro toolchain.
+
 ```sh
 npm ci
 npm run dev
@@ -67,12 +69,13 @@ npm ci
 npm test
 $env:ASTRO_TELEMETRY_DISABLED='1'
 npm run build
+npm run audit:security
 npm run dev
 ```
 
 The preview uses port 4328. If another local preview already uses it, run `npm run dev -- --port 4329` instead. Review `/` and `/product/`; the development server is not a deployment.
 
-- [ ] **P0 dependency security:** the clean-install audit reports three affected packages: `astro` (critical), `sharp` (high), and `esbuild` (low). `npm audit --json` exits 1. The registry suggests an Astro major upgrade, not a safe in-range patch. Resolve this with a reviewed toolchain upgrade or port into the existing app before launch; do not run `npm audit fix --force` blindly or expose the development server. This finding is not a claim that this static illustration exercises every affected feature.
+- [x] **P0 dependency security fixed:** upgraded Astro from 5.18.2 to 7.4.2 and its Sharp dependency to 0.35.5; the vulnerable esbuild dependency is no longer installed. The new `npm run check` runs tests, the static build/link gate and an audit that fails on any reported severity. The full audit now reports zero vulnerabilities, without suppressions, forced resolution overrides or changes to the product's root dependencies. Regression tests check the locked dependency versions. The former findings were [Astro AVIF optimization RCE](https://github.com/advisories/GHSA-26w7-cxv4-gfx2), [Sharp's affected image-processing libraries](https://github.com/advisories/GHSA-wq5f-xc86-pv6w), and a low-severity esbuild Windows development-server issue. This is not a claim that this static illustration exercises every affected feature, or that an audit replaces application security review.
 - [ ] Review the restored full hero logo, requested headline and paragraph, logo colors and Segoe UI Light typography with Rachel.
 - [ ] Review the larger collaboration diagram, 16px conversation/inbox body text, 14px supporting labels, ordered feature markers and client-deck-first demo.
 - [ ] Exercise keyboard scenario switching, play/pause, all inbox filters and subject/detail selection at mobile and desktop widths.
@@ -87,7 +90,7 @@ No changes to Gate B-local, provider resources, remote-auth flags, runtime code,
 
 ## Validation on October 21, 2026
 
-- Fresh isolated-worktree `npm ci`, all 30 focused tests, and the static build/internal-link gate pass. `npm audit --json` fails with the dependency findings recorded above; this package is not security-cleared for integration or deployment.
+- Fresh isolated-worktree installation, all 31 focused tests, the static build/internal-link gate, and the full dependency audit pass after the reviewed toolchain upgrade. Public deployment still requires the remaining integration and acceptance checks above.
 - Static Astro build and focused tests cover playback, title copy, hidden sample addresses, supplied logo assets, light typography and text contrast.
 - Browser checks at 375, 768, 1280 and 1920 CSS pixels showed no horizontal overflow.
 - Verified scenario switching, keyboard arrow navigation, complete manual scenario rendering, inbox filtering, detail selection and the non-collecting preview form.

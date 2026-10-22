@@ -7,9 +7,15 @@
     "dev": "astro dev --host 127.0.0.1 --port 4328",
     "build": "astro build && node scripts/check-pages.mjs",
     "preview": "astro preview --host 127.0.0.1 --port 4328",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "audit:security": "npm audit --audit-level=low",
+    "check": "npm test && npm run build && npm run audit:security"
+  },
+  "engines": {
+    "node": ">=22.23.4",
+    "npm": ">=9.6.5"
   },
   "dependencies": {
-    "astro": "^5.16.0"
+    "astro": "^7.4.2"
   }
 }

@@ -5,6 +5,22 @@ import { createPlaybackState, advancePlayback, selectScenario, acceptedWaitlistR
 
 const scenarios = JSON.parse(await readFile(new URL('../src/data/scenarios.json', import.meta.url)));
 
+test('the locked website toolchain excludes the reported vulnerable versions', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  assert.equal(manifest.scripts['audit:security'], 'npm audit --audit-level=low');
+  assert.match(manifest.scripts.check, /npm run audit:security/);
+  for (const [dependency, minimum] of [['astro', [7, 4, 2]], ['sharp', [0, 35, 5]], ['esbuild', [0, 28, 1]]]) {
+    const installed = lock.packages[`node_modules/${dependency}`];
+    if (!installed && dependency !== 'astro') continue;
+    assert.ok(installed, dependency);
+    const version = installed.version.split('.').map(Number);
+    const difference = version.findIndex((part, index) => part !== minimum[index]);
+    assert.ok(difference === -1 || version[difference] > minimum[difference], `${dependency}@${installed.version}`);
+  }
+});
+
+
 test('the client deck is the first and default demo without removing other scenarios', async () => {
   assert.deepEqual(scenarios.map(scenario => scenario.id), ['client-deck', 'bed-frame', 'dinner']);
   const thread = await readFile(new URL('../src/components/Thread.astro', import.meta.url), 'utf8');
