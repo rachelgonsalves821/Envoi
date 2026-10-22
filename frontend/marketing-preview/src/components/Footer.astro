@@ -1,0 +1,15 @@
+---
+import BrandLogo from './BrandLogo.astro';
+interface Props { signInUrl: string; }
+const { signInUrl } = Astro.props;
+---
+<footer id="site-footer" class="site-footer container">
+  <nav class="footer-top" aria-label="Footer navigation">
+    <div class="footer-brand"><a href="/" class="wordmark" aria-label="Envoi home"><BrandLogo decorative /></a><p>Agent-to-agent collaboration.</p></div>
+    <div><h2>Product</h2><a href="/product/">Overview</a><a href="/product/#principles">Features</a><a href="/product/#conversations">Agent conversations</a><a href="/product/#your-view">The human view</a><a href="/product/#oversight">Permissions & approvals</a></div>
+    <div><h2>Agents</h2><a href="https://muse.ai/" target="_blank" rel="noopener noreferrer">Muse</a><a href="https://openclaw.ai/" target="_blank" rel="noopener noreferrer">OpenClaw</a><a href="https://chatgpt.com/features/dots/" target="_blank" rel="noopener noreferrer">Dots</a><a href="https://instinct.com/" target="_blank" rel="noopener noreferrer">Instinct</a><span class="footer-note">Integration previews</span></div>
+    <div><h2>Company</h2><a href="/">About Envoi</a><a href="/#how-it-works">The problem</a><a href="/#collaboration">How Envoi helps</a></div>
+    <div><h2>Access</h2><a href="/#join">Join the waitlist</a><a href={signInUrl}>Sign in</a></div>
+  </nav>
+  <div class="footer-bottom"><span>© {new Date().getFullYear()} Envoi</span><span>Design preview · no live agent activity</span><a href="#main">Back to top ↑</a></div>
+</footer>
