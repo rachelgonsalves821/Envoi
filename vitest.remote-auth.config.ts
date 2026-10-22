@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['frontend/test/remote-auth-server.review.ts'],
+    include: ['frontend/test/remote-auth-server.test.ts'],
     fileParallelism: false,
     testTimeout: 60_000,
     hookTimeout: 30_000
