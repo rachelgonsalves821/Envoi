@@ -120,7 +120,7 @@ it('consumes the exact revision-4 fixture publication with the actual browser va
   }
   expect(operations).toBe(101); expect(browserParts).toBe(27);
 });
-it('pairs the actual browser transport/controller with consent, lost-response recovery, restart, withdrawal and denial', async () => {
+it('pairs the actual browser transport/controller with consent, lost-response recovery, restart, withdrawal and denial', { timeout: 60_000 }, async () => {
   let server = await launch(true);
   const controllers: ConsentController[] = [];
   const controller = (handle: string, now = Date.now) => {
@@ -183,7 +183,7 @@ it('pairs the actual browser transport/controller with consent, lost-response re
   } finally { for (const item of controllers) item.dispose(); await server.stop(); }
 });
 
-it('keeps disabled routes unavailable and refuses cross-account and CSRF writes', async () => {
+it('keeps disabled routes unavailable and refuses cross-account and CSRF writes', { timeout: 60_000 }, async () => {
   let server = await launch(false); let current: ConsentController | undefined;
   try {
     const who = await harness.owner(server.baseUrl, '8402'); browser(server.baseUrl, who);
@@ -237,7 +237,7 @@ function noCredentials(value: unknown, secrets: string[]) {
   expect(text).not.toMatch(/envoi_oauth_code_|envoi_boot_|envoi_agent_(?:access|refresh)_|"audience"|oauthClientId|codeHash|handleDigest|codeChallenge/);
 }
 
-it('pairs completed consent with private host exchange, MCP scope/pause, refresh recovery and terminal replay', async () => {
+it('pairs completed consent with private host exchange, MCP scope/pause, refresh recovery and terminal replay', { timeout: 60_000 }, async () => {
   const server = await launch(true);
   const controllers: ConsentController[] = [];
   const navigate = vi.fn();
@@ -301,7 +301,7 @@ it('pairs completed consent with private host exchange, MCP scope/pause, refresh
   } finally { for (const item of controllers) item.dispose(); await server.stop(); }
 });
 
-it('pairs real bootstrap issuance and lost responses with the one-time browser component and private provider exchange', async () => {
+it('pairs real bootstrap issuance and lost responses with the one-time browser component and private provider exchange', { timeout: 60_000 }, async () => {
   const server = await launch(false, true);
   const controllers: BootstrapController[] = [];
   try {

@@ -53,7 +53,7 @@ $env:ENVOI_REMOTE_AUTH_SERVER_ROOT = (Get-Location).Path
 npx vitest run --config vitest.remote-auth.config.ts
 ```
 
-A separate clean local server snapshot may also be selected. The suite accepts a
+The same five checks run automatically in the normal frontend suite/CI from this stacked source. The standalone config is for focused reproduction. A separate clean local server snapshot may also be selected. The suite accepts a
 filesystem tree, not a hosted URL; checks full Git SHA and source cleanliness; and
 uses disposable loopback FileStore/development-auth child processes. Shared/default
 flags remain OFF. Only selected child processes enable synthetic fixture clients.
@@ -90,6 +90,15 @@ Record the final client SHA and fresh combined-head CI in the PR and #34. Keep p
 #173@685b854 results historical; do not transfer them to this rebased source. Local
 suites, build and generated equality must pass; a committed rebuild must be clean.
 
+Local full-gate finding: the serial Windows run has739 pass/2 fail/37 existing skips.
+Both failures are Lane A no-request-write inventories colliding with the independently
+written `auth/oauth-cleanup-cursor/cursor.json` maintenance marker. The unchanged two-file
+rerun has17/18 pass and reproduces the authorize inventory failure with that sole path.
+The existing authorize filter excludes only the older registration cleanup cursor;
+the consent regex also matches the new cursor. A concrete REQUEST lane-a is on #34.
+No server assertion or source was edited here. Preserve strict absence of grant state
+and cleanup of retained records with flags off. Green Linux CI is not substituted for
+the red local full gate; final integration readiness remains blocked on the owner fix.
 This now pairs the reviewed server and client source. It does not integrate #203 or
 #173, advertise a named host, register a real provider, establish background wake or
 satisfy a hosted gate. #183/#196 and the independent reviewer retain their tasks.
