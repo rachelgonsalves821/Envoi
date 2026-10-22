@@ -6,12 +6,15 @@ import { pathToFileURL } from 'node:url';
 import { privateDirectory, acquireConnectorLock } from '../connector/store';
 import { saveHermesScopedMode, selectScopedHermes, hermesHost } from './scoped-runtime';
 import { connectHermesHost } from './scoped-host';
+import { parseHostedWakeConfig, runHostedWake } from '../connector/hosted-wake-runner';
 
 export async function prepareHermesRun(env: NodeJS.ProcessEnv = process.env) {
   const apiUrl = env.ENVOI_API_URL;
   const requested = env.ENVOI_STATE_DIR;
   if (!apiUrl || !requested) throw new Error('ENVOI_API_URL and ENVOI_STATE_DIR are required');
   const scoped = await selectScopedHermes({ env, stateDir: requested });
+  const wake = parseHostedWakeConfig(env);
+  if (wake && !scoped) throw new Error('Hosted wake requires the scoped Hermes runtime');
   const hermesUrl = env.HERMES_API_URL ?? '';
   const hermesKey = env.HERMES_API_KEY ?? '';
   const relayToken = env.HERMES_MCP_RELAY_TOKEN;
@@ -19,11 +22,11 @@ export async function prepareHermesRun(env: NodeJS.ProcessEnv = process.env) {
   if (!scoped && (!hermesUrl || !hermesKey)) throw new Error('HERMES_API_URL and HERMES_API_KEY are required for legacy Hermes');
   if (writeFlag && writeFlag !== 'true') throw new Error('HERMES_MCP_WRITE_ENABLED must be true when set');
   if ((env.HERMES_MCP_RELAY_PORT || writeFlag) && !relayToken) throw new Error('HERMES_MCP_RELAY_TOKEN is required when MCP relay or writes are configured');
-  return { apiUrl, requested, scoped, hermesUrl, hermesKey, relayToken, writeFlag };
+  return { apiUrl, requested, scoped, hermesUrl, hermesKey, relayToken, writeFlag, wake };
 }
 
 async function main() {
-  const { apiUrl, requested, scoped, hermesUrl, hermesKey, relayToken, writeFlag } = await prepareHermesRun();
+  const { apiUrl, requested, scoped, hermesUrl, hermesKey, relayToken, writeFlag, wake } = await prepareHermesRun();
   if (scoped) {
     const wire = await connectHermesHost(hermesHost(scoped), AbortSignal.timeout(15000));
     wire.close();
@@ -59,7 +62,10 @@ async function main() {
         if (!names.has('envoi_start_case') || !names.has('envoi_send_message')) throw new Error('This enrolled agent lacks Envoi send permission. Enable Send agent messages for it before reconnecting.');
       }
       process.stdout.write(`Hermes connected to Envoi as ${session?.address}. Listening for work.${bridge.relayUrl ? ' MCP send tools available on loopback.' : ''}\n`);
-      await bridge.connector.run(stop.signal);
+      if (wake) {
+        if (!session) throw new Error('Hosted wake requires saved connector identity');
+        await runHostedWake({ connector: bridge.connector, session, stateDir, config: wake, signal: stop.signal });
+      } else await bridge.connector.run(stop.signal);
     } finally { process.removeListener('SIGINT', onStop); process.removeListener('SIGTERM', onStop); await bridge.close(); }
   } finally { await unlock(); }
 }

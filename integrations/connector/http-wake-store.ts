@@ -36,12 +36,29 @@ export class FileWakeStore implements WakeStore {
   async read(): Promise<WakeState> {
     const filename = await this.filename();
     let handle: Awaited<ReturnType<typeof open>> | undefined;
+    let observed = false;
     try {
-      const metadata = await lstat(filename);
+      const metadata = await lstat(filename, { bigint: true });
+      observed = true;
       if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > maximumBytes) throw new Error();
       handle = await open(filename, 'r');
-      const opened = await handle.stat();
-      if (!opened.isFile() || opened.size > maximumBytes || opened.dev !== metadata.dev || opened.ino !== metadata.ino) throw new Error();
+      const opened = await handle.stat({ bigint: true });
+      if (!opened.isFile() || opened.size > maximumBytes || opened.ino !== metadata.ino) throw new Error();
+      if (opened.dev !== metadata.dev) {
+        // Windows Node 22 can omit the volume ID in path stats. Compare two
+        // handle stats instead; never discard a real volume or inode mismatch.
+        if (process.platform !== 'win32' || metadata.dev !== 0n || opened.dev === 0n || metadata.ino === 0n) throw new Error();
+        const verification = await open(filename, 'r');
+        try {
+          const confirmed = await verification.stat({ bigint: true });
+          const current = await lstat(filename, { bigint: true });
+          if (!confirmed.isFile() || confirmed.size > maximumBytes
+            || confirmed.dev !== opened.dev || confirmed.ino !== opened.ino
+            || !current.isFile() || current.isSymbolicLink() || current.size > maximumBytes
+            || current.dev !== metadata.dev || current.ino !== metadata.ino
+            || await this.filename() !== filename) throw new Error();
+        } finally { await verification.close(); }
+      }
       const bytes = Buffer.alloc(maximumBytes + 1);
       let length = 0;
       while (length < bytes.length) {
@@ -54,7 +71,7 @@ export class FileWakeStore implements WakeStore {
       validateWakeState(state);
       return state;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyWakeState();
+      if (!observed && (error as NodeJS.ErrnoException).code === 'ENOENT') return emptyWakeState();
       throw new Error('Private wake state is unreadable');
     } finally { await handle?.close(); }
   }
