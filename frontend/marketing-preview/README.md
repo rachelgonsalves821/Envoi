@@ -58,7 +58,7 @@ The sign-in link uses the existing `/api/auth/workos/sign-in` route on `envoi-ag
 
 This package is submitted for source and visual review only. It does not replace the existing Vite frontend, change the root build, or serve any production route. Merging, deploying, or enabling collection on the existing domain requires separate approval.
 
-## Je's review and integration checklist
+## Je's review-only checklist
 
 This is the current light-theme design candidate requested by Rachel, separate from the older draft PR #145. Neither draft is merged or closed by this work. Compare the designs before choosing which approach to integrate; do not merge both as independent public frontends.
 
@@ -75,24 +75,35 @@ npm run dev
 
 The preview uses port 4328. If another local preview already uses it, run `npm run dev -- --port 4329` instead. Review `/` and `/product/`; the development server is not a deployment.
 
-- [x] **P0 dependency security fixed:** upgraded Astro from 5.18.2 to 7.4.2 and its Sharp dependency to 0.35.5; the vulnerable esbuild dependency is no longer installed. The new `npm run check` runs tests, the static build/link gate and an audit that fails on any reported severity. The full audit now reports zero vulnerabilities, without suppressions, forced resolution overrides or changes to the product's root dependencies. Regression tests check the locked dependency versions. The former findings were [Astro AVIF optimization RCE](https://github.com/advisories/GHSA-26w7-cxv4-gfx2), [Sharp's affected image-processing libraries](https://github.com/advisories/GHSA-wq5f-xc86-pv6w), and a low-severity esbuild Windows development-server issue. This is not a claim that this static illustration exercises every affected feature, or that an audit replaces application security review.
-- [ ] Review the restored full hero logo, requested headline and paragraph, logo colors and Segoe UI Light typography with Rachel.
-- [ ] Review the larger collaboration diagram, 16px conversation/inbox body text, 14px supporting labels, ordered feature markers and client-deck-first demo.
-- [ ] Exercise keyboard scenario switching, play/pause, all inbox filters and subject/detail selection at mobile and desktop widths.
-- [ ] Choose whether to port the approved design into the existing React/Vite app or explicitly authorize a separate static-site build and hosting integration. No Astro dependency or command was added to the root app.
-- [ ] Preserve the existing site's analytics, security headers, public routes, authenticated app and agent onboarding during any future port. These are not wired into this standalone preview.
-- [ ] Confirm the real public origin, WorkOS sign-in/callback and same-origin waitlist contract before enabling collection. Preview collection remains disabled; no credentials belong in the client or this package.
-- [ ] Confirm integration support/logo usage, precise security claims and real privacy/terms destinations before public launch. Illustrative conversations are not hosted agent acceptance evidence.
-- [ ] Add the approved package/ported design to the owned CI and release path, then validate the exact integration commit. Existing root CI does not run this nested package's `npm test` or Astro build automatically.
-- [ ] Recheck the final hero changes in a browser; the most recent browser session timed out after the final logo/headline edits. Earlier responsive and interaction evidence must not be represented as exact-final visual acceptance.
+- [ ] Review the final About/Product design, copy, supplied logo and typography.
+- [ ] Review the code and recorded interaction/responsive evidence for the demo, feature markers and inbox.
+- [ ] Review the test/build/security results and scope boundaries, then approve the design candidate or leave review comments.
+
+Je is not assigned implementation, dependency fixes, test execution, migration, provider configuration, CI wiring or deployment. The optional commands above are for reproducing evidence, not required tasks on his checklist. This PR asks for source/design review only, not production acceptance.
+
+## Engineering follow-up after design review
+
+These are separate coding-agent/release work items, not Je's checklist and not hidden completion claims for this preview:
+
+| Owner | Follow-up | Status |
+| --- | --- | --- |
+| Frontend coding agent | Prepare the approved design integration while preserving analytics, security headers, existing routes, authenticated app and onboarding. The existing React/Vite app remains unchanged here. | Deferred until the design is reviewed. |
+| Lane A CI/release coding agent | Wire the selected implementation into the owned CI/release path and validate its exact integration commit. Existing root CI does not run this nested package's test/build/audit automatically. | Separate root-config work; no root files changed here. |
+| Backend/identity coding agent | Verify the approved public origin, same-origin waitlist route and WorkOS callback/sign-in wiring before enabling collection. | Not part of this isolated preview; collection stays disabled. |
+| Product owner and release operator | Supply approved legal destinations, integration/logo-use confirmation and public security claims, then authorize any public rollout. | No publication, merge or deployment is authorized by this review. |
+
+## Completed dependency remediation
+
+Upgraded Astro from 5.18.2 to 7.4.2 and its Sharp dependency to 0.35.5; the vulnerable esbuild dependency is no longer installed. `npm run check` runs tests, the static build/link gate and an audit that fails on any reported severity. The full audit reports zero vulnerabilities, without suppressions, forced resolution overrides or changes to the product's root dependencies. Regression tests check the locked dependency versions. The former findings were [Astro AVIF optimization RCE](https://github.com/advisories/GHSA-26w7-cxv4-gfx2), [Sharp's affected image-processing libraries](https://github.com/advisories/GHSA-wq5f-xc86-pv6w), and a low-severity esbuild Windows development-server issue. An audit does not replace application security review.
 
 No changes to Gate B-local, provider resources, remote-auth flags, runtime code, server contracts, root configuration or generated `web/**` are included. Rollback before integration is simply to leave this draft unmerged; deleting the review package later has no live routing effect.
 
 ## Validation on October 21, 2026
 
+- Final browser verification is complete against the patched Astro 7.4.2 preview. [Screenshots and interaction results](review-evidence/README.md) are included for review; no browser rerun is assigned to Je.
 - Fresh isolated-worktree installation, all 31 focused tests, the static build/internal-link gate, and the full dependency audit pass after the reviewed toolchain upgrade. Public deployment still requires the remaining integration and acceptance checks above.
 - Static Astro build and focused tests cover playback, title copy, hidden sample addresses, supplied logo assets, light typography and text contrast.
-- Browser checks at 375, 768, 1280 and 1920 CSS pixels showed no horizontal overflow.
+- Final About and Product checks at 320, 375, 768, 1280 and 1920 CSS pixels showed no horizontal overflow, including the diagram, conversation demo and inbox.
 - Verified scenario switching, keyboard arrow navigation, complete manual scenario rendering, inbox filtering, detail selection and the non-collecting preview form.
 - All non-logo text uses locally installed Segoe UI Light at weight 300, with Segoe UI and system fallbacks. No external font files are loaded or redistributed. The original logo artwork preserves its own lettering.
 - Reduced-motion playback is covered by unit tests and CSS fallback, but OS-level browser preference switching was not exercised.
