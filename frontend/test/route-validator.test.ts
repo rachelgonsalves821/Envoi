@@ -3,8 +3,9 @@ import { runInNewContext } from 'node:vm';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
-import { generateRouteAvailabilityValidator, validatorFile } from '../build/route-availability';
+import { generateRouteAvailabilityEnums, generateRouteAvailabilityValidator, routeEnumsFile, validatorFile } from '../build/route-availability';
 import validate from '../src/onboarding/route-availability.validator.mjs';
+import { connectionRouteOrder, deliveryModeOrder } from '../src/onboarding/route-availability-enums';
 import schema from '../../test/contract-fixtures/agent-registration/schemas.json';
 import { contractRegistry, loadContractFixture } from '../../integrations/contract-fixtures/setup';
 
@@ -14,6 +15,16 @@ const body = (name: string) => (loadContractFixture(contract, name + '.json') as
 describe('CSP-safe canonical route validator', () => {
   it('matches fresh standalone generation from the canonical schema byte for byte', () => {
     expect(readFileSync(validatorFile, 'utf8').replace(/\r\n/g, '\n')).toBe(generateRouteAvailabilityValidator());
+  });
+
+  it('emits only the route and delivery enums, in canonical order', () => {
+    const emitted = readFileSync(routeEnumsFile, 'utf8').replace(/\r\n/g, '\n');
+    expect(emitted).toBe(generateRouteAvailabilityEnums());
+    expect(connectionRouteOrder).toEqual(schema.definitions.connectionRoute.enum);
+    expect(deliveryModeOrder).toEqual(schema.definitions.deliveryMode.enum);
+    expect(emitted).not.toContain('storedCredential');
+    expect(emitted).not.toContain('x-stored-records');
+    expect(readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8')).not.toContain('storedCredentialFamily');
   });
 
   it('agrees with the canonical Ajv validator for fixtures and closed-shape mutations', () => {

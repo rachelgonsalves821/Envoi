@@ -1,5 +1,5 @@
 import validate from './route-availability.validator.mjs';
-import schemas from '../../../test/contract-fixtures/agent-registration/schemas.json';
+import { connectionRouteOrder, deliveryModeOrder } from './route-availability-enums';
 
 export interface RouteAvailability {
   asOf: string;
@@ -16,8 +16,8 @@ export function connectionOffer(value: unknown): { localHelper: boolean; availab
   const enabled = availability.registrationEnabled && availability.installationsEnabled;
   const routes = availability.routes;
   const modes = availability.deliveryModes;
-  if (JSON.stringify(routes.map(route => route.connectionRoute)) !== JSON.stringify(schemas.definitions.connectionRoute.enum)
-    || JSON.stringify(modes.map(mode => mode.deliveryMode)) !== JSON.stringify(schemas.definitions.deliveryMode.enum)) throw new Error('Connection options are unavailable. Try again later.');
+  if (JSON.stringify(routes.map(route => route.connectionRoute)) !== JSON.stringify(connectionRouteOrder)
+    || JSON.stringify(modes.map(mode => mode.deliveryMode)) !== JSON.stringify(deliveryModeOrder)) throw new Error('Connection options are unavailable. Try again later.');
   if (routes.some(route => route.available && (!enabled || !['local_helper', 'authenticated_rest'].includes(route.connectionRoute)))
     || modes.some(mode => mode.available && (!enabled || mode.deliveryMode !== 'envoi_link'))
     || modes.find(mode => mode.deliveryMode === 'envoi_link')?.available !== enabled
