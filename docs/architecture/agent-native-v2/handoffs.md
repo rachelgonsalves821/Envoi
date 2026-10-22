@@ -4594,7 +4594,8 @@ These are Lane A's proposals. Any of them can change before approval.
    | Replayed used code, still-active original installation | Policy A (approved) | Policy B |
    | --- | --- | --- |
    | Same client; correct verifier, `redirect_uri` and resource; code unexpired (`token-code-reused`) | `invalid_grant`, **revokes** | `invalid_grant`, **revokes** |
-   | Same public `client_id`; wrong or missing verifier (`token-code-reused-wrong-verifier`) | `invalid_grant`, **revokes** | `invalid_grant`, **no revoke** |
+   | Same public `client_id`; verifier **missing or malformed** (not 43–128 characters of the RFC 7636 alphabet) | `invalid_request` at row 2, **no revoke** | `invalid_request` at row 2, **no revoke** |
+   | Same public `client_id`; verifier **well formed but wrong** (`token-code-reused-wrong-verifier`) | reaches row 5: `invalid_grant`, **revokes** | `invalid_grant` at the PKCE check, **no revoke** |
    | Same client; wrong `redirect_uri` or resource | `invalid_grant`, **revokes** | `invalid_grant` or `invalid_target`, **no revoke** |
    | Same client and verifier, but the code is past its 60 s | `invalid_grant`, **revokes** ("even after expiry") | `invalid_grant`, **no revoke** |
    | Another client (`token-code-reused-other-client`) | `invalid_grant`, no revoke | same |
@@ -4606,7 +4607,9 @@ These are Lane A's proposals. Any of them can change before approval.
    - revocation ends only the original installation, and only while it is still active;
    - the identity stays unfrozen.
 
-   **What the choice is.** Should a party holding a leaked code and the public `client_id`, but **not** the verifier, be able to end the original installation? Under Policy A it can; that is a denial of service the owner repairs by reconnecting. Under Policy B it cannot. A holder of both code and verifier can still trigger revocation under either policy while the code is unexpired.
+   Row 2, parameter validation, comes first in both policies. A missing or malformed verifier therefore never reaches a reuse check, and never revokes.
+
+   **What the choice is.** Should a party holding a leaked code and the public `client_id`, but **not** the verifier, be able to end the original installation by sending any well-formed verifier? Under Policy A it can; that is a denial of service the owner repairs by reconnecting. Under Policy B it cannot. A holder of both code and verifier can still trigger revocation under either policy while the code is unexpired.
    - **What Policy B gives up:** revocation for a replay that arrives after the code's 60 s lifetime, and for a replay that fails another check (wrong redirect or resource).
    - **What it gains:** it follows the draft's validity condition, and removes the code-only denial of service. With a 60 s single-use code, PKCE and an exact redirect match, a replay with the verifier inside the code's lifetime is the case that indicates a real second holder. Policy B still revokes then.
 
