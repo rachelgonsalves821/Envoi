@@ -5,12 +5,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
-  accessParts, api, assertOAuthError, assertOnDemand, assertRemote, assertTokenResponse, backends, confidentialClient, connect, documents, edit, exchange, familyParts, installationView, owner, providerClient, providerSecret, publicClient,
+  accessParts, api, assertOAuthError, assertOnDemand, assertRemote, assertTokenResponse, backends, confidentialClient, connect, documents, edit, exchange, familyParts, installationView, freshOwner, providerClient, providerSecret, publicClient,
   recoveryParts, refreshParams, refreshParts, registrationParts, remoteFixture, remoteServer, restart, stored, tokenPost, PAST
 } from './agent-remote-auth-token-harness.js';
 
-let ownerSerial = 8600;
-const newOwner = server => owner(server.baseUrl, String(ownerSerial += 1));
+const newOwner = freshOwner;
 const rpc = (server, token, method, params = {}, id = 1) => api(server.baseUrl, '/mcp', { token, body: { jsonrpc: '2.0', id, method, params }, headers: { accept: 'application/json, text/event-stream' } });
 const call = (server, token, name, args = {}) => rpc(server, token, 'tools/call', { name, arguments: args });
 const toolResult = res => JSON.parse(res.payload.result.content[0].text);
