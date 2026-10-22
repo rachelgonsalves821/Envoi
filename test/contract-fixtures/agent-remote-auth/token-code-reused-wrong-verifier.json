@@ -1,0 +1,123 @@
+{
+  "contract": "agent-remote-auth",
+  "version": 1,
+  "id": "token-code-reused-wrong-verifier",
+  "description": "A used code presented again with its own public client_id and a well-formed but wrong verifier: check 5 runs before PKCE (check 8), so this still revokes the installation the first exchange created. This is the denial-of-service trade-off of §6.1.",
+  "kind": "sequence",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false
+  },
+  "steps": [
+    {
+      "note": "First exchange succeeds.",
+      "request": {
+        "method": "POST",
+        "path": "/oauth/token",
+        "auth": "public_client",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        "form": {
+          "grant_type": "authorization_code",
+          "code": "envoi_oauth_code_PLACEHOLDER_1",
+          "redirect_uri": "https://assistant.example.com/oauth/callback",
+          "code_verifier": "iOY_y2JNRsKjN4t_WyVeJiT-YAQVoL6MnFjPW6Ks1hU",
+          "resource": "https://www.envoi-agents.com/mcp",
+          "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "tokenResponse",
+        "headers": {
+          "cache-control": "no-store",
+          "pragma": "no-cache"
+        },
+        "body": {
+          "access_token": "envoi_agent_access_PLACEHOLDER_oauth_1",
+          "token_type": "Bearer",
+          "expires_in": 900,
+          "refresh_token": "envoi_agent_refresh_PLACEHOLDER_oauth_1",
+          "scope": "envoi.agent envoi.send"
+        }
+      }
+    },
+    {
+      "note": "Someone holding the leaked code and the public client_id, without the verifier.",
+      "request": {
+        "method": "POST",
+        "path": "/oauth/token",
+        "auth": "public_client",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        "form": {
+          "grant_type": "authorization_code",
+          "code": "envoi_oauth_code_PLACEHOLDER_1",
+          "redirect_uri": "https://assistant.example.com/oauth/callback",
+          "code_verifier": "1_KKg7vHxgFAoiJF-Y0M3TbN0cAY505i2tm-V1QmxHE",
+          "resource": "https://www.envoi-agents.com/mcp",
+          "client_id": "https://assistant.example.com/oauth/envoi-client.json"
+        }
+      },
+      "response": {
+        "status": 400,
+        "schema": "oauthError",
+        "headers": {
+          "cache-control": "no-store",
+          "pragma": "no-cache"
+        },
+        "body": {
+          "error": "invalid_grant",
+          "error_description": "The authorization grant is invalid, expired, already used or revoked."
+        }
+      }
+    },
+    {
+      "note": "Only the installation that code activated is revoked; the identity is not frozen.",
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "auth": "bearer",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "envoi_agent_info",
+            "arguments": {}
+          }
+        }
+      },
+      "response": {
+        "status": 401,
+        "schema": "errorEnvelope",
+        "body": {
+          "code": "CREDENTIAL_REVOKED",
+          "error": "CREDENTIAL_REVOKED",
+          "message": "This connection was revoked.",
+          "requestId": "req_example",
+          "reason": "revoked"
+        },
+        "headers": {
+          "www-authenticate": "Bearer resource_metadata=\"https://www.envoi-agents.com/.well-known/oauth-protected-resource/mcp\", scope=\"envoi.agent envoi.send\", error=\"invalid_token\""
+        }
+      },
+      "client": {
+        "surface": "host",
+        "lifecycle": "REVOKED",
+        "retry": "none",
+        "guidance": "owner_reconnect",
+        "next": "The owner sees the installation ended with activation_replay and can reconnect the same agent."
+      }
+    }
+  ]
+}

@@ -4083,7 +4083,7 @@ PR #144 review corrections preserve provider-browser-poll v1's public payloads: 
 
 ## agent-remote-auth v1
 
-**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** published (revision 2, §15), awaiting Lane B's `CONTRACT-ACK`. Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
+**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** revision 2 approved (`CONTRACT-APPROVED agent-remote-auth v1 revision 2 @bbd361e`, board #34 comment 6321077051). **Revision 3** (§15) is published and awaits Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 revision 3 @<publication sha>`. Until then revision 2 is the approved text. The revision-2 status text that follows is kept for history: Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
 
 **Fixtures:** [`test/contract-fixtures/agent-remote-auth/`](../../../test/contract-fixtures/agent-remote-auth/). It holds:
 - `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-oauth-errors`, `x-limits`, `x-scopes`, `x-route-availability`, `x-delivery-availability`, `x-client-metadata-checks`, `x-redirect-rules`, `x-authorize-checks`, `x-token-checks`, `x-consent-display`, `x-consent-decisions` and `x-endpoints`;
@@ -4108,7 +4108,11 @@ It specifies discovery metadata, client identification, the authorization reques
 It builds on `a3-pause-auth` v3 (envelope, codes, pause), `agent-registration` v1 revision 4 (registrations, installations, owner eligibility), `envoi-names` v1 (credential formats), `envoi-browser-names` v1 (cookies, CSRF) and `http-wake` v1 (destination safety, §4.2 here).
 
 **Not in this contract.**
-- **Wake.** An installation made here declares `on_demand` (§1). A host that can receive signed HTTPS callbacks adds an http-wake v1 subscription to its installation, as any installation may (http-wake §11). Provider-native wake (`provider`) is a later contract.
+- **Wake (corrected in revision 3).** An installation made here declares `on_demand` (§1). In v1 it has **no wake path**:
+  - its audience-bound tokens are refused at `/api/agent/wake-subscriptions`, like every route except `/mcp` (§9);
+  - no `/mcp` tool creates a subscription, so it cannot add an http-wake v1 subscription.
+
+  Nothing here claims that such an assistant can be reached while its user does not have it open. A wake path would need its own contract and review, for example a `/mcp`-scoped wake tool. This contract adds no audience exception for REST. Provider-native wake (`provider`) is a later contract too.
 - **The owner "On demand" label.** a5-presence v1 has no honest label for `on_demand`. §1 makes the route depend on that revision before its flag is turned on.
 - **Dynamic Client Registration.** Deprecated in the MCP specification; not offered (§3, decision 1).
 - **Authenticated REST.** That route keeps agent-registration v1's bootstrap-token mechanics.
@@ -4267,6 +4271,15 @@ The server checks the query in `x-authorize-checks` order. The first failing che
 | 8 | `resource` is present and equals the resource exactly (§2) | redirect to the client with `invalid_target` |
 | 9 | `scope`, if present, is a set of `x-scopes` names containing `envoi.agent` | redirect to the client with `invalid_scope` |
 | 10 | `state`, if present, is 1–512 printable ASCII characters | redirect to the client with `invalid_request` |
+| 11 | The encoded handle (§4.2) is at most 2,048 characters (revision 3) | redirect to the client with `invalid_request` |
+
+**Row 11 (revision 3).** Each parameter can be valid on its own and the request still too large to seal. That can happen with a `client_id` of up to 2,048 characters, a `state` of up to 512 and the redirect URI, plus the encryption and encoding overhead. The server therefore measures the handle it would issue: the exact string after encryption and base64url encoding, which is what appears in the URL. It does this after rows 1–10 pass.
+- Up to 2,048 characters: the handle is issued.
+- Longer: `invalid_request` to the checked `redirect_uri`, with `state` and `iss`.
+- The server never truncates a bound field, never drops one from the seal, and never weakens the seal to fit.
+- Like every authorization `GET`, a refused request stores nothing.
+
+Fixtures: `authorize-handle-at-limit` and `authorize-handle-overflow`. They carry the measured length in `context.sealedHandleLength`, because the exact length depends on the implementation's sealing format.
 
 **Never redirect to an unchecked URI.** Rows 2–4 send the browser to Envoi's own page, which explains the problem and links nowhere else. From row 5 on, the error goes to the checked `redirect_uri` as `error`, `error_description`, `state` (if sent) and `iss` (the issuer), per RFC 6749 §4.1.2.1 and RFC 9207. Every `302` here has `cache-control: no-store` and `referrer-policy: no-referrer`.
 
@@ -4275,7 +4288,7 @@ The server checks the query in `x-authorize-checks` order. The first failing che
 #### 4.2 Success
 
 On success the server creates **nothing durable**. It seals the validated request into an **authorization request handle** and returns `302` to `${origin}/authorize-agent?request=<handle>`:
-- the handle is opaque, at most 2,048 characters, and expires `x-limits.authorizationRequestTtlSeconds` (600 s) after it is made;
+- the handle is opaque, at most 2,048 characters as encoded (row 11 refuses a request whose handle would be longer), and expires `x-limits.authorizationRequestTtlSeconds` (600 s) after it is made;
 - it binds the client, the redirect URI as requested (loopback port included), the code challenge, the scope set, the state and the resource;
 - it is integrity-protected and encrypted under a key derived from `ENVOI_DATA_ENCRYPTION_KEY`, so it cannot be edited or read;
 - it is **not a credential**: holding it does nothing without a signed-in human (§5).
@@ -4423,6 +4436,15 @@ Audit: `agent.installation_activated`, as today.
 
 **A used code** (row 5) means two parties may hold one code. As OAuth 2.1 §4.1.3 recommends, the server revokes the installation the first exchange created, if it is still active, exactly as agent-registration §6.1 row 7a does: the family's `revokedReason` is `revoked`, the installation records `replayDetectedAt` and ends with `activation_replay`, and the audit event is `agent.activation_replay_detected`. The identity is not frozen.
 
+**Who can trigger that revocation (revision 3; decision 13).** Row 5 runs after client authentication (row 3) and the client check (row 4), and before the redirect, PKCE and resource checks (rows 7–9). The check order is unchanged from revision 2.
+- **A public client** authenticates with its `client_id` alone. Anyone holding a leaked, already-exchanged code and that client's public `client_id` can therefore revoke the installation the code activated, without the verifier. Fixture: `token-code-reused-wrong-verifier`.
+- **This is a denial of service, not an escalation.** It never yields a token, it never touches any other installation, and the identity stays unfrozen, so the owner reconnects the same agent.
+- **It is confined to the original installation, while that installation is still active:**
+  - a code presented by another client revokes nothing (row 4; `token-code-reused-other-client`);
+  - a confidential client whose authentication fails revokes nothing (row 3; `token-code-reused-confidential-auth-failed`);
+  - a code whose installation has already ended revokes nothing further (`token-code-reused-installation-ended`).
+- **The code never leaves the browser redirect or the host:** codes, verifiers and code-bearing URLs stay out of logs, audits, model context and browser storage (§10).
+
 **No lost-response recovery.** A token response that never arrives cannot be fetched again, unlike agent-registration §6.2. The client starts a new authorization. The owner then sees the agent under "Reconnect an existing agent" and approves it as `existing_agent`, which replaces the installation the lost response created (decision 2).
 
 #### 6.2 Refresh grant
@@ -4533,10 +4555,10 @@ The owner routes also return agent-registration's `CLAIM_INVALID`, `CLAIM_FORBID
 | --- | --- |
 | Availability and discovery | `routes-available-remote-mcp`, `routes-available-provider`, `protected-resource-metadata`, `protected-resource-metadata-root`, `authorization-server-metadata`, `discovery-feature-disabled` |
 | `/mcp` challenge | `mcp-challenge-unauthenticated`, `mcp-challenge-invalid-token`, `mcp-insufficient-scope`, `mcp-paused-oauth-token`, `oauth-token-refused-on-rest` |
-| Authorization request | `authorize-redirects-to-consent`, `authorize-loopback-redirect`, `authorize-unknown-client`, `authorize-client-id-mismatch`, `authorize-redirect-uri-mismatch`, `authorize-pkce-missing`, `authorize-pkce-plain`, `authorize-resource-missing`, `authorize-scope-invalid`, `authorize-feature-disabled` |
+| Authorization request | `authorize-redirects-to-consent`, `authorize-loopback-redirect`, `authorize-unknown-client`, `authorize-client-id-mismatch`, `authorize-redirect-uri-mismatch`, `authorize-pkce-missing`, `authorize-pkce-plain`, `authorize-resource-missing`, `authorize-scope-invalid`, `authorize-feature-disabled`, `authorize-handle-at-limit`, `authorize-handle-overflow` |
 | Consent | `consent-view`, `consent-view-loopback`, `consent-view-decided`, `consent-request-invalid`, `consent-approve-new-agent`, `consent-approve-existing-agent`, `consent-approve-other-body`, `consent-deny`, `consent-agent-limit` |
 | Consent retry | `consent-approve-retry-pending`, `consent-approve-retry-completed`, `consent-approve-retry-expired`, `consent-approve-retry-withdrawn`, `consent-approve-lost-response` |
-| Token: authorization code | `token-authorization-code`, `token-pkce-mismatch`, `token-redirect-uri-mismatch`, `token-resource-mismatch`, `token-code-expired`, `token-code-reused`, `token-approval-withdrawn`, `token-public-client-secret` |
+| Token: authorization code | `token-authorization-code`, `token-pkce-mismatch`, `token-redirect-uri-mismatch`, `token-resource-mismatch`, `token-code-expired`, `token-code-reused`, `token-code-reused-wrong-verifier`, `token-code-reused-other-client`, `token-code-reused-confidential-auth-failed`, `token-code-reused-installation-ended`, `token-approval-withdrawn`, `token-public-client-secret` |
 | Token: refresh | `token-refresh`, `token-refresh-recovered`, `token-refresh-replay`, `token-refresh-other-client`, `token-refresh-scope-changed`, `token-refresh-paused`, `token-rate-limited` |
 | Revocation | `revoke-refresh-token`, `revoke-unknown-token`, `revoke-other-client` |
 | Bootstrap code | `bootstrap-code-issued`, `bootstrap-code-exchanged`, `bootstrap-code-public-client`, `bootstrap-code-at-mcp` |
@@ -4558,6 +4580,9 @@ These are Lane A's proposals. Any of them can change before approval.
 10. **`on_demand` for every installation made here** (§1), with the flag waiting for an a5-presence label. The alternative, declaring `envoi_link`, would claim a running host process that a cloud assistant does not have.
 11. **The code is returned once; a retry gets a decision outcome** (§5.2, revision 2). The alternative is to keep an encrypted copy of the first response for the code's 60 s life. That needs key binding, a TTL, deletion and replay limits, and it would still have to refuse a retry once the code is used. It adds a stored secret and saves the user nothing: either way, a host that missed the code must start again.
 12. **Approval.** Version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. It does not authorize any provider's gate or any flag change.
+13. **Used-code revocation before PKCE (revision 3; Je's decision).** Recommended: keep revision 2's order, as OAuth 2.1 §4.1.3 recommends. A leaked used code plus a public `client_id` can then end the one installation it activated, which the owner reconnects. The alternative moves the reuse check after PKCE (row 8), so only the verifier's holder can trigger it. But then a code stolen together with its verifier would revoke nothing. That is exactly the two-holders case revocation exists for, and the trade-off is worse. Choosing the alternative would change the approved order, and would need its own amendment.
+14. **Refuse an oversized handle rather than shrink it (revision 3).** Row 11 refuses with `invalid_request`. The alternative, storing a pending request and sending only its id, would make an unauthenticated `GET` write storage (decision 9).
+15. **No wake path for these installations in v1 (revision 3).** The revision-2 text promised an http-wake subscription that audience binding makes impossible. A `/mcp`-scoped wake tool, or any other path, is a separate contract.
 
 ### 14. Implementation notes (Lane A; informative)
 
@@ -4569,6 +4594,14 @@ These are Lane A's proposals. Any of them can change before approval.
 - **Audit types.** None are new, so Lane B's `WORKSPACE_EVENT_TYPES` needs no pairing change. `agent.installation_revoked` gains the actor value `client`.
 
 ### 15. Revisions before approval
+
+**Revision 3** (after approval of revision 2). This answers the gaps Lane A reported in [6324594912](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6324594912), which Lane B confirmed in [6325070244](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6325070244). The approved check order and every revision-2 response are unchanged.
+1. **Wake.** The "Not in this contract" text claimed an http-wake subscription for these installations. Audience binding refuses that, and no MCP tool exists for it. The text now says there is no wake path in v1 and no audience exception (decision 15).
+2. **Used-code revocation.** §6.1 now states who can trigger row 5's revocation and what it is confined to. New fixtures: `token-code-reused-wrong-verifier`, `token-code-reused-other-client`, `token-code-reused-confidential-auth-failed` and `token-code-reused-installation-ended`. The order is a decision for Je (decision 13).
+3. **Handle length.** New check, row 11 (`x-authorize-checks`, after `state`). It measures the encoded handle and refuses one over 2,048 characters with `invalid_request` at the checked redirect, with `state` and `iss`, never truncating. New fixtures: `authorize-handle-at-limit` and `authorize-handle-overflow` (decision 14).
+
+The contract stays v1: this clarifies approved behaviour and adds no wire field. It needs Lane B's `CONTRACT-ACK` and Je's `CONTRACT-APPROVED agent-remote-auth v1 revision 3 @<publication sha>`. RA-A1 part 1 (#177) already implements row 11 as published here, behind flags that are off. It is not integrated before that approval.
+
 
 **Revision 2** (this publication) answers Lane B's [`MISMATCH` 6319543594](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6319543594) ([review](https://github.com/rachelgonsalves821/Envoi/pull/171#issuecomment-6319539287)) on revision 1 @`f103660`. The contract stays version 1, because nothing has been approved or implemented.
 

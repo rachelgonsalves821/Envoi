@@ -1971,3 +1971,47 @@ test('agent-remote-auth fixtures agree across cases', async () => {
   const index = await readJson(path.join(root, 'index.json'));
   assert.deepEqual(listed, [...index.contracts.find((contract) => contract.id === 'agent-remote-auth').fixtures].sort(), 'the handoff lists exactly the registered fixtures');
 });
+
+// agent-remote-auth v1 revision 3: check 11 (the sealed handle length) and who can trigger the used-code revocation.
+test('agent-remote-auth revision 3: handle length and used-code revocation cases', async () => {
+  const dir = path.join(root, 'agent-remote-auth');
+  const load = async (name) => readJson(path.join(dir, `${name}.json`));
+  const schemas = await load('schemas');
+  const checks = schemas['x-authorize-checks'];
+  assert.deepEqual(checks.at(-1), { check: 'sealed_handle_length', onFailure: 'client:invalid_request' }, 'check 11 runs last, after state');
+  assert.deepEqual(checks.slice(0, 10).map((row) => row.check), ['route_flag', 'single_parameters', 'client', 'redirect_uri', 'response_type', 'code_challenge', 'code_challenge_method_s256', 'resource', 'scope', 'state'], 'checks 1-10 unchanged');
+  const max = schemas['x-limits'].authorizationRequestHandleMaxLength;
+  const [atLimit, overflow] = await Promise.all([load('authorize-handle-at-limit'), load('authorize-handle-overflow')]);
+  assert.equal(atLimit.context.sealedHandleLength, max, 'the boundary itself is accepted');
+  assert.equal(new URL(atLimit.response.headers.location).searchParams.get('request') !== null, true, 'at the limit: a handle');
+  assert.equal(overflow.context.sealedHandleLength, max + 1, 'one past the boundary');
+  const refused = new URL(overflow.response.headers.location);
+  const sent = new URL(overflow.request.path, 'https://fixture.invalid').searchParams;
+  assert.equal(`${refused.origin}${refused.pathname}`, sent.get('redirect_uri'), 'refused at the checked redirect URI');
+  assert.deepEqual([refused.searchParams.get('error'), refused.searchParams.get('state'), refused.searchParams.get('iss')], ['invalid_request', sent.get('state'), 'https://www.envoi-agents.com'], 'invalid_request with the untruncated state and iss');
+  for (const fixture of [atLimit, overflow]) {
+    assert.ok(sent.get('state').length <= schemas['x-limits'].stateMaxLength, `${fixture.id}: the inputs are individually valid`);
+    assert.ok(fixture.context.clientMetadataDocument.client_id.length <= schemas['x-limits'].clientMetadata.urlMaxLength, `${fixture.id}: the client id is individually valid`);
+  }
+
+  const [first, wrongVerifier, otherClient, confidential, ended] = await Promise.all(['token-code-reused', 'token-code-reused-wrong-verifier', 'token-code-reused-other-client', 'token-code-reused-confidential-auth-failed', 'token-code-reused-installation-ended'].map(load));
+  const form = (step) => step.request.form;
+  // Public client, same client_id, wrong verifier: still revoked (check 5 before check 8).
+  assert.equal(form(wrongVerifier.steps[1]).code, form(wrongVerifier.steps[0]).code, 'wrong verifier: the same code');
+  assert.equal(form(wrongVerifier.steps[1]).client_id, form(wrongVerifier.steps[0]).client_id, 'wrong verifier: the same public client_id');
+  assert.notEqual(form(wrongVerifier.steps[1]).code_verifier, form(wrongVerifier.steps[0]).code_verifier, 'wrong verifier: another verifier');
+  assert.match(form(wrongVerifier.steps[1]).code_verifier, /^[A-Za-z0-9._~-]{43,128}$/, 'wrong verifier: well formed');
+  assert.deepEqual([wrongVerifier.steps[1].response.body.error, wrongVerifier.steps[2].response.body.code], ['invalid_grant', 'CREDENTIAL_REVOKED'], 'wrong verifier: invalid_grant, and the first installation is revoked');
+  assert.equal(wrongVerifier.steps[2].request.headers.authorization, first.steps[2].request.headers.authorization, 'the same installation token as token-code-reused');
+  // Another client: no revocation.
+  assert.notEqual(form(otherClient.steps[1]).client_id, form(otherClient.steps[0]).client_id, 'other client: another client_id');
+  assert.deepEqual([otherClient.steps[1].response.body.error, otherClient.steps[2].response.status], ['invalid_grant', 200], 'other client: invalid_grant, and the token still works');
+  // Confidential client with a failed authentication: no revocation.
+  assert.deepEqual([confidential.steps[0].request.auth, confidential.steps[1].request.auth], ['client_basic', 'client_basic']);
+  assert.notEqual(confidential.steps[1].request.headers.authorization, confidential.steps[0].request.headers.authorization, 'confidential: another secret');
+  assert.deepEqual([confidential.steps[1].response.status, confidential.steps[1].response.body.error, confidential.steps[2].response.status], [401, 'invalid_client', 200], 'confidential: invalid_client, and the token still works');
+  // Confinement: an installation that already ended revokes nothing more.
+  assert.equal(ended.steps[1].request.path, '/oauth/revoke', 'ended: the installation ended first');
+  assert.equal(ended.steps[2].response.body.error, 'invalid_grant', 'ended: invalid_grant');
+  assert.equal(ended.steps.length, 3, 'ended: no further revocation step');
+});

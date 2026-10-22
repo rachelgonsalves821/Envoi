@@ -441,6 +441,10 @@
     {
       "check": "state",
       "onFailure": "client:invalid_request"
+    },
+    {
+      "check": "sealed_handle_length",
+      "onFailure": "client:invalid_request"
     }
   ],
   "x-token-checks": {
