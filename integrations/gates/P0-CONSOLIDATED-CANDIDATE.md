@@ -20,6 +20,8 @@ The normal connector and OpenClaw Quick Connect entrypoints reopen saved private
 
 The reported broad-suite failure in #192 was a one-second default readiness wait. The selected #197 source carries an explicit bounded five-second wait for the same listener-before-subscription assertion. The loopback probe must still return exactly 400, the ready callback must run once, and canonical claim/body, duplicate-process rejection and cleanup assertions remain. This is a test scheduling correction; it changes no product timeout and does not turn the simulated callback into hosted acceptance. No assertion, test, security threshold or skip rule is weakened.
 
+The first combined CI run also exposed an existing FileStore cleanup-test race: it observed session deletion and immediately asserted token-index deletion, although cleanup awaits those writes separately. The test now waits for both existing end-state conditions within the same 15-second bound and retains its strict deletion, expired-session and authentication assertions. No product cleanup, retention policy or canonical fixture changes.
+
 Generated web files and download manifests come exclusively from npm run build. Source/generated agreement, full suite results, audits and exact final commit/CI identities are recorded in this candidate's draft PR. A green constituent PR alone does not certify the combined source and dependency tree.
 
 ## Acceptance and release boundary

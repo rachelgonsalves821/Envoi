@@ -414,7 +414,11 @@ for (const backend of backends) {
     await store.edit(['auth', 'case-sessions', `${sha256(old.token)}.json`], record => ({ ...record, expiresAt: dayAgo }));
     // Polled while the server rewrites these files; on Windows a read can fail mid-rename, so a failed read just polls again.
     const read = parts => store.get(parts).catch(() => undefined);
-    await eventually(async () => (await read(sessionParts(bob.inbox.id, old.id))) === null, { message: 'old session removed', timeoutMs: 15000 });
+    // FileStore cleanup deletes the session and token index in separate awaited writes.
+    // Observe the completed cleanup, rather than asserting during that intermediate state.
+    await eventually(async () => (await read(sessionParts(bob.inbox.id, old.id))) === null
+      && (await read(['auth', 'case-sessions', `${sha256(old.token)}.json`])) === null,
+    { message: 'old session and token index removed', timeoutMs: 15000 });
     assert.equal(await store.get(['auth', 'case-sessions', `${sha256(old.token)}.json`]), null);
     assertCode(await mcp(baseUrl, old.token, 'ping'), 'AUTHENTICATION_REQUIRED');
     const kept = await eventually(async () => { const record = await read(sessionParts(bob.inbox.id, recent.id)); return record?.endedReason === 'expired' && record; }, { message: 'expiry recorded', timeoutMs: 15000 });
