@@ -70,4 +70,3 @@ export async function runPortableRestCli(args: string[], emit: (result: Record<s
     return true;
   } catch { emit(safeFailure); return false; }
 }
-
