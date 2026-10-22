@@ -36,7 +36,7 @@ const bootstrapMarkup = (controller: BootstrapController) => renderToStaticMarku
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); setExpectedHuman(null); setCsrfCookieName('envoi_csrf'); });
 
 describe('canonical remote-auth validators', () => {
-  it('consumes all 59 canonical fixtures and 72 operations offline, including PKCE, scope, replay and rollback boundaries', () => {
+  it('consumes the pinned approved fixture generation, including PKCE, scope, replay and rollback boundaries', () => {
     const ajv = new Ajv({ strict: false }); addFormats(ajv); ajv.addSchema(schemas);
     const registration = contractRegistry.contracts.find(item => item.id === 'agent-registration')!;
     const registrationSchemas: any = loadContractFixture(registration, 'schemas.json'); ajv.addSchema(registrationSchemas);
@@ -56,7 +56,13 @@ describe('canonical remote-auth validators', () => {
         }
       }
     }
-    expect(contract.fixtures).toHaveLength(59); expect(operations).toBe(72);
+    // Support the integrated rev2 base and the approved rev4 stack; no arbitrary fixture count.
+    const checks = schemas['x-token-checks'].authorization_code;
+    const policyB = checks[8] === 'code_unused (an otherwise valid replay is denied and revokes the installation)';
+    expect(checks).toEqual(policyB
+      ? ['route_flag', 'parameters', 'client_authentication', 'code_issued_to_client', 'code_unexpired', 'redirect_uri', 'pkce_s256', 'resource', 'code_unused (an otherwise valid replay is denied and revokes the installation)', 'registration_rechecks']
+      : ['route_flag', 'parameters', 'client_authentication', 'code_issued_to_client', 'code_unused (reuse revokes the installation)', 'code_unexpired', 'redirect_uri', 'pkce_s256', 'resource', 'registration_rechecks']);
+    expect(contract.fixtures).toHaveLength(policyB ? 70 : 59); expect(operations).toBe(policyB ? 101 : 72);
     expect(body('token-pkce-mismatch').error).toBe('invalid_grant');
     expect(body('oauth-token-refused-on-rest').code).toBe('AUTHENTICATION_REQUIRED');
     expect(body('mcp-paused-oauth-token').code).toBe('AGENT_PAUSED');
