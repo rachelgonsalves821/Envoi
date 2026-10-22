@@ -3,7 +3,7 @@ import { runInNewContext } from 'node:vm';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
-import { generateRouteAvailabilityValidator, validatorFile } from '../build/route-availability';
+import { generateRouteAvailabilityValidator, validatorFile, generateRouteEnums, routeEnumsFile } from '../build/route-availability';
 import validate from '../src/onboarding/route-availability.validator.mjs';
 import schema from '../../test/contract-fixtures/agent-registration/schemas.json';
 import { contractRegistry, loadContractFixture } from '../../integrations/contract-fixtures/setup';
@@ -55,6 +55,35 @@ describe('CSP-safe canonical route validator', () => {
     for (const name of ['routes-disabled', 'routes-available', 'routes-available-rest']) {
       expect(runInNewContext(source + '; validate(value);', { value: body(name) },
         { contextCodeGeneration: { strings: false, wasm: false } })).toBe(true);
+    }
+  });
+});
+
+
+describe('canonical browser route enums', () => {
+  it('matches the build output and exports only the two frozen enum lists', () => {
+    const generated = generateRouteEnums();
+    expect(readFileSync(routeEnumsFile, 'utf8').replace(/\r\n/g, '\n')).toBe(generated);
+    const values = runInNewContext(generated.replaceAll('export const ', 'const ')
+      + '; ({ connectionRoutes, deliveryModes });', {},
+    { contextCodeGeneration: { strings: false, wasm: false } });
+    expect(values.connectionRoutes).toEqual(schema.definitions.connectionRoute.enum);
+    expect(values.deliveryModes).toEqual(schema.definitions.deliveryMode.enum);
+    expect(Object.isFrozen(values.connectionRoutes)).toBe(true);
+    expect(Object.isFrozen(values.deliveryModes)).toBe(true);
+  });
+
+  it('ignores unrelated stored schema growth and fails closed on invalid enum definitions', () => {
+    const expanded = structuredClone(schema);
+    Object.assign(expanded.definitions, { storedExample: { secretDescription: 'unused-browser-marker' } });
+    expect(generateRouteEnums(expanded)).toBe(generateRouteEnums());
+    expect(generateRouteEnums(expanded)).not.toContain('unused-browser-marker');
+    for (const name of ['connectionRoute', 'deliveryMode']) {
+      for (const value of [undefined, [], [1], 'invalid']) {
+        const invalid = structuredClone(schema) as any;
+        invalid.definitions[name].enum = value;
+        expect(() => generateRouteEnums(invalid)).toThrow('enum is missing or invalid');
+      }
     }
   });
 });
