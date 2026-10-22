@@ -2,7 +2,7 @@
 
 Prepared 2026-10-22 in the isolated P0 worktree from integration/agent-native at `244c117fb2a00d6bdc95a991f9021a1fdb94b262`.
 
-The human completed billing and requested Production OAuth configuration with **existing owners and workspaces preserved** and **no deployment**. Production is now unlocked. This branch prepares the non-secret source bindings; it is not ready for integration or activation until the private credential and identity dependencies below are resolved. The served application continues using its existing configuration.
+The human completed billing and requested Production OAuth configuration with **existing owners and workspaces preserved** and **no deployment**. The saved provider configuration, approved Production records, private mapping and read-only preflight are prepared. This draft adds the operator-invoked transactional mapping and inverse. It is not authorization to integrate, activate or deploy. An independently verified recovery point, restored-database rehearsal and coordinated cutover remain required.
 
 ## Verified Production binding
 
@@ -18,67 +18,75 @@ The human completed billing and requested Production OAuth configuration with **
 | Default sign-out return | `https://www.envoi-agents.com` |
 | Derived issuer | `https://api.workos.com/user_management/client_01M3NESPM075W2JNEB3N7FRVZF` |
 
-The callback, initiate-login and sign-out URLs were saved and read back on the Production application's Redirects page. The logout return deliberately matches `ENVOI_PUBLIC_URL` exactly: `WorkOSAuthService.logout` uses that origin as `returnTo`. Application logout remains the existing CSRF-protected `POST /api/auth/logout`. No wildcard or legacy callback was added. Custom sign-up, invitation and password-reset application URLs remain unset; custom handlers must not be invented where the hosted AuthKit flow is used.
+The three URLs were saved and read back on the Production application's Redirects page. The logout return matches `ENVOI_PUBLIC_URL`: `WorkOSAuthService.logout` uses that origin as `returnTo`. Application logout remains the CSRF-protected `POST /api/auth/logout`. No wildcard or legacy callback was added. Custom sign-up, invitation and password-reset application URLs remain unset; the hosted AuthKit flow is used.
 
-The two supplied client IDs (`client_01M3NESNY6Q9D4BNZR6X724MK6` and `client_01M3PPK3NRG58NWNVKNES9CTRV`) belong to Staging. The former source pin `client_01M3QMT1BN3HEBGE4VPEAQA0GT` belongs to the separately named **Sinaloa Beta test environment**, `environment_01M3QMT0ZAK069BRK0ENNANZAT`. None is a Production client ID. Replacing the client ID alone does not migrate any identity.
+The supplied clients `client_01M3NESNY6Q9D4BNZR6X724MK6` and `client_01M3PPK3NRG58NWNVKNES9CTRV` belong to Staging. The previous source pin `client_01M3QMT1BN3HEBGE4VPEAQA0GT` belongs to the **Sinaloa Beta test environment**, `environment_01M3QMT0ZAK069BRK0ENNANZAT`. Replacing a client ID alone does not migrate identities.
 
-Only the selected draft's `wrangler.jsonc` beta client-ID pin and matching assertion in `scripts/check-deployment.mjs` change. Existing callback, app origin, runtime flags, storage and deployment targets remain as before. The derived issuer needs no code change. Privately inspect and remove or replace any existing `WORKOS_ISSUER` override before a later cutover; it must not continue selecting the old client. A new Production API key must be paired with this Production client, not the current test key.
+The draft changes the beta client-ID pin in `wrangler.jsonc` and its assertion in `scripts/check-deployment.mjs`. The issuer derives from the client. Before cutover, privately remove or replace any `WORKOS_ISSUER` override selecting the old client. Pair the new client with the new Production API key; do not update the running key/client separately. Runtime flags, app URLs and deployment targets remain unchanged.
 
-## Account observations and incomplete configuration
+## Saved settings and approved provisioning
 
-At the first read in this session, Production had **no active API keys, no users and no organizations**. This is an actual provisioning dependency, not missing transcription of earlier A/B/C acceptance.
+| Setting | Verified state |
+| --- | --- |
+| Production access | Unlocked after the human completed billing |
+| Hosted UI | Enabled, WorkOS-managed domain; no custom domain added |
+| Public sign-up | Enabled and explicitly retained with Envoi approval |
+| Application admission | Verified provider email plus existing exact approved-email allowlist; provider registration alone grants no workspace access |
+| Email + Password | Enabled after explicit approval: minimum 10 characters, complexity 3 |
+| Social login | Disabled; the human explicitly selected Email + Password first and social login later |
+| Passkeys, Magic Auth, MFA, impersonation | Unchanged; no additional policy inferred |
+| Production key | Human-created Envoi authentication key, stored privately and successfully API-validated |
+| Provider identities | Exactly two approved users and two organizations created and read back, using the existing local IDs as external IDs |
+| Provider memberships | Exactly two active Admin memberships created and read back, matching the source provider roles |
 
-| Setting | Observed state | Remaining action |
-| --- | --- | --- |
-| Hosted UI | Enabled, WorkOS-managed domain | Use the existing hosted flow; no paid custom domain needed for this preparation |
-| Public sign-up | Enabled and retained by the human | Keep sign-up plus Envoi approval; a provider account alone must never grant application/workspace admission |
-| Email + Password | Enabled after explicit human approval | Saved and read back: minimum 10 characters, complexity 3; other password settings unchanged |
-| Passkeys / Magic Auth | Disabled | Unchanged |
-| MFA | Disabled | Privileged-owner/cohort policy must be decided before cutover; no new policy is silently chosen |
-| User impersonation | Disabled | Unchanged |
-| Social OAuth | All providers disabled in Production; beta has Google/Microsoft/GitHub/Apple enabled with demo credentials | Human selected Email + Password first; social login is explicitly deferred and is not a current configuration blocker |
-| Provider owner accounts | None | Provision verified Production identities for the existing approved owners, not replacement Envoi owners |
-| Production key | Active key named Envoi authentication key, bound to the verified default Production application; no recorded use, no expiry | Human confirms it is stored privately; value was not revealed or retrieved. Put it into the protected local preparation file before API validation, without updating a running Worker |
+The source provider memberships were verified against the selected existing owners and workspaces; unrelated historical/test organizations were excluded. Provider users were created with `emailVerified: false` and no password/hash. No invitation, password-reset or verification-email API was called. The owners must complete their own Production verification/password setup through the approved hosted flow; old passwords, verification claims and sessions are not copied.
 
-The existing beta email/password policy was read in Sinaloa Beta. No policy change was saved in that environment. The Production single-sign-on method being visible/enabled does not prove an enterprise connection exists or authorize adding one. No paid domain, enterprise connection, invitation or new provider account was created.
+The protected Git-ignored `.env.workos-production-prep` holds the human-supplied API key and database URL plus a freshly generated cookie-sealing secret. Access is limited to the current Windows user and SYSTEM. It is not loaded by an ordinary build or running Worker. Private inventory, provisioning receipt, mapping and validation files use the same protection. Values, private identities and database connection details must not enter Git, CI, screenshots published to GitHub or issue comments. Keep the cookie secret in the approved private vault before cutover; other application encryption, signing and agent credentials remain unchanged.
 
-The Google provider form was inspected without saving. It requires a real Google Client ID and Google Client Secret and supplies a WorkOS callback URI. That provider-to-WorkOS callback is a separate hop from the WorkOS-to-Envoi callback in the table above. Copy the exact provider callback from the Production form into the selected provider console; do not substitute the Envoi callback. No social scopes or provider-token return setting was changed. The human explicitly selected Email + Password for the first Production release, with social login later. No social provider credentials or activation is required for this preparation.
+## Inventory and continuity model
 
-Browser credential creation requires human handoff. The API Keys page was left open for Rachel/the human. Keep the new key in the approved private vault; do **not** replace a running Worker secret during preparation. A fresh 64-character random `WORKOS_COOKIE_PASSWORD` was generated locally into the Git-ignored `.env.workos-production-prep`, with ACL access limited to the current Windows user and SYSTEM. Its value was not printed or sent. The file contains the verified non-secret bindings and an empty `WORKOS_API_KEY` slot. The human can enter the privately stored key there; copy the cookie secret into the approved private vault before cutover. This file is not loaded by the ordinary build or running Worker. A public list of secret names is not evidence that their values are present or correct. Keep application encryption, policy signing, database and agent credentials unchanged.
+The intended beta database was inventoried using verified TLS and a read-only transaction. The served legacy release `1c4176b3a2587369a1a82e709598091e275177b8` has no database-stamping implementation, explaining its absent stamp. The one-off inventory pins that audited legacy release and exact verified database target; it does not relax runtime startup guards or write a stamp. A present stamp naming another deployment is always refused.
 
-## Preserve existing owners and workspaces
+The minimal first inventory omitted `verifiedAt` and workspace `slug`. The strict mapping dry-run detected the difference and refused. A second private inventory retained complete identity documents and verified every previously captured field against the first inventory and approved owners. The resulting mapping passed a fresh read-only preflight against the actual database with zero writes. Neither inventory is a full recovery backup.
 
-The preservation policy is explicitly selected by the human. An empty/new application tenant or email-only automatic linking is not an alternative authorized by this task.
+Existing bindings:
 
-Current code uses these bindings:
+- `humans/<humanId>.json`: stable local ID and provider `workosUserId`.
+- `auth/workos-user-index/<providerUserId>.json`: provider to existing local human.
+- `organizations/<organizationId>/organization.json`: stable local ID, owner and provider `workosOrganizationId`.
+- `auth/workos-organization-index/<providerOrgId>.json`: provider to existing local organization.
+- Local member documents and human-to-organization references remain unchanged.
 
-- `humans/<humanId>.json`: existing local `id`, `workosUserId`, verification/profile fields.
-- `auth/workos-user-index/<providerUserId>.json`: provider ID to existing `humanId`.
-- `organizations/<organizationId>/organization.json`: existing local ID, `ownerHumanId`, `workosOrganizationId`.
-- `auth/workos-organization-index/<providerOrgId>.json`: provider organization to local organization ID.
-- `organizations/<organizationId>/members/<humanId>.json` and `humans/<humanId>/organizations/<organizationId>.json`: existing local memberships and organization references.
+`WorkOSAuthService.upsertHuman` resolves the provider-user index; an unmatched provider ID creates a new human. Organization access also checks current provider membership. An uncoordinated switch can duplicate local owners/workspaces or deny existing access. The explicit mapping is required before activating this configuration.
 
-`WorkOSAuthService.upsertHuman` resolves the provider-user index and otherwise creates a new local human. `getAuthorizedMembership` also checks a live provider membership using the organization's stored provider ID. Therefore an uncoordinated switch can create a second local human, fail workspace authorization, and then make the default-workspace path create a second workspace. The draft must not be activated before the following is implemented and verified:
+## Transactional mapping and inverse
 
-1. Read the intended **beta application database**, verify its deployment stamp, and privately inventory every affected local human, provider-user index, organization, provider-org index, membership, owner reference, inbox/agent ownership and case history. Preserve an independently verified recovery point. No usable database binding or inventory was available in this session.
-2. Provision/verify the corresponding Production provider users and organizations, with explicit stable external IDs where appropriate. Do not copy passwords, staging cookies, sessions or API keys. Confirm the exact old/new provider IDs against the existing local IDs with the account operator. A shared email address is only supporting verification, never the mapping authority.
-3. Recreate active provider memberships with the existing effective roles; do not increase permissions or reactivate removed members. Preserve local human/organization IDs, `ownerHumanId`, memberships, organization references, inboxes, agents, credentials, messages, cases, assets and audit history.
-4. Implement one bounded, idempotent, transactional mapping of the selected provider ID fields and lookup indexes. Require exact expected old values, complete mapping coverage and collision checks; repeated application must be a verified no-op. Capture original values and a manifest digest privately. Neither a blanket `upsertHuman` email fallback nor a runtime auto-migration is acceptable.
-5. Test the mapping and its inverse on an isolated restored database before any live mutation. Verify both existing owners resolve to the same local IDs and workspaces; roles, agent/case history and cross-tenant isolation remain intact. Reject a conflicting/already-bound target identity and incomplete inventories. Rollback must refuse overwriting unrelated later edits.
-6. Only during a separately approved maintenance/cutover window, coordinate the verified mapping, matched Production API key/client/issuer, new cookie-sealing secret, paired Worker/container release and fresh owner reauthentication. Do not change the live key/client pair separately while the old app is serving. Keep the previous matched auth/release pair and recovery material for rollback.
+`scripts/workos-identity-mapping.mjs` is an offline preparation and maintenance module, never imported or automatically executed by the server. It exposes:
 
-No mapping implementation or execution is claimed by this configuration-only draft: the actual private inventory and Production target identities are missing. No local or hosted owner/workspace record has been changed. This is a concrete cutover dependency, not a request to repeat previously accepted core agent-runtime gates.
+- `prepareWorkosIdentityMapping(input)`: complete private identity documents, explicit old/new user and organization IDs, database fingerprint, deployment binding and source inventory digest produce a digest-bound manifest.
+- `validateWorkosIdentityMapping(manifest)`: verify the digest and independently regenerate the allowed transform, refusing arbitrary extra writes even if the manifest was rehashed.
+- `executeWorkosIdentityMapping(connectedPgClient, manifest, options)`: a dedicated `pg.Client`; read-only dry-run by default. Forward or inverse writes require `dryRun: false`, the exact `approvedDigest`, `maintenanceConfirmed: true` and a nonempty `recoveryReference`. These arguments are operator safeguards, not substitutes for human authorization.
 
-## Verification and release boundary
+The implementation is deliberately limited to the reviewed owner-only cohort. It requires complete coverage, active local owner memberships, unchanged owner references, unique old/new IDs, exact old provider values, correct source indexes and absent target indexes. It never discovers mappings from email. Added users, organizations, members or indexes require an updated reviewed inventory rather than silent omission.
 
-Completed locally from PowerShell: deployment configuration check; focused WorkOS authentication/session, production configuration and release-target checks, 50/50; full build/typecheck with unchanged generated files; frontend 432/432; TypeScript SDK 548/548; integrations 896 passed and 1 existing skip; Python SDK 6/6; serial backend 661 passed, 37 existing environment skips, zero failures; scanner 14/14; stress PASS; Cloudflare configuration/Worker tests and staging/beta/scanner dry-runs PASS; full npm audit zero vulnerabilities. PostgreSQL/container and exact draft-PR CI remain pending publication approval and cannot be borrowed from #199 or these local checks.
+Execution verifies the connected database fingerprint and database name, then checks deployment identity. An absent stamp requires the explicit audited legacy release pin. It runs in one SERIALIZABLE transaction; writes hold a table lock to prevent concurrent identity insertions or edits. Forward application updates only provider ID fields and their indexes. Local IDs, profile/history fields, local roles, owner references and every other document remain intact. A repeated application is a verified no-op. No stamp or runtime schema migration is performed.
 
-Full Production sign-in, admission, callback replay/CSRF, owner continuity, refresh, logout and inverse/paired rollback acceptance remain unrun. Testing new Production credentials against an undeployed old app would not validate this draft. No merge, deployment, running Worker secret update, hosted test or invitation is authorized by this preparation. Both remote-agent OAuth/provider flags and Stage A stay as before; WorkOS browser login is a separate integration from the pending agent remote-auth server stack.
+The inverse uses the same private manifest and full expected post-migration snapshot. It refuses unrelated later profile/membership changes or new identities instead of overwriting them. SQL failures roll back all mapping writes. If COMMIT loses its response, the outcome is explicitly unknown: reconnect and run the default read-only check before any retry. Do not infer success or failure from a disconnected session.
 
-The earlier consolidated candidate at #199/244c117 and accepted Phase A/B/C evidence remain credited for their original scope. This record updates only the formerly deferred WorkOS billing/unlock and the newly inspected Production configuration.
+Tests include complete-field preservation, missing/duplicate/conflicting mappings, digest tampering, actual auth upsert preserving local humans, explicit write safeguards, and isolated PostgreSQL transactions. PostgreSQL tests exercise no-write dry-run, partial inventory refusal, mid-transaction failure, idempotent forward/inverse, later-edit refusal, deployment mismatch and unchanged inbox/agent/case ownership. The PostgreSQL cases run in `npm run test:postgres` on the CI loopback database, never the private hosted database.
 
-## Publication boundary
+## Remaining cutover sequence
 
-Automatic approval review initially held publication pending specific authorization. After reviewing the prepared disclosure, the human explicitly approved publishing these non-secret WorkOS IDs, URL/policy status, source pins and test results to an Envoi draft PR and build-board issue #34. This does not authorize a merge, deployment or secret disclosure. No key, private owner identity or database connection string is included. Automatic review separately rejected saving the public-sign-up policy; that form was cancelled. The human then explicitly chose to retain sign-up with Envoi approval, so public sign-up remains enabled and no disable action is pending. The human explicitly approved Email + Password with the beta policy; that approved setting was saved and verified. No workaround or indirect retry is authorized.
+1. Preserve an independently verified recovery point of the intended beta database and a private copy of the exact provider plan, receipt and complete mapping. Restore the recovery point to an isolated database. Rebind a rehearsal manifest explicitly to that isolated target, then test forward, repeated application and inverse with existing owners, workspace references and history. Synthetic CI transactions do not replace this restored-data rehearsal.
+2. Have the existing owners complete Production verification/password setup themselves. Re-read the exact Production users, organizations and active memberships and confirm the same stable external IDs. Check private admission allowlist continuity. No invitations or password changes are implied by this draft.
+3. Obtain human approval for the exact candidate, migration digest, recovery material and maintenance/cutover window. Integration and deployment are separate actions. Stop old writers before applying the mapping; the module's table lock is not a substitute for quiescing the old application.
+4. In the approved window, refresh the complete inventory if anything changed, review the new digest, apply once and verify a repeated no-op. Coordinate the matched Production key/client/issuer, new cookie secret and paired Worker/container release. Owners must freshly authenticate. Do not switch a running key/client pair independently.
+5. Validate fresh sign-in, retained approval admission, owner/workspace IDs and roles, cross-tenant isolation, callback replay/CSRF, refresh and logout on the deployed candidate. Preserve the previous matched auth/release pair and tested recovery material. Rollback requires quiescing writers and a verified inverse; reconcile later identity edits instead of forcing the inverse.
 
-Public health checks after local validation still report beta 1c4176b3a2587369a1a82e709598091e275177b8 and staging 2b18170d59b0096ff997d9a79487d50ccb627ef9, both configurationValidated true. These are the previous served releases, not tests of this draft.
+No live application database mutation, running Worker secret update, hosted sign-in test, merge or deployment has occurred. Social login remains explicitly deferred. Earlier accepted Phase A/B/C evidence remains credited for its original scope; this work does not reopen those gates. Both remote-agent OAuth/provider flags and Stage A remain unchanged; WorkOS browser login is separate from the agent remote-auth stack.
+
+## Verification and publication
+
+Exact source checks and CI links are recorded in draft PR #205 and build-board issue #34, including the new migration/inverse checks. Earlier configuration-only CI at `8d732ca` was fully green; it is not borrowed for a later source head. Generated bundles must remain equal to a fresh build.
+
+The human explicitly approved publishing non-secret WorkOS client/environment/application IDs, saved URL/policy status, source pins and test results to the draft PR and #34. Private keys, owner identities, database connections, inventory, mapping, receipts and screenshots are excluded. The human separately approved the exact Production provisioning records. Neither approval authorizes a deployment or live database cutover.
