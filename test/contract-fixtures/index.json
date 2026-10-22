@@ -239,9 +239,13 @@
         "routes-disabled.json",
         "stored-oauth-flags-off.json",
         "stored-oauth-installation.json",
+        "stored-oauth-orphan-sweep.json",
         "stored-oauth-refresh-recovery.json",
         "stored-oauth-replaced-by-local-helper.json",
+        "stored-oauth-retention-boundary.json",
         "stored-oauth-source-rollback.json",
+        "stored-oauth-successor-access-used.json",
+        "stored-oauth-successor-refresh-used.json",
         "stored-provider-installation.json"
       ]
     },

@@ -162,14 +162,14 @@
         "key": "c1e4dda9f7620c02508c4443dd619fc1436e53440b7b07b76803d86671479cfb",
         "registrationId": "registration_remote_example",
         "createdAt": "2026-10-22T12:00:00.000Z",
-        "deleteAfter": "2026-10-23T12:00:00.000Z"
+        "deleteAfter": null
       },
       {
         "kind": "consent_decision",
         "key": "0cc1131ca5f8578a2b8409c8cb6227fe6b9e0cf3649e06db079641118ab580b5",
         "registrationId": "registration_remote_example",
         "createdAt": "2026-10-22T12:00:00.000Z",
-        "deleteAfter": "2026-10-23T12:00:00.000Z"
+        "deleteAfter": null
       },
       {
         "kind": "consent_decision",
