@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { enrollConnector, EnvoiConnector, type ConnectorSession } from '../../sdk/typescript/src/connector';
 import { migrateConnectionDirectory } from '../connector/migrate';
+import { clearHostedWake, configureHostedWake, resolveHostedWakeConfig } from '../connector/hosted-wake-config';
 import { quickConnectOrigin, validateQuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import { discoverOpenClaw, preflightOpenClaw, type DiscoverOpenClawOptions, type OpenClawConfiguration } from './quick-connect-config';
@@ -154,13 +155,14 @@ export async function setupQuickConnect(input: unknown, options: SetupOptions = 
 /** Starts the same bridge as manual onboarding, using saved state and enforcing one process. */
 export async function startQuickConnect(stateDir: string, signal: AbortSignal, options: { fetch?: typeof fetch; secureDirectory?: typeof privateDirectory; env?: NodeJS.ProcessEnv; pollIntervalMs?: number; onReady?: () => void } = {}) {
   assertOpenClawScopedAdmission(options.env ?? process.env);
-  const wake = parseHostedWakeConfig(options.env ?? process.env);
+  parseHostedWakeConfig(options.env ?? process.env);
   const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(stateDir, options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = connectionFetch(options.fetch);
   let bridge: Awaited<ReturnType<typeof createOpenClawBridge>> | undefined;
   let reporter: EnvoiConnector | undefined;
   try {
+    const wake = await resolveHostedWakeConfig(directory, options.env ?? process.env);
     const saved = await readConnection(directory);
     const env = await openClawRuntimeEnvironment(directory, options.env ?? process.env, saved.openclaw);
     const openclaw = await discoverOpenClaw(resumeDiscovery(saved.openclaw, { env }));
@@ -197,7 +199,7 @@ export async function savedConnectionStatus(stateDir: string) {
     refreshExpiresAt: session.agentRefreshTokenExpiresAt, status: 'configured', note: 'Saved configuration does not establish live presence. Use start and a real agent exchange to verify receiving' };
 }
 
-const usage = `Envoi OpenClaw Quick Connect (Node.js 22+)\n\nsetup --handoff <private JSON file> [--install-service]\nsetup --handoff-stdin [--install-service]\nstart --state-dir <directory>\nstatus --state-dir <directory>\ninstall-service --state-dir <directory>\n\nOptional setup overrides: --config <openclaw.json> --agent <id> --gateway-url <origin> --state-dir <private directory>\nGateway credentials are resolved locally; never pass secrets as arguments.\n`;
+const usage = `Envoi OpenClaw Quick Connect (Node.js 22+)\n\nsetup --handoff <private JSON file> [--install-service]\nsetup --handoff-stdin [--install-service]\nstart --state-dir <directory>\nstatus --state-dir <directory>\ninstall-service --state-dir <directory>\nconfigure-wake|clear-wake --state-dir <directory>\n\nOptional setup overrides: --config <openclaw.json> --agent <id> --gateway-url <origin> --state-dir <private directory>\nGateway credentials are resolved locally; never pass secrets as arguments.\n`;
 
 export async function quickConnectMain(args = process.argv.slice(2)) {
   if (!args.length || args.includes('--help')) { process.stdout.write(usage); return; }
@@ -238,8 +240,15 @@ export async function quickConnectMain(args = process.argv.slice(2)) {
     else process.stderr.write('Configure automatic startup with install-service --state-dir <reported directory>, or run start under your host process supervisor. A real exchange with another agent verifies unattended receiving.\n');
     return;
   }
-  if (!['start', 'status', 'install-service'].includes(command) || !values.get('--state-dir') || values.size !== 1 || flags.size) throw new QuickConnectError('Supply a supported command and --state-dir. Run --help');
+  if (!['start', 'status', 'install-service', 'configure-wake', 'clear-wake'].includes(command) || !values.get('--state-dir') || values.size !== 1 || flags.size) throw new QuickConnectError('Supply a supported command and --state-dir. Run --help');
   const stateDir = path.resolve(values.get('--state-dir')!);
+  if (command === 'configure-wake' || command === 'clear-wake') {
+    await savedConnectionStatus(stateDir);
+    if (command === 'configure-wake') await configureHostedWake(stateDir);
+    else await clearHostedWake(stateDir);
+    process.stdout.write(`${JSON.stringify({ hostedWake: command === 'configure-wake' ? 'configured' : 'disabled', note: 'Restart the connector service to apply this change' })}\n`);
+    return;
+  }
   if (command === 'status') { process.stdout.write(`${JSON.stringify(await savedConnectionStatus(stateDir))}\n`); return; }
   if (command === 'install-service') {
     await savedConnectionStatus(stateDir);
