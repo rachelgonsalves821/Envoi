@@ -6,12 +6,11 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import {
-  api, assertOAuthError, installationsRoute, launch, listFilesRecursive, assertRemote, assertStored, assertTokenResponse, backends, clientSecret, codeParams, confidentialClient, connect, documents, edit, exchange, familyParts, formPost, freshIp, installationView, owner,
+  api, assertOAuthError, installationsRoute, launch, listFilesRecursive, assertRemote, assertStored, assertTokenResponse, backends, clientSecret, codeParams, confidentialClient, connect, documents, edit, exchange, familyParts, formPost, freshIp, installationView, freshOwner, owner,
   publicClient, refreshParams, registrationParts, remoteFixture, remoteServer, retryApprove, stored, tokenPost, withdrawRequest, accessParts, refreshParts, codeParts, sha256, PAST
 } from './agent-remote-auth-token-harness.js';
 
-let ownerSerial = 8000;
-const newOwner = server => owner(server.baseUrl, String(ownerSerial += 1));
+const newOwner = freshOwner;
 
 for (const backend of backends) {
   test(`[${backend.name}] the exchange issues oauth_ tokens, an audience-bound family and an on_demand installation`, { timeout: 120000 }, async t => {

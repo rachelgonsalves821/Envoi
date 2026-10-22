@@ -4,13 +4,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  api, assertOAuthError, assertStored, assertTokenResponse, backends, clientSecret, confidentialClient, connect, documents, edit, exchange, familyParts, installationView, owner,
+  api, assertOAuthError, assertStored, assertTokenResponse, backends, clientSecret, confidentialClient, connect, documents, edit, exchange, familyParts, installationView, freshOwner, owner,
   publicClient, recoveryParts, refreshParams, refreshParts, accessParts, restart, revokePost, remoteServer, sha256, stored, tokenPost, PAST, freshIp, openStore
 } from './agent-remote-auth-token-harness.js';
 import { reapAgentRotationRecovery } from '../src/agent-rotation-recovery.js';
 
-let ownerSerial = 8200;
-const newOwner = server => owner(server.baseUrl, String(ownerSerial += 1));
+const newOwner = freshOwner;
 const agentUrl = (registration, action) => `/api/inboxes/${registration.agentInboxId}/agents/${registration.agentId}/${action}`;
 
 // A connected installation and its first tokens.

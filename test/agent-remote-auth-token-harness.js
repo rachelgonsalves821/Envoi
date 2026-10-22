@@ -40,6 +40,11 @@ export const PAST = '2000-01-01T00:00:00.000Z';
 export const backends = [{ name: 'FileStore', env: {} }, ...(process.env.DATABASE_URL ? [{ name: 'PostgreSQL', env: { DATABASE_URL: process.env.DATABASE_URL } }] : [])];
 export { api, freshIp, launch, owner, withdrawRequest };
 
+// A phone suffix no earlier owner on a shared database (PostgreSQL keeps every test's humans) can have used.
+const ownerBase = crypto.randomInt(0, 900_000);
+let ownerCount = 0;
+export const freshOwner = server => owner(server.baseUrl, String(100_000 + (ownerBase + (ownerCount += 1)) % 900_000));
+
 export async function freePort() {
   return new Promise(resolve => { const probe = net.createServer().listen(0, '127.0.0.1', () => { const free = probe.address().port; probe.close(() => resolve(free)); }); });
 }
