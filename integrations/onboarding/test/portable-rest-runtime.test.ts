@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { createPortableRestHost } from '../portable-rest';
@@ -31,7 +31,7 @@ test('trusted REST runtime refuses work before completed private activation', as
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('completed REST host processes canonical replies from the same private session after restart', async () => {
+test('REST host privately adopts activation and processes canonical replies after restart', async () => {
   const directory = await mkdtemp(path.join(process.cwd(), '.envoi-portable-rest-test-'));
   const origin = 'https://www.envoi-agents.com';
   const runtime = { type: 'generic_https', version: '1.0.0' };
@@ -43,10 +43,47 @@ test('completed REST host processes canonical replies from the same private sess
   const native = { id: 'message_two', senderAgentId: 'agent_two', recipientAgentId: 'agent_one',
     from: { agentId: 'agent_two', address: 'two@envoi.mail' }, text: 'Please confirm.', status: 'delivered' };
   const work = [instruction, native];
+  const fixture = async (name: string) => (JSON.parse(await readFile(
+    new URL(`../../../test/contract-fixtures/agent-registration/${name}.json`, import.meta.url), 'utf8')) as {
+    response: { body: Record<string, any> }
+  }).response.body;
+  const created = await fixture('registration-created');
+  const approved = await fixture('registration-approved');
+  const activated = await fixture('activation-created');
+  const status = await fixture('agent-status-installation');
+  const now = Date.now();
+  created.expiresAt = new Date(now + 600_000).toISOString();
+  created.claim.expiresAt = created.expiresAt;
+  approved.activationExpiresAt = new Date(now + 780_000).toISOString();
+  activated.agent.id = 'agent_one';
+  activated.agent.address = 'one@envoi.mail';
+  activated.inboxId = 'inbox_one';
+  activated.installation.agentId = 'agent_one';
+  activated.installation.connectionRoute = 'authenticated_rest';
+  activated.installation.runtime = runtime;
+  activated.agentTokenExpiresAt = new Date(now + 900_000).toISOString();
+  activated.agentRefreshTokenExpiresAt = new Date(now + 86_400_000).toISOString();
+  status.installation.connectionRoute = 'authenticated_rest';
+  status.agent.id = activated.agent.id;
+  status.agent.address = activated.agent.address;
+  status.inboxId = activated.inboxId;
   const fetcher = vi.fn<typeof fetch>(async (url, init) => {
     const route = new URL(String(url)).pathname;
     const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
     requests.push({ path: route, body, headers: new Headers(init?.headers) });
+    if (route === '/api/onboarding/routes') return Response.json(await fixture('routes-available-rest'));
+    if (route === '/api/agent-registrations') {
+      expect(body).toMatchObject({ connectionRoute: 'authenticated_rest', runtime,
+        helper: { name: 'rest-host', version: '1.0.0' } });
+      return Response.json(created, { status: 201 });
+    }
+    if (route === '/api/agent-registrations/registration_example') return Response.json(approved);
+    if (route === '/api/agent-installations/activate') {
+      expect(body).toMatchObject({ registrationId: 'registration_example', deliveryMode: 'envoi_link' });
+      expect(typeof body.activationId).toBe('string');
+      return Response.json(activated, { status: 201 });
+    }
+    if (route === '/api/agent/status') return Response.json(status);
     if (route === '/api/agent/work/claim') {
       const message = work.shift();
       return Response.json(message ? { work: { workId: message.id, message, leaseToken: `fence_${message.id}`,
@@ -74,16 +111,23 @@ test('completed REST host processes canonical replies from the same private sess
       await context.reply(`Reply to ${message.id}`, `rest:${message.id}:reply`);
     } }, fetch: fetcher };
   try {
-    await writeFile(path.join(directory, 'helper-state.json'), JSON.stringify({ version: 1, origin,
-      connectionRoute: 'authenticated_rest', phase: 'completed', runtime, completionId: 'activation_example' }));
-    await writeFile(path.join(directory, 'session.json'), JSON.stringify({ agentId: 'agent_one', inboxId: 'inbox_one',
-      address: 'one@envoi.mail', agentApiToken: 'envoi_agent_access_PRIVATE', agentRefreshToken: 'envoi_agent_refresh_PRIVATE',
-      agentTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(),
-      agentRefreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString(), cursor: null,
-      _onboarding: { origin, completionId: 'activation_example', runtime,
-        agent: { id: 'agent_one', address: 'one@envoi.mail' }, installation: { id: 'installation_one', agentId: 'agent_one',
-          connectionRoute: 'authenticated_rest', deliveryMode: 'envoi_link', runtime } } }));
     const first = await createPortableRestHost(options);
+    const pending = await first.connect();
+    expect(pending).toMatchObject({ state: 'pending_approval' });
+    expect(JSON.stringify(pending)).not.toContain('envoi_reg_');
+    const journalPath = path.join(directory, 'helper-state.json');
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as Record<string, unknown>;
+    expect(journal.bootstrapToken).toBe(created.bootstrapToken);
+    // Advance the fixture's polling interval without waiting five real seconds.
+    await writeFile(journalPath, JSON.stringify({ ...journal, nextPollAt: 0 }));
+    const connected = await first.resume();
+    expect(connected).toMatchObject({ state: 'connected', connectionRoute: 'authenticated_rest',
+      reachability: 'not_verified_closed_app' });
+    expect(JSON.stringify(connected)).not.toMatch(/envoi_reg_|envoi_agent_/);
+    const saved = JSON.parse(await readFile(path.join(directory, 'session.json'), 'utf8')) as Record<string, any>;
+    expect(saved.agentApiToken).toBe(activated.agentApiToken);
+    expect(saved._onboarding.installation.connectionRoute).toBe('authenticated_rest');
+    expect((JSON.parse(await readFile(journalPath, 'utf8')) as Record<string, unknown>).bootstrapToken).toBeUndefined();
     expect(await first.connector.processWorkOnce()).toBe(true);
     const restarted = await createPortableRestHost(options);
     expect(await restarted.connector.processWorkOnce()).toBe(true);
@@ -96,6 +140,8 @@ test('completed REST host processes canonical replies from the same private sess
     const nativeReply = requests.find(request => request.path === '/api/inboxes/inbox_one/messages')!;
     expect(nativeReply.body).toMatchObject({ senderAgentId: 'agent_one', recipientEmail: 'two@envoi.mail', text: 'Reply to message_two' });
     expect(nativeReply.headers.get('idempotency-key')).toBe('rest:message_two:reply');
-    expect(requests.every(request => request.headers.get('authorization') === 'Bearer envoi_agent_access_PRIVATE')).toBe(true);
+    expect(requests.filter(request => request.path.startsWith('/api/agent/work/') || request.path.endsWith('/reply')
+      || request.path === '/api/inboxes/inbox_one/messages').every(request => request.headers.get('authorization')
+        === `Bearer ${activated.agentApiToken}`)).toBe(true);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
