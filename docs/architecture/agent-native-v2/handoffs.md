@@ -4445,6 +4445,13 @@ Audit: `agent.installation_activated`, as today.
   - a code whose installation has already ended revokes nothing further (`token-code-reused-installation-ended`).
 - **The code never leaves the browser redirect or the host:** codes, verifiers and code-bearing URLs stay out of logs, audits, model context and browser storage (§10).
 
+**Standards note (revision 3).** Revision 2's phrase "As OAuth 2.1 §4.1.3 recommends" is accurate about *revoking* on reuse, but not about *when*. OAuth 2.1 (draft-ietf-oauth-v2-1-16) words it conditionally:
+- **§4.1.3** has the server deny a *second valid* token request for a used code, and revoke what that code issued where possible;
+- **§7.5.3** says to revoke only when the request, including `code_verifier` and client authentication, is valid. It recommends against revoking for a replay with invalid parameters, because invalid requests would then let an attacker revoke a legitimate client's tokens;
+- **RFC 7636 §4.6** has a matching verifier continue normal processing, and a mismatch get `invalid_grant`.
+
+So revision 2's row 5, which revokes before rows 7–9, is **Envoi's own, earlier revocation policy**. It is stricter than that draft's validity condition, and the standard does not require it. Revision 3 records this and keeps the approved order. Decision 13 compares the two policies.
+
 **No lost-response recovery.** A token response that never arrives cannot be fetched again, unlike agent-registration §6.2. The client starts a new authorization. The owner then sees the agent under "Reconnect an existing agent" and approves it as `existing_agent`, which replaces the installation the lost response created (decision 2).
 
 #### 6.2 Refresh grant
@@ -4580,7 +4587,32 @@ These are Lane A's proposals. Any of them can change before approval.
 10. **`on_demand` for every installation made here** (§1), with the flag waiting for an a5-presence label. The alternative, declaring `envoi_link`, would claim a running host process that a cloud assistant does not have.
 11. **The code is returned once; a retry gets a decision outcome** (§5.2, revision 2). The alternative is to keep an encrypted copy of the first response for the code's 60 s life. That needs key binding, a TTL, deletion and replay limits, and it would still have to refuse a retry once the code is used. It adds a stored secret and saves the user nothing: either way, a host that missed the code must start again.
 12. **Approval.** Version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. It does not authorize any provider's gate or any flag change.
-13. **Used-code revocation before PKCE (revision 3; Je's decision).** Recommended: keep revision 2's order, as OAuth 2.1 §4.1.3 recommends. A leaked used code plus a public `client_id` can then end the one installation it activated, which the owner reconnects. The alternative moves the reuse check after PKCE (row 8), so only the verifier's holder can trigger it. But then a code stolen together with its verifier would revoke nothing. That is exactly the two-holders case revocation exists for, and the trade-off is worse. Choosing the alternative would change the approved order, and would need its own amendment.
+13. **When a used code revokes (revision 3; Je's decision).** Two policies:
+   - **Policy A (revision 2, approved, unchanged here).** Row 5 checks reuse after client authentication (row 3) and the client check (row 4), and revokes before the expiry, redirect, PKCE and resource checks (rows 6–9).
+   - **Policy B (a possible later amendment, not proposed in this revision).** Reuse is still always denied. But it revokes only when the rest of the request is valid: rows 6–9 pass (unexpired code, exact `redirect_uri`, the matching verifier, the resource), after rows 3–4. This is OAuth 2.1 draft-16 §4.1.3 and §7.5.3.
+
+   | Replayed used code, still-active original installation | Policy A (approved) | Policy B |
+   | --- | --- | --- |
+   | Same client; correct verifier, `redirect_uri` and resource; code unexpired (`token-code-reused`) | `invalid_grant`, **revokes** | `invalid_grant`, **revokes** |
+   | Same public `client_id`; wrong or missing verifier (`token-code-reused-wrong-verifier`) | `invalid_grant`, **revokes** | `invalid_grant`, **no revoke** |
+   | Same client; wrong `redirect_uri` or resource | `invalid_grant`, **revokes** | `invalid_grant` or `invalid_target`, **no revoke** |
+   | Same client and verifier, but the code is past its 60 s | `invalid_grant`, **revokes** ("even after expiry") | `invalid_grant`, **no revoke** |
+   | Another client (`token-code-reused-other-client`) | `invalid_grant`, no revoke | same |
+   | Confidential client, failed authentication (`token-code-reused-confidential-auth-failed`) | `401 invalid_client`, no revoke | same |
+   | Original installation already ended (`token-code-reused-installation-ended`) | `invalid_grant`, nothing further | same |
+
+   In both policies:
+   - a replay never yields a token;
+   - revocation ends only the original installation, and only while it is still active;
+   - the identity stays unfrozen.
+
+   **What the choice is.** Should a party holding a leaked code and the public `client_id`, but **not** the verifier, be able to end the original installation? Under Policy A it can; that is a denial of service the owner repairs by reconnecting. Under Policy B it cannot. A holder of both code and verifier can still trigger revocation under either policy while the code is unexpired.
+   - **What Policy B gives up:** revocation for a replay that arrives after the code's 60 s lifetime, and for a replay that fails another check (wrong redirect or resource).
+   - **What it gains:** it follows the draft's validity condition, and removes the code-only denial of service. With a 60 s single-use code, PKCE and an exact redirect match, a replay with the verifier inside the code's lifetime is the case that indicates a real second holder. Policy B still revokes then.
+
+   **Lane A's recommendation (corrected).** Policy B. It aligns with OAuth 2.1 draft-16 §7.5.3 and narrows the trigger to a holder of the verifier, without weakening the genuine-replay revocation. An earlier version of this decision said that under Policy B a code stolen together with its verifier would revoke nothing. That was wrong, as the first row of the table shows.
+
+   **Choosing Policy B** changes approved revision-2 semantics. It would therefore be its own coordinated amendment, revision 4 or a revised revision 3. That amendment would change `x-token-checks` and §6.1's table. It would turn `token-code-reused-wrong-verifier` into a no-revoke case, and add an expired-replay case and a wrong-redirect replay case. It would need Lane B review and Je's approval. **Choosing Policy A** means approving this revision as published. Nothing here selects a policy for Je.
 14. **Refuse an oversized handle rather than shrink it (revision 3).** Row 11 refuses with `invalid_request`. The alternative, storing a pending request and sending only its id, would make an unauthenticated `GET` write storage (decision 9).
 15. **No wake path for these installations in v1 (revision 3).** The revision-2 text promised an http-wake subscription that audience binding makes impossible. A `/mcp`-scoped wake tool, or any other path, is a separate contract.
 
@@ -4597,7 +4629,13 @@ These are Lane A's proposals. Any of them can change before approval.
 
 **Revision 3** (after approval of revision 2). This answers the gaps Lane A reported in [6324594912](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6324594912), which Lane B confirmed in [6325070244](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6325070244). The approved check order and every revision-2 response are unchanged.
 1. **Wake.** The "Not in this contract" text claimed an http-wake subscription for these installations. Audience binding refuses that, and no MCP tool exists for it. The text now says there is no wake path in v1 and no audience exception (decision 15).
-2. **Used-code revocation.** §6.1 now states who can trigger row 5's revocation and what it is confined to. New fixtures: `token-code-reused-wrong-verifier`, `token-code-reused-other-client`, `token-code-reused-confidential-auth-failed` and `token-code-reused-installation-ended`. The order is a decision for Je (decision 13).
+2. **Used-code revocation.** §6.1 now states who can trigger row 5's revocation and what it is confined to. New fixtures: `token-code-reused-wrong-verifier`, `token-code-reused-other-client`, `token-code-reused-confidential-auth-failed` and `token-code-reused-installation-ended`. The policy is a decision for Je (decision 13).
+   - **Correction** (Lane B MISMATCH [6330139979](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6330139979), [review](https://github.com/rachelgonsalves821/Envoi/pull/187#issuecomment-6330134936), [standards](https://github.com/rachelgonsalves821/Envoi/pull/187#issuecomment-6330122547)):
+     - decision 13 no longer claims that revoking after PKCE would spare a code stolen with its verifier;
+     - it compares Policy A and Policy B case by case;
+     - it attributes the validity condition to OAuth 2.1 draft-16 §4.1.3 and §7.5.3, and RFC 7636 §4.6;
+     - the §6.1 standards note states that revision 2's early revocation is Envoi's policy, not the standard's;
+     - Lane A's recommendation changes to Policy B, which would be a separate amendment. The fixtures and the approved order are unchanged.
 3. **Handle length.** New check, row 11 (`x-authorize-checks`, after `state`). It measures the encoded handle and refuses one over 2,048 characters with `invalid_request` at the checked redirect, with `state` and `iss`, never truncating. New fixtures: `authorize-handle-at-limit` and `authorize-handle-overflow` (decision 14).
 
 The contract stays v1: this clarifies approved behaviour and adds no wire field. It needs Lane B's `CONTRACT-ACK` and Je's `CONTRACT-APPROVED agent-remote-auth v1 revision 3 @<publication sha>`. RA-A1 part 1 (#177) already implements row 11 as published here, behind flags that are off. It is not integrated before that approval.
