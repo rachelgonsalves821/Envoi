@@ -80,10 +80,10 @@
   }
 }
 .header-inner { gap: 20px; }
-.theme-switch { display: flex; flex: none; gap: 2px; margin: 0; padding: 3px; border: 1px solid var(--line); border-radius: var(--pill); }
+.theme-switch { display: flex; flex: none; gap: 2px; margin: 0; padding: 3px; border: 1px solid var(--line); border-radius: var(--pill); background: var(--bg-raised); }
 .theme-switch label { position: relative; cursor: pointer; }
 .theme-switch input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.theme-switch span { display: grid; place-items: center; min-height: 36px; padding: 5px 12px; font-size: 14px; border-radius: var(--pill); color: var(--ink-muted); }
+.theme-switch span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: var(--ink-muted); }
 .theme-switch input:checked + span { background: var(--action-bg); color: var(--action-ink); }
 .theme-switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
 .theme-switch label:hover span { box-shadow: inset 0 0 0 1px var(--line-strong); }
@@ -108,7 +108,8 @@
   .main-nav { margin-left: 0; justify-self: center; }
   .main-nav a { padding: 5px 9px; font-size: 13px; min-height: 36px; }
   .sign-in { padding: 7px 8px; font-size: 12px; gap: 4px; }
-  .theme-switch { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  .sign-in { grid-column: 2; grid-row: 2; justify-self: end; margin-left: 0; }
+  .theme-switch { grid-column: 3; grid-row: 2; justify-self: end; }
   .hero, .product-intro { padding-top: 164px; }
   .team-grid { gap: 24px; }
   .team-card { padding: 24px; }
