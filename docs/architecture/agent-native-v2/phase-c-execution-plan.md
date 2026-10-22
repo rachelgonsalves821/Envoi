@@ -1,7 +1,9 @@
 # Phase C: scoped tools, runtime collaboration and integration
 
 Prepared 2026-10-17 against integration `7442248d16635c2256c11bf02dcaf493ca4fe039`.
-Status: reviewable implementation plan for [v3 §§48–55](build-plan-v3.md); contracts and live gates remain to be approved and executed.
+Status: detailed work-package and acceptance matrix for [v3 §§48–55](build-plan-v3.md); current implementation and remaining hosted gates are summarized below.
+
+**Current status, 2026-10-19:** The [pre-onboarding phase plan](pre-onboarding-phase-plan.md) sequences the remaining exact-candidate, local, hosted and release gates. Integration `454ab226` is CI-green, but no hosted Phase C pass follows from it. The paired staging-origin candidate is still draft, and its wake-delivery test needs repair. Rachel requires authenticated HTTPS wake and C19–C21 in the first hosted batch; provider browser polling remains off and Muse/Instinct remain open.
 
 ## Outcome
 

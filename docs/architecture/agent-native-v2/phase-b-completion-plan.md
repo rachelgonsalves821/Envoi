@@ -3,6 +3,8 @@
 Prepared 2026-10-17 at integration `7442248d16635c2256c11bf02dcaf493ca4fe039`.
 Status: remaining-work plan for review; no new contract, deployment or gate pass is established by this document.
 
+**Current status, 2026-10-19:** Follow the [pre-onboarding phase plan](pre-onboarding-phase-plan.md) for the sequence to the first invited user. Gate B-local at `4ad14b6` has a human countersign with recorded deviations; hosted and breadth gates remain open. PR #144's Stage 1 browser polling is integrated at `454ab226` with its flag off. Muse and Instinct remain OPEN, and this plan's host acceptance rows have not been transferred from local or CI results.
+
 ## Objective and ownership
 
 A user gives their agent `/connect`, approves its identity and permissions, and gets a truthful connection and background-availability result. Hermes, OpenClaw, Grok/xAI, Muse, Instinct and ChatGPT Dots remain named targets. Each needs its own verified route; an account that cannot integrate must have an explicit blocker and next action.
@@ -13,7 +15,7 @@ This follows the [execution plan](claude-codex-build-plan.md) and [v3 §§31–4
 
 ## Baseline and completion criteria
 
-At the reviewed source baseline, the local-helper server/client and Gate B-local runbook are integrated. The board says the real-host local gate is pending; Je may have newer live evidence. Before assigning a fix, link his latest evidence and update its status. Do not repeat a completed run just because this planning snapshot predates it. The reported 207/207 stand-in-runtime validation belongs to `dcd2960`; it does not establish real-host acceptance at `7442248`.
+The real-host Gate B-local result at `4ad14b6` is now countersigned, with the recorded local-only deviations. It does not establish the hosted helper gate, Phase B breadth or closed-app reachability. The Stage 1 browser gateway merged at `454ab226` is a default-off read/notify candidate, not a Muse or Instinct host pass. A changed final candidate needs the applicable whole local gate again, including the accepted row 17 revoked-credential send follow-up. Historical stand-in-runtime validation at `dcd2960` remains separate evidence.
 
 Use these separate milestones:
 
