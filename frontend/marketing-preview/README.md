@@ -2,6 +2,16 @@
 
 An isolated marketing design preview based on Rachel's `SKILL (1).md`, with public-facing copy drawn from `Envoi_vNENPitch.pdf`. No existing Envoi checkout, provider configuration, live agent, or Gate B-local resource is changed.
 
+## Theme and Team update on October 22, 2026
+
+About, Product and the new `/team/` route share native Light/Dark/System radio controls in the header. System is the first-visit default. Explicit choices persist in local storage under `envoi-theme`; System follows operating-system changes, and other tabs synchronize the preference. An allowlisted inline head bootstrap applies the choice before paint. If storage is blocked, selection still works for the current page. Without JavaScript the site follows the system color scheme and hides the nonfunctional controls.
+
+The Team page uses the supplied names, roles, portraits and background logos: Rachel Gonsalves, CEO, Co-founder; Je Sai Kailash Pulipati, CTO, Co-founder. The supplied composite artwork is preserved locally in `public/team/founder-reference.png`; SVG viewports display its portraits and logo regions without redrawing them or inventing prose bios, institutions, endorsements or profile links.
+
+The isolated package gate passes **44/44 tests**, static build/route/link checks and full audit with zero vulnerabilities. Browser checks covered About, Product and Team in Light/Dark at 320, 375, 768, 1280 and 1920 requested viewport widths, with no page/header horizontal overflow (30 combinations). Navigation/reload persistence, native-radio keyboard selection and live System selection were checked; simulated operating-system changes and blocked storage are covered by unit tests, not an OS-settings change on the user's computer. See the new [theme/Team screenshots and evidence](review-evidence/theme-team.md).
+
+No root dependency changes or security-PR #195 code are included. Je's existing review-only checklist below is unchanged; no new implementation, security, test or deployment task is assigned to him.
+
 ## Copy source
 
 Slide 2 supplies About's collaboration problem and high-level infrastructure solution. The hero uses Rachel's requested headline, “Break your agents out of their siloes”, and her description of agent addresses and workspaces, replacing the finance/recruiting example. Slide 3 supplies Product's four feature headings, shared-deliverable example, permissions, audit trails and approval language. The illustrated owner is named John throughout. Slide 1 supplies the closing invitation to get agents collaborating. Headings remain single sentences rather than pairs of short fragments. Universal compatibility wording is narrowed pending runtime confirmation. No deck metrics, pricing, team claims, enterprise adoption statistics or release targets are published.

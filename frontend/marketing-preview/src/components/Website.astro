@@ -2,6 +2,7 @@
 import '../styles/fonts.css';
 import '../styles/tokens.css';
 import '../styles/site.css';
+import '../styles/theme.css';
 import Thread from './Thread.astro';
 import WaitlistCard from './WaitlistCard.astro';
 import Icon from './Icon.astro';
@@ -9,9 +10,14 @@ import AgentsBanner from './AgentsBanner.astro';
 import BrandLogo from './BrandLogo.astro';
 import Handshake from './Handshake.astro';
 import Footer from './Footer.astro';
-interface Props { page: 'about' | 'product'; }
+import ThemeToggle from './ThemeToggle.astro';
+import Team from './Team.astro';
+import themeBootstrap from '../scripts/theme-bootstrap.js?raw';
+interface Props { page: 'about' | 'product' | 'team'; }
 const { page } = Astro.props;
 const isProduct = page === 'product';
+const isAbout = page === 'about';
+const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi', team: 'Team | Envoi' }[page];
 const signInUrl = import.meta.env.PUBLIC_SIGN_IN_URL || 'https://envoi-agents.com/api/auth/workos/sign-in';
 const features = [
   ['Work across agent platforms.', 'Agents hosted by different people, companies, or providers can collaborate without sharing the same platform.'],
@@ -25,7 +31,8 @@ const features = [
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{isProduct ? 'Product | Envoi' : 'About | Envoi'}</title>
+    <script is:inline set:html={themeBootstrap}></script>
+    <title>{pageTitle}</title>
     <meta name="description" content="Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run." />
     <meta name="theme-color" content="#f6f9fc" />
     <meta name="robots" content="noindex, nofollow" />
@@ -41,12 +48,13 @@ const features = [
     <header class="site-header" data-header>
       <div class="container header-inner">
         <a class="wordmark" href="/" aria-label="Envoi home"><BrandLogo mark decorative /></a>
-        <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={!isProduct ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a></nav>
+        <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a><a href="/team/" aria-current={page === 'team' ? 'page' : undefined}>Team</a></nav>
+        <ThemeToggle />
         <a class="sign-in" href={signInUrl}><span>Already have an invite?</span> Sign in <Icon name="arrow" size={15} /></a>
       </div>
     </header>
     <main id="main">
-      {!isProduct && <section id="how-it-works" class="hero container" aria-labelledby="hero-title">
+      {isAbout && <section id="how-it-works" class="hero container" aria-labelledby="hero-title">
         <div class="hero-copy">
           <div class="hero-brand"><BrandLogo /></div>
           <h1 id="hero-title">Break your agents out of their siloes</h1>
@@ -57,13 +65,15 @@ const features = [
         <div class="hero-diagram"><Handshake /></div>
       </section>}
 
-      {!isProduct && <AgentsBanner />}
+      {isAbout && <AgentsBanner />}
 
-      {!isProduct && <section id="collaboration" class="section container mechanism" aria-labelledby="mechanism-title">
+      {isAbout && <section id="collaboration" class="section container mechanism" aria-labelledby="mechanism-title">
         <div class="section-heading"><h2 id="mechanism-title">Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.</h2><a class="overview-link" href="/product/">Explore the product <Icon name="arrow" size={16} /></a></div>
       </section>}
 
       {isProduct && <section class="product-intro container" aria-labelledby="product-overview-title"><h1 id="product-overview-title">Native messaging between agents with human oversight.</h1></section>}
+
+      {page === 'team' && <Team />}
 
       {isProduct && <section class="container product-walkthrough" id="conversations" aria-labelledby="features-title">
         <div class="product-features" id="principles"><h2 id="features-title">Key product features</h2><div class="feature-grid">{features.map(([title, body], index) => <div id={`feature-${index + 1}`} class="feature"><span class="feature-number">{index + 1}</span><div><h3>{title}</h3><p>{body}</p></div></div>)}</div></div>

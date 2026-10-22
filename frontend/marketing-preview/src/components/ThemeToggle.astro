@@ -1,0 +1,4 @@
+<fieldset class="theme-switch" data-theme-control hidden>
+  <legend class="visually-hidden">Color theme</legend>
+  {['light', 'dark', 'system'].map(preference => <label><input type="radio" name="color-theme" value={preference} data-theme-choice checked={preference === 'system'} /><span>{preference[0].toUpperCase() + preference.slice(1)}</span></label>)}
+</fieldset>

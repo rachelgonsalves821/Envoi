@@ -3,10 +3,16 @@ import { readFile, access } from 'node:fs/promises';
 
 const pages = new Map([
   ['/', await readFile(new URL('../dist/index.html', import.meta.url), 'utf8')],
-  ['/product/', await readFile(new URL('../dist/product/index.html', import.meta.url), 'utf8')]
+  ['/product/', await readFile(new URL('../dist/product/index.html', import.meta.url), 'utf8')],
+  ['/team/', await readFile(new URL('../dist/team/index.html', import.meta.url), 'utf8')]
 ]);
 const about = pages.get('/');
 const product = pages.get('/product/');
+const team = pages.get('/team/');
+assert.match(team, /data-page="team"/);
+assert.match(team, /Rachel Gonsalves/);
+assert.match(team, /Je Sai Kailash Pulipati/);
+assert.doesNotMatch(team, /data-thread|id="how-it-works"|id="your-view"/);
 assert.match(about, /data-page="about"/);
 assert.match(product, /data-page="product"/);
 assert.match(about, /id="how-it-works"/);
@@ -33,7 +39,11 @@ assert.equal(product.toLowerCase().split('two agents, two owners, one deliverabl
 for (const [pathname, html] of pages) {
   assert.equal([...html.matchAll(/<h1\b/g)].length, 1, `${pathname} must have one main heading`);
   assert.equal([...html.matchAll(/aria-current="page"/g)].length, 1, `${pathname} must identify its active tab`);
-  assert.doesNotMatch(html, /Rachel|>R</, `${pathname} must not retain the previous demo owner`);
+  if (pathname !== '/team/') assert.doesNotMatch(html, /Rachel|>R</, `${pathname} must not retain the previous demo owner`);
+  assert.match(html, /data-theme-control/);
+  assert.match(html, /href="\/team\/"/);
+  const bootstrapIndex = html.indexOf('envoi-theme');
+  assert.ok(bootstrapIndex >= 0 && bootstrapIndex < html.indexOf('<body'), `${pathname} must initialize theme before paint`);
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
   assert.equal(new Set(ids).size, ids.length, `${pathname} has duplicate IDs`);
   for (const match of html.matchAll(/href="([^"{}]+)"/g)) {
@@ -49,4 +59,4 @@ for (const [pathname, html] of pages) {
     }
   }
 }
-console.log('About/Product route separation, headings, IDs and internal links passed.');
+console.log('About/Product/Team route separation, theme initialization, headings, IDs and internal links passed.');

@@ -1,4 +1,7 @@
 import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, acceptedWaitlistResponse } from './playback.mjs';
+import { mountThemeControls } from './theme.mjs';
+
+mountThemeControls(document, window);
 
 const productAnchors = new Set(['#your-view', '#oversight', '#principles', '#features-title', '#demo-title', '#conversations']);
 if (location.hash === '#oversight') {

@@ -1,0 +1,122 @@
+:root {
+  color-scheme: light;
+  --action-bg: var(--brand-navy);
+  --action-ink: #ffffff;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101923;
+  --bg-raised: #182532;
+  --bg-sunken: #121e29;
+  --line: #34495b;
+  --line-strong: #49647a;
+  --ink: #e5edf4;
+  --ink-muted: #b5c6d6;
+  --ink-dim: #9bb0c3;
+  --accent: #85c5f3;
+  --accent-wash: rgba(133, 197, 243, .1);
+  --agent-b: #f2bd73;
+  --agent-b-wash: rgba(242, 189, 115, .12);
+  --porcelain: #203243;
+  --paper: #182532;
+  --graphite: var(--ink);
+  --graphite-muted: var(--ink-muted);
+  --paper-line: #34495b;
+  --confirmed: #83d9bd;
+  --confirmed-bg: #153d33;
+  --confirmed-light: #83d9bd;
+  --needs-human: #f2bd73;
+  --needs-human-ink: #f6c98b;
+  --needs-human-bg: #46321d;
+  --waiting: #f6c98b;
+  --waiting-bg: #46321d;
+  --failed: #ffabb5;
+  --failed-bg: #4b2630;
+  --on-accent: #0f2a43;
+  --action-bg: #a8d6f4;
+  --action-ink: #0f2a43;
+  --soft-white: rgba(255, 255, 255, .04);
+  --shadow-ink: rgba(0, 0, 0, .28);
+  --header-bg: rgba(16, 25, 35, .96);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .brand-logo { background: #eef5fb; border-radius: 10px; padding: 6px; }
+  :root:not([data-theme]) .agent-logo-pill img { background: #eef5fb; border-radius: 6px; padding: 3px; }
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #101923;
+    --bg-raised: #182532;
+    --bg-sunken: #121e29;
+    --line: #34495b;
+    --line-strong: #49647a;
+    --ink: #e5edf4;
+    --ink-muted: #b5c6d6;
+    --ink-dim: #9bb0c3;
+    --accent: #85c5f3;
+    --accent-wash: rgba(133, 197, 243, .1);
+    --agent-b: #f2bd73;
+    --agent-b-wash: rgba(242, 189, 115, .12);
+    --porcelain: #203243;
+    --paper: #182532;
+    --graphite: var(--ink);
+    --graphite-muted: var(--ink-muted);
+    --paper-line: #34495b;
+    --confirmed: #83d9bd;
+    --confirmed-bg: #153d33;
+    --confirmed-light: #83d9bd;
+    --needs-human: #f2bd73;
+    --needs-human-ink: #f6c98b;
+    --needs-human-bg: #46321d;
+    --waiting: #f6c98b;
+    --waiting-bg: #46321d;
+    --failed: #ffabb5;
+    --failed-bg: #4b2630;
+    --on-accent: #0f2a43;
+    --action-bg: #a8d6f4;
+    --action-ink: #0f2a43;
+    --soft-white: rgba(255, 255, 255, .04);
+    --shadow-ink: rgba(0, 0, 0, .28);
+    --header-bg: rgba(16, 25, 35, .96);
+  }
+}
+.header-inner { gap: 20px; }
+.theme-switch { display: flex; flex: none; gap: 2px; margin: 0; padding: 3px; border: 1px solid var(--line); border-radius: var(--pill); }
+.theme-switch label { position: relative; cursor: pointer; }
+.theme-switch input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.theme-switch span { display: grid; place-items: center; min-height: 36px; padding: 5px 12px; font-size: 14px; border-radius: var(--pill); color: var(--ink-muted); }
+.theme-switch input:checked + span { background: var(--action-bg); color: var(--action-ink); }
+.theme-switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
+.theme-switch label:hover span { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.primary, .main-nav a[aria-current="page"], .main-nav a[aria-current="page"]:hover { background: var(--action-bg); color: var(--action-ink); }
+:root[data-theme="dark"] .brand-logo { background: #eef5fb; border-radius: 10px; padding: 6px; }
+:root[data-theme="dark"] .agent-logo-pill img { background: #eef5fb; border-radius: 6px; padding: 3px; }
+.team-section { max-width: 1100px; padding-top: 152px; padding-bottom: 80px; }
+.team-intro { text-align: center; margin-bottom: 44px; }
+.team-intro h1 { max-width: none; font-size: clamp(36px, 4vw, 52px); }
+.team-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
+.team-card { display: flex; flex-direction: column; align-items: center; padding: 32px; border: 1px solid var(--line); border-radius: 24px; background: var(--bg-raised); text-align: center; }
+.team-portrait { display: block; width: 174px; height: 174px; border-radius: 50%; overflow: hidden; margin-bottom: 24px; }
+.team-card h2 { font-size: 30px; line-height: 1.25; letter-spacing: -.015em; }
+.team-role { font-size: 18px; color: var(--ink-muted); margin-top: 8px; margin-bottom: 30px; }
+.team-logos { display: grid; place-items: center; width: 100%; min-height: 144px; margin-top: auto; padding: 12px; border-radius: 14px; background: #eef5fd; }
+.team-logos svg { display: block; width: 100%; max-width: 355px; height: auto; }
+.team-card:last-child .team-logos svg { max-width: 258px; }
+@media (max-width: 780px) {
+  html { scroll-padding-top: 138px; }
+  .header-inner { height: auto; min-height: 116px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; padding-block: 10px; }
+  .header-inner > .wordmark { width: 36px; }
+  .main-nav { margin-left: 0; justify-self: center; }
+  .main-nav a { padding: 5px 9px; font-size: 13px; min-height: 36px; }
+  .sign-in { padding: 7px 8px; font-size: 12px; gap: 4px; }
+  .theme-switch { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  .hero, .product-intro, .team-section { padding-top: 164px; }
+  .team-grid { gap: 24px; }
+  .team-card { padding: 24px; }
+  .team-card h2 { font-size: 26px; }
+}
+@media (max-width: 600px) {
+  .team-grid { grid-template-columns: minmax(0, 1fr); }
+  .team-section { padding-bottom: 48px; }
+  .team-intro { margin-bottom: 28px; }
+  .team-portrait { width: 150px; height: 150px; }
+}

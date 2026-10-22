@@ -203,7 +203,7 @@ test('About and Product have separate static routes and accessible active-page n
   const website = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   assert.match(about, /<Website page="about"/);
   assert.match(product, /<Website page="product"/);
-  assert.match(website, /aria-current=\{!isProduct/);
+  assert.match(website, /aria-current=\{isAbout/);
   assert.match(website, /aria-current=\{isProduct/);
   assert.match(website, /href="\/product\/"/);
 });
