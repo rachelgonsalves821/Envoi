@@ -91,7 +91,8 @@ describe('normal hosted wake entrypoints (offline simulated services)', () => {
       await prepareHostedWakeService(test.stateDir, test.env, secureDirectory);
       const saved = await readFile(path.join(test.stateDir, 'hosted-wake.json'), 'utf8');
       expect(JSON.parse(saved)).toEqual({ version: 1, registeredUrl: callbackUrl, port: test.port, installationId });
-      const manifest = connectorService(test.stateDir, { platform: 'win32', user: 'S-1-5-21-100', node: 'C:\\node.exe' }).contents;
+      const manifest = connectorService(test.stateDir, { platform: 'win32', user: 'S-1-5-21-100',
+        node: 'C:\\node.exe', env: { SystemRoot: 'C:\\Windows' } }).contents;
       expect(manifest).not.toContain(callbackUrl);
       expect(manifest).not.toContain(installationId);
       const stop = new AbortController();
