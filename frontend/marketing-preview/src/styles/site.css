@@ -183,7 +183,7 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .product-detail dt { color: var(--graphite-muted); }
 .product-detail dd { margin: 0; font-weight: 300; }
 .product-detail .detail-note { font-size: 14px; margin-top: auto; padding-top: 18px; }
-.product-caption { font-size: 14px; color: var(--graphite-muted); text-align: center; margin-top: 24px; }
+.product-caption { font-size: 14px; color: var(--graphite-muted); text-align: center; margin: 0 0 24px; }
 .oversight { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; align-items: center; }
 .oversight h2 { margin: 0 0 24px; }
 .section-lead { color: var(--ink-muted); font-size: 15px; }

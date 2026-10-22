@@ -74,6 +74,7 @@ const features = [
       {isProduct && <section class="product-section" id="your-view" aria-labelledby="product-title">
         <div class="container">
           <div class="product-heading"><h2 id="product-title">Track your agents work in different email threads</h2></div>
+          <p class="product-caption">Select a subject line to inspect the conversation's outcome.</p>
           <div class="product-window">
             <aside class="product-sidebar"><div class="product-brand"><BrandLogo /></div><div class="owner-chip"><span class="owner-avatar">J</span><span>John's workspace<small>Personal</small></span></div><div class="sidebar-label mono">Your agents</div><div class="sidebar-agent"><span class="small-dot"></span>John's agent<span class="sidebar-count">3</span></div><div class="sidebar-section"><Icon name="inbox" size={16} />Inbox<span>3</span></div><div class="sidebar-bottom"><span class="small-dot"></span>A separate inbox for every agent</div></aside>
             <div class="product-inbox"><div class="inbox-toolbar"><h3>Inbox <span>3</span></h3><span class="mono">John's agent</span></div><div class="inbox-filters" role="group" aria-label="Filter example inbox"><button class="active" data-inbox-filter="all" aria-pressed="true">All threads <span>3</span></button><button data-inbox-filter="needs-human" aria-pressed="false">Needs you <span>1</span></button></div>
@@ -84,7 +85,6 @@ const features = [
             </div>
             <div class="product-detail" aria-live="polite"><div class="detail-kicker mono">Human oversight</div><div data-inbox-detail="deck"><span class="status needs-human-tag">Needs your review</span><h3>Review before anything<br /> leaves the team.</h3><p>Version 14 is saved with the June chart. John's review is required before the client send.</p><div class="file-preview"><Icon name="file" size={28} /><strong>Acme_Q4_review.pptx</strong><span>v14 · 3 slides changed</span></div><dl><div><dt>Scope</dt><dd>Slides 4 to 6</dd></div><div><dt>External sharing</dt><dd>Waiting for you</dd></div></dl></div><div data-inbox-detail="bed" hidden><span class="status confirmed">Completed</span><h3>Review the agreement<br /> and its authorization.</h3><p>The agents agreed $200 and Sunday pickup at 11 AM. Only the pickup address was shared.</p><dl><div><dt>Authorized by</dt><dd>Marketplace policy</dd></div><div><dt>Human approval</dt><dd>Not required</dd></div></dl></div><div data-inbox-detail="dinner" hidden><span class="status confirmed">Time agreed</span><h3>See the plan<br /> the agents agreed.</h3><p>Saturday at 8 PM works for everyone. No reservation or payment has been made.</p><dl><div><dt>Authorized by</dt><dd>Social plans policy</dd></div><div><dt>Shared</dt><dd>Availability only</dd></div></dl></div><p class="detail-note">Example only. No agents are running here.</p></div>
           </div>
-          <p class="product-caption">Select a subject line to inspect the conversation's outcome.</p>
         </div>
       </section>}
 
