@@ -59,7 +59,10 @@ test('[server] consent: view, approve once, identical retries across a restart, 
   // Signed out, and an unusable handle (identical for unknown, tampered and too long).
   expectError(await api(baseUrl, consentPath(handle)), 401, 'AUTHENTICATION_REQUIRED');
   const invalid = await fixture('consent-request-invalid');
-  for (const bad of ['v1.unknown', `${handle.slice(0, -2)}xx`, `v1.${'a'.repeat(2100)}`]) {
+  // Tamper in the middle: the last base64url character carries unused bits, so changing only the tail can leave the bytes (and the
+  // seal) intact, which made this case fail one run in four.
+  const tampered = `${handle.slice(0, 20)}${handle[20] === 'A' ? 'B' : 'A'}${handle.slice(21)}`;
+  for (const bad of ['v1.unknown', tampered, `v1.${'a'.repeat(2100)}`]) {
     const res = await view(baseUrl, first, bad);
     expectError(res, 404, 'AUTHORIZATION_REQUEST_INVALID');
     assert.equal(res.payload.message, invalid.response.body.message);
