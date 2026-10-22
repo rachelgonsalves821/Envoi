@@ -63,11 +63,12 @@ import { agentPresenceDir, agentPresencePath, agentStatusPresence, createPresenc
 import { createAgentSlots, legacyApprovalPermissions } from './agent-approval.js';
 import { createInstallationReader, installationSummary, ownerInstallationList, publicInstallation } from './agent-installations.js';
 import { readOnboardingFlags, routeAvailability } from './onboarding-flags.js';
-import { activationRecoveryPath, activationRecoverySeconds, addressHoldLockKey, addressHoldPath, createAgentRegistrations, derivedStatus, recoveryWindowOver, registrationBodyMaxBytes, registrationLockKey } from './agent-registration.js';
+import { activationRecoveryPath, activationRecoverySeconds, addressHoldLockKey, addressHoldPath, createAgentRegistrations, derivedStatus, oauthCodePath, recoveryWindowOver, registrationBodyMaxBytes, registrationLockKey } from './agent-registration.js';
 import { decryptActivation, displayName, encryptActivation, validActivationId, verificationCodeKey } from './agent-registration-codes.js';
 import { registrationPath } from './agent-approval.js';
 import { installationPath } from './agent-installations.js';
-import { deliveryModeAvailable, routeAvailable } from './onboarding-flags.js';
+import { deliveryModeAvailable, remoteRouteAvailable, routeAvailable } from './onboarding-flags.js';
+import { authenticateClient, bootstrapGrantParameters, codeGrantParameters, grantTypes, insufficientScopeChallenge, mcpChallenge, oauthError, oauthFamilyLockKey, oauthRefreshRecoveryDir, oauthRefreshRecoveryPath, oauthSuccess, oauthTokenTypes, openRefreshRecovery, parseTokenForm, pkceMatches, refreshGrantParameters, refreshRecoverySeconds, sameScopes, sealRefreshRecovery, tokenRequestMaxBytes, tokenResponse } from './agent-remote-auth-token.js';
 import { createPollLimiter, createRegistrationLimits } from './agent-registration-limits.js';
 import { allowedCaseTools, isHumanDecision, caseSessionTokenPath, caseSessionTokenPrefix, caseSessionsHeartbeatMs, createCaseSessions, firstCondition, leaseStaleReason, publicSessionEnd, sessionConditions, validCaseSessionId, validLeaseToken, workKindOf } from './case-sessions.js';
 import { createCaseSessionMcp } from './case-session-mcp.js';
@@ -76,7 +77,7 @@ import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
-import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin, scopeForPermissions } from './agent-remote-auth.js';
+import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
 import { organizationMaximumPermissions } from './agent-approval.js';
 import { sha256Hex } from './agent-registration.js';
 import { createWakeDestination } from './http-wake-destination.js';
@@ -441,11 +442,16 @@ function scopedMcpReadRequest(req, inboxId, caseId) {
     && [...url.searchParams.keys()].every(key => ['caseId', 'limit', 'before'].includes(key));
 }
 
-async function issueAgentCredentials(agentId, inboxId, familyId = store.id('credential_family'), rollRefreshExpiry = false, newFamilyFields = {}) {
+// `oauth` issues the agent-remote-auth token types (agent-registration §14.2): the raw formats are unchanged, the stored
+// records are oauth_access and oauth_refresh, so a server that predates them refuses the tokens everywhere. A family is
+// all one kind: it has an audience exactly when its records are oauth_ types. `recoveryTokenHash` names the refresh
+// recovery envelope of the rotation that issued the two successors (§14.5).
+async function issueAgentCredentials(agentId, inboxId, familyId = store.id('credential_family'), rollRefreshExpiry = false, newFamilyFields = {}, { oauth = false, recoveryTokenHash = null } = {}) {
   const issuedAt = store.now();
   const familyPath = agentCredentialFamilyPath(inboxId, agentId, familyId);
   const existingFamily = await store.getJson(familyPath);
   if (existingFamily?.revokedAt) throw Object.assign(new Error('Agent credential family is revoked'), { statusCode: 401 });
+  if (existingFamily && Boolean(existingFamily.audience) !== oauth) throw Object.assign(new Error('Agent credential family has another token kind'), { statusCode: 401 });
   const family = existingFamily || {
     id: familyId,
     agentId,
@@ -465,8 +471,8 @@ async function issueAgentCredentials(agentId, inboxId, familyId = store.id('cred
   family.rotationCounter = Number(family.rotationCounter || 0) + 1;
   family.updatedAt = issuedAt;
   await store.putJsonBatch([
-    document(agentCredentialPath(hashSecret(agentApiToken)), { tokenType: 'access', agentId, inboxId, familyId, issuedAt, expiresAt: agentTokenExpiresAt, revokedAt: null }),
-    document(agentRefreshCredentialPath(hashSecret(agentRefreshToken)), { tokenType: 'refresh', agentId, inboxId, familyId, issuedAt, expiresAt: agentRefreshTokenExpiresAt, usedAt: null, revokedAt: null }),
+    document(agentCredentialPath(hashSecret(agentApiToken)), { tokenType: oauth ? 'oauth_access' : 'access', agentId, inboxId, familyId, issuedAt, expiresAt: agentTokenExpiresAt, revokedAt: null, ...(oauth ? { usedAt: null, recoveryTokenHash } : {}) }),
+    document(agentRefreshCredentialPath(hashSecret(agentRefreshToken)), { tokenType: oauth ? 'oauth_refresh' : 'refresh', agentId, inboxId, familyId, issuedAt, expiresAt: agentRefreshTokenExpiresAt, usedAt: null, revokedAt: null, ...(oauth ? { recoveryTokenHash } : {}) }),
     document(familyPath, family)
   ]);
   return { agentApiToken, agentRefreshToken, agentTokenExpiresAt, agentRefreshTokenExpiresAt, tokenType: 'Bearer' };
@@ -899,10 +905,9 @@ const remoteAuth = (() => {
     fetchClientMetadata: createClientMetadataFetch({ destination: createWakeDestination({ env: process.env }) })
   });
   const sealer = createAuthorizationRequestSealer({ keyMaterial: connectorEncryptionKey() });
-  return { origin, sealer, resolveClient, authorize: createAuthorizeRequestHandler({ origin, flags: onboardingFlags, resolveClient, sealer }) };
+  return { origin, resource: origin ? resourceFor(origin) : null, sealer, resolveClient, authorize: createAuthorizeRequestHandler({ origin, flags: onboardingFlags, resolveClient, sealer }) };
 })();
-// x-endpoints: every agent-remote-auth endpoint. Those not built yet (token, revocation, bootstrap codes) answer
-// FEATURE_DISABLED like a route whose flag is off.
+// x-endpoints: every agent-remote-auth endpoint. Anything else under these prefixes answers FEATURE_DISABLED.
 const remoteAuthPath = pathname => pathname === '/.well-known/oauth-protected-resource' || pathname === '/.well-known/oauth-protected-resource/mcp'
   || pathname === '/.well-known/oauth-authorization-server' || pathname.startsWith('/oauth/') || pathname.startsWith('/api/oauth/');
 const remoteAuthDisabled = () => codedError(404, 'FEATURE_DISABLED', 'Remote connections are not available on this server.');
@@ -923,6 +928,8 @@ async function handleRemoteAuthRoute(req, res, url) {
     res.writeHead(302, { location: outcome.location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-length': 0 });
     return res.end();
   }
+  if (url.pathname === '/oauth/token' || url.pathname === '/oauth/revoke') return handleOAuthEndpoint(req, res, url);
+  if (url.pathname === '/api/oauth/bootstrap-codes') return handleBootstrapIssue(req, res);
   const consentRoute = url.pathname.match(/^\/api\/oauth\/authorization-requests\/([^/]+)(?:\/(approve|deny))?$/);
   if (consentRoute) return handleConsentRoute(req, res, consentRoute);
   throw remoteAuthDisabled();
@@ -982,10 +989,11 @@ const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installations
     const record = await auditRecord(inboxId, type, data, at); await store.putJson(record.document.path, record.document.value);
   }
 });
+const registrationLimits = createRegistrationLimits({ store });
 const registrations = createAgentRegistrations({
   store, flags: onboardingFlags,
   codeKey: verificationCodeKey(Buffer.from(process.env.ENVOI_DATA_ENCRYPTION_KEY || 'sinaloa-development-only')),
-  limits: createRegistrationLimits({ store }), pollLimiter: createPollLimiter(), agentSlots, installations, withInboxMutation,
+  limits: registrationLimits, pollLimiter: createPollLimiter(), agentSlots, installations, withInboxMutation,
   canManageLive: (human, inbox) => canManageInbox(human, inbox, { maxAgeMs: 0 }),
   normalizeLocalPart: normalizeAgentLocalPart, addressForLocalPart: agentAddressForLocalPart, identityTaken, semanticDigest,
   memberOf: async (human, organizationId) => Boolean(organizationId && await getMembership(organizationId, human.id))
@@ -1041,6 +1049,7 @@ async function revokeAgentCredentialFamilies(inboxId, agentId, humanId, revokedA
     revokedByHumanId: humanId,
     updatedAt: revokedAt
   })));
+  for (const family of active) if (family.audience) await deleteOAuthRecoveries(family.id).catch(() => {});
   await caseSessions.endForAgent(inboxId, agentId, 'credential_ended', revokedAt, writeAudit);
   if (httpWakeEnabled) for (const family of active) await httpWake.endForFamily(inboxId, agentId, family.id);
   return active.length;
@@ -1053,6 +1062,7 @@ async function revokeCredentialFamily(inboxId, agentId, familyId, humanId, revok
   if (!family || family.revokedAt) return null;
   const revoked = { ...family, revokedAt, revokedReason, revokedByHumanId: humanId, updatedAt: revokedAt };
   await store.putJson(familyPath, revoked);
+  if (family.audience) await deleteOAuthRecoveries(family.id).catch(() => {});
   await caseSessions.endForFamily(inboxId, agentId, familyId, 'credential_ended', revokedAt, writeAudit);
   if (httpWakeEnabled) await httpWake.endForFamily(inboxId, agentId, familyId);
   return revoked;
@@ -2282,10 +2292,20 @@ async function activateRegistration(rawToken, input, authority) {
   const status = derivedStatus(registration, new Date());
   if (status === 'pending_claim') throw codedError(409, 'REGISTRATION_PENDING', 'Waiting for the owner to approve.');
   if (status !== 'approved') throw registrationEnded(status);
+  const outcome = await runActivation(registration, (current, plannedInboxId, writeAudit) => commitActivation(rawToken, current, body, activationIdHash, plannedInboxId, writeAudit));
+  if (outcome.again) return activatedAgain(rawToken, registration.id, activationIdHash);
+  if (outcome.ended) throw outcome.recheck ? codedError(409, 'REGISTRATION_ENDED', 'This approval no longer holds. Ask the owner.', { reason: 'withdrawn' }) : registrationEnded(outcome.ended);
+  await settleActivation(outcome.activated);
+  return { status: 201, body: outcome.activated.response };
+}
+
+// §6.1 rows 7-11 in one transaction under the registration's lock: re-read, re-check, then `commit` creates the agent
+// (new_agent), the installation and its family. Returns { again }, { ended, recheck? } or { activated }.
+async function runActivation(registration, commit) {
   const { target } = registration;
   const isNew = target.kind === 'new_agent';
   const plannedInboxId = isNew ? store.id('inbox') : null;
-  const outcome = await withInboxMutation(isNew ? target.workspaceInboxId : target.agentInboxId, async writeAudit => {
+  return withInboxMutation(isNew ? target.workspaceInboxId : target.agentInboxId, async writeAudit => {
     const current = await store.getJson(registrationPath(registration.id));
     if (current?.status === 'activated') return { again: true };
     const currentStatus = current ? derivedStatus(current, new Date()) : 'expired';
@@ -2299,21 +2319,19 @@ async function activateRegistration(rawToken, input, authority) {
       await writeAudit('agent.registration_withdrawn', { registrationId: current.id, target: target.kind, reason: 'recheck' }, at);
       return { ended: 'withdrawn', recheck: true };
     }
-    return { activated: await commitActivation(rawToken, current, body, activationIdHash, plannedInboxId, writeAudit) };
+    return { activated: await commit(current, plannedInboxId, writeAudit) };
   }, isNew ? [plannedInboxId] : [], [
     registrationLockKey(registration.id), humanAgentLimitKey(registration.principalHumanId),
     ...(isNew ? [addressHoldLockKey(target.address)] : [])
   ]);
-  if (outcome.again) return activatedAgain(rawToken, registration.id, activationIdHash);
-  if (outcome.ended) throw outcome.recheck ? codedError(409, 'REGISTRATION_ENDED', 'This approval no longer holds. Ask the owner.', { reason: 'withdrawn' }) : registrationEnded(outcome.ended);
-  const { response, agent, inboxId, existing } = outcome.activated;
-  if (existing) {
-    // Every earlier installation was replaced: end their streams, then, as a3 §4 reconnect does,
-    // release held sends of an active agent.
-    closeAgentStreams(inboxId, agent.id, { code: 'CREDENTIAL_REVOKED', reason: 'replaced' });
-    if (agent.status === 'active' && await withInboxMutation(inboxId, () => releaseHeldSends(inboxId))) deliveryWorker.kick();
-  }
-  return { status: 201, body: response };
+}
+
+async function settleActivation({ agent, inboxId, existing }) {
+  if (!existing) return;
+  // Every earlier installation was replaced: end their streams, then, as a3 §4 reconnect does,
+  // release held sends of an active agent.
+  closeAgentStreams(inboxId, agent.id, { code: 'CREDENTIAL_REVOKED', reason: 'replaced' });
+  if (agent.status === 'active' && await withInboxMutation(inboxId, () => releaseHeldSends(inboxId))) deliveryWorker.kick();
 }
 
 // §6.1 row 11 re-checks, inside the activation's lock. False means the approval no longer holds.
@@ -2321,7 +2339,7 @@ async function activationRechecksPass(registration) {
   const { target } = registration;
   const approver = await store.getJson(path.join('humans', `${registration.approverHumanId}.json`));
   if (!approver || (auth.provider === 'workos' && typeof auth.admitted === 'function' && !auth.admitted(approver))) return false;
-  if (!routeAvailable(onboardingFlags, registration.connectionRoute)) return false;
+  if (!(registration.oauth ? remoteRouteAvailable(onboardingFlags, registration.connectionRoute) : routeAvailable(onboardingFlags, registration.connectionRoute))) return false;
   const inbox = await store.getJson(path.join('inboxes', target.kind === 'new_agent' ? target.workspaceInboxId : target.agentInboxId, 'inbox.json'));
   if (!inbox || !await canManageInbox(approver, inbox, { maxAgeMs: 0 })) return false;
   const slotFree = async options => {
@@ -2343,7 +2361,10 @@ async function activationRechecksPass(registration) {
 }
 
 // §6.3: the installation and its credential family together; for new_agent also the agent.
-async function commitActivation(rawToken, registration, body, activationIdHash, plannedInboxId, writeAudit) {
+// `oauth` is the agent-remote-auth exchange (§6.1, §8): the family gets an audience and the client, the tokens are oauth_
+// types, the code index and the registration record the use, and there is no lost-response envelope. Returns the token
+// response in place of the activation body.
+async function commitActivation(rawToken, registration, body, activationIdHash, plannedInboxId, writeAudit, { oauth = false } = {}) {
   const { target } = registration;
   const activatedAt = store.now();
   const familyId = store.id('credential_family');
@@ -2382,35 +2403,69 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
     ]);
     if (heldLeases.length) await writeAudit('work.available', { agentId: agent.id, reason: 'lease_released' }, activatedAt, inbox.id);
   }
-  const credentials = await issueAgentCredentials(agent.id, inbox.id, familyId, false, { installationId, ...(runtime ? { runtime } : {}) });
+  const credentials = await issueAgentCredentials(agent.id, inbox.id, familyId, false, {
+    installationId, ...(runtime ? { runtime } : {}), ...(oauth ? { audience: registration.oauth.resource, oauthClientId: registration.oauth.clientId } : {})
+  }, { oauth });
   await store.putJson(installationPath(inbox.id, agent.id, installationId), {
     id: installationId, agentId: agent.id, credentialFamilyId: familyId, registrationId: registration.id,
     connectionRoute: registration.connectionRoute, deliveryMode: body.deliveryMode, runtime: { type: registration.runtime.type, version: registration.runtime.version },
     createdAt: activatedAt, activatedAt, replayDetectedAt: null
   });
-  const installation = await installations.forFamily(inbox.id, agent, familyId);
-  const response = {
+  const installation = oauth ? null : await installations.forFamily(inbox.id, agent, familyId);
+  const response = oauth ? tokenResponse({
+    accessToken: credentials.agentApiToken, refreshToken: credentials.agentRefreshToken, expiresIn: agentAccessTokenTtlSeconds, scope: scopeForPermissions(registration.effectivePermissions)
+  }) : {
     installation: publicInstallation(installation),
     agent: { id: agent.id, name: displayName(agent.name, String(agent.address).split('@')[0]), address: agent.address, status: agent.status },
     inboxId: inbox.id, effectivePermissions: registration.effectivePermissions,
     agentApiToken: credentials.agentApiToken, agentRefreshToken: credentials.agentRefreshToken,
     agentTokenExpiresAt: credentials.agentTokenExpiresAt, agentRefreshTokenExpiresAt: credentials.agentRefreshTokenExpiresAt, tokenType: credentials.tokenType
   };
-  // §6.2: the lost-response envelope, under a key only the raw bootstrap token derives.
-  await store.putJson(activationRecoveryPath(registration.tokenHash), {
-    tokenHash: registration.tokenHash, registrationId: registration.id, activationIdHash,
-    expiresAt: new Date(new Date(activatedAt).getTime() + activationRecoverySeconds * 1000).toISOString(),
-    encrypted: encryptActivation(rawToken, connectorEncryptionKey(), registration.id, activationIdHash, response)
-  });
-  await store.putJson(registrationPath(registration.id), {
-    ...registration, status: 'activated', activatedAt, activationIdHash, installationId, agentId: agent.id, agentInboxId: inbox.id, credentialFamilyId: familyId
-  });
+  if (oauth) {
+    // agent-registration §14.3: one transaction sets the code index's usedAt, the registration's status and its codeUsedAt.
+    // There is no lost-response recovery: a token response that never arrives needs a new authorization (§6.1).
+    const codeIndex = await store.getJson(oauthCodePath(registration.oauth.codeHash));
+    await store.putJsonBatch([
+      document(oauthCodePath(registration.oauth.codeHash), { ...codeIndex, usedAt: activatedAt }),
+      document(registrationPath(registration.id), {
+        ...registration, status: 'activated', activatedAt, installationId, agentId: agent.id, agentInboxId: inbox.id, credentialFamilyId: familyId,
+        oauth: { ...registration.oauth, codeUsedAt: activatedAt }
+      })
+    ]);
+  } else {
+    // §6.2: the lost-response envelope, under a key only the raw bootstrap token derives.
+    await store.putJson(activationRecoveryPath(registration.tokenHash), {
+      tokenHash: registration.tokenHash, registrationId: registration.id, activationIdHash,
+      expiresAt: new Date(new Date(activatedAt).getTime() + activationRecoverySeconds * 1000).toISOString(),
+      encrypted: encryptActivation(rawToken, connectorEncryptionKey(), registration.id, activationIdHash, response)
+    });
+    await store.putJson(registrationPath(registration.id), {
+      ...registration, status: 'activated', activatedAt, activationIdHash, installationId, agentId: agent.id, agentInboxId: inbox.id, credentialFamilyId: familyId
+    });
+  }
   await writeAudit('agent.installation_activated', {
     agentId: agent.id, installationId, credentialFamilyId: familyId, registrationId: registration.id, target: target.kind,
     connectionRoute: registration.connectionRoute, deliveryMode: body.deliveryMode, permissions: registration.effectivePermissions, humanId: registration.approverHumanId,
     ...(replaced ? { replacedFamilyCount: replaced } : {})
   }, activatedAt, inbox.id);
   return { response, agent, inboxId: inbox.id, existing: target.kind === 'existing_agent' };
+}
+
+// §6.1 row 7a: two holders of one bootstrap token (or, for agent-remote-auth §6.1 row 9, one used code). The installation
+// this activation created ends; the identity is not frozen. Committed before the error is returned, inside the
+// registration's lock.
+async function revokeReplayedActivation(current, writeAudit) {
+  const at = store.now();
+  await revokeCredentialFamily(current.agentInboxId, current.agentId, current.credentialFamilyId, null, at, 'revoked', writeAudit);
+  const stored = await store.getJson(installationPath(current.agentInboxId, current.agentId, current.installationId));
+  await store.putJson(installationPath(current.agentInboxId, current.agentId, current.installationId), { ...stored, replayDetectedAt: at });
+  if (current.tokenHash) await store.deleteJson(activationRecoveryPath(current.tokenHash));
+  const heldLeases = (await store.listJson(path.join('inboxes', current.agentInboxId, 'work-claims')))
+    .filter(claim => claim.agentId === current.agentId && claim.credentialFamilyId === current.credentialFamilyId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(at));
+  await store.putJsonBatch(heldLeases.map(claim => document(workClaimPath(current.agentInboxId, claim.workId), { ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, releasedAt: at, updatedAt: at })));
+  await writeAudit('agent.activation_replay_detected', { agentId: current.agentId, installationId: current.installationId, credentialFamilyId: current.credentialFamilyId, registrationId: current.id }, at);
+  if (heldLeases.length) await writeAudit('work.available', { agentId: current.agentId, reason: 'lease_released' }, at);
+  return { replayed: current };
 }
 
 // §6.1 rows 6, 7 and 7a: a registration that already activated.
@@ -2428,19 +2483,7 @@ async function activatedAgain(rawToken, registrationId, activationIdHash) {
         ? decryptActivation(rawToken, connectorEncryptionKey(), current.id, activationIdHash, envelope.encrypted) : null;
       return body ? { body } : { recoveryExpired: true };
     }
-    // Row 7a: two holders of one bootstrap token. The installation this activation created ends;
-    // the identity is not frozen. Committed before the error is returned.
-    const at = store.now();
-    await revokeCredentialFamily(current.agentInboxId, current.agentId, current.credentialFamilyId, null, at, 'revoked', writeAudit);
-    const stored = await store.getJson(installationPath(current.agentInboxId, current.agentId, current.installationId));
-    await store.putJson(installationPath(current.agentInboxId, current.agentId, current.installationId), { ...stored, replayDetectedAt: at });
-    await store.deleteJson(activationRecoveryPath(current.tokenHash));
-    const heldLeases = (await store.listJson(path.join('inboxes', current.agentInboxId, 'work-claims')))
-      .filter(claim => claim.agentId === current.agentId && claim.credentialFamilyId === current.credentialFamilyId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(at));
-    await store.putJsonBatch(heldLeases.map(claim => document(workClaimPath(current.agentInboxId, claim.workId), { ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, releasedAt: at, updatedAt: at })));
-    await writeAudit('agent.activation_replay_detected', { agentId: current.agentId, installationId: current.installationId, credentialFamilyId: current.credentialFamilyId, registrationId: current.id }, at);
-    if (heldLeases.length) await writeAudit('work.available', { agentId: current.agentId, reason: 'lease_released' }, at);
-    return { replayed: current };
+    return revokeReplayedActivation(current, writeAudit);
   }, [], [registrationLockKey(registrationId)]);
   if (outcome.recoveryExpired) throw registrations.recoveryExpired();
   if (outcome.replayed) {
@@ -2448,6 +2491,314 @@ async function activatedAgain(rawToken, registrationId, activationIdHash) {
     throw codedError(401, 'ACTIVATION_REPLAY', 'This setup was already used. Ask the owner to reconnect.');
   }
   return { status: 200, body: outcome.body };
+}
+
+// ------------------------------------------------------------------ agent-remote-auth §6-§8 (task RA-A2)
+// The token, revocation and bootstrap-code endpoints. Policy B (approved revision 4): a used code is always denied, and only
+// an otherwise valid replay revokes the installation its first exchange created. Nothing below logs or stores a raw code,
+// token, verifier or secret: codes and tokens are looked up by SHA-256 only.
+
+const sendOAuth = (res, result) => {
+  res.writeHead(result.status, result.body === undefined ? { ...result.headers, 'content-length': 0 } : result.headers);
+  res.end(result.body === undefined ? undefined : JSON.stringify(result.body));
+};
+async function readLimitedBody(req, limit) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > limit) return null;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+// POST /oauth/token and POST /oauth/revoke. Neither reads cookies or takes a CSRF header. Every request counts toward the
+// per-source limit (60 a minute); a failure from §6.1 row 4 on counts once more.
+async function handleOAuthEndpoint(req, res, url) {
+  if (req.method !== 'POST') return fail(res, 405, 'Method not allowed');
+  const source = clientIp(req);
+  const limited = await registrationLimits.consumeTokenRequest(source);
+  if (!limited.allowed) return sendOAuth(res, oauthError('temporarily_unavailable', { retryAfterSeconds: limited.retryAfterSeconds }));
+  const result = url.pathname === '/oauth/token' ? await oauthTokenRequest(req) : await oauthRevokeRequest(req);
+  if (result.countFailure) await registrationLimits.recordTokenFailure(source).catch(() => console.error('OAuth failure count was not recorded'));
+  return sendOAuth(res, result);
+}
+
+async function readTokenForm(req) {
+  if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/x-www-form-urlencoded')) return { invalid: true };
+  const raw = await readLimitedBody(req, tokenRequestMaxBytes);
+  return raw === null ? { invalid: true } : parseTokenForm(raw);
+}
+const authenticateOAuthClient = (req, params) => authenticateClient({
+  authorization: req.headers.authorization, bodyClientId: params.get('client_id'), resolveClient: remoteAuth.resolveClient
+});
+
+async function oauthTokenRequest(req) {
+  const form = await readTokenForm(req);
+  if (form.invalid) return oauthError('invalid_request');
+  const { params } = form;
+  const grantType = params.get('grant_type');
+  if (!grantType) return oauthError('invalid_request');
+  const bootstrap = grantType === grantTypes.bootstrap;
+  if (!Object.values(grantTypes).includes(grantType) || (bootstrap && !onboardingFlags.providerConnectors)) return oauthError('unsupported_grant_type');
+  // Row 2: parameters, before any lookup.
+  const parsed = bootstrap ? bootstrapGrantParameters(params) : grantType === grantTypes.refresh_token ? refreshGrantParameters(params) : codeGrantParameters(params);
+  if (!parsed) return oauthError('invalid_request');
+  // Row 3.
+  const authenticated = await authenticateOAuthClient(req, params);
+  if (authenticated.error) return authenticated.error;
+  const { client } = authenticated;
+  if (bootstrap && !(client.bootstrapCode && client.tokenEndpointAuthMethod === 'client_secret_basic')) return oauthError('unauthorized_client');
+  if (grantType === grantTypes.refresh_token) return refreshOAuthToken(client, parsed);
+  return exchangeOAuthCode(client, parsed, bootstrap ? 'bootstrap_code' : 'authorization_code');
+}
+
+// §6.1 rows 4-10, and §8's bootstrap exchange (rows 4, 5 and 8, then 9 and 10, applied to the code). Each row decides before
+// the next is read; the reuse check is row 9, after every check that makes a request valid.
+async function exchangeOAuthCode(client, p, kind) {
+  const failed = (error = 'invalid_grant') => ({ ...oauthError(error), countFailure: true });
+  const codeHash = sha256Hex(p.code);
+  const index = await store.getJson(oauthCodePath(codeHash));
+  // Row 4: the code exists and was issued to this client. An orphan (its registration gone) is unknown and revokes nothing.
+  if (!index || index.kind !== kind || index.clientId !== client.clientId) return failed();
+  const registration = await registrations.getRegistration(index.registrationId);
+  if (!registration?.oauth || registration.oauth.codeHash !== codeHash || registration.oauth.clientId !== client.clientId
+    || registration.oauth.source !== (kind === 'bootstrap_code' ? 'bootstrap' : 'consent')) return failed();
+  // Row 5.
+  if (new Date(index.expiresAt) <= new Date()) return failed();
+  if (kind === 'authorization_code') {
+    // Row 6: exactly the redirect_uri of the authorization request, loopback port included. Row 7: PKCE S256.
+    if (registration.oauth.redirectUri !== p.redirectUri) return failed();
+    if (!pkceMatches(p.verifier, registration.oauth.codeChallenge)) return failed();
+  }
+  // Row 8: the resource of the request, of the approval and of this server are one.
+  if (p.resource !== registration.oauth.resource || p.resource !== remoteAuth.resource) return failed('invalid_target');
+  // Row 9: a used code is always denied. Reaching here means every earlier row passed, so this is an otherwise valid replay:
+  // it ends the installation the first exchange created, if that is still active.
+  if (index.usedAt || registration.oauth.codeUsedAt || registration.status === 'activated') {
+    await endReplayedOAuthInstallation(registration.id);
+    return failed();
+  }
+  // Row 10 and the activation (agent-registration §6.1 row 11 and §6.3), for deliveryMode on_demand.
+  const outcome = await runActivation(registration, (current, plannedInboxId, writeAudit) => commitActivation(null, current, { deliveryMode: 'on_demand' }, null, plannedInboxId, writeAudit, { oauth: true }));
+  // A concurrent exchange won the activation lock: this is the second holder of one code.
+  if (outcome.again) {
+    await endReplayedOAuthInstallation(registration.id);
+    return failed();
+  }
+  if (outcome.ended) return failed();
+  await settleActivation(outcome.activated);
+  return oauthSuccess(outcome.activated.response);
+}
+
+// §6.1 "A used code": ends the installation the first exchange created while it is still active, as agent-registration §6.1
+// row 7a does. The identity is not frozen.
+async function endReplayedOAuthInstallation(registrationId) {
+  const registration = await store.getJson(registrationPath(registrationId));
+  if (!registration?.agentInboxId || !registration.credentialFamilyId) return;
+  const outcome = await withInboxMutation(registration.agentInboxId, async writeAudit => {
+    const current = await store.getJson(registrationPath(registrationId));
+    const agent = await store.getJson(path.join('inboxes', current.agentInboxId, 'agents', `${current.agentId}.json`));
+    const installation = agent ? await installations.forFamily(current.agentInboxId, agent, current.credentialFamilyId) : null;
+    if (!installation || installation.status !== 'active') return { ended: true };
+    return revokeReplayedActivation(current, writeAudit);
+  }, [], [registrationLockKey(registrationId)]);
+  if (outcome.replayed) closeAgentStreams(outcome.replayed.agentInboxId, outcome.replayed.agentId, { code: 'CREDENTIAL_REVOKED', reason: 'revoked' }, outcome.replayed.credentialFamilyId);
+}
+
+// agent-registration §14.5: the first use of either successor deletes the envelope that names it and clears recoveryTokenHash on
+// both successors, in one write under the family lock (held by the caller). `keepPath` is a record the caller rewrites itself.
+async function retireOAuthRecovery(recoveryTokenHash, keepPath = null) {
+  const envelope = await store.getJson(oauthRefreshRecoveryPath(recoveryTokenHash));
+  if (!envelope) return;
+  const writes = [];
+  for (const target of [agentCredentialPath(envelope.successorAccessHash), agentRefreshCredentialPath(envelope.successorRefreshHash)]) {
+    if (target === keepPath) continue;
+    const record = await store.getJson(target);
+    if (record?.recoveryTokenHash) writes.push(document(target, { ...record, recoveryTokenHash: null }));
+  }
+  if (writes.length) await store.putJsonBatch(writes);
+  await store.deleteJson(oauthRefreshRecoveryPath(recoveryTokenHash));
+}
+
+// §14.2: the first outer /mcp request an oauth_access token authenticates records `usedAt`, before it is dispatched, with a
+// conditional write under the family lock that a refresh also takes. It is the first use that retires a recovery envelope.
+async function markOAuthAccessUsed(tokenHash, record) {
+  if (record.usedAt) return;
+  await store.withTransaction([oauthFamilyLockKey(record.familyId)], async () => {
+    const target = agentCredentialPath(tokenHash);
+    const current = await store.getJson(target);
+    if (!current || current.usedAt) return;
+    if (current.recoveryTokenHash) await retireOAuthRecovery(current.recoveryTokenHash, target);
+    await store.putJson(target, { ...current, usedAt: store.now(), recoveryTokenHash: null });
+  });
+}
+
+// Revoking a family also deletes its recovery envelopes. Best effort: a revoked family is refused anyway.
+async function deleteOAuthRecoveries(familyId) {
+  for (const envelope of await store.listJson(oauthRefreshRecoveryDir)) {
+    if (envelope?.familyId === familyId && /^[a-f0-9]{64}$/.test(envelope.tokenHash || '')) await store.deleteJson(oauthRefreshRecoveryPath(envelope.tokenHash));
+  }
+}
+
+// §6.2. Rows 4-8 run under the family's lock together with the inbox lock the A1 rotation takes.
+async function refreshOAuthToken(client, p) {
+  const failed = (error = 'invalid_grant') => ({ ...oauthError(error), countFailure: true });
+  // Row 4: an oauth_refresh token of a family issued to this client. An A1 `refresh`, a token of another client and an
+  // unknown token are all unknown here.
+  if (!hasAgentCredentialFormat(p.token, 'refresh')) return failed();
+  const tokenHash = hashSecret(p.token);
+  const refreshPath = agentRefreshCredentialPath(tokenHash);
+  const pending = await store.getJson(refreshPath);
+  if (pending?.tokenType !== 'oauth_refresh' || !pending.inboxId || !pending.agentId || !pending.familyId) return failed();
+  const familyPath = agentCredentialFamilyPath(pending.inboxId, pending.agentId, pending.familyId);
+  const pendingFamily = await store.getJson(familyPath);
+  if (!pendingFamily?.audience || pendingFamily.oauthClientId !== client.clientId) return failed();
+  const replayEvents = [];
+  const writeReplayAudit = async (type, data, createdAt, targetInboxId) => {
+    const record = await auditRecord(targetInboxId, type, data, createdAt);
+    await store.putJson(record.document.path, record.document.value);
+    replayEvents.push({ inboxId: targetInboxId, event: record.event });
+    return record.event;
+  };
+  let recovered = false;
+  const rotate = async () => {
+    const current = await store.getJson(refreshPath);
+    const family = await store.getJson(familyPath);
+    const agent = await store.getJson(path.join('inboxes', pending.inboxId, 'agents', `${pending.agentId}.json`));
+    if (current?.tokenType !== 'oauth_refresh' || !family?.audience || family.oauthClientId !== client.clientId) return { error: 'invalid_grant' };
+    // Row 5: the family is live and the agent is still approved. A paused agent can refresh (a3 §14).
+    if (family.revokedAt || current.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return { error: 'invalid_grant' };
+    if (!agent || agent.onboardingStatus !== 'approved' || !['active', 'paused'].includes(agent.status)) return { error: 'invalid_grant' };
+    const scope = scopeForPermissions(agent.permissions || []);
+    // Rows 7 and 8 never consume a token: they are checked before anything is written.
+    const scopeOrTarget = () => (p.scope !== null && !sameScopes(p.scope, scope) ? 'invalid_scope' : p.resource !== null && p.resource !== family.audience ? 'invalid_target' : null);
+    const oauthFamilyRef = { familyId: family.id, oauthClientId: client.clientId };
+    if (current.usedAt) {
+      // Row 6: the previous token is recoverable only inside the 60 s window, by the same client, and only while neither
+      // successor has been used. Anything else is replay.
+      const envelope = await store.getJson(oauthRefreshRecoveryPath(tokenHash));
+      if (envelope?.familyId === family.id && envelope.oauthClientId === client.clientId && new Date(envelope.expiresAt) > new Date()) {
+        const [successorAccess, successorRefresh] = await Promise.all([store.getJson(agentCredentialPath(envelope.successorAccessHash)), store.getJson(agentRefreshCredentialPath(envelope.successorRefreshHash))]);
+        if (successorAccess?.usedAt === null && successorRefresh?.usedAt === null && !successorAccess.revokedAt && !successorRefresh.revokedAt) {
+          const response = openRefreshRecovery(p.token, connectorEncryptionKey(), oauthFamilyRef, envelope.envelope);
+          if (response) {
+            const invalid = scopeOrTarget();
+            if (invalid) return { error: invalid };
+            recovered = true;
+            return { response };
+          }
+        }
+      }
+      // Two holders of one refresh token: the family is revoked. Returned, not thrown, so the revocation commits.
+      const revokedAt = store.now();
+      await store.putJson(familyPath, { ...family, revokedAt, revokedReason: 'refresh_replay', updatedAt: revokedAt });
+      await caseSessions.endForFamily(pending.inboxId, pending.agentId, family.id, 'credential_ended', revokedAt, writeReplayAudit);
+      await deleteOAuthRecoveries(family.id);
+      return { replayed: { inboxId: pending.inboxId, agentId: pending.agentId, familyId: family.id } };
+    }
+    if (new Date(current.expiresAt) <= new Date()) return { error: 'invalid_grant' };
+    const invalid = scopeOrTarget();
+    if (invalid) return { error: invalid };
+    // The first use of a successor refresh token is the next rotation: it retires the envelope that named it.
+    if (current.recoveryTokenHash) await retireOAuthRecovery(current.recoveryTokenHash, refreshPath);
+    await store.putJson(refreshPath, { ...current, usedAt: store.now(), recoveryTokenHash: null });
+    const successor = await issueAgentCredentials(pending.agentId, pending.inboxId, family.id, true, {}, { oauth: true, recoveryTokenHash: tokenHash });
+    const response = tokenResponse({ accessToken: successor.agentApiToken, refreshToken: successor.agentRefreshToken, expiresIn: agentAccessTokenTtlSeconds, scope });
+    const createdAt = store.now();
+    await store.putJson(oauthRefreshRecoveryPath(tokenHash), {
+      tokenHash, familyId: family.id, oauthClientId: client.clientId,
+      successorAccessHash: hashSecret(successor.agentApiToken), successorRefreshHash: hashSecret(successor.agentRefreshToken),
+      envelope: sealRefreshRecovery(p.token, connectorEncryptionKey(), oauthFamilyRef, response), createdAt,
+      expiresAt: new Date(new Date(createdAt).getTime() + refreshRecoverySeconds * 1000).toISOString()
+    });
+    return { response };
+  };
+  const result = await store.withTransaction([inboxMutationKey(pending.inboxId), oauthFamilyLockKey(pending.familyId)], rotate);
+  if (result.error) return failed(result.error);
+  if (result.response) {
+    void presenceRecorder.record({ inboxId: pending.inboxId, agentId: pending.agentId, familyId: pending.familyId }, ['lastSeenAt', 'lastSuccessfulRefreshAt']);
+    // Only recoveries are audited, as for A1: an event per ordinary refresh would flood the owner's activity.
+    if (recovered) {
+      await audit(pending.inboxId, 'agent.refresh_recovered', { agentId: pending.agentId, credentialFamilyId: pending.familyId, refreshExpiresAt: pendingFamily.refreshExpiresAt })
+        .catch(error => console.error('Refresh recovery audit failed', { name: error?.name || 'Error', agentId: pending.agentId, credentialFamilyId: pending.familyId }));
+    }
+    return oauthSuccess(result.response);
+  }
+  for (const committed of replayEvents) publish(committed.inboxId, committed.event);
+  const { inboxId, agentId, familyId } = result.replayed;
+  await audit(inboxId, 'agent.refresh_replay_detected', { agentId, credentialFamilyId: familyId });
+  closeAgentStreams(inboxId, agentId, { code: 'CREDENTIAL_REVOKED', reason: 'refresh_replay' }, familyId);
+  return failed();
+}
+
+// §7, RFC 7009. A token of a family issued to this client, access or refresh, revokes the family. An unknown, expired or
+// already-revoked token is a 200 that changes nothing. A token of another client, or of a family with no client, is
+// unauthorized_client and changes nothing.
+async function oauthRevokeRequest(req) {
+  const form = await readTokenForm(req);
+  if (form.invalid) return oauthError('invalid_request');
+  const { params } = form;
+  const token = params.get('token');
+  if (!token || token.length > 512 || (params.has('token_type_hint') && params.get('token_type_hint').length > 64)) return oauthError('invalid_request');
+  const authenticated = await authenticateOAuthClient(req, params);
+  if (authenticated.error) return authenticated.error;
+  const { client } = authenticated;
+  const empty = { status: 200, headers: { 'cache-control': 'no-store', pragma: 'no-cache' } };
+  const target = hasAgentCredentialFormat(token, 'refresh') ? agentRefreshCredentialPath(hashSecret(token))
+    : hasAgentCredentialFormat(token, 'access') ? agentCredentialPath(hashSecret(token)) : null;
+  const record = target ? await store.getJson(target) : null;
+  if (!record?.familyId || !record.inboxId || !record.agentId) return empty;
+  const familyPath = agentCredentialFamilyPath(record.inboxId, record.agentId, record.familyId);
+  const family = await store.getJson(familyPath);
+  if (!family) return empty;
+  // A family with no client (local_helper) and a family of another client are not this client's to revoke.
+  if (!oauthTokenTypes.includes(record.tokenType) || !family.audience || family.oauthClientId !== client.clientId) return { ...oauthError('unauthorized_client'), countFailure: true };
+  if (family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return empty;
+  const revoked = await withInboxMutation(record.inboxId, async writeAudit => {
+    const current = await store.getJson(familyPath);
+    if (!current || current.revokedAt) return null;
+    const agent = await store.getJson(path.join('inboxes', record.inboxId, 'agents', `${record.agentId}.json`));
+    const at = store.now();
+    await revokeCredentialFamily(record.inboxId, record.agentId, record.familyId, null, at, 'revoked', writeAudit);
+    // Leases held by this installation would block the next one until they expire.
+    const held = await releaseFamilyLeases(record.inboxId, record.agentId, record.familyId, at);
+    await writeAudit('agent.installation_revoked', { agentId: record.agentId, installationId: current.installationId || null, credentialFamilyId: record.familyId, actor: 'client' }, at);
+    if (held) await writeAudit('work.available', { agentId: record.agentId, reason: 'lease_released' }, at);
+    return agent ? record : null;
+  });
+  if (revoked) closeAgentStreams(record.inboxId, record.agentId, { code: 'CREDENTIAL_REVOKED', reason: 'revoked' }, record.familyId);
+  return empty;
+}
+
+async function releaseFamilyLeases(inboxId, agentId, familyId, at) {
+  const held = (await store.listJson(path.join('inboxes', inboxId, 'work-claims')))
+    .filter(claim => claim.agentId === agentId && claim.credentialFamilyId === familyId && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(at));
+  await store.putJsonBatch(held.map(claim => document(workClaimPath(inboxId, claim.workId), { ...claim, status: 'retryable', retryAt: at, leaseExpiresAt: null, reofferWithoutAttempt: true, releasedAt: at, updatedAt: at })));
+  return held.length;
+}
+
+// §8 issue: POST /api/oauth/bootstrap-codes, human session and CSRF (checked before this handler). The checks and precedence
+// are §5.2's, with step 3 being "the client is a bootstrap client", else 404 AUTHORIZATION_REQUEST_INVALID. The code is in
+// this response only, and its approval lapses after 600 s.
+async function handleBootstrapIssue(req, res) {
+  if (req.method !== 'POST') return fail(res, 405, 'Method not allowed');
+  if (!onboardingFlags.providerConnectors) throw remoteAuthDisabled();
+  const human = await auth.getHuman(req);
+  if (!human) throw codedError(401, 'AUTHENTICATION_REQUIRED', 'Please sign in again.');
+  res.setHeader('cache-control', 'no-store');
+  const input = await readJsonBody(req);
+  const value = !input.invalid && input.value && typeof input.value === 'object' && !Array.isArray(input.value) ? input.value : null;
+  const client = typeof value?.clientId === 'string' ? await remoteAuth.resolveClient(value.clientId) : null;
+  const bootstrapClient = client && client.registration === 'pre_registered' && client.bootstrapCode && client.connectionRoute === 'provider_connector' ? client : null;
+  const { clientId: _clientId, ...body } = value || {};
+  const outcome = await registrations.approveBootstrap(human, bootstrapClient, remoteAuth.resource, value ? body : null);
+  const { approved } = outcome;
+  return json(res, 201, {
+    bootstrapCode: outcome.code, expiresAt: approved.codeExpiresAt, registrationId: approved.registrationId, clientName: bootstrapClient.clientName, provider: bootstrapClient.provider,
+    target: approved.target, workspaceName: approved.workspaceName, agent: approved.agent, effectivePermissions: approved.effectivePermissions, policyProfile: approved.policyProfile
+  });
 }
 
 // The reviewed agent-facing skill content (Lane B, integrations/onboarding/skill). It stays
@@ -3087,6 +3438,8 @@ async function route(req, res) {
   if (url.pathname !== '/mcp' && !consumeRateLimit(req, res, url.pathname)) throw codedError(429, 'RATE_LIMITED', 'Too many requests. Retry after the indicated delay.', { retryAfterSeconds: Number(res.getHeader('retry-after')) || 1 });
   if (await browserGatewayHttp(req, res, url)) return;
   const csrfExempt = url.pathname === '/api/email-webhooks/resend'
+    || url.pathname === '/oauth/token'
+    || url.pathname === '/oauth/revoke'
     || url.pathname.startsWith('/api/object-storage/local-upload/')
     || url.pathname === '/api/auth/phone/start'
     || url.pathname === '/api/auth/phone/verify';
