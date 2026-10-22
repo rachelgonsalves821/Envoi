@@ -1,5 +1,7 @@
 # P0 completion handoff
 
+The later consolidated candidate combines #192, #195 and #197 once on the current integration base. See [its source selection and approval boundary](P0-CONSOLIDATED-CANDIDATE.md). The original assembly and acceptance history below are retained.
+
 Direct human assignment: complete the whole P0 implementation in this chat. Prior B/C tests were explicitly confirmed complete and countersigned on 2026-10-21 (America/New_York). The [attributed board record](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6330847176) corrects the earlier audit's blanket missing-test label. [Phase C client status](phase-c/EVIDENCE.md) retains the evidence boundary.
 
 ## Client implementation in this branch
