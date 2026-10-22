@@ -7,12 +7,13 @@ import { ConnectorSetupError } from './adapter';
 import { connectionStatus, doctorConnection, prepareConnection, readConnection, removeInstalledExecutable, setupConnection, startCommand, startConnection } from './core';
 import { installConnectorService, uninstallConnectorService } from './service';
 import { queryControl } from './control';
+import { clearHostedWake, configureHostedWake } from './hosted-wake-config';
 
 const usage = `Envoi connector (Node.js 22+) — OpenClaw, Hermes, Grok\n
 prepare --runtime <openclaw|hermes|grok> --api-url <Envoi origin> [--prepare-runtime]\n
 setup --handoff <private JSON file> [--install-service] [--prepare-runtime]\n
 setup --handoff-stdin [--install-service] [--prepare-runtime]\n
-start|status|doctor|install-service|stop|uninstall --state-dir <directory>\n
+start|status|doctor|install-service|configure-wake|clear-wake|stop|uninstall --state-dir <directory>\n
 Discovery overrides: --config <path> --profile <name> --agent <id> --gateway-url <origin>\n
 Keep keys in local secret storage. Never pass them as arguments.\n
 Hermes --prepare-runtime configures its local API key and API settings.\n
@@ -63,8 +64,15 @@ export async function connectorMain(args = process.argv.slice(2)) {
     } else process.stderr.write('Run install-service or supervise the reported start command. A terminal-only process stops when its session ends.\n');
     return;
   }
-  if (!['start', 'status', 'doctor', 'install-service', 'stop', 'uninstall'].includes(command) || !values.get('--state-dir') || values.size !== 1 || flags.size) throw new ConnectorSetupError('ARGUMENT_INVALID', 'Supply a supported command and --state-dir. Run --help');
+  if (!['start', 'status', 'doctor', 'install-service', 'configure-wake', 'clear-wake', 'stop', 'uninstall'].includes(command) || !values.get('--state-dir') || values.size !== 1 || flags.size) throw new ConnectorSetupError('ARGUMENT_INVALID', 'Supply a supported command and --state-dir. Run --help');
   const directory = path.resolve(values.get('--state-dir')!);
+  if (command === 'configure-wake' || command === 'clear-wake') {
+    await readConnection(directory);
+    if (command === 'configure-wake') await configureHostedWake(directory);
+    else await clearHostedWake(directory);
+    process.stdout.write(`${JSON.stringify({ hostedWake: command === 'configure-wake' ? 'configured' : 'disabled', note: 'Restart the connector service to apply this change' })}\n`);
+    return;
+  }
   if (command === 'status') { process.stdout.write(`${JSON.stringify(await connectionStatus(directory))}\n`); return; }
   if (command === 'doctor') { process.stdout.write(`${JSON.stringify(await doctorConnection(directory, adapterFor))}\n`); return; }
   if (command === 'install-service') { const saved = await readConnection(directory); process.stdout.write(`${JSON.stringify({ startupService: await installConnectorService(directory, saved.runtime), startsAt: 'user login' })}\n`); return; }

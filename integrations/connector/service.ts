@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { CONNECTOR_RUNTIMES } from '../../sdk/typescript/src/quick-connect';
 import { rm } from 'node:fs/promises';
 import { windowsAccountSid, windowsExecutable } from './windows';
+import { prepareHostedWakeService } from './hosted-wake-config';
 
 const execute = promisify(execFile);
 const xml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
@@ -62,6 +63,7 @@ export async function checkServiceManager() {
 
 export async function installConnectorService(directory: string, runtime = 'openclaw') {
   await checkServiceManager();
+  await prepareHostedWakeService(directory);
   let user: string | undefined;
   if (process.platform === 'win32') {
     user = await windowsAccountSid();

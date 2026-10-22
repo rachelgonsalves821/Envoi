@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,8 @@ import { startQuickConnect } from '../openclaw/quick-connect';
 import { FileWakeStore } from './http-wake-store';
 import { acquireConnectorLock } from './store';
 import type { ConnectorAdapter } from './adapter';
+import { clearHostedWake, configureHostedWake, prepareHostedWakeService, readHostedWakeConfig } from './hosted-wake-config';
+import { connectorService } from './service';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
@@ -84,6 +86,45 @@ const scopedAdapter: ConnectorAdapter<object> = {
 // This combined candidate includes #174's Windows file-identity verification.
 describe('normal hosted wake entrypoints (offline simulated services)', () => {
   for (const kind of ['unified', 'quick'] as const) {
+    it(`${kind} loads private wake settings after a simulated Windows service restart without inherited environment`, async () => {
+      const test = await fixture(kind);
+      await prepareHostedWakeService(test.stateDir, test.env, secureDirectory);
+      const saved = await readFile(path.join(test.stateDir, 'hosted-wake.json'), 'utf8');
+      expect(JSON.parse(saved)).toEqual({ version: 1, registeredUrl: callbackUrl, port: test.port, installationId });
+      const manifest = connectorService(test.stateDir, { platform: 'win32', user: 'S-1-5-21-100',
+        node: 'C:\\node.exe', env: { SystemRoot: 'C:\\Windows' } }).contents;
+      expect(manifest).not.toContain(callbackUrl);
+      expect(manifest).not.toContain(installationId);
+      const stop = new AbortController();
+      const ready = vi.fn();
+      const restartedEnv = { ENVOI_SCOPED_TOOLS: 'true' };
+      const run = kind === 'unified'
+        ? startConnection(test.stateDir, stop.signal, () => scopedAdapter,
+          { env: restartedEnv, fetch: test.fetcher, secureDirectory, control: false, onReady: ready })
+        : startQuickConnect(test.stateDir, stop.signal,
+          { env: restartedEnv, fetch: test.fetcher, secureDirectory, onReady: ready });
+      try {
+        await vi.waitFor(() => expect(test.listenerAtCreate).toEqual([400]), { timeout: 5_000 });
+        expect(ready).toHaveBeenCalledTimes(1);
+      } finally { stop.abort(); await run; }
+      const release = await acquireConnectorLock(test.stateDir); await release();
+      const wake = await FileWakeStore.open(path.join(test.stateDir, 'wake')); await wake.close();
+    });
+
+    it(`${kind} rejects partial or mismatched restart environment before network work`, async () => {
+      const test = await fixture(kind);
+      await prepareHostedWakeService(test.stateDir, test.env, secureDirectory);
+      const start = (env: NodeJS.ProcessEnv) => kind === 'unified'
+        ? startConnection(test.stateDir, new AbortController().signal, () => scopedAdapter,
+          { env, fetch: test.fetcher, secureDirectory, control: false })
+        : startQuickConnect(test.stateDir, new AbortController().signal,
+          { env, fetch: test.fetcher, secureDirectory });
+      await expect(start({ ENVOI_SCOPED_TOOLS: 'true', ENVOI_WAKE_URL: callbackUrl })).rejects.toThrow(/together/);
+      await expect(start({ ...test.env, ENVOI_WAKE_INSTALLATION_ID: 'installation_other' })).rejects.toThrow(/differs/);
+      expect(test.calls).toEqual([]);
+      const release = await acquireConnectorLock(test.stateDir); await release();
+    });
+
     it(`${kind} starts one scoped connector and listener before subscription, then releases both locks on abort`, async () => {
       const test = await fixture(kind);
       const stop = new AbortController();
@@ -93,7 +134,7 @@ describe('normal hosted wake entrypoints (offline simulated services)', () => {
           secureDirectory, control: false, onReady: ready })
         : startQuickConnect(test.stateDir, stop.signal, { env: test.env, fetch: test.fetcher, secureDirectory, onReady: ready });
       try {
-        await vi.waitFor(() => expect(test.listenerAtCreate).toEqual([400]));
+        await vi.waitFor(() => expect(test.listenerAtCreate).toEqual([400]), { timeout: 5_000 });
         expect(ready).toHaveBeenCalledTimes(1);
         await vi.waitFor(() => expect(test.calls).toContain('POST /api/agent/work/claim'));
         const second = kind === 'unified'
@@ -121,4 +162,19 @@ describe('normal hosted wake entrypoints (offline simulated services)', () => {
       const wake = await FileWakeStore.open(path.join(test.stateDir, 'wake')); await wake.close();
     });
   }
+
+  it('requires explicit rotation and supports removal without falling back from corrupt saved state', async () => {
+    const test = await fixture('unified');
+    await prepareHostedWakeService(test.stateDir, test.env, secureDirectory);
+    await expect(prepareHostedWakeService(test.stateDir, { ...test.env, ENVOI_WAKE_INSTALLATION_ID: 'installation_other' }, secureDirectory))
+      .rejects.toThrow(/configure-wake/);
+    await configureHostedWake(test.stateDir, { ...test.env, ENVOI_WAKE_INSTALLATION_ID: 'installation_other' }, secureDirectory);
+    expect((await readHostedWakeConfig(test.stateDir))?.installationId).toBe('installation_other');
+    await writeFile(path.join(test.stateDir, 'hosted-wake.json'), '{');
+    await expect(startConnection(test.stateDir, new AbortController().signal, () => scopedAdapter,
+      { env: {}, fetch: test.fetcher, secureDirectory, control: false })).rejects.toThrow(/invalid/);
+    expect(test.calls).toEqual([]);
+    await clearHostedWake(test.stateDir, secureDirectory);
+    expect(await readHostedWakeConfig(test.stateDir)).toBeNull();
+  });
 });
