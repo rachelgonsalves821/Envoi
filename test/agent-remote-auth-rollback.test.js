@@ -10,7 +10,7 @@ import { mkdtemp, rm, unlink, symlink, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { api, assertTokenResponse, backends, connect, documents, exchange, familyParts, installationView, openStore, owner, publicClient, refreshParams, registrationParts, remoteServer, stored, tokenPost } from './agent-remote-auth-token-harness.js';
+import { api, assertTokenResponse, backends, connect, documents, exchange, familyParts, installationView, openStore, freshOwner, publicClient, refreshParams, registrationParts, remoteServer, stored, tokenPost } from './agent-remote-auth-token-harness.js';
 import { createAgentSlots } from '../src/agent-approval.js';
 import { createAgentRegistrations, sha256Hex } from '../src/agent-registration.js';
 import { verificationCodeKey } from '../src/agent-registration-codes.js';
@@ -66,7 +66,7 @@ for (const backend of backends) {
     const server = await remoteServer(t, backend);
     const docs = documents(t, server);
     const live = async () => {
-      const who = await owner(server.baseUrl, String(9100 + Math.floor(Math.random() * 800)));
+      const who = await freshOwner(server);
       const grant = await connect(server, who);
       const tokens = assertTokenResponse(await exchange(server, grant));
       const { registration } = await stored(docs, grant.registrationId);
@@ -75,7 +75,7 @@ for (const backend of backends) {
     const first = await live();
     const rotated = assertTokenResponse(await tokenPost(server, refreshParams(publicClient, first.tokens.refresh_token)));
     const second = await live();
-    const pendingWho = await owner(server.baseUrl, String(9100 + Math.floor(Math.random() * 800) + 1000));
+    const pendingWho = await freshOwner(server);
     const pending = await connect(server, pendingWho);
     const all = [
       { registrationId: first.grant.registrationId, code: first.grant.code, handle: first.grant.handle },

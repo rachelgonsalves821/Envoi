@@ -43,6 +43,11 @@ export const PAST = '2000-01-01T00:00:00.000Z';
 export const backends = [{ name: 'FileStore', env: {} }, ...(process.env.DATABASE_URL ? [{ name: 'PostgreSQL', env: { DATABASE_URL: process.env.DATABASE_URL } }] : [])];
 export { api, freshIp, launch, owner, withdrawRequest };
 
+// A phone suffix no earlier owner on a shared database (PostgreSQL keeps every test's humans) can have used.
+const ownerBase = crypto.randomInt(0, 900_000);
+let ownerCount = 0;
+export const freshOwner = server => owner(server.baseUrl, String(100_000 + (ownerBase + (ownerCount += 1)) % 900_000));
+
 export async function freePort() {
   return new Promise(resolve => { const probe = net.createServer().listen(0, '127.0.0.1', () => { const free = probe.address().port; probe.close(() => resolve(free)); }); });
 }
@@ -185,8 +190,10 @@ export async function connect(server, who, { client = publicClient, redirectUri 
   assert.equal(approved.status, 200, approved.text);
   const code = new URL(approved.payload.redirectTo).searchParams.get('code');
   assert.match(code, /^envoi_oauth_code_[A-Za-z0-9_-]{43}$/);
-  return { code, verifier, redirectUri: redirect, registrationId: approved.payload.registrationId, client, who, handle, approved: approved.payload };
+  return { code, verifier, redirectUri: redirect, registrationId: approved.payload.registrationId, client, who, handle, body, approved: approved.payload };
 }
+// The identical approval again (a lost response, a reload, a double click): the decision, never a code.
+export const retryApprove = (server, grant) => api(server.baseUrl, `/api/oauth/authorization-requests/${encodeURIComponent(grant.handle)}/approve`, { session: grant.who.session, body: grant.body });
 export const codeParams = (grant, overrides = {}) => ({
   grant_type: 'authorization_code', code: grant.code, redirect_uri: grant.redirectUri, code_verifier: grant.verifier, resource: grant.resource, client_id: grant.client.clientId, ...overrides
 });
