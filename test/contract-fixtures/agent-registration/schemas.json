@@ -2697,6 +2697,9 @@
               },
               "client": {
                 "$ref": "#/definitions/fixtureClient"
+              },
+              "storedAfter": {
+                "$ref": "#/definitions/fixture/properties/stored"
               }
             },
             "additionalProperties": false
@@ -2705,6 +2708,67 @@
         },
         "client": {
           "$ref": "#/definitions/fixtureClient"
+        },
+        "timeline": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "event",
+              "at",
+              "storedAfter"
+            ],
+            "properties": {
+              "event": {
+                "enum": [
+                  "old_refresh_presented",
+                  "successor_access_used",
+                  "successor_refresh_used",
+                  "index_sweep",
+                  "registration_cleanup",
+                  "restart"
+                ]
+              },
+              "at": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+              },
+              "tokenHash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$",
+                "description": "The token record the event presents or uses."
+              },
+              "storedAfter": {
+                "$ref": "#/definitions/fixture/properties/stored"
+              },
+              "outcome": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "oldRefreshToken": {
+                    "enum": [
+                      "recovered_identical_response",
+                      "replay_revokes_family"
+                    ]
+                  },
+                  "codePresented": {
+                    "enum": [
+                      "reuse_revokes_installation",
+                      "invalid_grant_revokes_nothing"
+                    ]
+                  },
+                  "consentRetry": {
+                    "enum": [
+                      "consentDecided",
+                      "AUTHORIZATION_REQUEST_INVALID"
+                    ]
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "allOf": [
@@ -2995,6 +3059,18 @@
             }
           ],
           "description": "Refresh records: when the token was rotated. oauth_access records: the first /mcp request it authenticated, written under the family lock (recovery check, §14.5)."
+        },
+        "recoveryTokenHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The two successors of an OAuth rotation: the hash of the old refresh token, which keys the recovery envelope. The first use of either successor deletes that envelope and clears this field on both, in one write under the family lock (§14.5)."
         }
       }
     },
@@ -3570,11 +3646,47 @@
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
         },
         "deleteAfter": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
-          "description": "Approval records: the registration retention (§2, 24 h after createdAt). Denials: handleExpiresAt."
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null for a record that has a registration: it lives exactly as long as that registration, which deletes it in its own cleanup. A denial (no registration): its handleExpiresAt."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "registrationId": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "consent_decision"
+              },
+              "deleteAfter": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "deleteAfter": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "x-stored-records": [
@@ -3612,7 +3724,7 @@
       "transaction": "approval; activation",
       "secret": "SHA-256 of the raw code",
       "retention": "with its registration",
-      "cleanup": "deleted with its registration; an orphan is swept through the cleanup index"
+      "cleanup": "deleted with its registration, in the same transaction as the registration itself; an orphan (registration already gone) is swept through the cleanup index"
     },
     {
       "record": "consent decision",
@@ -3621,7 +3733,7 @@
       "transaction": "approval, or the deny write; created only if absent",
       "secret": "SHA-256 of the handle and of the body; no handle",
       "retention": "approved: with its registration; denied: until handleExpiresAt",
-      "cleanup": "deleted with its registration, or swept after handleExpiresAt, through the cleanup index"
+      "cleanup": "approved: deleted with its registration, in the same transaction; denied: swept after handleExpiresAt; an orphan is swept through the cleanup index"
     },
     {
       "record": "OAuth cleanup index",
@@ -3630,7 +3742,7 @@
       "transaction": "the same write as its record",
       "secret": "the record key only (a SHA-256)",
       "retention": "until its record is deleted",
-      "cleanup": "the cleanup job walks hour buckets up to now; it deletes the record once deleteAfter passed or its registration is gone, then the entry"
+      "cleanup": "registration cleanup deletes the entries of its registration with it; the index sweep never deletes a record whose registration still exists (it revisits it), deletes an orphan whose registration is gone, and deletes a denial after its deleteAfter"
     },
     {
       "record": "OAuth refresh recovery envelope",
@@ -3639,7 +3751,7 @@
       "transaction": "the refresh rotation",
       "secret": "AES-256-GCM under HKDF-SHA256(old raw refresh token, salt SHA-256(ENVOI_DATA_ENCRYPTION_KEY), info envoi-oauth-refresh-recovery-v1); AAD familyId and oauthClientId",
       "retention": "60 s (x-limits.refreshRecoverySeconds of agent-remote-auth)",
-      "cleanup": "deleted at family revocation (best effort) and by the reaper after expiresAt; recovery is refused once either successor is used, checked under the family lock"
+      "cleanup": "deleted at the first use of either successor (agent-remote-auth §6.2), found through the successors' recoveryTokenHash, in one write under the family lock; also at family revocation (best effort) and by the reaper after expiresAt"
     },
     {
       "record": "rate-limit windows",

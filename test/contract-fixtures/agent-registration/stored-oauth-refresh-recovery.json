@@ -71,7 +71,8 @@
         "issuedAt": "2026-10-22T12:14:30.000Z",
         "expiresAt": "2026-10-22T12:29:30.000Z",
         "revokedAt": null,
-        "usedAt": null
+        "usedAt": null,
+        "recoveryTokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795"
       },
       {
         "tokenHash": "0204a6e397ded411326a19ca35ea5492b9241a59f049850aee73c04dc5d804cb",
@@ -82,7 +83,8 @@
         "issuedAt": "2026-10-22T12:14:30.000Z",
         "expiresAt": "2026-11-21T12:14:30.000Z",
         "revokedAt": null,
-        "usedAt": null
+        "usedAt": null,
+        "recoveryTokenHash": "9d028bea0f0de66df1ef1911dd3bb7f36ecbaeabc2c0c7769c218c6c3738f795"
       }
     ],
     "oauthRefreshRecoveries": [
@@ -148,6 +150,6 @@
   ],
   "client": {
     "surface": "server",
-    "next": "The same client presenting the old refresh token before expiresAt, while both successors are unused, gets the identical response decrypted from the envelope. Once either successor is used (checked under the family lock), or after expiresAt, any use of the old token is replay; the reaper deletes the envelope."
+    "next": "The same client presenting the old refresh token before expiresAt, while both successors are unused, gets the identical response decrypted from the envelope. The first use of either successor deletes the envelope (stored-oauth-successor-access-used, stored-oauth-successor-refresh-used); from then on, or after expiresAt, the old token is replay."
   }
 }

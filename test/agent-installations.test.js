@@ -33,13 +33,17 @@ function assertContract(name, value) {
 
 const stepsOf = fixture => fixture.steps || [{ request: fixture.request, response: fixture.response }];
 const installationSchemas = new Set(['ownerInstallationList', 'agentStatusWithInstallation', 'installationRevoked', 'activated']);
-const relevantSteps = fixture => stepsOf(fixture)
-  .map((step, stepIndex) => ({ ...step, stepIndex }))
-  .filter(step => [200, 201].includes(step.response?.status) && installationSchemas.has(step.response.schema));
+// agent-registration §14.8: a step that changes storage carries storedAfter, which it and later steps read.
+const relevantSteps = fixture => {
+  let state = fixture.stored;
+  return stepsOf(fixture)
+    .map((step, stepIndex) => ({ ...step, stepIndex, state: (state = step.storedAfter || state) }))
+    .filter(step => [200, 201].includes(step.response?.status) && installationSchemas.has(step.response.schema));
+};
 
 const agentIdOf = step => step.response.body.agentId || step.response.body.agent?.id || step.response.body.installation?.agentId;
-function storedFor(fixture, agentId) {
-  const { agents = [], credentialFamilies = [], installations = [] } = fixture.stored;
+function storedFor(state, agentId) {
+  const { agents = [], credentialFamilies = [], installations = [] } = state;
   return {
     agent: agents.find(agent => agent.id === agentId),
     families: credentialFamilies.filter(family => family.agentId === agentId),
@@ -123,7 +127,7 @@ for (const fixture of fixtures) {
       assertContract(step.response.schema, body);
 
       if (fixture.stored) {
-        const { agent, families, documents } = storedFor(fixture, agentId);
+        const { agent, families, documents } = storedFor(step.state, agentId);
         assert.ok(agent, `${fixture.id}: stored agent ${agentId}`);
         assertContract('storedAgent', agent);
         for (const family of families) assertContract('storedCredentialFamily', family);

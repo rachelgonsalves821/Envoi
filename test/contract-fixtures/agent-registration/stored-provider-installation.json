@@ -142,7 +142,7 @@
         "key": "499edd40f77f26ba81ccb773945f685719525c4224def777fa94ffa4811fe908",
         "registrationId": "registration_provider_example",
         "createdAt": "2026-10-22T12:00:00.000Z",
-        "deleteAfter": "2026-10-23T12:00:00.000Z"
+        "deleteAfter": null
       }
     ]
   },
