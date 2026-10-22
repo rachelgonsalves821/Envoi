@@ -3,16 +3,17 @@ import { readFile, access } from 'node:fs/promises';
 
 const pages = new Map([
   ['/', await readFile(new URL('../dist/index.html', import.meta.url), 'utf8')],
-  ['/product/', await readFile(new URL('../dist/product/index.html', import.meta.url), 'utf8')],
-  ['/team/', await readFile(new URL('../dist/team/index.html', import.meta.url), 'utf8')]
+  ['/product/', await readFile(new URL('../dist/product/index.html', import.meta.url), 'utf8')]
 ]);
 const about = pages.get('/');
 const product = pages.get('/product/');
-const team = pages.get('/team/');
-assert.match(team, /data-page="team"/);
-assert.match(team, /Rachel Gonsalves/);
-assert.match(team, /Je Sai Kailash Pulipati/);
-assert.doesNotMatch(team, /data-thread|id="how-it-works"|id="your-view"/);
+const legacyTeam = await readFile(new URL('../dist/team/index.html', import.meta.url), 'utf8');
+assert.match(legacyTeam, /\/#team/);
+assert.doesNotMatch(legacyTeam, /class="team-grid"/);
+assert.match(about, /id="team"/);
+assert.match(about, /Rachel Gonsalves/);
+assert.match(about, /Je Sai Kailash Pulipati/);
+assert.doesNotMatch(product, /id="team"|Rachel Gonsalves|Je Sai Kailash Pulipati/);
 assert.match(about, /data-page="about"/);
 assert.match(product, /data-page="product"/);
 assert.match(about, /id="how-it-works"/);
@@ -26,7 +27,8 @@ assert.doesNotMatch(product, /id="how-it-works"|id="collaboration"/);
 const aboutMain = about.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)[1];
 assert.doesNotMatch(aboutMain, /Native messaging|scoped file access|approval gates|Shared audit trails|Marketplace policy|data-inbox-row|comparison-chart|plain-columns/i);
 assert.match(aboutMain, /Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run\./);
-const aboutWords = aboutMain.replace(/<[^>]*>/g, ' ').trim().split(/\s+/);
+const aboutOverview = aboutMain.replace(/<section id="team"[\s\S]*?<\/section>/, '');
+const aboutWords = aboutOverview.replace(/<[^>]*>/g, ' ').trim().split(/\s+/);
 assert.ok(aboutWords.length < 200, `About must stay concise, received ${aboutWords.length} words`);
 assert.match(about, /data-collaboration-flow/);
 assert.doesNotMatch(product, /data-collaboration-flow/);
@@ -39,9 +41,10 @@ assert.equal(product.toLowerCase().split('two agents, two owners, one deliverabl
 for (const [pathname, html] of pages) {
   assert.equal([...html.matchAll(/<h1\b/g)].length, 1, `${pathname} must have one main heading`);
   assert.equal([...html.matchAll(/aria-current="page"/g)].length, 1, `${pathname} must identify its active tab`);
-  if (pathname !== '/team/') assert.doesNotMatch(html, /Rachel|>R</, `${pathname} must not retain the previous demo owner`);
+  if (pathname === '/product/') assert.doesNotMatch(html, /Rachel|>R</, `${pathname} must not retain the previous demo owner`);
   assert.match(html, /data-theme-control/);
-  assert.match(html, /href="\/team\/"/);
+  assert.match(html, /href="\/#team"/);
+  assert.doesNotMatch(html, /href="\/team\/"/);
   const bootstrapIndex = html.indexOf('envoi-theme');
   assert.ok(bootstrapIndex >= 0 && bootstrapIndex < html.indexOf('<body'), `${pathname} must initialize theme before paint`);
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
@@ -59,4 +62,4 @@ for (const [pathname, html] of pages) {
     }
   }
 }
-console.log('About/Product/Team route separation, theme initialization, headings, IDs and internal links passed.');
+console.log('About/Product separation, About team section, legacy redirect, themes, headings, IDs and links passed.');

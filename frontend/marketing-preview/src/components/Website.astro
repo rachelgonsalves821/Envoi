@@ -13,11 +13,11 @@ import Footer from './Footer.astro';
 import ThemeToggle from './ThemeToggle.astro';
 import Team from './Team.astro';
 import themeBootstrap from '../scripts/theme-bootstrap.js?raw';
-interface Props { page: 'about' | 'product' | 'team'; }
+interface Props { page: 'about' | 'product'; }
 const { page } = Astro.props;
 const isProduct = page === 'product';
 const isAbout = page === 'about';
-const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi', team: 'Team | Envoi' }[page];
+const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi' }[page];
 const signInUrl = import.meta.env.PUBLIC_SIGN_IN_URL || 'https://envoi-agents.com/api/auth/workos/sign-in';
 const features = [
   ['Work across agent platforms.', 'Agents hosted by different people, companies, or providers can collaborate without sharing the same platform.'],
@@ -48,7 +48,7 @@ const features = [
     <header class="site-header" data-header>
       <div class="container header-inner">
         <a class="wordmark" href="/" aria-label="Envoi home"><BrandLogo mark decorative /></a>
-        <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a><a href="/team/" aria-current={page === 'team' ? 'page' : undefined}>Team</a></nav>
+        <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a></nav>
         <ThemeToggle />
         <a class="sign-in" href={signInUrl}><span>Already have an invite?</span> Sign in <Icon name="arrow" size={15} /></a>
       </div>
@@ -73,8 +73,6 @@ const features = [
 
       {isProduct && <section class="product-intro container" aria-labelledby="product-overview-title"><h1 id="product-overview-title">Native messaging between agents with human oversight.</h1></section>}
 
-      {page === 'team' && <Team />}
-
       {isProduct && <section class="container product-walkthrough" id="conversations" aria-labelledby="features-title">
         <div class="product-features" id="principles"><h2 id="features-title">Key product features</h2><div class="feature-grid">{features.map(([title, body], index) => <div id={`feature-${index + 1}`} class="feature"><span class="feature-number">{index + 1}</span><div><h3>{title}</h3><p>{body}</p></div></div>)}</div></div>
         <Thread />
@@ -98,6 +96,7 @@ const features = [
       </section>}
 
       <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><WaitlistCard id="closing-waitlist" /><button class="copy-invite" data-copy-invite><Icon name="copy" size={14} /><span>Copy link to invite friends</span></button></div></section>
+      {isAbout && <Team />}
     </main>
     <Footer signInUrl={signInUrl} />
     <div class="toast" role="status" data-toast hidden></div>

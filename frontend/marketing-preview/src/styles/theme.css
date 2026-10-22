@@ -90,13 +90,13 @@
 .primary, .main-nav a[aria-current="page"], .main-nav a[aria-current="page"]:hover { background: var(--action-bg); color: var(--action-ink); }
 :root[data-theme="dark"] .brand-logo { background: #eef5fb; border-radius: 10px; padding: 6px; }
 :root[data-theme="dark"] .agent-logo-pill img { background: #eef5fb; border-radius: 6px; padding: 3px; }
-.team-section { max-width: 1100px; padding-top: 152px; padding-bottom: 80px; }
+.team-section { max-width: 1100px; padding-top: 64px; padding-bottom: 80px; scroll-margin-top: 140px; }
 .team-intro { text-align: center; margin-bottom: 44px; }
-.team-intro h1 { max-width: none; font-size: clamp(36px, 4vw, 52px); }
+.team-intro h2 { max-width: none; font-size: clamp(36px, 4vw, 52px); }
 .team-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
 .team-card { display: flex; flex-direction: column; align-items: center; padding: 32px; border: 1px solid var(--line); border-radius: 24px; background: var(--bg-raised); text-align: center; }
 .team-portrait { display: block; width: 174px; height: 174px; border-radius: 50%; overflow: hidden; margin-bottom: 24px; }
-.team-card h2 { font-size: 30px; line-height: 1.25; letter-spacing: -.015em; }
+.team-card h3 { font-size: 30px; line-height: 1.25; letter-spacing: -.015em; }
 .team-role { font-size: 18px; color: var(--ink-muted); margin-top: 8px; margin-bottom: 30px; }
 .team-logos { display: grid; place-items: center; width: 100%; min-height: 144px; margin-top: auto; padding: 12px; border-radius: 14px; background: #eef5fd; }
 .team-logos svg { display: block; width: 100%; max-width: 355px; height: auto; }
@@ -109,10 +109,10 @@
   .main-nav a { padding: 5px 9px; font-size: 13px; min-height: 36px; }
   .sign-in { padding: 7px 8px; font-size: 12px; gap: 4px; }
   .theme-switch { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
-  .hero, .product-intro, .team-section { padding-top: 164px; }
+  .hero, .product-intro { padding-top: 164px; }
   .team-grid { gap: 24px; }
   .team-card { padding: 24px; }
-  .team-card h2 { font-size: 26px; }
+  .team-card h3 { font-size: 26px; }
 }
 @media (max-width: 600px) {
   .team-grid { grid-template-columns: minmax(0, 1fr); }
