@@ -1,12 +1,14 @@
 # Phase C client preparation (C-B0)
 
+**Current status (2026-10-21 America/New_York):** selected C-B1–C-B5 source is integrated through combined PR #143. The human has confirmed prior B/C testing complete and instructed its countersign; see [the attributed acceptance record](EVIDENCE.md). The original preparation baseline below is historical, not a current missing-implementation or missing-test claim. The new P0 client branch combines #174 and #184 and validates those later changes separately.
+
 Publication baseline: integration `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. This separate preparation branch preserves PR #114's published history and carries its client-owned source inventory and tests alongside the reviewed evidence preparation.
 
 This directory prepares Rachel/Codex's client work from the [Phase C execution plan](../../../docs/architecture/agent-native-v2/phase-c-execution-plan.md). It neither implements unpublished server protocols nor enables a route. Je retains server contracts, fixtures, root/release wiring and integration. Existing CSP-fix and distribution workstreams retain their claimed files.
 
 ## Current dependency result
 
-The canonical contract ids are `case-session`, `case-tools` and `http-wake`, each version 1. The inventory uses those actual ids, not the earlier planning suffixes. PR #116 at `15fff09f336fe941858287511471b07b9f5184f8` completes all nine case tools and amends CaseSession; Rachel approved that exact client contract. PR #121 at `269d9697cb8dd2d6ddd77f49e671c7fff69164ca` publishes HTTPS wake with 140 executable fixtures. These publications are present in this branch's integration baseline. Wake implementation still requires its exact-version human approval; published metadata, consuming tests and green CI do not establish deployed behavior or Muse/Instinct support.
+The canonical contract ids are `case-session`, `case-tools` and `http-wake`, each version 1. The inventory uses those actual ids, not the earlier planning suffixes. PR #116 at `15fff09f336fe941858287511471b07b9f5184f8` completes all nine case tools and amends CaseSession. PR #121 at `269d9697cb8dd2d6ddd77f49e671c7fff69164ca` publishes HTTPS wake with 140 executable fixtures. Exact-version human approvals are recorded on board #34 at comments 6257953866 and 6257954193. Contract/source inclusion does not establish extra provider support.
 
 C-B0's source inventory and evidence preparation can proceed. Independent consuming ACKs for these publications are recorded separately; this inventory does not recreate or certify them. C-B1 through C-B5 implementation requires the appropriate approved contract and published fixtures; C-B6 additionally requires Je's combined candidate and the real hosted/runtime gates. A planning merge does not approve wire schemas.
 
