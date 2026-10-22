@@ -16,6 +16,7 @@ import { enrollmentSetupError, readEnrollmentDiagnostic } from './enrollment-err
 import { migrateConnectionDirectory } from './migrate';
 import { waitForRuntimeTools } from './runtime-readiness';
 import { parseHostedWakeConfig, runHostedWake } from './hosted-wake-runner';
+import { resolveHostedWakeConfig } from './hosted-wake-config';
 
 export interface InstalledConnection {
   version: 1;
@@ -388,7 +389,7 @@ export async function operationalConnectionStatus(context: OperationalStatusCont
 
 export async function startConnection(stateDir: string, signal: AbortSignal, resolveAdapter: AdapterResolver,
   options: AdapterOptions & { secureDirectory?: typeof privateDirectory; pollIntervalMs?: number; onReady?: () => void; onWaiting?: (code: string) => void; retryDelayMs?: number; toolRecoveryTimeoutMs?: number; toolRecoveryRetryMs?: number; control?: boolean } = {}) {
-  const wake = parseHostedWakeConfig(options.env ?? process.env);
+  parseHostedWakeConfig(options.env ?? process.env);
   const directory = await (options.secureDirectory ?? privateDirectory)(await migrateConnectionDirectory(stateDir, options.secureDirectory));
   const unlock = await acquireConnectorLock(directory);
   const fetcher = noRedirectFetch(options.fetch);
@@ -400,6 +401,7 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
   let saved: InstalledConnection | undefined;
   let diagnostics: Record<string, unknown> = { status: 'starting', runtimeChecks: 'pending' };
   try {
+    const wake = await resolveHostedWakeConfig(directory, options.env ?? process.env);
     saved = await readConnection(directory);
     if (!await savedSession(directory)) throw new ConnectorSetupError('STATE_INVALID', 'Saved credentials are missing; reconnect through Envoi before starting');
     const startup = new EnvoiConnector(saved.apiUrl, new FileBridgeStore(directory), { fetch: fetcher });
