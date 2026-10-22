@@ -15,7 +15,9 @@ const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
 ajv.addSchema(schemas);
 const validator = (name: string) => {
-  const [contractId, definition] = name.includes('/') ? name.split('/') : ['agent-registration', name];
+  const dependencyName = name.split('/')[0];
+  const external = loadContractRegistry(source).contracts.some(item => item.id === dependencyName);
+  const [contractId, definition] = external ? [dependencyName, name.slice(dependencyName.length + 1)] : ['agent-registration', name];
   let schemaId = schemas.$id;
   if (contractId !== 'agent-registration') {
     const dependency = loadContractRegistry(source).contracts.find(item => item.id === contractId);
@@ -49,9 +51,9 @@ afterEach(() => {
 });
 
 describe('agent-registration v1 independent client consumption', () => {
-  it('loads all 86 revision-5 unique registered fixtures without copies and pins security/recovery limits', () => {
-    expect(fixtures).toHaveLength(86);
-    expect(new Set(fixtures.map(item => item.id)).size).toBe(86);
+  it('loads all 90 revision-5 unique registered fixtures without copies and pins security/recovery limits', () => {
+    expect(fixtures).toHaveLength(90);
+    expect(new Set(fixtures.map(item => item.id)).size).toBe(90);
     expect(schemas['x-limits']).toMatchObject({
       registrationTtlSeconds: 600, activationWindowSeconds: 600, activationRecoverySeconds: 300,
       pollAfterSeconds: 5, pollMinIntervalSeconds: 4, deleteRecordsAfterHours: 24, deleteRecordsByHours: 25, ownerClaimListMax: 20, ownerInstallationEndedMax: 5,
@@ -63,6 +65,9 @@ describe('agent-registration v1 independent client consumption', () => {
 
   it.each(fixtures)('consumes $id declared schemas, surface policy and model-visible values', fixture => {
     validate('fixture', fixture);
+    const snapshots = [fixture.stored, ...(fixture.steps ?? []).map((step: any) => step.storedAfter),
+      ...(fixture.timeline ?? []).map((event: any) => event.storedAfter)].filter(Boolean);
+    for (const stored of snapshots) validate('fixture/properties/stored', stored);
     for (const step of operations(fixture)) {
       const { request: req, response, client } = step;
       validate(response.schema, response.body);
@@ -94,7 +99,7 @@ describe('agent-registration v1 independent client consumption', () => {
         const visibleBody = JSON.stringify(response.body);
         expect(visibleBody).not.toMatch(/envoi_(?:reg|agent_access|agent_refresh|mcp_read|enroll)_/);
         expect(visibleBody).not.toMatch(/"(?:audience|oauthClientId)"/);
-        for (const family of fixture.stored?.credentialFamilies ?? []) {
+        for (const family of snapshots.flatMap((stored: any) => stored.credentialFamilies ?? [])) {
           for (const field of ['audience', 'oauthClientId']) {
             if (family[field]) expect(visibleBody).not.toContain(family[field]);
           }
