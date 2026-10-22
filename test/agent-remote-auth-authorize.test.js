@@ -162,6 +162,41 @@ test('an authorization request too large to seal is refused, not truncated', asy
   assert.equal(location.origin, 'https://assistant.example.com');
 });
 
+// agent-remote-auth revision 3, check 11 (proposed, #187): measured on the encoded handle, after check 10. With the
+// "v1." prefix and unpadded base64url, a handle length of 4n + 1 after the prefix cannot occur, so 2,048 itself is
+// unreachable: the exact boundary is the largest accepted length (2,047) and the smallest refused one (2,049).
+test('check 11: the exact encoded-length boundary, state and iss kept, nothing truncated', async () => {
+  const limit = remoteAuthLimits.authorizationRequestHandleMaxLength;
+  const flags = { registration: true, installations: true, remoteMcpOAuth: true };
+  const sealer = createAuthorizationRequestSealer({ keyMaterial });
+  const random = crypto.randomBytes(2400).toString('base64url');
+  const clientId = `https://assistant.example.com/${random.slice(0, 1300)}.json`;
+  const redirectUri = 'https://assistant.example.com/cb';
+  const document = { client_id: clientId, client_name: 'Long', redirect_uris: [redirectUri] };
+  const handler = createAuthorizeRequestHandler({ origin, flags, sealer, resolveClient: createClientResolver({ origin, flags, fetchClientMetadata: async () => ({ document }) }) });
+  const paramsFor = state => new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirectUri, code_challenge: 'M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM', code_challenge_method: 'S256', resource: `${origin}/mcp`, state });
+  // The length the sealer gives for this exact request (the IV is random but fixed in size).
+  const sealedLength = state => sealer.seal({ clientId, connectionRoute: 'remote_mcp_oauth', redirectUri, codeChallenge: 'M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM', scopes: ['envoi.agent', 'envoi.send'], state, resource: `${origin}/mcp` }).length;
+  const found = {};
+  for (let size = 1; size <= remoteAuthLimits.stateMaxLength && !(found.at && found.over); size += 1) {
+    const state = random.slice(1300, 1300 + size);
+    const length = sealedLength(state);
+    if (length === limit - 1) found.at = state;
+    if (length === limit + 1) found.over = state;
+  }
+  assert.ok(found.at && found.over, 'inputs that seal to 2,047 and 2,049 characters exist');
+  const accepted = new URL((await handler(paramsFor(found.at))).location);
+  assert.equal(`${accepted.origin}${accepted.pathname}`, `${origin}/authorize-agent`, 'at 2,047 the handle is issued');
+  assert.equal(accepted.searchParams.get('request').length, limit - 1);
+  assert.equal(sealer.open(accepted.searchParams.get('request')).state, found.at, 'nothing truncated in the accepted handle');
+  const refused = new URL((await handler(paramsFor(found.over))).location);
+  assert.equal(`${refused.origin}${refused.pathname}`, redirectUri, 'at 2,049 it goes to the checked redirect URI');
+  assert.deepEqual([refused.searchParams.get('error'), refused.searchParams.get('state'), refused.searchParams.get('iss')], ['invalid_request', found.over, origin], 'invalid_request with the full state and iss');
+  // Check 11 runs last: an earlier failure in the same oversized request is reported first.
+  const earlier = new URL((await handler(new URLSearchParams({ ...Object.fromEntries(paramsFor(found.over)), scope: 'envoi.send' }))).location);
+  assert.equal(earlier.searchParams.get('error'), 'invalid_scope', 'check 9 is reported before check 11');
+});
+
 test('redirect URI rules and matching (x-redirect-rules)', () => {
   for (const ok of ['https://a.example/cb', 'https://a.example:8443/cb?x=1', 'http://127.0.0.1/cb', 'http://127.0.0.1:53682/cb', 'http://[::1]:9/cb']) assert.equal(redirectUriRejection(ok), null, ok);
   for (const [bad, reason] of [['http://localhost/cb', 'not_loopback'], ['http://a.example/cb', 'not_loopback'], ['https://203.0.113.5/cb', 'address_literal'], ['https://[2001:db8::1]/cb', 'address_literal'], ['https://u:p@a.example/cb', 'userinfo'], ['https://a.example/cb#x', 'fragment'], ['com.example.app:/cb', 'scheme'], ['', 'invalid']]) {

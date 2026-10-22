@@ -328,7 +328,8 @@ export function createAuthorizeRequestHandler({ origin, flags, resolveClient, se
       clientId: client.clientId, connectionRoute: client.connectionRoute, redirectUri, codeChallenge: challenge,
       scopes: known.filter(scope => requested.includes(scope)), state, resource
     });
-    // The handle cannot carry an oversized request: refuse it rather than exceed the contracted length.
+    // Check 11 (agent-remote-auth revision 3, published in #187, not yet approved): measured on the encoded handle.
+    // Refuse an oversized request rather than truncate a bound field or exceed the contracted length.
     if (handle.length > remoteAuthLimits.authorizationRequestHandleMaxLength) return toClient('invalid_request');
     return { location: `${origin}/authorize-agent?request=${handle}` };
   };
