@@ -267,8 +267,9 @@ export function createAuthorizationRequestSealer({ keyMaterial, now = () => Date
       const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
       return `${handlePrefix}${Buffer.concat([iv, ciphertext, cipher.getAuthTag()]).toString('base64url')}`;
     },
-    // null for a malformed, tampered or expired handle: callers answer every case identically.
-    open(handle) {
+    // null for a malformed, tampered or expired handle: callers answer every case identically. allowExpired reads an
+    // expired handle's contents, for a handle this human already decided (agent-remote-auth §5.1 "Retention").
+    open(handle, { allowExpired = false } = {}) {
       if (typeof handle !== 'string' || !handle.startsWith(handlePrefix) || handle.length > remoteAuthLimits.authorizationRequestHandleMaxLength) return null;
       const body = handle.slice(handlePrefix.length);
       if (!/^[A-Za-z0-9_-]+$/.test(body)) return null;
@@ -280,7 +281,7 @@ export function createAuthorizationRequestSealer({ keyMaterial, now = () => Date
         decipher.setAuthTag(raw.subarray(raw.length - 16));
         const plaintext = Buffer.concat([decipher.update(raw.subarray(12, raw.length - 16)), decipher.final()]);
         const request = JSON.parse(zlib.inflateRawSync(plaintext, { maxOutputLength: 16_384 }).toString('utf8'));
-        return Number.isInteger(request.exp) && request.exp * 1000 > now() ? request : null;
+        return Number.isInteger(request.exp) && (allowExpired || request.exp * 1000 > now()) ? request : null;
       } catch { return null; }
     }
   };
@@ -333,4 +334,36 @@ export function createAuthorizeRequestHandler({ origin, flags, resolveClient, se
     if (handle.length > remoteAuthLimits.authorizationRequestHandleMaxLength) return toClient('invalid_request');
     return { location: `${origin}/authorize-agent?request=${handle}` };
   };
+}
+
+// agent-remote-auth §4.3: the permissions a scope set asks for, and the scope string for granted permissions, both in
+// x-scopes order.
+export const permissionsForScopes = scopes => remoteAuthScopes.filter(entry => scopes.includes(entry.scope)).map(entry => entry.permission);
+export const scopeForPermissions = permissions => remoteAuthScopes.filter(entry => permissions.includes(entry.permission)).map(entry => entry.scope).join(' ');
+
+// agent-remote-auth §5.1: what the owner sees about the client. Never the handle's raw contents, and no logo or
+// client_uri fetch.
+export function consentClient(client, request) {
+  const redirect = new URL(request.redirectUri);
+  const loopbackRedirect = redirect.protocol === 'http:';
+  const metadataDocument = !String(request.clientId).startsWith('client_');
+  let clientIdHost = null;
+  if (metadataDocument) { try { clientIdHost = new URL(request.clientId).hostname; } catch { clientIdHost = null; } }
+  return {
+    name: client?.clientName || clientIdHost || 'Unknown client',
+    clientIdHost,
+    redirectHost: loopbackRedirect ? redirect.host : redirect.hostname,
+    loopbackRedirect,
+    registration: metadataDocument ? 'metadata_document' : 'pre_registered',
+    ...(metadataDocument ? {} : { provider: client?.provider || 'Unknown provider' })
+  };
+}
+
+// The client redirect of an approval (code) or a denial (access_denied), with state and iss (RFC 9207).
+export function consentRedirect(request, origin, params) {
+  const url = new URL(request.redirectUri);
+  for (const [key, value] of Object.entries(params)) url.searchParams.append(key, value);
+  if (request.state !== null && request.state !== undefined) url.searchParams.append('state', request.state);
+  url.searchParams.append('iss', origin);
+  return url.href;
 }

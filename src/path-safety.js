@@ -35,15 +35,21 @@ export function assertSafeIdentifier(value, name = 'Identifier') {
   return value;
 }
 
+// agent-remote-auth §5: the consent routes carry a sealed authorization request handle (up to 2,048 characters) as one
+// segment. Only that segment is exempt from the 255-character limit, so the route itself answers an over-long handle
+// with AUTHORIZATION_REQUEST_INVALID. The handle is never used as a storage path.
+const CONSENT_HANDLE_PATH = /^\/api\/oauth\/authorization-requests\/[^/]+(?:\/(?:approve|deny))?$/;
+
 export function assertSafeRequestTarget(requestTarget) {
   const rawPath = String(requestTarget || '').split('?', 1)[0];
   if (!rawPath.startsWith('/') || rawPath.length > 8192 || CONTROL_CHARACTERS.test(rawPath)) throw new TypeError('Request path is invalid');
-  for (const rawSegment of rawPath.split('/').slice(1)) {
+  const longSegment = CONSENT_HANDLE_PATH.test(rawPath) ? 4 : -1;
+  for (const [index, rawSegment] of rawPath.split('/').entries()) {
     if (!rawSegment) continue;
     let segment;
     try { segment = decodeURIComponent(rawSegment); }
     catch { throw new TypeError('Request path encoding is invalid'); }
-    if (!segment || segment === '.' || segment === '..' || segment.length > 255 || CONTROL_CHARACTERS.test(segment) || /[\\/]/.test(segment)) {
+    if (!segment || segment === '.' || segment === '..' || (index !== longSegment && segment.length > 255) || CONTROL_CHARACTERS.test(segment) || /[\\/]/.test(segment)) {
       throw new TypeError('Request path contains an unsafe segment');
     }
   }

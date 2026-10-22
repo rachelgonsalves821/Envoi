@@ -32,6 +32,17 @@ export const activationRecoveryDir = path.join('auth', 'agent-registration-recov
 export const cleanupCursorPath = path.join('auth', 'agent-registration-cleanup', 'cursor.json');
 export const retainRecordsMs = 24 * 3_600_000;
 export const registrationLockKey = registrationId => `registration:${registrationId}`;
+// agent-registration §14 (revision 5): the records an agent-remote-auth consent writes. Keys are SHA-256 hex of the
+// raw handle or code; neither raw value is ever stored.
+export const consentDecisionPath = handleDigest => path.join('auth', 'oauth-consent-decisions', `${handleDigest}.json`);
+export const oauthCodePath = codeHash => path.join('auth', 'oauth-codes', `${codeHash}.json`);
+export const oauthCleanupDir = bucket => path.join('auth', 'oauth-cleanup', bucket);
+export const oauthCleanupPath = (createdAt, key) => path.join(oauthCleanupDir(hourBucket(createdAt)), `${key}.json`);
+export const oauthCleanupCursorPath = path.join('auth', 'oauth-cleanup-cursor', 'cursor.json');
+export const consentLockKey = handleDigest => `oauth-consent:${handleDigest}`;
+// agent-remote-auth x-limits.authorizationCodeTtlSeconds: the code, and so the approval, lives 60 s.
+export const consentCodeTtlSeconds = 60;
+export const sha256Hex = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 export const addressHoldLockKey = address => `address-hold:${addressKey(address)}`;
 
 const registrationIdPattern = /^registration_[A-Za-z0-9_-]{1,80}$/;
@@ -493,8 +504,13 @@ export function createAgentRegistrations({
       if (registration) {
         const codeIndex = registration.codeHmac ? await store.getJson(codeIndexPath(registration.codeHmac)) : null;
         if (codeIndex?.registrationId === registrationId) await store.deleteJson(codeIndexPath(registration.codeHmac));
-        await store.deleteJson(tokenIndexPath(registration.tokenHash));
-        await store.deleteJson(activationRecoveryPath(registration.tokenHash));
+        if (registration.tokenHash) {
+          await store.deleteJson(tokenIndexPath(registration.tokenHash));
+          await store.deleteJson(activationRecoveryPath(registration.tokenHash));
+        }
+        // §14.6: an OAuth registration's code index, consent decision and their cleanup entries go with it, in this
+        // transaction. A child that names another registration is not this one's and stays.
+        if (registration.oauth) await deleteOAuthChildren(registration);
         const address = registration.target?.kind === 'new_agent' ? registration.target.address : null;
         if (address && (await store.getJson(addressHoldPath(address)))?.registrationId === registrationId) await store.deleteJson(addressHoldPath(address));
         if (registration.principalHumanId) await store.deleteJson(approvalSlotIndexPath(registration.principalHumanId, registrationId));
@@ -504,6 +520,53 @@ export function createAgentRegistrations({
       }
       await store.deleteJson(createdBucketPath(createdAt, registrationId));
     });
+  }
+
+  async function deleteOAuthChildren(registration) {
+    const { codeHash, handleDigest } = registration.oauth;
+    const code = codeHash ? await store.getJson(oauthCodePath(codeHash)) : null;
+    if (code?.registrationId === registration.id) {
+      await store.deleteJson(oauthCodePath(codeHash));
+      await store.deleteJson(oauthCleanupPath(registration.createdAt, codeHash));
+    }
+    const decision = handleDigest ? await store.getJson(consentDecisionPath(handleDigest)) : null;
+    if (decision?.registrationId === registration.id) {
+      await store.deleteJson(consentDecisionPath(handleDigest));
+      await store.deleteJson(oauthCleanupPath(registration.createdAt, handleDigest));
+    }
+  }
+
+  // §14.6, the index sweep. A record with a registration is never deleted here while that registration exists: it is
+  // revisited on a later run, and registration cleanup deletes it with its parent. An orphan (its registration gone,
+  // for example deleted by an older server) is deleted, then its entry. A denial goes after its handleExpiresAt.
+  async function sweepOAuthCleanup(current = now()) {
+    const hourMs = 3_600_000;
+    const cursor = await store.getJson(oauthCleanupCursorPath);
+    const start = Math.floor((cursor?.nextBucketStartMs ?? current.getTime() - 30 * 24 * hourMs) / hourMs) * hourMs;
+    let firstKept = null;
+    let deleted = 0;
+    for (let hour = start; hour <= current.getTime(); hour += hourMs) {
+      const bucket = hourBucket(new Date(hour).toISOString());
+      let kept = false;
+      for (const entry of await store.listJson(oauthCleanupDir(bucket))) {
+        if (!entry?.key || !/^[a-f0-9]{64}$/.test(entry.key)) continue;
+        const recordPath = entry.kind === 'oauth_code' ? oauthCodePath(entry.key) : consentDecisionPath(entry.key);
+        const lockKeys = [consentLockKey(entry.key), ...(entry.registrationId ? [registrationLockKey(entry.registrationId)] : [])];
+        const removed = await store.withTransaction(lockKeys, async () => {
+          const due = entry.registrationId === null
+            ? Date.parse(entry.deleteAfter) <= current.getTime()
+            : !(await store.getJson(registrationPath(entry.registrationId)));
+          if (!due) return false;
+          await store.deleteJson(recordPath);
+          await store.deleteJson(oauthCleanupPath(entry.createdAt, entry.key));
+          return true;
+        });
+        if (removed) deleted += 1; else kept = true;
+      }
+      if (kept && firstKept === null) firstKept = hour;
+    }
+    await store.putJson(oauthCleanupCursorPath, { nextBucketStartMs: firstKept ?? Math.floor(current.getTime() / hourMs) * hourMs, ranAt: current.toISOString() });
+    return deleted;
   }
 
   async function cleanup(current = now()) {
@@ -528,10 +591,161 @@ export function createAgentRegistrations({
       if (hour + 3_600_000 <= cutoff) nextBucketStartMs = hour + 3_600_000;
     }
     await store.putJson(cleanupCursorPath, { nextBucketStartMs, ranAt: current.toISOString() });
+    await sweepOAuthCleanup(current);
     return deleted;
   }
 
-  return { create, oversized, status, lookup, approve, reject, listClaims, withdraw, cleanup, registrationForToken, liveHold, addressTaken, getRegistration, recoveryExpired };
+  // ------------------------------------------------------------------ agent-remote-auth §5 consent
+  // The consent page's approval is the human claim (agent-remote-auth §5.2): the same target, permission, slot, hold and
+  // management rules as approveCode, with the sealed handle in place of the verification code. Records are
+  // agent-registration §14.3-§14.4's. The authorization code is returned to the caller once and stored only as a hash.
+
+  const requestInvalid = () => coded(404, 'AUTHORIZATION_REQUEST_INVALID', 'This connection request is no longer valid. Start again from your assistant.');
+  const consentAlreadyDecided = () => coded(409, 'CLAIM_ALREADY_DECIDED', 'You already decided this request.');
+  const consentDigest = input => semanticDigest({ kind: 'oauth_consent', body: input });
+  const validConsentBody = input => Boolean(input) && typeof input === 'object' && !Array.isArray(input) && !('verificationCode' in input) && validApproveBody(input);
+
+  // agent-remote-auth §5.2, retrying an approval: derived from the stored registration alone, so a restart changes nothing.
+  function consentDecided(registration) {
+    const status = registration.status === 'activated' ? 'completed'
+      : registration.status === 'withdrawn' ? 'withdrawn'
+        : derivedStatus(registration, now()) === 'expired' ? 'expired' : 'pending_exchange';
+    return {
+      status, registrationId: registration.id, target: registration.target.kind, workspaceName: registration.workspaceName,
+      agent: responseAgent(registration), effectivePermissions: registration.effectivePermissions, policyProfile: registration.policyProfile,
+      codeExpiresAt: registration.activationExpiresAt
+    };
+  }
+
+  // This human's decision on a handle, or null when nobody decided it. Another human's decision, an approval whose
+  // registration was cleaned up, or a denial past its handle's expiry is indistinguishable from an unusable handle.
+  async function consentDecisionFor(human, handleDigest) {
+    const decision = await store.getJson(consentDecisionPath(handleDigest));
+    if (!decision) return null;
+    if (decision.humanId !== human.id) throw requestInvalid();
+    if (decision.decision === 'denied') {
+      if (new Date(decision.handleExpiresAt) <= now()) throw requestInvalid();
+      return { decision };
+    }
+    const registration = await getRegistration(decision.registrationId);
+    if (!registration?.oauth || registration.oauth.handleDigest !== handleDigest) throw requestInvalid();
+    return { decision, registration };
+  }
+
+  // For the consent view (agent-remote-auth §5.1): this human's decision as shown to them, or null.
+  async function consentViewDecision(human, handleDigest) {
+    const found = await consentDecisionFor(human, handleDigest);
+    if (!found) return null;
+    return found.decision.decision === 'denied' ? { status: 'denied' } : consentDecided(found.registration);
+  }
+
+  // agent-remote-auth §5.2. `request` is the opened handle (null when it cannot be opened), with `permissions` the
+  // requested scopes mapped to permissions. Returns { decided } for this human's identical retry, or { approved, code }.
+  async function approveConsent(human, request, handleDigest, input) {
+    assertRegistrationEnabled('This feature is not available.');
+    const limited = await limits.consumeConsentApproval(human.id);
+    if (!limited.allowed) throw coded(429, 'RATE_LIMITED', 'Too many approvals. Try again later.', { retryAfterSeconds: limited.retryAfterSeconds });
+    const digest = consentDigest(input ?? null);
+    const decidedReplay = found => {
+      if (found.decision.decision === 'approved' && found.decision.bodyDigest === digest) return { decided: consentDecided(found.registration) };
+      throw consentAlreadyDecided();
+    };
+    const existing = await consentDecisionFor(human, handleDigest);
+    if (existing) return decidedReplay(existing);
+    if (!request) throw requestInvalid();
+    if (!validConsentBody(input)) {
+      throw coded(400, 'CLAIM_INVALID', Array.isArray(input?.grantedPermissions) && !input.grantedPermissions.length ? 'Choose at least one permission.' : 'The approval request is not valid.');
+    }
+    const target = input.target;
+    let address = null;
+    if (target.kind === 'new_agent') {
+      try { address = addressForLocalPart(normalizeLocalPart(target.localPart)); }
+      catch { throw coded(400, 'CLAIM_INVALID', 'Choose another agent address.'); }
+    }
+    const approverHint = hintForHuman(human, { production });
+    if (!approverHint) throw coded(403, 'CLAIM_FORBIDDEN', 'Your account cannot approve agents: its sign-in email cannot be shown.');
+    const resolved = await resolveTarget(human, target);
+    const principalHumanId = target.kind === 'new_agent' ? human.id : resolved.agent.principalHumanId || resolved.inbox.ownerHumanId;
+    const registrationId = store.id('registration');
+    const lockKeys = [consentLockKey(handleDigest), registrationLockKey(registrationId), `human:${principalHumanId}:active-agents`, `human:${human.id}:agent-approvals`, ...(address ? [addressHoldLockKey(address)] : [])];
+    return withInboxMutation(resolved.inbox.id, async writeAudit => {
+      // First decision wins: re-read under the handle's lock.
+      const again = await consentDecisionFor(human, handleDigest);
+      if (again) return decidedReplay(again);
+      let agentFields;
+      if (target.kind === 'existing_agent') {
+        const agent = await store.getJson(path.join('inboxes', resolved.inbox.id, 'agents', `${target.agentId}.json`));
+        if (!agent || agent.onboardingStatus !== 'approved' || !['active', 'paused'].includes(agent.status)) throw coded(409, 'AGENT_NOT_RECONNECTABLE', 'That agent cannot be reconnected here.');
+        const current = newestActiveInstallation(await installations.list(resolved.inbox.id, agent));
+        if ((current?.id ?? null) !== target.replacesInstallationId) throw coded(409, 'CLAIM_STALE', 'This agent\'s connection changed. Review it again.');
+        if (!await agentSlots.agentHasLiveFamily(resolved.inbox.id, agent.id, now())) await assertSlot(principalHumanId, { excludingAgentId: agent.id });
+        agentFields = { agentId: agent.id, agentInboxId: resolved.inbox.id, agentName: displayName(agent.name, localPartOf(agent.address)), address: agent.address, accessGeneration: agent.accessGeneration || 0, replacesInstallationId: target.replacesInstallationId };
+      } else {
+        if (await identityTaken(address) || await liveHold(address)) throw coded(409, 'ADDRESS_TAKEN', 'That agent address is already taken.');
+        await assertSlot(human.id);
+        agentFields = { workspaceInboxId: resolved.inbox.id, organizationId: resolved.inbox.organizationId, agentName: displayName(target.name, localPartOf(address)), name: target.name, localPart: localPartOf(address), address };
+      }
+      if (await liveApprovalsBy(human.id) >= approvalsAwaitingActivationPerHuman) throw coded(409, 'PENDING_ACTIVATION_LIMIT', 'Too many approvals are still waiting for their agents.');
+      const at = nowIso();
+      const activationExpiresAt = plus(at, consentCodeTtlSeconds * 1000);
+      const effective = effectivePermissions(request.permissions, input.grantedPermissions);
+      const code = `envoi_oauth_code_${crypto.randomBytes(32).toString('base64url')}`;
+      const codeHash = sha256Hex(code);
+      const registration = {
+        id: registrationId, status: 'approved', createdAt: at, connectionRoute: request.connectionRoute,
+        runtime: { type: request.connectionRoute === 'provider_connector' ? 'provider' : 'remote_mcp', version: null },
+        requested: { permissions: [...request.permissions] },
+        target: { kind: target.kind, ...agentFields }, workspaceName: await workspaceNameOf(resolved.inbox),
+        approverHumanId: human.id, principalHumanId, approverEmailHint: approverHint, effectivePermissions: effective, policyProfile: 'default',
+        approvedAt: at, activationExpiresAt,
+        oauth: { source: 'consent', clientId: request.clientId, redirectUri: request.redirectUri, codeChallenge: request.codeChallenge, resource: request.resource, scope: request.scopeFor(effective), handleDigest, codeHash, codeUsedAt: null },
+        decision: { kind: 'approve', humanId: human.id, digest, decidedAt: at }
+      };
+      const decision = { handleDigest, humanId: human.id, decision: 'approved', bodyDigest: digest, registrationId, decidedAt: at, handleExpiresAt: request.expiresAt };
+      const documents = [
+        { path: registrationPath(registrationId), value: registration },
+        { path: consentDecisionPath(handleDigest), value: decision },
+        { path: oauthCodePath(codeHash), value: { codeHash, kind: 'authorization_code', registrationId, clientId: request.clientId, expiresAt: activationExpiresAt, usedAt: null } },
+        { path: oauthCleanupPath(at, codeHash), value: { kind: 'oauth_code', key: codeHash, registrationId, createdAt: at, deleteAfter: null } },
+        { path: oauthCleanupPath(at, handleDigest), value: { kind: 'consent_decision', key: handleDigest, registrationId, createdAt: at, deleteAfter: null } },
+        { path: createdBucketPath(at, registrationId), value: { registrationId, createdAt: at } },
+        { path: decidedBucketPath(at, registrationId), value: { registrationId } },
+        { path: approvalSlotIndexPath(principalHumanId, registrationId), value: { registrationId } },
+        { path: approverIndexPath(human.id, registrationId), value: { registrationId } }
+      ];
+      if (address) documents.push({ path: addressHoldPath(address), value: { registrationId, expiresAt: activationExpiresAt } });
+      await store.putJsonBatch(documents);
+      await writeAudit('agent.registration_approved', { registrationId, target: target.kind, ...(target.kind === 'existing_agent' ? { agentId: target.agentId } : { address }), effectivePermissions: effective, humanId: human.id, connectionRoute: request.connectionRoute }, at);
+      const { status: _pending, ...approved } = consentDecided(registration);
+      return { approved, code };
+    }, [], lockKeys);
+  }
+
+  // agent-remote-auth §5.3: nothing is created but the denial's decision record (agent-registration §14.4), which lives
+  // until the handle expires. The same human repeating it gets the same outcome.
+  async function denyConsent(human, request, handleDigest) {
+    assertRegistrationEnabled('This feature is not available.');
+    const denied = found => {
+      if (found.decision.decision === 'denied') return { denied: true };
+      throw consentAlreadyDecided();
+    };
+    const existing = await consentDecisionFor(human, handleDigest);
+    if (existing) return denied(existing);
+    if (!request) throw requestInvalid();
+    return store.withTransaction([consentLockKey(handleDigest)], async () => {
+      const again = await consentDecisionFor(human, handleDigest);
+      if (again) return denied(again);
+      const at = nowIso();
+      await store.putJsonBatch([
+        { path: consentDecisionPath(handleDigest), value: { handleDigest, humanId: human.id, decision: 'denied', bodyDigest: null, registrationId: null, decidedAt: at, handleExpiresAt: request.expiresAt } },
+        { path: oauthCleanupPath(at, handleDigest), value: { kind: 'consent_decision', key: handleDigest, registrationId: null, createdAt: at, deleteAfter: request.expiresAt } }
+      ]);
+      return { denied: true };
+    });
+  }
+
+  return { create, oversized, status, lookup, approve, reject, listClaims, withdraw, cleanup, registrationForToken, liveHold, addressTaken, getRegistration, recoveryExpired,
+    approveConsent, denyConsent, consentViewDecision, sweepOAuthCleanup };
 }
 
 export { tokenLikePattern, unsafeNameCharacters };

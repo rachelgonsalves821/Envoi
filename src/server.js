@@ -76,7 +76,9 @@ import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
-import { authorizationServerMetadata, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, parsePreRegisteredClients, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin } from './agent-remote-auth.js';
+import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin, scopeForPermissions } from './agent-remote-auth.js';
+import { organizationMaximumPermissions } from './agent-approval.js';
+import { sha256Hex } from './agent-registration.js';
 import { createWakeDestination } from './http-wake-destination.js';
 
 const productionConfig = validateProductionConfiguration();
@@ -897,10 +899,10 @@ const remoteAuth = (() => {
     fetchClientMetadata: createClientMetadataFetch({ destination: createWakeDestination({ env: process.env }) })
   });
   const sealer = createAuthorizationRequestSealer({ keyMaterial: connectorEncryptionKey() });
-  return { origin, sealer, authorize: createAuthorizeRequestHandler({ origin, flags: onboardingFlags, resolveClient, sealer }) };
+  return { origin, sealer, resolveClient, authorize: createAuthorizeRequestHandler({ origin, flags: onboardingFlags, resolveClient, sealer }) };
 })();
-// x-endpoints: every agent-remote-auth endpoint. Those not built yet (consent, token, revocation,
-// bootstrap codes) answer FEATURE_DISABLED like a route whose flag is off.
+// x-endpoints: every agent-remote-auth endpoint. Those not built yet (token, revocation, bootstrap codes) answer
+// FEATURE_DISABLED like a route whose flag is off.
 const remoteAuthPath = pathname => pathname === '/.well-known/oauth-protected-resource' || pathname === '/.well-known/oauth-protected-resource/mcp'
   || pathname === '/.well-known/oauth-authorization-server' || pathname.startsWith('/oauth/') || pathname.startsWith('/api/oauth/');
 const remoteAuthDisabled = () => codedError(404, 'FEATURE_DISABLED', 'Remote connections are not available on this server.');
@@ -921,7 +923,55 @@ async function handleRemoteAuthRoute(req, res, url) {
     res.writeHead(302, { location: outcome.location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-length': 0 });
     return res.end();
   }
+  const consentRoute = url.pathname.match(/^\/api\/oauth\/authorization-requests\/([^/]+)(?:\/(approve|deny))?$/);
+  if (consentRoute) return handleConsentRoute(req, res, consentRoute);
   throw remoteAuthDisabled();
+}
+
+// agent-remote-auth §5 (approved revision 4): the owner consent routes. A human session is required; CSRF and
+// ACCOUNT_CHANGED were checked before any handler, and getHuman re-evaluates the allowlist and assurance rule.
+// The handle is addressed by its SHA-256 only in storage; an unusable one is 404, identical in every case.
+async function handleConsentRoute(req, res, route) {
+  const action = route[2] || null;
+  if (action ? req.method !== 'POST' : req.method !== 'GET') return fail(res, 405, 'Method not allowed');
+  const human = await auth.getHuman(req);
+  if (!human) throw codedError(401, 'AUTHENTICATION_REQUIRED', 'Please sign in again.');
+  let handle;
+  try { handle = decodeURIComponent(route[1]); } catch { handle = ''; }
+  const invalid = () => codedError(404, 'AUTHORIZATION_REQUEST_INVALID', 'This connection request is no longer valid. Start again from your assistant.');
+  if (!handle || handle.length > remoteAuthLimits.authorizationRequestHandleMaxLength) throw invalid();
+  const handleDigest = sha256Hex(handle);
+  const { origin, sealer } = remoteAuth;
+  const opened = sealer.open(handle);
+  // The approval code is handed back here and never stored; nothing below logs it.
+  const consentRequest = sealed => sealed && {
+    ...sealed, permissions: permissionsForScopes(sealed.scopes), scopeFor: scopeForPermissions, expiresAt: new Date(sealed.exp * 1000).toISOString()
+  };
+  res.setHeader('cache-control', 'no-store');
+  if (action === 'approve') {
+    const input = await readJsonBody(req);
+    const outcome = await registrations.approveConsent(human, consentRequest(opened), handleDigest, input.invalid ? null : input.value);
+    if (outcome.decided) return json(res, 200, outcome.decided);
+    return json(res, 200, { redirectTo: consentRedirect(opened, origin, { code: outcome.code }), ...outcome.approved });
+  }
+  if (action === 'deny') {
+    const decided = await registrations.consentViewDecision(human, handleDigest);
+    const sealed = opened || (decided ? sealer.open(handle, { allowExpired: true }) : null);
+    await registrations.denyConsent(human, consentRequest(sealed), handleDigest);
+    return json(res, 200, { redirectTo: consentRedirect(sealed, origin, { error: 'access_denied', error_description: oauthErrorDescriptions.access_denied }) });
+  }
+  const decision = await registrations.consentViewDecision(human, handleDigest);
+  const sealed = opened || (decision ? sealer.open(handle, { allowExpired: true }) : null);
+  if (!sealed) throw invalid();
+  const client = await remoteAuth.resolveClient(sealed.clientId);
+  if (!client && !decision) throw invalid();
+  const requestedPermissions = permissionsForScopes(sealed.scopes);
+  const maximum = organizationMaximumPermissions();
+  return json(res, 200, {
+    client: consentClient(client, sealed), connectionRoute: sealed.connectionRoute,
+    requestedPermissions, grantablePermissions: requestedPermissions.filter(permission => maximum.includes(permission)),
+    expiresAt: new Date(sealed.exp * 1000).toISOString(), ...(decision ? { decision } : {})
+  });
 }
 
 const httpWakeEnabled = onboardingFlags.httpWake;
