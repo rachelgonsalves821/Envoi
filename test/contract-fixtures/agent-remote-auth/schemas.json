@@ -453,11 +453,11 @@
       "parameters",
       "client_authentication",
       "code_issued_to_client",
-      "code_unused (reuse revokes the installation)",
       "code_unexpired",
       "redirect_uri",
       "pkce_s256",
       "resource",
+      "code_unused (an otherwise valid replay is denied and revokes the installation)",
       "registration_rechecks"
     ],
     "refresh_token": [
@@ -475,9 +475,9 @@
       "parameters",
       "client_authentication (client_secret_basic only)",
       "code_issued_to_client",
-      "code_unused (reuse revokes the installation)",
       "code_unexpired",
       "resource",
+      "code_unused (an otherwise valid replay is denied and revokes the installation)",
       "registration_rechecks"
     ]
   },

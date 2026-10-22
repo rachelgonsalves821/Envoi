@@ -4083,7 +4083,7 @@ PR #144 review corrections preserve provider-browser-poll v1's public payloads: 
 
 ## agent-remote-auth v1
 
-**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** revision 2 approved (`CONTRACT-APPROVED agent-remote-auth v1 revision 2 @bbd361e`, board #34 comment 6321077051). **Revision 3** (§15) is published and awaits Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 revision 3 @<publication sha>`. Until then revision 2 is the approved text. The revision-2 status text that follows is kept for history: Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
+**Contract:** `agent-remote-auth`, version 1 (build-plan task **A-3.1b**; Phase B backlog **B-R2**). **Status:** revision 2 approved (`CONTRACT-APPROVED agent-remote-auth v1 revision 2 @bbd361e`, board #34 comment 6321077051). **Revision 3** (§15) is published and awaits Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 revision 3 @<publication sha>`. **Revision 4** (§15, this text) is a separate proposed amendment on top of revision 3. It changes when a used code revokes (Policy B, decision 13) and awaits its own `CONTRACT-ACK` and `CONTRACT-APPROVED agent-remote-auth v1 revision 4 @<publication sha>`. Until then revision 2 is the approved text, and revision 3 keeps revision 2's check order. The revision-2 status text that follows is kept for history: Lane A posts `CONTRACT-PUBLISHED agent-remote-auth v1 @<sha>` on board #34 for the commit that carries this text. Nothing here is implemented, and nothing is default-on. It needs Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` before any dependent work starts. The server work is a new A-4.x task; the client work is B-R3.
 
 **Fixtures:** [`test/contract-fixtures/agent-remote-auth/`](../../../test/contract-fixtures/agent-remote-auth/). It holds:
 - `schemas.json`: draft-07 schemas plus the machine-readable tables `x-codes`, `x-oauth-errors`, `x-limits`, `x-scopes`, `x-route-availability`, `x-delivery-availability`, `x-client-metadata-checks`, `x-redirect-rules`, `x-authorize-checks`, `x-token-checks`, `x-consent-display`, `x-consent-decisions` and `x-endpoints`;
@@ -4373,7 +4373,7 @@ The page navigates the browser to `redirectTo`. This is the one place an authori
 
 `consentDecided` carries `status`, `registrationId`, `target`, `workspaceName`, `agent`, `effectivePermissions`, `policyProfile` and `codeExpiresAt`. It has **no** `redirectTo` and no code.
 
-**The page never navigates on `consentDecided`.** It navigates to the client only on the first `200 consentApproved`. So an honest retry can never send a used code back through the token endpoint, where §6.1 row 5 would revoke the installation. It can never strand the user at the client with an expired code either. The token endpoint's reuse check and revocation are unchanged.
+**The page never navigates on `consentDecided`.** It navigates to the client only on the first `200 consentApproved`. So an honest retry can never send a used code back through the token endpoint, where §6.1 row 9 would revoke the installation. It can never strand the user at the client with an expired code either. The token endpoint's reuse check and revocation are unchanged.
 
 **Recovery is a new authorization.** If the first response never reached the page, the host never receives the code, and its authorization never completes. The user starts again from the assistant, which sends a new authorization request with a new handle. The server never issues a second code for a decided handle, and never creates a second registration for it. The unused approval holds its address, slot and waiting-approval count only until `codeExpiresAt` (60 s), or until it is withdrawn. A new `new_agent` approval for the same address inside that window gets `ADDRESS_TAKEN`, so the page offers withdrawing the pending approval first.
 
@@ -4403,14 +4403,14 @@ Checks, in `x-token-checks` order. The first failure decides:
 | 2 | Parameters are present, each once, and well formed | `invalid_request` |
 | 3 | The client authenticates (§6) | `invalid_client` |
 | 4 | The code exists and was issued to this client | `invalid_grant` |
-| 5 | The code has not been used | `invalid_grant`, and the installation the first exchange activated is revoked (below) |
-| 6 | The code has not expired | `invalid_grant` |
-| 7 | `redirect_uri` equals the authorization request's exactly | `invalid_grant` |
-| 8 | `BASE64URL(SHA-256(code_verifier))` equals the code challenge | `invalid_grant` |
-| 9 | `resource` equals the resource | `invalid_target` |
+| 5 | The code has not expired | `invalid_grant` |
+| 6 | `redirect_uri` equals the authorization request's exactly | `invalid_grant` |
+| 7 | `BASE64URL(SHA-256(code_verifier))` equals the code challenge | `invalid_grant` |
+| 8 | `resource` equals the resource | `invalid_target` |
+| 9 | The code has not been used | `invalid_grant`, and the installation the first exchange activated is revoked (below) |
 | 10 | The registration is still `approved`, and agent-registration §6.1's re-checks pass | `invalid_grant`. The registration becomes `withdrawn`, as in agent-registration §6.1 row 11. |
 
-Every failure from row 4 on also counts toward the rate limit. Row 4 comes before row 5, so a code presented by a client it was not issued to revokes nothing; a second exchange by the client it was issued to always does, even after expiry.
+Every failure from row 4 on also counts toward the rate limit. **Revision 4 (Policy B).** The reuse check, row 9, comes after every check that makes a request valid: parameters, client authentication, the client binding, expiry, the exact redirect, PKCE and the resource. A used code is therefore always denied. It revokes only when the replay is otherwise a valid token request, as OAuth 2.1 draft-16 §4.1.3 and §7.5.3 require. A replay that fails an earlier row gets that row's error and revokes nothing. Revision 2's order (reuse at row 5, before expiry, redirect, PKCE and resource) is replaced.
 
 **Activation.** When every check passes, the exchange **is** the activation of agent-registration §6.1 row 12 and §6.3, for `deliveryMode: on_demand`:
 - `new_agent` creates the agent, its dedicated inbox and directory entries;
@@ -4434,11 +4434,15 @@ The credential family stores two new facts:
 
 Audit: `agent.installation_activated`, as today.
 
-**A used code** (row 5) means two parties may hold one code. As OAuth 2.1 §4.1.3 recommends, the server revokes the installation the first exchange created, if it is still active, exactly as agent-registration §6.1 row 7a does: the family's `revokedReason` is `revoked`, the installation records `replayDetectedAt` and ends with `activation_replay`, and the audit event is `agent.activation_replay_detected`. The identity is not frozen.
+**A used code** (row 9) means two parties may hold one code. As OAuth 2.1 §4.1.3 recommends, the server revokes the installation the first exchange created, if it is still active, exactly as agent-registration §6.1 row 7a does: the family's `revokedReason` is `revoked`, the installation records `replayDetectedAt` and ends with `activation_replay`, and the audit event is `agent.activation_replay_detected`. The identity is not frozen.
 
-**Who can trigger that revocation (revision 3; decision 13).** Row 5 runs after client authentication (row 3) and the client check (row 4), and before the redirect, PKCE and resource checks (rows 7–9). The check order is unchanged from revision 2.
-- **A public client** authenticates with its `client_id` alone. Anyone holding a leaked, already-exchanged code and that client's public `client_id` can therefore revoke the installation the code activated, without the verifier. Fixture: `token-code-reused-wrong-verifier`.
-- **This is a denial of service, not an escalation.** It never yields a token, it never touches any other installation, and the identity stays unfrozen, so the owner reconnects the same agent.
+**Who can trigger that revocation (revision 4, Policy B; decision 13).** Only a party that sends an otherwise valid token request: the right client, authenticated, with the exact `redirect_uri`, the matching verifier and the resource, while the code is unexpired. That is the genuine replay case (`token-code-reused`), and it still revokes.
+- **A leaked code and the public `client_id` alone revoke nothing.** A missing or malformed verifier fails row 2 with `invalid_request` (`token-code-reused-missing-verifier`, `token-code-reused-malformed-verifier`). A well-formed but wrong verifier fails row 7 with `invalid_grant` (`token-code-reused-wrong-verifier`).
+- **Other invalid replays revoke nothing either:**
+  - a wrong `redirect_uri` fails row 6 (`token-code-reused-wrong-redirect`);
+  - a wrong resource fails row 8 with `invalid_target` (`token-code-reused-wrong-resource`);
+  - the identical request after the code's 60 s fails row 5 (`token-code-reused-expired`).
+- **A genuine replay is not an escalation.** It never yields a token, it never touches any other installation, and the identity stays unfrozen, so the owner reconnects the same agent.
 - **It is confined to the original installation, while that installation is still active:**
   - a code presented by another client revokes nothing (row 4; `token-code-reused-other-client`);
   - a confidential client whose authentication fails revokes nothing (row 3; `token-code-reused-confidential-auth-failed`);
@@ -4450,7 +4454,7 @@ Audit: `agent.installation_activated`, as today.
 - **§7.5.3** says to revoke only when the request, including `code_verifier` and client authentication, is valid. It recommends against revoking for a replay with invalid parameters, because invalid requests would then let an attacker revoke a legitimate client's tokens;
 - **RFC 7636 §4.6** has a matching verifier continue normal processing, and a mismatch get `invalid_grant`.
 
-So revision 2's row 5, which revokes before rows 7–9, is **Envoi's own, earlier revocation policy**. It is stricter than that draft's validity condition, and the standard does not require it. Revision 3 records this and keeps the approved order. Decision 13 compares the two policies.
+Revision 2's row 5, which revoked before the redirect, PKCE and resource checks, was **Envoi's own, earlier revocation policy**. It was stricter than that draft's validity condition, and the standard does not require it. Revision 4 adopts the draft's condition (Policy B, decision 13).
 
 **No lost-response recovery.** A token response that never arrives cannot be fetched again, unlike agent-registration §6.2. The client starts a new authorization. The owner then sees the agent under "Reconnect an existing agent" and approves it as `existing_agent`, which replaces the installation the lost response created (decision 2).
 
@@ -4494,7 +4498,7 @@ v3 §31 and §42 allow one exception to "no operational secret in a human browse
 
 `201` `bootstrapCodeIssued`, with `cache-control: no-store`, carries the code **once**. The owner page shows it once, with the provider's name, and tells the owner to paste it only into that provider's credential field, never into a chat. Issuing again creates a second registration; it does not repeat the code. Not issuing a code for a lost response is safe: the registration expires and grants nothing.
 
-**Exchange.** The provider's backend calls `POST /oauth/token` with `grant_type=urn:envoi:params:oauth:grant-type:bootstrap_code`, `bootstrap_code`, `resource`, and HTTP Basic client authentication. A public client cannot use this grant (`unauthorized_client`). The checks are §6.1 rows 1–6 (reuse revokes the installation it created), 9 and 10, applied to the code. The success response and activation are §6.1's.
+**Exchange.** The provider's backend calls `POST /oauth/token` with `grant_type=urn:envoi:params:oauth:grant-type:bootstrap_code`, `bootstrap_code`, `resource`, and HTTP Basic client authentication. A public client cannot use this grant (`unauthorized_client`). The checks are §6.1 rows 1–5 and 8, then row 9 (reuse; an otherwise valid replay revokes the installation it created), then row 10, applied to the code. As in §6.1, the reuse check comes after every validity check (revision 4). The success response and activation are §6.1's.
 
 **What it never is.** It is never an access or refresh token, never valid at `/mcp` or any other route (`AUTHENTICATION_REQUIRED`), never in a URL or log, and useless without the provider's client secret.
 
@@ -4565,7 +4569,7 @@ The owner routes also return agent-registration's `CLAIM_INVALID`, `CLAIM_FORBID
 | Authorization request | `authorize-redirects-to-consent`, `authorize-loopback-redirect`, `authorize-unknown-client`, `authorize-client-id-mismatch`, `authorize-redirect-uri-mismatch`, `authorize-pkce-missing`, `authorize-pkce-plain`, `authorize-resource-missing`, `authorize-scope-invalid`, `authorize-feature-disabled`, `authorize-handle-at-limit`, `authorize-handle-overflow` |
 | Consent | `consent-view`, `consent-view-loopback`, `consent-view-decided`, `consent-request-invalid`, `consent-approve-new-agent`, `consent-approve-existing-agent`, `consent-approve-other-body`, `consent-deny`, `consent-agent-limit` |
 | Consent retry | `consent-approve-retry-pending`, `consent-approve-retry-completed`, `consent-approve-retry-expired`, `consent-approve-retry-withdrawn`, `consent-approve-lost-response` |
-| Token: authorization code | `token-authorization-code`, `token-pkce-mismatch`, `token-redirect-uri-mismatch`, `token-resource-mismatch`, `token-code-expired`, `token-code-reused`, `token-code-reused-wrong-verifier`, `token-code-reused-other-client`, `token-code-reused-confidential-auth-failed`, `token-code-reused-installation-ended`, `token-approval-withdrawn`, `token-public-client-secret` |
+| Token: authorization code | `token-authorization-code`, `token-pkce-mismatch`, `token-redirect-uri-mismatch`, `token-resource-mismatch`, `token-code-expired`, `token-code-reused`, `token-code-reused-wrong-verifier`, `token-code-reused-missing-verifier`, `token-code-reused-malformed-verifier`, `token-code-reused-wrong-redirect`, `token-code-reused-wrong-resource`, `token-code-reused-expired`, `token-code-reused-other-client`, `token-code-reused-confidential-auth-failed`, `token-code-reused-installation-ended`, `token-approval-withdrawn`, `token-public-client-secret` |
 | Token: refresh | `token-refresh`, `token-refresh-recovered`, `token-refresh-replay`, `token-refresh-other-client`, `token-refresh-scope-changed`, `token-refresh-paused`, `token-rate-limited` |
 | Revocation | `revoke-refresh-token`, `revoke-unknown-token`, `revoke-other-client` |
 | Bootstrap code | `bootstrap-code-issued`, `bootstrap-code-exchanged`, `bootstrap-code-public-client`, `bootstrap-code-at-mcp` |
@@ -4587,9 +4591,9 @@ These are Lane A's proposals. Any of them can change before approval.
 10. **`on_demand` for every installation made here** (§1), with the flag waiting for an a5-presence label. The alternative, declaring `envoi_link`, would claim a running host process that a cloud assistant does not have.
 11. **The code is returned once; a retry gets a decision outcome** (§5.2, revision 2). The alternative is to keep an encrypted copy of the first response for the code's 60 s life. That needs key binding, a TTL, deletion and replay limits, and it would still have to refuse a retry once the code is used. It adds a stored secret and saves the user nothing: either way, a host that missed the code must start again.
 12. **Approval.** Version-specific `CONTRACT-APPROVED agent-remote-auth v1 @<publication sha>` after Lane B's `CONTRACT-ACK`. It does not authorize any provider's gate or any flag change.
-13. **When a used code revokes (revision 3; Je's decision).** Two policies:
-   - **Policy A (revision 2, approved, unchanged here).** Row 5 checks reuse after client authentication (row 3) and the client check (row 4), and revokes before the expiry, redirect, PKCE and resource checks (rows 6–9).
-   - **Policy B (a possible later amendment, not proposed in this revision).** Reuse is still always denied. But it revokes only when the rest of the request is valid: rows 6–9 pass (unexpired code, exact `redirect_uri`, the matching verifier, the resource), after rows 3–4. This is OAuth 2.1 draft-16 §4.1.3 and §7.5.3.
+13. **When a used code revokes (revisions 3 and 4; Je's decision).** Two policies, compared with revision 2's row numbers:
+   - **Policy A (revision 2, approved; kept by revision 3).** Row 5 checks reuse after client authentication (row 3) and the client check (row 4), and revokes before the expiry, redirect, PKCE and resource checks (rows 6–9).
+   - **Policy B (revision 4, this amendment).** Reuse is still always denied. But it revokes only when the rest of the request is valid. In revision 4's numbering, the order is: parameters (2), client authentication (3), client binding (4), expiry (5), redirect (6), PKCE (7), resource (8), then reuse (9), then the registration re-checks (10). This is OAuth 2.1 draft-16 §4.1.3 and §7.5.3.
 
    | Replayed used code, still-active original installation | Policy A (approved) | Policy B |
    | --- | --- | --- |
@@ -4613,9 +4617,13 @@ These are Lane A's proposals. Any of them can change before approval.
    - **What Policy B gives up:** revocation for a replay that arrives after the code's 60 s lifetime, and for a replay that fails another check (wrong redirect or resource).
    - **What it gains:** it follows the draft's validity condition, and removes the code-only denial of service. With a 60 s single-use code, PKCE and an exact redirect match, a replay with the verifier inside the code's lifetime is the case that indicates a real second holder. Policy B still revokes then.
 
-   **Lane A's recommendation (corrected).** Policy B. It aligns with OAuth 2.1 draft-16 §7.5.3 and narrows the trigger to a holder of the verifier, without weakening the genuine-replay revocation. An earlier version of this decision said that under Policy B a code stolen together with its verifier would revoke nothing. That was wrong, as the first row of the table shows.
+   **Lane A's recommendation (corrected).** Policy B, which revision 4 specifies. It aligns with OAuth 2.1 draft-16 §7.5.3 and narrows the trigger to a holder of the verifier, without weakening the genuine-replay revocation. An earlier version of this decision said that under Policy B a code stolen together with its verifier would revoke nothing. That was wrong, as the first row of the table shows.
 
-   **Choosing Policy B** changes approved revision-2 semantics. It would therefore be its own coordinated amendment, revision 4 or a revised revision 3. That amendment would change `x-token-checks` and §6.1's table. It would turn `token-code-reused-wrong-verifier` into a no-revoke case, and add an expired-replay case and a wrong-redirect replay case. It would need Lane B review and Je's approval. **Choosing Policy A** means approving this revision as published. Nothing here selects a policy for Je.
+   **The choice.**
+   - **Policy A:** approve revision 3 and not revision 4.
+   - **Policy B:** approve revision 4. It contains revision 3, changes `x-token-checks` and §6.1's table, turns `token-code-reused-wrong-verifier` into a no-revoke case, and adds the missing-verifier, malformed-verifier, wrong-redirect, wrong-resource and expired replay cases. The genuine replay (`token-code-reused`) still revokes.
+
+   Nothing here selects a policy for Je.
 14. **Refuse an oversized handle rather than shrink it (revision 3).** Row 11 refuses with `invalid_request`. The alternative, storing a pending request and sending only its id, would make an unauthenticated `GET` write storage (decision 9).
 15. **No wake path for these installations in v1 (revision 3).** The revision-2 text promised an http-wake subscription that audience binding makes impossible. A `/mcp`-scoped wake tool, or any other path, is a separate contract.
 
@@ -4629,6 +4637,17 @@ These are Lane A's proposals. Any of them can change before approval.
 - **Audit types.** None are new, so Lane B's `WORKSPACE_EVENT_TYPES` needs no pairing change. `agent.installation_revoked` gains the actor value `client`.
 
 ### 15. Revisions before approval
+
+**Revision 4: Policy B** (proposed amendment on top of revision 3; Je asked for it to be prepared for Lane B review). This is not an approval of either revision.
+1. **Check order** (§6.1 table, `x-token-checks`): the reuse check moves after every validity check. Code grant: route flag, parameters, client authentication, client binding, expiry, redirect, PKCE, resource, **reuse**, registration re-checks. Bootstrap grant: route flag, parameters, client authentication, client binding, expiry, resource, **reuse**, registration re-checks.
+2. **Effects.** A used code is always denied, and only an otherwise valid replay revokes the original installation. Client authentication, the client binding (row 4) and installation-only revocation are unchanged; so are the unfrozen identity and the denial of every replay.
+3. **Fixtures.**
+   - `token-code-reused` (the genuine replay) still revokes.
+   - `token-code-reused-wrong-verifier` now revokes nothing.
+   - New: `token-code-reused-missing-verifier`, `token-code-reused-malformed-verifier`, `token-code-reused-wrong-redirect`, `token-code-reused-wrong-resource` and `token-code-reused-expired`. Each refuses at its own row and revokes nothing.
+   - `token-code-reused-other-client`, `-confidential-auth-failed` and `-installation-ended` are unchanged. There are 70 fixtures.
+4. **Text.** §5.2's reference moves to row 9. The §6.1 trigger paragraph and standards note, §8's bootstrap checks and decision 13 are updated.
+
 
 **Revision 3** (after approval of revision 2). This answers the gaps Lane A reported in [6324594912](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6324594912), which Lane B confirmed in [6325070244](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6325070244). The approved check order and every revision-2 response are unchanged.
 1. **Wake.** The "Not in this contract" text claimed an http-wake subscription for these installations. Audience binding refuses that, and no MCP tool exists for it. The text now says there is no wake path in v1 and no audience exception (decision 15).
