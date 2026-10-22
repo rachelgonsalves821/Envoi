@@ -1,100 +1,105 @@
-# RA-B1 remote-auth consent checkpoint
+# RA-B1 remote-auth client and server pairing
 
-Lane B, existing PR #173 writer. Refreshed from the integrated P0 source
-`244c117fb2a00d6bdc95a991f9021a1fdb94b262`; no constituent P0 source is reapplied.
-Human authorization: continue remaining Lane B work in this chat on 2026-10-22,
-with both remote flags OFF and Stage A unchanged. Claim: #34 comment6347291586.
+Existing Lane B PR #173 writer. This client is stacked on the exact reviewed
+server composition #203 `88b62fdd2bea6f445d681f30e25f335f271e9809`.
+That parent preserves integrated P0 `244c117fb2a00d6bdc95a991f9021a1fdb94b262`
+and contains #198, #177, #200, #201 and #202. No constituent source is reapplied.
+Human authorization: continue Lane B pairing in this chat on 2026-10-22 with both
+remote flags OFF and Stage A unchanged. Claims: #34 comments6347291586 and6348438133.
+The task branch and stacked draft are not a canonical integration or release.
 
 ## Approved contracts and ownership
 
-- agent-remote-auth v1 revision 4 / Policy B at
+- agent-remote-auth v1 revision4 / PolicyB at
   `7d857489b75575ee51c1c4fce6e853ae6fa8f7b6`, human decision6344626717.
-- agent-registration v1 revision 5 at
+- agent-registration v1 revision5 at
   `b9aa36991b0c54ca4bcc09f05c97c73e2da8761e`, paired with #178
   `5ff21d1f85e872f339785a4c74cd027751138db4`, human approval6346370584.
 - a5-presence-on-demand v1 at `cf3e39df6ca056f175f6504d626018ca851bc8fd`,
   human approval6324921026. Its UI remains with the existing #183 owner.
 
-Lane A owns server routes, persistence, MCP enforcement and redaction. Existing
-#196 owns offline host authorization preparation. This patch does not duplicate
-those writers or the independent Gate B-local reviewer.
+Lane A owns server persistence, MCP enforcement and redaction. Existing #196 owns
+host-client preparation; the independent reviewer keeps implementation-review
+ownership. This patch adds neither a production host-token client nor a provider
+catalog/setup entry point. The provider bootstrap component stays unmounted.
 
-## Client behavior
+## Client and generation
 
 Owner-session `/authorize-agent` consent, target/reconnect review, one first-response
-redirect, render-only decision retries/reloads and pending approval withdrawal use
-the existing CSRF, expected-account and session cancellation transport. A decision
-never retains a code-bearing redirect. Unknown writes retain an in-memory snapshot
-for a bounded identical retry; reads never navigate. No frontend OAuth token exchange
-or browser token persistence is introduced.
+redirect, render-only decision retries/reloads and authoritative pending withdrawal
+use the existing CSRF, expected-account and session cancellation transport. Unknown
+writes retain an in-memory snapshot only for a bounded identical retry. Reads never
+navigate. No access/refresh token enters browser state or storage.
 
-The unmounted provider bootstrap component requires an explicit issue action,
-never automatically retries issuance and clears a code on hide, expiry or unmount.
-Its display session now changes with the owner, client, target and grant, so a new
-target cannot inherit an old code or pending response. No provider catalog or
-unreviewed provider setup entry point is mounted.
+The one-time bootstrap component requires an explicit action, never retries issuance
+automatically and clears its code on hide, expiry or unmount. Its display session
+changes with the owner/client/target/grant, so a different request cannot inherit the
+default controller's code or pending response.
 
-## Real local source-pair acceptance
+`npm run build` regenerates against revision4 in this stack. The static remote-auth
+validator changes only its canonical hash comment to
+`5adaf169bbe4d82a98d424c893afa8b07b01da0a5bf7bb87915d2e0a68227e60`;
+its executable validation code is unchanged. The fixture review explicitly pins the
+approved generation: revision2 is59/72, revision4 PolicyB is70/101 with its exact token
+check-order signature. It does not silently accept arbitrary fixture counts or a
+revision3 policy. Canonical files and generated hashes are never hand-copied.
 
-Run from PowerShell with the bundled supported Node runtime:
+## Reproduce local source pairing
+
+From a clean committed worktree in PowerShell, using supported Node22/24:
 
 ```powershell
-$env:ENVOI_REMOTE_AUTH_SERVER_ROOT = '<clean local server worktree>'
+$env:ENVOI_REMOTE_AUTH_SERVER_ROOT = (Get-Location).Path
 npx vitest run --config vitest.remote-auth.config.ts
 ```
 
-The dedicated suite accepts a local filesystem tree, not a server URL. It checks
-that the selected tree has a clean tracked/untracked state and full Git SHA, then
-uses its existing disposable FileStore/development-auth harness. The fetch shim
-allows only local application paths and loopback; the production client supplies
-CSRF/account headers. No installed host, model, provider or hosted service is used.
-Both remote flags are explicitly false except OAuth in selected disposable child
-processes. The suite fails rather than skipping unsupported endpoints.
+A separate clean local server snapshot may also be selected. The suite accepts a
+filesystem tree, not a hosted URL; checks full Git SHA and source cleanliness; and
+uses disposable loopback FileStore/development-auth child processes. Shared/default
+flags remain OFF. Only selected child processes enable synthetic fixture clients.
+The browser shim supplies origin/cookies; production request code supplies CSRF and
+account binding. A synthetic private host holds tokens outside browser code and
+sends no cookies. No installed host, provider or model is contacted. Missing server
+endpoints fail rather than silently skipping tests.
 
-Verified server source: #200 `1a51abaae769a8aa05586614892e33e7e438a98c`.
-This is a client/server source pairing, not an integrated or served release.
+Five checks cover:
 
-Three checks pass:
+1. All70 revision4 fixtures /101 operations; all27 consent/bootstrap browser operations
+   pass static validation and reject an extra credential field.
+2. Actual consent first response/code once, lost response and identical code-free
+   retry, persisted outcome after server restart, withdrawal, denial and denial reload.
+3. Flags-off, cookie/account mismatch and CSRF refusal without approval/navigation.
+4. Completed consent after private host exchange; owner-narrowed scopes; OAuth tokens
+   refused on REST; wider refresh refusal; identical refresh recovery; successor MCP
+   first use; HTTP403 scope refusal; on-demand owner projection; HTTP409 pause while
+   refresh succeeds; genuine refresh replay ends access. Controller state and readable
+   owner/tool output contain no raw credentials or internal OAuth fields.
+5. Actual bootstrap issuance through the browser controller/component; explicit hide
+   and no reissue; private confidential-client exchange, MCP use and revocation; a lost
+   issue response is never retried or redisplayed. The resulting pending approval can
+   be found and explicitly withdrawn without disclosing the code.
 
-1. Independent consumption of all 70 revision-4 fixtures / 101 operations with
-   canonical AJV validation; all 27 consent/bootstrap browser operations also pass
-   the actual static browser validators and reject an extra credential field.
-2. Actual browser transport/controller against consent endpoints: first approval
-   navigates once, no code in controller state, lost response followed by a code-free
-   identical retry, persisted outcome after server restart, authoritative withdrawal,
-   denial and a code-free denial reload. Fixture pending slots are freed through the
-   real withdrawal path before a second approval.
-3. Flags-off FEATURE_DISABLED, expected-account refusal after a cookie/account change,
-   and CSRF refusal without an approval outcome or navigation.
+These are local FileStore source-pair results, not hosted or PostgreSQL client pairing.
+The independent #201 run39830980514 at82727c7 was checked for actual PostgreSQL consent
+store, token/refresh and bootstrap execution; it is not relabelled as our local run.
+The earlier #200-only CI did not establish those new PostgreSQL consent-store cases.
 
-## Remaining gates
+## Acceptance and remaining gates
 
-At the recorded P0 integration base, in-tree canonical fixtures are still revision 2
-(59 fixtures / 72 operations). The approved contract composition #198 has not yet
-been integrated into that base. The explicit suite above independently consumes the
-actual revision-4 publication in #200; unchanged consent/bootstrap wire shapes pass.
-After Lane A integrates #198, refresh this branch and regenerate validators with
-`npm run build` only, then run exact-head CI on that new composition. Do not hand-copy
-fixtures or generated hashes, or transfer old CI to the new head.
+Record the final client SHA and fresh combined-head CI in the PR and #34. Keep prior
+#173@685b854 results historical; do not transfer them to this rebased source. Local
+suites, build and generated equality must pass; a committed rebuild must be clean.
 
-Token, refresh, revoke, bootstrap server implementation and MCP enforcement remain
-Lane A work. Complete client/real-route pairing as those exact server slices become
-available. This consent slice does not establish a real OAuth exchange, registered
-provider, named-host availability, background wake or hosted acceptance.
+This now pairs the reviewed server and client source. It does not integrate #203 or
+#173, advertise a named host, register a real provider, establish background wake or
+satisfy a hosted gate. #183/#196 and the independent reviewer retain their tasks.
+Historical accepted A/B/C work is credited; no blanket replay is requested.
 
-Both ENVOI_REMOTE_MCP_OAUTH and ENVOI_PROVIDER_CONNECTORS remain OFF in all shared/default
+Both ENVOI_REMOTE_MCP_OAUTH and ENVOI_PROVIDER_CONNECTORS remain OFF in shared/default
 configuration. Stage A candidate, batch and receiver plan are unchanged. No canonical
-integration/main merge, deploy, account settings, provider registration, real host/model,
-paid operation, hosted test or invitation is performed.
+merge, deploy, account setting, provider registration, real host/model, paid operation,
+hosted test or invitation. #34 remains the only build board.
 
-## Validation and rollback
-
-Record final focused/full suite counts and exact-head CI in the PR description.
-All generated outputs come only from `npm run build`; a committed rebuild must be clean.
-Local source-pair results above are separate from PR CI, which currently lacks the
-new server endpoints. The server validation worktree remains source-clean.
-
-Client rollback reference: the recorded integration base. No data migration or
-installation deletion occurs here. Eventual server flags-off rollback preserves
-retained installations and follows the approved contracts; source revert alone is
-not an operational Worker/image rollback.
+Client source rollback reference: the exact #203 parent. No data migration, deletion
+or revocation is introduced by the client delta. Operational rollback remains the
+separate compatible Worker/image/data/settings procedure.
