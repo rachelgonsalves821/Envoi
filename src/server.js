@@ -2514,15 +2514,14 @@ async function readLimitedBody(req, limit) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-// POST /oauth/token and POST /oauth/revoke. Neither reads cookies or takes a CSRF header. Every request counts toward the
-// per-source limit (60 a minute); a failure from §6.1 row 4 on counts once more.
+// POST /oauth/token and POST /oauth/revoke. Neither reads cookies or takes a CSRF header. Every request, successful or not,
+// counts once toward the per-source limit (agent-remote-auth §6, x-limits.tokenRequestsPerSourcePerMinute, 60 a minute).
 async function handleOAuthEndpoint(req, res, url) {
   if (req.method !== 'POST') return fail(res, 405, 'Method not allowed');
   const source = clientIp(req);
   const limited = await registrationLimits.consumeTokenRequest(source);
   if (!limited.allowed) return sendOAuth(res, oauthError('temporarily_unavailable', { retryAfterSeconds: limited.retryAfterSeconds }));
   const result = url.pathname === '/oauth/token' ? await oauthTokenRequest(req) : await oauthRevokeRequest(req);
-  if (result.countFailure) await registrationLimits.recordTokenFailure(source).catch(() => console.error('OAuth failure count was not recorded'));
   return sendOAuth(res, result);
 }
 
@@ -2558,7 +2557,7 @@ async function oauthTokenRequest(req) {
 // §6.1 rows 4-10, and §8's bootstrap exchange (rows 4, 5 and 8, then 9 and 10, applied to the code). Each row decides before
 // the next is read; the reuse check is row 9, after every check that makes a request valid.
 async function exchangeOAuthCode(client, p, kind) {
-  const failed = (error = 'invalid_grant') => ({ ...oauthError(error), countFailure: true });
+  const failed = (error = 'invalid_grant') => oauthError(error);
   const codeHash = sha256Hex(p.code);
   const index = await store.getJson(oauthCodePath(codeHash));
   // Row 4: the code exists and was issued to this client. An orphan (its registration gone) is unknown and revokes nothing.
@@ -2645,7 +2644,7 @@ async function deleteOAuthRecoveries(familyId) {
 
 // §6.2. Rows 4-8 run under the family's lock together with the inbox lock the A1 rotation takes.
 async function refreshOAuthToken(client, p) {
-  const failed = (error = 'invalid_grant') => ({ ...oauthError(error), countFailure: true });
+  const failed = (error = 'invalid_grant') => oauthError(error);
   // Row 4: an oauth_refresh token of a family issued to this client. An A1 `refresh`, a token of another client and an
   // unknown token are all unknown here.
   if (!hasAgentCredentialFormat(p.token, 'refresh')) return failed();
@@ -2755,7 +2754,7 @@ async function oauthRevokeRequest(req) {
   const family = await store.getJson(familyPath);
   if (!family) return empty;
   // A family with no client (local_helper) and a family of another client are not this client's to revoke.
-  if (!oauthTokenTypes.includes(record.tokenType) || !family.audience || family.oauthClientId !== client.clientId) return { ...oauthError('unauthorized_client'), countFailure: true };
+  if (!oauthTokenTypes.includes(record.tokenType) || !family.audience || family.oauthClientId !== client.clientId) return oauthError('unauthorized_client');
   // §7: an expired or already-revoked token changes nothing, whether the token itself or its family ended (M5: a live
   // family must not be revoked through one of its expired access tokens).
   const nowMs = Date.now();
