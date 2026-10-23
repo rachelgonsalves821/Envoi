@@ -15,7 +15,7 @@ import {
 } from '../src/agent-remote-auth.js';
 import { createWakeDestination } from '../src/http-wake-destination.js';
 import { onboardingFlagErrors, readOnboardingFlags, routeAvailability } from '../src/onboarding-flags.js';
-import { launch } from './a3-harness.js';
+import { launch, owner } from './a3-harness.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtureDir = path.join(here, 'contract-fixtures', 'agent-remote-auth');
@@ -370,6 +370,31 @@ test('[server] flags off: every agent-remote-auth endpoint is FEATURE_DISABLED',
     assert.equal(body.code, 'FEATURE_DISABLED'); assert.equal(body.message, expected.response.body.message);
   }
   assert.equal((await get(server.baseUrl, '/.well-known/openid-configuration')).status, 404, 'no OpenID Connect discovery');
+});
+
+// M2 (review 6349153739): with both flags off, FEATURE_DISABLED comes before the session, CSRF and account checks,
+// so a signed-in owner's browser gets the same answer as anyone else.
+test('[server] flags off: a signed-in owner without a valid CSRF token still gets FEATURE_DISABLED', async t => {
+  const server = await launch({ ENVOI_AGENT_REGISTRATION_V2: 'true', ENVOI_INSTALLATIONS_V2: 'true', ENVOI_REMOTE_MCP_OAUTH: 'false', ENVOI_PROVIDER_CONNECTORS: 'false' }); t.after(() => server.stop());
+  const who = await owner(server.baseUrl, String(4000 + crypto.randomInt(5000)));
+  const cookie = who.session.headers(server.baseUrl, 'GET').cookie;
+  assert.match(cookie, /envoi_session=/, 'a real owner session');
+  const variants = [
+    ['no CSRF header', { cookie }],
+    ['a wrong CSRF header', { cookie, 'x-envoi-csrf': 'not-the-token', origin: server.baseUrl }],
+    ['another account', { ...who.session.headers(server.baseUrl, 'POST'), 'x-envoi-expected-human': 'human_someone_else' }]
+  ];
+  for (const endpoint of schemas['x-endpoints'].filter(entry => entry.method === 'POST')) {
+    const route = endpoint.path.replace('{handle}', 'v1.x');
+    for (const [label, headers] of variants) {
+      const response = await fetch(`${server.baseUrl}${route}`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', ...headers }, body: '{}' });
+      const body = await response.json();
+      assert.deepEqual([response.status, body.code], [404, 'FEATURE_DISABLED'], `${route} with ${label}`);
+    }
+  }
+  // The checks themselves are unchanged for other routes: the same session without CSRF is refused there.
+  const other = await fetch(`${server.baseUrl}/api/inboxes`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: '{"name":"x"}' });
+  assert.equal(other.status, 403, 'CSRF still applies to ordinary routes');
 });
 
 test('[server] discovery, authorize and consent shell on the real routes; nothing is stored', async t => {
