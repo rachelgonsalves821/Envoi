@@ -14,7 +14,7 @@ import { FileStore } from '../src/storage.js';
 import { PostgresStore } from '../src/postgres-storage.js';
 import { createAgentSlots, registrationPath } from '../src/agent-approval.js';
 import { createInstallationReader } from '../src/agent-installations.js';
-import { cleanupCursorPath, consentDecisionPath, createAgentRegistrations, createdBucketPath, hourBucket, oauthCleanupBucketStartMs, oauthCleanupBucketsPerRun, oauthCleanupCursorPath, oauthCleanupPath, oauthCodePath, sha256Hex } from '../src/agent-registration.js';
+import { cleanupCursorPath, consentDecisionPath, createAgentRegistrations, createdBucketPath, hourBucket, oauthCleanupBucketStartMs, oauthCleanupBucketsPerRun, oauthCleanupCursorPath, oauthCleanupCursorVersion, oauthCleanupPath, oauthCodePath, sha256Hex } from '../src/agent-registration.js';
 import { verificationCodeKey } from '../src/agent-registration-codes.js';
 import { createPollLimiter, createRegistrationLimits } from '../src/agent-registration-limits.js';
 import { permissionsForScopes, scopeForPermissions } from '../src/agent-remote-auth.js';
@@ -284,7 +284,7 @@ for (const [name, open] of stores) {
     const afterFirst = await store.getJson(oauthCleanupCursorPath);
     assert.equal(afterFirst.nextBucketStartMs, oldestHour + oauthCleanupBucketsPerRun * hour, 'one bounded batch, then the cursor');
     assert.equal(afterFirst.keptFromMs, oldestHour, 'the kept child is remembered for the next pass');
-    assert.deepEqual(Object.keys(afterFirst).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt'], 'the cursor holds positions only');
+    assert.deepEqual(Object.keys(afterFirst).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt', 'version'], 'the cursor holds positions only');
 
     // A restart (a new module over the same store) resumes from the cursor; the 35-day denial falls in the third batch.
     let runs = 1;
@@ -305,6 +305,50 @@ for (const [name, open] of stores) {
     await module(store).sweepOAuthCleanup(new Date());
     assert.equal((await present()).kept, false);
     assert.equal(await store.getJson(oauthCleanupPath(kept.createdAt, kept.key)), null);
+  });
+
+  // Upgrade (#34 6355820671): a store swept by the earlier RA-A1 part 2 sweep holds its cursor, { nextBucketStartMs, ranAt }
+  // at the current hour, which says nothing about buckets older than 30 days. That cursor starts a bounded backfill from the
+  // oldest indexed bucket, resumable across restarts, and is replaced by a versioned one; nobody deletes it by hand.
+  test(`[${name}] cleanup upgrade: a cursor of the earlier format starts a complete, bounded and resumable backfill`, async t => {
+    const store = await open(t);
+    const day = 24 * hour;
+    const at = ago => new Date(Date.now() - ago).toISOString();
+    const key = () => sha256Hex(crypto.randomBytes(16).toString('hex'));
+    const parentId = `registration_${crypto.randomUUID()}`;
+    await store.putJson(registrationPath(parentId), { id: parentId, status: 'activated', createdAt: at(50 * day) });
+    const kept = { key: key(), createdAt: at(50 * day), registrationId: parentId };
+    const orphan = { key: key(), createdAt: at(45 * day), registrationId: `registration_${crypto.randomUUID()}` };
+    const denial = { key: key(), createdAt: at(45 * day) };
+    const denialExpires = new Date(Date.parse(denial.createdAt) + 10 * 60_000).toISOString();
+    for (const child of [kept, orphan]) {
+      await store.putJson(oauthCodePath(child.key), { codeHash: child.key, kind: 'authorization_code', registrationId: child.registrationId, clientId: 'client_desktop-example', expiresAt: child.createdAt, usedAt: null });
+      await store.putJson(oauthCleanupPath(child.createdAt, child.key), { kind: 'oauth_code', key: child.key, registrationId: child.registrationId, createdAt: child.createdAt, deleteAfter: null });
+    }
+    await store.putJson(consentDecisionPath(denial.key), { handleDigest: denial.key, humanId: 'human_upgrade', decision: 'denied', bodyDigest: null, registrationId: null, decidedAt: denial.createdAt, handleExpiresAt: denialExpires });
+    await store.putJson(oauthCleanupPath(denial.createdAt, denial.key), { kind: 'consent_decision', key: denial.key, registrationId: null, createdAt: denial.createdAt, deleteAfter: denialExpires });
+    // Exactly what the earlier sweep wrote after finding nothing to keep in its 30-day window: the current hour.
+    const currentHour = Math.floor(Date.now() / hour) * hour;
+    await store.putJson(oauthCleanupCursorPath, { nextBucketStartMs: currentHour, ranAt: new Date().toISOString() });
+    const present = async () => ({
+      kept: Boolean(await store.getJson(oauthCodePath(kept.key))), orphan: Boolean(await store.getJson(oauthCodePath(orphan.key))), denial: Boolean(await store.getJson(consentDecisionPath(denial.key)))
+    });
+
+    // The first run after the upgrade starts at the oldest indexed bucket, not at the earlier cursor.
+    assert.equal(await module(store).sweepOAuthCleanup(new Date()), 2);
+    assert.deepEqual(await present(), { kept: true, orphan: false, denial: false }, '45-day orphan and expired denial swept; the live parent keeps its child');
+    const converted = await store.getJson(oauthCleanupCursorPath);
+    const oldestHour = oauthCleanupBucketStartMs(hourBucket(kept.createdAt));
+    assert.deepEqual([converted.version, converted.nextBucketStartMs, converted.keptFromMs], [oauthCleanupCursorVersion, oldestHour + oauthCleanupBucketsPerRun * hour, oldestHour], 'one bounded batch, then a versioned cursor');
+    // Restarts resume from the versioned cursor until caught up; the kept child stays.
+    let runs = 1;
+    for (; runs < 20 && (await store.getJson(oauthCleanupCursorPath)).keptFromMs !== null; runs += 1) await module(store).sweepOAuthCleanup(new Date());
+    assert.ok(runs < 20, 'caught up');
+    assert.deepEqual(await store.getJson(oauthCleanupCursorPath).then(cursor => [cursor.version, cursor.nextBucketStartMs, cursor.keptFromMs]), [oauthCleanupCursorVersion, oldestHour, null]);
+    assert.equal((await present()).kept, true);
+    // A versioned cursor is trusted: an earlier-format cursor is never written again.
+    await module(store).sweepOAuthCleanup(new Date());
+    assert.equal((await store.getJson(oauthCleanupCursorPath)).version, oauthCleanupCursorVersion);
   });
 
   test(`[${name}] consent approvals are rate limited per human: 10 per hour`, async t => {

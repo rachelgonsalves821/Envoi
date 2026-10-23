@@ -444,7 +444,7 @@ test('[server] discovery, authorize and consent shell on the real routes; nothin
   const maintenance = [path.join(server.dataDir, 'auth', 'agent-registration-cleanup', 'cursor.json'), path.join(server.dataDir, 'auth', 'oauth-cleanup-cursor', 'cursor.json')];
   assert.deepEqual(after.filter(file => !before.includes(file) && !maintenance.includes(file)), [], 'an unauthenticated authorization GET writes nothing');
   if (after.includes(maintenance[1])) {
-    assert.deepEqual(Object.keys(JSON.parse(await readFile(maintenance[1], 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt'], 'the OAuth cleanup cursor holds positions only');
+    assert.deepEqual(Object.keys(JSON.parse(await readFile(maintenance[1], 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt', 'version'], 'the OAuth cleanup cursor holds positions only');
   }
   const unknown = await get(baseUrl, `/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(query), client_id: 'client_unknown' })}`);
   assert.equal(unknown.headers.get('location'), `${origin}/authorize-agent?error=invalid_client`);
