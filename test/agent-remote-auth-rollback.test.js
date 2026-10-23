@@ -149,7 +149,16 @@ for (const backend of backends) {
       installations: createInstallationReader({ store, agentCredentialFamilyPath: (inboxId, agentId, familyId) => path.join('auth', 'agent-credential-families', inboxId, agentId, `${familyId}.json`) }),
       withInboxMutation: noop, canManageLive: noop, normalizeLocalPart: value => value, addressForLocalPart: value => value, identityTaken: noop, semanticDigest: value => value, log: () => {}
     });
-    assert.ok(await newer.sweepOAuthCleanup(later) >= 6, 'both children of every registration are swept');
+    // The sweep is bounded per run and resumes from its cursor (registration §14.6; RA-A1 part 2 backfill). On PostgreSQL the
+    // shared test database can hold a cursor an earlier test file left part-way through a backfill, so run it until this
+    // test's six records are gone: deterministic, no waiting, at most 20 bounded runs.
+    const remaining = async () => (await Promise.all(all.flatMap(item => [
+      docs.get(['auth', 'oauth-codes', `${sha256Hex(item.code)}.json`]), docs.get(['auth', 'oauth-consent-decisions', `${sha256Hex(item.handle)}.json`])
+    ]))).filter(Boolean).length;
+    let swept = 0;
+    for (let run = 0; run < 20 && await remaining() > 0; run += 1) swept += await newer.sweepOAuthCleanup(later);
+    assert.equal(await remaining(), 0, 'both children of every registration are swept');
+    assert.ok(swept >= 6, 'by this release, not by anything else');
     for (const item of all) {
       assert.equal(await docs.get(['auth', 'oauth-codes', `${sha256Hex(item.code)}.json`]), null);
       assert.equal(await docs.get(['auth', 'oauth-consent-decisions', `${sha256Hex(item.handle)}.json`]), null);
