@@ -76,10 +76,14 @@ import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
+import { authorizationServerMetadata, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, parsePreRegisteredClients, protectedResourceMetadata, remoteAuthEnabled, remoteAuthEndpointServed, remoteAuthLimits, remoteAuthOrigin } from './agent-remote-auth.js';
+import { createWakeDestination } from './http-wake-destination.js';
 
 const productionConfig = validateProductionConfiguration();
 // agent-registration v1 §1: fails closed in every mode, before anything starts.
 const onboardingFlags = readOnboardingFlags();
+// agent-remote-auth v1 §3.2: pre-registered clients are operator configuration; an invalid entry fails closed.
+const oauthClients = parsePreRegisteredClients(process.env.ENVOI_OAUTH_CLIENTS);
 const releaseSha = process.env.ENVOI_RELEASE_SHA || null;
 const deploymentIdentity = configuredDeploymentIdentity();
 // Connectors refuse to start unless /health reports exactly this identity, so it changes
@@ -884,6 +888,42 @@ const caseSessionMcp = createCaseSessionMcp(createCaseTools({ store, codec: refe
   evaluate: evaluateCaseToolAuthority, authorize: authorizeCaseTool, requestHuman: requestCaseToolHuman,
   share: shareCaseToolAsset, readContent: readCaseToolContent, complete: completeCaseTool
 }));
+// agent-remote-auth v1 §2-§4 (RA-A1): discovery, clients and the authorization request. Nothing here
+// writes storage. The issuer comes from ENVOI_PUBLIC_URL only (startup refuses a route flag without it).
+const remoteAuth = (() => {
+  const origin = remoteAuthOrigin(process.env.ENVOI_PUBLIC_URL);
+  const resolveClient = createClientResolver({
+    origin, flags: onboardingFlags, preRegistered: oauthClients,
+    fetchClientMetadata: createClientMetadataFetch({ destination: createWakeDestination({ env: process.env }) })
+  });
+  const sealer = createAuthorizationRequestSealer({ keyMaterial: connectorEncryptionKey() });
+  return { origin, sealer, authorize: createAuthorizeRequestHandler({ origin, flags: onboardingFlags, resolveClient, sealer }) };
+})();
+// x-endpoints: every agent-remote-auth endpoint. Those not built yet (consent, token, revocation,
+// bootstrap codes) answer FEATURE_DISABLED like a route whose flag is off.
+const remoteAuthPath = pathname => pathname === '/.well-known/oauth-protected-resource' || pathname === '/.well-known/oauth-protected-resource/mcp'
+  || pathname === '/.well-known/oauth-authorization-server' || pathname.startsWith('/oauth/') || pathname.startsWith('/api/oauth/');
+const remoteAuthDisabled = () => codedError(404, 'FEATURE_DISABLED', 'Remote connections are not available on this server.');
+async function handleRemoteAuthRoute(req, res, url) {
+  if (!remoteAuthEnabled(onboardingFlags)) throw remoteAuthDisabled();
+  const { origin } = remoteAuth;
+  const metadata = url.pathname === '/.well-known/oauth-authorization-server' ? authorizationServerMetadata(origin, onboardingFlags)
+    : url.pathname.startsWith('/.well-known/oauth-protected-resource') ? protectedResourceMetadata(origin) : null;
+  if (metadata) {
+    if (req.method !== 'GET') return fail(res, 405, 'Method not allowed');
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': remoteAuthLimits.metadataCacheControl });
+    return res.end(JSON.stringify(metadata));
+  }
+  if (url.pathname === '/oauth/authorize') {
+    if (req.method !== 'GET') return fail(res, 405, 'Method not allowed');
+    const outcome = await remoteAuth.authorize(url.searchParams);
+    if (outcome.featureDisabled) throw remoteAuthDisabled();
+    res.writeHead(302, { location: outcome.location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-length': 0 });
+    return res.end();
+  }
+  throw remoteAuthDisabled();
+}
+
 const httpWakeEnabled = onboardingFlags.httpWake;
 const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installationsEnabled: onboardingFlags.installations,
   facts: async sub => ({ family: await store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)), agent: await store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`)) }),
@@ -2990,6 +3030,10 @@ async function route(req, res) {
   const wakeRoute = url.pathname === '/.well-known/envoi-wake-keys.json' || url.pathname.startsWith('/api/agent/wake-subscriptions') || /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/wake-subscriptions/.test(url.pathname);
   if (wakeRoute && !httpWakeEnabled) throw codedError(404, 'FEATURE_DISABLED', 'HTTPS wake is not available on this server.');
   if (caseSessionRoute && !caseSessions.enabled) throw caseSessionErrors.featureDisabled();
+  // agent-remote-auth §1 and §11: an endpoint that no flag serves does not exist, so it answers FEATURE_DISABLED before any
+  // session, CSRF or account check could answer differently: every endpoint with both flags off, and the provider-only
+  // bootstrap-code endpoint while ENVOI_PROVIDER_CONNECTORS is off. A served endpoint runs those checks as any route does.
+  if (remoteAuthPath(url.pathname) && !remoteAuthEndpointServed(url.pathname, onboardingFlags)) throw remoteAuthDisabled();
   // Apply a stable source-IP bound on every route before trusting bearer or
   // cookie headers. Rotating invalid credentials must not reset this limit.
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
@@ -3010,6 +3054,8 @@ async function route(req, res) {
     const current = await auth.getHuman(req);
     if (current && current.id !== expectedHuman) throw codedError(409, 'ACCOUNT_CHANGED', 'You are signed in as a different account in another tab. Reload to continue.');
   }
+  // agent-remote-auth v1: discovery and the authorization request take no credential.
+  if (remoteAuthPath(url.pathname)) return handleRemoteAuthRoute(req, res, url);
   // case-session v1 §6: a session token is checked by its own rules, before any other credential.
   if (url.pathname === '/mcp' && String(bearerToken(req) || '').startsWith(caseSessionTokenPrefix)) return handleCaseSessionMcp(req, res, url);
   await enforceAgentCredential(req, url, res);
@@ -3041,9 +3087,10 @@ async function route(req, res) {
     };
     return handleAgentMcp(req, res, { identity, callRest });
   }
+  // agent-remote-auth v1 §5: /authorize-agent is the owner consent page, also the web app.
   // agent-registration v1 §3 and §7: claim.url is ${ENVOI_PUBLIC_URL}/claim; /connect is the
   // agent-facing page. Both are the web app, which reads availability from the routes endpoint.
-  const appShell = ['/', '/claim', '/connect'].includes(url.pathname);
+  const appShell = ['/', '/claim', '/connect', '/authorize-agent'].includes(url.pathname);
   if (['GET', 'HEAD'].includes(req.method) && url.pathname.startsWith('/connect/')) return serveConnectContent(req, res, url);
   if (['GET', 'HEAD'].includes(req.method) && (appShell || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
     const relative = appShell ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);

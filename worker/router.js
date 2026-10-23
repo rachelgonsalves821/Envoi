@@ -68,9 +68,13 @@ export function createForwardedRequest(request) {
   return new Request(request, { headers });
 }
 
+// agent-remote-auth v1 §2: the discovery documents are public and cacheable for 300 s.
+const publicMetadataPaths = new Set(['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server']);
+
 export function withNoStoreHeaders(response, pathname = '') {
   if (response.status === 101) return response;
   if (pathname === '/.well-known/envoi-wake-keys.json' && response.status === 200 && response.headers.get('cache-control') === 'public, max-age=300, s-maxage=0') return response;
+  if (publicMetadataPaths.has(pathname) && response.status === 200 && response.headers.get('cache-control') === 'public, max-age=300') return response;
   const headers = new Headers(response.headers);
   headers.set('cache-control', 'private, no-store');
   headers.set('cdn-cache-control', 'no-store');
