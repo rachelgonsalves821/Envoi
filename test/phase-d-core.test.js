@@ -5,10 +5,11 @@ import { relationshipRecord, revokeRelationship, trustedDiscovery, validateRelat
 import { readOnboardingFlags } from '../src/onboarding-flags.js';
 import { a2aAgentCard, parseA2ATextMessage, projectA2ATask } from '../src/a2a/adapter.js';
 import { CASE_STATES } from '../src/agent-interface.js';
+import { signDiscoveryInvitation, verifyDiscoveryInvitation } from '../src/discovery-invitations.js';
 
 const active = { id: 'agent_a', status: 'active' };
 const installation = { id: 'installation_a', agentId: 'agent_a', status: 'active' };
-const request = { actorAgentId: 'agent_a', installationId: 'installation_a', action: 'send_agent_messages' };
+const request = { actorAgentId: 'agent_a', installationId: 'installation_a', action: 'agent.discover' };
 const facts = { identity: active, installation, installationRequired: true, permissions: ['send_agent_messages'] };
 
 test('D1 grants are distinct, directed, and revocable without changing contact state', () => {
@@ -33,11 +34,14 @@ test('D1 exact address projects verified reachable identity and visible trust', 
   assert.deepEqual(trustedDiscovery(directory), { agentId: 'agent_b', address: 'b@envoi.mail', trust: 'exact_address', grants: [] });
   assert.equal(trustedDiscovery(directory, { approvedContact: { approved: true } }).trust, 'approved_contact');
   assert.equal(trustedDiscovery(directory, { approvedContact: { approved: true, blocked: true } }).trust, 'exact_address');
+  assert.equal(trustedDiscovery(directory, { sameOrganization: true }).trust, 'same_organization');
   assert.equal(trustedDiscovery(directory, { relationship: { status: 'active', grants: ['shareAssets'] } }).trust, 'relationship');
 });
 
 test('D2 authorization checks its ordered gates and denies missing facts', () => {
   assert.deepEqual(authorize(request, facts), { allowed: true, reason: 'ALLOW' });
+  assert.equal(authorize({ ...request, action: 'unknown.action' }, facts).reason, 'PERMISSION_DENIED');
+  assert.equal(authorize({ ...request, action: 'case.propose', caseId: 'case_a' }, { ...facts, permissions: ['execute_cases'], caseRecord: { id: 'case_a', schemaVersion: '1.0', participants: ['agent_a'] } }).reason, 'ALLOW');
   assert.equal(authorize(request, { ...facts, identity: { ...active, status: 'paused' } }).reason, 'IDENTITY_INACTIVE');
   assert.equal(authorize(request, { ...facts, installation: { ...installation, status: 'ended' } }).reason, 'INSTALLATION_INACTIVE');
   assert.equal(authorize(request, { ...facts, permissions: [] }).reason, 'PERMISSION_DENIED');
@@ -51,8 +55,10 @@ test('D2 authorization checks its ordered gates and denies missing facts', () =>
 
 test('D0 flags default off and A2A requires relationship and installation flags', () => {
   assert.equal(readOnboardingFlags({}).relationships, undefined);
+  assert.throws(() => readOnboardingFlags({ ENVOI_RELATIONSHIPS_V2: 'true' }), /ENVOI_RELATIONSHIPS_V2 requires ENVOI_INSTALLATIONS_V2/);
   assert.throws(() => readOnboardingFlags({ ENVOI_A2A_GATEWAY: 'true' }), /requires ENVOI_RELATIONSHIPS_V2 and ENVOI_INSTALLATIONS_V2/);
-  assert.throws(() => readOnboardingFlags({ ENVOI_A2A_GATEWAY: 'true', ENVOI_RELATIONSHIPS_V2: 'true', ENVOI_INSTALLATIONS_V2: 'true' }), /before the authenticated HTTP edge is implemented/);
+  assert.throws(() => readOnboardingFlags({ ENVOI_A2A_GATEWAY: 'true', ENVOI_RELATIONSHIPS_V2: 'true', ENVOI_INSTALLATIONS_V2: 'true' }), /requires ENVOI_PUBLIC_URL/);
+  assert.equal(readOnboardingFlags({ ENVOI_A2A_GATEWAY: 'true', ENVOI_RELATIONSHIPS_V2: 'true', ENVOI_INSTALLATIONS_V2: 'true', ENVOI_PUBLIC_URL: 'https://agents.example.test' }).a2aGateway, true);
 });
 
 test('D3 accepts only the advertised immediate text subset and projects canonical Cases', () => {
@@ -66,4 +72,15 @@ test('D3 accepts only the advertised immediate text subset and projects canonica
   assert.throws(() => projectA2ATask(persisted, { artifacts: [{ id: 'asset_1' }] }), /authorized HTTPS/);
   for (const state of CASE_STATES) assert.ok(projectA2ATask({ ...persisted, state }).status.state.startsWith('TASK_STATE_'), state);
   assert.equal(a2aAgentCard({ name: 'Envoi', description: 'Gateway', url: 'https://example.com/a2a' }).capabilities.streaming, false);
+});
+
+test('D1 signed invitations bind audience, expiry, and signature', () => {
+  const key = Buffer.alloc(32, 7);
+  const issuedAt = '2026-10-23T12:00:00.000Z';
+  const payload = { id: 'invitation_1', issuerAgentId: 'agent_a', issuerInboxId: 'inbox_a', recipientAgentId: 'agent_b', recipientInboxId: 'inbox_b', issuedAt, expiresAt: '2026-10-24T12:00:00.000Z' };
+  const token = signDiscoveryInvitation(payload, key);
+  assert.deepEqual(verifyDiscoveryInvitation(token, key, new Date('2026-10-23T13:00:00.000Z')), payload);
+  assert.equal(verifyDiscoveryInvitation(token, Buffer.alloc(32, 8), new Date('2026-10-23T13:00:00.000Z')), null);
+  assert.equal(verifyDiscoveryInvitation(`${token.slice(0, -1)}x`, key, new Date('2026-10-23T13:00:00.000Z')), null);
+  assert.equal(verifyDiscoveryInvitation(token, key, new Date('2026-10-24T12:00:00.000Z')), null);
 });

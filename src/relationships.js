@@ -31,12 +31,12 @@ export function revokeRelationship(previous, now, humanId) {
   return { ...previous, status: 'revoked', grants: [], updatedAt: now, updatedByHumanId: humanId };
 }
 
-export function trustedDiscovery(directory, { approvedContact = null, relationship = null } = {}) {
+export function trustedDiscovery(directory, { approvedContact = null, relationship = null, sameOrganization = false, signedInvitation = false } = {}) {
   if (!directory || !['active', 'paused'].includes(directory.status) || directory.verified !== true) return null;
   return {
     agentId: directory.agentId,
     address: directory.address,
-    trust: relationship?.status === 'active' ? 'relationship' : approvedContact?.approved === true && approvedContact.blocked !== true ? 'approved_contact' : 'exact_address',
+    trust: relationship?.status === 'active' ? 'relationship' : approvedContact?.approved === true && approvedContact.blocked !== true ? 'approved_contact' : sameOrganization ? 'same_organization' : signedInvitation ? 'signed_invitation' : 'exact_address',
     grants: relationship?.status === 'active' ? (Array.isArray(relationship.grants) ? relationship.grants : []).filter(grant => grantSet.has(grant)) : []
   };
 }

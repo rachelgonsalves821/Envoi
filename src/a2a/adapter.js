@@ -35,7 +35,11 @@ export function parseA2ATextMessage(input) {
 
 export function projectA2ATask(caseRecord, { contextId = null, artifacts = [] } = {}) {
   if (!caseRecord?.schemaVersion || !caseRecord.id || !states[caseRecord.state]) throw new TypeError('A persisted Envoi Case is required');
-  if (!Array.isArray(artifacts) || artifacts.some(asset => !asset?.id || !/^https:\/\//.test(asset.authorizedUrl))) throw new TypeError('Artifacts require authorized HTTPS Asset URLs');
+  if (!Array.isArray(artifacts) || artifacts.some(asset => {
+    if (!asset?.id) return true;
+    try { const url = new URL(asset.authorizedUrl); return url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(url.hostname)); }
+    catch { return true; }
+  })) throw new TypeError('Artifacts require authorized HTTPS Asset URLs');
   return {
     id: caseRecord.id,
     contextId: contextId || caseRecord.id,
@@ -45,7 +49,9 @@ export function projectA2ATask(caseRecord, { contextId = null, artifacts = [] } 
 }
 
 export function a2aAgentCard({ name, description, url, version = '1.0.0' }) {
-  if (!/^https:\/\//.test(url)) throw new TypeError('A2A card URL must be HTTPS');
+  let endpoint;
+  try { endpoint = new URL(url); } catch { throw new TypeError('A2A card URL is invalid'); }
+  if (endpoint.protocol !== 'https:' && !(endpoint.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(endpoint.hostname))) throw new TypeError('A2A card URL must be HTTPS');
   return {
     name, description, version,
     supportedInterfaces: [{ url, protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' }],
@@ -53,6 +59,6 @@ export function a2aAgentCard({ name, description, url, version = '1.0.0' }) {
     securitySchemes: { envoiBearer: { httpAuthSecurityScheme: { scheme: 'Bearer' } } },
     security: [{ envoiBearer: [] }],
     defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'],
-    skills: []
+    skills: [{ id: 'envoi-message', name: 'Envoi messaging', description: 'Send a text message as a canonical Envoi Case', tags: ['messaging'], inputModes: ['text/plain'], outputModes: ['text/plain'] }]
   };
 }

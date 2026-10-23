@@ -24,6 +24,7 @@ export function onboardingFlagErrors(env = process.env) {
   // A wake subscription belongs to an installation.
   if (env.ENVOI_HTTP_WAKE_V1 === 'true' && env.ENVOI_INSTALLATIONS_V2 !== 'true') errors.push('ENVOI_HTTP_WAKE_V1 requires ENVOI_INSTALLATIONS_V2');
   if (env.ENVOI_PROVIDER_BROWSER_POLL === 'true' && ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE'].some(name => env[name] !== 'true')) errors.push('ENVOI_PROVIDER_BROWSER_POLL requires installation, registration and authenticated REST flags');
+  if (env.ENVOI_RELATIONSHIPS_V2 === 'true' && env.ENVOI_INSTALLATIONS_V2 !== 'true') errors.push('ENVOI_RELATIONSHIPS_V2 requires ENVOI_INSTALLATIONS_V2');
   // agent-remote-auth §1, §2: both V2 flags, and an issuer built from ENVOI_PUBLIC_URL, never from Host.
   for (const name of ['ENVOI_REMOTE_MCP_OAUTH', 'ENVOI_PROVIDER_CONNECTORS']) {
     if (env[name] !== 'true') continue;
@@ -31,7 +32,7 @@ export function onboardingFlagErrors(env = process.env) {
     if (!issuerOrigin(env.ENVOI_PUBLIC_URL)) errors.push(`${name} requires ENVOI_PUBLIC_URL to be an https origin (or http on 127.0.0.1 or [::1] for local tests)`);
   }
   if (env.ENVOI_A2A_GATEWAY === 'true' && (env.ENVOI_RELATIONSHIPS_V2 !== 'true' || env.ENVOI_INSTALLATIONS_V2 !== 'true')) errors.push('ENVOI_A2A_GATEWAY requires ENVOI_RELATIONSHIPS_V2 and ENVOI_INSTALLATIONS_V2');
-  if (env.ENVOI_A2A_GATEWAY === 'true') errors.push('ENVOI_A2A_GATEWAY cannot be enabled before the authenticated HTTP edge is implemented');
+  if (env.ENVOI_A2A_GATEWAY === 'true' && !issuerOrigin(env.ENVOI_PUBLIC_URL)) errors.push('ENVOI_A2A_GATEWAY requires ENVOI_PUBLIC_URL to be an https origin (or http on 127.0.0.1 or [::1] for local tests)');
   return errors;
 }
 
