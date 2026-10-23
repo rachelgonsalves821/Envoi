@@ -2756,7 +2756,10 @@ async function oauthRevokeRequest(req) {
   if (!family) return empty;
   // A family with no client (local_helper) and a family of another client are not this client's to revoke.
   if (!oauthTokenTypes.includes(record.tokenType) || !family.audience || family.oauthClientId !== client.clientId) return { ...oauthError('unauthorized_client'), countFailure: true };
-  if (family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return empty;
+  // §7: an expired or already-revoked token changes nothing, whether the token itself or its family ended (M5: a live
+  // family must not be revoked through one of its expired access tokens).
+  const nowMs = Date.now();
+  if (family.revokedAt || record.revokedAt || Date.parse(record.expiresAt) <= nowMs || Date.parse(family.refreshExpiresAt) <= nowMs) return empty;
   const revoked = await withInboxMutation(record.inboxId, async writeAudit => {
     const current = await store.getJson(familyPath);
     if (!current || current.revokedAt) return null;
