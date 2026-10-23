@@ -5,8 +5,20 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolvePathWithin } from './path-safety.js';
 import { DEPLOYMENT_IDENTITY_PATH } from './deployment-identity.js';
 
+// Windows will not replace a file another handle holds open (for example a concurrent reader), and
+// reports that as EPERM or EBUSY from rename. Those are the only errors retried, only on win32 and
+// only for the rename itself; every other error, and exhaustion of this bounded schedule, propagates.
+const WINDOWS_REPLACE_RETRY_CODES = new Set(['EPERM', 'EBUSY']);
+const WINDOWS_REPLACE_RETRY_DELAYS_MS = Object.freeze([5, 10, 20, 40, 80, 160, 250, 250]);
+const sleepMs = delay => new Promise(resolve => setTimeout(resolve, delay));
+
 export class FileStore {
-  constructor(root) {
+  // Options are injected only so tests can exercise the platform policy deterministically.
+  constructor(root, { platform = process.platform, renameFile = rename, sleep = sleepMs, replaceRetryDelaysMs = WINDOWS_REPLACE_RETRY_DELAYS_MS } = {}) {
+    this.platform = platform;
+    this.renameFile = renameFile;
+    this.sleep = sleep;
+    this.replaceRetryDelaysMs = replaceRetryDelaysMs;
     this.root = path.resolve(root);
     this.claims = new Set();
     this.outboxMutation = Promise.resolve();
@@ -47,8 +59,20 @@ export class FileStore {
     const temporary = `${target}.${crypto.randomUUID()}.tmp`;
     try {
       await writeFile(temporary, content, { flag: 'wx' });
-      await rename(temporary, target);
+      await this.replaceFile(temporary, target);
     } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+  }
+
+  // Retries rename of the same prepared temporary file; nothing is rewritten or replayed.
+  async replaceFile(temporary, target) {
+    const delays = this.platform === 'win32' ? this.replaceRetryDelaysMs : [];
+    for (let attempt = 0; ; attempt += 1) {
+      try { return await this.renameFile(temporary, target); }
+      catch (error) {
+        if (attempt >= delays.length || !WINDOWS_REPLACE_RETRY_CODES.has(error?.code)) throw error;
+        await this.sleep(delays[attempt]);
+      }
+    }
   }
 
   async withTransaction(keys, operation, { lockWaitMs = null } = {}) {
@@ -86,11 +110,16 @@ export class FileStore {
           applied.push(target);
         }
       } catch (error) {
+        // Restore every applied document even if one restore fails, then surface the original error.
+        const rollbackErrors = [];
         for (const target of applied.reverse()) {
           const original = originals.get(target);
-          if (original === null) await unlink(target).catch(() => {});
-          else await this.writeAtomic(target, original);
+          try {
+            if (original === null) await unlink(target).catch(() => {});
+            else await this.writeAtomic(target, original);
+          } catch (rollbackError) { rollbackErrors.push(rollbackError); }
         }
+        if (rollbackErrors.length) error.rollbackErrors = rollbackErrors;
         throw error;
       }
       return result;
