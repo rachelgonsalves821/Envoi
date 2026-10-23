@@ -76,7 +76,7 @@ import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
-import { authorizationServerMetadata, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, parsePreRegisteredClients, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin } from './agent-remote-auth.js';
+import { authorizationServerMetadata, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, parsePreRegisteredClients, protectedResourceMetadata, remoteAuthEnabled, remoteAuthEndpointServed, remoteAuthLimits, remoteAuthOrigin } from './agent-remote-auth.js';
 import { createWakeDestination } from './http-wake-destination.js';
 
 const productionConfig = validateProductionConfiguration();
@@ -3030,9 +3030,10 @@ async function route(req, res) {
   const wakeRoute = url.pathname === '/.well-known/envoi-wake-keys.json' || url.pathname.startsWith('/api/agent/wake-subscriptions') || /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/wake-subscriptions/.test(url.pathname);
   if (wakeRoute && !httpWakeEnabled) throw codedError(404, 'FEATURE_DISABLED', 'HTTPS wake is not available on this server.');
   if (caseSessionRoute && !caseSessions.enabled) throw caseSessionErrors.featureDisabled();
-  // agent-remote-auth §11: with both flags off every endpoint does not exist, so it answers FEATURE_DISABLED before
-  // any session, CSRF or account check could answer differently. With a flag on, those checks run as for any route.
-  if (remoteAuthPath(url.pathname) && !remoteAuthEnabled(onboardingFlags)) throw remoteAuthDisabled();
+  // agent-remote-auth §1 and §11: an endpoint that no flag serves does not exist, so it answers FEATURE_DISABLED before any
+  // session, CSRF or account check could answer differently: every endpoint with both flags off, and the provider-only
+  // bootstrap-code endpoint while ENVOI_PROVIDER_CONNECTORS is off. A served endpoint runs those checks as any route does.
+  if (remoteAuthPath(url.pathname) && !remoteAuthEndpointServed(url.pathname, onboardingFlags)) throw remoteAuthDisabled();
   // Apply a stable source-IP bound on every route before trusting bearer or
   // cookie headers. Rotating invalid credentials must not reset this limit.
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
