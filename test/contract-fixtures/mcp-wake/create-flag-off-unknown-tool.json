@@ -59,7 +59,7 @@
       "id": 1,
       "error": {
         "code": -32602,
-        "message": "Unknown tool"
+        "message": "Tool not available to this agent"
       }
     }
   },
