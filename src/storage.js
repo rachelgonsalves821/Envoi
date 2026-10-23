@@ -506,6 +506,26 @@ export class FileStore {
     }
   }
 
+  // The path of the first JSON document under relativeDir, at any depth, in path order; null when there is
+  // none. It stops at the first document found. For background maintenance outside a transaction.
+  async firstJsonPath(relativeDir) {
+    if (!this.currentTransaction()) await this.transactionTail;
+    const walk = async relative => {
+      let entries;
+      try { entries = await readdir(this.file(relative), { withFileTypes: true }); }
+      catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+      for (const entry of entries.sort((first, second) => (first.name < second.name ? -1 : first.name > second.name ? 1 : 0))) {
+        const child = `${relative}/${entry.name}`;
+        if (entry.isDirectory()) {
+          const found = await walk(child);
+          if (found) return found;
+        } else if (entry.name.endsWith('.json')) return child;
+      }
+      return null;
+    };
+    return walk(String(relativeDir).replaceAll('\\', '/'));
+  }
+
   async queryJson(relativeDir, { limit = 100, before = null, after = null, filters = {}, sortField = 'createdAt', order = 'desc' } = {}) {
     const items = await this.listJson(relativeDir);
     if (!['asc', 'desc'].includes(order) || (before && after)) throw new TypeError('Invalid query cursor or order');

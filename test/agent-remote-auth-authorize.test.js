@@ -438,9 +438,14 @@ test('[server] discovery, authorize and consent shell on the real routes; nothin
     assert.match(response.headers.get('location'), /^https:\/\/www\.envoi-agents\.com\/authorize-agent\?request=v1\.[A-Za-z0-9_-]+$/);
   }
   const after = await listFiles(server.dataDir);
-  // The registration cleanup job writes its cursor on its own schedule; it is not request state.
-  const background = file => file.includes(path.join('auth', 'agent-registration-cleanup'));
-  assert.deepEqual(after.filter(file => !before.includes(file) && !background(file)), [], 'an unauthenticated authorization GET writes nothing');
+  // M7 (review 6349153739): the cleanup jobs write their own cursors on their own schedule, at startup and then on an
+  // interval, so either may appear between the two inventories. Exactly those two files are maintenance metadata, and
+  // the OAuth cursor may hold positions only. Every other new file, and anything holding grant state, fails.
+  const maintenance = [path.join(server.dataDir, 'auth', 'agent-registration-cleanup', 'cursor.json'), path.join(server.dataDir, 'auth', 'oauth-cleanup-cursor', 'cursor.json')];
+  assert.deepEqual(after.filter(file => !before.includes(file) && !maintenance.includes(file)), [], 'an unauthenticated authorization GET writes nothing');
+  if (after.includes(maintenance[1])) {
+    assert.deepEqual(Object.keys(JSON.parse(await readFile(maintenance[1], 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt', 'version'], 'the OAuth cleanup cursor holds positions only');
+  }
   const unknown = await get(baseUrl, `/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(query), client_id: 'client_unknown' })}`);
   assert.equal(unknown.headers.get('location'), `${origin}/authorize-agent?error=invalid_client`);
   const wrongRedirect = await get(baseUrl, `/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(query), redirect_uri: 'http://127.0.0.1:53682/other' })}`);
