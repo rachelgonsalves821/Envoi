@@ -5,11 +5,13 @@
   "type": "module",
   "description": "Private Envoi registration, confirmation and activation helper",
   "bin": {
-    "envoi-link": "./dist/envoi-link.mjs"
+    "envoi-link": "./dist/envoi-link.mjs",
+    "envoi-rest-host": "./dist/envoi-rest-host.mjs"
   },
   "files": [
     "README.md",
     "envoi-link.mjs",
+    "PORTABLE-REST.md",
     "host-plan.mjs",
     "skill/*.md",
     "skill/skill.json",

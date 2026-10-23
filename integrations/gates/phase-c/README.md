@@ -1,6 +1,6 @@
 # Phase C client preparation (C-B0)
 
-**Current status (2026-10-21 America/New_York):** selected C-B1–C-B5 source is integrated through combined PR #143. The human has confirmed prior B/C testing complete and instructed its countersign; see [the attributed acceptance record](EVIDENCE.md). The original preparation baseline below is historical, not a current missing-implementation or missing-test claim. The new P0 client branch combines #174 and #184 and validates those later changes separately.
+**Current status (2026-10-23 America/New_York):** selected C-B1–C-B5 source is integrated through combined PR #143. Prior B/C testing is human-attested complete/countersigned; see [the attributed acceptance record](EVIDENCE.md). Later Windows, normal-entry and supervised wake corrections are integrated through #199, and authorization/consent #203/#173 are merged at source baseline `d05498d8dc13c6f07dc151da7a41a1619ff62436`. Resulting integration CI is a separate receipt. [The B/C closure checklist](../B-C-CLOSEOUT.md) tracks pending client composition, applicable changed-behavior checks and host/provider dependencies. Preserve historical acceptance; assess later changed bytes on their own scope. Phase D belongs to Rachel and is outside this closure task.
 
 Publication baseline: integration `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. This separate preparation branch preserves PR #114's published history and carries its client-owned source inventory and tests alongside the reviewed evidence preparation.
 
@@ -42,7 +42,7 @@ Do not change shared source files while another Phase B task owns them. New Phas
 
 ## Published contract checkpoint
 
-The session/tools publication at `15fff09f336fe941858287511471b07b9f5184f8` has passed the independent consuming review and received explicit human implementation approval. The `http-wake` v1 publication at `269d9697cb8dd2d6ddd77f49e671c7fff69164ca` has passed its consuming review; its separate exact-version human implementation approval is still outstanding at this checkpoint. Publication and fixture ACK are not implementation, integration or hosted acceptance.
+The session/tools publication at `15fff09f336fe941858287511471b07b9f5184f8` and `http-wake` v1 at `269d9697cb8dd2d6ddd77f49e671c7fff69164ca` have consuming review and human approval. Board records 6257953866 and 6257954193 supply the exact-version approvals; do not request them again. Their selected implementation is integrated through #143. Extra provider support and later release operations still need their own evidence.
 
 Keep consuming the canonical fixtures rather than copying or weakening them. Je still supplies the combined implemented candidate and server evidence; client code and green task PRs cannot substitute for either. The [evidence worksheet](EVIDENCE.md) lists the future live proofs; no rows are pre-marked passed.
 

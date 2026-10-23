@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from 'react';
 import type { Inbox } from '../types';
-import { agentLabel, connectionLabel } from '../agent-presence';
+import { agentLabel, connectionLabel, lastContactLabel } from '../agent-presence';
 import { onboardingApi } from './api';
 import { ClaimController, newestActiveInstallation, type ClaimProblem } from './claim-state';
 import { canReconnectAgent, deliveryLabel, permissionLabel, routeLabel, type ClaimAgent, type OnboardingApi, type RegistrationPermission } from './types';
@@ -93,7 +93,7 @@ function ClaimPageSession({ humanId, workspaces, agents, onComplete, onBack, cli
           <label className="field"><span>Address name</span><input value={localPart} onChange={event => setLocalPart(event.target.value)} autoCapitalize="none" spellCheck={false} minLength={3} maxLength={32} pattern="[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*" required /></label><p>Use a lowercase address name with letters, numbers, periods or hyphens. The server checks availability when you approve.</p></div>
           : <><label className="field"><span>Existing agent</span><select value={existingId} onChange={event => chooseAgent(event.target.value)} required><option value="">Choose an agent</option>{eligibleAgents.map(agent => <option key={agent.id} value={agent.id}>{agent.name} · {agent.address}</option>)}</select></label>
             {selectedAgent && <div className="onboarding-replacement"><p>{agentLabel(selectedAgent)} · {connectionLabel(selectedAgent.connection)}</p>
-              {selectedAgent.connection?.seenAt && <p>Last check-in: <time dateTime={selectedAgent.connection.seenAt}>{new Date(selectedAgent.connection.seenAt).toLocaleString()}</time></p>}
+              {selectedAgent.connection?.seenAt && <p>{lastContactLabel(selectedAgent.connection)}: <time dateTime={selectedAgent.connection.seenAt}>{new Date(selectedAgent.connection.seenAt).toLocaleString()}</time></p>}
               {!replacementReady ? <button type="button" className="button secondary" disabled={state.busy} onClick={() => void controller.reviewReplacement(selectedAgent.inboxId, selectedAgent.id)}>Review current installations</button> : <>
                 <p>{selectedInstallation ? <>Newest active installation: {selectedInstallation.runtime.type} · {routeLabel(selectedInstallation.connectionRoute)} · {deliveryLabel(selectedInstallation.deliveryMode)}, activated {new Date(selectedInstallation.activatedAt).toLocaleString()}.</> : 'There is no active installation to replace.'}</p>
                 <p>Its current installations keep working until this connection activates. Activation then replaces every active installation. The agent keeps its address, cases and history{selectedAgent.paused || selectedAgent.status === 'paused' ? ', and stays paused until you resume it' : ''}.</p>
