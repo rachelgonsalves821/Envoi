@@ -5100,11 +5100,11 @@ Interface (documented, checked 2026-10-23, source <https://docs.x.ai/grok/automa
 ### 5. Decisions for review
 
 1. **Support MCP 2.0 (`2026-07-28`) at `/mcp` for events only (chosen), or not at all.** Without it the `mcp_events` profile cannot exist; Dots then relies on a safety poll while its app is open.
-2. **Provider callback and trigger allowlists empty by default (chosen)** rather than hard-coding hostnames this contract cannot verify.
-2a. **Verification cached for at most 3,600 s per principal and URL (chosen, E2)**, with destination checks on every hit, rather than verifying on every renewal. The cost is that a callback that stops answering is noticed at the next expiry or event, not at every renewal.
-2. **Provider callback and trigger allowlists empty by default (chosen)** `whsec_` secret encrypted (chosen).** It is unavoidable for HMAC. The alternative is to decline both profiles.
-4. **Grok sender ships as transport only; no processing claim until G1.** Whether a trusted bridge, the existing authenticated REST helper (which rejects scheduled polling) or no Grok route at all is selected is the owner's and Lane B's evidence-backed choice.
-5. **No change to a5-presence labels.** A `202` or `2xx` never turns `on_demand` into automatic reachability; only a separately approved contract after countersigned closed-app evidence does.
+2. **Provider callback and trigger allowlists empty by default (chosen)** rather than hard-coding hostnames this contract cannot verify. Until the human records observed evidence (gates D2 and G2) both profiles are inert.
+3. **Envoi stores the host-supplied or owner-supplied `whsec_` secret, encrypted (chosen).** HMAC signing cannot work without Envoi holding the key. The custody is exactly §2.7 and `x-secret`: encrypted at rest with the server data key, readable only by the delivery worker, never returned by any route, never logged or audited, and deleted on unsubscribe, end, revoke, flag-off and installation end. It is the one new secret Envoi stores. The alternative is to decline both profiles.
+4. **Verification cached for at most 3,600 s per principal and callback URL (chosen, E2)**, with the destination checks run on every request and the entry invalidated by expiry, a changed secret, URL or allowlist, and by ending (§2.6, `x-verification-cache`). The alternative is to verify on every renewal; the cost of the choice is that a callback that stops answering is noticed at the next expiry or event, not at every renewal.
+5. **Grok sender ships as transport only; no processing claim until G1.** Whether a trusted bridge, the existing authenticated REST helper (which rejects scheduled polling) or no Grok route at all is selected is the owner's and Lane B's evidence-backed choice.
+6. **No change to a5-presence labels.** A `202` or `2xx` never turns `on_demand` into automatic reachability; only a separately approved contract after countersigned closed-app evidence does.
 
 ### 6. Out of scope
 
@@ -5112,4 +5112,4 @@ Provider submission, plugin installation, account setup and real-account operati
 
 ### 7. Implementation notes (Lane A, informative)
 
-New `src/provider-event-wake.js` over the http-wake service and queue; `/mcp` event methods behind the version check in `src/agent-mcp.js`; encrypted secret field in both storage backends; owner routes and flags in `src/server.js` and `src/onboarding-flags.js`. Dependent implementation starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`. Tests: the 38 fixtures with FileStore and PostgreSQL parity for the encrypted secret, derivation and flag-off deletion; the existing http-wake suites unchanged.
+New `src/provider-event-wake.js` over the http-wake service and queue; `/mcp` event methods behind the version check in `src/agent-mcp.js`; encrypted secret field in both storage backends; owner routes and flags in `src/server.js` and `src/onboarding-flags.js`. Dependent implementation starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`. Tests: the 49 fixtures with FileStore and PostgreSQL parity for the encrypted secret, derivation and flag-off deletion; the existing http-wake suites unchanged.
