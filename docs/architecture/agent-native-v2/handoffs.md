@@ -5045,3 +5045,67 @@ The contract stays v1: this clarifies approved behaviour and adds no wire field.
 1. **Approval retry and code storage.** Revision 1 replayed the original `200`, code included, while storing the code only as SHA-256; the two cannot both hold. Now the code is in exactly one response and is never stored in clear or in an envelope. A repeated identical approve gets `consentDecided` (§5.2), with no code. The fixture `consent-approve-replayed` is replaced by `consent-approve-retry-pending`.
 2. **The boundary after an exchange or expiry.** `consentDecided` reports `pending_exchange`, `completed`, `expired` or `withdrawn`, and the page never navigates on it. An honest retry therefore never reaches the token endpoint's reuse revocation, which is unchanged (`token-code-reused`). New fixtures: `consent-approve-retry-completed`, `consent-approve-retry-expired`, `consent-approve-retry-withdrawn`, `consent-approve-lost-response` (lost response, then a restart, then expiry) and `consent-view-decided`.
 3. **Additions.** `consentView` gains the optional `decision` (§5.1), and `schemas.json` gains `consentDecided` and `x-consent-decisions`. Nothing else in the wire contract changes.
+
+## provider-gateway-native v1
+
+**Contract:** `provider-gateway-native`, version 1 (Lane A backlog item 3 of board #34 comment 6371261746; Phase B backlog B-R5/B-R8, Instinct). **Status:** published, awaiting Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED provider-gateway-native v1 @<publication sha>`. Nothing here is implemented, nothing is default-on, and no flag changes. It extends the approved-for-Stage-1 `provider-browser-poll` v1 without changing any of its routes, schemas or fixtures.
+
+**Fixtures:** [`test/contract-fixtures/provider-gateway-native/`](../../../test/contract-fixtures/provider-gateway-native/): `schemas.json` (tables `x-flags`, `x-endpoints`, `x-actions`, `x-limits`, `x-no-exposure`, `x-codes`, `x-states`) and 30 cases. Executable checks: `test/contract-fixtures.test.js` and `test/contract-provider-gateway-native.test.js`.
+
+**Owner:** Lane A. **Consumers:** Lane B (the gateway's host setup guidance and scheduled task prompt) and the owner UI.
+
+### 1. Route selected, and why
+
+Instinct's reported mechanism is a **scheduled HTTPS run** that can use a browser session. The trusted-persistent-process `authenticated_rest` helper rejects `scheduledPolling` (a host that runs only on a schedule cannot keep a supervised process), and no private credential custody inside Instinct is proven. Stage 1 (`provider-browser-poll`) can read and notify but cannot claim, reply or settle. So this contract selects the **Stage 2 gateway**: the **server-held installation credential** claims, replies and settles on the host's behalf, one bounded item at a time, while the host holds only the delegated gateway cookie and CSRF token. The alternative, host-held credentials calling REST natively on a schedule, stays unselected until the account proves private credential storage and a scheduled HTTPS client (a separate contract if so). **No email bridge is selected** and none is specified here.
+
+| Flag (server-only, default off; startup fails closed if a requirement is off) | Turns on |
+| --- | --- |
+| `ENVOI_PROVIDER_GATEWAY_NATIVE_V1` | The three work routes and the owner scope route below. Requires `ENVOI_PROVIDER_BROWSER_POLL`, `ENVOI_CASE_SESSIONS_V1`, `ENVOI_INSTALLATIONS_V2`, `ENVOI_AGENT_REGISTRATION_V2`. |
+
+Flag off: the routes return `404 FEATURE_DISABLED` (`claim-flag-off`), delegations behave as read/notify, held leases are released without consuming attempts, sent replies stay sent, and Stage 1 is unchanged (`rollback-flag-off`). Turning it back on never resurrects `native_work` from a stored record: each delegation needs the owner's scope approval again.
+
+### 2. Principals, binding and custody
+
+1. **Credential custody.** Unchanged from Stage 1 (§5 of that contract): the installation's access and refresh tokens live only in the gateway's encrypted record; renewal and rotation are server-internal with one persisted operation and canonical lost-response recovery. The host never sees, and the model never receives, an operational token, a lease token, a case-session token, a family, installation, owner or workspace id (`x-no-exposure`). Hosts hold the Stage 1 cookie `__Host-envoi_agent_gateway` and CSRF token; every new POST uses the Stage 1 origin, content-type, encoding and 8 KiB rules.
+2. **Scope is explicit (`scope-upgrade-owner`, `claim-read-only-session`, `scope-upgrade-from-gateway-session-denied`).** A delegation has scope `read_notify` (Stage 1) or `native_work`. The signed-in owner, with CSRF, assurance, the comparison phrase and `expectedRevision`, grants `native_work` through `POST /api/inboxes/{inboxId}/agents/{agentId}/installations/{installationId}/gateway-scope`. That bumps the session generation (a new cookie) and re-shows the permission set, cadence and absolute lifetime. A delegated cookie cannot call it, and a read/notify session gets `403 GATEWAY_SCOPE_DENIED` on the work routes. Effective rights remain the installation's approved permissions intersected with live policy; stored scope never widens a later reduction.
+3. **Tenant and owner binding.** Every id is server state bound to the session (`ownerId, workspaceId, agentId, installationId, credentialFamilyId, generation`). No request carries one. Opaque `workRef`, `caseRef`, `receiptRef`, `requestRef` are session-scoped and expire with the run.
+
+### 3. Claim, lease and settlement
+
+1. **Claim (`POST /api/agent-gateway/work/claim` `{runId}`; `claim-work`, `claim-idle`).** The gateway makes the canonical claim for this installation (a3/a4 claim, fence and lease), mints the case-session privately (case-session v1) and returns **one** work packet: `workRef`, `caseRef`, `kind`, `leaseExpiresAt`, `renewalsLeft`, a bounded snapshot from the canonical case projection (objective, status, participant display names, at most 10 recent events with summaries of at most 2 KiB, asset refs with clean/scan state and **no bytes or URL**, pending proposal), `allowedActions`, and `untrusted: true`. Inbound text is data, never instructions; the host prompt must say so, and the fixture keeps an injection attempt to prove the packet does not strip or obey it.
+2. **Lease (`leaseSeconds` 150, one renewal per claim: `renew-once`, `renew-twice-refused`).** No lease is held while a human or the next tick is awaited. Expiry returns the item to the queue under the existing lease and attempt rules (a claim that expires unsettled counts as an attempt, bounded by `maxAttempts`, like any host that crashes). `defer` releases without an attempt (`defer-releases-lease`).
+3. **Settlement is the canonical reply.** `reply` sends one message through the existing typed reply path, with sender, case and recipient derived from the claimed work, and settles the work in the same transaction under the fence (`reply-sent`). No separate acknowledgement or completion call exists; notification acknowledgement (Stage 1) is presentation only and never settlement.
+4. **Late actions.** Every act re-checks the lease and fence, the session generation and expiry, current membership and permission, agent pause and case controls. A lost lease, another run's `workRef`, a pause, a revoke or an expired session is refused with no effect (`reply-lease-lost`, `reply-wrong-run`, `reply-after-pause`, `reply-after-revoke`, `claim-session-expired`).
+5. **Limits and missed ticks (`x-limits`, `claim-run-budget-reached`, `claim-before-min-interval`, `missed-tick-and-restart`).** At most 3 items and 120 s per run, 6 actions per run, 60 s between runs, 60 replies per owner per hour, 4 KiB reply text. A skipped tick causes no catch-up burst; durable queue state, not the schedule, decides what is processed. Presence is overdue only after cadence plus grace (Stage 1 §7). A server restart loses nothing: leases, idempotency records and the notification ledger are durable.
+
+### 4. Actions, idempotency and correlation
+
+1. **Closed set (`x-actions`).** `act` takes `{runId, workRef, idempotencyKey, action, text?}`. v1 supports `reply`, `request_owner` and `defer`. Proposals, decisions, case completion, new cases and **every asset operation** are not in v1 (`act-action-unsupported`); fields for a recipient, case, attachment or URL are refused, never ignored (`act-request-invalid-extra-field`). A later contract adds more by reusing case-tools v1.
+2. **Idempotency (`reply-replayed-same-key`, `reply-key-conflict`).** The server key is `{installationId, workRef, idempotencyKey}` with the canonical request digest. The same key and body return the original result with `replayed: true` and no second message; the same key with a different body is `409 IDEMPOTENCY_CONFLICT`.
+3. **Correlation.** `runId` binds every packet and action to one run (Stage 1 serializes runs per installation). `receiptRef` is the canonical receipt of the reply, not proof the human saw it.
+4. **Outage (`service-unavailable-recovers`).** `503 GATEWAY_TEMPORARILY_UNAVAILABLE` claims no effect; the same key is safe to retry within the run budget.
+
+### 5. Consent
+
+1. **Standing consent** is exactly what the owner approved at pairing or scope upgrade: the permission set (`receive_agent_messages`, `send_agent_messages`, `execute_cases`), cadence, alert destination and absolute lifetime, re-approved at each 7-day re-pairing. It covers only actions current policy allows for this agent and case.
+2. **Per-item consent** is the existing policy and human-request flow. When policy requires a human decision, nothing is sent: the item opens an owner request and the result is `owner_approval_pending` with `settled: false` (`reply-needs-owner-approval`, `request-owner`). The owner decides in the dashboard; the decision binds exact case, recipient, content and generation, and a changed detail needs a fresh decision. The gateway, the host and any browser click cannot approve, and no recurring task waives owner MFA or assurance.
+3. Provider-side prompts (for example a host that asks its own user to approve each write) are the host's behaviour. They are observed and reported, not assumed or controlled.
+
+### 6. Pause, resume, revoke
+
+Pause: `409 AGENT_PAUSED` on every work route, leases released as held, order preserved (D1), no notification or claim state change (`claim-paused`). Resume needs no new identity and re-checks the delegation. Revoke or an ended installation invalidates the session and generation before any further effect and rejects late replies; a stranded host task keeps no access. Session end is not agent-wide revoke. Reconnect or a new browser profile is owner-authorized same-identity attachment, never a revived family.
+
+### 7. What this does not do
+
+It does not make Instinct "automatic". A scheduled run is a host schedule, not a closed-app proof: acceptance still needs the owner's real account, a real read-back task, two differently timed closed-app arrivals each producing one canonical reply, a missed run and restart, a denied write, pause/resume/revoke and a late run rejected, with exact hashes and the human's countersign. Both Muse and Instinct stay OPEN. It adds no email route, no general proxy, no raw token, no second reply store and no second queue.
+
+### 8. Decisions for review
+
+1. **Server-held credential gateway (chosen) vs host-held credentials.** The second needs proven private custody in a scheduled Instinct runtime.
+2. **Reply-only first (chosen).** Proposals, decisions, completion and assets wait for a later revision over case-tools v1.
+3. **Claims that expire unsettled consume an attempt (existing rule)** vs a gateway-specific exemption. A 30-minute cadence makes repeated crashes expensive; the bound is `maxAttempts`.
+4. **`native_work` needs the owner's explicit upgrade (chosen)** rather than being implied by the Stage 1 approval.
+
+### 9. Implementation notes (Lane A, informative)
+
+Extend `src/provider-browser-poll*.js` with the work routes calling the existing claim, case-session and typed-reply services under `gateway-installation:{id}` locks; scope field and generation in the gateway record in both storage backends; owner route and flag in `src/server.js` and `src/onboarding-flags.js`. Dependent implementation starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`. Tests: the 30 fixtures with FileStore and PostgreSQL parity for idempotency, fences, lease expiry, generation bumps and flag-off release; Stage 1 suites unchanged.

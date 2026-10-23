@@ -1,0 +1,56 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "scope-upgrade-owner",
+  "kind": "http",
+  "description": "§2.2: the signed-in owner (CSRF, assurance, comparison phrase) grants native_work to an existing read/notify delegation. Nothing is inherited silently.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_gw1/agents/agent_gw1/installations/installation_gw1/gateway-scope",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "scope": "native_work",
+      "expectedRevision": 2,
+      "comparisonPhrase": "amber-falcon-notes"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "scopeResult",
+    "headers": {
+      "cache-control": "no-store"
+    },
+    "body": {
+      "scope": "native_work",
+      "revision": 3,
+      "generation": 5,
+      "effectiveAt": "2026-10-24T12:00:00.000Z",
+      "requiresNewSessionCookie": true
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "renew-once",
+  "kind": "http",
+  "description": "§3.3: one renewal per claim extends the lease within the run budget; it is a gateway renewal of the canonical lease, not session renewal.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/renew",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "renewResult",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "leaseExpiresAt": "2026-10-24T12:04:30.000Z",
+      "renewalsLeft": 0
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none"
+  }
+}

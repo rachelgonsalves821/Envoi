@@ -1,0 +1,58 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "claim-flag-off",
+  "kind": "http",
+  "description": "§1: flag off: 404 and suspended delegations, no fallback.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": false
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/claim",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "error": "FEATURE_DISABLED",
+      "code": "FEATURE_DISABLED",
+      "guidance": "none"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none"
+  }
+}

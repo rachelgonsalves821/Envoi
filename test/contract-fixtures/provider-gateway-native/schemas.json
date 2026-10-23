@@ -1,0 +1,897 @@
+{
+  "$id": "provider-gateway-native/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "provider-gateway-native v1: Stage 2 of the installation-scoped provider gateway. The server-held installation claims, replies and settles on a schedule for a host (Instinct) that has no private credential or helper. Extends provider-browser-poll v1 without changing it.",
+  "x-flags": {
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": {
+      "default": false,
+      "requires": [
+        "ENVOI_PROVIDER_BROWSER_POLL",
+        "ENVOI_CASE_SESSIONS_V1",
+        "ENVOI_INSTALLATIONS_V2",
+        "ENVOI_AGENT_REGISTRATION_V2"
+      ],
+      "failsStartupClosed": true
+    }
+  },
+  "x-endpoints": [
+    {
+      "path": "/api/agent-gateway/work/claim",
+      "method": "POST",
+      "auth": "gateway_session",
+      "scope": "native_work"
+    },
+    {
+      "path": "/api/agent-gateway/work/act",
+      "method": "POST",
+      "auth": "gateway_session",
+      "scope": "native_work"
+    },
+    {
+      "path": "/api/agent-gateway/work/renew",
+      "method": "POST",
+      "auth": "gateway_session",
+      "scope": "native_work"
+    },
+    {
+      "path": "/api/inboxes/{inboxId}/agents/{agentId}/installations/{installationId}/gateway-scope",
+      "method": "POST",
+      "auth": "human_session",
+      "scope": null
+    }
+  ],
+  "x-actions": {
+    "supported": [
+      "reply",
+      "request_owner",
+      "defer"
+    ],
+    "unsupported": [
+      "propose",
+      "decide",
+      "complete_case",
+      "share_asset",
+      "download_asset",
+      "upload_asset",
+      "send_new_case",
+      "any_other"
+    ]
+  },
+  "x-limits": {
+    "requestMaxBytes": 8192,
+    "responseMaxBytes": 65536,
+    "replyTextMaxBytes": 4096,
+    "itemsPerRun": 3,
+    "runBudgetSeconds": 120,
+    "minSecondsBetweenRuns": 60,
+    "actionsPerRun": 6,
+    "leaseSeconds": 150,
+    "renewalsPerClaim": 1,
+    "idempotencyKeyMaxChars": 80,
+    "repliesPerOwnerPerHour": 60,
+    "sessionAbsoluteDays": 7,
+    "sessionIdleHours": 24,
+    "snapshotRecentEventsMax": 10,
+    "summaryMaxBytes": 2048
+  },
+  "x-no-exposure": [
+    "lease tokens",
+    "case-session tokens",
+    "credential family ids",
+    "installation ids",
+    "owner and workspace ids",
+    "operational access or refresh tokens",
+    "storage keys",
+    "asset bytes or download URLs"
+  ],
+  "x-codes": {
+    "FEATURE_DISABLED": {
+      "status": 404,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "none"
+    },
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "owner_required"
+    },
+    "GATEWAY_SESSION_EXPIRED": {
+      "status": 401,
+      "lifecycle": "NEEDS_RECONNECT",
+      "retry": "none",
+      "guidance": "owner_repair"
+    },
+    "CREDENTIAL_REVOKED": {
+      "status": 401,
+      "lifecycle": "REVOKED",
+      "retry": "none",
+      "guidance": "owner_reconnect"
+    },
+    "GATEWAY_CSRF_INVALID": {
+      "status": 403,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "none"
+    },
+    "GATEWAY_SCOPE_DENIED": {
+      "status": 403,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "owner_must_grant_scope"
+    },
+    "GATEWAY_REQUEST_INVALID": {
+      "status": 400,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "fix_request"
+    },
+    "GATEWAY_ACTION_UNSUPPORTED": {
+      "status": 400,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "use_supported_action"
+    },
+    "AGENT_PAUSED": {
+      "status": 409,
+      "lifecycle": "PAUSED",
+      "retry": "none",
+      "guidance": "check_state"
+    },
+    "LEASE_LOST": {
+      "status": 409,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "claim_again_next_run"
+    },
+    "GATEWAY_RUN_MISMATCH": {
+      "status": 409,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "claim_again_next_run"
+    },
+    "IDEMPOTENCY_CONFLICT": {
+      "status": 409,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "use_new_key"
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "lifecycle": "UNCHANGED",
+      "retry": "after_retry_after",
+      "guidance": "wait_retry_after"
+    },
+    "GATEWAY_TEMPORARILY_UNAVAILABLE": {
+      "status": 503,
+      "lifecycle": "DEGRADED",
+      "retry": "backoff",
+      "guidance": "retry_with_same_key"
+    }
+  },
+  "x-states": {
+    "claim": [
+      "work",
+      "idle",
+      "budget_reached"
+    ],
+    "act": [
+      "sent",
+      "owner_approval_pending",
+      "deferred"
+    ]
+  },
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "retry": {
+      "enum": [
+        "none",
+        "backoff",
+        "after_retry_after",
+        "refresh_then_retry_once"
+      ]
+    },
+    "guidance": {
+      "enum": [
+        "none",
+        "owner_required",
+        "owner_repair",
+        "owner_reconnect",
+        "owner_must_grant_scope",
+        "fix_request",
+        "use_supported_action",
+        "check_state",
+        "claim_again_next_run",
+        "use_new_key",
+        "wait_retry_after",
+        "retry_with_same_key",
+        "wait_for_owner"
+      ]
+    },
+    "gatewayError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error",
+        "code",
+        "guidance"
+      ],
+      "properties": {
+        "error": {
+          "enum": [
+            "FEATURE_DISABLED",
+            "AUTHENTICATION_REQUIRED",
+            "GATEWAY_SESSION_EXPIRED",
+            "CREDENTIAL_REVOKED",
+            "GATEWAY_CSRF_INVALID",
+            "GATEWAY_SCOPE_DENIED",
+            "GATEWAY_REQUEST_INVALID",
+            "GATEWAY_ACTION_UNSUPPORTED",
+            "AGENT_PAUSED",
+            "LEASE_LOST",
+            "GATEWAY_RUN_MISMATCH",
+            "IDEMPOTENCY_CONFLICT",
+            "RATE_LIMITED",
+            "GATEWAY_TEMPORARILY_UNAVAILABLE"
+          ]
+        },
+        "code": {
+          "enum": [
+            "FEATURE_DISABLED",
+            "AUTHENTICATION_REQUIRED",
+            "GATEWAY_SESSION_EXPIRED",
+            "CREDENTIAL_REVOKED",
+            "GATEWAY_CSRF_INVALID",
+            "GATEWAY_SCOPE_DENIED",
+            "GATEWAY_REQUEST_INVALID",
+            "GATEWAY_ACTION_UNSUPPORTED",
+            "AGENT_PAUSED",
+            "LEASE_LOST",
+            "GATEWAY_RUN_MISMATCH",
+            "IDEMPOTENCY_CONFLICT",
+            "RATE_LIMITED",
+            "GATEWAY_TEMPORARILY_UNAVAILABLE"
+          ]
+        },
+        "guidance": {
+          "enum": [
+            "none",
+            "owner_required",
+            "owner_repair",
+            "owner_reconnect",
+            "owner_must_grant_scope",
+            "fix_request",
+            "use_supported_action",
+            "check_state",
+            "claim_again_next_run",
+            "use_new_key",
+            "wait_retry_after",
+            "retry_with_same_key",
+            "wait_for_owner"
+          ]
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "retryAfterSeconds"
+            ]
+          }
+        }
+      ]
+    },
+    "packet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workRef",
+        "caseRef",
+        "runId",
+        "kind",
+        "untrusted",
+        "leaseExpiresAt",
+        "renewalsLeft",
+        "snapshot",
+        "allowedActions"
+      ],
+      "properties": {
+        "workRef": {
+          "type": "string",
+          "pattern": "^w_[A-Za-z0-9]{12,}$"
+        },
+        "caseRef": {
+          "type": "string",
+          "pattern": "^c_[A-Za-z0-9]{12,}$"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,80}$"
+        },
+        "kind": {
+          "enum": [
+            "agent_message",
+            "human_instruction"
+          ]
+        },
+        "untrusted": {
+          "const": true
+        },
+        "leaseExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "renewalsLeft": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "objective",
+            "status",
+            "participants",
+            "recentEvents",
+            "assets",
+            "pendingProposal"
+          ],
+          "properties": {
+            "objective": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "status": {
+              "type": "string"
+            },
+            "participants": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "role",
+                  "displayName"
+                ],
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "self",
+                      "counterparty"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "maxLength": 80
+                  }
+                }
+              }
+            },
+            "recentEvents": {
+              "type": "array",
+              "maxItems": 10,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "at",
+                  "from",
+                  "summary",
+                  "truncated"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "from": {
+                    "enum": [
+                      "self",
+                      "counterparty",
+                      "owner"
+                    ]
+                  },
+                  "summary": {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "assets": {
+              "type": "array",
+              "maxItems": 10,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "assetRef",
+                  "name",
+                  "state",
+                  "bytesAvailable"
+                ],
+                "properties": {
+                  "assetRef": {
+                    "type": "string",
+                    "pattern": "^a_[A-Za-z0-9]{6,}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "state": {
+                    "enum": [
+                      "clean",
+                      "pending_scan",
+                      "quarantined"
+                    ]
+                  },
+                  "bytesAvailable": {
+                    "const": false
+                  }
+                }
+              }
+            },
+            "pendingProposal": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          }
+        },
+        "allowedActions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "reply",
+              "request_owner",
+              "defer"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "claimResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "packet",
+        "retryAfterSeconds"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "work",
+            "idle",
+            "budget_reached"
+          ]
+        },
+        "packet": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/packet"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retryAfterSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "actResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "runId",
+        "workRef",
+        "settled",
+        "replayed"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "sent",
+            "owner_approval_pending",
+            "deferred"
+          ]
+        },
+        "runId": {
+          "type": "string"
+        },
+        "workRef": {
+          "type": "string"
+        },
+        "receiptRef": {
+          "type": "string",
+          "pattern": "^r_[A-Za-z0-9]{12,}$"
+        },
+        "requestRef": {
+          "type": "string",
+          "pattern": "^q_[A-Za-z0-9]{12,}$"
+        },
+        "settled": {
+          "type": "boolean"
+        },
+        "replayed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "renewResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workRef",
+        "leaseExpiresAt",
+        "renewalsLeft"
+      ],
+      "properties": {
+        "workRef": {
+          "type": "string"
+        },
+        "leaseExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "renewalsLeft": {
+          "const": 0
+        }
+      }
+    },
+    "scopeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "revision",
+        "generation",
+        "effectiveAt",
+        "requiresNewSessionCookie"
+      ],
+      "properties": {
+        "scope": {
+          "enum": [
+            "read_notify",
+            "native_work"
+          ]
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "generation": {
+          "type": "integer"
+        },
+        "effectiveAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "requiresNewSessionCookie": {
+          "const": true
+        }
+      }
+    },
+    "actRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "workRef",
+        "idempotencyKey",
+        "action"
+      ],
+      "properties": {
+        "runId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,80}$"
+        },
+        "workRef": {
+          "type": "string",
+          "pattern": "^w_[A-Za-z0-9]{12,}$"
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "action": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "fixtureFlags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ENVOI_PROVIDER_BROWSER_POLL",
+        "ENVOI_CASE_SESSIONS_V1",
+        "ENVOI_PROVIDER_GATEWAY_NATIVE_V1"
+      ],
+      "properties": {
+        "ENVOI_PROVIDER_BROWSER_POLL": {
+          "type": "boolean"
+        },
+        "ENVOI_CASE_SESSIONS_V1": {
+          "type": "boolean"
+        },
+        "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fixtureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "path",
+        "auth"
+      ],
+      "properties": {
+        "method": {
+          "const": "POST"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "auth": {
+          "enum": [
+            "gateway_session",
+            "human_session"
+          ]
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "schema",
+        "body"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "lifecycle",
+        "retry",
+        "guidance"
+      ],
+      "properties": {
+        "surface": {
+          "enum": [
+            "browser",
+            "owner"
+          ]
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/lifecycle"
+        },
+        "retry": {
+          "$ref": "#/definitions/retry"
+        },
+        "guidance": {
+          "$ref": "#/definitions/guidance"
+        }
+      }
+    },
+    "fixtureStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "does"
+      ],
+      "properties": {
+        "actor": {
+          "enum": [
+            "host",
+            "envoi",
+            "operator",
+            "owner"
+          ]
+        },
+        "does": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixture": {
+          "type": "string"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind"
+      ],
+      "properties": {
+        "contract": {
+          "const": "provider-gateway-native"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "sequence",
+            "rollback"
+          ]
+        },
+        "flags": {
+          "$ref": "#/definitions/fixtureFlags"
+        },
+        "context": {
+          "type": "object"
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/definitions/fixtureStep"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response",
+              "client"
+            ],
+            "not": {
+              "required": [
+                "steps"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "sequence",
+                  "rollback"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "steps"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                },
+                {
+                  "required": [
+                    "client"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "rollback"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "flags"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

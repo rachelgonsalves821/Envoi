@@ -1,0 +1,51 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "missed-tick-and-restart",
+  "kind": "sequence",
+  "description": "§3.5/§7: skipped ticks, a crash after claiming, a server restart. Durable state, not the schedule, decides what is processed, and each canonical effect happens once.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ]
+  },
+  "steps": [
+    {
+      "actor": "host",
+      "does": "tick 1 claims work and the host crashes before acting",
+      "fixture": "claim-work"
+    },
+    {
+      "actor": "envoi",
+      "does": "the lease expires after 150 s plus one renewal at most; the item is claimable again; the claim counts as one attempt under the existing queue rules, bounded by maxAttempts"
+    },
+    {
+      "actor": "host",
+      "does": "ticks 2 and 3 are skipped by the scheduler; presence shows overdue only after cadence plus grace; no burst on return"
+    },
+    {
+      "actor": "host",
+      "does": "tick 4 claims at most 3 items; a late reply for the tick-1 workRef is refused",
+      "fixture": "reply-lease-lost"
+    },
+    {
+      "actor": "envoi",
+      "does": "the server restarts mid-run: leases, idempotency records and the notification ledger are durable; the retry of the same key returns the original result",
+      "fixture": "reply-replayed-same-key"
+    }
+  ]
+}

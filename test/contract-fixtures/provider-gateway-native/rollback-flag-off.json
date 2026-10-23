@@ -1,0 +1,45 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "rollback-flag-off",
+  "kind": "rollback",
+  "description": "Turning the flag off returns every delegation to read/notify, releases leases without consuming attempts, refuses native routes with 404, and leaves Stage 1 and canonical work intact.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": false
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ]
+  },
+  "steps": [
+    {
+      "actor": "operator",
+      "does": "sets ENVOI_PROVIDER_GATEWAY_NATIVE_V1 off and restarts",
+      "fixture": "claim-flag-off"
+    },
+    {
+      "actor": "envoi",
+      "does": "native sessions behave as read/notify; leases held by the gateway are released as held/queued with no attempt consumed; sent replies stay sent; pending owner requests stay visible"
+    },
+    {
+      "actor": "envoi",
+      "does": "Stage 1 check and acknowledgement endpoints, the notification ledger and presence are unchanged"
+    },
+    {
+      "actor": "operator",
+      "does": "re-enabling requires current owner scope approval for each delegation: native_work is never resurrected from the stored record"
+    }
+  ]
+}

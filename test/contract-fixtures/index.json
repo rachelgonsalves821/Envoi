@@ -689,6 +689,46 @@
         "token-code-reused-wrong-redirect.json",
         "token-code-reused-wrong-resource.json"
       ]
+    },
+    {
+      "id": "provider-gateway-native",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-gateway-native-v1",
+      "dir": "provider-gateway-native",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "act-action-unsupported.json",
+        "act-request-invalid-extra-field.json",
+        "claim-before-min-interval.json",
+        "claim-csrf-invalid.json",
+        "claim-flag-off.json",
+        "claim-idle.json",
+        "claim-paused.json",
+        "claim-read-only-session.json",
+        "claim-revoked.json",
+        "claim-run-budget-reached.json",
+        "claim-session-expired.json",
+        "claim-work.json",
+        "consent-model.json",
+        "defer-releases-lease.json",
+        "missed-tick-and-restart.json",
+        "renew-once.json",
+        "renew-twice-refused.json",
+        "reply-after-pause.json",
+        "reply-after-revoke.json",
+        "reply-key-conflict.json",
+        "reply-lease-lost.json",
+        "reply-needs-owner-approval.json",
+        "reply-replayed-same-key.json",
+        "reply-sent.json",
+        "reply-wrong-run.json",
+        "request-owner.json",
+        "rollback-flag-off.json",
+        "scope-upgrade-from-gateway-session-denied.json",
+        "scope-upgrade-owner.json",
+        "service-unavailable-recovers.json"
+      ]
     }
   ]
 }
