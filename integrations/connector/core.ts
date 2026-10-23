@@ -116,7 +116,7 @@ export async function prepareConnection(runtime: ConnectorRuntime, apiUrl: strin
   await checkEnvoi(apiUrl, fetcher);
   const adapter = resolveAdapter(runtime);
   const config = await adapter.discover({ ...options, fetch: fetcher });
-  await adapter.preflight(config, { ...options, fetch: fetcher });
+  await adapter.preflight(config, { ...options, apiUrl, fetch: fetcher });
   return { runtime, checks: 'passed', ...adapter.describe(config), note: 'Preparation did not enroll an agent or prove unattended receiving' };
 }
 

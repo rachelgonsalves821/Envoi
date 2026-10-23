@@ -32,7 +32,8 @@ export function createTransport(origin, fetcher = globalThis.fetch) {
   };
 }
 
-export function offered(snapshot) {
+export function offered(snapshot, route = 'local_helper') {
+  if (!['local_helper', 'authenticated_rest'].includes(route)) throw new ProtocolError('INVALID_RESPONSE');
   if (snapshot?.contract?.id !== 'agent-registration' || snapshot.contract.version !== 1
     || typeof snapshot.registrationEnabled !== 'boolean' || typeof snapshot.installationsEnabled !== 'boolean'
     || !Array.isArray(snapshot.routes) || !Array.isArray(snapshot.deliveryModes)) throw new ProtocolError('INVALID_RESPONSE');
@@ -45,6 +46,6 @@ export function offered(snapshot) {
   const enabled = snapshot.registrationEnabled && snapshot.installationsEnabled;
   if (snapshot.routes.some(item => item.available && (!enabled || ['remote_mcp_oauth', 'provider_connector'].includes(item.connectionRoute)))
     || snapshot.deliveryModes.some(item => item.available && (!enabled || item.deliveryMode !== 'envoi_link'))) throw new ProtocolError('INVALID_RESPONSE');
-  return enabled && snapshot.routes.find(item => item.connectionRoute === 'local_helper')?.available === true
+  return enabled && snapshot.routes.find(item => item.connectionRoute === route)?.available === true
     && snapshot.deliveryModes.find(item => item.deliveryMode === 'envoi_link')?.available === true;
 }

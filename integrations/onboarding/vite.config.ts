@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { build, defineConfig } from 'vite';
 import { createHash } from 'node:crypto';
 import { copyFile, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -6,9 +6,10 @@ export default defineConfig({
   envDir: false, define: { __ENVOI_LINK_BUNDLED__: 'true' },
   plugins: [{ name: 'private-local-helper-metadata', async closeBundle() {
     const directory = path.resolve('integrations/onboarding/dist');
+    await build({ configFile: 'integrations/onboarding/rest.vite.config.ts' });
     await copyFile(path.resolve('web/downloads/envoi-connector.mjs'), path.join(directory, 'envoi-connector.mjs'));
     const artifacts: Record<string, { sha256: string; size: number }> = {};
-    for (const name of ['envoi-link.mjs', 'envoi-connector.mjs']) {
+    for (const name of ['envoi-link.mjs', 'envoi-rest-host.mjs', 'envoi-connector.mjs']) {
       const bytes = await readFile(path.join(directory, name));
       artifacts[name] = { sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.byteLength };
     }
