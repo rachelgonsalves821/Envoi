@@ -1,6 +1,14 @@
 import { claimProblem, type ClaimProblem } from './claim-state';
 import * as validate from './remote-auth.validator.mjs';
+import { hasRemotePermissions, remoteGrantAllowed } from './remote-auth-grants';
 import type { ConsentApproval, ConsentApproved, ConsentDecided, ConsentView, RemoteAuthApi } from './remote-auth-types';
+
+function validView(raw: unknown): raw is ConsentView {
+  if (!validate.consentView(raw)) return false;
+  const view = raw as ConsentView;
+  return hasRemotePermissions(view.requestedPermissions) && hasRemotePermissions(view.grantablePermissions)
+    && (!view.decision || view.decision.status === 'denied' || remoteGrantAllowed(view.decision.effectivePermissions));
+}
 
 export function authorizationHandle(search: string) {
   const params = new URLSearchParams(search);
@@ -66,7 +74,7 @@ export class ConsentController {
     const op = this.begin();
     try {
       const raw = await this.client.view(this.handle, op.signal); if (!op.current()) return false;
-      if (!validate.consentView(raw)) this.invalid();
+      if (!validView(raw)) this.invalid();
       const view = raw as ConsentView;
       if (view.decision) this.decision = null;
       this.update({ view, outcome: view.decision ?? null, phase: view.decision ? 'decided' : 'review', busy: false,
@@ -76,7 +84,7 @@ export class ConsentController {
   }
   async approve(body: ConsentApproval) {
     if (!this.allowed() || this.decision || this.state.outcome || !this.state.view || Date.parse(this.state.view.expiresAt) <= this.now()) return false;
-    if (!validate.consentApproveRequest(body) || !body.grantedPermissions.includes('receive_agent_messages')
+    if (!validate.consentApproveRequest(body) || !remoteGrantAllowed(body.grantedPermissions)
       || body.grantedPermissions.some(permission => !this.state.view!.requestedPermissions.includes(permission) || !this.state.view!.grantablePermissions.includes(permission))) return false;
     this.decision = { kind: 'approve', body: structuredClone(body) };
     return this.sendDecision();
@@ -96,10 +104,12 @@ export class ConsentController {
       const raw = decision.kind === 'approve' ? await this.client.approve(this.handle, structuredClone(decision.body), op.signal) : await this.client.deny(this.handle, op.signal);
       if (!op.current()) return false;
       if (decision.kind === 'approve' && validate.consentDecided(raw)) {
+        if (!remoteGrantAllowed((raw as ConsentDecided).effectivePermissions, decision.body.grantedPermissions)) this.invalid();
         this.decision = null; this.update({ outcome: raw as ConsentDecided, phase: 'decided', busy: false, uncertain: false, retryAt: 0 }); return true;
       }
       if (decision.kind === 'approve' ? !validate.consentApproved(raw) : !validate.consentDenied(raw)) this.invalid();
       const response = raw as ConsentApproved;
+      if (decision.kind === 'approve' && !remoteGrantAllowed(response.effectivePermissions, decision.body.grantedPermissions)) this.invalid();
       const redirect = new URL(response.redirectTo);
       const client = this.state.view!.client;
       if (redirect.host !== client.redirectHost || redirect.username || redirect.password || redirect.hash
@@ -134,7 +144,7 @@ export class ConsentController {
       if (!op.current()) return false;
       // Read the authoritative outcome: an exchange could have won the race.
       const raw = await this.client.view(this.handle, op.signal); if (!op.current()) return false;
-      if (!validate.consentView(raw) || !(raw as ConsentView).decision) this.invalid();
+      if (!validView(raw) || !raw.decision) this.invalid();
       const view = raw as ConsentView;
       this.update({ view, outcome: view.decision!, phase: 'decided', busy: false, problem: null, retryAt: 0 }); return true;
     } catch (caught) { if (op.current()) this.failure(caught); return false; }

@@ -23,6 +23,31 @@ host-client preparation; the independent reviewer keeps implementation-review
 ownership. This patch adds neither a production host-token client nor a provider
 catalog/setup entry point. The provider bootstrap component stays unmounted.
 
+## Continued client grant checks (2026-10-22)
+
+The published server heads are unchanged: #203 remains `88b62fdd`, so review
+M1–M9 and the independent older-than-30-day cleanup-backfill finding remain open.
+Current canonical integration is `7d2c8633183f1e423c662be49c2262047b8ac6d4`
+after the separately owned WorkOS preparation. The server owner must refresh the
+combined parent onto that head; this client branch retains its explicit #203
+parent rather than introducing server/WorkOS changes into the Lane B delta.
+
+The client now enforces remote-auth §4.3 in addition to structural validators.
+Only the four approved x-scopes permissions may enter consent views/decisions
+or bootstrap grants. `use_email_transport` has no OAuth scope. Bootstrap rejects
+that input before an issuance request. Approval responses and code-free retries
+cannot add optional permissions beyond the owner's captured selection. Bootstrap
+checks a snapshot of that selection even if its caller edits the request while
+the response is pending. Invalid responses never reach navigation or retained
+code display; an attempted bootstrap request is never automatically reissued.
+The mandatory receive permission remains required in every effective grant and
+may be added by registration approval when omitted from a bootstrap selection,
+as the approved contract already specifies. Legitimate narrower grants work.
+
+These are client checks, not a substitute for server M3 remediation. The provider
+component stays unmounted. No schema, wire contract, fixture, server source,
+Python quickstart path or other owner's client slice changes here.
+
 ## Client and generation
 
 Owner-session `/authorize-agent` consent, target/reconnect review, one first-response
