@@ -21,7 +21,24 @@ export async function privateDirectory(directory: string) {
     // Replace explicit as well as inherited grants; chmod does not protect files on Windows.
     // Use .NET directly: an inherited PowerShell 7 module path can break Windows
     // PowerShell's Set-Acl autoload. Terminating errors prevent unprotected setup.
-    const script = `$ErrorActionPreference='Stop'; $p='${absolute.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${sid}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
+    // An owned directory grants DACL control implicitly; writing even the same owner
+    // additionally requires WRITE_OWNER, which Modify-only volumes do not grant.
+    // Refuse a foreign owner rather than taking ownership or weakening the DACL.
+    const script = [
+      "$ErrorActionPreference='Stop'",
+      `$p='${absolute.replaceAll("'", "''")}'`,
+      `$s=New-Object System.Security.Principal.SecurityIdentifier('${sid}')`,
+      '$d=[System.IO.DirectoryInfo]::new($p)',
+      "if ($d.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Owner).GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $s.Value) { throw 'Credential directory owner mismatch' }",
+      '$a=New-Object System.Security.AccessControl.DirectorySecurity',
+      '$a.SetAccessRuleProtection($true,$false)',
+      "$r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow')",
+      '$a.AddAccessRule($r)',
+      '$d.SetAccessControl($a)',
+      '$v=$d.GetAccessControl()',
+      '$g=@($v.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))',
+      "if ($v.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $s.Value -or !$v.AreAccessRulesProtected -or $g.Count -ne 1 -or $g[0].IdentityReference.Value -ne $s.Value -or $g[0].IsInherited -or $g[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or $g[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or [int]$g[0].InheritanceFlags -ne 3 -or [int]$g[0].PropagationFlags -ne 0) { throw 'Credential directory ACL verification failed' }",
+    ].join('; ');
     try {
       await execute(windowsExecutable('powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 20_000 });
       if ((await readdir(absolute)).length) await execute(windowsExecutable('icacls.exe'), [path.join(absolute, '*'), '/reset', '/T', '/L', '/Q'], { windowsHide: true, timeout: 20_000 });

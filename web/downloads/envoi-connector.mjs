@@ -321,7 +321,21 @@ async function be(t) {
 	let a = d.resolve(await s(i));
 	if ((await n(i)).isSymbolicLink() || (process.platform === "win32" ? a.toLowerCase() !== i.toLowerCase() : a !== i)) throw new R("Choose a private state directory without symbolic links");
 	if (process.platform === "win32") {
-		let e = await ve(), t = `$ErrorActionPreference='Stop'; $p='${i.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${e}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
+		let e = await ve(), t = [
+			"$ErrorActionPreference='Stop'",
+			`$p='${i.replaceAll("'", "''")}'`,
+			`$s=New-Object System.Security.Principal.SecurityIdentifier('${e}')`,
+			"$d=[System.IO.DirectoryInfo]::new($p)",
+			"if ($d.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Owner).GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $s.Value) { throw 'Credential directory owner mismatch' }",
+			"$a=New-Object System.Security.AccessControl.DirectorySecurity",
+			"$a.SetAccessRuleProtection($true,$false)",
+			"$r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow')",
+			"$a.AddAccessRule($r)",
+			"$d.SetAccessControl($a)",
+			"$v=$d.GetAccessControl()",
+			"$g=@($v.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))",
+			"if ($v.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $s.Value -or !$v.AreAccessRulesProtected -or $g.Count -ne 1 -or $g[0].IdentityReference.Value -ne $s.Value -or $g[0].IsInherited -or $g[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or $g[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or [int]$g[0].InheritanceFlags -ne 3 -or [int]$g[0].PropagationFlags -ne 0) { throw 'Credential directory ACL verification failed' }"
+		].join("; ");
 		try {
 			await ye(_e("powershell.exe"), [
 				"-NoProfile",
