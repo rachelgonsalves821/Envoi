@@ -5,8 +5,8 @@ import { homedir as h } from "node:os";
 import { execFile as g } from "node:child_process";
 import { promisify as _ } from "node:util";
 import { createHash as v, createPublicKey as y, randomBytes as b, randomUUID as x, timingSafeEqual as S, verify as C } from "node:crypto";
-import { createServer as w } from "node:http";
-import { setTimeout as T } from "node:timers/promises";
+import { setTimeout as w } from "node:timers/promises";
+import { createServer as T } from "node:http";
 import { connect as E, createServer as D } from "node:net";
 import { realpathSync as O } from "node:fs";
 var k = Object.create, A = Object.defineProperty, j = Object.getOwnPropertyDescriptor, M = Object.getOwnPropertyNames, ee = Object.getPrototypeOf, te = Object.prototype.hasOwnProperty, ne = (e, t, n) => () => {
@@ -2583,7 +2583,15 @@ var Tt = (e) => {
 			} finally {
 				await r.close();
 			}
-			if (await c(n, e), process.platform !== "win32") {
+			for (let t = 0;; t++) try {
+				await c(n, e);
+				break;
+			} catch (e) {
+				let n = e;
+				if (process.platform !== "win32" || n.code !== "EPERM" || n.syscall !== "rename" || t >= 3) throw e;
+				await w(10 * (t + 1));
+			}
+			if (process.platform !== "win32") {
 				let t = await i(d.dirname(e), "r");
 				try {
 					await t.sync();
@@ -2668,7 +2676,7 @@ async function Nt({ connector: e, bearerToken: t, port: n = 8788, allowCollabora
 	if (!Number.isSafeInteger(n) || n < 0 || n > 65535) throw RangeError("Invalid MCP relay port");
 	let c = Buffer.from(t);
 	if (i?.some((e) => !Ot.has(e))) throw TypeError("Invalid collaboration tool allowlist");
-	let l = r ? new Set(i ?? Ot) : /* @__PURE__ */ new Set(), u = /* @__PURE__ */ new Set([...Dt, ...l]), d = w((e, t) => {
+	let l = r ? new Set(i ?? Ot) : /* @__PURE__ */ new Set(), u = /* @__PURE__ */ new Set([...Dt, ...l]), d = T((e, t) => {
 		f(e, t).catch(() => {
 			t.headersSent ? t.destroy() : K(t, 502, { error: "Envoi MCP relay request failed" });
 		});
@@ -8232,7 +8240,7 @@ function Lr(e) {
 								break;
 							} catch (t) {
 								if (!(t instanceof Dr) || !t.retryable || ++e >= 3) throw t;
-								await T(500 * 2 ** (e - 1), void 0, { signal: n.signal });
+								await w(500 * 2 ** (e - 1), void 0, { signal: n.signal });
 							}
 						}
 					} catch (t) {
@@ -9205,7 +9213,7 @@ async function vi(e) {
 			"content-type": "application/json",
 			"cache-control": "no-store"
 		}), e.end(n);
-	}, s = w((e, t) => {
+	}, s = T((e, t) => {
 		c(e, t).catch(() => {
 			t.headersSent ? t.destroy() : o(t, 502, JSON.stringify({ error: "Scoped MCP request unavailable" }));
 		});
@@ -9432,7 +9440,7 @@ async function Oi(e, t, n) {
 	} catch (e) {
 		if (!(e instanceof I) || e.code !== "HERMES_STALE_GENERATION") throw e;
 	}
-	for (; i.status !== "terminal" && i.status !== "unknown";) await T(50, void 0, { signal: r }), i = Di(await e.rpc("prompt.receipt", {
+	for (; i.status !== "terminal" && i.status !== "unknown";) await w(50, void 0, { signal: r }), i = Di(await e.rpc("prompt.receipt", {
 		session_id: t,
 		admission_id: n
 	}, r), t, n);
@@ -9522,7 +9530,7 @@ function ki(e, t, n = {}) {
 						return;
 					}
 					if (e.status === "unknown" || c) throw Q("HERMES_EXECUTION_UNCERTAIN");
-					await T(i, void 0, { signal: d });
+					await w(i, void 0, { signal: d });
 				}
 			} finally {
 				if (u.abort(), await f?.close(), !o.completed && l.sessionId) {
@@ -10921,7 +10929,7 @@ async function ja(e) {
 			origin: t.wakeOrigin,
 			registeredUrl: i.registeredUrl,
 			store: o
-		}), c = new URL(i.registeredUrl), l = w(ka({
+		}), c = new URL(i.registeredUrl), l = T(ka({
 			path: c.pathname,
 			receiver: s,
 			host: r,
@@ -11167,7 +11175,7 @@ async function Ka(e, t) {
 	}), await l(i.filename, { force: !0 }))), i.name;
 }
 async function qa(e, t, n, r = () => ({ status: "running" })) {
-	let i = b(32).toString("base64url"), o = (/* @__PURE__ */ new Date()).toISOString(), s = d.join(e, "control.json"), c = w((e, a) => {
+	let i = b(32).toString("base64url"), o = (/* @__PURE__ */ new Date()).toISOString(), s = d.join(e, "control.json"), c = T((e, a) => {
 		let s = c.address(), l = s && typeof s == "object" ? `127.0.0.1:${s.port}` : "", u = Buffer.from(e.headers.authorization || ""), d = Buffer.from(`Bearer ${i}`);
 		if (e.headers.host !== l || e.headers.origin || u.length !== d.length || !S(u, d)) {
 			a.writeHead(403), a.end();
@@ -11580,7 +11588,7 @@ async function _o(e, t, n, r = {}) {
 			address: f.address
 		}, c, () => p));
 		let h = await t.lifecycle();
-		for (h.retryAt && await T(Math.max(0, Date.parse(h.retryAt) - Date.now()), void 0, { signal: s.signal }).catch((e) => {
+		for (h.retryAt && await w(Math.max(0, Date.parse(h.retryAt) - Date.now()), void 0, { signal: s.signal }).catch((e) => {
 			if (!s.signal.aborted) throw e;
 		}); !s.signal.aborted;) try {
 			await po(f.apiUrl, o);
@@ -11630,7 +11638,7 @@ async function _o(e, t, n, r = {}) {
 				guidance: i.guidance,
 				runtimeChecks: "pending",
 				errorCode: n
-			}, r.onWaiting?.(n), await T(Math.max(e instanceof I ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, r.retryDelayMs ?? Math.max(0, Date.parse(i.retryAt ?? "") - Date.now())), void 0, { signal: s.signal }).catch((e) => {
+			}, r.onWaiting?.(n), await w(Math.max(e instanceof I ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, r.retryDelayMs ?? Math.max(0, Date.parse(i.retryAt ?? "") - Date.now())), void 0, { signal: s.signal }).catch((e) => {
 				if (!s.signal.aborted) throw e;
 			});
 		}
@@ -11711,7 +11719,7 @@ async function bo(e) {
 		n = await B(t);
 	} catch (e) {
 		if (!(e instanceof Error) || !e.message.includes("already running") || Date.now() >= r) throw e;
-		await T(100);
+		await w(100);
 	}
 	try {
 		await l(d.join(t, "connector.mjs"), { force: !0 });
