@@ -77,7 +77,7 @@ import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
-import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
+import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, oauthGrantablePermissions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
 import { organizationMaximumPermissions } from './agent-approval.js';
 import { sha256Hex } from './agent-registration.js';
 import { createWakeDestination } from './http-wake-destination.js';
@@ -2365,6 +2365,8 @@ async function activationRechecksPass(registration) {
 // response in place of the activation body.
 async function commitActivation(rawToken, registration, body, activationIdHash, plannedInboxId, writeAudit, { oauth = false } = {}) {
   const { target } = registration;
+  // An OAuth installation never activates a permission without a scope (agent-remote-auth §4.3), whatever its record holds.
+  const permissions = oauth ? oauthGrantablePermissions(registration.effectivePermissions) : registration.effectivePermissions;
   const activatedAt = store.now();
   const familyId = store.id('credential_family');
   const installationId = store.id('installation');
@@ -2377,7 +2379,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
     if (!await reserveIdentity(target.address, { status: 'reserved' }, { holdRegistrationId: registration.id })) throw new Error('The held address could not be reserved');
     agent = {
       id: store.id('agent'), organizationId: workspace.organizationId, name: target.name, slug: target.localPart, address: target.address, identity: publicIdentity(target.localPart),
-      principalHumanId: registration.principalHumanId, capabilities: [], permissions: registration.effectivePermissions, ...(runtime ? { runtime } : {}),
+      principalHumanId: registration.principalHumanId, capabilities: [], permissions, ...(runtime ? { runtime } : {}),
       createdAt: activatedAt, status: 'active', onboardingStatus: 'approved', approvedAt: activatedAt, approvedByHumanId: registration.approverHumanId
     };
     inbox = await createDedicatedAgentInbox({ sourceInbox: workspace, organizationId: workspace.organizationId, ownerHumanId: registration.principalHumanId, agent, status: 'active', inboxId: plannedInboxId });
@@ -2392,7 +2394,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
     inbox = await store.getJson(path.join('inboxes', target.agentInboxId, 'inbox.json'));
     const current = await store.getJson(path.join('inboxes', inbox.id, 'agents', `${target.agentId}.json`));
     // Permissions are decided again; a paused agent stays paused (a3 §4).
-    agent = { ...current, permissions: registration.effectivePermissions, updatedAt: activatedAt };
+    agent = { ...current, permissions, updatedAt: activatedAt };
     replaced = await revokeAgentCredentialFamilies(inbox.id, agent.id, registration.approverHumanId, activatedAt, 'replaced', writeAudit);
     const heldLeases = (await store.listJson(path.join('inboxes', inbox.id, 'work-claims')))
       .filter(claim => claim.agentId === agent.id && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(activatedAt));
@@ -2412,7 +2414,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
   });
   const installation = oauth ? null : await installations.forFamily(inbox.id, agent, familyId);
   const response = oauth ? tokenResponse({
-    accessToken: credentials.agentApiToken, refreshToken: credentials.agentRefreshToken, expiresIn: agentAccessTokenTtlSeconds, scope: scopeForPermissions(registration.effectivePermissions)
+    accessToken: credentials.agentApiToken, refreshToken: credentials.agentRefreshToken, expiresIn: agentAccessTokenTtlSeconds, scope: scopeForPermissions(permissions)
   }) : {
     installation: publicInstallation(installation),
     agent: { id: agent.id, name: displayName(agent.name, String(agent.address).split('@')[0]), address: agent.address, status: agent.status },
@@ -2444,7 +2446,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
   }
   await writeAudit('agent.installation_activated', {
     agentId: agent.id, installationId, credentialFamilyId: familyId, registrationId: registration.id, target: target.kind,
-    connectionRoute: registration.connectionRoute, deliveryMode: body.deliveryMode, permissions: registration.effectivePermissions, humanId: registration.approverHumanId,
+    connectionRoute: registration.connectionRoute, deliveryMode: body.deliveryMode, permissions, humanId: registration.approverHumanId,
     ...(replaced ? { replacedFamilyCount: replaced } : {})
   }, activatedAt, inbox.id);
   return { response, agent, inboxId: inbox.id, existing: target.kind === 'existing_agent' };

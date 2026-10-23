@@ -340,6 +340,8 @@ export function createAuthorizeRequestHandler({ origin, flags, resolveClient, se
 // x-scopes order.
 export const permissionsForScopes = scopes => remoteAuthScopes.filter(entry => scopes.includes(entry.scope)).map(entry => entry.permission);
 export const scopeForPermissions = permissions => remoteAuthScopes.filter(entry => permissions.includes(entry.permission)).map(entry => entry.scope).join(' ');
+// §4.3: an OAuth grant holds only permissions that have a scope (use_email_transport has none and cannot be granted).
+export const oauthGrantablePermissions = permissions => permissions.filter(permission => remoteAuthScopes.some(entry => entry.permission === permission));
 
 // agent-remote-auth §5.1: what the owner sees about the client. Never the handle's raw contents, and no logo or
 // client_uri fetch.

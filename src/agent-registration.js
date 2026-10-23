@@ -6,7 +6,7 @@ import path from 'node:path';
 import { agentPermissions, approvalSlotIndexPath, approverIndexDir, approverIndexPath, effectivePermissions, liveApproval, organizationMaximumPermissions, registrationPath } from './agent-approval.js';
 import { newestActiveInstallation } from './agent-installations.js';
 import { routeAvailable, browserPollAvailable, providerGatewayAuthority } from './onboarding-flags.js';
-import { scopeForPermissions } from './agent-remote-auth.js';
+import { oauthGrantablePermissions, scopeForPermissions } from './agent-remote-auth.js';
 import { approverEmailHint, displayName, displayVerificationCode, generateBootstrapToken, generateVerificationCode, hashToken, isBootstrapToken, normalizeVerificationCode, sourceHmac, sourceKey, tokenLikePattern, unsafeNameCharacters, validRequestedName, verificationCodeHmac } from './agent-registration-codes.js';
 
 export const registrationTtlSeconds = 600;
@@ -723,7 +723,10 @@ export function createAgentRegistrations({
       if (await liveApprovalsBy(human.id) >= approvalsAwaitingActivationPerHuman) throw coded(409, 'PENDING_ACTIVATION_LIMIT', 'Too many approvals are still waiting for their agents.');
       const at = nowIso();
       const activationExpiresAt = plus(at, (consent ? consentCodeTtlSeconds : bootstrapCodeTtlSeconds) * 1000);
-      const requestedPermissions = consent ? request.permissions : input.grantedPermissions;
+      // A bootstrap body may name any registration permission (its request enum), but an OAuth grant holds only the four with a
+      // scope (agent-remote-auth §4.3, §8), as consent's scope-derived request already does. receive_agent_messages stays
+      // mandatory and narrowing is unchanged (effectivePermissions).
+      const requestedPermissions = consent ? request.permissions : oauthGrantablePermissions(input.grantedPermissions);
       const effective = effectivePermissions(requestedPermissions, input.grantedPermissions);
       const code = `${consent ? 'envoi_oauth_code_' : 'envoi_boot_'}${crypto.randomBytes(32).toString('base64url')}`;
       const codeHash = sha256Hex(code);
