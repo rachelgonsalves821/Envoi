@@ -3052,7 +3052,15 @@ var Wt = (e) => {
 			} finally {
 				await r.close();
 			}
-			if (await c(n, e), process.platform !== "win32") {
+			for (let t = 0;; t++) try {
+				await c(n, e);
+				break;
+			} catch (e) {
+				let n = e;
+				if (process.platform !== "win32" || n.code !== "EPERM" || n.syscall !== "rename" || t >= 3) throw e;
+				await w(10 * (t + 1));
+			}
+			if (process.platform !== "win32") {
 				let t = await i(f.dirname(e), "r");
 				try {
 					await t.sync();
