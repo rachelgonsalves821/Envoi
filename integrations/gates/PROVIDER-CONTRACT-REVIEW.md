@@ -8,10 +8,10 @@ Lane B, 2026-10-23. Evidence branch `lane-b/B-C-contract-consumer-review`, isola
 | --- | --- | --- |
 | #215 mcp-wake v1 | `32975892945718296a4968a3d6ddbc40ef6d175b` | [Lane B ACK6373782280](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6373782280); [human approval6374090183](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6374090183) remains credited. |
 | #216 provider-event-wake v1 revision2 | `d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b` | [CONTRACT-ACK6375518478](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375518478). E1-E3 and the final decision-prose correction pass. Human exact-head approval remains separate. |
-| #217 provider-gateway-native v1 revision2 | `b785836f2fb2e2874e4a317c12fd5a0346feada5` | [MISMATCH6375143615](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375143615), second review round. G1/G2 timeline corrections required; G3 byte guards pass. |
+| #217 provider-gateway-native v1 revision2 | `ddf8df082e9cca33ce536d9a0e30a23afb58c7b8` | G1/G2 corrections and G3 pass. ACK pending [decision-cost precision request6375726310](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375726310). |
 | #218 provider-connector-tools v1 | `3af8669a907c316b95ff92fa7031a50a654e1a18` | [Lane B ACK6373782839](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6373782839); [human approval6374090183](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6374090183), optionA, remains credited. |
 
-The exact-publication author CI is terminal SUCCESS for [#216 run40028127612](https://github.com/rachelgonsalves821/Envoi/actions/runs/40028127612) and [#217 run40019951629](https://github.com/rachelgonsalves821/Envoi/actions/runs/40019951629), 26/26 steps each. CI is evidence at those publications, not approval or proof of actual provider capability.
+The exact-publication author CI is terminal SUCCESS for [#216 run40028127612](https://github.com/rachelgonsalves821/Envoi/actions/runs/40028127612) and [#217 run40030128784](https://github.com/rachelgonsalves821/Envoi/actions/runs/40030128784), 26/26 steps each. CI is evidence at those publications, not approval or proof of actual provider capability.
 
 ## Independent execution
 
@@ -19,7 +19,7 @@ From owned detached review worktrees pinned to the two heads, on Windows PowerSh
 
 - #216: `node --test test/contract-fixtures.test.js test/contract-provider-event-wake.test.js`: 20/20 pass, no skips.
 - #217: `node --test test/contract-fixtures.test.js test/contract-provider-gateway-native.test.js`: 18/18 pass, no skips.
-- Lane B offline consumer: 121 canonical fixtures read directly from exact Git objects, inventories22/49/44/6; 22 positive groups pass, zero network calls. Exit2 now records only the two #217 G1/G2 contradictions; no remaining #216 finding. #216 was re-executed at d920f65,20/20; the prior #217 semantic review remains pinned to b785836. Its later655c5ff changes only the informative count, not the inconsistent fixtures, and does not add a review round. No canonical fixture copies or changes are committed.
+- Lane B offline consumer: 128 canonical fixtures read directly from exact Git objects, inventories22/49/51/6; 24 positive groups pass, zero network calls. Exit2 now records only a separate static #217 decision-cost prose defect; no remaining G1/G2 causal contradiction. Final exact-head #217 suite at ddf8df0 is20/20, zero skips. Earlier #21720/18-count executions below remain historical, not current failures.
 
 The initial consumer run had three harness failures, corrected before attributing any contract finding: it required a destination *recheck* marker on the first subscription instead of only cached renewals; it required receiver clocks on error-delivery cases and used two incorrect retry fixture IDs; and it incorrectly expected the ASCII4097 case to pass the schema's coarse character guard. The corrected assertions preserve the meaningful checks: cached-renewal destination validation, receiver freshness for successful deliveries, all signing/event causality, exact retry identity and delay, plus schema-valid multibyte overflow requiring a separate byte guard. This was a harness correction, not a server failure or a weakened contract requirement.
 
@@ -33,7 +33,7 @@ Final publication d920f65 changes handoffs.md only from1eee73a. It restores dist
 
 [CONTRACT-ACK6375518478](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375518478) is technical review, not human approval. The human may decide this exact publication's six choices; dependent implementation still waits for exact approval. D1-D3/G1-G4 and actual provider/closed-app/flag-on evidence remain open. No new policy or capability is inferred from green tests.
 
-### #217 G1: repaired-session claim lease predates owner confirmation
+### Historical #217 G1 at b785836: resolved at ddf8df0
 
 Expected: a successful generation5 claim occurs after owner-confirmed activation and has a live lease then.
 
@@ -41,7 +41,7 @@ Observed: [repair-activate-native-scope.json:23](https://github.com/rachelgonsal
 
 Request: controlled timestamps and executable owner-upgrade, old-cookie-refusal, unchanged pairing, owner confirmation, activation, existing inbox-CSRF acquisition, generation5 claim/action progression. Keep old-generation refusal and seven-day owner-confirmation bound. This is fixture causality, not a demand for a new route.
 
-### #217 G2: expired lease replaced in an exhausted run
+### Historical #217 G2 at b785836: resolved at ddf8df0
 
 Expected: recovery obeys the existing120-second run bound, no duplicate item charge, canonical expiry attempt accounting and one queue.
 
@@ -50,6 +50,16 @@ Observed: [x-limits](https://github.com/rachelgonsalves821/Envoi/blob/b785836f2f
 Request: runStartedAt/asOf, explicit ordering of run-budget and lease checks, old timed-out run refusal and fresh authorized run recovery after expiry. If a different bounded timing model is intended, specify and test it consistently. Preserve in-budget same-run/restart packet replay and next-item progression. Do not silently waive120seconds for retries.
 
 G3 now passes ASCII4096/4097, four-byte text4096/4400, whole-request bounds and2048-byte summary truncation on code point boundaries. No new G3 finding. Reconcile the implementation-note fixture count30 vs44. No production-runtime failure is claimed.
+
+## #217 final technical re-review at ddf8df0
+
+[Lane A publication6375676660](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375676660), exact head ddf8df082e9cca33ce536d9a0e30a23afb58c7b8. Delta is contract-only (handoff, registry, own fixtures/schema/test); no Stage1 canonical contract, source, deployment or other approved contract change. Fixture inventory now51. New semantic controls are added to the existing read-only Git consumer, not canonical copies.
+
+Own detached D: review-cw3 at ddf8df0, Windows PowerShell/Node22.15.0: generic+bespoke20/20, no skips. Independent consumer24/24 positive groups across128 fixtures, zero network calls. Existing groups preserve request/action/secret/byte-boundary, outstanding replay and budget accounting checks. Two new groups check the complete repair sequence and generation5 cookie/CSRF/claim/reply causality, explicit live lease and120-second budget controls (including negative and exact-boundary clocks), old-run refusal before its lease expiry, fresh-run idle/expiry recovery, min interval, item/attempt accounting and settled-idempotency replay without effects after expiry. Both original G1/G2 contradictions are resolved.
+
+Exact-head CI40030128784 independently inspected: SUCCESS26/26 at ddf8df0, backend770pass/34gated skips/0fail; PostgreSQL325/325 no skips; scanner14; generated equality, actual production container and fail-closed startup and every required command green; both audits0.
+
+One static decision-cost correction remains before ACK/human packet: [REQUEST6375726310](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375726310). Handoff section8 decision7 promises a maximum30-second wait after a run overruns. Its own valid fixtures contradict that explanation: run ends12:02:00; claim-next-item-after-settlement lease ends12:03:30 (90s later), renew-once lease ends12:04:30 (150s later). The normative rule of150seconds from the actual last claim/renewal is otherwise clear and passes. Request the explanatory sentence tie waiting to that actual lease expiry, up to150seconds after run end for an in-budget final claim/renewal. No policy change, timing relaxation, new route or wire/fixture MISMATCH round is requested. The offline consumer records this text counterexample separately from24 passing semantic groups; exit2 currently means this one prose finding. Await documentation-only exact publication and own CI, then recheck before ACK. Human approval remains separate.
 
 ## Reproduction and ownership
 
@@ -60,7 +70,7 @@ $env:ENVOI_CONTRACT_REVIEW_RESULT='integrations/gates/.runtime/provider-review-r
 node integrations/contract-fixtures/provider-contracts.review.mjs
 ```
 
-Exact Git publication objects and existing lockfile dependencies are required. Fetch objects into an owned worktree; never run repository work in the primary human checkout. Optional ENVOI_EVENT_CONTRACT_SHA and ENVOI_GATEWAY_CONTRACT_SHA accept exact40-hex replacements for a corrected publication with the same fixture inventory; update/review counts explicitly if fixtures change. Exit0 means no findings, exit1 a failed positive assertion, exit2 semantic findings. Current result is exit2,22/22 positive groups,2 findings, both #217. The #216 default pin is now d920f65.
+Exact Git publication objects and existing lockfile dependencies are required. Fetch objects into an owned worktree; never run repository work in the primary human checkout. Optional ENVOI_EVENT_CONTRACT_SHA and ENVOI_GATEWAY_CONTRACT_SHA accept exact40-hex replacements for a corrected publication with the same fixture inventory; update/review counts explicitly if fixtures change. Exit0 means no findings, exit1 a failed positive assertion, exit2 semantic findings. Current result is exit2,24/24 positive groups,1 static #217 decision-prose finding. Default pins are #216d920f65 and #217ddf8df0, with51 gateway fixtures. A corrected documentation-only head can be passed through ENVOI_GATEWAY_CONTRACT_SHA.
 
 [CLAIM6374973855](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6374973855) owns only this consumer and report. Lane A owns all contract, canonical fixture, root test and handoff changes. After corrected publications: exact-head re-review and CI, then ACK, then human approval. L3 permits at most three MISMATCH rounds before BLOCKED for human decision. This #217 result is round2; no automatic escalation or premature implementation.
 

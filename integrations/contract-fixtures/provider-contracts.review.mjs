@@ -10,7 +10,7 @@ const BASE = 'd05498d8dc13c6f07dc151da7a41a1619ff62436';
 export const publications = [
   { pr: 215, id: 'mcp-wake', sha: '32975892945718296a4968a3d6ddbc40ef6d175b', count: 22 },
   { pr: 216, id: 'provider-event-wake', sha: process.env.ENVOI_EVENT_CONTRACT_SHA ?? 'd920f65cf2ad2ec1933ab92c29d46fbdb4397a7b', count: 49 },
-  { pr: 217, id: 'provider-gateway-native', sha: process.env.ENVOI_GATEWAY_CONTRACT_SHA ?? 'b785836f2fb2e2874e4a317c12fd5a0346feada5', count: 44 },
+  { pr: 217, id: 'provider-gateway-native', sha: process.env.ENVOI_GATEWAY_CONTRACT_SHA ?? 'ddf8df082e9cca33ce536d9a0e30a23afb58c7b8', count: 51 },
   { pr: 218, id: 'provider-connector-tools', sha: '3af8669a907c316b95ff92fa7031a50a654e1a18', count: 6 }
 ];
 assert.ok(publications.every(p => /^[a-f0-9]{40}$/.test(p.sha)), 'exact Git publication SHAs required');
@@ -43,7 +43,7 @@ for (const c of loaded) {
   check(`${c.id}: every fixture and named HTTP result consumes its published schema`, () => {
     for (const f of c.fixtures) {
       assert.equal(c.def('fixture')(f), true, `${f.id}: ${c.ajv.errorsText(c.def('fixture').errors)}`);
-      if (f.response) assert.equal(c.def(f.response.schema)(f.response.body), true, `${f.id}: response ${f.response.schema}`);
+      if (f.response) assert.equal(c.def(f.response.schema)(f.response.body ?? f.response.bodyText), true, `${f.id}: response ${f.response.schema}`);
     }
   });
 }
@@ -270,13 +270,89 @@ check('provider-gateway-native G3: actual UTF-8 request/reply/summary boundaries
   assert.equal(Array.from(multi.text).length,1100);assert.equal(Buffer.byteLength(multi.text),4400);
   assert.ok(Buffer.byteLength(JSON.stringify(multi))<8192);
   for(const f of gateway.fixtures){
-    if(f.response)assert.ok(Buffer.byteLength(JSON.stringify(f.response.body))<=limits.responseMaxBytes);
+    if(f.response)assert.ok(Buffer.byteLength(JSON.stringify(f.response.body ?? f.response.bodyText))<=limits.responseMaxBytes);
     for(const e of f.response?.body?.packet?.snapshot?.recentEvents??[]){
       assert.ok(Buffer.byteLength(e.summary)<=limits.summaryMaxBytes);assert.ok(!e.summary.includes('\uFFFD'));
     }
   }
   const truncated=gateway.f('claim-summary-truncated-on-code-point').response.body.packet.snapshot.recentEvents[0];
   assert.equal(Buffer.byteLength(truncated.summary),2048);assert.equal(truncated.truncated,true);
+});
+
+check('provider-gateway-native G1 final: causal repair, fresh CSRF and generation-5 claim/reply', () => {
+  const when=id=>Date.parse(gateway.f(id).context.asOf);
+  const sequence=gateway.f('repair-sequence'); let previous=-Infinity;
+  for(const step of sequence.steps){
+    const time=Date.parse(step.at);assert.ok(Number.isFinite(time)&&time>previous);previous=time;
+    if(step.fixture)assert.equal(time,when(step.fixture),step.fixture);
+  }
+  const activated=gateway.f('repair-activate-native-scope'), claim=gateway.f('claim-new-generation-ok');
+  const confirmed=Date.parse(activated.context.ownerConfirmedAt), activeAt=when(activated.id);
+  assert.ok(when('repair-pairing-created')<confirmed&&confirmed<activeAt);
+  const shell=gateway.f('repair-acquire-session-csrf'), reply=gateway.f('reply-sent-after-repair');
+  const csrf=shell.response.bodyText.match(/name="csrf" value="([^"]+)"/)?.[1];assert.ok(csrf);
+  for(const f of [shell,claim,reply])assert.equal(f.context.session.generation,5,f.id);
+  for(const f of [claim,reply]){
+    assert.equal(f.request.headers.cookie,activated.response.headers['set-cookie'][0].split(';')[0]);
+    assert.equal(f.request.headers['x-envoi-gateway-csrf'],csrf);
+    assert.notEqual(f.request.headers['x-envoi-gateway-csrf'],gateway.f('claim-work').request.headers['x-envoi-gateway-csrf']);
+    assert.equal(f.context.session.absoluteExpiresAt,activated.response.body.expiresAt);
+  }
+  assert.equal(shell.request.method,'GET');assert.equal(shell.request.path,'/agent-gateway/inbox');
+  const leaseEnd=Date.parse(claim.response.body.packet.leaseExpiresAt);
+  assert.equal(leaseEnd-when(claim.id),150000);assert.ok(when(claim.id)>activeAt);
+  const within=(time,start,lease)=>time>=start&&time<=start+120000&&time<lease;
+  assert.equal(within(when(reply.id),Date.parse(reply.context.runStartedAt),leaseEnd),true);
+  assert.equal(within(leaseEnd,Date.parse(reply.context.runStartedAt),leaseEnd),false);
+  assert.equal(within(activeAt-1,Date.parse(reply.context.runStartedAt),leaseEnd),false);
+  assert.equal(reply.request.body.runId,claim.response.body.packet.runId);
+  assert.equal(reply.request.body.workRef,claim.response.body.packet.workRef);
+  assert.equal(reply.response.body.state,'sent');assert.equal(reply.response.body.settled,true);
+  const consent=gateway.f('consent-model').steps.map(s=>s.fixture);
+  assert.ok(consent.includes(reply.id));assert.ok(!consent.includes('reply-sent'));
+});
+check('provider-gateway-native G2 final: old run refused, live lease respected, fresh run recovery and clock boundaries', () => {
+  const first=gateway.f('claim-work'), start=Date.parse(first.context.runStartedAt);
+  const leaseEnd=Date.parse(first.response.body.packet.leaseExpiresAt), L=gateway.schema['x-limits'];
+  assert.equal(L.runBudgetSeconds,120);assert.equal(L.leaseSeconds,150);
+  const inBudget=(time,runStart)=>time>=runStart&&time<=runStart+L.runBudgetSeconds*1000;
+  for(const [delta,expected] of [[-1,false],[0,true],[120000,true],[120001,false],[150000,false]])assert.equal(inBudget(start+delta,start),expected);
+  const order=gateway.schema['x-check-order'].join('|');
+  assert.ok(order.indexOf('idempotency record')<order.indexOf('run budget'));
+  assert.ok(order.indexOf('run binding')<order.indexOf('run budget'));
+  assert.ok(order.indexOf('run budget')<order.indexOf('lease and fence'));
+  for(const id of ['claim-expired-run-refused','act-expired-run-refused']){
+    const f=gateway.f(id), now=Date.parse(f.context.asOf);
+    assert.equal(inBudget(now,start),false);assert.ok(now<leaseEnd);
+    assert.equal(f.response.status,409);assert.equal(f.response.body.code,'GATEWAY_RUN_EXPIRED');
+  }
+  assert.equal(gateway.f('claim-expired-run-refused').effects.newLease,false);
+  assert.equal(gateway.f('act-expired-run-refused').effects.effect,'none');
+  const waiting=gateway.f('claim-fresh-run-while-old-lease-live');
+  assert.equal(waiting.response.body.state,'idle');assert.equal(waiting.response.body.packet,null);
+  assert.equal(waiting.effects.newLease,false);
+  assert.equal(Date.parse(waiting.context.asOf)+waiting.response.body.retryAfterSeconds*1000,leaseEnd);
+  const after=gateway.f('claim-replay-after-lease-expiry');
+  assert.ok(Date.parse(after.context.asOf)>leaseEnd);
+  assert.notEqual(after.request.body.runId,after.context.outstandingClaim.runId);
+  assert.equal(after.response.body.packet.runId,after.request.body.runId);
+  assert.equal(after.context.itemsClaimedThisRun,0);assert.equal(after.effects.itemsClaimedThisRunAfter,1);
+  assert.equal(after.effects.attemptsChargedToExpiredClaim,1);assert.equal(after.effects.newLease,true);
+  for(const f of [waiting,after]){
+    assert.ok(Date.parse(f.context.runStartedAt)-Date.parse(f.context.previousRunStartedAt)>=L.minSecondsBetweenRuns*1000);
+    assert.equal(inBudget(Date.parse(f.context.asOf),Date.parse(f.context.runStartedAt)),true);
+  }
+  const replay=gateway.f('reply-replay-after-run-expiry');
+  assert.equal(inBudget(Date.parse(replay.context.asOf),start),false);
+  assert.deepEqual(replay.request.body,gateway.f('reply-sent').request.body);
+  assert.deepEqual({...replay.response.body,replayed:false},gateway.f('reply-sent').response.body);
+  assert.equal(replay.effects.effect,'none');assert.equal(replay.effects.newLease,false);
+  for(const f of gateway.fixtures){
+    const result=f.response?.body;
+    if(result?.packet&&!result.replayed)assert.equal(Date.parse(result.packet.leaseExpiresAt)-Date.parse(f.context.asOf),L.leaseSeconds*1000,f.id);
+    if(f.response?.status===200&&f.request?.path?.startsWith('/api/agent-gateway/work/')&&f.id!==replay.id)
+      assert.equal(inBudget(Date.parse(f.context.asOf),Date.parse(f.context.runStartedAt)),true,f.id);
+  }
 });
 
 // Causal/state probes stay separate from schema-positive tests so contradictions are explicit findings.
@@ -291,6 +367,14 @@ const expired=gateway.f('claim-replay-after-lease-expiry'), limits=gateway.schem
 if(expired.context.outstandingClaim.leaseExpired && expired.request.body.runId===expired.context.outstandingClaim.runId
   && expired.response.status===200 && expired.effects.newLease && limits.leaseSeconds>limits.runBudgetSeconds)
  finding(217,'G2: expired-lease retry creates new work in a run whose time budget must be exhausted','an old run cannot obtain a fresh lease after its 150-second lease expires when the entire run budget is120seconds; publish old-run refusal and new-run recovery', {leaseSeconds:limits.leaseSeconds,runBudgetSeconds:limits.runBudgetSeconds,requestRunId:expired.request.body.runId,priorRunId:expired.context.outstandingClaim.runId,newLease:expired.effects.newLease});
+const gatewayText=bytes(gateway.sha,'docs/architecture/agent-native-v2/handoffs.md').toString().split('## provider-gateway-native v1')[1].split('\n## ')[0];
+const runEnd=Date.parse(gateway.f('claim-work').context.runStartedAt)+gateway.schema['x-limits'].runBudgetSeconds*1000;
+const waitExamples=['claim-next-item-after-settlement','renew-once'].map(id=>{
+  const f=gateway.f(id), result=f.response.body.packet??f.response.body;
+  return {id,leaseExpiresAt:result.leaseExpiresAt,secondsAfterRunBudget:(Date.parse(result.leaseExpiresAt)-runEnd)/1000};
+});
+if(/wait up to 30 s/.test(gatewayText)&&waitExamples.some(e=>e.secondsAfterRunBudget>30))
+ finding(217,'decision text: 30-second maximum wait is contradicted by later-claim and renewal examples','describe waiting until the actual outstanding lease expiry; 150-second leases issued or renewed later in the run can outlast its end by more than 30 seconds',waitExamples);
 assert.equal(networkCalls,0);
 const result={base:BASE,publications:loaded.map(c=>({pr:c.pr,id:c.id,sha:c.sha,count:c.fixtures.length,fixtureTree:git('rev-parse',`${c.sha}:${c.root.slice(0,-1)}`),schemaSha256:createHash('sha256').update(bytes(c.sha,c.root+'schemas.json')).digest('hex')})),checks,findings,networkCalls};
 console.log(JSON.stringify(result,null,2));
