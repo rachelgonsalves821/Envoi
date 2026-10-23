@@ -689,6 +689,22 @@
         "token-code-reused-wrong-redirect.json",
         "token-code-reused-wrong-resource.json"
       ]
+    },
+    {
+      "id": "provider-connector-tools",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-connector-tools-v1",
+      "dir": "provider-connector-tools",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "claim-tools-need-lease-fence.json",
+        "muse-evidence-gates.json",
+        "send-provider-approval-field-refused.json",
+        "send-without-send-scope.json",
+        "tools-list-envoi-agent-and-send.json",
+        "tools-list-envoi-agent-only.json"
+      ]
     }
   ]
 }

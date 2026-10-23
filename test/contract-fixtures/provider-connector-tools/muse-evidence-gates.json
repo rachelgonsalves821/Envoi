@@ -1,0 +1,50 @@
+{
+  "contract": "provider-connector-tools",
+  "version": 1,
+  "id": "muse-evidence-gates",
+  "kind": "evidence",
+  "description": "§6: what the public Meta requirements say (as recorded in the Lane B readiness packet #204) and what is unproven. Provider submission, account operations and test accounts stay with their owner.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "context": {},
+  "evidence": {
+    "checkedAt": "2026-10-23",
+    "sources": [
+      {
+        "product": "Muse Connector Platform readiness packet",
+        "url": "https://github.com/rachelgonsalves821/Envoi/pull/204"
+      }
+    ],
+    "unproven": [
+      {
+        "gate": "M1",
+        "claim": "Meta's final read/write/sensitive classification of each submitted tool",
+        "owner": "Rachel (Meta review)"
+      },
+      {
+        "gate": "M2",
+        "claim": "whether Meta requires a read-only OAuth offering for this workflow",
+        "owner": "Rachel with Lane A"
+      },
+      {
+        "gate": "M3",
+        "claim": "the OAuth client type, redirect and credential behaviour Meta's reviewed connector actually uses",
+        "owner": "Rachel (Meta review)"
+      },
+      {
+        "gate": "M4",
+        "claim": "a Meta-supported trigger that invokes the connector after Muse is closed, and its callback origins if any",
+        "owner": "Rachel (Meta review)"
+      },
+      {
+        "gate": "M5",
+        "claim": "per-use approval behaviour for a reply, and whether unattended replies are possible at all",
+        "owner": "Rachel (Meta review)"
+      }
+    ]
+  }
+}
