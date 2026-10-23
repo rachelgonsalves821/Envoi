@@ -3,7 +3,7 @@
 // the Phase C sessions flag, which clients learn about from GET /api/agent/status. http-wake v1
 // adds the HTTPS wake flag, which clients learn about from the same status route. agent-remote-auth
 // v1 §1 adds the two remote route flags, which change only the routes body and their own endpoints.
-export const onboardingFlagNames = ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_HTTP_WAKE_V1', 'ENVOI_PROVIDER_BROWSER_POLL', 'ENVOI_REMOTE_MCP_OAUTH', 'ENVOI_PROVIDER_CONNECTORS'];
+export const onboardingFlagNames = ['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_AUTHENTICATED_REST_ROUTE', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_HTTP_WAKE_V1', 'ENVOI_PROVIDER_BROWSER_POLL', 'ENVOI_REMOTE_MCP_OAUTH', 'ENVOI_PROVIDER_CONNECTORS', 'ENVOI_RELATIONSHIPS_V2', 'ENVOI_A2A_GATEWAY'];
 // Internal capability, never accepted from a registration or activation HTTP body.
 export const providerGatewayAuthority = Symbol('provider-browser-poll');
 export const browserPollAvailable = flags => Boolean(flags.providerBrowserPoll && flags.registration && flags.installations && flags.authenticatedRest);
@@ -30,6 +30,8 @@ export function onboardingFlagErrors(env = process.env) {
     if (env.ENVOI_AGENT_REGISTRATION_V2 !== 'true' || env.ENVOI_INSTALLATIONS_V2 !== 'true') errors.push(`${name} requires ENVOI_AGENT_REGISTRATION_V2 and ENVOI_INSTALLATIONS_V2`);
     if (!issuerOrigin(env.ENVOI_PUBLIC_URL)) errors.push(`${name} requires ENVOI_PUBLIC_URL to be an https origin (or http on 127.0.0.1 or [::1] for local tests)`);
   }
+  if (env.ENVOI_A2A_GATEWAY === 'true' && (env.ENVOI_RELATIONSHIPS_V2 !== 'true' || env.ENVOI_INSTALLATIONS_V2 !== 'true')) errors.push('ENVOI_A2A_GATEWAY requires ENVOI_RELATIONSHIPS_V2 and ENVOI_INSTALLATIONS_V2');
+  if (env.ENVOI_A2A_GATEWAY === 'true') errors.push('ENVOI_A2A_GATEWAY cannot be enabled before the authenticated HTTP edge is implemented');
   return errors;
 }
 
@@ -53,7 +55,9 @@ export function readOnboardingFlags(env = process.env) {
     httpWake: env.ENVOI_HTTP_WAKE_V1 === 'true',
     ...(env.ENVOI_PROVIDER_BROWSER_POLL === 'true' ? { providerBrowserPoll: true } : {}),
     ...(env.ENVOI_REMOTE_MCP_OAUTH === 'true' ? { remoteMcpOAuth: true } : {}),
-    ...(env.ENVOI_PROVIDER_CONNECTORS === 'true' ? { providerConnectors: true } : {})
+    ...(env.ENVOI_PROVIDER_CONNECTORS === 'true' ? { providerConnectors: true } : {}),
+    ...(env.ENVOI_RELATIONSHIPS_V2 === 'true' ? { relationships: true } : {}),
+    ...(env.ENVOI_A2A_GATEWAY === 'true' ? { a2aGateway: true } : {})
   };
 }
 

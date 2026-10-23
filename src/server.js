@@ -81,6 +81,8 @@ import { authorizationServerMetadata, consentClient, consentRedirect, createAuth
 import { organizationMaximumPermissions } from './agent-approval.js';
 import { sha256Hex } from './agent-registration.js';
 import { createWakeDestination } from './http-wake-destination.js';
+import { relationshipPath, relationshipRecord, revokeRelationship, trustedDiscovery } from './relationships.js';
+import { authorize as authorizeV2 } from './authorization-v2.js';
 
 const productionConfig = validateProductionConfiguration();
 // agent-registration v1 §1: fails closed in every mode, before anything starts.
@@ -3932,6 +3934,25 @@ async function route(req, res) {
     return json(res, 201, await issueMcpReadToken(identity, caseId));
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/agent/discovery') {
+    if (!onboardingFlags.relationships) throw codedError(404, 'FEATURE_DISABLED', 'Discovery is not available yet.');
+    const identity = await getAgentWorkIdentity(req);
+    if (!identity) return fail(res, 401, 'Active agent access credential required');
+    const installation = await installations.forFamily(identity.inboxId, identity.agent, identity.familyId);
+    const decision = authorizeV2({ actorAgentId: identity.agent.id, installationId: installation?.id, action: 'send_agent_messages' }, {
+      identity: identity.agent, installation, installationRequired: true, permissions: identity.agent.permissions
+    });
+    if (!decision.allowed) return json(res, 403, { code: decision.reason, error: 'Discovery is not available to this agent' });
+    const address = normalizedEmail(url.searchParams.get('address'));
+    if (!validEmail(address)) return fail(res, 400, 'An exact agent address is required');
+    const directory = await store.getJson(nativeAddressDirectoryPath(address));
+    if (!directory || directory.address !== address) return fail(res, 404, 'Agent not found');
+    const contact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${directory.agentId}.json`));
+    const relationship = await store.getJson(relationshipPath(identity.inboxId, identity.agent.id, directory.agentId));
+    const found = trustedDiscovery(directory, { approvedContact: contact, relationship: contact?.blocked === true ? null : relationship });
+    return found ? json(res, 200, found) : fail(res, 404, 'Agent not found');
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/agent/status') {
     const identity = await getAgentWorkIdentity(req);
     if (!identity) return fail(res, 401, 'Active agent access credential required');
@@ -4377,6 +4398,65 @@ async function route(req, res) {
   const [, inboxId, suffix = ''] = match;
   const inbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
   if (!inbox) return fail(res, 404, 'Inbox not found');
+
+  if (suffix === 'relationships' && req.method === 'POST') {
+    if (!onboardingFlags.relationships) throw codedError(404, 'FEATURE_DISABLED', 'Relationships are not available yet.');
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const input = await body(req, 4096);
+    const actorAgentId = assertSafeIdentifier(input.actorAgentId, 'actorAgentId');
+    const targetAddress = normalizedEmail(input.targetAddress);
+    if (!validEmail(targetAddress)) return fail(res, 400, 'An exact target address is required');
+    const result = await withInboxMutation(inboxId, async writeAudit => {
+      if (!await canManageInbox(await auth.getHuman(req), inbox, { maxAgeMs: 0 })) throw Object.assign(new Error('Workspace administrator required'), { statusCode: 403 });
+      const actor = await store.getJson(path.join('inboxes', inboxId, 'agents', `${actorAgentId}.json`));
+      const target = await store.getJson(nativeAddressDirectoryPath(targetAddress));
+      const targetAgentId = target?.agentId;
+      if (!targetAgentId || target.address !== targetAddress) throw Object.assign(new Error('Active unblocked agents required'), { statusCode: 409 });
+      const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${targetAgentId}.json`));
+      if (actor?.status !== 'active' || !['active', 'paused'].includes(target?.status) || target.verified !== true || contact?.blocked === true) throw Object.assign(new Error('Active unblocked agents required'), { statusCode: 409 });
+      const location = relationshipPath(inboxId, actorAgentId, targetAgentId);
+      const previous = await store.getJson(location);
+      const record = relationshipRecord({ inboxId, actorAgentId, targetAgentId, grants: input.grants, now: store.now(), previous, humanId: human.id });
+      await store.putJson(location, record);
+      await writeAudit('relationship.granted', { actorAgentId, targetAgentId, grants: record.grants, humanId: human.id });
+      return record;
+    });
+    return json(res, 200, result);
+  }
+
+  const relationshipRevoke = suffix.match(/^relationships\/([^/]+)\/([^/]+)\/revoke$/);
+  if (relationshipRevoke && req.method === 'POST') {
+    if (!onboardingFlags.relationships) throw codedError(404, 'FEATURE_DISABLED', 'Relationships are not available yet.');
+    const human = await auth.getHuman(req);
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const [, actorAgentId, targetAgentId] = relationshipRevoke;
+    const result = await withInboxMutation(inboxId, async writeAudit => {
+      if (!await canManageInbox(await auth.getHuman(req), inbox, { maxAgeMs: 0 })) throw Object.assign(new Error('Workspace administrator required'), { statusCode: 403 });
+      const location = relationshipPath(inboxId, actorAgentId, targetAgentId);
+      const record = revokeRelationship(await store.getJson(location), store.now(), human.id);
+      await store.putJson(location, record);
+      await writeAudit('relationship.revoked', { actorAgentId, targetAgentId, humanId: human.id });
+      return record;
+    });
+    return json(res, 200, result);
+  }
+
+  if (suffix === 'discovery' && req.method === 'GET') {
+    if (!onboardingFlags.relationships) throw codedError(404, 'FEATURE_DISABLED', 'Discovery is not available yet.');
+    const human = await auth.getHuman(req);
+    if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Active workspace membership required');
+    const address = normalizedEmail(url.searchParams.get('address'));
+    if (!validEmail(address) || address.length > 254) return fail(res, 400, 'An exact agent address is required');
+    const directory = await store.getJson(nativeAddressDirectoryPath(address));
+    if (!directory || directory.address !== address) return fail(res, 404, 'Agent not found');
+    const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${directory.agentId}.json`));
+    const actorAgentId = url.searchParams.get('actorAgentId');
+    if (actorAgentId && (await store.getJson(path.join('inboxes', inboxId, 'agents', `${assertSafeIdentifier(actorAgentId, 'actorAgentId')}.json`)))?.status !== 'active') return fail(res, 404, 'Agent not found');
+    const relationship = actorAgentId ? await store.getJson(relationshipPath(inboxId, actorAgentId, directory.agentId)) : null;
+    const found = trustedDiscovery(directory, { approvedContact: contact, relationship: contact?.blocked === true ? null : relationship });
+    return found ? json(res, 200, found) : fail(res, 404, 'Agent not found');
+  }
 
   if (await inboxPreferencesHttp.handleRequest(req, res, url)) return;
 
