@@ -174,7 +174,10 @@ test('an authorization request too large to seal is refused, not truncated', asy
 test('check 11: the exact encoded-length boundary, state and iss kept, nothing truncated', async () => {
   const limit = remoteAuthLimits.authorizationRequestHandleMaxLength;
   const flags = { registration: true, installations: true, remoteMcpOAuth: true };
-  const sealer = createAuthorizationRequestSealer({ keyMaterial });
+  // One fixed clock for the search and the handler: the sealed payload carries iat/exp, and a second boundary between the
+  // two (more likely under load) could change the compressed length by a character. Opening uses the same clock.
+  const fixedNow = Date.now();
+  const sealer = createAuthorizationRequestSealer({ keyMaterial, now: () => fixedNow });
   const random = crypto.randomBytes(2400).toString('base64url');
   const clientId = `https://assistant.example.com/${random.slice(0, 1300)}.json`;
   const redirectUri = 'https://assistant.example.com/cb';
