@@ -31,6 +31,7 @@
   "delivery": {
     "profile": "mcp_events",
     "attempt": 1,
+    "sentAt": "2026-10-24T12:00:00.000Z",
     "request": {
       "method": "POST",
       "url": "https://dots.callbacks.example/envoi/events",
@@ -38,8 +39,8 @@
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
         "webhook-id": "wake_evt_verify0001",
-        "webhook-timestamp": "1792238402",
-        "webhook-signature": "v1,Gxt8r3ZYtTeTelDwKA/QNNWki+sHvU/6dmmfMYFybks=",
+        "webhook-timestamp": "1792843200",
+        "webhook-signature": "v1,q+mOXdgTwK9znhOJfmNNV3A1iCuUkPaoLSz1uALGenU=",
         "x-mcp-subscription-id": "evtsub_0f3a9c2e51b84d7aa6c1"
       },
       "bodyText": "{\"type\":\"verification\",\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\"}"
@@ -49,6 +50,13 @@
       "body": {
         "challenge": "envoi_wake_challenge_PLACEHOLDER_example"
       }
+    },
+    "receiver": {
+      "asOf": "2026-10-24T12:00:00.400Z",
+      "toleranceSeconds": 300,
+      "deltaSeconds": 0,
+      "verdict": "accept",
+      "reason": null
     },
     "outcome": "verified"
   }

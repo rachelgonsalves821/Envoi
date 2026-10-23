@@ -1,0 +1,62 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "grok-delivery-retry-fresh-clock",
+  "kind": "delivery",
+  "description": "§8.3: after 429 with Retry-After 60 at 12:00:02Z the retry is signed at 12:01:02Z with the same webhook-id and a new signature; Grok's clock check passes on the fresh timestamp.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "context": {
+    "profile": "grok_trigger",
+    "agentStatus": "active",
+    "targetAllowlist": [
+      "https://triggers.grok.example"
+    ],
+    "dns": {
+      "host": "triggers.grok.example",
+      "addresses": [
+        "192.0.43.12"
+      ]
+    }
+  },
+  "delivery": {
+    "profile": "grok_trigger",
+    "attempt": 2,
+    "sentAt": "2026-10-24T12:01:02.000Z",
+    "previousAttempt": {
+      "sentAt": "2026-10-24T12:00:02.000Z",
+      "status": 429,
+      "retryAfterSeconds": 60
+    },
+    "request": {
+      "method": "POST",
+      "url": "https://triggers.grok.example/t/PLACEHOLDER_trigger",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "webhook-id": "wake_evt_Zr8dN1kQw3PtYb6Lx0Hs",
+        "webhook-timestamp": "1792843262",
+        "webhook-signature": "v1,eyAn4TmLGWMitbQ1Zi9beHfs9KSJQXTcitw3YdvrXLg="
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Zr8dN1kQw3PtYb6Lx0Hs\",\"subscriptionId\":\"wake_target_grok1\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-24T12:00:00.000Z\"}"
+    },
+    "response": {
+      "status": 202
+    },
+    "receiver": {
+      "asOf": "2026-10-24T12:01:02.400Z",
+      "toleranceSeconds": 300,
+      "deltaSeconds": 0,
+      "verdict": "accept",
+      "reason": null
+    },
+    "outcome": "accepted_receipt_only"
+  }
+}

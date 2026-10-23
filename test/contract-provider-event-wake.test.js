@@ -84,6 +84,8 @@ test('provider-event-wake: outcomes follow the retry tables; a 2xx is receipt, n
   const { schemas, fixtures } = await load();
   for (const fixture of deliveries(fixtures)) {
     const { profile, response, outcome } = fixture.delivery;
+    // A request a receiver rejects for its clock is a receiver-side control, not a sender outcome.
+    if (outcome === 'receiver_rejected') { assert.equal(fixture.delivery.receiver.verdict, 'reject', fixture.id); assert.equal(response.status, 401, fixture.id); continue; }
     const noRetry = schemas['x-no-retry-statuses'][profile].includes(response.status);
     const retry = schemas['x-retry-statuses'][profile].includes(response.status);
     if (response.status >= 200 && response.status < 300) assert.ok(['verified', 'acknowledged', 'accepted_receipt_only'].includes(outcome), fixture.id);
@@ -155,3 +157,111 @@ test('provider-event-wake: unproven interface facts stay explicit gates and flag
   assert.deepEqual(schemas['x-notification'].newFields, []);
   assert.equal(schemas['x-limits'].additional.grokTargetsPerAgent, 1);
 });
+
+test('provider-event-wake: unsubscribe and subscribe requests are the documented closed forms, and a request without delivery.mode is not one', async () => {
+  const { fixtures, def, ajv } = await load();
+  for (const fixture of fixtures.values()) {
+    const body = fixture.request?.body;
+    if (!body || !['events/subscribe', 'events/unsubscribe'].includes(body.method)) continue;
+    const name = body.method === 'events/subscribe' ? 'subscribeParams' : 'unsubscribeParams';
+    const valid = def(name)(body.params);
+    // Only the fixtures that exercise a refused request may fail the request schema.
+    const refusedForm = ['subscribe-secret-invalid', 'subscribe-event-unknown', 'unsubscribe-delivery-mode-missing'].includes(fixture.id);
+    const refusedByPolicy = fixture.response?.body?.error?.reason === 'secret_invalid';
+    assert.equal(valid || refusedForm || refusedByPolicy, true, `${fixture.id}: ${ajv.errorsText(def(name).errors)}`);
+    if (!refusedForm) assert.equal(valid, true, fixture.id);
+  }
+  for (const id of ['unsubscribe-ok', 'unsubscribe-unknown-is-idempotent']) {
+    const params = fixtures.get(id).request.body.params;
+    assert.equal(params.delivery.mode, 'webhook', id);
+    assert.deepEqual(fixtures.get(id).response.body.result, {}, `${id}: empty result, no secret`);
+    assert.doesNotMatch(JSON.stringify(fixtures.get(id).response), /whsec_|secret/, id);
+  }
+  const missing = fixtures.get('unsubscribe-delivery-mode-missing');
+  assert.equal(def('unsubscribeParams')(missing.request.body.params), false);
+  assert.equal(missing.response.body.error.code, -32602);
+  assert.equal(missing.response.body.error.data.reason, 'delivery_mode_required');
+  assert.equal(def('unsubscribeParams')(fixtures.get('unsubscribe-ok').request.body.params), true);
+});
+
+test('provider-event-wake: verification is cached per principal and URL for a bounded time and invalidated by every binding change', async () => {
+  const { schemas, fixtures } = await load();
+  const policy = schemas['x-verification-cache'];
+  const ttl = policy.ttlSeconds;
+  assert.equal(ttl, schemas['x-limits'].additional.verificationCacheSeconds);
+  for (const reason of ['expiry', 'secret_changed', 'url_changed', 'allowlist_changed', 'subscription_ended', 'installation_ended', 'flag_off']) assert.ok(policy.invalidatedBy.includes(reason), reason);
+  assert.ok(policy.destinationChecksOnHit.length >= 4, 'destination checks are never cached');
+  const cases = ['subscribe-created', 'subscribe-renewed-same-identity', 'subscribe-renewed-secret-rotated', 'subscribe-verification-cache-expired', 'subscribe-verification-binding-changed', 'subscribe-cache-hit-address-now-disallowed'];
+  const secretOf = fixture => fixture.request.body.params.delivery.secret;
+  const urlOf = fixture => fixture.request.body.params.delivery.url;
+  for (const id of cases) {
+    const fixture = fixtures.get(id);
+    const { effects, context } = fixture;
+    const cache = context.verificationCache;
+    if (effects.verificationCache === 'hit') {
+      assert.equal(effects.verificationSent, false, id);
+      assert.ok(cache.ageSeconds <= ttl, `${id}: inside the window`);
+      assert.equal(cache.url, urlOf(fixture), `${id}: same canonical URL`);
+      assert.equal(secretOf(fixture), 'whsec_UExBQ0VIT0xERVItRklYVFVSRS1TRUNSRVQtMDAwMQ==', `${id}: same secret as the cached verification`);
+      assert.equal(effects.destinationChecksRerun, true, `${id}: destination checks run on a hit`);
+    } else if (effects.verificationCache === 'dropped') {
+      assert.equal(effects.verificationSent, false, id);
+      assert.equal(fixture.response.body.error.data.reason, 'address_not_allowed', id);
+      assert.ok(cache.ageSeconds <= ttl, `${id}: the entry was valid, yet destination validation still refused`);
+    } else {
+      assert.equal(effects.verificationSent, true, `${id}: a miss, expiry or invalidation verifies again`);
+      if (effects.verificationCache === 'expired') assert.ok(cache.ageSeconds > ttl, id);
+      if (effects.verificationCache === 'invalidated_secret') assert.notEqual(secretOf(fixture), 'whsec_UExBQ0VIT0xERVItRklYVFVSRS1TRUNSRVQtMDAwMQ==', id);
+      if (effects.verificationCache === 'invalidated_url') assert.notEqual(urlOf(fixture), cache.url, id);
+    }
+  }
+  assert.equal(fixtures.get('subscribe-renewed-secret-rotated').effects.dualSignSeconds, schemas['x-limits'].additional.secretDualSignSeconds);
+  assert.equal(fixtures.get('subscribe-created').effects.verificationCache, 'miss');
+  assert.match(policy.storage, /never the secret/);
+  const hit = fixtures.get('subscribe-renewed-same-identity').response.body.result;
+  assert.equal(hit.id, fixtures.get('subscribe-created').response.body.result.id, 'a renewal keeps the deterministic id');
+});
+
+test('provider-event-wake: signing clocks are causal and receivers apply a 300 s freshness window with fresh, stale, future and retry controls', async () => {
+  const { schemas, fixtures } = await load();
+  const tolerance = schemas['x-clock'].toleranceSeconds;
+  const unix = iso => Math.floor(Date.parse(iso) / 1000);
+  for (const fixture of deliveries(fixtures)) {
+    const { delivery } = fixture;
+    const ts = Number(delivery.request.headers['webhook-timestamp']);
+    assert.equal(ts, unix(delivery.sentAt), `${fixture.id}: webhook-timestamp is the signing time`);
+    const body = JSON.parse(delivery.request.bodyText);
+    const created = body.timestamp ?? body.createdAt;
+    if (created) assert.ok(unix(created) <= ts, `${fixture.id}: an event is never signed before it exists`);
+    if (delivery.receiver) {
+      const delta = unix(delivery.receiver.asOf) - ts;
+      assert.equal(delivery.receiver.deltaSeconds, delta, fixture.id);
+      assert.equal(delivery.receiver.verdict, Math.abs(delta) <= tolerance ? 'accept' : 'reject', `${fixture.id}: verdict follows the window`);
+      assert.equal(delivery.receiver.reason, Math.abs(delta) <= tolerance ? null : delta > 0 ? 'timestamp_stale' : 'timestamp_future', fixture.id);
+    }
+    if (['acknowledged', 'accepted_receipt_only', 'verified'].includes(delivery.outcome)) assert.equal(delivery.receiver.verdict, 'accept', `${fixture.id}: a success is fresh at the receiver`);
+    if (delivery.previousAttempt) {
+      assert.ok(unix(delivery.sentAt) >= unix(delivery.previousAttempt.sentAt) + delivery.previousAttempt.retryAfterSeconds, `${fixture.id}: a retry waits for Retry-After`);
+      assert.ok(unix(delivery.sentAt) > unix(delivery.previousAttempt.sentAt), fixture.id);
+    }
+  }
+  const verdict = id => fixtures.get(id).delivery.receiver;
+  assert.equal(verdict('delivery-work-available').verdict, 'accept');
+  assert.equal(verdict('delivery-replayed-stale').reason, 'timestamp_stale');
+  assert.equal(verdict('delivery-future-timestamp-rejected').reason, 'timestamp_future');
+  assert.equal(verdict('delivery-clock-edge-300s-accepted').deltaSeconds, tolerance);
+  assert.equal(verdict('delivery-clock-edge-301s-rejected').deltaSeconds, tolerance + 1);
+  assert.equal(verdict('grok-delivery-accepted').verdict, 'accept');
+  assert.equal(verdict('grok-delivery-replayed-stale').reason, 'timestamp_stale');
+  // A stale replay carries the very same valid signature: the clock check, not the HMAC, rejects it.
+  assert.deepEqual(fixtures.get('delivery-replayed-stale').delivery.request, fixtures.get('delivery-work-available').delivery.request);
+  // Retries are signed at the retry time with the same webhook-id.
+  for (const [retry, first] of [['delivery-retry-new-signature', 'delivery-503-retries'], ['grok-delivery-retry-fresh-clock', 'grok-delivery-429-retry-after']]) {
+    const a = fixtures.get(first).delivery, b = fixtures.get(retry).delivery;
+    assert.equal(b.request.headers['webhook-id'], a.request.headers['webhook-id'], retry);
+    assert.notEqual(b.request.headers['webhook-signature'], a.request.headers['webhook-signature'], retry);
+    assert.ok(unix(b.sentAt) - unix(a.sentAt) >= Number(a.response.headers['retry-after']), `${retry}: after Retry-After`);
+  }
+  assert.match(schemas['x-clock'].senderRule, /never reuses/);
+});
+

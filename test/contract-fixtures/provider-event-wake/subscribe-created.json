@@ -3,7 +3,7 @@
   "version": 1,
   "id": "subscribe-created",
   "kind": "http",
-  "description": "§4: the declared callback origin and a valid secret. Envoi sends one signed verification before any event; the response carries the deterministic id, the renewal deadline and the a4 cursor.",
+  "description": "§4: the declared callback origin and a valid secret. No cached verification exists for this principal and URL, so Envoi sends one signed verification before any event; the response carries the deterministic id, the renewal deadline and the a4 cursor.",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": true,
     "ENVOI_INSTALLATIONS_V2": true,
@@ -76,5 +76,9 @@
     "retry": "none",
     "guidance": "renew_before_refresh",
     "next": "See the row for this outcome in the contract tables."
+  },
+  "effects": {
+    "verificationSent": true,
+    "verificationCache": "miss"
   }
 }

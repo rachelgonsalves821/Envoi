@@ -3,7 +3,7 @@
   "version": 1,
   "id": "delivery-retry-new-signature",
   "kind": "delivery",
-  "description": "§6: a retry keeps eventId and webhook-id but carries a new timestamp and signature (attempt 2 after a 503).",
+  "description": "§6: a retry keeps eventId and webhook-id but carries a new timestamp and signature. Attempt 1 at 12:00:02Z got 503 with Retry-After 30, so attempt 2 is signed at 12:00:32Z (not before), and the receiver clock check passes on that fresh timestamp.",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": true,
     "ENVOI_INSTALLATIONS_V2": true,
@@ -31,6 +31,12 @@
   "delivery": {
     "profile": "mcp_events",
     "attempt": 2,
+    "sentAt": "2026-10-24T12:00:32.000Z",
+    "previousAttempt": {
+      "sentAt": "2026-10-24T12:00:02.000Z",
+      "status": 503,
+      "retryAfterSeconds": 30
+    },
     "request": {
       "method": "POST",
       "url": "https://dots.callbacks.example/envoi/events",
@@ -38,14 +44,21 @@
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
         "webhook-id": "wake_evt_C58fUjYdV8o3pmHuAfWN",
-        "webhook-timestamp": "1792238412",
-        "webhook-signature": "v1,KAQQd5KByvwpzgL7XXNgyCjSSOEOOzccjRlIbcF3N3I=",
+        "webhook-timestamp": "1792843232",
+        "webhook-signature": "v1,bkIDo2csbtJDpVEZr4PnljXWG5nIIdBccTIyRnrjZlE=",
         "x-mcp-subscription-id": "evtsub_0f3a9c2e51b84d7aa6c1"
       },
       "bodyText": "{\"eventId\":\"wake_evt_C58fUjYdV8o3pmHuAfWN\",\"name\":\"envoi.work_available\",\"timestamp\":\"2026-10-24T12:00:00.000Z\",\"data\":{\"reason\":\"message_delivered\"},\"cursor\":\"00000000000000000105\"}"
     },
     "response": {
       "status": 202
+    },
+    "receiver": {
+      "asOf": "2026-10-24T12:00:32.400Z",
+      "toleranceSeconds": 300,
+      "deltaSeconds": 0,
+      "verdict": "accept",
+      "reason": null
     },
     "outcome": "acknowledged"
   }

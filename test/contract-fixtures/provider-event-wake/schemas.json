@@ -116,6 +116,8 @@
   "x-limits": {
     "reuses": "http-wake/x-limits",
     "additional": {
+      "verificationCacheSeconds": 3600,
+      "clockToleranceSeconds": 300,
       "eventBodyMaxBytes": 1024,
       "subscriptionTtlMinMs": 3600000,
       "subscriptionTtlMaxMs": 604800000,
@@ -128,6 +130,36 @@
       "grokTargetsPerAgent": 1,
       "grokMinIntervalSeconds": 5
     }
+  },
+  "x-verification-cache": {
+    "key": [
+      "principal (installation)",
+      "canonical callback URL"
+    ],
+    "ttlSeconds": 3600,
+    "invalidatedBy": [
+      "expiry",
+      "secret_changed",
+      "url_changed",
+      "allowlist_changed",
+      "subscription_ended",
+      "installation_ended",
+      "flag_off"
+    ],
+    "destinationChecksOnHit": [
+      "provider callback allowlist",
+      "https and port 443",
+      "public addresses only",
+      "no redirects"
+    ],
+    "storage": "a timestamp and a one-way key; never the secret",
+    "note": "a hit skips only the challenge round trip"
+  },
+  "x-clock": {
+    "toleranceSeconds": 300,
+    "receiverRule": "accept when |receiver clock - webhook-timestamp| <= 300, else reject (stale when the receiver is later, future when it is earlier)",
+    "senderRule": "every attempt, including retries, is signed with Envoi's clock at the attempt time; a retry never reuses an earlier timestamp or signature",
+    "causal": "webhook-timestamp is never earlier than the event timestamp it carries"
   },
   "x-no-retry-statuses": {
     "mcp_events": [
@@ -469,6 +501,105 @@
         }
       }
     },
+    "subscribeParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "arguments",
+        "delivery"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "envoi.work_available",
+            "envoi.control_changed"
+          ]
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 0
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "url",
+            "secret"
+          ],
+          "properties": {
+            "mode": {
+              "const": "webhook"
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^https://",
+              "maxLength": 2048
+            },
+            "secret": {
+              "type": "string",
+              "pattern": "^whsec_"
+            }
+          }
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{20}$"
+        },
+        "ttlMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "unsubscribeParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "arguments",
+        "delivery"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "envoi.work_available",
+            "envoi.control_changed"
+          ]
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 0
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "url"
+          ],
+          "properties": {
+            "mode": {
+              "const": "webhook"
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^https://",
+              "maxLength": 2048
+            }
+          }
+        }
+      }
+    },
     "grokTarget": {
       "type": "object",
       "additionalProperties": false,
@@ -685,6 +816,7 @@
       "required": [
         "profile",
         "attempt",
+        "sentAt",
         "request",
         "response",
         "outcome"
@@ -744,6 +876,67 @@
             }
           }
         },
+        "sentAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "previousAttempt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sentAt",
+            "status",
+            "retryAfterSeconds"
+          ],
+          "properties": {
+            "sentAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "status": {
+              "type": "integer"
+            },
+            "retryAfterSeconds": {
+              "type": "integer"
+            }
+          }
+        },
+        "receiver": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "asOf",
+            "toleranceSeconds",
+            "deltaSeconds",
+            "verdict",
+            "reason"
+          ],
+          "properties": {
+            "asOf": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "toleranceSeconds": {
+              "const": 300
+            },
+            "deltaSeconds": {
+              "type": "integer"
+            },
+            "verdict": {
+              "enum": [
+                "accept",
+                "reject"
+              ]
+            },
+            "reason": {
+              "enum": [
+                null,
+                "timestamp_stale",
+                "timestamp_future"
+              ]
+            }
+          }
+        },
         "outcome": {
           "enum": [
             "verified",
@@ -752,7 +945,8 @@
             "retry_scheduled",
             "subscription_ended_receiver_gone",
             "target_needs_secret",
-            "target_needs_attention"
+            "target_needs_attention",
+            "receiver_rejected"
           ]
         }
       }
@@ -876,6 +1070,9 @@
             "rollback",
             "evidence"
           ]
+        },
+        "effects": {
+          "type": "object"
         },
         "flags": {
           "$ref": "#/definitions/fixtureFlags"

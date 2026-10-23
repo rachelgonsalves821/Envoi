@@ -31,6 +31,7 @@
   "delivery": {
     "profile": "mcp_events",
     "attempt": 1,
+    "sentAt": "2026-10-24T12:00:02.000Z",
     "request": {
       "method": "POST",
       "url": "https://dots.callbacks.example/envoi/events",
@@ -38,14 +39,21 @@
         "content-type": "application/json",
         "user-agent": "Envoi-Wake/1",
         "webhook-id": "wake_evt_C58fUjYdV8o3pmHuAfWN",
-        "webhook-timestamp": "1792238402",
-        "webhook-signature": "v1,uSoiYCZjzCNk5rKL8wKHGPiLMk5i43H/qKQh+K/RATM=",
+        "webhook-timestamp": "1792843202",
+        "webhook-signature": "v1,mjemL9iOptI1wDUsdY02FF7u+/dTl31qkWT3IIRHc64=",
         "x-mcp-subscription-id": "evtsub_0f3a9c2e51b84d7aa6c1"
       },
       "bodyText": "{\"eventId\":\"wake_evt_C58fUjYdV8o3pmHuAfWN\",\"name\":\"envoi.work_available\",\"timestamp\":\"2026-10-24T12:00:00.000Z\",\"data\":{\"reason\":\"message_delivered\"},\"cursor\":\"00000000000000000105\"}"
     },
     "response": {
       "status": 202
+    },
+    "receiver": {
+      "asOf": "2026-10-24T12:00:02.400Z",
+      "toleranceSeconds": 300,
+      "deltaSeconds": 0,
+      "verdict": "accept",
+      "reason": null
     },
     "outcome": "acknowledged"
   }

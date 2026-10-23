@@ -40,8 +40,13 @@
     },
     {
       "actor": "host",
-      "does": "calls events/subscribe again before refreshBefore with the last cursor",
+      "does": "calls events/subscribe again before refreshBefore with the last cursor: an unchanged renewal inside the cache window sends no new verification",
       "fixture": "subscribe-renewed-same-identity"
+    },
+    {
+      "actor": "host",
+      "does": "a renewal with a new secret is verified again and signed with both secrets for 600 s",
+      "fixture": "subscribe-renewed-secret-rotated"
     },
     {
       "actor": "envoi",

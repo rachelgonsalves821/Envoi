@@ -3,7 +3,7 @@
   "version": 1,
   "id": "unsubscribe-ok",
   "kind": "http",
-  "description": "§4.5: unsubscribe matches name, arguments and delivery.url of the original; the result is empty.",
+  "description": "§4.5: unsubscribe repeats name, arguments and delivery ({mode: webhook, url}) of the original; the result is empty and carries no secret.",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": true,
     "ENVOI_INSTALLATIONS_V2": true,
@@ -45,6 +45,7 @@
         "name": "envoi.work_available",
         "arguments": {},
         "delivery": {
+          "mode": "webhook",
           "url": "https://dots.callbacks.example/envoi/events"
         }
       }

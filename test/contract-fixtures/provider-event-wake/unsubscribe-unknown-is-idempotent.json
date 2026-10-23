@@ -45,6 +45,7 @@
         "name": "envoi.work_available",
         "arguments": {},
         "delivery": {
+          "mode": "webhook",
           "url": "https://dots.callbacks.example/never"
         }
       }

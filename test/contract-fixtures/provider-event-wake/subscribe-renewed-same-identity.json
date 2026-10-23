@@ -3,7 +3,7 @@
   "version": 1,
   "id": "subscribe-renewed-same-identity",
   "kind": "http",
-  "description": "§4.3: the same installation, event, arguments and URL return the same id; refreshBefore moves; the secret may change (dual signing for the grace window).",
+  "description": "§4.3 and §4.2: an unchanged renewal (same principal, same canonical URL, same secret) inside the 3,600 s verification cache window is a cache hit: no new verification is sent. The destination checks (allowlist, scheme, port, public address, no redirect) run again regardless, and refreshBefore moves.",
   "flags": {
     "ENVOI_AGENT_REGISTRATION_V2": true,
     "ENVOI_INSTALLATIONS_V2": true,
@@ -26,7 +26,14 @@
         "192.0.43.11"
       ]
     },
-    "existingSubscription": "evtsub_0f3a9c2e51b84d7aa6c1"
+    "existingSubscription": "evtsub_0f3a9c2e51b84d7aa6c1",
+    "verificationCache": {
+      "principal": "installation_oauth1",
+      "url": "https://dots.callbacks.example/envoi/events",
+      "secretVersion": 1,
+      "verifiedAt": "2026-10-24T11:50:00.000Z",
+      "ageSeconds": 600
+    }
   },
   "request": {
     "method": "POST",
@@ -48,7 +55,7 @@
         "delivery": {
           "mode": "webhook",
           "url": "https://dots.callbacks.example/envoi/events",
-          "secret": "whsec_UExBQ0VIT0xERVItRklYVFVSRS1TRUNSRVQtMDAwMg=="
+          "secret": "whsec_UExBQ0VIT0xERVItRklYVFVSRS1TRUNSRVQtMDAwMQ=="
         },
         "cursor": "00000000000000000104"
       }
@@ -78,5 +85,10 @@
     "retry": "none",
     "guidance": "renew_before_refresh",
     "next": "See the row for this outcome in the contract tables."
+  },
+  "effects": {
+    "verificationSent": false,
+    "verificationCache": "hit",
+    "destinationChecksRerun": true
   }
 }
