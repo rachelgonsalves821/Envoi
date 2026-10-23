@@ -275,13 +275,13 @@ test('pre-registered client configuration fails closed', () => {
 });
 
 // A fake https.request: records the request options and answers with the given response.
-const fakeRequest = ({ status = 200, headers = { 'content-type': 'application/json' }, chunks = ['{}'], never = false, seen = [] } = {}) => (target, options, callback) => {
+const fakeRequest = ({ status = 200, headers = { 'content-type': 'application/json' }, chunks = ['{}'], never = false, delayMs = 0, seen = [] } = {}) => (target, options, callback) => {
   seen.push({ target: target.href, options });
   const req = new PassThrough();
   req.destroy = () => {};
   req.end = () => {
     if (never) return;
-    setImmediate(() => {
+    (delayMs ? fn => setTimeout(fn, delayMs) : setImmediate)(() => {
       const response = new PassThrough();
       Object.assign(response, { statusCode: status, headers });
       callback(response);
@@ -313,6 +313,43 @@ test('metadata fetch: pinned to checked addresses, no redirects, size, type and 
   const fetchId = clientId => createClientMetadataFetch({ destination, request: fakeRequest() })(clientId);
   assert.deepEqual(await fetchId('https://internal.example.net/c.json'), { rejection: 'http_wake_address_rules' }, 'private addresses are refused before connecting');
   assert.deepEqual(await fetchId('https://printer.local/c.json'), { rejection: 'http_wake_name_rules' }, 'reserved names are refused');
+});
+
+// M1 (review 6349153739): the §3.1 deadline is one budget for destination resolution (the service's own-address
+// checks and the target's names) and the HTTPS response together, not a timer that starts after DNS.
+test('metadata fetch: the deadline covers destination resolution as well as the response', async () => {
+  const id = 'https://assistant.example.com/oauth/envoi-client.json';
+  const document = { client_id: id, client_name: 'A', redirect_uris: ['https://assistant.example.com/cb'] };
+  const deadlineMs = 600;
+  const slowDestination = stepMs => {
+    let pending = 0, settled;
+    const idle = new Promise(resolve => { settled = resolve; });
+    const step = value => { pending += 1; return new Promise(resolve => setTimeout(() => { resolve(value); if (--pending === 0) settled(); }, stepMs)); };
+    const resolver = { setServers() {}, resolve4: async name => step(name === 'assistant.example.com' ? ['93.184.215.14'] : []), resolve6: async () => step([]) };
+    return { destination: createWakeDestination({ env: { ENVOI_PUBLIC_URL: origin }, resolver }), idle };
+  };
+  const run = async (stepMs, response) => {
+    const { destination, idle } = slowDestination(stepMs);
+    const seen = [];
+    const started = Date.now();
+    const result = await createClientMetadataFetch({ destination, request: fakeRequest({ chunks: [JSON.stringify(document)], seen, ...response }), limits: { ...remoteAuthLimits.clientMetadata, fetchTimeoutMs: deadlineMs } })(id);
+    const elapsedMs = Date.now() - started;
+    await idle;
+    return { result, elapsedMs, requests: seen.length };
+  };
+  // Resolution alone outlasts the deadline: the fetch ends at the deadline and never connects afterwards.
+  const slowDns = await run(1500, {});
+  assert.deepEqual(slowDns.result, { rejection: 'fetch_failed' });
+  assert.ok(slowDns.elapsedMs < 1400, `ended at the deadline, not after resolution (${slowDns.elapsedMs} ms)`);
+  assert.equal(slowDns.requests, 0, 'a resolution that finishes after the deadline is not used');
+  // Each part is within the deadline but together they are not (own-host and target lookups about 450 ms, then a
+  // 450 ms response): a timer started after resolution would accept this.
+  const split = await run(150, { delayMs: 450 });
+  assert.deepEqual(split.result, { rejection: 'fetch_failed' }, 'resolution time counts towards the deadline');
+  assert.equal(split.requests, 1);
+  // Positive control: fast resolution and an immediate response succeed with the same deadline.
+  const fast = await run(10, {});
+  assert.deepEqual(fast.result, { document, cacheControl: undefined });
 });
 
 // ---------------------------------------------------------------- the real routes
