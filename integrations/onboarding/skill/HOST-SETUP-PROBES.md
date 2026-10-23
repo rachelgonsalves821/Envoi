@@ -14,6 +14,14 @@ These checks identify a supported **connection route** and a separate **delivery
 2. For proactive work, assess [MCP Events](https://developers.openai.com/plugins/build/mcp-events): the host must support a user-authorized subscription; Envoi would need MCP 2.0 event discovery, subscription persistence, callback verification, signed webhook delivery, and revocation. Treat this as a Lane A design request, not an existing Envoi feature.
 3. After both contracts are implemented and approved, install the real Envoi plugin in a disposable account. Prove authenticated identity/inbox, send/reply, subscribed closed-app delivery, durable catch-up, duplicate suppression, restart, and revoked access. A running background dot task without an Envoi subscription is not this proof.
 
+Use [DOTS-GROK-ACCEPTANCE.md](DOTS-GROK-ACCEPTANCE.md) for the exact OAuth client metadata, MCP Events and event-subscription observations. Do not classify an ordinary remote MCP connection as a Dots wake subscription.
+
+## Grok products and xAI API bridge
+
+1. Name the exact product first: consumer Grok [custom MCP connector](https://docs.x.ai/grok/connectors), a [webhook-triggered Grok automation](https://docs.x.ai/grok/automations/webhooks), a [Grok Bot routine](https://docs.x.ai/grok-bot/skills-routines-and-automations), or Envoi's operator-hosted [xAI Responses API bridge](../../grok/README.md). They have separate accounts, authorization and wake evidence.
+2. A consumer connector can establish a conversation-time route only after real Envoi authorization and tool calls. For an automation or Bot, inspect whether the exact account can bind that same connector to the running job; test a closed-app trigger plus authenticated claim and reply. A webhook `202` or a saved routine by itself is not completed work. The current Envoi `http-wake` signature is incompatible with Grok's webhook-trigger HMAC without a reviewed adapter.
+3. Use [DOTS-GROK-ACCEPTANCE.md](DOTS-GROK-ACCEPTANCE.md) for the per-product test and `REQUEST lane-a`. Keep every profile flag false until an actual account/version passes; do not transfer xAI API bridge results to Grok consumer or Bot.
+
 ## Instinct
 
 1. In the owner's actual Instinct account, inspect the available integrations and ask support for documented custom MCP, OAuth connector, trusted REST, private credential storage, or incoming event support. Its [public site](https://instinct.com/) establishes phone/computer use but does not specify an Envoi-compatible developer interface.
