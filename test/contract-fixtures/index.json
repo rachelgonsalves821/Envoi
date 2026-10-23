@@ -689,6 +689,38 @@
         "token-code-reused-wrong-redirect.json",
         "token-code-reused-wrong-resource.json"
       ]
+    },
+    {
+      "id": "mcp-wake",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#mcp-wake-v1",
+      "dir": "mcp-wake",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "activate-ok.json",
+        "activate-wrong-challenge.json",
+        "create-cimd-client-not-supported.json",
+        "create-flag-off-unknown-tool.json",
+        "create-invalid-args.json",
+        "create-mcp-read-token-unavailable.json",
+        "create-non-audience-token.json",
+        "create-ok.json",
+        "create-origin-not-declared.json",
+        "create-paused.json",
+        "create-private-address.json",
+        "create-rate-limited.json",
+        "create-revoked.json",
+        "end-ok.json",
+        "end-other-installation-not-found.json",
+        "receiver-flow.json",
+        "rest-route-refuses-audience-token.json",
+        "rollback-flag-off.json",
+        "status-active.json",
+        "status-ended-by-owner.json",
+        "tools-list-flag-off.json",
+        "tools-list-flag-on.json"
+      ]
     }
   ]
 }

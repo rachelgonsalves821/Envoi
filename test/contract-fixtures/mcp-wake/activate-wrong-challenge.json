@@ -1,0 +1,80 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "activate-wrong-challenge",
+  "kind": "http",
+  "description": "§3.2: a wrong challenge leaves the subscription pending.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": true
+  },
+  "context": {
+    "route": "provider_connector",
+    "clientKind": "pre_registered",
+    "wakeOrigins": [
+      "https://hooks.provider.example"
+    ],
+    "dns": {
+      "host": "hooks.provider.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_wake_activate",
+        "arguments": {
+          "subscriptionId": "wake_sub_mcp1",
+          "challenge": "envoi_wake_challenge_PLACEHOLDER_wrong"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "toolFailureEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":false,\"tool\":\"envoi_wake_activate\",\"code\":\"WAKE_CHALLENGE_INVALID\",\"message\":\"The wake challenge does not match.\",\"retryable\":false}"
+          }
+        ],
+        "isError": true
+      }
+    }
+  },
+  "client": {
+    "surface": "backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "create_new_subscription",
+    "next": "See the row for this code in x-tool-errors or x-codes."
+  }
+}

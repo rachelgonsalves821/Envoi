@@ -1,0 +1,71 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "create-mcp-read-token-unavailable",
+  "kind": "http",
+  "description": "§2.1: a scoped read token never sees wake tools; a call is an unknown tool, as for every non-read tool.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": true
+  },
+  "context": {
+    "route": "mcp_read",
+    "clientKind": "none",
+    "wakeOrigins": [],
+    "dns": {
+      "host": "hooks.provider.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_mcp_read_PLACEHOLDER_case_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_wake_create",
+        "arguments": {
+          "url": "https://hooks.provider.example/envoi/wake"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpRpcError",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32602,
+        "message": "Unknown tool"
+      }
+    }
+  },
+  "client": {
+    "surface": "backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "See the row for this code in x-tool-errors or x-codes."
+  }
+}
