@@ -12,6 +12,7 @@ import { invalidateSessionRequests } from '../src/session-lifecycle';
 import { generateRemoteAuthValidators, remoteAuthValidatorFile, remoteAuthSchemaNames } from '../build/remote-auth';
 import * as validators from '../src/onboarding/remote-auth.validator.mjs';
 import { ConsentController, authorizationHandle, authorizationSignInPath, consentOutcomeText } from '../src/onboarding/consent-state';
+import { hasRemotePermissions, remoteGrantAllowed } from '../src/onboarding/remote-auth-grants';
 import { remoteAuthApi } from '../src/onboarding/remote-auth-api';
 import { AuthorizeAgentPage } from '../src/onboarding/AuthorizeAgentPage';
 import { BootstrapController, ProviderBootstrapPanel } from '../src/onboarding/ProviderBootstrapPanel';
@@ -244,6 +245,91 @@ describe('consent revision 2 owner behavior', () => {
     expect(authorizationHandle('?request=abc%2Fdef')).toBe('abc/def');
     const url = new URL(authorizationSignInPath('/api/auth/workos/sign-in', '?request=abc%2Fdef&code=DO_NOT_FORWARD'), 'https://www.envoi-agents.com');
     expect(url.searchParams.get('returnTo')).toBe('/authorize-agent?request=abc%2Fdef'); expect(url.href).not.toContain('DO_NOT_FORWARD');
+  });
+});
+
+describe('remote OAuth grant boundaries', () => {
+  it('pins the semantic permission allowlist to the approved x-scopes table', () => {
+    const required = schemas['x-scopes'].find(row => row.required)!.permission;
+    for (const row of schemas['x-scopes']) {
+      expect(hasRemotePermissions([row.permission as any])).toBe(true);
+      expect(remoteGrantAllowed([required as any, row.permission as any])).toBe(true);
+    }
+    expect(hasRemotePermissions(['use_email_transport'])).toBe(false);
+    expect(remoteGrantAllowed(['send_agent_messages'])).toBe(false);
+  });
+  it('preserves the mandatory receive grant when a valid bootstrap request omits that selection', async () => {
+    const api = client(); const request = structuredClone(fixture('bootstrap-code-issued').request.body);
+    request.grantedPermissions = ['send_agent_messages'];
+    const controller = new BootstrapController(api, () => initialTime);
+    expect(await controller.issue(request)).toBe(true);
+    expect(controller.getSnapshot().issued?.effectivePermissions).toContain('receive_agent_messages');
+  });
+  it('refuses a bootstrap response that drops the mandatory receive grant', async () => {
+    const api = client(); const response = structuredClone(body('bootstrap-code-issued'));
+    response.effectivePermissions = ['send_agent_messages']; vi.mocked(api.bootstrap).mockResolvedValue(response);
+    const controller = new BootstrapController(api, () => initialTime);
+    expect(await controller.issue(fixture('bootstrap-code-issued').request.body)).toBe(false);
+    expect(controller.getSnapshot().issued).toBeNull();
+  });
+
+  it.each(['requestedPermissions', 'grantablePermissions'] as const)('rejects an out-of-scope permission in a consent %s list', async field => {
+    const api = client(); const view = structuredClone(body('consent-view'));
+    view[field].push('use_email_transport');
+    expect(validators.consentView(view)).toBe(true); // Shape validation alone allows the shared registration enum.
+    vi.mocked(api.view).mockResolvedValue(view);
+    const controller = new ConsentController(handle, api, vi.fn(), () => initialTime);
+    expect(await controller.load()).toBe(false);
+    expect(controller.getSnapshot()).toMatchObject({ blocked: true, view: null, outcome: null, problem: { code: 'INVALID_OAUTH_RESPONSE' } });
+  });
+  it.each(['consent-approve-new-agent', 'consent-approve-retry-completed'])('refuses a widened %s grant before navigation or retained state', async responseName => {
+    const api = client(); const navigate = vi.fn(); const response = structuredClone(body(responseName));
+    response.effectivePermissions.push('create_assets');
+    vi.mocked(api.approve).mockResolvedValue(response);
+    const controller = new ConsentController(handle, api, navigate, () => initialTime);
+    await controller.load(); expect(await controller.approve(approval())).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(controller.getSnapshot()).toMatchObject({ blocked: true, outcome: null, problem: { code: 'INVALID_OAUTH_RESPONSE' } });
+    expect(JSON.stringify(controller.getSnapshot())).not.toMatch(/redirectTo|envoi_oauth_code_/);
+  });
+  it('rejects an out-of-scope stored decision on reload and withdrawal readback', async () => {
+    const api = client(); const view = structuredClone(pendingView());
+    view.decision.effectivePermissions.push('use_email_transport');
+    vi.mocked(api.view).mockResolvedValue(view);
+    const controller = new ConsentController(handle, api, vi.fn(), () => initialTime);
+    expect(await controller.load()).toBe(false); expect(controller.getSnapshot().outcome).toBeNull();
+    const withdrawing = new ConsentController(handle, api, vi.fn(), () => initialTime);
+    vi.mocked(api.view).mockResolvedValue(pendingView()); await withdrawing.load();
+    vi.mocked(api.view).mockResolvedValue(view);
+    expect(await withdrawing.withdraw()).toBe(false); expect(withdrawing.getSnapshot().outcome).toBeNull();
+  });
+  it('refuses a bootstrap permission without an OAuth scope before any issuance request', async () => {
+    const api = client(); const controller = new BootstrapController(api, () => initialTime);
+    const request = structuredClone(fixture('bootstrap-code-issued').request.body);
+    request.grantedPermissions.push('use_email_transport');
+    expect(validators.bootstrapCodeRequest(request)).toBe(true);
+    expect(await controller.issue(request)).toBe(false); expect(api.bootstrap).not.toHaveBeenCalled();
+    expect(controller.getSnapshot()).toMatchObject({ attempted: false, issued: null });
+  });
+  it.each(['create_assets', 'use_email_transport'])('never displays an unexpected bootstrap %s grant, even when the caller edits its body while pending', async permission => {
+    const api = client(); let finish!: (value: unknown) => void;
+    vi.mocked(api.bootstrap).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const controller = new BootstrapController(api, () => initialTime);
+    const request = structuredClone(fixture('bootstrap-code-issued').request.body);
+    const pending = controller.issue(request);
+    request.grantedPermissions.push(permission);
+    const response = structuredClone(body('bootstrap-code-issued')); response.effectivePermissions.push(permission);
+    finish(response); expect(await pending).toBe(false);
+    expect(controller.getSnapshot()).toMatchObject({ attempted: true, issued: null, problem: { code: 'INVALID_OAUTH_RESPONSE' } });
+    expect(bootstrapMarkup(controller)).not.toContain(response.bootstrapCode);
+    await controller.issue(request); expect(api.bootstrap).toHaveBeenCalledTimes(1);
+  });
+  it('accepts a legitimate narrower bootstrap grant and retains the mandatory receive permission', async () => {
+    const api = client(); const response = structuredClone(body('bootstrap-code-issued'));
+    response.effectivePermissions = ['receive_agent_messages']; vi.mocked(api.bootstrap).mockResolvedValue(response);
+    const controller = new BootstrapController(api, () => initialTime);
+    expect(await controller.issue(fixture('bootstrap-code-issued').request.body)).toBe(true);
+    expect(controller.getSnapshot().issued?.effectivePermissions).toEqual(['receive_agent_messages']);
   });
 });
 
