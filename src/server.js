@@ -3430,6 +3430,9 @@ async function route(req, res) {
   const wakeRoute = url.pathname === '/.well-known/envoi-wake-keys.json' || url.pathname.startsWith('/api/agent/wake-subscriptions') || /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/wake-subscriptions/.test(url.pathname);
   if (wakeRoute && !httpWakeEnabled) throw codedError(404, 'FEATURE_DISABLED', 'HTTPS wake is not available on this server.');
   if (caseSessionRoute && !caseSessions.enabled) throw caseSessionErrors.featureDisabled();
+  // agent-remote-auth §11: with both flags off every endpoint does not exist, so it answers FEATURE_DISABLED before
+  // any session, CSRF or account check could answer differently. With a flag on, those checks run as for any route.
+  if (remoteAuthPath(url.pathname) && !remoteAuthEnabled(onboardingFlags)) throw remoteAuthDisabled();
   // Apply a stable source-IP bound on every route before trusting bearer or
   // cookie headers. Rotating invalid credentials must not reset this limit.
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;

@@ -14,7 +14,7 @@ import { FileStore } from '../src/storage.js';
 import { PostgresStore } from '../src/postgres-storage.js';
 import { createAgentSlots, registrationPath } from '../src/agent-approval.js';
 import { createInstallationReader } from '../src/agent-installations.js';
-import { cleanupCursorPath, consentDecisionPath, createAgentRegistrations, createdBucketPath, oauthCleanupCursorPath, oauthCleanupPath, oauthCodePath, sha256Hex } from '../src/agent-registration.js';
+import { cleanupCursorPath, consentDecisionPath, createAgentRegistrations, createdBucketPath, hourBucket, oauthCleanupBucketStartMs, oauthCleanupBucketsPerRun, oauthCleanupCursorPath, oauthCleanupPath, oauthCodePath, sha256Hex } from '../src/agent-registration.js';
 import { verificationCodeKey } from '../src/agent-registration-codes.js';
 import { createPollLimiter, createRegistrationLimits } from '../src/agent-registration-limits.js';
 import { permissionsForScopes, scopeForPermissions } from '../src/agent-remote-auth.js';
@@ -241,6 +241,70 @@ for (const [name, open] of stores) {
     await registrations.sweepOAuthCleanup(new Date(Date.parse(orphanRegistration.createdAt) + hour));
     assert.equal(await store.getJson(oauthCodePath(orphanRegistration.oauth.codeHash)), null, 'orphan code index swept');
     assert.equal(await store.getJson(consentDecisionPath(orphanDigest)), null, 'orphan decision swept');
+  });
+
+  // Cleanup backfill (#203 finding 6348509174): without a cursor the sweep finds indexed records of any age, not only
+  // the last 30 days; each run is bounded and a restart resumes from the cursor; a present registration's children stay.
+  test(`[${name}] cleanup backfill: orphans and expired denials older than 30 days are swept over bounded, resumable runs`, async t => {
+    const store = await open(t);
+    await store.deleteJson(oauthCleanupCursorPath);
+    const day = 24 * hour;
+    const at = ago => new Date(Date.now() - ago).toISOString();
+    const key = () => sha256Hex(crypto.randomBytes(16).toString('hex'));
+    // A parent-backed child 50 days old whose registration still exists (it must stay), an orphan code 45 days old,
+    // and a denial 35 days old whose handle expired 10 minutes after it was decided.
+    const parentId = `registration_${crypto.randomUUID()}`;
+    await store.putJson(registrationPath(parentId), { id: parentId, status: 'activated', createdAt: at(50 * day) });
+    const kept = { key: key(), createdAt: at(50 * day), registrationId: parentId };
+    const orphan = { key: key(), createdAt: at(45 * day), registrationId: `registration_${crypto.randomUUID()}` };
+    const denial = { key: key(), createdAt: at(35 * day) };
+    const denialExpires = new Date(Date.parse(denial.createdAt) + 10 * 60_000).toISOString();
+    for (const child of [kept, orphan]) {
+      const code = { codeHash: child.key, kind: 'authorization_code', registrationId: child.registrationId, clientId: 'client_desktop-example', expiresAt: child.createdAt, usedAt: null };
+      const entry = { kind: 'oauth_code', key: child.key, registrationId: child.registrationId, createdAt: child.createdAt, deleteAfter: null };
+      assertSchema(registrationSchemas, 'storedOAuthCode', code);
+      assertSchema(registrationSchemas, 'storedOAuthCleanupIndex', entry);
+      await store.putJson(oauthCodePath(child.key), code);
+      await store.putJson(oauthCleanupPath(child.createdAt, child.key), entry);
+    }
+    const decision = { handleDigest: denial.key, humanId: 'human_backfill', decision: 'denied', bodyDigest: null, registrationId: null, decidedAt: denial.createdAt, handleExpiresAt: denialExpires };
+    const denialEntry = { kind: 'consent_decision', key: denial.key, registrationId: null, createdAt: denial.createdAt, deleteAfter: denialExpires };
+    assertSchema(registrationSchemas, 'storedConsentDecision', decision);
+    assertSchema(registrationSchemas, 'storedOAuthCleanupIndex', denialEntry);
+    await store.putJson(consentDecisionPath(denial.key), decision);
+    await store.putJson(oauthCleanupPath(denial.createdAt, denial.key), denialEntry);
+    const present = async () => ({
+      kept: Boolean(await store.getJson(oauthCodePath(kept.key))), orphan: Boolean(await store.getJson(oauthCodePath(orphan.key))), denial: Boolean(await store.getJson(consentDecisionPath(denial.key)))
+    });
+    const oldestHour = oauthCleanupBucketStartMs(hourBucket(kept.createdAt));
+
+    // Run 1 starts at the oldest indexed bucket (50 days ago) and walks one bounded batch: the 45-day orphan is in it.
+    assert.equal(await module(store).sweepOAuthCleanup(new Date()), 1);
+    assert.deepEqual(await present(), { kept: true, orphan: false, denial: true }, 'the orphan older than 30 days is gone');
+    const afterFirst = await store.getJson(oauthCleanupCursorPath);
+    assert.equal(afterFirst.nextBucketStartMs, oldestHour + oauthCleanupBucketsPerRun * hour, 'one bounded batch, then the cursor');
+    assert.equal(afterFirst.keptFromMs, oldestHour, 'the kept child is remembered for the next pass');
+    assert.deepEqual(Object.keys(afterFirst).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt'], 'the cursor holds positions only');
+
+    // A restart (a new module over the same store) resumes from the cursor; the 35-day denial falls in the third batch.
+    let runs = 1;
+    for (; runs < 20; runs += 1) {
+      const cursor = await store.getJson(oauthCleanupCursorPath);
+      if (cursor.keptFromMs === null) break;
+      await module(store).sweepOAuthCleanup(new Date());
+      if (runs === 1) assert.equal((await present()).denial, true, 'not yet reached after two batches');
+    }
+    assert.ok(runs < 20, 'the backfill catches up');
+    assert.deepEqual(await present(), { kept: true, orphan: false, denial: false }, 'the expired denial older than 30 days is gone');
+    assert.equal(await store.getJson(oauthCleanupPath(denial.createdAt, denial.key)), null);
+    assert.equal((await store.getJson(oauthCleanupCursorPath)).nextBucketStartMs, oldestHour, 'caught up: the next pass starts at the oldest kept bucket');
+    assert.ok(await store.getJson(oauthCleanupPath(kept.createdAt, kept.key)), 'a present registration keeps its child and entry, however old');
+
+    // Once its registration is gone, that child is an orphan and the next run deletes it.
+    await store.deleteJson(registrationPath(parentId));
+    await module(store).sweepOAuthCleanup(new Date());
+    assert.equal((await present()).kept, false);
+    assert.equal(await store.getJson(oauthCleanupPath(kept.createdAt, kept.key)), null);
   });
 
   test(`[${name}] consent approvals are rate limited per human: 10 per hour`, async t => {

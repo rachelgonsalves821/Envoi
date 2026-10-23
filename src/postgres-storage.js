@@ -372,6 +372,8 @@ export class PostgresStore {
   async getJson(relative, fallback = null) { const result = await this.query('SELECT value FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rows[0]?.value ?? fallback; }
   async deleteJson(relative) { const result = await this.query('DELETE FROM sinaloa_documents WHERE path = $1', [normalizeDocumentPath(relative)]); return result.rowCount === 1; }
   async deleteJsonTree(relativeDir) { const result = await this.query("DELETE FROM sinaloa_documents WHERE path LIKE $1 ESCAPE E'\\\\'", [likePrefix(relativeDir)]); return result.rowCount; }
+  // The path of the first document under relativeDir, at any depth, in path order; null when there is none.
+  async firstJsonPath(relativeDir) { const result = await this.query("SELECT path FROM sinaloa_documents WHERE path LIKE $1 ESCAPE E'\\\\' ORDER BY path LIMIT 1", [likePrefix(relativeDir)]); return result.rows[0]?.path ?? null; }
   async listJson(relativeDir) { const result = await this.query("SELECT value FROM sinaloa_documents WHERE path LIKE $1 ESCAPE E'\\\\' ORDER BY path", [likePrefix(relativeDir)]); return result.rows.filter((row) => row.value && typeof row.value === 'object' && !Array.isArray(row.value)).map((row) => row.value); }
   async countJson(relativeDir, { filters = {} } = {}) {
     const values = [likePrefix(relativeDir)];
