@@ -2532,7 +2532,7 @@ async function readTokenForm(req) {
   return raw === null ? { invalid: true } : parseTokenForm(raw);
 }
 const authenticateOAuthClient = (req, params) => authenticateClient({
-  authorization: req.headers.authorization, bodyClientId: params.get('client_id'), resolveClient: remoteAuth.resolveClient
+  authorization: req.headers.authorization, bodyClientId: params.get('client_id'), bodySecret: params.has('client_secret'), resolveClient: remoteAuth.resolveClient
 });
 
 async function oauthTokenRequest(req) {
