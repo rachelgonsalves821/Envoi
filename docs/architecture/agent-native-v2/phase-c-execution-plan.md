@@ -3,6 +3,8 @@
 Prepared 2026-10-17 against integration `7442248d16635c2256c11bf02dcaf493ca4fe039`.
 Status: reviewable implementation plan for [v3 §§48–55](build-plan-v3.md); contracts and live gates remain to be approved and executed.
 
+**Reconciliation 2026-10-23 (integration `d05498d`; see [`contract-status.md`](contract-status.md)).** The C-A0 contracts (`case-session`, `case-tools`, `http-wake`) are approved with exact approvals, and C-A1 to C-A6 are integrated (C-A6 at `f3a71f6`); the text below was written before that and is kept as the plan. The hosted C01–C24 acceptance, new-host Phase C acceptance and the Stage A batch are separate human-run gates and are not established here. The accepted Hermes/OpenClaw B/C record is not reopened. Phase D stays with Rachel.
+
 ## Outcome
 
 Two independently owned agents can collaborate across separate cases using small canonical snapshots and authorized tools. Their trusted hosts manage work leases and credentials. The server binds each model turn to its own case, counterparty, allowed actions and live lease. Owners see the resulting proposals, decisions, files and receipts and can stop access effectively.
