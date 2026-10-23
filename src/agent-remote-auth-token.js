@@ -72,8 +72,8 @@ const timingEqual = (a, b) => typeof a === 'string' && typeof b === 'string' && 
 // §6 "Client authentication". A public client sends client_id in the body and no secret; a client_secret_basic client
 // sends HTTP Basic and no client_id in the body, or the same one. Any mismatch, a missing or wrong secret, or a secret
 // sent by a public client is invalid_client. `basic` says whether the client presented HTTP Basic, which decides whether
-// the 401 carries the Basic challenge.
-export async function authenticateClient({ authorization, bodyClientId, resolveClient }) {
+// the 401 carries the Basic challenge. `bodySecret` says whether the body carried a client_secret parameter (any value).
+export async function authenticateClient({ authorization, bodyClientId, bodySecret = false, resolveClient }) {
   const basic = parseBasic(authorization);
   const presentedBasic = Boolean(basic);
   if (basic?.malformed) return { error: oauthError('invalid_client', { basic: true }) };
@@ -84,8 +84,8 @@ export async function authenticateClient({ authorization, bodyClientId, resolveC
   const client = await resolveClient(clientId);
   if (!client) return fail();
   if (client.tokenEndpointAuthMethod === 'none') {
-    // A public client names itself in the body and sends no secret.
-    if (basic || typeof bodyClientId !== 'string') return fail();
+    // A public client names itself in the body and sends no secret, in the header or the body (M4).
+    if (basic || bodySecret || typeof bodyClientId !== 'string') return fail();
     return { client };
   }
   if (!basic || !timingEqual(sha256Hex(basic.secret), client.clientSecretSha256)) return fail();

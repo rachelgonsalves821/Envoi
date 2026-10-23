@@ -176,6 +176,58 @@ for (const backend of backends) {
     assertOAuthError(await refresh(server, frozen, frozen.tokens.refresh_token), 'invalid_grant');
   });
 
+  // M4 (review 6349153739): "a secret sent by a public client is invalid_client" (§6), also in the body, on every endpoint
+  // that authenticates the client; the refusal creates no grant, rotates nothing and revokes nothing.
+  test(`[${backend.name}] a public client that sends client_secret in the body is invalid_client at exchange, refresh and revocation`, { timeout: 180000 }, async t => {
+    const server = await remoteServer(t, backend);
+    const docs = documents(t, server);
+    for (const secret of ['not-a-real-secret', '']) {
+      // Code exchange: refused at client authentication, so the code is still unused and the approval still waits.
+      const who = await newOwner(server);
+      const grant = await connect(server, who);
+      const refused = await exchange(server, grant, { client_secret: secret });
+      assertOAuthError(refused, 'invalid_client');
+      assert.equal(refused.headers.get('www-authenticate'), null, 'no Basic challenge: the client did not use Basic');
+      const { registration: waiting } = await stored(docs, grant.registrationId);
+      assert.deepEqual([waiting.status, waiting.oauth.codeUsedAt], ['approved', null], 'no grant was created');
+      const tokens = assertTokenResponse(await exchange(server, grant));
+      const { registration } = await stored(docs, grant.registrationId);
+      const familyPath = familyParts(registration.agentInboxId, registration.agentId, registration.credentialFamilyId);
+      // Refresh: refused, and the refresh token is still unused.
+      assertOAuthError(await tokenPost(server, refreshParams(publicClient, tokens.refresh_token, { client_secret: secret })), 'invalid_client');
+      assert.equal((await docs.get(refreshParts(tokens.refresh_token))).usedAt, null, 'nothing rotated');
+      // Revocation: refused, and the family is still live.
+      assertOAuthError(await revokePost(server, { token: tokens.refresh_token, client_id: publicClient.clientId, client_secret: secret }), 'invalid_client');
+      assert.equal((await docs.get(familyPath)).revokedAt, null, 'nothing revoked');
+      // The same requests without the secret still work, so the refusals changed nothing.
+      assertTokenResponse(await tokenPost(server, refreshParams(publicClient, tokens.refresh_token)));
+    }
+  });
+
+  // M5 (review 6349153739): §7 "An unknown, expired or already-revoked token: 200, and nothing changes" applies to the token's
+  // own expiry, not only its family's. A valid token of the same family still revokes it.
+  test(`[${backend.name}] revocation with an expired token is an empty 200 that leaves its live family alone`, { timeout: 180000 }, async t => {
+    const server = await remoteServer(t, backend);
+    const docs = documents(t, server);
+    const connection = await connected(server, docs);
+    await edit(docs, accessParts(connection.tokens.access_token), record => { record.expiresAt = PAST; });
+    const expiredAccess = await revokePost(server, { token: connection.tokens.access_token, token_type_hint: 'access_token', client_id: publicClient.clientId });
+    assert.deepEqual([expiredAccess.status, expiredAccess.text], [200, '']);
+    assert.equal((await docs.get(connection.familyPath)).revokedAt, null, 'an expired access token revoked nothing');
+    assert.equal((await installationView(server, connection.who, connection.registration)).status, 'active');
+    // An expired refresh token likewise; then the family, still live, refreshes normally.
+    const other = await connected(server, docs);
+    const liveRefresh = other.tokens.refresh_token;
+    await edit(docs, refreshParts(liveRefresh), record => { record.expiresAt = PAST; });
+    assert.equal((await revokePost(server, { token: liveRefresh, client_id: publicClient.clientId })).status, 200);
+    assert.equal((await docs.get(other.familyPath)).revokedAt, null, 'an expired refresh token revoked nothing');
+    assertTokenResponse(await refresh(server, connection, connection.tokens.refresh_token));
+    // Positive control: a live access token of a live family revokes it.
+    const control = await connected(server, docs);
+    assert.equal((await revokePost(server, { token: control.tokens.access_token, token_type_hint: 'access_token', client_id: publicClient.clientId })).status, 200);
+    assert.equal((await docs.get(control.familyPath)).revokedReason, 'revoked');
+  });
+
   test(`[${backend.name}] revocation: the client ends its own installation, and nothing else changes`, { timeout: 180000 }, async t => {
     const server = await remoteServer(t, backend);
     const docs = documents(t, server);

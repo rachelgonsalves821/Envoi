@@ -6,7 +6,7 @@ import path from 'node:path';
 import { agentPermissions, approvalSlotIndexPath, approverIndexDir, approverIndexPath, effectivePermissions, liveApproval, organizationMaximumPermissions, registrationPath } from './agent-approval.js';
 import { newestActiveInstallation } from './agent-installations.js';
 import { routeAvailable, browserPollAvailable, providerGatewayAuthority } from './onboarding-flags.js';
-import { scopeForPermissions } from './agent-remote-auth.js';
+import { oauthGrantablePermissions, scopeForPermissions } from './agent-remote-auth.js';
 import { approverEmailHint, displayName, displayVerificationCode, generateBootstrapToken, generateVerificationCode, hashToken, isBootstrapToken, normalizeVerificationCode, sourceHmac, sourceKey, tokenLikePattern, unsafeNameCharacters, validRequestedName, verificationCodeHmac } from './agent-registration-codes.js';
 
 export const registrationTtlSeconds = 600;
@@ -37,7 +37,15 @@ export const registrationLockKey = registrationId => `registration:${registratio
 // raw handle or code; neither raw value is ever stored.
 export const consentDecisionPath = handleDigest => path.join('auth', 'oauth-consent-decisions', `${handleDigest}.json`);
 export const oauthCodePath = codeHash => path.join('auth', 'oauth-codes', `${codeHash}.json`);
-export const oauthCleanupDir = bucket => path.join('auth', 'oauth-cleanup', bucket);
+export const oauthCleanupRoot = path.join('auth', 'oauth-cleanup');
+export const oauthCleanupDir = bucket => path.join(oauthCleanupRoot, bucket);
+// The hour a cleanup bucket name (hourBucket) starts at, in ms, or null for anything else.
+export const oauthCleanupBucketStartMs = bucket => {
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})$/.exec(String(bucket));
+  return match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4])) : null;
+};
+// Hour buckets one sweep run walks at most; a longer backfill resumes from the cursor on later runs.
+export const oauthCleanupBucketsPerRun = 168;
 export const oauthCleanupPath = (createdAt, key) => path.join(oauthCleanupDir(hourBucket(createdAt)), `${key}.json`);
 export const oauthCleanupCursorPath = path.join('auth', 'oauth-cleanup-cursor', 'cursor.json');
 export const consentLockKey = handleDigest => `oauth-consent:${handleDigest}`;
@@ -542,13 +550,27 @@ export function createAgentRegistrations({
   // §14.6, the index sweep. A record with a registration is never deleted here while that registration exists: it is
   // revisited on a later run, and registration cleanup deletes it with its parent. An orphan (its registration gone,
   // for example deleted by an older server) is deleted, then its entry. A denial goes after its handleExpiresAt.
-  async function sweepOAuthCleanup(current = now()) {
+  //
+  // Coverage is complete and each run is bounded. Without a cursor, the first run starts at the oldest indexed bucket,
+  // however old. A run walks at most oauthCleanupBucketsPerRun hour buckets and saves where it stopped, so a backfill
+  // resumes across runs and restarts. Once a walk reaches the current hour, the next one starts again at the earliest
+  // bucket that still held a kept entry. The cursor is maintenance metadata only (no keys, records or grant state); it
+  // is written only when its position changes, and not at all while nothing has ever been indexed.
+  async function sweepOAuthCleanup(current = now(), { maxBuckets = oauthCleanupBucketsPerRun } = {}) {
     const hourMs = 3_600_000;
+    const currentHour = Math.floor(current.getTime() / hourMs) * hourMs;
     const cursor = await store.getJson(oauthCleanupCursorPath);
-    const start = Math.floor((cursor?.nextBucketStartMs ?? current.getTime() - 30 * 24 * hourMs) / hourMs) * hourMs;
-    let firstKept = null;
+    let start;
+    if (Number.isFinite(cursor?.nextBucketStartMs)) start = Math.floor(cursor.nextBucketStartMs / hourMs) * hourMs;
+    else {
+      const first = await store.firstJsonPath(oauthCleanupRoot);
+      if (!first) return 0;
+      start = Math.min(oauthCleanupBucketStartMs(String(first).replaceAll('\\', '/').split('/')[2]) ?? currentHour, currentHour);
+    }
+    let keptFromMs = Number.isFinite(cursor?.keptFromMs) ? cursor.keptFromMs : null;
     let deleted = 0;
-    for (let hour = start; hour <= current.getTime(); hour += hourMs) {
+    let hour = start;
+    for (let walked = 0; hour <= currentHour && walked < maxBuckets; hour += hourMs, walked += 1) {
       const bucket = hourBucket(new Date(hour).toISOString());
       let kept = false;
       for (const entry of await store.listJson(oauthCleanupDir(bucket))) {
@@ -566,9 +588,12 @@ export function createAgentRegistrations({
         });
         if (removed) deleted += 1; else kept = true;
       }
-      if (kept && firstKept === null) firstKept = hour;
+      if (kept && (keptFromMs === null || hour < keptFromMs)) keptFromMs = hour;
     }
-    await store.putJson(oauthCleanupCursorPath, { nextBucketStartMs: firstKept ?? Math.floor(current.getTime() / hourMs) * hourMs, ranAt: current.toISOString() });
+    const next = hour > currentHour ? { nextBucketStartMs: keptFromMs ?? currentHour, keptFromMs: null } : { nextBucketStartMs: hour, keptFromMs };
+    if (cursor?.nextBucketStartMs !== next.nextBucketStartMs || (cursor?.keptFromMs ?? null) !== next.keptFromMs) {
+      await store.putJson(oauthCleanupCursorPath, { ...next, ranAt: current.toISOString() });
+    }
     return deleted;
   }
 
@@ -698,7 +723,10 @@ export function createAgentRegistrations({
       if (await liveApprovalsBy(human.id) >= approvalsAwaitingActivationPerHuman) throw coded(409, 'PENDING_ACTIVATION_LIMIT', 'Too many approvals are still waiting for their agents.');
       const at = nowIso();
       const activationExpiresAt = plus(at, (consent ? consentCodeTtlSeconds : bootstrapCodeTtlSeconds) * 1000);
-      const requestedPermissions = consent ? request.permissions : input.grantedPermissions;
+      // A bootstrap body may name any registration permission (its request enum), but an OAuth grant holds only the four with a
+      // scope (agent-remote-auth §4.3, §8), as consent's scope-derived request already does. receive_agent_messages stays
+      // mandatory and narrowing is unchanged (effectivePermissions).
+      const requestedPermissions = consent ? request.permissions : oauthGrantablePermissions(input.grantedPermissions);
       const effective = effectivePermissions(requestedPermissions, input.grantedPermissions);
       const code = `${consent ? 'envoi_oauth_code_' : 'envoi_boot_'}${crypto.randomBytes(32).toString('base64url')}`;
       const codeHash = sha256Hex(code);

@@ -77,7 +77,7 @@ import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
-import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin, remoteAuthScopes, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
+import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, oauthGrantablePermissions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthLimits, remoteAuthOrigin, remoteAuthScopes, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
 import { organizationMaximumPermissions } from './agent-approval.js';
 import { sha256Hex } from './agent-registration.js';
 import { createWakeDestination } from './http-wake-destination.js';
@@ -2420,6 +2420,8 @@ async function activationRechecksPass(registration) {
 // response in place of the activation body.
 async function commitActivation(rawToken, registration, body, activationIdHash, plannedInboxId, writeAudit, { oauth = false } = {}) {
   const { target } = registration;
+  // An OAuth installation never activates a permission without a scope (agent-remote-auth §4.3), whatever its record holds.
+  const permissions = oauth ? oauthGrantablePermissions(registration.effectivePermissions) : registration.effectivePermissions;
   const activatedAt = store.now();
   const familyId = store.id('credential_family');
   const installationId = store.id('installation');
@@ -2432,7 +2434,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
     if (!await reserveIdentity(target.address, { status: 'reserved' }, { holdRegistrationId: registration.id })) throw new Error('The held address could not be reserved');
     agent = {
       id: store.id('agent'), organizationId: workspace.organizationId, name: target.name, slug: target.localPart, address: target.address, identity: publicIdentity(target.localPart),
-      principalHumanId: registration.principalHumanId, capabilities: [], permissions: registration.effectivePermissions, ...(runtime ? { runtime } : {}),
+      principalHumanId: registration.principalHumanId, capabilities: [], permissions, ...(runtime ? { runtime } : {}),
       createdAt: activatedAt, status: 'active', onboardingStatus: 'approved', approvedAt: activatedAt, approvedByHumanId: registration.approverHumanId
     };
     inbox = await createDedicatedAgentInbox({ sourceInbox: workspace, organizationId: workspace.organizationId, ownerHumanId: registration.principalHumanId, agent, status: 'active', inboxId: plannedInboxId });
@@ -2447,7 +2449,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
     inbox = await store.getJson(path.join('inboxes', target.agentInboxId, 'inbox.json'));
     const current = await store.getJson(path.join('inboxes', inbox.id, 'agents', `${target.agentId}.json`));
     // Permissions are decided again; a paused agent stays paused (a3 §4).
-    agent = { ...current, permissions: registration.effectivePermissions, updatedAt: activatedAt };
+    agent = { ...current, permissions, updatedAt: activatedAt };
     replaced = await revokeAgentCredentialFamilies(inbox.id, agent.id, registration.approverHumanId, activatedAt, 'replaced', writeAudit);
     const heldLeases = (await store.listJson(path.join('inboxes', inbox.id, 'work-claims')))
       .filter(claim => claim.agentId === agent.id && ['claimed', 'acknowledged'].includes(claim.status) && new Date(claim.leaseExpiresAt) > new Date(activatedAt));
@@ -2467,7 +2469,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
   });
   const installation = oauth ? null : await installations.forFamily(inbox.id, agent, familyId);
   const response = oauth ? tokenResponse({
-    accessToken: credentials.agentApiToken, refreshToken: credentials.agentRefreshToken, expiresIn: agentAccessTokenTtlSeconds, scope: scopeForPermissions(registration.effectivePermissions)
+    accessToken: credentials.agentApiToken, refreshToken: credentials.agentRefreshToken, expiresIn: agentAccessTokenTtlSeconds, scope: scopeForPermissions(permissions)
   }) : {
     installation: publicInstallation(installation),
     agent: { id: agent.id, name: displayName(agent.name, String(agent.address).split('@')[0]), address: agent.address, status: agent.status },
@@ -2499,7 +2501,7 @@ async function commitActivation(rawToken, registration, body, activationIdHash, 
   }
   await writeAudit('agent.installation_activated', {
     agentId: agent.id, installationId, credentialFamilyId: familyId, registrationId: registration.id, target: target.kind,
-    connectionRoute: registration.connectionRoute, deliveryMode: body.deliveryMode, permissions: registration.effectivePermissions, humanId: registration.approverHumanId,
+    connectionRoute: registration.connectionRoute, deliveryMode: body.deliveryMode, permissions, humanId: registration.approverHumanId,
     ...(replaced ? { replacedFamilyCount: replaced } : {})
   }, activatedAt, inbox.id);
   return { response, agent, inboxId: inbox.id, existing: target.kind === 'existing_agent' };
@@ -2567,15 +2569,14 @@ async function readLimitedBody(req, limit) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-// POST /oauth/token and POST /oauth/revoke. Neither reads cookies or takes a CSRF header. Every request counts toward the
-// per-source limit (60 a minute); a failure from §6.1 row 4 on counts once more.
+// POST /oauth/token and POST /oauth/revoke. Neither reads cookies or takes a CSRF header. Every request, successful or not,
+// counts once toward the per-source limit (agent-remote-auth §6, x-limits.tokenRequestsPerSourcePerMinute, 60 a minute).
 async function handleOAuthEndpoint(req, res, url) {
   if (req.method !== 'POST') return fail(res, 405, 'Method not allowed');
   const source = clientIp(req);
   const limited = await registrationLimits.consumeTokenRequest(source);
   if (!limited.allowed) return sendOAuth(res, oauthError('temporarily_unavailable', { retryAfterSeconds: limited.retryAfterSeconds }));
   const result = url.pathname === '/oauth/token' ? await oauthTokenRequest(req) : await oauthRevokeRequest(req);
-  if (result.countFailure) await registrationLimits.recordTokenFailure(source).catch(() => console.error('OAuth failure count was not recorded'));
   return sendOAuth(res, result);
 }
 
@@ -2585,7 +2586,7 @@ async function readTokenForm(req) {
   return raw === null ? { invalid: true } : parseTokenForm(raw);
 }
 const authenticateOAuthClient = (req, params) => authenticateClient({
-  authorization: req.headers.authorization, bodyClientId: params.get('client_id'), resolveClient: remoteAuth.resolveClient
+  authorization: req.headers.authorization, bodyClientId: params.get('client_id'), bodySecret: params.has('client_secret'), resolveClient: remoteAuth.resolveClient
 });
 
 async function oauthTokenRequest(req) {
@@ -2611,7 +2612,7 @@ async function oauthTokenRequest(req) {
 // §6.1 rows 4-10, and §8's bootstrap exchange (rows 4, 5 and 8, then 9 and 10, applied to the code). Each row decides before
 // the next is read; the reuse check is row 9, after every check that makes a request valid.
 async function exchangeOAuthCode(client, p, kind) {
-  const failed = (error = 'invalid_grant') => ({ ...oauthError(error), countFailure: true });
+  const failed = (error = 'invalid_grant') => oauthError(error);
   const codeHash = sha256Hex(p.code);
   const index = await store.getJson(oauthCodePath(codeHash));
   // Row 4: the code exists and was issued to this client. An orphan (its registration gone) is unknown and revokes nothing.
@@ -2698,7 +2699,7 @@ async function deleteOAuthRecoveries(familyId) {
 
 // §6.2. Rows 4-8 run under the family's lock together with the inbox lock the A1 rotation takes.
 async function refreshOAuthToken(client, p) {
-  const failed = (error = 'invalid_grant') => ({ ...oauthError(error), countFailure: true });
+  const failed = (error = 'invalid_grant') => oauthError(error);
   // Row 4: an oauth_refresh token of a family issued to this client. An A1 `refresh`, a token of another client and an
   // unknown token are all unknown here.
   if (!hasAgentCredentialFormat(p.token, 'refresh')) return failed();
@@ -2808,8 +2809,11 @@ async function oauthRevokeRequest(req) {
   const family = await store.getJson(familyPath);
   if (!family) return empty;
   // A family with no client (local_helper) and a family of another client are not this client's to revoke.
-  if (!oauthTokenTypes.includes(record.tokenType) || !family.audience || family.oauthClientId !== client.clientId) return { ...oauthError('unauthorized_client'), countFailure: true };
-  if (family.revokedAt || new Date(family.refreshExpiresAt) <= new Date()) return empty;
+  if (!oauthTokenTypes.includes(record.tokenType) || !family.audience || family.oauthClientId !== client.clientId) return oauthError('unauthorized_client');
+  // §7: an expired or already-revoked token changes nothing, whether the token itself or its family ended (M5: a live
+  // family must not be revoked through one of its expired access tokens).
+  const nowMs = Date.now();
+  if (family.revokedAt || record.revokedAt || Date.parse(record.expiresAt) <= nowMs || Date.parse(family.refreshExpiresAt) <= nowMs) return empty;
   const revoked = await withInboxMutation(record.inboxId, async writeAudit => {
     const current = await store.getJson(familyPath);
     if (!current || current.revokedAt) return null;
@@ -3494,6 +3498,9 @@ async function route(req, res) {
   const wakeRoute = url.pathname === '/.well-known/envoi-wake-keys.json' || url.pathname.startsWith('/api/agent/wake-subscriptions') || /^\/api\/inboxes\/[^/]+\/agents\/[^/]+\/wake-subscriptions/.test(url.pathname);
   if (wakeRoute && !httpWakeEnabled) throw codedError(404, 'FEATURE_DISABLED', 'HTTPS wake is not available on this server.');
   if (caseSessionRoute && !caseSessions.enabled) throw caseSessionErrors.featureDisabled();
+  // agent-remote-auth §11: with both flags off every endpoint does not exist, so it answers FEATURE_DISABLED before
+  // any session, CSRF or account check could answer differently. With a flag on, those checks run as for any route.
+  if (remoteAuthPath(url.pathname) && !remoteAuthEnabled(onboardingFlags)) throw remoteAuthDisabled();
   // Apply a stable source-IP bound on every route before trusting bearer or
   // cookie headers. Rotating invalid credentials must not reset this limit.
   const ipKey = `request-ip:${hashSecret(clientIp(req)).slice(0, 32)}`;
