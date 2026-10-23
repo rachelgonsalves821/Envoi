@@ -1,5 +1,6 @@
 import type { Agent, AgentConnectionInvitation, AgentConnectionInvitationDecision, ApprovedEmailContact, Asset, AuthConfig, CalendarConnector, CalendarProvider, EmailTransportStatus, Human, HumanActionKey, HumanView, Inbox, InboxPreference, Organization } from './types';
 import { trackSessionRequest } from './session-lifecycle';
+import { captureSuccessfulProductAction } from './analytics';
 import type { EnrollmentResult, EnrollmentStatus } from './quick-connect';
 import { validateQuickConnectHandoff, type ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 
@@ -130,6 +131,7 @@ export async function request<T>(pathname: string, options: RequestInit = {}, no
         ...(delays.length ? { retryAfterSeconds: Math.max(...delays) } : {})
       });
     }
+    captureSuccessfulProductAction(pathname, options.method);
     return payload as T;
   } finally { session.release(); }
 }

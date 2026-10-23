@@ -87,6 +87,9 @@ test('REST flood stays limited when bearer tokens, cookies and forwarded IP head
   for (const route of ['/health', '/ready']) {
     const response = await fetch(baseUrl + route);
     assert.equal((await response.json()).releaseSha, '0123456789abcdef0123456789abcdef01234567');
+    const csp = response.headers.get('content-security-policy') || '';
+    assert.match(csp, /script-src [^;]*https:\/\/\*\.posthog\.com/);
+    assert.match(csp, /connect-src [^;]*https:\/\/\*\.posthog\.com/);
   }
   for (let index = 0; index < 181; index += 1) {
     const response = await fetch(`${baseUrl}/api/inboxes`, {
