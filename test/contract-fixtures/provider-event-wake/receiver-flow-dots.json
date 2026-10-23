@@ -1,0 +1,52 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "receiver-flow-dots",
+  "kind": "sequence",
+  "description": "Dots end to end: discover, subscribe with verification, an opaque event, canonical claim, renewal, revoke. 2xx is receipt; completion is only a settled claim.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "steps": [
+    {
+      "actor": "host",
+      "does": "server/discover then events/list at protocol version 2026-07-28",
+      "fixture": "events-list"
+    },
+    {
+      "actor": "host",
+      "does": "events/subscribe with its callback URL and a fresh whsec_ secret",
+      "fixture": "subscribe-created"
+    },
+    {
+      "actor": "envoi",
+      "does": "sends one signed verification; the callback echoes the challenge",
+      "fixture": "verification-request"
+    },
+    {
+      "actor": "envoi",
+      "does": "sends envoi.work_available with an opaque reason, never an id or content",
+      "fixture": "delivery-work-available"
+    },
+    {
+      "actor": "host",
+      "does": "acknowledges 2xx immediately, then runs its event-triggered task which claims over /mcp with the OAuth token (envoi_claim_work)"
+    },
+    {
+      "actor": "host",
+      "does": "calls events/subscribe again before refreshBefore with the last cursor",
+      "fixture": "subscribe-renewed-same-identity"
+    },
+    {
+      "actor": "envoi",
+      "does": "on owner pause sends envoi.control_changed; on revoke ends the subscription and sends nothing more",
+      "fixture": "delivery-control-changed"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "delivery-control-changed",
+  "kind": "delivery",
+  "description": "§5/§7: pause is an opaque control event, not a claim trigger.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "context": {
+    "profile": "mcp_events",
+    "route": "remote_mcp_oauth",
+    "agentStatus": "active",
+    "callbackOriginAllowlist": [
+      "https://dots.callbacks.example"
+    ],
+    "dns": {
+      "host": "dots.callbacks.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "subscriptionId": "evtsub_0f3a9c2e51b84d7aa6c1"
+  },
+  "delivery": {
+    "profile": "mcp_events",
+    "attempt": 1,
+    "request": {
+      "method": "POST",
+      "url": "https://dots.callbacks.example/envoi/events",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "webhook-id": "wake_evt_Qm2xP7cV0LrTnb4YdKs1",
+        "webhook-timestamp": "1792238402",
+        "webhook-signature": "v1,Fcdl/H49/PcTSawRnHXzQ/3/r8HOZkWRS6QN1r/jKJM=",
+        "x-mcp-subscription-id": "evtsub_0f3a9c2e51b84d7aa6c1"
+      },
+      "bodyText": "{\"eventId\":\"wake_evt_Qm2xP7cV0LrTnb4YdKs1\",\"name\":\"envoi.control_changed\",\"timestamp\":\"2026-10-24T12:00:00.000Z\",\"data\":{\"reason\":\"agent_paused\"},\"cursor\":\"00000000000000000106\"}"
+    },
+    "response": {
+      "status": 202
+    },
+    "outcome": "acknowledged"
+  }
+}
