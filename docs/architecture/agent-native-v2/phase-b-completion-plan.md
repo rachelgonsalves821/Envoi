@@ -3,6 +3,8 @@
 Prepared 2026-10-17 at integration `7442248d16635c2256c11bf02dcaf493ca4fe039`.
 Status: remaining-work plan for review; no new contract, deployment or gate pass is established by this document.
 
+**Reconciliation 2026-10-23 (integration `d05498d`; see [`contract-status.md`](contract-status.md)).** The "Baseline" paragraph below, which says the B-local gate is pending and ties the 207/207 figure to `dcd2960`, describes the snapshot at `7442248`. B-local has since passed twice with human countersigns (`4ad14b6` and the Stage A candidate `e8a958f`), and the human-countersigned B/C closeout is preserved. B-R2's `agent-remote-auth` contract (revision 4, Policy B) and `a5-presence-on-demand` are approved, and the remote-authorization server and consent client are integrated behind `ENVOI_REMOTE_MCP_OAUTH` and `ENVOI_PROVIDER_CONNECTORS`, both OFF. That does not accept B-breadth: B-R3 acceptance on a real host, B-R4 to B-R9 and every named-host wake row remain open, and the new Lane A contract packages in `handoffs.md` still need Lane B ACK and the human's exact approval before dependent work.
+
 ## Objective and ownership
 
 A user gives their agent `/connect`, approves its identity and permissions, and gets a truthful connection and background-availability result. Hermes, OpenClaw, Grok/xAI, Muse, Instinct and ChatGPT Dots remain named targets. Each needs its own verified route; an account that cannot integrate must have an explicit blocker and next action.
