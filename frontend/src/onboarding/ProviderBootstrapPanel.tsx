@@ -3,7 +3,7 @@ import { claimProblem, type ClaimProblem } from './claim-state';
 import { ClaimProblemNotice, useClaimClock } from './ClaimPage';
 import { remoteAuthApi } from './remote-auth-api';
 import * as validate from './remote-auth.validator.mjs';
-import { hasRemotePermissions, remoteGrantAllowed } from './remote-auth-grants';
+import { hasRemotePermissions, remoteGrantAllowed, remoteTargetMatches } from './remote-auth-grants';
 import type { BootstrapIssued, BootstrapRequest, RemoteAuthApi } from './remote-auth-types';
 
 interface BootstrapState { busy: boolean; attempted: boolean; hidden: boolean; issued: BootstrapIssued | null; problem: ClaimProblem | null }
@@ -21,6 +21,7 @@ export class BootstrapController {
   async issue(body: BootstrapRequest) {
     if (this.state.attempted || !validate.bootstrapCodeRequest(body) || !hasRemotePermissions(body.grantedPermissions)) return false;
     const grantedPermissions = [...body.grantedPermissions];
+    const target = structuredClone(body.target);
     const generation = ++this.generation; const active = this.active = new AbortController();
     this.update({ busy: true, attempted: true });
     try {
@@ -28,7 +29,7 @@ export class BootstrapController {
       if (generation !== this.generation || active.signal.aborted) return false;
       if (!validate.bootstrapCodeIssued(raw)) throw { code: 'INVALID_OAUTH_RESPONSE' };
       const issued = raw as BootstrapIssued;
-      if (!remoteGrantAllowed(issued.effectivePermissions, grantedPermissions)) throw { code: 'INVALID_OAUTH_RESPONSE' };
+      if (!remoteTargetMatches(target, issued) || !remoteGrantAllowed(issued.effectivePermissions, grantedPermissions)) throw { code: 'INVALID_OAUTH_RESPONSE' };
       this.update({ busy: false, issued: Date.parse(issued.expiresAt) > this.now() && !this.state.hidden ? issued : null, hidden: this.state.hidden || Date.parse(issued.expiresAt) <= this.now() });
       return true;
     } catch (caught) {

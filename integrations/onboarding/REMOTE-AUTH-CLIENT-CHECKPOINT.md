@@ -48,6 +48,20 @@ These are client checks, not a substitute for server M3 remediation. The provide
 component stays unmounted. No schema, wire contract, fixture, server source,
 Python quickstart path or other owner's client slice changes here.
 
+## Approval target checks (2026-10-22)
+
+The client additionally enforces registration §5.3's response identity rules,
+consumed through remote-auth §5.2/§8: the returned target kind matches the captured
+selection, and an existing-agent response names that exact agent. The agent ID is
+present exactly for an existing-agent target. Invalid first approvals never
+navigate, invalid code-free retries are not retained, and invalid bootstrap
+responses never display their code or trigger automatic reissuance. Bootstrap
+captures the selected target before awaiting a response, so caller edits cannot
+change its comparison. Reload and withdrawal readback also check the target/ID
+shape; they do not reconstruct a prior selection hidden inside a sealed handle.
+Matching new/existing-agent fixtures remain consumable. No schema or contract
+was changed, and the provider panel stays unmounted.
+
 ## Client and generation
 
 Owner-session `/authorize-agent` consent, target/reconnect review, one first-response
@@ -78,7 +92,7 @@ $env:ENVOI_REMOTE_AUTH_SERVER_ROOT = (Get-Location).Path
 npx vitest run --config vitest.remote-auth.config.ts
 ```
 
-The same five checks run automatically in the normal frontend suite/CI from this stacked source. The standalone config is for focused reproduction. A separate clean local server snapshot may also be selected. The suite accepts a
+The same six checks run automatically in the normal frontend suite/CI from this stacked source. The standalone config is for focused reproduction. A separate clean local server snapshot may also be selected. The suite accepts a
 filesystem tree, not a hosted URL; checks the full Git SHA (and requires source cleanliness in CI or when an explicit server path is selected); and
 uses disposable loopback FileStore/development-auth child processes. Shared/default
 flags remain OFF. Only selected child processes enable synthetic fixture clients.
@@ -87,7 +101,7 @@ account binding. A synthetic private host holds tokens outside browser code and
 sends no cookies. No installed host, provider or model is contacted. Missing server
 endpoints fail rather than silently skipping tests.
 
-Five checks cover:
+Six checks cover:
 
 1. All70 revision4 fixtures /101 operations; all27 consent/bootstrap browser operations
    pass static validation and reject an extra credential field.
@@ -103,6 +117,13 @@ Five checks cover:
    and no reissue; private confidential-client exchange, MCP use and revocation; a lost
    issue response is never retried or redisplayed. The resulting pending approval can
    be found and explicitly withdrawn without disclosing the code.
+
+6. Existing-agent reconnect through the real browser transport: consent targets the
+   selected paused identity; the original connection works until private exchange;
+   exchange replaces it once without changing address/identity or pause; the new
+   OAuth token gets AGENT_PAUSED until explicit owner resume. Completed reload and
+   identical approve retry preserve that existing identity without another redirect
+   or credential exposure.
 
 These are local FileStore source-pair results, not hosted or PostgreSQL client pairing.
 The independent #201 run39830980514 at82727c7 was checked for actual PostgreSQL consent
