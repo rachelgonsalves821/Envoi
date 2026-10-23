@@ -24,6 +24,8 @@ The assistant browser starts at `/agent-gateway/connect`, receives a pending coo
 
 New core tests exercise persistence/restart, ambiguous creation, cookie recovery, schema/scope/CSRF, snapshot paging, mixed-invalid ack atomicity, changed eligibility, duplicate notifications, overlap, pause/revoke, idle/absolute expiry, overdue boundaries and encrypted storage. Real local HTTP tests exercise canonical owner claim/confirmation/activation, real agent-to-agent delivery, notification-only acknowledgement, raw API denial and pause/revoke. Shared JSON schemas are consumed by real responses. The same gateway tests run in the PostgreSQL CI stage in addition to FileStore.
 
+The [Stage 2 Lane B contract request](STAGE-2-CONTRACT-REQUEST.md) enumerates the exact action, consent, lease, retry and lifecycle decisions needed before a browser-host client can claim, reply or settle canonical work. It is a request for a separately published and approved contract, not an extension of Stage 1 authority.
+
 Record exact final local/CI results in the PR. Synthetic/local server tests do not prove Muse/Instinct execution, persistent private login, cookie filling, provider approval, background scheduling or alert receipt. Both named hosts remain OPEN. A private API/script adapter remains a separate candidate requiring actual auth-profile/secret-isolation proof. Stage 2 canonical writes and any live host/account/scheduler operations are outside this read/notify implementation checkpoint. This is not full multi-host onboarding or a Phase C hosted gate.
 
 ## PR #144 review corrections
