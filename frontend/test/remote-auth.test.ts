@@ -333,6 +333,84 @@ describe('remote OAuth grant boundaries', () => {
   });
 });
 
+describe('approval target binding', () => {
+  const existingView = () => ({ ...structuredClone(body('consent-view')),
+    requestedPermissions: [...fixture('consent-approve-existing-agent').request.body.grantedPermissions],
+    grantablePermissions: [...fixture('consent-approve-existing-agent').request.body.grantedPermissions] });
+
+  it.each(['consent-approve-new-agent', 'consent-approve-retry-completed'])('rejects a different target kind in %s without navigation or retention', async responseName => {
+    const api = client(); const response = structuredClone(body(responseName));
+    response.target = 'existing_agent'; response.agent.id = 'agent_other';
+    vi.mocked(api.approve).mockResolvedValue(response);
+    const navigate = vi.fn(); const controller = new ConsentController(handle, api, navigate, () => initialTime);
+    await controller.load(); expect(await controller.approve(approval())).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(controller.getSnapshot()).toMatchObject({ blocked: true, outcome: null, problem: { code: 'INVALID_OAUTH_RESPONSE' } });
+    expect(JSON.stringify(controller.getSnapshot())).not.toContain('envoi_oauth_code_');
+  });
+  it.each(['wrong', 'missing'])('refuses a %s existing-agent ID on first approval and a code-free retry', async mismatch => {
+    for (const decided of [false, true]) {
+      const entry = fixture('consent-approve-existing-agent'); const response = structuredClone(entry.response.body);
+      if (decided) { delete response.redirectTo; response.status = 'completed'; }
+      if (mismatch === 'missing') delete response.agent.id; else response.agent.id = 'agent_other';
+      const api = client(); vi.mocked(api.view).mockResolvedValue(existingView()); vi.mocked(api.approve).mockResolvedValue(response);
+      const navigate = vi.fn(); const controller = new ConsentController(handle, api, navigate, () => initialTime);
+      await controller.load(); expect(await controller.approve(entry.request.body)).toBe(false);
+      expect(api.approve).toHaveBeenCalledTimes(1);
+      expect(navigate).not.toHaveBeenCalled(); expect(controller.getSnapshot().outcome).toBeNull();
+    }
+  });
+  it('accepts the selected existing identity and never navigates its code-free retry', async () => {
+    const entry = fixture('consent-approve-existing-agent'); const api = client(); const navigate = vi.fn();
+    vi.mocked(api.view).mockResolvedValue(existingView());
+    vi.mocked(api.approve).mockResolvedValue(entry.response.body);
+    const controller = new ConsentController(handle, api, navigate, () => initialTime); await controller.load();
+    expect(await controller.approve(entry.request.body)).toBe(true); expect(navigate).toHaveBeenCalledExactlyOnceWith(entry.response.body.redirectTo);
+    const decided = structuredClone(entry.response.body); delete decided.redirectTo; decided.status = 'completed';
+    vi.mocked(api.approve).mockResolvedValue(decided);
+    const retry = new ConsentController(handle, api, navigate, () => initialTime); await retry.load();
+    expect(await retry.approve(entry.request.body)).toBe(true); expect(retry.getSnapshot().outcome?.status).toBe('completed');
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+  it('rejects inconsistent agent-ID shape in a stored decision and withdrawal readback', async () => {
+    for (const target of ['new_agent', 'existing_agent']) {
+      const api = client(); const view = structuredClone(pendingView()); view.decision.target = target;
+      if (target === 'new_agent') view.decision.agent.id = 'agent_unexpected'; else delete view.decision.agent.id;
+      vi.mocked(api.view).mockResolvedValue(view);
+      const controller = new ConsentController(handle, api, vi.fn(), () => initialTime);
+      expect(await controller.load()).toBe(false); expect(controller.getSnapshot().outcome).toBeNull();
+      const withdrawing = new ConsentController(handle, api, vi.fn(), () => initialTime);
+      vi.mocked(api.view).mockResolvedValue(pendingView()); await withdrawing.load();
+      vi.mocked(api.view).mockResolvedValue(view);
+      expect(await withdrawing.withdraw()).toBe(false); expect(withdrawing.getSnapshot().outcome).toBeNull();
+    }
+  });
+  it('checks bootstrap against the captured target even if its caller edits the request while pending', async () => {
+    const api = client(); let finish!: (value: unknown) => void;
+    vi.mocked(api.bootstrap).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const controller = new BootstrapController(api, () => initialTime);
+    const request = structuredClone(fixture('bootstrap-code-issued').request.body);
+    const pending = controller.issue(request);
+    request.target = { kind: 'existing_agent', agentId: 'agent_other', replacesInstallationId: null };
+    const response = structuredClone(body('bootstrap-code-issued')); response.target = 'existing_agent'; response.agent.id = 'agent_other';
+    finish(response); expect(await pending).toBe(false); expect(controller.getSnapshot().issued).toBeNull();
+    expect(bootstrapMarkup(controller)).not.toContain(response.bootstrapCode);
+    await controller.issue(request); expect(api.bootstrap).toHaveBeenCalledTimes(1);
+  });
+  it('accepts a matching existing-agent bootstrap response and refuses a different agent', async () => {
+    const entry = fixture('consent-approve-existing-agent');
+    const request = { ...structuredClone(fixture('bootstrap-code-issued').request.body), target: entry.request.body.target };
+    for (const matches of [true, false]) {
+      const api = client(); const response = structuredClone(body('bootstrap-code-issued'));
+      response.target = 'existing_agent'; response.agent.id = matches ? entry.request.body.target.agentId : 'agent_other';
+      vi.mocked(api.bootstrap).mockResolvedValue(response);
+      const controller = new BootstrapController(api, () => initialTime);
+      expect(await controller.issue(request)).toBe(matches);
+      expect(Boolean(controller.getSnapshot().issued)).toBe(matches);
+    }
+  });
+});
+
 describe('one-time provider bootstrap component', () => {
   it('starts a new display session when the owner, target or granted permissions change', () => {
     const request = fixture('bootstrap-code-issued').request.body;

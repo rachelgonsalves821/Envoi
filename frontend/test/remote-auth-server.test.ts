@@ -240,6 +240,57 @@ function noCredentials(value: unknown, secrets: string[]) {
   expect(text).not.toMatch(/envoi_oauth_code_|envoi_boot_|envoi_agent_(?:access|refresh)_|"audience"|oauthClientId|codeHash|handleDigest|codeChallenge/);
 }
 
+it('pairs an existing paused identity through owner consent, delayed replacement and completed reload', { timeout: 60_000 }, async () => {
+  const server = await launch(true); const controllers: ConsentController[] = []; const navigate = vi.fn();
+  try {
+    const who = await harness.owner(server.baseUrl, '8408');
+    await harness.pauseAgent(server.baseUrl, who);
+    const base = `/api/inboxes/${who.inbox.id}/agents/${who.agent.id}`;
+    const listed = await harness.api(server.baseUrl, base + '/installations', { session: who.session });
+    expect(listed.status).toBe(200);
+    const current = listed.payload.installations.filter((item: any) => item.status === 'active')
+      .sort((a: any, b: any) => b.activatedAt.localeCompare(a.activatedAt))[0];
+    expect(current).toBeTruthy();
+    const legacyStatus = () => nativeFetch(server.baseUrl + '/api/agent/status', {
+      headers: { authorization: 'Bearer ' + who.agentApiToken }, redirect: 'manual'
+    });
+    browser(server.baseUrl, who);
+    const handle = await authorize(server.baseUrl, 'existing-paused');
+    const first = new ConsentController(handle, remoteAuthApi, navigate); controllers.push(first);
+    expect(await first.load()).toBe(true);
+    const selected: ConsentApproval = { target: { kind: 'existing_agent', agentId: who.agent.id, replacesInstallationId: current.id },
+      grantedPermissions: ['receive_agent_messages', 'send_agent_messages'], policyProfile: 'default' };
+    expect(await first.approve(selected)).toBe(true);
+    expect(first.getSnapshot().outcome).toMatchObject({ target: 'existing_agent', agent: { id: who.agent.id, address: who.agent.address } });
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect((await legacyStatus()).status).toBe(200); // Consent alone does not end the previous installation.
+    const code = new URL(navigate.mock.calls[0][0]).searchParams.get('code')!;
+    const exchanged = await hostForm(server.baseUrl, '/oauth/token', { grant_type: 'authorization_code', code,
+      client_id: clients[0].clientId, redirect_uri: 'http://127.0.0.1:53682/callback', code_verifier: verifier, resource: server.baseUrl + '/mcp' });
+    expect(exchanged.status).toBe(200);
+    const ended = await legacyStatus(); expect(ended.status).toBe(401); expect((await ended.json()).code).toBe('CREDENTIAL_REVOKED');
+    const paused = await hostRpc(server.baseUrl, exchanged.body.access_token, 'tools/list');
+    expect(paused.status).toBe(409); expect(paused.body.code).toBe('AGENT_PAUSED');
+    const owners = await request<any[]>(`/api/inboxes/${who.inbox.id}/agents`);
+    expect(owners.find(agent => agent.id === who.agent.id)).toMatchObject({ address: who.agent.address, status: 'paused', onboardingStatus: 'approved' });
+    const installations = await request<any>(base + '/installations');
+    expect(installations.installations.find((item: any) => item.id === current.id)).toMatchObject({ status: 'ended', endedReason: 'replaced' });
+    const fresh = installations.installations.filter((item: any) => item.status === 'active');
+    expect(fresh).toHaveLength(1); expect(fresh[0]).toMatchObject({ connectionRoute: 'remote_mcp_oauth', deliveryMode: 'on_demand' });
+    const completed = new ConsentController(handle, remoteAuthApi, navigate); controllers.push(completed);
+    expect(await completed.load()).toBe(true);
+    expect(completed.getSnapshot().outcome).toMatchObject({ status: 'completed', target: 'existing_agent', agent: { id: who.agent.id } });
+    const retry: any = await remoteAuthApi.approve(handle, selected);
+    expect(retry).toMatchObject({ status: 'completed', target: 'existing_agent', agent: { id: who.agent.id } });
+    expect(retry.redirectTo).toBeUndefined(); expect(navigate).toHaveBeenCalledTimes(1);
+    await request(base + '/resume', { method: 'POST', body: '{}' });
+    const info = await hostRpc(server.baseUrl, exchanged.body.access_token, 'tools/call', { name: 'envoi_agent_info', arguments: {} });
+    expect(info.status).toBe(200);
+    expect(JSON.parse(info.body.result.content[0].text)).toMatchObject({ agentId: who.agent.id, address: who.agent.address });
+    noCredentials([first.getSnapshot(), completed.getSnapshot(), retry, owners, installations, info.body], [code, verifier, exchanged.body.access_token, exchanged.body.refresh_token]);
+  } finally { for (const controller of controllers) controller.dispose(); await server.stop(); }
+});
+
 it('pairs completed consent with private host exchange, MCP scope/pause, refresh recovery and terminal replay', { timeout: 60_000 }, async () => {
   const server = await launch(true);
   const controllers: ConsentController[] = [];

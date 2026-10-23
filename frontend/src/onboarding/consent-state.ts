@@ -1,13 +1,13 @@
 import { claimProblem, type ClaimProblem } from './claim-state';
 import * as validate from './remote-auth.validator.mjs';
-import { hasRemotePermissions, remoteGrantAllowed } from './remote-auth-grants';
+import { hasRemotePermissions, remoteGrantAllowed, remoteTargetMatches, remoteTargetValid } from './remote-auth-grants';
 import type { ConsentApproval, ConsentApproved, ConsentDecided, ConsentView, RemoteAuthApi } from './remote-auth-types';
 
 function validView(raw: unknown): raw is ConsentView {
   if (!validate.consentView(raw)) return false;
   const view = raw as ConsentView;
   return hasRemotePermissions(view.requestedPermissions) && hasRemotePermissions(view.grantablePermissions)
-    && (!view.decision || view.decision.status === 'denied' || remoteGrantAllowed(view.decision.effectivePermissions));
+    && (!view.decision || view.decision.status === 'denied' || (remoteGrantAllowed(view.decision.effectivePermissions) && remoteTargetValid(view.decision)));
 }
 
 export function authorizationHandle(search: string) {
@@ -104,12 +104,14 @@ export class ConsentController {
       const raw = decision.kind === 'approve' ? await this.client.approve(this.handle, structuredClone(decision.body), op.signal) : await this.client.deny(this.handle, op.signal);
       if (!op.current()) return false;
       if (decision.kind === 'approve' && validate.consentDecided(raw)) {
-        if (!remoteGrantAllowed((raw as ConsentDecided).effectivePermissions, decision.body.grantedPermissions)) this.invalid();
+        if (!remoteTargetMatches(decision.body.target, raw as ConsentDecided)
+          || !remoteGrantAllowed((raw as ConsentDecided).effectivePermissions, decision.body.grantedPermissions)) this.invalid();
         this.decision = null; this.update({ outcome: raw as ConsentDecided, phase: 'decided', busy: false, uncertain: false, retryAt: 0 }); return true;
       }
       if (decision.kind === 'approve' ? !validate.consentApproved(raw) : !validate.consentDenied(raw)) this.invalid();
       const response = raw as ConsentApproved;
-      if (decision.kind === 'approve' && !remoteGrantAllowed(response.effectivePermissions, decision.body.grantedPermissions)) this.invalid();
+      if (decision.kind === 'approve' && (!remoteTargetMatches(decision.body.target, response)
+        || !remoteGrantAllowed(response.effectivePermissions, decision.body.grantedPermissions))) this.invalid();
       const redirect = new URL(response.redirectTo);
       const client = this.state.view!.client;
       if (redirect.host !== client.redirectHost || redirect.username || redirect.password || redirect.hash
