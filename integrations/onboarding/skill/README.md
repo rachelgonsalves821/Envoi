@@ -11,6 +11,11 @@ Before publishing, reconcile command output and status labels with Lane A's revi
 [HOST-INTEGRATION.md](HOST-INTEGRATION.md) provides the executable local manifest/capability consumer, host integration sequence, conformance record format, and the contract decisions needed from Lane A. Run `node integrations/onboarding/host-plan.mjs integrations/onboarding/profiles/unverified-host.json` from the repository root. This makes no network calls and executes no helper. The Node tests now cover both safety wording and behavioral capability/evidence selection; `npm run test:integrations` also runs them through `../test/onboarding.test.ts`.
 
 [HOST-SETUP-PROBES.md](HOST-SETUP-PROBES.md) records bounded Muse, Dots, Instinct, local-helper and generic REST capability checks. Public provider documentation is labeled separately from owner-account observations and real Envoi calls. [BREADTH-EVIDENCE.md](BREADTH-EVIDENCE.md) is the blank hosted route-by-host gate; no row is pre-approved.
+[DOTS-GROK-ACCEPTANCE.md](DOTS-GROK-ACCEPTANCE.md) provides separate Dots, Grok consumer, Grok automation, Grok Bot and xAI API bridge probes and names the server event-contract gaps.
+
+[PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md](PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md) is the Rachel/Codex-owned Muse and Instinct route decision packet. It distinguishes the integrated read/notify gateway from real exchange and closed-app wake evidence. Rachel selected Meta's reviewed Muse connector for beta; its [submission packet](../../provider-gateway/MUSE-REVIEWED-CONNECTOR-SUBMISSION.draft.md) is preparation only. Instinct's selected test is native Envoi work through a private API or delegated browser session.
+
+[HOSTED-ONBOARDING-GATE-PREP.md](HOSTED-ONBOARDING-GATE-PREP.md) prepares the exact-release Hermes and OpenClaw hosted helper gate. It contains no hosted acceptance result.
 
 [HELPER-OUTPUT-EXAMPLES.md](HELPER-OUTPUT-EXAMPLES.md) reconciles the model-visible projection with the published `agent-registration` v1 §7 allowlist and fixtures. The separate [Phase A hosted worksheet](../../gates/PHASE-A-HOSTED-PREP.md) prepares the required disposable Hermes reference test without claiming a hosted pass or narrowing the architecture to Hermes.
 
