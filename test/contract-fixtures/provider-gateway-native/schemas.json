@@ -161,6 +161,12 @@
       "retry": "none",
       "guidance": "claim_again_next_run"
     },
+    "GATEWAY_RUN_EXPIRED": {
+      "status": 409,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "start_fresh_run"
+    },
     "GATEWAY_RUN_MISMATCH": {
       "status": 409,
       "lifecycle": "UNCHANGED",
@@ -186,6 +192,25 @@
       "guidance": "retry_with_same_key"
     }
   },
+  "x-clocks": {
+    "source": "every work fixture declares context.asOf (the server clock) and context.runStartedAt",
+    "runBudgetSeconds": 120,
+    "runBudgetInclusive": true,
+    "leaseSeconds": 150,
+    "leaseGrantedAtAsOf": "a new lease expires at asOf + leaseSeconds",
+    "renewalWithinBudgetOnly": true,
+    "runStartInvariant": "a new run starts at least minSecondsBetweenRuns (60) after the previous run started"
+  },
+  "x-check-order": [
+    "session, CSRF and generation",
+    "flag and scope",
+    "agent pause, revoke and case controls",
+    "idempotency record: a settled key with the same body replays its stored result (no effect), with a different body is IDEMPOTENCY_CONFLICT",
+    "run binding: a workRef issued to another run is GATEWAY_RUN_MISMATCH",
+    "run budget: asOf after runStartedAt + 120 s is GATEWAY_RUN_EXPIRED, whatever the lease says; another run holding an unsettled claim is GATEWAY_CHECK_ACTIVE",
+    "lease and fence: LEASE_LOST",
+    "effect, atomically with settlement"
+  ],
   "x-utf8-guards": [
     {
       "path": "actRequest.text",
@@ -268,7 +293,8 @@
         "use_new_key",
         "wait_retry_after",
         "retry_with_same_key",
-        "wait_for_owner"
+        "wait_for_owner",
+        "start_fresh_run"
       ]
     },
     "gatewayError": {
@@ -293,6 +319,7 @@
             "GATEWAY_ACTION_UNSUPPORTED",
             "AGENT_PAUSED",
             "LEASE_LOST",
+            "GATEWAY_RUN_EXPIRED",
             "GATEWAY_RUN_MISMATCH",
             "IDEMPOTENCY_CONFLICT",
             "RATE_LIMITED",
@@ -312,6 +339,7 @@
             "GATEWAY_ACTION_UNSUPPORTED",
             "AGENT_PAUSED",
             "LEASE_LOST",
+            "GATEWAY_RUN_EXPIRED",
             "GATEWAY_RUN_MISMATCH",
             "IDEMPOTENCY_CONFLICT",
             "RATE_LIMITED",
@@ -332,7 +360,8 @@
             "use_new_key",
             "wait_retry_after",
             "retry_with_same_key",
-            "wait_for_owner"
+            "wait_for_owner",
+            "start_fresh_run"
           ]
         },
         "retryAfterSeconds": {
@@ -804,7 +833,10 @@
       ],
       "properties": {
         "method": {
-          "const": "POST"
+          "enum": [
+            "GET",
+            "POST"
+          ]
         },
         "path": {
           "type": "string",
@@ -828,8 +860,19 @@
       "additionalProperties": false,
       "required": [
         "status",
-        "schema",
-        "body"
+        "schema"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "body"
+          ]
+        },
+        {
+          "required": [
+            "bodyText"
+          ]
+        }
       ],
       "properties": {
         "status": {
@@ -841,8 +884,15 @@
         "headers": {
           "type": "object"
         },
-        "body": {}
+        "body": {},
+        "bodyText": {
+          "type": "string"
+        }
       }
+    },
+    "inboxShell": {
+      "type": "string",
+      "pattern": "name=\"csrf\" value=\"PLACEHOLDER_gateway_csrf_g5\""
     },
     "fixtureClient": {
       "type": "object",
@@ -879,6 +929,10 @@
         "does"
       ],
       "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
         "actor": {
           "enum": [
             "host",

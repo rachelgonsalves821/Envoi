@@ -1,0 +1,71 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "claim-expired-run-refused",
+  "kind": "http",
+  "description": "§3.1a: the run budget is 120 s from runStartedAt (12:00:00, so it ended at 12:02:00). At 12:02:10 the same run_example is refused with GATEWAY_RUN_EXPIRED, although its 150 s lease (to 12:02:30) is still live: no item is leased, nothing is replayed and the budget is not extended.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:02:10.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z",
+    "itemsClaimedThisRun": 1,
+    "outstandingClaim": {
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "settled": false,
+      "leaseExpiresAt": "2026-10-24T12:02:30.000Z"
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/claim",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "error": "GATEWAY_RUN_EXPIRED",
+      "code": "GATEWAY_RUN_EXPIRED",
+      "guidance": "start_fresh_run"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "start_fresh_run"
+  },
+  "effects": {
+    "newLease": false,
+    "leaseChanged": false
+  }
+}

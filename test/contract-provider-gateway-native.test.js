@@ -30,10 +30,11 @@ test('provider-gateway-native: requests and responses match their closed schemas
   const { requestMaxBytes, responseMaxBytes } = schemas['x-limits'];
   for (const fixture of https(fixtures)) {
     const { request, response } = fixture;
-    assert.ok(Buffer.byteLength(JSON.stringify(request.body)) <= requestMaxBytes, `${fixture.id}: request size`);
-    assert.ok(Buffer.byteLength(JSON.stringify(response.body)) <= responseMaxBytes, `${fixture.id}: response size`);
+    assert.ok(Buffer.byteLength(JSON.stringify(request.body ?? '')) <= requestMaxBytes, `${fixture.id}: request size`);
+    const responseValue = response.body ?? response.bodyText;
+    assert.ok(Buffer.byteLength(JSON.stringify(responseValue)) <= responseMaxBytes, `${fixture.id}: response size`);
     const validate = def(response.schema);
-    assert.equal(validate(response.body), true, `${fixture.id}: ${ajv.errorsText(validate.errors)}`);
+    assert.equal(validate(responseValue), true, `${fixture.id}: ${ajv.errorsText(validate.errors)}`);
     if (request.path.endsWith('/work/act')) {
       // Closed object AND the UTF-8 byte guard: a character count cannot enforce a byte limit.
       const valid = def('actRequest')(request.body) && (request.body.text === undefined || Buffer.byteLength(request.body.text, 'utf8') <= schemas['x-limits'].replyTextMaxBytes);
@@ -138,7 +139,7 @@ test('provider-gateway-native: UTF-8 byte limits are enforced on bytes at and ar
   assert.ok(fixtures.get('claim-summary-truncated-on-code-point').context.originalSummaryBytes > schemas['x-limits'].summaryMaxBytes);
   for (const fixture of fixtures.values()) {
     if (fixture.response?.body?.packet) for (const event of fixture.response.body.packet.snapshot.recentEvents) assert.ok(bytes(event.summary) <= schemas['x-limits'].summaryMaxBytes, `${fixture.id}: summary bytes`);
-    if (fixture.response) assert.ok(bytes(JSON.stringify(fixture.response.body)) <= schemas['x-limits'].responseMaxBytes, `${fixture.id}: response bytes`);
+    if (fixture.response) assert.ok(bytes(JSON.stringify(fixture.response.body ?? fixture.response.bodyText)) <= schemas['x-limits'].responseMaxBytes, `${fixture.id}: response bytes`);
   }
 });
 
@@ -201,5 +202,120 @@ test('provider-gateway-native: the owner upgrade ends the old session and the re
   assert.notEqual(claim.request.headers.cookie, fixtures.get('claim-work').request.headers.cookie, 'a different cookie');
   assert.equal(fixtures.get('scope-upgrade-from-gateway-session-denied').response.status, 401, 'no self-upgrade');
   assert.equal(schemas['x-session-repair'].steps.length, 4);
+});
+
+
+const ms = iso => Date.parse(iso);
+
+test('provider-gateway-native: the repaired session is acquired in causal order and its claim and reply happen inside a live lease and run budget (G1)', async () => {
+  const { schemas, fixtures } = await load();
+  const at = id => ms(fixtures.get(id).context.asOf);
+  const upgrade = fixtures.get('scope-upgrade-owner');
+  assert.equal(at('scope-upgrade-owner'), ms(upgrade.response.body.effectiveAt), 'the upgrade takes effect at its own clock');
+  const confirmed = ms(fixtures.get('repair-activate-native-scope').context.ownerConfirmedAt);
+  const order = ['scope-upgrade-owner', 'old-session-refused-after-upgrade', 'repair-pairing-created', 'repair-activate-native-scope', 'repair-acquire-session-csrf', 'claim-new-generation-ok', 'reply-sent-after-repair'];
+  for (let i = 1; i < order.length; i += 1) assert.ok(at(order[i]) > at(order[i - 1]), `${order[i]} runs after ${order[i - 1]}`);
+  assert.ok(at('repair-pairing-created') < confirmed && confirmed < at('repair-activate-native-scope'), 'owner confirmation sits between pairing and activation');
+  const activate = fixtures.get('repair-activate-native-scope');
+  assert.equal(ms(activate.response.body.expiresAt) - confirmed, schemas['x-limits'].sessionAbsoluteDays * 86400000, 'seven days exactly from the owner confirmation');
+  assert.equal(ms(fixtures.get('claim-new-generation-ok').context.session.absoluteExpiresAt), ms(activate.response.body.expiresAt), 'the claim session carries that bound');
+  assert.equal(ms(fixtures.get('repair-pairing-created').response.body.expiresAt) - at('repair-pairing-created'), 600000, 'the pending pairing lasts ten minutes from its clock');
+  // The CSRF step: the generation-5 token comes from the existing inbox shell, and is not the generation-4 token.
+  const shell = fixtures.get('repair-acquire-session-csrf');
+  assert.equal(shell.request.path, '/agent-gateway/inbox');
+  assert.match(shell.response.bodyText, /name="csrf" value="PLACEHOLDER_gateway_csrf_g5"/);
+  const claim = fixtures.get('claim-new-generation-ok');
+  assert.equal(claim.request.headers['x-envoi-gateway-csrf'], 'PLACEHOLDER_gateway_csrf_g5');
+  assert.notEqual(claim.request.headers['x-envoi-gateway-csrf'], fixtures.get('claim-work').request.headers['x-envoi-gateway-csrf'], 'not the generation-4 token');
+  // A live lease and run budget at the successful claim and at the repaired reply.
+  const lease = ms(claim.response.body.packet.leaseExpiresAt);
+  assert.equal(lease, at('claim-new-generation-ok') + schemas['x-limits'].leaseSeconds * 1000, 'the lease is granted at the claim clock');
+  assert.ok(lease > confirmed && lease > at('repair-activate-native-scope'), 'the lease cannot precede the authorization that allows it');
+  const reply = fixtures.get('reply-sent-after-repair');
+  const runEnd = ms(reply.context.runStartedAt) + schemas['x-limits'].runBudgetSeconds * 1000;
+  assert.ok(at('reply-sent-after-repair') < lease && at('reply-sent-after-repair') <= runEnd, 'the repaired reply is inside the live lease and the run budget');
+  assert.equal(reply.context.session.generation, 5);
+  assert.equal(reply.request.body.workRef, claim.response.body.packet.workRef);
+  assert.equal(reply.request.body.runId, claim.response.body.packet.runId);
+  assert.equal(reply.response.body.state, 'sent');
+  // Sequence fixtures name their fixtures, and each step runs at that fixture's own clock.
+  const sequence = fixtures.get('repair-sequence');
+  let last = -Infinity;
+  for (const step of sequence.steps) {
+    assert.ok(ms(step.at) > last, 'steps strictly increase');
+    last = ms(step.at);
+    if (step.fixture) assert.equal(ms(step.at), at(step.fixture), `${step.fixture} runs at its step time`);
+  }
+  const consent = fixtures.get('consent-model').steps.map(step => step.fixture).filter(Boolean);
+  assert.ok(consent.includes('reply-sent-after-repair') && !consent.includes('reply-sent'), 'the repaired reply stands in for the generation-4 fixture');
+});
+
+test('provider-gateway-native: the 120 s run budget is checked before the 150 s lease, and recovery is a fresh authorized run after expiry (G2)', async () => {
+  const { schemas, fixtures } = await load();
+  const L = schemas['x-limits'];
+  assert.equal(L.runBudgetSeconds, 120);
+  assert.equal(L.leaseSeconds, 150);
+  assert.ok(L.leaseSeconds > L.runBudgetSeconds);
+  assert.deepEqual(schemas['x-check-order'].map(item => item.split(':')[0].split(',')[0]).slice(0, 3), ['session', 'flag and scope', 'agent pause']);
+  const orderText = schemas['x-check-order'].join('|');
+  assert.ok(orderText.indexOf('run binding') < orderText.indexOf('run budget') && orderText.indexOf('run budget') < orderText.indexOf('lease and fence'), 'run binding, then run budget, then lease');
+  assert.ok(orderText.indexOf('idempotency record') < orderText.indexOf('run budget'), 'a settled replay precedes the run check');
+  // Every claim that grants a new lease does so at asOf + leaseSeconds.
+  for (const fixture of fixtures.values()) {
+    const body = fixture.response?.body;
+    if (body?.packet && body.replayed === false) assert.equal(ms(body.packet.leaseExpiresAt) - ms(fixture.context.asOf), L.leaseSeconds * 1000, `${fixture.id}: lease = asOf + 150 s`);
+    if (fixture.context?.runStartedAt && fixture.context?.asOf && fixture.response?.status === 200 && fixture.request?.path?.startsWith('/api/agent-gateway/work/')) {
+      const elapsed = ms(fixture.context.asOf) - ms(fixture.context.runStartedAt);
+      assert.ok(elapsed >= 0 && elapsed <= L.runBudgetSeconds * 1000 || fixture.id === 'reply-replay-after-run-expiry', `${fixture.id}: a successful work call is inside its run budget (${elapsed / 1000}s)`);
+    }
+  }
+  const old = { started: ms(fixtures.get('claim-work').context.runStartedAt), leaseEnds: ms(fixtures.get('claim-work').response.body.packet.leaseExpiresAt) };
+  const budgetEnd = old.started + L.runBudgetSeconds * 1000;
+  assert.ok(budgetEnd < old.leaseEnds, 'the run ends before its lease does');
+  // Expired run: refused although the lease is live; nothing leased, sent or extended.
+  for (const id of ['claim-expired-run-refused', 'act-expired-run-refused']) {
+    const fixture = fixtures.get(id);
+    const asOf = ms(fixture.context.asOf);
+    assert.ok(asOf > budgetEnd && asOf < old.leaseEnds, `${id}: after the run budget, before the lease ends`);
+    assert.equal(fixture.response.status, 409, id);
+    assert.equal(fixture.response.body.code, 'GATEWAY_RUN_EXPIRED', id);
+    assert.equal(fixture.request.body.runId, 'run_example');
+  }
+  assert.equal(fixtures.get('claim-expired-run-refused').effects.newLease, false);
+  assert.equal(fixtures.get('act-expired-run-refused').effects.effect, 'none');
+  // Fresh authorized run while the old lease is live: nothing to claim, no duplicate lease.
+  const fresh = fixtures.get('claim-fresh-run-while-old-lease-live');
+  assert.notEqual(fresh.request.body.runId, 'run_example');
+  assert.ok(ms(fresh.context.asOf) - ms(fresh.context.previousRunStartedAt) >= L.minSecondsBetweenRuns * 1000, 'a fresh run respects the minimum interval between runs');
+  assert.equal(fresh.response.body.state, 'idle');
+  assert.equal(ms(fresh.context.asOf) + fresh.response.body.retryAfterSeconds * 1000, old.leaseEnds, 'the idle hint is the time left on the old lease');
+  // After lease expiry: the same item, new run, new lease, one attempt charged to the expired claim, no budget charge to the old run.
+  const after = fixtures.get('claim-replay-after-lease-expiry');
+  assert.ok(ms(after.context.asOf) > old.leaseEnds, 'the lease has expired');
+  assert.notEqual(after.request.body.runId, 'run_example');
+  assert.ok(ms(after.context.asOf) - ms(after.context.previousRunStartedAt) >= L.minSecondsBetweenRuns * 1000);
+  assert.equal(after.context.itemsClaimedThisRun, 0, 'a fresh run starts with an empty item budget');
+  assert.equal(after.effects.itemsClaimedThisRunAfter, 1);
+  assert.equal(after.effects.attemptsChargedToExpiredClaim, 1);
+  assert.notEqual(after.response.body.packet.workRef, fixtures.get('claim-work').response.body.packet.workRef);
+  assert.equal(after.response.body.packet.runId, 'run_after_expiry');
+  // In-budget behaviour is unchanged: replay, restart replay, next item, other-run refusal.
+  for (const id of ['claim-lost-response-replay', 'claim-lost-response-after-restart']) {
+    const fixture = fixtures.get(id);
+    assert.ok(ms(fixture.context.asOf) <= budgetEnd && ms(fixture.context.asOf) < old.leaseEnds, `${id}: in budget with a live lease`);
+    assert.equal(fixture.response.body.replayed, true, id);
+  }
+  const next = fixtures.get('claim-next-item-after-settlement');
+  assert.ok(ms(next.context.asOf) <= budgetEnd);
+  assert.equal(ms(next.response.body.packet.leaseExpiresAt), ms(next.context.asOf) + L.leaseSeconds * 1000);
+  const other = fixtures.get('claim-other-run-while-active');
+  assert.equal(ms(other.context.asOf) + other.response.body.retryAfterSeconds * 1000, budgetEnd, 'the other run waits for the run guard to end');
+  // A settled reply still replays from its record after the run expired: no new effect, lease or budget.
+  const replay = fixtures.get('reply-replay-after-run-expiry');
+  assert.ok(ms(replay.context.asOf) > budgetEnd);
+  assert.deepEqual(replay.request.body, fixtures.get('reply-sent').request.body);
+  assert.equal(replay.response.body.replayed, true);
+  assert.equal(replay.effects.effect, 'none');
+  assert.equal(schemas['x-codes'].GATEWAY_RUN_EXPIRED.status, 409);
 });
 

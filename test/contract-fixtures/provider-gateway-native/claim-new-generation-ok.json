@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-new-generation-ok",
   "kind": "http",
-  "description": "§2.3 step 4: the replacement session (generation 5, native_work) claims work on the same installation and the same canonical queue.",
+  "description": "§2.3 step 5: the replacement session (generation 5, native_work), after the owner confirmation at 12:05:00 and the activation at 12:05:05, claims at 12:05:20: a new run, a lease of 150 s to 12:07:50, the same installation and the same canonical queue.",
   "flags": {
     "ENVOI_PROVIDER_BROWSER_POLL": true,
     "ENVOI_CASE_SESSIONS_V1": true,
@@ -21,7 +21,9 @@
       "receive_agent_messages",
       "send_agent_messages",
       "execute_cases"
-    ]
+    ],
+    "asOf": "2026-10-24T12:05:20.000Z",
+    "runStartedAt": "2026-10-24T12:05:20.000Z"
   },
   "request": {
     "method": "POST",
@@ -51,7 +53,7 @@
         "runId": "run_after_repair",
         "kind": "agent_message",
         "untrusted": true,
-        "leaseExpiresAt": "2026-10-24T12:02:30.000Z",
+        "leaseExpiresAt": "2026-10-24T12:07:50.000Z",
         "renewalsLeft": 1,
         "snapshot": {
           "objective": "Find a time to review the draft agreement",

@@ -21,7 +21,9 @@
       "receive_agent_messages",
       "send_agent_messages",
       "execute_cases"
-    ]
+    ],
+    "asOf": "2026-10-24T12:00:00.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
   },
   "steps": [
     {
@@ -36,8 +38,8 @@
     },
     {
       "actor": "host",
-      "does": "replies that current policy allows are sent under that standing grant",
-      "fixture": "reply-sent"
+      "does": "after the repair (repair-sequence) a reply that current policy allows is sent by the generation-5 session under that standing grant",
+      "fixture": "reply-sent-after-repair"
     },
     {
       "actor": "envoi",

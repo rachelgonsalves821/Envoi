@@ -22,6 +22,8 @@
       "send_agent_messages",
       "execute_cases"
     ],
+    "asOf": "2026-10-24T12:00:25.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z",
     "policy": "human_approval_required"
   },
   "request": {

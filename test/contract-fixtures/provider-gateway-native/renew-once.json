@@ -21,7 +21,10 @@
       "receive_agent_messages",
       "send_agent_messages",
       "execute_cases"
-    ]
+    ],
+    "asOf": "2026-10-24T12:02:00.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z",
+    "renewalsUsed": 0
   },
   "request": {
     "method": "POST",

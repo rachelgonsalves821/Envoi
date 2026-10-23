@@ -3,7 +3,7 @@
   "version": 1,
   "id": "claim-replay-after-lease-expiry",
   "kind": "http",
-  "description": "§3.1: if the lease expired before the retry, the outstanding record is void. The claim proceeds as a new claim: the item may come back with a new workRef, and the expired claim has already counted as one attempt under the existing queue rules.",
+  "description": "§3.1a: after the lease expires (12:02:30) the item is claimable again. The authorized fresh run run_after_expiry, at 12:02:40, claims it as a new claim: a new workRef and a lease to 12:05:10, a budget count of one for the new run only. The expired claim already counted as one attempt under the existing queue rules; the old run is not charged again and no second queue exists.",
   "flags": {
     "ENVOI_PROVIDER_BROWSER_POLL": true,
     "ENVOI_CASE_SESSIONS_V1": true,
@@ -22,12 +22,16 @@
       "send_agent_messages",
       "execute_cases"
     ],
-    "itemsClaimedThisRun": 1,
+    "asOf": "2026-10-24T12:02:40.000Z",
+    "runStartedAt": "2026-10-24T12:02:40.000Z",
+    "previousRunStartedAt": "2026-10-24T12:00:00.000Z",
+    "itemsClaimedThisRun": 0,
     "outstandingClaim": {
       "runId": "run_example",
       "workRef": "w_7Kq2mP0xVn4Lr9Tc",
       "settled": false,
-      "leaseExpired": true
+      "leaseExpired": true,
+      "leaseExpiresAt": "2026-10-24T12:02:30.000Z"
     }
   },
   "request": {
@@ -41,7 +45,7 @@
       "content-type": "application/json"
     },
     "body": {
-      "runId": "run_example"
+      "runId": "run_after_expiry"
     }
   },
   "response": {
@@ -55,10 +59,10 @@
       "packet": {
         "workRef": "w_9Cb4kLp7Ts1Vx3Qn",
         "caseRef": "c_Hd3sQe8Yb1Uz5Nf",
-        "runId": "run_example",
+        "runId": "run_after_expiry",
         "kind": "agent_message",
         "untrusted": true,
-        "leaseExpiresAt": "2026-10-24T12:07:30.000Z",
+        "leaseExpiresAt": "2026-10-24T12:05:10.000Z",
         "renewalsLeft": 1,
         "snapshot": {
           "objective": "Find a time to review the draft agreement",
