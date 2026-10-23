@@ -18,6 +18,7 @@ import { OwnerClaims } from './onboarding/OwnerClaims';
 import { AgentInstallations } from './onboarding/AgentInstallations';
 import { claimSignInPath } from './onboarding/connect-state';
 import { CsrfReloadBoundary, createHumanStreamRecovery } from './browser-session-recovery';
+import { captureAnalyticsEvent } from './analytics';
 import { AgentRemovalDialogContent } from './AgentRemovalDialog';
 import { canonicalDecisionPolicy, canSubmitCaseDecision, caseActionPayload } from './case-decisions';
 import { CreateInboxFolderContent, MoveInboxCaseContent } from './InboxFolderDialogs';
@@ -143,6 +144,15 @@ function WorkspaceApp() {
   sessionCheckRef.current = sessionCheck;
   const bootRef = useRef(boot);
   bootRef.current = boot;
+  const recordedAppOpen = useRef(false);
+  useEffect(() => {
+    if (boot === 'ready' && !isPreview && !recordedAppOpen.current) {
+      recordedAppOpen.current = true;
+      captureAnalyticsEvent('beta_app_opened');
+    } else if (boot === 'signedOut') {
+      recordedAppOpen.current = false;
+    }
+  }, [boot, isPreview]);
   const activeWorkspace = useRef<string | null>(null);
   const hadAuthenticatedSession = useRef(false);
   const stopLiveUpdates = useRef<(() => void) | null>(null);
