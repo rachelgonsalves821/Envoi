@@ -3949,7 +3949,9 @@ async function route(req, res) {
     if (!directory || directory.address !== address) return fail(res, 404, 'Agent not found');
     const contact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${directory.agentId}.json`));
     const relationship = await store.getJson(relationshipPath(identity.inboxId, identity.agent.id, directory.agentId));
-    const found = trustedDiscovery(directory, { approvedContact: contact, relationship: contact?.blocked === true ? null : relationship });
+    const reverseContact = await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${identity.agent.id}.json`));
+    const blocked = contact?.blocked === true || reverseContact?.blocked === true;
+    const found = trustedDiscovery(directory, { approvedContact: blocked ? null : contact, relationship: blocked ? null : relationship });
     return found ? json(res, 200, found) : fail(res, 404, 'Agent not found');
   }
 
@@ -4407,21 +4409,26 @@ async function route(req, res) {
     const actorAgentId = assertSafeIdentifier(input.actorAgentId, 'actorAgentId');
     const targetAddress = normalizedEmail(input.targetAddress);
     if (!validEmail(targetAddress)) return fail(res, 400, 'An exact target address is required');
+    const targetBefore = await store.getJson(nativeAddressDirectoryPath(targetAddress));
+    if (!targetBefore?.inboxId || targetBefore.address !== targetAddress) return fail(res, 409, 'Active unblocked agents required');
     const result = await withInboxMutation(inboxId, async writeAudit => {
       if (!await canManageInbox(await auth.getHuman(req), inbox, { maxAgeMs: 0 })) throw Object.assign(new Error('Workspace administrator required'), { statusCode: 403 });
       const actor = await store.getJson(path.join('inboxes', inboxId, 'agents', `${actorAgentId}.json`));
       const target = await store.getJson(nativeAddressDirectoryPath(targetAddress));
       const targetAgentId = target?.agentId;
-      if (!targetAgentId || target.address !== targetAddress) throw Object.assign(new Error('Active unblocked agents required'), { statusCode: 409 });
-      const contact = await store.getJson(path.join('inboxes', inboxId, 'contacts', `${targetAgentId}.json`));
-      if (actor?.status !== 'active' || !['active', 'paused'].includes(target?.status) || target.verified !== true || contact?.blocked === true) throw Object.assign(new Error('Active unblocked agents required'), { statusCode: 409 });
+      if (!targetAgentId || target.address !== targetAddress || target.inboxId !== targetBefore.inboxId) throw Object.assign(new Error('Active unblocked agents required'), { statusCode: 409 });
+      const [contact, reverseContact] = await Promise.all([
+        store.getJson(path.join('inboxes', inboxId, 'contacts', `${targetAgentId}.json`)),
+        store.getJson(path.join('inboxes', target.inboxId, 'contacts', `${actorAgentId}.json`))
+      ]);
+      if (actor?.status !== 'active' || !['active', 'paused'].includes(target?.status) || target.verified !== true || contact?.blocked === true || reverseContact?.blocked === true) throw Object.assign(new Error('Active unblocked agents required'), { statusCode: 409 });
       const location = relationshipPath(inboxId, actorAgentId, targetAgentId);
       const previous = await store.getJson(location);
       const record = relationshipRecord({ inboxId, actorAgentId, targetAgentId, grants: input.grants, now: store.now(), previous, humanId: human.id });
       await store.putJson(location, record);
       await writeAudit('relationship.granted', { actorAgentId, targetAgentId, grants: record.grants, humanId: human.id });
       return record;
-    });
+    }, [targetBefore.inboxId]);
     return json(res, 200, result);
   }
 
@@ -4445,7 +4452,7 @@ async function route(req, res) {
   if (suffix === 'discovery' && req.method === 'GET') {
     if (!onboardingFlags.relationships) throw codedError(404, 'FEATURE_DISABLED', 'Discovery is not available yet.');
     const human = await auth.getHuman(req);
-    if (!await canAccessInbox(human, inbox)) return fail(res, 403, 'Active workspace membership required');
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
     const address = normalizedEmail(url.searchParams.get('address'));
     if (!validEmail(address) || address.length > 254) return fail(res, 400, 'An exact agent address is required');
     const directory = await store.getJson(nativeAddressDirectoryPath(address));
@@ -4454,7 +4461,9 @@ async function route(req, res) {
     const actorAgentId = url.searchParams.get('actorAgentId');
     if (actorAgentId && (await store.getJson(path.join('inboxes', inboxId, 'agents', `${assertSafeIdentifier(actorAgentId, 'actorAgentId')}.json`)))?.status !== 'active') return fail(res, 404, 'Agent not found');
     const relationship = actorAgentId ? await store.getJson(relationshipPath(inboxId, actorAgentId, directory.agentId)) : null;
-    const found = trustedDiscovery(directory, { approvedContact: contact, relationship: contact?.blocked === true ? null : relationship });
+    const reverseContact = actorAgentId ? await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${actorAgentId}.json`)) : null;
+    const blocked = contact?.blocked === true || reverseContact?.blocked === true;
+    const found = trustedDiscovery(directory, { approvedContact: blocked ? null : contact, relationship: blocked ? null : relationship });
     return found ? json(res, 200, found) : fail(res, 404, 'Agent not found');
   }
 

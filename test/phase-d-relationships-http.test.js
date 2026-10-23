@@ -25,10 +25,15 @@ test('[FileStore] Phase D relationships are flagged, managed, directed, and reve
   assert.equal(reverse.status, 200, reverse.text);
   assert.equal(reverse.payload.trust, 'exact_address');
 
+  assert.equal((await api(server.baseUrl, `/api/inboxes/${bob.inbox.id}/contacts/${alice.agent.id}/block`, { session: bob.session, body: {} })).status, 200);
+  assert.equal((await api(server.baseUrl, `/api/agent/discovery?address=${encodeURIComponent(bob.agent.address)}`, { token: alice.agentApiToken })).payload.trust, 'exact_address');
+
   const revoked = await api(server.baseUrl, `${route}/relationships/${alice.agent.id}/${bob.agent.id}/revoke`, { session: alice.session, body: {} });
   assert.equal(revoked.status, 200, revoked.text);
   assert.equal(revoked.payload.status, 'revoked');
   assert.equal((await api(server.baseUrl, `/api/agent/discovery?address=${encodeURIComponent(bob.agent.address)}`, { token: alice.agentApiToken })).payload.trust, 'exact_address');
+  const blocked = await api(server.baseUrl, `${route}/relationships`, { session: alice.session, body: { actorAgentId: alice.agent.id, targetAddress: bob.agent.address, grants: ['shareAssets'] } });
+  assert.equal(blocked.status, 409, blocked.text);
 });
 
 test('[FileStore] Phase D discovery is absent when its flag is off', { timeout: 30000 }, async t => {
