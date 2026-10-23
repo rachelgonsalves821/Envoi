@@ -133,8 +133,10 @@ test('[server] consent: view, approve once, identical retries across a restart, 
   assert.deepEqual((await view(server.baseUrl, first, denyHandle)).payload.decision, { status: 'denied' });
   expectError(await post(server.baseUrl, second, denyHandle, 'deny'), 404, 'AUTHORIZATION_REQUEST_INVALID');
 
-  // The token endpoints are RA-A2; the code is not exchangeable yet.
-  assert.equal((await fetch(`${server.baseUrl}/oauth/token`, { method: 'POST', body: '' })).status, 404);
+  // The token endpoint (RA-A2) is covered by agent-remote-auth-token.test.js; here it only answers in OAuth's own shape.
+  const empty = await fetch(`${server.baseUrl}/oauth/token`, { method: 'POST', body: '' });
+  assert.equal(empty.status, 400);
+  assert.equal((await empty.json()).error, 'invalid_request');
 
   // No code, handle or code-bearing redirect anywhere in storage or the logs.
   for (const file of await listFiles(server.dataDir)) {

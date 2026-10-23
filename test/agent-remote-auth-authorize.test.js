@@ -455,7 +455,12 @@ test('[server] discovery, authorize and consent shell on the real routes; nothin
   assert.equal(new URL(plain.headers.get('location')).origin, 'http://127.0.0.1:53682', 'errors after the redirect check go to the checked URI');
   const shell = await get(baseUrl, '/authorize-agent?request=v1.x');
   assert.equal(shell.status, 200); assert.match(shell.headers.get('content-type'), /text\/html/);
-  for (const route of ['/oauth/token', '/oauth/revoke']) assert.equal((await fetch(`${baseUrl}${route}`, { method: 'POST', body: '' })).status, 404, `${route} is not built in RA-A1`);
+  // The token and revocation endpoints exist since RA-A2 (agent-remote-auth-token.test.js); an empty body is an OAuth error.
+  for (const route of ['/oauth/token', '/oauth/revoke']) {
+    const empty = await fetch(`${baseUrl}${route}`, { method: 'POST', body: '' });
+    assert.equal(empty.status, 400, route);
+    assert.equal((await empty.json()).error, 'invalid_request');
+  }
   assert.doesNotMatch(server.stdout + server.stderr, /M3FIpMlzNJLst5kEE|state-1|v1\.[A-Za-z0-9_-]{40}/, 'no challenge, state or handle in the logs');
 });
 
