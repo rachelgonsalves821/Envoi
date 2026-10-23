@@ -2,6 +2,8 @@
 
 Audited 2026-10-23 America/New_York by Je/Codex. Phase D belongs to Rachel and is excluded. This is the client-owned closure handoff; board [#34](https://github.com/rachelgonsalves821/Envoi/issues/34) remains the coordination authority. It supplements the Phase B completion and Phase C execution plans, preserving their history and original acceptance scope.
 
+This is the earlier audit snapshot, retained for traceability. The [client composition manifest](B-C-CLIENT-COMPOSITION.md) pins the selected current inputs and records the completed quickstart corrections; its source selection supersedes the pending-source instructions below. Original writer branches remain unchanged.
+
 ## Baseline and accepted work
 
 | Item | Verified state | Remaining action |
@@ -40,7 +42,7 @@ Marketing #145/#191 and the historical provider designs are not new prerequisite
 
 [REQUEST lane-b 6371233202](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6371233202) to the existing #207 owner: label that example explicitly legacy-only; remove it from the normal native collaboration sequence; explain the 410 refusal and point native processing to the existing trusted connector. If retaining the legacy wire example, add a separate documented native-refusal example/check so readers cannot infer a native `processed` receipt. Do not add an unfenced settlement path or invent Python lifecycle support.
 
-**#209 TypeScript:** its newly added quickstart gives correct stable case/event/rotation guidance, but retained lower sections still call server case convergence and cross-owner case grants blanket beta blockers, and describe revocation as a generic 403. The current C tools and lifecycle use canonical scopes and stable codes. REQUEST lane-b to that owner: distinguish the older structured mutation/legacy asset methods from approved `CaseToolClient.snapshot`, `checkAuthority`, `decide`, `shareAsset` and `complete` methods in `sdk/typescript/src/case-tools.ts`; link their current guide/source. Describe revoked handling using stable codes and the connector. Keep unsupported legacy-method behavior explicit rather than declaring all C case/assets missing. Run the documented focused SDK command with `--config vitest.sdk.config.ts`.
+**#209 TypeScript:** its newly added quickstart gives correct stable case/event/rotation guidance, but retained lower sections still call server case convergence and cross-owner case grants blanket beta blockers, and describe revocation as a generic 403. The current C tools and lifecycle use canonical scopes and stable codes. REQUEST lane-b to that owner: distinguish the older structured mutation/legacy asset methods from approved `CaseToolsClient.snapshot`, `checkAuthority`, `decide`, `shareAsset` and `complete` methods in `sdk/typescript/src/case-tools.ts`; link their current guide/source. Describe revoked handling using stable codes and the connector. Keep unsupported legacy-method behavior explicit rather than declaring all C case/assets missing. Run the documented focused SDK command with `--config vitest.sdk.config.ts`.
 
 These are client documentation corrections within existing contracts. They do not reopen contract approval and do not justify editing another owner's branch here.
 

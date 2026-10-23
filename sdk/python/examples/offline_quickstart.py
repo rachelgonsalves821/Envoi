@@ -2,6 +2,8 @@
 
 import argparse
 import json
+from io import BytesIO
+from urllib.error import HTTPError
 import socket
 import sys
 from pathlib import Path
@@ -55,10 +57,11 @@ class OfflineTransport:
             assert headers["Authorization"] == f"Bearer {ACCESS}"
             assert body == {"senderAgentId": "agent_demo", "recipientEmail": "peer@agents.envoi-agents.com", "text": "Offline hello"}
             result = {"id": MESSAGE, "state": "queued"}
-        elif self.operation == "acknowledge":
+        elif self.operation == "native_acknowledgement_refused":
             assert (method, url, headers["Idempotency-key"]) == ("POST", BASE + f"/api/inboxes/{INBOX}/messages/{MESSAGE}/acknowledgements", ACK_KEY)
             assert headers["Authorization"] == f"Bearer {ACCESS}" and body == {"state": "processed"}
-            result = {"state": "processed"}
+            payload = {"error": "REQUEST_FAILED", "message": "Agent work messages require a fenced work claim and /api/agent/work/:workId settlement"}
+            raise HTTPError(url, 410, "Gone", {}, BytesIO(json.dumps(payload).encode()))
         elif self.operation == "delta":
             assert (method, url, body) == ("GET", BASE + f"/api/inboxes/{INBOX}/events/delta?limit=2&cursor=cursor_demo", None)
             assert headers["Authorization"] == f"Bearer {ACCESS}"
@@ -89,9 +92,14 @@ def run_example(operation):
                 raise AssertionError("expected timeout")
             result = client.send_message(INBOX, SEND_KEY, message)
             summary = f"send_message: {result['state']} after same-key retry"
-        elif operation == "acknowledge":
-            result = client.acknowledge(INBOX, MESSAGE, "processed", ACK_KEY)
-            summary = f"acknowledge: {result['state']}"
+        elif operation == "native_acknowledgement_refused":
+            try:
+                client.acknowledge(INBOX, MESSAGE, "processed", ACK_KEY)
+            except EnvoiError as exc:
+                assert exc.status == 410
+                summary = "native_acknowledgement_refused: HTTP 410; native work requires the trusted connector's fenced settlement"
+            else:
+                raise AssertionError("native work must not get a legacy processed receipt")
         elif operation == "delta":
             result = client.delta(INBOX, cursor="cursor_demo", limit=2)
             summary = f"delta: {len(result['events'])} events, next cursor received"
@@ -111,5 +119,5 @@ def run_example(operation):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("send_message", "acknowledge", "delta", "rotate_agent_token"))
+    parser.add_argument("operation", choices=("send_message", "native_acknowledgement_refused", "delta", "rotate_agent_token"))
     print(run_example(parser.parse_args().operation)[0])

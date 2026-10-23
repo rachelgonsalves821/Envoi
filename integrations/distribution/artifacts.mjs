@@ -3,6 +3,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 export const artifactNames = ['envoi-link.mjs', 'envoi-connector.mjs'];
+const restHostArtifact = 'envoi-rest-host.mjs';
 export const launcherNames = ['envoi-link', 'envoi-link.ps1', 'launch.mjs', 'artifacts.mjs'];
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -33,13 +34,16 @@ export function parseManifest(bytes) {
   if (bytes.length > 16_384) throw new Error('Package manifest is oversized.');
   let manifest;
   try { manifest = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Invalid package manifest.'); }
+  const names = Object.keys(manifest?.artifacts ?? {}).sort().join(',');
+  const approvedArtifacts = names === [...artifactNames].sort().join(',')
+    || names === [...artifactNames, restHostArtifact].sort().join(',');
   if (!manifest || Object.keys(manifest).sort().join(',') !== 'artifacts,coreContract,nodeMinimum,private,published,version'
     || manifest.version !== 1 || manifest.private !== true || manifest.published !== false || manifest.nodeMinimum !== 22
     || manifest.coreContract?.id !== 'agent-registration' || manifest.coreContract.version !== 1 || manifest.coreContract.revision !== 3
     || Object.keys(manifest.coreContract).sort().join(',') !== 'id,publication,revision,version'
     || manifest.coreContract.publication !== '4da219e7156138c94e26b8105efe7ffe43ec6f98'
-    || !manifest.artifacts || Object.keys(manifest.artifacts).sort().join(',') !== [...artifactNames].sort().join(',')) throw new Error('Unsupported private helper manifest.');
-  for (const name of artifactNames) {
+    || !manifest.artifacts || !approvedArtifacts) throw new Error('Unsupported private helper manifest.');
+  for (const name of Object.keys(manifest.artifacts)) {
     const record = manifest.artifacts[name];
     if (!record || Object.keys(record).sort().join(',') !== 'sha256,size' || !/^[0-9a-f]{64}$/.test(record.sha256) || !Number.isSafeInteger(record.size) || record.size < 1 || record.size > 32 * 1024 * 1024) throw new Error('Invalid artifact integrity record.');
   }
@@ -53,7 +57,7 @@ export async function verifiedArtifacts(directory, expectedManifestSha256) {
   if (sha256(bytes) !== expectedManifestSha256) throw new Error('Private manifest checksum does not match the approved value.');
   const manifest = parseManifest(bytes);
   const artifacts = new Map();
-  for (const name of artifactNames) {
+  for (const name of Object.keys(manifest.artifacts)) {
     const content = await regularFile(root, name);
     if (content.length !== manifest.artifacts[name].size || sha256(content) !== manifest.artifacts[name].sha256) throw new Error('Helper artifact checksum or size does not match.');
     artifacts.set(name, content);

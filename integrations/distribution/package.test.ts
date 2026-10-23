@@ -39,6 +39,25 @@ describe('private distribution preparation', () => {
     expect(await readFile(path.join(output, 'private-release.json'))).toEqual(await readFile(path.join(fixturePackage.source, 'private-release.json')));
   });
 
+  it('preserves and verifies the REST host emitted by the combined helper build', async () => {
+    const value = await fixture();
+    const rest = Buffer.from('export const syntheticRestHost = true;\n');
+    await writeFile(path.join(value.source, 'envoi-rest-host.mjs'), rest);
+    value.manifest.artifacts['envoi-rest-host.mjs'] = { sha256: sha256(rest), size: rest.length };
+    const manifest = Buffer.from(JSON.stringify(value.manifest));
+    await writeFile(path.join(value.source, 'private-release.json'), manifest);
+    const digest = sha256(manifest);
+    const bundle = path.join(value.root, 'bundle');
+    expect(await preparePackage(value.source, bundle, digest)).toMatchObject({ artifactCount: 3 });
+    const installed = path.join(value.root, 'installed');
+    await installPrivatePackage(bundle, installed, digest);
+    expect(await readFile(path.join(installed, 'envoi-rest-host.mjs'))).toEqual(rest);
+    await writeFile(path.join(bundle, 'envoi-rest-host.mjs'), 'tampered');
+    const rejected = path.join(value.root, 'rejected');
+    await expect(installPrivatePackage(bundle, rejected, digest)).rejects.toThrow(/checksum/);
+    await expect(readFile(path.join(rejected, 'installation.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('installs files into a new directory without connecting or replacing saved state', async () => {
     const fixturePackage = await fixture();
     const target = path.join(fixturePackage.root, 'installation');
