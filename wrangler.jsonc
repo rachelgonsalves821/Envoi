@@ -98,7 +98,9 @@
         "ENVOI_HTTP_WAKE_V1": "false",
         "ENVOI_PROVIDER_BROWSER_POLL": "false",
         "ENVOI_REMOTE_MCP_OAUTH": "false",
-        "ENVOI_PROVIDER_CONNECTORS": "false"
+        "ENVOI_PROVIDER_CONNECTORS": "false",
+        "ENVOI_RELATIONSHIPS_V2": "false",
+        "ENVOI_A2A_GATEWAY": "false"
       },
       "routes": [
         {
