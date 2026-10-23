@@ -77,9 +77,13 @@ test('[server] consent: view, approve once, identical retries across a restart, 
   assert.deepEqual(shown.payload.requestedPermissions, ['receive_agent_messages', 'send_agent_messages']);
   assert.ok(!('decision' in shown.payload));
 
-  // CSRF is checked before the handler.
+  // CSRF is checked before the handler while the flag is on (M2 moved only the flags-off answer ahead of it).
   const noCsrf = await api(baseUrl, consentPath(handle, 'approve'), { session: first.session, body: {}, headers: { origin: 'https://attacker.example' } });
   assert.equal(noCsrf.status, 403);
+  for (const action of ['approve', 'deny']) {
+    const missing = await fetch(`${baseUrl}${consentPath(handle, action)}`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: first.session.headers(baseUrl, 'GET').cookie }, body: '{}' });
+    assert.equal(missing.status, 403, `${action} without a CSRF header is refused when enabled`);
+  }
 
   // §5.2 the first approval returns the code once, in the redirect.
   const body = { target: { kind: 'new_agent', workspaceInboxId: first.inbox.parentInboxId, name: 'Consent agent', localPart: 'consent-agent-7301' }, grantedPermissions: ['send_agent_messages', 'receive_agent_messages'], policyProfile: 'default' };
@@ -149,6 +153,11 @@ test('[server] flags off: the consent routes are FEATURE_DISABLED and store noth
     const res = action ? await post(server.baseUrl, who, 'v1.x', action) : await view(server.baseUrl, who, 'v1.x');
     expectError(res, 404, 'FEATURE_DISABLED');
   }
-  const files = await listFiles(server.dataDir);
-  assert.ok(!files.some(file => /oauth-(consent-decisions|codes|cleanup)/.test(file)), 'no remote-auth records');
+  // M7 (review 6349153739): no registration, code, decision, cleanup entry or other grant state. The OAuth cleanup
+  // cursor is a separate directory of maintenance metadata (positions only) and is not matched here.
+  const files = (await listFiles(server.dataDir)).map(file => path.relative(server.dataDir, file).split(path.sep).join('/'));
+  const grantState = /^auth\/(oauth-consent-decisions|oauth-codes|oauth-cleanup|agent-registrations|agent-registration-tokens|agent-registration-codes|agent-registration-recovery)\//;
+  assert.deepEqual(files.filter(file => grantState.test(file)), [], 'no remote-auth or registration records');
+  const cursor = files.find(file => file === 'auth/oauth-cleanup-cursor/cursor.json');
+  if (cursor) assert.deepEqual(Object.keys(JSON.parse(await readFile(path.join(server.dataDir, cursor), 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt']);
 });
