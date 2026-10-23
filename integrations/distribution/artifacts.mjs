@@ -34,9 +34,9 @@ export function parseManifest(bytes) {
   if (bytes.length > 16_384) throw new Error('Package manifest is oversized.');
   let manifest;
   try { manifest = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Invalid package manifest.'); }
-  const names = Object.keys(manifest?.artifacts ?? {}).sort().join(',');
-  const approvedArtifacts = names === [...artifactNames].sort().join(',')
-    || names === [...artifactNames, restHostArtifact].sort().join(',');
+  const names = Object.keys(manifest?.artifacts ?? {});
+  const approvedArtifacts = artifactNames.every(name => names.includes(name))
+    && names.every(name => artifactNames.includes(name) || name === restHostArtifact);
   if (!manifest || Object.keys(manifest).sort().join(',') !== 'artifacts,coreContract,nodeMinimum,private,published,version'
     || manifest.version !== 1 || manifest.private !== true || manifest.published !== false || manifest.nodeMinimum !== 22
     || manifest.coreContract?.id !== 'agent-registration' || manifest.coreContract.version !== 1 || manifest.coreContract.revision !== 3

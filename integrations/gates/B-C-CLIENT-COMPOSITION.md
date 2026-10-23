@@ -27,7 +27,7 @@ The source deltas are the portable REST trusted-process adapter and host prepara
 - Python's normal quickstart no longer presents legacy inbox acknowledgement as native completion. The strict synthetic `native_acknowledgement_refused` example returns HTTP 410 and directs native work to the trusted fenced connector. Python does not acquire a new native lifecycle implementation.
 - TypeScript documentation describes the implemented `CaseToolsClient`, stable-code connector lifecycle and current scoped case/asset flow; the documented focused command selects the SDK runner. The retained legacy owner-code example is identified explicitly.
 - Onboarding/distribution guidance records integrated authorization and historical acceptance, retains `published: false`, and distinguishes preparation from a newly accepted route. No runtime capability is inferred from a provider name, skill or open browser.
-- The private installer now accepts the actual combined build's exact optional `envoi-rest-host.mjs` in addition to its two required artifacts, verifies all declared hashes/sizes and preserves old two-artifact packages. Unknown artifact names remain refused. A new regression packages and installs the third artifact and rejects tampering before destination creation.
+- The private installer now accepts the actual combined build's exact optional `envoi-rest-host.mjs` in addition to its two required artifacts, verifies all declared hashes/sizes and preserves old two-artifact packages. Unknown artifact names remain refused. Required names are compared individually, so a comma-containing filename cannot masquerade as the required set; a negative regression covers this. A new regression packages and installs the third artifact and rejects tampering before destination creation.
 - Private distribution's committed LF bundle and its strict drift guard are unchanged. Regenerating with `node integrations/distribution/build-private-directory.mjs` repaired a local CRLF checkout artifact produced during source assembly. Existing `.gitattributes` already enforces LF; no assertion or equality rule was weakened.
 
 ## Compatibility and remaining boundaries
@@ -45,7 +45,7 @@ Historical Hermes/OpenClaw B-local 21/21 at `e8a958f` and human B/C countersign 
 Windows PowerShell, Node 22.15.0, Python 3.11.9:
 
 - Full frontend: 509/509. TypeScript SDK: 550/550. Python: 8/8.
-- Full integrations after the installer correction: 979 passed, 4 platform/existing skips (983 total); no failed test. Distribution focused: 66 passed, 3 platform skips.
+- Full integrations after the installer correction: 979 passed, 4 platform/existing skips (983 total; before the final artifact-name regression); no failed test. Final distribution focused: 67 passed, 3 platform skips.
 - Explicit Node authorization/REST consumer tests: 10/10; distribution and SDK-example typechecks passed.
 - `npm run build` passed all typechecks and generated the combined web/downloads plus the private helper/REST bundle. Private bundle drift guard passed unchanged.
 - Actual freshly built three-artifact manifest successfully prepared and installed in a disposable private directory. No helper, enrollment, runtime or service was invoked. Unknown artifact names remain rejected by existing tests; the new third-artifact test proves byte preservation and tampering refusal.

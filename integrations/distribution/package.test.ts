@@ -85,6 +85,16 @@ describe('private distribution preparation', () => {
     await expect(preparePackage(fixturePackage.source, path.join(fixturePackage.root, 'output'), sha256(bytes))).rejects.toThrow(/manifest/);
   });
 
+  it('rejects a comma-joined filename in place of the required artifact names', async () => {
+    const value = await fixture();
+    value.manifest.artifacts = { [artifactNames.slice().sort().join(',')]: { sha256: '0'.repeat(64), size: 1 } };
+    const bytes = Buffer.from(JSON.stringify(value.manifest));
+    await writeFile(path.join(value.source, 'private-release.json'), bytes);
+    const output = path.join(value.root, 'output');
+    await expect(preparePackage(value.source, output, sha256(bytes))).rejects.toThrow(/manifest/);
+    await expect(readFile(path.join(output, 'private-release.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('rejects public or incompatible manifests even with the matching checksum', async () => {
     const fixturePackage = await fixture();
     fixturePackage.manifest.published = true;
