@@ -1,6 +1,7 @@
 import { ConnectorSetupError, type AdapterOptions, type ConnectorAdapter } from '../connector/adapter';
 import { createGrokBridge } from './runtime';
 import path from 'node:path';
+import { validateEnvoiMcpDestination } from './mcp-origin';
 
 export interface GrokConfiguration {
   apiKey: string;
@@ -60,6 +61,11 @@ export async function discoverGrok(options: AdapterOptions = {}, previous?: Grok
 /** A harmless, bounded model call is required before an enrollment token is consumed. */
 export async function preflightGrok(config: GrokConfiguration, options: AdapterOptions = {}): Promise<void> {
   validate(config);
+  if (config.mcpUrl && options.apiUrl) {
+    try { validateEnvoiMcpDestination(options.apiUrl, config.mcpUrl); }
+    catch { throw new ConnectorSetupError('RUNTIME_CONFIGURATION_INVALID',
+      'ENVOI_MCP_URL must use the selected Envoi origin /mcp. Correct it before enrollment.'); }
+  }
   if (options.signal?.aborted) throw new ConnectorSetupError('MODEL_TEST_FAILED', 'Grok connection test was canceled before enrollment.');
   const controller = new AbortController();
   const signal = controller.signal;
