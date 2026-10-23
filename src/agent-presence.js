@@ -104,20 +104,24 @@ export function reportedFamily(families) {
 
 // a5-presence §4.2: derive the owner connection from the agent control state, the reported
 // family and its presence record. `state` is the agentControlState projection.
-export function ownerConnection(state, family, record, nowIso) {
+// a5-presence-on-demand v1 §2: `onDemand` says the reported family's installation declares deliveryMode on_demand. Its host has
+// no work loop and calls /mcp only while its user has it open, so lastSeenAt is the basis, and no age ever makes it look
+// stopped: only revocation, a rejection, or the credential expiring (needs_reconnect) comes before the one neutral state.
+export function ownerConnection(state, family, record, nowIso, { onDemand = false } = {}) {
   const presence = presenceOf(record);
   const asOf = latest([nowIso, ...Object.values(presence)]);
   const credentialExpiresAt = family && !family.revokedAt ? family.refreshExpiresAt || null : null;
   const resumeGrace = Boolean(state.resumedAt)
     && time(asOf) - time(state.resumedAt) <= recentWindowSeconds * 1000
     && (!presence.lastWorkClaimAt || time(presence.lastWorkClaimAt) < time(state.resumedAt));
-  const seenAt = state.paused || resumeGrace ? presence.lastSeenAt : presence.lastWorkClaimAt;
+  const seenAt = onDemand || state.paused || resumeGrace ? presence.lastSeenAt : presence.lastWorkClaimAt;
   const connectionState = state.status === 'revoked' || state.credentialRevoked ? 'revoked'
     : state.onboardingStatus === 'rejected' ? 'rejected'
       : state.onboardingStatus !== 'approved' ? 'pending_approval'
         : !family ? 'not_connected'
           : credentialExpiresAt && time(credentialExpiresAt) <= time(asOf) ? 'needs_reconnect'
-            : !seenAt ? 'never_seen'
+            : onDemand ? 'on_demand'
+              : !seenAt ? 'never_seen'
               : time(asOf) - time(seenAt) <= recentWindowSeconds * 1000 ? 'seen_recently'
                 : 'not_seen_recently';
   return { state: connectionState, asOf, recentWindowSeconds, seenAt, credentialExpiresAt, presence };

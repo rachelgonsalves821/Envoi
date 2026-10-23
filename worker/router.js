@@ -53,6 +53,8 @@ export function createForwardedRequest(request) {
   const url = new URL(request.url);
   const headers = new Headers(request.headers);
   const clientIp = headers.get('cf-connecting-ip');
+  // The marker the container puts on the REST call a /mcp tool call makes for itself (agent-remote-auth §9) never comes from outside.
+  headers.delete('x-envoi-mcp-dispatch');
 
   headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
   headers.set('x-forwarded-host', url.host);
