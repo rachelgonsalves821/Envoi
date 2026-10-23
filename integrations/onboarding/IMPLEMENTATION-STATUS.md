@@ -1,5 +1,17 @@
 # Phase B client implementation status
 
+## Current closure checkpoint — 2026-10-23 America/New_York
+
+The original implementation report below is retained as history. Its pending #99/#101/#102 integration and blanket hosted-unproven statements describe that earlier local-helper milestone, not the accepted current B/C scope.
+
+- Local Hermes/OpenClaw Gate B passed 21/21 at `e8a958f`; evidence #165/#168 is integrated. Prior B/C work is human-attested complete/countersigned in [board record 6330847176](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6330847176). Keep its original release/host scope; missing transcription does not reopen acceptance.
+- Shared Phase C source is integrated through #143. Later Windows/normal-entry/supervised-wake fixes entered once through #199. Do not reapply the older task PRs merely because GitHub still lists them as open.
+- Remote authorization server composition #203 and owner consent client #173 are MERGED; source baseline is `d05498d8dc13c6f07dc151da7a41a1619ff62436`. Resulting integration-push CI and later route/host acceptance are distinct checks. Both remote-auth flags remain OFF.
+- On-demand presence #183, offline host planner #196, portable/host composition #206, artifact checker #193, distribution #111/#117/#119, quickstarts #207/#209 and persistence #210 have separate remaining source-selection/review gates. Their existence does not establish named-host acceptance.
+- [The B/C closure checklist](../gates/B-C-CLOSEOUT.md) records each current gap, owner and exit, including exact pending heads and the quickstart documentation corrections. The cloud-host/provider/wake gaps remain explicit; no extra host pass or new release is inferred.
+
+## Historical local-helper implementation report
+
 Task: B-4.1 private helper, B-4.2 claim/installations UI, B-4.3 connect/runtime integration. Lane B only.
 
 ## Formal prerequisite and scope
