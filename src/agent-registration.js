@@ -46,6 +46,9 @@ export const oauthCleanupBucketStartMs = bucket => {
 };
 // Hour buckets one sweep run walks at most; a longer backfill resumes from the cursor on later runs.
 export const oauthCleanupBucketsPerRun = 168;
+// The cursor format that records complete coverage behind its position. An earlier format (no version, written by the
+// RA-A1 part 2 sweep that started at now - 30 days) proves nothing about older buckets, so it starts a backfill.
+export const oauthCleanupCursorVersion = 2;
 export const oauthCleanupPath = (createdAt, key) => path.join(oauthCleanupDir(hourBucket(createdAt)), `${key}.json`);
 export const oauthCleanupCursorPath = path.join('auth', 'oauth-cleanup-cursor', 'cursor.json');
 export const consentLockKey = handleDigest => `oauth-consent:${handleDigest}`;
@@ -555,13 +558,15 @@ export function createAgentRegistrations({
   // however old. A run walks at most oauthCleanupBucketsPerRun hour buckets and saves where it stopped, so a backfill
   // resumes across runs and restarts. Once a walk reaches the current hour, the next one starts again at the earliest
   // bucket that still held a kept entry. The cursor is maintenance metadata only (no keys, records or grant state); it
-  // is written only when its position changes, and not at all while nothing has ever been indexed.
+  // is written only when its position changes, and not at all while nothing has ever been indexed. A cursor of an earlier
+  // format (an upgrade) is treated as no cursor: the backfill starts at the oldest indexed bucket and then writes this one.
   async function sweepOAuthCleanup(current = now(), { maxBuckets = oauthCleanupBucketsPerRun } = {}) {
     const hourMs = 3_600_000;
     const currentHour = Math.floor(current.getTime() / hourMs) * hourMs;
-    const cursor = await store.getJson(oauthCleanupCursorPath);
+    const stored = await store.getJson(oauthCleanupCursorPath);
+    const cursor = stored?.version === oauthCleanupCursorVersion && Number.isFinite(stored.nextBucketStartMs) ? stored : null;
     let start;
-    if (Number.isFinite(cursor?.nextBucketStartMs)) start = Math.floor(cursor.nextBucketStartMs / hourMs) * hourMs;
+    if (cursor) start = Math.floor(cursor.nextBucketStartMs / hourMs) * hourMs;
     else {
       const first = await store.firstJsonPath(oauthCleanupRoot);
       if (!first) return 0;
@@ -592,7 +597,7 @@ export function createAgentRegistrations({
     }
     const next = hour > currentHour ? { nextBucketStartMs: keptFromMs ?? currentHour, keptFromMs: null } : { nextBucketStartMs: hour, keptFromMs };
     if (cursor?.nextBucketStartMs !== next.nextBucketStartMs || (cursor?.keptFromMs ?? null) !== next.keptFromMs) {
-      await store.putJson(oauthCleanupCursorPath, { ...next, ranAt: current.toISOString() });
+      await store.putJson(oauthCleanupCursorPath, { version: oauthCleanupCursorVersion, ...next, ranAt: current.toISOString() });
     }
     return deleted;
   }

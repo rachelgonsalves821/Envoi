@@ -43,6 +43,9 @@ export const oauthErrorDescriptions = Object.freeze({
 });
 
 export const remoteAuthEnabled = flags => Boolean(flags.remoteMcpOAuth || flags.providerConnectors);
+// x-endpoints `flags`: the bootstrap-code endpoint is served only by ENVOI_PROVIDER_CONNECTORS (§8); every other endpoint by
+// either route flag. An endpoint no flag serves is 404 FEATURE_DISABLED (§1 "Flag off").
+export const remoteAuthEndpointServed = (pathname, flags) => (pathname === '/api/oauth/bootstrap-codes' ? Boolean(flags.providerConnectors) : remoteAuthEnabled(flags));
 const routeFlagOn = (flags, route) => (route === 'remote_mcp_oauth' ? Boolean(flags.remoteMcpOAuth) : route === 'provider_connector' ? Boolean(flags.providerConnectors) : false);
 
 // §2: every URL is built from ENVOI_PUBLIC_URL's origin, never from the Host header.

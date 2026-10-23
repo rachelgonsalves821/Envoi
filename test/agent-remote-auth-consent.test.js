@@ -161,5 +161,5 @@ test('[server] flags off: the consent routes are FEATURE_DISABLED and store noth
   const grantState = /^auth\/(oauth-consent-decisions|oauth-codes|oauth-cleanup|agent-registrations|agent-registration-tokens|agent-registration-codes|agent-registration-recovery)\//;
   assert.deepEqual(files.filter(file => grantState.test(file)), [], 'no remote-auth or registration records');
   const cursor = files.find(file => file === 'auth/oauth-cleanup-cursor/cursor.json');
-  if (cursor) assert.deepEqual(Object.keys(JSON.parse(await readFile(path.join(server.dataDir, cursor), 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt']);
+  if (cursor) assert.deepEqual(Object.keys(JSON.parse(await readFile(path.join(server.dataDir, cursor), 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt', 'version']);
 });
