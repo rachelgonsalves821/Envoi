@@ -1,0 +1,57 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "grok-target-flag-off",
+  "kind": "http",
+  "description": "§1: flag off: the owner routes return 404 FEATURE_DISABLED and nothing is sent.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": false
+  },
+  "context": {
+    "profile": "grok_trigger",
+    "agentStatus": "active",
+    "targetAllowlist": [
+      "https://triggers.grok.example"
+    ],
+    "dns": {
+      "host": "triggers.grok.example",
+      "addresses": [
+        "192.0.43.12"
+      ]
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_grok1/agents/agent_grok1/wake-targets/grok",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    }
+  },
+  "response": {
+    "status": 404,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "FEATURE_DISABLED",
+      "error": "FEATURE_DISABLED",
+      "message": "This feature is not available.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "wake_unavailable",
+    "next": "See the row for this outcome in the contract tables."
+  }
+}
