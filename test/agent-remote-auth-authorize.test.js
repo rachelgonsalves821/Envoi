@@ -174,11 +174,14 @@ test('an authorization request too large to seal is refused, not truncated', asy
 test('check 11: the exact encoded-length boundary, state and iss kept, nothing truncated', async () => {
   const limit = remoteAuthLimits.authorizationRequestHandleMaxLength;
   const flags = { registration: true, installations: true, remoteMcpOAuth: true };
-  // One fixed clock for the search and the handler: the sealed payload carries iat/exp, and a second boundary between the
-  // two (more likely under load) could change the compressed length by a character. Opening uses the same clock.
-  const fixedNow = Date.now();
+  // Deterministic: the sealed length depends on the compressed payload, which carries iat/exp, so one constant clock is
+  // used for the search, the handler and open; and the input is derived from a fixed seed, because with random input a
+  // one-character step can grow the payload by two bytes and skip a target length (about 7% of random inputs did). The
+  // search also tries several contents per length. The boundary assertions below are unchanged.
+  const fixedNow = Date.UTC(2026, 9, 22, 12);
   const sealer = createAuthorizationRequestSealer({ keyMaterial, now: () => fixedNow });
-  const random = crypto.randomBytes(2400).toString('base64url');
+  let random = '';
+  for (let block = 0; random.length < 1300 + 8 + remoteAuthLimits.stateMaxLength; block += 1) random += crypto.createHash('sha512').update(`agent-remote-auth check 11 ${block}`).digest('base64url');
   const clientId = `https://assistant.example.com/${random.slice(0, 1300)}.json`;
   const redirectUri = 'https://assistant.example.com/cb';
   const document = { client_id: clientId, client_name: 'Long', redirect_uris: [redirectUri] };
@@ -188,10 +191,12 @@ test('check 11: the exact encoded-length boundary, state and iss kept, nothing t
   const sealedLength = state => sealer.seal({ clientId, connectionRoute: 'remote_mcp_oauth', redirectUri, codeChallenge: 'M3FIpMlzNJLst5kEE-j8UdR1OBkXmRHcAX4RQoA2lHM', scopes: ['envoi.agent', 'envoi.send'], state, resource: `${origin}/mcp` }).length;
   const found = {};
   for (let size = 1; size <= remoteAuthLimits.stateMaxLength && !(found.at && found.over); size += 1) {
-    const state = random.slice(1300, 1300 + size);
-    const length = sealedLength(state);
-    if (length === limit - 1) found.at = state;
-    if (length === limit + 1) found.over = state;
+    for (let offset = 0; offset < 8 && !(found.at && found.over); offset += 1) {
+      const state = random.slice(1300 + offset, 1300 + offset + size);
+      const length = sealedLength(state);
+      if (length === limit - 1 && !found.at) found.at = state;
+      if (length === limit + 1 && !found.over) found.over = state;
+    }
   }
   assert.ok(found.at && found.over, 'inputs that seal to 2,047 and 2,049 characters exist');
   const accepted = new URL((await handler(paramsFor(found.at))).location);
