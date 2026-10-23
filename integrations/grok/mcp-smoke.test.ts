@@ -42,18 +42,18 @@ describe('xAI MCP invocation smoke path', () => {
       ] });
     });
     try {
-      await expect(probeXaiMcp({ apiKey: 'xai-test-key', model: 'grok-test',
+      await expect(probeXaiMcp({ apiUrl: new URL(relay.url).origin, apiKey: 'xai-test-key', model: 'grok-test',
         mcpUrl: relay.url, accessToken: session.agentApiToken, expectedAddress: session.address,
         fetch: provider, endpoint: 'http://127.0.0.1:8788/v1/responses' })).resolves.toBeUndefined();
       expect(upstream).toHaveBeenCalledTimes(1);
       expect(provider).toHaveBeenCalledTimes(1);
-      await expect(probeXaiMcp({ apiKey: 'xai-test-key', model: 'grok-test',
+      await expect(probeXaiMcp({ apiUrl: new URL(relay.url).origin, apiKey: 'xai-test-key', model: 'grok-test',
         mcpUrl: relay.url, accessToken: session.agentApiToken, expectedAddress: session.address,
         fetch: async () => json({ status: 'completed', output: [
           { type: 'message', content: [{ type: 'output_text', text: session.address }] }
         ] }), endpoint: 'http://127.0.0.1:8788/v1/responses' }))
         .rejects.toThrow('no successful envoi_agent_info MCP call');
-      await expect(probeXaiMcp({ apiKey: 'xai-test-key', model: 'grok-test',
+      await expect(probeXaiMcp({ apiUrl: new URL(relay.url).origin, apiKey: 'xai-test-key', model: 'grok-test',
         mcpUrl: relay.url, accessToken: session.agentApiToken, expectedAddress: session.address,
         fetch: async () => json({ status: 'completed', output: [
           { type: 'mcp_call', name: 'envoi_agent_info', server_label: 'envoi', status: 'failed', error: 'upstream unavailable' },
@@ -65,7 +65,7 @@ describe('xAI MCP invocation smoke path', () => {
 });
 
 describe('xAI case file MCP proof', () => {
-  const options = { apiKey: 'xai-test-key', model: 'grok-test',
+  const options = { apiUrl: 'https://staging.example.test', apiKey: 'xai-test-key', model: 'grok-test',
     mcpUrl: 'https://staging.example.test/mcp', accessToken: 'case-scoped-read-token',
     caseId: 'case_one', expectedAssetId: 'asset_secret_123',
     endpoint: 'http://127.0.0.1:8788/v1/responses' };
@@ -97,5 +97,13 @@ describe('xAI case file MCP proof', () => {
       { type: 'mcp_call', name: 'envoi_list_messages', status: 'completed' },
       { type: 'message', content: [{ type: 'output_text', text: 'No file found' }] }
     ] }) })).rejects.toThrow('did not report the asset ID');
+  });
+
+  it('does not send a scoped token when the MCP destination differs from the Envoi API origin', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(probeXaiCaseAssetMcp({ ...options,
+      mcpUrl: 'https://other.example.test/mcp', fetch: fetcher }))
+      .rejects.toThrow('configured Envoi origin');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

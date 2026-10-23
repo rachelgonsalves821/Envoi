@@ -24,6 +24,11 @@ export function presenceAge(asOf: string, timestamp: string | null): string | nu
 
 export function connectionLabel(connection?: AgentConnection): string {
   switch (connection?.state) {
+    case 'on_demand': {
+      if (connection.seenAt === null) return 'On demand · No requests yet';
+      const relative = presenceAge(connection.asOf, connection.seenAt);
+      return relative === null ? 'Status unknown' : `On demand · Last request ${relative}`;
+    }
     case 'seen_recently': return 'Seen recently';
     case 'not_seen_recently': {
       const relative = presenceAge(connection.asOf, connection.seenAt);
@@ -37,4 +42,8 @@ export function connectionLabel(connection?: AgentConnection): string {
     case 'revoked': return 'Access revoked';
     default: return 'Status unknown';
   }
+}
+
+export function lastContactLabel(connection?: AgentConnection): string {
+  return connection?.state === 'on_demand' ? 'Last request' : 'Last check-in';
 }
