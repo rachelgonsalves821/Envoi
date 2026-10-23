@@ -133,6 +133,42 @@ for (const backend of backends) {
     assertOAuthError(await tokenPost(server, { grant_type: 'authorization_code', code: lapsed.code, redirect_uri: 'https://provider.example/callback', code_verifier: 'A'.repeat(43), resource: server.resource }, { basic: basic() }), 'invalid_request');
   });
 
+  // M3 (review 6349153739): an OAuth grant holds only the four permissions that have a scope (§4.3, §8). The bootstrap
+  // request enum accepts use_email_transport, but it never reaches the effective grant, the activated agent or the token.
+  test(`[${backend.name}] bootstrap grant boundary: use_email_transport never reaches the grant, the agent or the token`, { timeout: 180000 }, async t => {
+    const server = await remoteServer(t, backend, { providers: true, clients });
+    const docs = documents(t, server);
+    const agentOf = async registration => docs.get(['inboxes', registration.agentInboxId, 'agents', `${registration.agentId}.json`]);
+    const issueAndExchange = async (grantedPermissions, { scope, beforeExchange } = {}) => {
+      const who = await newOwner(server);
+      const issued = await issue(server, who, { grantedPermissions });
+      assert.equal(issued.status, 201, issued.text);
+      assertRemote('bootstrapCodeIssued', issued.payload);
+      if (beforeExchange) await beforeExchange(issued.payload.registrationId);
+      const tokens = assertTokenResponse(await bootstrapExchange(server, issued.payload.bootstrapCode), scope);
+      const { registration } = await stored(docs, issued.payload.registrationId);
+      return { issued: issued.payload, tokens, registration, agent: await agentOf(registration) };
+    };
+    // The reviewer's input: the unsupported permission is dropped at issue, so nothing downstream sees it.
+    const widened = await issueAndExchange(['send_agent_messages', 'receive_agent_messages', 'use_email_transport']);
+    assert.deepEqual(widened.issued.effectivePermissions, ['send_agent_messages', 'receive_agent_messages'], 'issue response');
+    assert.deepEqual(widened.registration.effectivePermissions, ['send_agent_messages', 'receive_agent_messages'], 'stored approval');
+    assert.deepEqual(widened.registration.requested.permissions, ['send_agent_messages', 'receive_agent_messages'], 'stored request');
+    assert.equal(widened.registration.oauth.scope, 'envoi.agent envoi.send');
+    assert.deepEqual([...widened.agent.permissions].sort(), ['receive_agent_messages', 'send_agent_messages'], 'activated agent');
+    // receive_agent_messages stays mandatory, and narrowing is honoured.
+    const mandatory = await issueAndExchange(['send_agent_messages', 'use_email_transport']);
+    assert.deepEqual(mandatory.registration.effectivePermissions, ['send_agent_messages', 'receive_agent_messages']);
+    const narrowed = await issueAndExchange(['receive_agent_messages'], { scope: 'envoi.agent' });
+    assert.deepEqual([narrowed.registration.effectivePermissions, narrowed.agent.permissions], [['receive_agent_messages'], ['receive_agent_messages']]);
+    // Activation is bounded too: even an approval record holding the permission (written before this fix) activates without it.
+    const legacy = await issueAndExchange(['send_agent_messages', 'receive_agent_messages'], {
+      beforeExchange: id => edit(docs, registrationParts(id), record => { record.effectivePermissions = [...record.effectivePermissions, 'use_email_transport']; })
+    });
+    assert.ok(!legacy.agent.permissions.includes('use_email_transport'), 'the activated agent never holds it');
+    assert.equal(legacy.tokens.scope, 'envoi.agent envoi.send');
+  });
+
   test(`[${backend.name}] bootstrap issue: the same checks as consent, and only for a bootstrap client`, { timeout: 180000 }, async t => {
     const server = await remoteServer(t, backend, { providers: true, clients });
     const who = await newOwner(server);

@@ -15,7 +15,7 @@ import {
 } from '../src/agent-remote-auth.js';
 import { createWakeDestination } from '../src/http-wake-destination.js';
 import { onboardingFlagErrors, readOnboardingFlags, routeAvailability } from '../src/onboarding-flags.js';
-import { launch } from './a3-harness.js';
+import { launch, owner } from './a3-harness.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtureDir = path.join(here, 'contract-fixtures', 'agent-remote-auth');
@@ -174,7 +174,10 @@ test('an authorization request too large to seal is refused, not truncated', asy
 test('check 11: the exact encoded-length boundary, state and iss kept, nothing truncated', async () => {
   const limit = remoteAuthLimits.authorizationRequestHandleMaxLength;
   const flags = { registration: true, installations: true, remoteMcpOAuth: true };
-  const sealer = createAuthorizationRequestSealer({ keyMaterial });
+  // One fixed clock for the search and the handler: the sealed payload carries iat/exp, and a second boundary between the
+  // two (more likely under load) could change the compressed length by a character. Opening uses the same clock.
+  const fixedNow = Date.now();
+  const sealer = createAuthorizationRequestSealer({ keyMaterial, now: () => fixedNow });
   const random = crypto.randomBytes(2400).toString('base64url');
   const clientId = `https://assistant.example.com/${random.slice(0, 1300)}.json`;
   const redirectUri = 'https://assistant.example.com/cb';
@@ -275,13 +278,13 @@ test('pre-registered client configuration fails closed', () => {
 });
 
 // A fake https.request: records the request options and answers with the given response.
-const fakeRequest = ({ status = 200, headers = { 'content-type': 'application/json' }, chunks = ['{}'], never = false, seen = [] } = {}) => (target, options, callback) => {
+const fakeRequest = ({ status = 200, headers = { 'content-type': 'application/json' }, chunks = ['{}'], never = false, delayMs = 0, seen = [] } = {}) => (target, options, callback) => {
   seen.push({ target: target.href, options });
   const req = new PassThrough();
   req.destroy = () => {};
   req.end = () => {
     if (never) return;
-    setImmediate(() => {
+    (delayMs ? fn => setTimeout(fn, delayMs) : setImmediate)(() => {
       const response = new PassThrough();
       Object.assign(response, { statusCode: status, headers });
       callback(response);
@@ -315,6 +318,43 @@ test('metadata fetch: pinned to checked addresses, no redirects, size, type and 
   assert.deepEqual(await fetchId('https://printer.local/c.json'), { rejection: 'http_wake_name_rules' }, 'reserved names are refused');
 });
 
+// M1 (review 6349153739): the §3.1 deadline is one budget for destination resolution (the service's own-address
+// checks and the target's names) and the HTTPS response together, not a timer that starts after DNS.
+test('metadata fetch: the deadline covers destination resolution as well as the response', async () => {
+  const id = 'https://assistant.example.com/oauth/envoi-client.json';
+  const document = { client_id: id, client_name: 'A', redirect_uris: ['https://assistant.example.com/cb'] };
+  const deadlineMs = 600;
+  const slowDestination = stepMs => {
+    let pending = 0, settled;
+    const idle = new Promise(resolve => { settled = resolve; });
+    const step = value => { pending += 1; return new Promise(resolve => setTimeout(() => { resolve(value); if (--pending === 0) settled(); }, stepMs)); };
+    const resolver = { setServers() {}, resolve4: async name => step(name === 'assistant.example.com' ? ['93.184.215.14'] : []), resolve6: async () => step([]) };
+    return { destination: createWakeDestination({ env: { ENVOI_PUBLIC_URL: origin }, resolver }), idle };
+  };
+  const run = async (stepMs, response) => {
+    const { destination, idle } = slowDestination(stepMs);
+    const seen = [];
+    const started = Date.now();
+    const result = await createClientMetadataFetch({ destination, request: fakeRequest({ chunks: [JSON.stringify(document)], seen, ...response }), limits: { ...remoteAuthLimits.clientMetadata, fetchTimeoutMs: deadlineMs } })(id);
+    const elapsedMs = Date.now() - started;
+    await idle;
+    return { result, elapsedMs, requests: seen.length };
+  };
+  // Resolution alone outlasts the deadline: the fetch ends at the deadline and never connects afterwards.
+  const slowDns = await run(1500, {});
+  assert.deepEqual(slowDns.result, { rejection: 'fetch_failed' });
+  assert.ok(slowDns.elapsedMs < 1400, `ended at the deadline, not after resolution (${slowDns.elapsedMs} ms)`);
+  assert.equal(slowDns.requests, 0, 'a resolution that finishes after the deadline is not used');
+  // Each part is within the deadline but together they are not (own-host and target lookups about 450 ms, then a
+  // 450 ms response): a timer started after resolution would accept this.
+  const split = await run(150, { delayMs: 450 });
+  assert.deepEqual(split.result, { rejection: 'fetch_failed' }, 'resolution time counts towards the deadline');
+  assert.equal(split.requests, 1);
+  // Positive control: fast resolution and an immediate response succeed with the same deadline.
+  const fast = await run(10, {});
+  assert.deepEqual(fast.result, { document, cacheControl: undefined });
+});
+
 // ---------------------------------------------------------------- the real routes
 
 const preRegistered = [{ clientId: 'client_desktop-example', clientName: 'Desktop Example', connectionRoute: 'remote_mcp_oauth', redirectUris: ['http://127.0.0.1/callback', 'https://desktop.example.org/callback'], tokenEndpointAuthMethod: 'none', bootstrapCode: false, provider: 'Example' }];
@@ -333,6 +373,31 @@ test('[server] flags off: every agent-remote-auth endpoint is FEATURE_DISABLED',
     assert.equal(body.code, 'FEATURE_DISABLED'); assert.equal(body.message, expected.response.body.message);
   }
   assert.equal((await get(server.baseUrl, '/.well-known/openid-configuration')).status, 404, 'no OpenID Connect discovery');
+});
+
+// M2 (review 6349153739): with both flags off, FEATURE_DISABLED comes before the session, CSRF and account checks,
+// so a signed-in owner's browser gets the same answer as anyone else.
+test('[server] flags off: a signed-in owner without a valid CSRF token still gets FEATURE_DISABLED', async t => {
+  const server = await launch({ ENVOI_AGENT_REGISTRATION_V2: 'true', ENVOI_INSTALLATIONS_V2: 'true', ENVOI_REMOTE_MCP_OAUTH: 'false', ENVOI_PROVIDER_CONNECTORS: 'false' }); t.after(() => server.stop());
+  const who = await owner(server.baseUrl, String(4000 + crypto.randomInt(5000)));
+  const cookie = who.session.headers(server.baseUrl, 'GET').cookie;
+  assert.match(cookie, /envoi_session=/, 'a real owner session');
+  const variants = [
+    ['no CSRF header', { cookie }],
+    ['a wrong CSRF header', { cookie, 'x-envoi-csrf': 'not-the-token', origin: server.baseUrl }],
+    ['another account', { ...who.session.headers(server.baseUrl, 'POST'), 'x-envoi-expected-human': 'human_someone_else' }]
+  ];
+  for (const endpoint of schemas['x-endpoints'].filter(entry => entry.method === 'POST')) {
+    const route = endpoint.path.replace('{handle}', 'v1.x');
+    for (const [label, headers] of variants) {
+      const response = await fetch(`${server.baseUrl}${route}`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', ...headers }, body: '{}' });
+      const body = await response.json();
+      assert.deepEqual([response.status, body.code], [404, 'FEATURE_DISABLED'], `${route} with ${label}`);
+    }
+  }
+  // The checks themselves are unchanged for other routes: the same session without CSRF is refused there.
+  const other = await fetch(`${server.baseUrl}/api/inboxes`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: '{"name":"x"}' });
+  assert.equal(other.status, 403, 'CSRF still applies to ordinary routes');
 });
 
 test('[server] discovery, authorize and consent shell on the real routes; nothing is stored', async t => {
@@ -356,9 +421,14 @@ test('[server] discovery, authorize and consent shell on the real routes; nothin
     assert.match(response.headers.get('location'), /^https:\/\/www\.envoi-agents\.com\/authorize-agent\?request=v1\.[A-Za-z0-9_-]+$/);
   }
   const after = await listFiles(server.dataDir);
-  // The registration cleanup job writes its cursor on its own schedule; it is not request state.
-  const background = file => file.includes(path.join('auth', 'agent-registration-cleanup'));
-  assert.deepEqual(after.filter(file => !before.includes(file) && !background(file)), [], 'an unauthenticated authorization GET writes nothing');
+  // M7 (review 6349153739): the cleanup jobs write their own cursors on their own schedule, at startup and then on an
+  // interval, so either may appear between the two inventories. Exactly those two files are maintenance metadata, and
+  // the OAuth cursor may hold positions only. Every other new file, and anything holding grant state, fails.
+  const maintenance = [path.join(server.dataDir, 'auth', 'agent-registration-cleanup', 'cursor.json'), path.join(server.dataDir, 'auth', 'oauth-cleanup-cursor', 'cursor.json')];
+  assert.deepEqual(after.filter(file => !before.includes(file) && !maintenance.includes(file)), [], 'an unauthenticated authorization GET writes nothing');
+  if (after.includes(maintenance[1])) {
+    assert.deepEqual(Object.keys(JSON.parse(await readFile(maintenance[1], 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt'], 'the OAuth cleanup cursor holds positions only');
+  }
   const unknown = await get(baseUrl, `/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(query), client_id: 'client_unknown' })}`);
   assert.equal(unknown.headers.get('location'), `${origin}/authorize-agent?error=invalid_client`);
   const wrongRedirect = await get(baseUrl, `/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(query), redirect_uri: 'http://127.0.0.1:53682/other' })}`);

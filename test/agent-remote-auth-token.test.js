@@ -7,7 +7,7 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import {
   api, assertOAuthError, installationsRoute, launch, listFilesRecursive, assertRemote, assertStored, assertTokenResponse, backends, clientSecret, codeParams, confidentialClient, connect, documents, edit, exchange, familyParts, formPost, freshIp, installationView, freshOwner, owner,
-  publicClient, refreshParams, registrationParts, remoteFixture, remoteServer, retryApprove, stored, tokenPost, withdrawRequest, accessParts, refreshParts, codeParts, sha256, PAST
+  publicClient, refreshParams, registrationParts, remoteFixture, remoteServer, retryApprove, revokePost, stored, tokenPost, withdrawRequest, accessParts, refreshParts, codeParts, sha256, PAST
 } from './agent-remote-auth-token-harness.js';
 
 const newOwner = freshOwner;
@@ -236,6 +236,36 @@ for (const backend of backends) {
   });
 }
 
+// M6 (review 6349153739): successes and failures, on the token and revocation endpoints alike, each count once toward the 60.
+for (const backend of backends) {
+  test(`[${backend.name}] the per-source limit counts each request once, successful or not, across token and revocation`, { timeout: 180000 }, async t => {
+    const server = await remoteServer(t, backend);
+    const who = await newOwner(server);
+    const grant = await connect(server, who);
+    const ip = freshIp();
+    const statuses = [];
+    // 1 exchange and 1 refresh that succeed, 29 revocations of an unknown token (200), 29 invalid_grant failures: 60 requests.
+    const tokens = assertTokenResponse(await exchange(server, grant, {}, { ip }));
+    statuses.push(200);
+    const refreshed = await tokenPost(server, refreshParams(publicClient, tokens.refresh_token), { ip });
+    assertTokenResponse(refreshed);
+    statuses.push(refreshed.status);
+    for (let index = 0; index < 29; index += 1) {
+      statuses.push((await revokePost(server, { token: `envoi_agent_refresh_${'u'.repeat(43)}`, client_id: publicClient.clientId }, { ip })).status);
+      const failed = await tokenPost(server, codeParams({ ...grant, resource: server.resource }, { code: `envoi_oauth_code_${'y'.repeat(43)}` }), { ip });
+      assertOAuthError(failed, 'invalid_grant');
+      statuses.push(failed.status);
+    }
+    assert.equal(statuses.length, 60);
+    assert.deepEqual(statuses.filter(status => status === 429), [], 'every one of the 60 is answered');
+    const sixtyFirst = await revokePost(server, { token: `envoi_agent_refresh_${'u'.repeat(43)}`, client_id: publicClient.clientId }, { ip });
+    assertOAuthError(sixtyFirst, 'temporarily_unavailable', 429);
+    assert.match(sixtyFirst.headers.get('retry-after'), /^[1-9]\d*$/);
+    // Another source is unaffected.
+    assert.equal((await revokePost(server, { token: `envoi_agent_refresh_${'u'.repeat(43)}`, client_id: publicClient.clientId })).status, 200);
+  });
+}
+
 test('[server] the token endpoint: parameters, client authentication and the per-source limit', { timeout: 120000 }, async t => {
   const backend = backends[0];
   const server = await remoteServer(t, backend);
@@ -274,12 +304,14 @@ test('[server] the token endpoint: parameters, client authentication and the per
   assertOAuthError(await post({ ...params, code: 'not-a-code' }), 'invalid_request');
   assertTokenResponse(await post(params), 'envoi.agent envoi.send');
 
-  // §6: a source is limited to 60 requests a minute, and a failure from row 4 on counts once more, durably.
+  // §6 (M6, review 6349153739): a source is limited to 60 requests a minute and every request counts once, a failure from
+  // row 4 on included; there is no extra debit for failing.
   const limited = freshIp();
   const attempts = [];
-  for (let attempt = 0; attempt < 32; attempt += 1) attempts.push(await tokenPost(server, { ...params, code: `envoi_oauth_code_${'z'.repeat(43)}` }, { ip: limited }));
-  assert.deepEqual(attempts.slice(0, 30).map(res => res.status), Array(30).fill(400), 'the first 30 failures are answered');
-  const refused = attempts[30];
+  for (let attempt = 0; attempt < 61; attempt += 1) attempts.push(await tokenPost(server, { ...params, code: `envoi_oauth_code_${'z'.repeat(43)}` }, { ip: limited }));
+  assert.deepEqual(attempts.slice(0, 60).map(res => res.status), Array(60).fill(400), 'all 60 failures are answered');
+  attempts.slice(0, 60).forEach(res => assertOAuthError(res, 'invalid_grant'));
+  const refused = attempts[60];
   assert.equal(refused.status, 429);
   assertOAuthError(refused, 'temporarily_unavailable', 429);
   assert.match(refused.headers.get('retry-after'), /^[1-9]\d*$/);

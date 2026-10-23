@@ -187,17 +187,8 @@ export function createRegistrationLimits({ store, now = () => new Date(), key = 
       return { allowed: true };
     });
   }
-  // A failed request from §6.1 row 4 on counts once more. Recorded even over the limit: the next request is refused anyway.
-  async function recordTokenFailure(ip) {
-    const target = tokenPath(ip);
-    await store.withTransaction([`rate:oauth-token:${hash(networkKeys(ip).source)}`], async () => {
-      const at = nowMs();
-      const times = recent((await store.getJson(target, null))?.times, at, tokenRequestLimit.windowMs);
-      await store.putJson(target, { times: toIso([...times, at]) });
-    });
-  }
 
-  return { consumeCreation, claimLockRetryAfter, recordClaimFailure, reserveClaimAttempt, releaseClaimAttempt, consumeConsentApproval, consumeTokenRequest, recordTokenFailure };
+  return { consumeCreation, claimLockRetryAfter, recordClaimFailure, reserveClaimAttempt, releaseClaimAttempt, consumeConsentApproval, consumeTokenRequest };
 }
 
 // §2 "Polling": a poll less than 4 s after the previous recorded one gets retry-after 5 s and is not
