@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import {
   authorizationServerMetadata, clientIdUrlRejection, clientMetadataCacheSeconds, clientMetadataRejection, createAuthorizationRequestSealer,
   createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, parsePreRegisteredClients, protectedResourceMetadata,
-  redirectMatches, redirectUriRejection, remoteAuthLimits
+  redirectMatches, redirectUriRejection, remoteAuthEndpointServed, remoteAuthLimits
 } from '../src/agent-remote-auth.js';
 import { createWakeDestination } from '../src/http-wake-destination.js';
 import { onboardingFlagErrors, readOnboardingFlags, routeAvailability } from '../src/onboarding-flags.js';
@@ -43,6 +43,18 @@ test('routes availability equals the remote-auth fixtures, and public routes sta
   for (const name of ['routes-available-remote-mcp', 'routes-available-provider']) {
     const entry = await fixture(name);
     assert.deepEqual(routeAvailability(flagsOf(entry), entry.response.body.asOf), entry.response.body, name);
+  }
+});
+
+// M2 follow-up (#34 6355820671): which flag serves each endpoint comes from x-endpoints, for every flag combination.
+test('each endpoint is served exactly by the flags x-endpoints names', () => {
+  const combinations = [{}, { remoteMcpOAuth: true }, { providerConnectors: true }, { remoteMcpOAuth: true, providerConnectors: true }];
+  for (const endpoint of schemas['x-endpoints']) {
+    for (const flags of combinations) {
+      const expected = endpoint.flags === 'ENVOI_PROVIDER_CONNECTORS' ? Boolean(flags.providerConnectors) : Boolean(flags.remoteMcpOAuth || flags.providerConnectors);
+      assert.ok(['either route flag', 'ENVOI_PROVIDER_CONNECTORS'].includes(endpoint.flags), `known flags value for ${endpoint.path}`);
+      assert.equal(remoteAuthEndpointServed(endpoint.path.replace('{handle}', 'v1.x'), flags), expected, `${endpoint.method} ${endpoint.path} with ${JSON.stringify(flags)}`);
+    }
   }
 });
 
@@ -432,7 +444,7 @@ test('[server] discovery, authorize and consent shell on the real routes; nothin
   const maintenance = [path.join(server.dataDir, 'auth', 'agent-registration-cleanup', 'cursor.json'), path.join(server.dataDir, 'auth', 'oauth-cleanup-cursor', 'cursor.json')];
   assert.deepEqual(after.filter(file => !before.includes(file) && !maintenance.includes(file)), [], 'an unauthenticated authorization GET writes nothing');
   if (after.includes(maintenance[1])) {
-    assert.deepEqual(Object.keys(JSON.parse(await readFile(maintenance[1], 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt'], 'the OAuth cleanup cursor holds positions only');
+    assert.deepEqual(Object.keys(JSON.parse(await readFile(maintenance[1], 'utf8'))).sort(), ['keptFromMs', 'nextBucketStartMs', 'ranAt', 'version'], 'the OAuth cleanup cursor holds positions only');
   }
   const unknown = await get(baseUrl, `/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(query), client_id: 'client_unknown' })}`);
   assert.equal(unknown.headers.get('location'), `${origin}/authorize-agent?error=invalid_client`);

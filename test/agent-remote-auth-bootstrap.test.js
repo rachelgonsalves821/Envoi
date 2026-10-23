@@ -218,3 +218,43 @@ test('[server] bootstrap codes need ENVOI_PROVIDER_CONNECTORS: with it off the r
   const connector = await tokenPost(server, { grant_type: 'refresh_token', refresh_token: `envoi_agent_refresh_${'a'.repeat(43)}` }, { basic: basic() });
   assertOAuthError(connector, 'invalid_client');
 });
+
+// M2 per endpoint (#34 6355820671): x-endpoints serves the bootstrap-code endpoint only with ENVOI_PROVIDER_CONNECTORS and the
+// consent endpoints with either flag. An unserved endpoint is FEATURE_DISABLED before session, CSRF and account checks; a
+// served one keeps them. (Both flags off is covered for every endpoint in agent-remote-auth-authorize.test.js.)
+test('[server] per-endpoint flag precedence: unserved endpoints are FEATURE_DISABLED before CSRF, served ones keep CSRF', { timeout: 240000 }, async t => {
+  const combinations = [
+    { name: 'remote MCP only', providers: false, env: {} },
+    { name: 'providers only', providers: true, env: { ENVOI_REMOTE_MCP_OAUTH: 'false' } },
+    { name: 'both on', providers: true, env: {} }
+  ];
+  const sessionEndpoints = [
+    { path: '/api/oauth/bootstrap-codes', providerOnly: true },
+    { path: '/api/oauth/authorization-requests/v1.x/approve', providerOnly: false },
+    { path: '/api/oauth/authorization-requests/v1.x/deny', providerOnly: false }
+  ];
+  for (const combination of combinations) {
+    const server = await remoteServer(t, backends[0], { providers: combination.providers, clients, env: combination.env });
+    const who = await newOwner(server);
+    const cookie = who.session.headers(server.baseUrl, 'GET').cookie;
+    const withCsrf = who.session.headers(server.baseUrl, 'POST');
+    for (const endpoint of sessionEndpoints) {
+      const served = endpoint.providerOnly ? combination.providers : true;
+      const send = headers => fetch(`${server.baseUrl}${endpoint.path}`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', ...headers }, body: '{}' });
+      const label = `${endpoint.path} with ${combination.name}`;
+      const variants = [['no CSRF header', { cookie }], ['a wrong CSRF header', { cookie, 'x-envoi-csrf': 'not-the-token', origin: server.origin }], ['another account', { ...withCsrf, 'x-envoi-expected-human': 'human_someone_else' }]];
+      for (const [variant, headers] of variants) {
+        const response = await send(headers);
+        const body = await response.json();
+        if (!served) assert.deepEqual([response.status, body.code], [404, 'FEATURE_DISABLED'], `${label}, ${variant}: unserved`);
+        else if (variant === 'another account') assert.deepEqual([response.status, body.code], [409, 'ACCOUNT_CHANGED'], `${label}, ${variant}: served keeps the account check`);
+        else assert.equal(response.status, 403, `${label}, ${variant}: served keeps CSRF`);
+      }
+      // With a valid session and CSRF, a served endpoint reaches its handler; an unserved one is still FEATURE_DISABLED.
+      const valid = await send(withCsrf);
+      const validBody = await valid.json();
+      if (!served) assert.deepEqual([valid.status, validBody.code], [404, 'FEATURE_DISABLED'], `${label}: unserved with valid CSRF`);
+      else assert.notEqual(validBody.code, 'FEATURE_DISABLED', `${label}: served reaches its handler (${validBody.code})`);
+    }
+  }
+});
