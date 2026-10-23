@@ -185,16 +185,16 @@ export function clientMetadataCacheSeconds(cacheControl) {
 
 // A pinned GET with the http-wake destination rules: resolved addresses only, no redirects, a 5 s
 // deadline for the whole fetch and a 5,120-byte body limit. No cookies and no credentials are sent.
+// The deadline starts before destination resolution, so slow DNS or self-address checks count
+// towards it (§3.1 fetchTimeoutSeconds); a resolution that finishes after it is ignored.
 export function createClientMetadataFetch({ destination, request = https.request, limits = remoteAuthLimits.clientMetadata } = {}) {
-  return async clientId => {
-    let resolved;
-    try { resolved = await destination.resolve(clientId); }
-    catch (error) { return { rejection: error?.reason === 'address_not_allowed' ? 'http_wake_address_rules' : 'http_wake_name_rules' }; }
-    return new Promise(resolve => {
+  return clientId => new Promise(resolve => {
+    let done = false, req;
+    const finish = result => { if (done) return; done = true; clearTimeout(timer); req?.destroy(); resolve(result); };
+    const timer = setTimeout(() => finish({ rejection: 'fetch_failed' }), limits.fetchTimeoutMs);
+    Promise.resolve().then(() => destination.resolve(clientId)).then(resolved => {
+      if (done) return;
       const target = new URL(resolved.url);
-      let done = false, req, timer;
-      const finish = result => { if (done) return; done = true; clearTimeout(timer); req?.destroy(); resolve(result); };
-      timer = setTimeout(() => finish({ rejection: 'fetch_failed' }), limits.fetchTimeoutMs);
       try {
         req = request(target, {
           method: 'GET', headers: { accept: 'application/json' }, agent: false, servername: target.hostname, ca: tls.rootCertificates, minVersion: 'TLSv1.2', rejectUnauthorized: true, autoSelectFamily: false,
@@ -219,8 +219,8 @@ export function createClientMetadataFetch({ destination, request = https.request
         req.on('error', () => finish({ rejection: 'fetch_failed' }));
         req.end();
       } catch { finish({ rejection: 'fetch_failed' }); }
-    });
-  };
+    }, error => finish({ rejection: error?.reason === 'address_not_allowed' ? 'http_wake_address_rules' : 'http_wake_name_rules' }));
+  });
 }
 
 // §3: resolves a client_id to a client, or to null for an unknown or invalid client. Metadata documents
