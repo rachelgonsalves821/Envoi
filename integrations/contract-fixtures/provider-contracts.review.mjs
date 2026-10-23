@@ -9,10 +9,11 @@ import addFormats from 'ajv-formats';
 const BASE = 'd05498d8dc13c6f07dc151da7a41a1619ff62436';
 export const publications = [
   { pr: 215, id: 'mcp-wake', sha: '32975892945718296a4968a3d6ddbc40ef6d175b', count: 22 },
-  { pr: 216, id: 'provider-event-wake', sha: '3e1574f828868be63257c6bfaf62b5e7682db249', count: 38 },
-  { pr: 217, id: 'provider-gateway-native', sha: '9b13fa3cb44c68e15d7bb1d70c8c5fe1fdd15e95', count: 30 },
+  { pr: 216, id: 'provider-event-wake', sha: process.env.ENVOI_EVENT_CONTRACT_SHA ?? '1eee73a8cb08aefbad1469b097dd44bf49a1f073', count: 49 },
+  { pr: 217, id: 'provider-gateway-native', sha: process.env.ENVOI_GATEWAY_CONTRACT_SHA ?? 'b785836f2fb2e2874e4a317c12fd5a0346feada5', count: 44 },
   { pr: 218, id: 'provider-connector-tools', sha: '3af8669a907c316b95ff92fa7031a50a654e1a18', count: 6 }
 ];
+assert.ok(publications.every(p => /^[a-f0-9]{40}$/.test(p.sha)), 'exact Git publication SHAs required');
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 12e6, windowsHide: true }).trim();
 const bytes = (sha, file) => execFileSync('git', ['show', `${sha}:${file}`], { maxBuffer: 12e6, windowsHide: true });
 const json = (sha, file) => JSON.parse(bytes(sha, file));
@@ -142,25 +143,154 @@ check('provider-connector-tools: live schema classification, truthful scopes and
   assert.deepEqual(Object.keys(tools.schema['x-read-only-options']),['A','B','C']);
 });
 
-// Interoperability probes are observations, not weakening of the positive consumption checks.
-for(const id of ['unsubscribe-ok','unsubscribe-unknown-is-idempotent']){
- const f=events.f(id);if(f.request.body.params.delivery.mode !== 'webhook')finding(216,`${id}: official unsubscribe delivery shape`,'delivery includes mode:"webhook" and the original callback URL',f.request.body.params.delivery);
-}
-for(const f of events.fixtures.filter(f=>f.kind==='delivery')){
- const body=JSON.parse(f.delivery.request.bodyText), occurred=Date.parse(body.timestamp??body.createdAt??'');
- const signed=Number(f.delivery.request.headers['webhook-timestamp'])*1000;
- if(Number.isFinite(occurred)&&occurred-signed>300000)finding(216,`${f.id}: signing clock`,'an accepted live delivery cannot be signed almost seven days before the event occurs',{occurred:new Date(occurred).toISOString(),signed:new Date(signed).toISOString(),differenceSeconds:(occurred-signed)/1000});
-}
-const eventText=bytes(events.sha,'docs/architecture/agent-native-v2/handoffs.md').toString().split('## provider-event-wake v1')[1];
-if(eventText.includes('no caching in v1'))finding(216,'callback verification cache','bounded principal+callback verification cache as specified in the cited official MCP Events guide','contract requires a fresh challenge for every subscription and renewal, explicitly no caching');
-const nativeText=bytes(gateway.sha,'docs/architecture/agent-native-v2/handoffs.md').toString().split('## provider-gateway-native v1')[1];
-const upgrade=gateway.f('scope-upgrade-owner');
-const transitions=gateway.fixtures.filter(f=>f.kind==='sequence'&&/cookie|generation|scope upgrade/i.test(JSON.stringify(f.steps)));
-if(!transitions.some(f=>f.steps?.some(step=>/old.*cookie|old.*generation/i.test(step.does)) && f.steps?.some(step=>/new.*cookie|new.*session/i.test(step.does)) && f.steps?.some(step=>step.fixture === 'claim-work')))finding(217,'owner scope upgrade session handoff','an executable old-cookie refusal -> approved same-installation new-cookie acquisition -> successful native claim sequence',{ownerUpgradeResult:upgrade.response.body,sequenceIds:transitions.map(f=>f.id)});
-const claimRecovery=gateway.fixtures.filter(f=>(f.request?.path?.endsWith('/work/claim') && /lost.*response|response.*lost/i.test(f.description??'')) || f.steps?.some(step=>/claim.*response.*lost|lost.*claim.*response/i.test(step.does)));
-if(!claimRecovery.length)finding(217,'lost claim response','a fixture specifying retry of {runId} after claim succeeded but response was lost, without leasing another item or double-counting budget','no claim-response-loss fixture; act idempotency alone does not define claim recovery');
-const multi={...gateway.f('reply-sent').request.body,text:'😀'.repeat(1100)};
-if(gateway.def('actRequest')(multi)&&Buffer.byteLength(multi.text)>4096&&Buffer.byteLength(JSON.stringify(multi))<=8192)finding(217,'UTF-8 reply limit','explicit 4096-byte reply guard and multibyte boundary fixture in addition to JSON Schema maxLength',{schemaAccepts:true,textBytes:Buffer.byteLength(multi.text),requestBytes:Buffer.byteLength(JSON.stringify(multi)),schemaMaxLength:gateway.schema.definitions.actRequest.properties.text.maxLength});
+// Revision-2 checks independently consume the new boundary fixtures; no production calls.
+check('provider-event-wake E1: closed unsubscribe shape, idempotent response and missing-mode refusal', () => {
+  const validate = events.def('unsubscribeParams');
+  for (const id of ['unsubscribe-ok', 'unsubscribe-unknown-is-idempotent']) {
+    const f = events.f(id), params = f.request.body.params;
+    assert.equal(validate(params), true, id);
+    assert.equal(params.delivery.mode, 'webhook');
+    assert.deepEqual(f.response.body.result, {});
+    assert.equal(validate({...params, ownerId:'other'}), false);
+    const {mode, ...missing} = params.delivery;
+    assert.equal(validate({...params, delivery:missing}), false);
+    assert.equal(validate({...params, delivery:{...params.delivery, secret:'not-an-unsubscribe-field'}}), false);
+  }
+  assert.equal(validate(events.f('unsubscribe-delivery-mode-missing').request.body.params), false);
+  assert.equal(events.f('unsubscribe-delivery-mode-missing').response.body.error.code, -32602);
+});
+check('provider-event-wake E2: cache isolation, expiry, rotation and fresh destination validation', () => {
+  const policy = events.schema['x-verification-cache'];
+  assert.equal(policy.ttlSeconds, 3600);
+  const hit = events.f('subscribe-renewed-same-identity'), cache = hit.context.verificationCache;
+  // Fixture-only cache decision: no network/cache/secret storage is implemented.
+  const reusable = (principal, url, epoch, age, destinationAllowed, invalidated=false) =>
+    !invalidated && destinationAllowed && principal === cache.principal && url === cache.url
+      && epoch === cache.secretVersion && Number.isFinite(age) && age >= 0 && age < policy.ttlSeconds;
+  assert.equal(reusable(cache.principal, cache.url, cache.secretVersion, cache.ageSeconds, true), true);
+  for (const args of [
+    ['other-installation',cache.url,cache.secretVersion,cache.ageSeconds,true],
+    [cache.principal,cache.url+'/other',cache.secretVersion,cache.ageSeconds,true],
+    [cache.principal,cache.url,cache.secretVersion+1,cache.ageSeconds,true],
+    [cache.principal,cache.url,cache.secretVersion,3601,true],
+    [cache.principal,cache.url,cache.secretVersion,cache.ageSeconds,false],
+    [cache.principal,cache.url,cache.secretVersion,cache.ageSeconds,true,true],
+  ]) assert.equal(reusable(...args),false);
+  for (const [id,state,sent] of [
+    ['subscribe-created','miss',true],['subscribe-renewed-same-identity','hit',false],
+    ['subscribe-renewed-secret-rotated','invalidated_secret',true],
+    ['subscribe-verification-cache-expired','expired',true],
+    ['subscribe-verification-binding-changed','invalidated_url',true],
+    ['subscribe-cache-hit-address-now-disallowed','dropped',false]
+  ]) {
+    const f=events.f(id); assert.equal(f.effects.verificationCache,state,id);
+    assert.equal(f.effects.verificationSent,sent,id);
+    if(f.context?.verificationCache) assert.equal(f.effects.destinationChecksRerun,true,id);
+  }
+  assert.equal(events.f('subscribe-cache-hit-address-now-disallowed').response.body.error.data.reason,'address_not_allowed');
+  for(const reason of ['expiry','secret_changed','url_changed','allowlist_changed','subscription_ended','installation_ended','flag_off']) assert.ok(policy.invalidatedBy.includes(reason));
+  assert.equal(events.f('subscribe-renewed-secret-rotated').effects.dualSignSeconds,600);
+});
+check('provider-event-wake E3: causal clocks and freshness independent of valid raw-byte HMAC', () => {
+  const tolerance=events.schema['x-clock'].toleranceSeconds;assert.equal(tolerance,300);
+  for(const f of events.fixtures.filter(f=>f.kind==='delivery')){
+    const d=f.delivery, ts=Number(d.request.headers['webhook-timestamp']), body=JSON.parse(d.request.bodyText);
+    assert.equal(ts, Math.floor(Date.parse(d.sentAt)/1000), f.id);
+    const eventAt=Date.parse(body.timestamp??body.createdAt??'');
+    if(Number.isFinite(eventAt)) assert.ok(ts*1000>=eventAt, f.id+': event precedes signing');
+    if(['acknowledged','accepted_receipt_only','verified'].includes(d.outcome)) assert.ok(d.receiver,f.id+': successful delivery declares receiver clock');
+    if(d.receiver){
+      const delta=Math.floor(Date.parse(d.receiver.asOf)/1000)-ts;
+      assert.equal(d.receiver.deltaSeconds,delta,f.id);
+      assert.equal(d.receiver.verdict,Math.abs(delta)<=tolerance?'accept':'reject',f.id);
+    }
+  }
+  const live=events.f('delivery-work-available').delivery, stale=events.f('delivery-replayed-stale').delivery;
+  assert.deepEqual(live.request,stale.request,'valid HMAC/raw bytes are unchanged by receiver time');
+  assert.equal(live.receiver.verdict,'accept');assert.equal(stale.receiver.verdict,'reject');
+  for(const id of ['delivery-future-timestamp-rejected','delivery-clock-edge-301s-rejected','grok-delivery-replayed-stale'])assert.equal(events.f(id).delivery.receiver.verdict,'reject');
+  assert.equal(events.f('delivery-clock-edge-300s-accepted').delivery.receiver.verdict,'accept');
+  for(const [a,b] of [['delivery-503-retries','delivery-retry-new-signature'],['grok-delivery-429-retry-after','grok-delivery-retry-fresh-clock']]){
+    const first=events.f(a).delivery, next=events.f(b).delivery;
+    assert.equal(next.request.headers['webhook-id'],first.request.headers['webhook-id']);
+    assert.notEqual(next.request.headers['webhook-signature'],first.request.headers['webhook-signature']);
+    assert.ok(Date.parse(next.sentAt)-Date.parse(first.sentAt)>=Number(first.response.headers['retry-after'])*1000);
+  }
+});
+check('provider-gateway-native G1: owner-only repair, ended old generation and bounded new session', () => {
+  const upgrade=gateway.f('scope-upgrade-owner'), old=gateway.f('old-session-refused-after-upgrade');
+  const activation=gateway.f('repair-activate-native-scope'), claim=gateway.f('claim-new-generation-ok');
+  assert.equal(upgrade.request.auth,'human_session');
+  assert.equal(upgrade.response.headers['set-cookie'],undefined);
+  assert.equal(upgrade.response.body.generation,upgrade.response.body.previousGeneration+1);
+  assert.equal(old.response.status,401);assert.equal(old.response.body.reason,'generation_changed');
+  assert.equal(gateway.f('repair-pairing-created').request.path,'/api/agent-gateway/pairings');
+  assert.equal(activation.request.path,'/api/agent-gateway/pairing/activate');
+  const cookies=activation.response.headers['set-cookie'];assert.equal(cookies.length,2);
+  assert.ok(cookies[0].includes('Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800'));
+  assert.ok(cookies[1].includes('Max-Age=0'));
+  assert.equal(Date.parse(activation.response.body.expiresAt)-Date.parse(activation.context.ownerConfirmedAt),7*24*3600*1000);
+  assert.equal(claim.context.session.generation,upgrade.response.body.generation);
+  assert.equal(claim.request.headers.cookie,cookies[0].split(';')[0]);
+  assert.equal(claim.context.session.absoluteExpiresAt,activation.response.body.expiresAt);
+  assert.equal(claim.response.body.packet.runId,claim.request.body.runId);
+});
+check('provider-gateway-native G2: outstanding replay preserves packet, lease and item budget across restart', () => {
+  const first=gateway.f('claim-work');
+  for(const id of ['claim-lost-response-replay','claim-lost-response-after-restart']){
+    const f=gateway.f(id);assert.deepEqual(f.request.body,first.request.body);
+    assert.deepEqual({...f.response.body,replayed:false},first.response.body,id);
+    assert.equal(f.effects.newLease,false);assert.equal(f.effects.itemsClaimedThisRunAfter,f.context.itemsClaimedThisRun);
+  }
+  assert.equal(gateway.f('claim-lost-response-after-restart').context.serverRestarted,true);
+  const next=gateway.f('claim-next-item-after-settlement');
+  assert.equal(next.context.outstandingClaim.settled,true);assert.equal(next.effects.newLease,true);
+  assert.notEqual(next.response.body.packet.workRef,first.response.body.packet.workRef);
+  assert.equal(next.effects.itemsClaimedThisRunAfter,next.context.itemsClaimedThisRun+1);
+  const other=gateway.f('claim-other-run-while-active');
+  assert.notEqual(other.request.body.runId,other.context.outstandingClaim.runId);
+  assert.equal(other.response.body.code,'GATEWAY_CHECK_ACTIVE');assert.equal(other.response.status,409);
+  assert.ok(Number(other.response.headers['retry-after'])>0);
+  assert.deepEqual(gateway.schema['x-claim-replay'].key,['installation','runId']);
+  assert.equal(gateway.schema['x-claim-replay'].survivesRestart,true);
+});
+check('provider-gateway-native G3: actual UTF-8 request/reply/summary boundaries and no replacement character', () => {
+  const limits=gateway.schema['x-limits'];
+  const valid=body=>gateway.def('actRequest')(body) && Buffer.byteLength(JSON.stringify(body))<=limits.requestMaxBytes
+    && (body.text===undefined||Buffer.byteLength(body.text)<=limits.replyTextMaxBytes);
+  for(const id of ['reply-text-ascii-at-byte-limit','reply-text-multibyte-at-byte-limit']){
+    const f=gateway.f(id);assert.equal(Buffer.byteLength(f.request.body.text),4096);
+    assert.equal(valid(f.request.body),true);assert.equal(f.response.body.state,'sent');
+  }
+  for(const id of ['reply-text-multibyte-over-byte-limit','reply-text-one-byte-over-limit']){
+    const f=gateway.f(id);assert.equal(gateway.def('actRequest')(f.request.body),id==='reply-text-multibyte-over-byte-limit');
+    assert.equal(valid(f.request.body),false);assert.equal(f.response.body.reason,'text_too_long');
+  }
+  const multi=gateway.f('reply-text-multibyte-over-byte-limit').request.body;
+  assert.equal(Array.from(multi.text).length,1100);assert.equal(Buffer.byteLength(multi.text),4400);
+  assert.ok(Buffer.byteLength(JSON.stringify(multi))<8192);
+  for(const f of gateway.fixtures){
+    if(f.response)assert.ok(Buffer.byteLength(JSON.stringify(f.response.body))<=limits.responseMaxBytes);
+    for(const e of f.response?.body?.packet?.snapshot?.recentEvents??[]){
+      assert.ok(Buffer.byteLength(e.summary)<=limits.summaryMaxBytes);assert.ok(!e.summary.includes('\uFFFD'));
+    }
+  }
+  const truncated=gateway.f('claim-summary-truncated-on-code-point').response.body.packet.snapshot.recentEvents[0];
+  assert.equal(Buffer.byteLength(truncated.summary),2048);assert.equal(truncated.truncated,true);
+});
+
+// Causal/state probes stay separate from schema-positive tests so contradictions are explicit findings.
+const eventText=bytes(events.sha,'docs/architecture/agent-native-v2/handoffs.md').toString().split('## provider-event-wake v1')[1].split('\n## ')[0];
+const decisions=eventText.match(/### [^\n]*Decisions for review[\s\S]*?(?=\n### |$)/i)?.[0]??'';
+if(decisions.split('\n').filter(line=>/allowlists empty by default/.test(line)).length>1)
+ finding(216,'decision text: duplicate allowlist / spliced custody choice','distinct complete allowlist, verification-cache and encrypted-secret-custody decisions',decisions);
+const activation=gateway.f('repair-activate-native-scope'), fresh=gateway.f('claim-new-generation-ok');
+const confirmedAt=Date.parse(activation.context.ownerConfirmedAt), freshLease=Date.parse(fresh.response.body.packet.leaseExpiresAt);
+if(freshLease<=confirmedAt)finding(217,'G1: repaired-session claim already expired before owner confirmation','the successful generation-5 claim follows repair activation and has a live lease',{ownerConfirmedAt:activation.context.ownerConfirmedAt,newSessionExpiresAt:activation.response.body.expiresAt,successfulClaimLeaseExpiresAt:fresh.response.body.packet.leaseExpiresAt});
+const expired=gateway.f('claim-replay-after-lease-expiry'), limits=gateway.schema['x-limits'];
+if(expired.context.outstandingClaim.leaseExpired && expired.request.body.runId===expired.context.outstandingClaim.runId
+  && expired.response.status===200 && expired.effects.newLease && limits.leaseSeconds>limits.runBudgetSeconds)
+ finding(217,'G2: expired-lease retry creates new work in a run whose time budget must be exhausted','an old run cannot obtain a fresh lease after its 150-second lease expires when the entire run budget is120seconds; publish old-run refusal and new-run recovery', {leaseSeconds:limits.leaseSeconds,runBudgetSeconds:limits.runBudgetSeconds,requestRunId:expired.request.body.runId,priorRunId:expired.context.outstandingClaim.runId,newLease:expired.effects.newLease});
 assert.equal(networkCalls,0);
 const result={base:BASE,publications:loaded.map(c=>({pr:c.pr,id:c.id,sha:c.sha,count:c.fixtures.length,fixtureTree:git('rev-parse',`${c.sha}:${c.root.slice(0,-1)}`),schemaSha256:createHash('sha256').update(bytes(c.sha,c.root+'schemas.json')).digest('hex')})),checks,findings,networkCalls};
 console.log(JSON.stringify(result,null,2));
