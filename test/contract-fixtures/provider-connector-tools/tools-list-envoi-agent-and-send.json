@@ -1,0 +1,110 @@
+{
+  "contract": "provider-connector-tools",
+  "version": 1,
+  "id": "tools-list-envoi-agent-and-send",
+  "kind": "http",
+  "description": "§3: adding envoi.send adds the five send tools. A reply therefore needs the owner to have approved send_agent_messages.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "context": {
+    "grantedScopes": [
+      "envoi.agent",
+      "envoi.send"
+    ],
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list",
+      "params": {}
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "toolsList",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "tools": [
+          {
+            "name": "envoi_agent_info"
+          },
+          {
+            "name": "envoi_list_cases"
+          },
+          {
+            "name": "envoi_read_case"
+          },
+          {
+            "name": "envoi_list_messages"
+          },
+          {
+            "name": "envoi_start_case"
+          },
+          {
+            "name": "envoi_send_message"
+          },
+          {
+            "name": "envoi_send_proposal"
+          },
+          {
+            "name": "envoi_send_decision"
+          },
+          {
+            "name": "envoi_send_completion"
+          },
+          {
+            "name": "envoi_claim_work"
+          },
+          {
+            "name": "envoi_renew_work"
+          },
+          {
+            "name": "envoi_acknowledge_work"
+          },
+          {
+            "name": "envoi_complete_work"
+          },
+          {
+            "name": "envoi_fail_work"
+          },
+          {
+            "name": "envoi_list_assets"
+          },
+          {
+            "name": "envoi_asset_download"
+          }
+        ]
+      }
+    }
+  },
+  "client": {
+    "surface": "provider_backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "See the contract tables."
+  }
+}

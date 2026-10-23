@@ -5045,3 +5045,48 @@ The contract stays v1: this clarifies approved behaviour and adds no wire field.
 1. **Approval retry and code storage.** Revision 1 replayed the original `200`, code included, while storing the code only as SHA-256; the two cannot both hold. Now the code is in exactly one response and is never stored in clear or in an envelope. A repeated identical approve gets `consentDecided` (§5.2), with no code. The fixture `consent-approve-replayed` is replaced by `consent-approve-retry-pending`.
 2. **The boundary after an exchange or expiry.** `consentDecided` reports `pending_exchange`, `completed`, `expired` or `withdrawn`, and the page never navigates on it. An honest retry therefore never reaches the token endpoint's reuse revocation, which is unchanged (`token-code-reused`). New fixtures: `consent-approve-retry-completed`, `consent-approve-retry-expired`, `consent-approve-retry-withdrawn`, `consent-approve-lost-response` (lost response, then a restart, then expiry) and `consent-view-decided`.
 3. **Additions.** `consentView` gains the optional `decision` (§5.1), and `schemas.json` gains `consentDecided` and `x-consent-decisions`. Nothing else in the wire contract changes.
+
+## provider-connector-tools v1
+
+**Contract:** `provider-connector-tools`, version 1 (Lane A backlog: reconcile Muse's reviewed-connector authorization and tool boundaries; Phase B backlog B-R4). **Status:** published, awaiting Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED provider-connector-tools v1 @<publication sha>`. It adds **no tool, scope, route or flag** and changes no approved contract; it classifies what already exists so a reviewed provider connector can describe it truthfully.
+
+**Fixtures:** [`test/contract-fixtures/provider-connector-tools/`](../../../test/contract-fixtures/provider-connector-tools/): `schemas.json` (tables `x-tool-classification`, `x-effect-classes`, `x-minimum-submission-set`, `x-visible-by-permission`, `x-rules`, `x-read-only-options`, `x-evidence-gates`, `x-codes`) and 6 cases. `test/contract-provider-connector-tools.test.js` imports the live `agentMcpTools` table and fails if the classification drifts from it.
+
+**Owner:** Lane A. **Consumers:** Lane B (the Muse readiness packet, PR #204 `integrations/muse/CONNECTOR-SUBMISSION-READINESS.md`) and whoever submits to Meta. Provider submission, test accounts, portal operations and Meta's final classification stay with their owner.
+
+### 1. What was reconciled
+
+The Muse packet (#204 @35c279d) asked Lane A for "a versioned provider action/wake contract" and for a decision on a read-only OAuth choice. Against the approved contracts:
+
+1. **Provider actions need no new contract.** The identity, snapshot, claim, renew, acknowledge, complete, fail and reply operations a reviewed connector needs are the `/mcp` tools of agent-registration v1 §6.6, reached by the `provider_connector` route of agent-remote-auth v1 §9. Their fences, idempotency keys and settlement rules are unchanged. What was missing is a **truthful classification** of those tools by effect and scope (this contract), because Meta classifies per tool.
+2. **The grant is not read-only.** The required scope `envoi.agent` maps to `receive_agent_messages`, which includes claim and settlement authority (`envoi_claim_work`, `…renew…`, `…acknowledge…`, `…complete…`, `…fail…`). Submitting only read tools does not change what the OAuth grant allows. Sending needs the optional `envoi.send` (fixtures `tools-list-envoi-agent-only`, `tools-list-envoi-agent-and-send`, `send-without-send-scope`).
+3. **Wake is not provided by this contract.** If Meta exposes a supported callback or trigger, it consumes `mcp-wake` v1 (declared origins) or `provider-event-wake` v1; otherwise Muse's background availability stays blocked (gate M4). Nothing here claims or implies it.
+
+### 2. Classification (`x-tool-classification`)
+
+Every one of the 19 tools has: the live `permission` and derived scope, an `effect` (`read`, `write`, `sensitive_write`), the state it changes, whether it has an outward effect, whether a per-use provider approval is proposed, whether it is lease fenced and whether it needs an idempotency key. In short:
+- **Read:** `envoi_agent_info`, `envoi_list_cases`, `envoi_read_case`, `envoi_list_messages`, `envoi_list_assets`, `envoi_asset_download`. No state changes.
+- **Write (this installation's own state):** `envoi_claim_work`, `…renew…`, `…acknowledge…`, `…complete…`, `…fail…` (work leases and settlement) and the asset upload tools. Work state is never presented as an inbox read.
+- **Sensitive write (outward):** `envoi_send_message`, `envoi_start_case`, `envoi_send_proposal`, `envoi_send_decision`, `envoi_send_completion` and `envoi_grant_asset`. Meta makes the final classification; Envoi proposes the strictest.
+
+### 3. Minimum submission set (`x-minimum-submission-set`)
+
+Identity (`envoi_agent_info`), one snapshot (`envoi_list_cases`, `envoi_read_case`, `envoi_list_messages`), claim and settlement (the five work tools) and one reply (`envoi_send_message`, which needs a case and an exact recipient). Excluded from the first submission: starting new cases, proposals, decisions, completions, every asset tool and the wake tools. Any addition needs its own Meta review and a revision of this contract.
+
+### 4. Rules (`x-rules`)
+
+R1 a provider approval is never Envoi authority and never an argument (`send-provider-approval-field-refused`: closed arguments, `-32602`); R2 Envoi's own policy and human-decision checks apply regardless of any provider prompt, and a provider approval does not satisfy a required Envoi decision; R3 an outward effect is never called a read; R4 the queued receipt of a send, work settlement and the other agent's receipt are different facts; R5 lease tokens and idempotency keys stay mandatory (`claim-tools-need-lease-fence`) and a provider model never gets a general agent bearer or case-session token; R6 the grant is wider than the submitted tools and must not be described as read-only.
+
+### 5. Read-only choice (decision for the human, gate M2)
+
+- **A (Lane A's recommendation):** keep `envoi.agent`, describe it honestly, submit only the minimum set, and ask Meta whether that satisfies its read-only guidance. No approved contract changes.
+- **B:** add a read-only permission and scope. That is a revision of agent-registration v1 (permissions) **and** agent-remote-auth v1 (`x-scopes`, consent display), each needing Lane B's ACK and the human's exact approval. It is not published here because Meta's requirement is not yet known.
+- **C:** a second read-only provider client over such a permission: B's cost plus a second client record.
+
+### 6. Open gates (`muse-evidence-gates`)
+
+M1 Meta's final per-tool classification; M2 whether Meta requires a read-only offering; M3 the OAuth client type, redirect and credential behaviour Meta's reviewed connector actually uses; M4 a Meta-supported closed-app trigger and its callback origins; M5 per-use approval behaviour for a reply and whether unattended replies are possible. Each belongs to the account/provider owner. Muse stays UNPROVEN until all are recorded against one release.
+
+### 7. Implementation notes (Lane A, informative)
+
+No server change. The classification test keeps the table honest against `src/agent-mcp.js`. Lane B updates the Muse readiness packet to cite this table instead of its candidate inventory. Dependent work starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`.
