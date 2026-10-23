@@ -47,7 +47,8 @@
     "body": {
       "state": "budget_reached",
       "packet": null,
-      "retryAfterSeconds": 1800
+      "retryAfterSeconds": 1800,
+      "replayed": false
     }
   },
   "client": {

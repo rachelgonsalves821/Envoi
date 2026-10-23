@@ -31,6 +31,11 @@
     },
     {
       "actor": "host",
+      "does": "the old session is refused; the host re-pairs through the unchanged Stage 1 route and the owner confirms the repair for this exact installation (comparison phrase, current assurance), which issues the generation-5 cookie",
+      "fixture": "old-session-refused-after-upgrade"
+    },
+    {
+      "actor": "host",
       "does": "replies that current policy allows are sent under that standing grant",
       "fixture": "reply-sent"
     },

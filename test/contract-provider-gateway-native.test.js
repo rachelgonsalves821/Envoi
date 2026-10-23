@@ -35,8 +35,10 @@ test('provider-gateway-native: requests and responses match their closed schemas
     const validate = def(response.schema);
     assert.equal(validate(response.body), true, `${fixture.id}: ${ajv.errorsText(validate.errors)}`);
     if (request.path.endsWith('/work/act')) {
-      const valid = def('actRequest')(request.body);
-      assert.equal(valid, fixture.id !== 'act-request-invalid-extra-field', `${fixture.id}: act request closed object`);
+      // Closed object AND the UTF-8 byte guard: a character count cannot enforce a byte limit.
+      const valid = def('actRequest')(request.body) && (request.body.text === undefined || Buffer.byteLength(request.body.text, 'utf8') <= schemas['x-limits'].replyTextMaxBytes);
+      const invalid = ['act-request-invalid-extra-field', 'reply-text-multibyte-over-byte-limit', 'reply-text-one-byte-over-limit'];
+      assert.equal(valid, !invalid.includes(fixture.id), `${fixture.id}: act request closed object and byte guard`);
     }
   }
   assert.deepEqual(schemas['x-endpoints'].filter(e => e.auth === 'gateway_session').map(e => e.path).sort(), ['/api/agent-gateway/work/act', '/api/agent-gateway/work/claim', '/api/agent-gateway/work/renew']);
@@ -108,3 +110,96 @@ test('provider-gateway-native: scope, pause, revoke and expiry refuse with no ef
   assert.equal(schemas['x-flags'].ENVOI_PROVIDER_GATEWAY_NATIVE_V1.default, false);
   assert.equal(schemas['x-limits'].sessionAbsoluteDays, 7);
 });
+
+const bytes = text => Buffer.byteLength(text, 'utf8');
+
+test('provider-gateway-native: UTF-8 byte limits are enforced on bytes at and around the boundary, never on characters', async () => {
+  const { schemas, fixtures } = await load();
+  const limit = schemas['x-limits'].replyTextMaxBytes;
+  const text = id => fixtures.get(id).request.body.text;
+  assert.equal(bytes(text('reply-text-ascii-at-byte-limit')), limit);
+  assert.equal(bytes(text('reply-text-multibyte-at-byte-limit')), limit);
+  assert.equal(Array.from(text('reply-text-multibyte-at-byte-limit')).length, 1024, 'four bytes per character');
+  assert.ok(bytes(text('reply-text-multibyte-over-byte-limit')) > limit && text('reply-text-multibyte-over-byte-limit').length < limit * 2, 'over in bytes');
+  assert.ok(Array.from(text('reply-text-multibyte-over-byte-limit')).length < limit, 'under the limit when counted in characters');
+  assert.ok(Buffer.byteLength(JSON.stringify(fixtures.get('reply-text-multibyte-over-byte-limit').request.body)) < schemas['x-limits'].requestMaxBytes, 'the whole request is still under the request cap, so only the text guard refuses it');
+  assert.equal(bytes(text('reply-text-one-byte-over-limit')), limit + 1);
+  for (const id of ['reply-text-multibyte-over-byte-limit', 'reply-text-one-byte-over-limit']) {
+    assert.equal(fixtures.get(id).response.status, 400);
+    assert.equal(fixtures.get(id).response.body.reason, 'text_too_long');
+    assert.equal(schemas['x-utf8-guards'][0].reason, 'text_too_long');
+  }
+  for (const id of ['reply-text-ascii-at-byte-limit', 'reply-text-multibyte-at-byte-limit']) assert.equal(fixtures.get(id).response.body.state, 'sent');
+  const summary = fixtures.get('claim-summary-truncated-on-code-point').response.body.packet.snapshot.recentEvents[0];
+  assert.equal(bytes(summary.summary), schemas['x-limits'].summaryMaxBytes);
+  assert.equal(summary.truncated, true);
+  assert.equal(Buffer.from(summary.summary, 'utf8').toString('utf8'), summary.summary, 'cut on a code point boundary: valid UTF-8, no replacement character');
+  assert.doesNotMatch(summary.summary, /ï¿½/);
+  assert.ok(fixtures.get('claim-summary-truncated-on-code-point').context.originalSummaryBytes > schemas['x-limits'].summaryMaxBytes);
+  for (const fixture of fixtures.values()) {
+    if (fixture.response?.body?.packet) for (const event of fixture.response.body.packet.snapshot.recentEvents) assert.ok(bytes(event.summary) <= schemas['x-limits'].summaryMaxBytes, `${fixture.id}: summary bytes`);
+    if (fixture.response) assert.ok(bytes(JSON.stringify(fixture.response.body)) <= schemas['x-limits'].responseMaxBytes, `${fixture.id}: response bytes`);
+  }
+});
+
+test('provider-gateway-native: a lost claim response replays the outstanding item without a second lease or a second budget charge', async () => {
+  const { schemas, fixtures } = await load();
+  const first = fixtures.get('claim-work').response.body;
+  const replay = fixtures.get('claim-lost-response-replay');
+  assert.deepEqual({ ...replay.response.body, replayed: false }, first, 'the same packet, only replayed differs');
+  assert.equal(replay.response.body.replayed, true);
+  assert.equal(replay.effects.newLease, false);
+  assert.equal(replay.effects.itemsClaimedThisRunAfter, replay.context.itemsClaimedThisRun, 'the budget is not charged twice');
+  const restart = fixtures.get('claim-lost-response-after-restart');
+  assert.equal(restart.context.serverRestarted, true);
+  assert.deepEqual(restart.response.body, replay.response.body, 'a durable outstanding record survives a restart');
+  const next = fixtures.get('claim-next-item-after-settlement');
+  assert.equal(next.context.outstandingClaim.settled, true);
+  assert.notEqual(next.response.body.packet.workRef, first.packet.workRef, 'after settlement the run advances to a new item');
+  assert.equal(next.effects.itemsClaimedThisRunAfter, next.context.itemsClaimedThisRun + 1);
+  assert.equal(next.response.body.replayed, false);
+  const expired = fixtures.get('claim-replay-after-lease-expiry');
+  assert.equal(expired.context.outstandingClaim.leaseExpired, true);
+  assert.notEqual(expired.response.body.packet.workRef, first.packet.workRef);
+  assert.equal(expired.effects.attemptsChargedToExpiredClaim, 1, 'the expired claim already counted once under the existing queue rules');
+  const other = fixtures.get('claim-other-run-while-active');
+  assert.equal(other.response.status, 409);
+  assert.equal(other.response.body.code, 'GATEWAY_CHECK_ACTIVE');
+  assert.equal(other.response.headers['retry-after'], String(other.response.body.retryAfterSeconds));
+  assert.notEqual(other.request.body.runId, other.context.outstandingClaim.runId);
+  assert.ok(schemas['x-claim-replay'].survivesRestart);
+  for (const fixture of fixtures.values()) if (fixture.response?.schema === 'claimResult') assert.equal(typeof fixture.response.body.replayed, 'boolean', fixture.id);
+});
+
+test('provider-gateway-native: the owner upgrade ends the old session and the replacement comes only from the owner-confirmed repair', async () => {
+  const { schemas, fixtures } = await load();
+  const upgrade = fixtures.get('scope-upgrade-owner').response.body;
+  assert.equal(upgrade.generation, upgrade.previousGeneration + 1);
+  assert.equal(upgrade.repair, 'owner_confirmed_repair');
+  assert.equal(JSON.stringify(fixtures.get('scope-upgrade-owner').response).includes('set-cookie'), false, 'the upgrade issues no cookie');
+  const old = fixtures.get('old-session-refused-after-upgrade');
+  assert.equal(old.context.session.generation, upgrade.previousGeneration);
+  assert.equal(old.context.currentGeneration, upgrade.generation);
+  assert.equal(old.response.status, 401);
+  assert.equal(old.response.body.code, 'GATEWAY_SESSION_EXPIRED');
+  assert.equal(old.response.body.reason, 'generation_changed');
+  const pairing = fixtures.get('repair-pairing-created');
+  assert.deepEqual(Object.keys(pairing.request.body).sort(), ['requestedName', 'requestedPermissions', 'runtime'], 'the Stage 1 pairing body is unchanged');
+  assert.deepEqual(pairing.request.body.requestedPermissions, ['receive_agent_messages'], 'scope never comes from the request');
+  assert.equal(pairing.request.path, '/api/agent-gateway/pairings');
+  const activate = fixtures.get('repair-activate-native-scope');
+  assert.equal(activate.request.path, '/api/agent-gateway/pairing/activate');
+  assert.doesNotMatch(JSON.stringify(activate.response.body), /PLACEHOLDER|token|cookie/i, 'no credential in the body');
+  const cookies = activate.response.headers['set-cookie'];
+  assert.ok(cookies.some(c => c.startsWith('__Host-envoi_agent_gateway=') && c.includes('HttpOnly') && c.includes('Secure') && c.includes('SameSite=Strict')));
+  assert.ok(cookies.some(c => c.startsWith('__Host-envoi_agent_pair=;') && c.includes('Max-Age=0')), 'the pending cookie is cleared');
+  assert.ok(Date.parse(activate.response.body.expiresAt) - Date.parse(activate.context.ownerConfirmedAt) <= schemas['x-limits'].sessionAbsoluteDays * 86400000, 'the seven-day bound runs from the owner confirmation');
+  const claim = fixtures.get('claim-new-generation-ok');
+  assert.equal(claim.context.session.generation, upgrade.generation);
+  assert.equal(claim.context.session.scope, 'native_work');
+  assert.equal(claim.response.status, 200);
+  assert.notEqual(claim.request.headers.cookie, fixtures.get('claim-work').request.headers.cookie, 'a different cookie');
+  assert.equal(fixtures.get('scope-upgrade-from-gateway-session-denied').response.status, 401, 'no self-upgrade');
+  assert.equal(schemas['x-session-repair'].steps.length, 4);
+});
+

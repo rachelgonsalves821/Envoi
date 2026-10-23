@@ -1,0 +1,60 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "old-session-refused-after-upgrade",
+  "kind": "http",
+  "description": "§2.3: after the owner upgrade the previous cookie (generation 4) and its CSRF token are refused with no effect, even though they were valid a moment earlier. Retrying does not renew them.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "currentGeneration": 5
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/claim",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "error": "GATEWAY_SESSION_EXPIRED",
+      "code": "GATEWAY_SESSION_EXPIRED",
+      "guidance": "owner_repair",
+      "reason": "generation_changed"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "NEEDS_RECONNECT",
+    "retry": "none",
+    "guidance": "owner_repair"
+  }
+}

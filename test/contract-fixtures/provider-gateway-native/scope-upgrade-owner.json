@@ -3,7 +3,7 @@
   "version": 1,
   "id": "scope-upgrade-owner",
   "kind": "http",
-  "description": "§2.2: the signed-in owner (CSRF, assurance, comparison phrase) grants native_work to an existing read/notify delegation. Nothing is inherited silently.",
+  "description": "§2.2: the signed-in owner (CSRF, assurance, comparison phrase) grants native_work to an existing read/notify delegation of this exact installation. It records the owner grant, bumps the generation and ends the old session cookie and CSRF token at once; it issues no cookie. The host obtains the replacement only through the owner-confirmed repair in §2.3.",
   "flags": {
     "ENVOI_PROVIDER_BROWSER_POLL": true,
     "ENVOI_CASE_SESSIONS_V1": true,
@@ -43,8 +43,10 @@
       "scope": "native_work",
       "revision": 3,
       "generation": 5,
+      "previousGeneration": 4,
       "effectiveAt": "2026-10-24T12:00:00.000Z",
-      "requiresNewSessionCookie": true
+      "requiresNewSessionCookie": true,
+      "repair": "owner_confirmed_repair"
     }
   },
   "client": {

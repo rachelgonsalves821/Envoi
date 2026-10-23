@@ -1,0 +1,104 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "claim-summary-truncated-on-code-point",
+  "kind": "http",
+  "description": "§3.1: a 2,300-byte inbound summary is cut at 2,048 UTF-8 bytes on a code point boundary (512 four-byte characters), truncated true, never mid-character. The packet stays under the 64 KiB response cap.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "originalSummaryBytes": 2300
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/claim",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimResult",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "state": "work",
+      "packet": {
+        "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+        "caseRef": "c_Hd3sQe8Yb1Uz5Nf",
+        "runId": "run_example",
+        "kind": "agent_message",
+        "untrusted": true,
+        "leaseExpiresAt": "2026-10-24T12:02:30.000Z",
+        "renewalsLeft": 1,
+        "snapshot": {
+          "objective": "Find a time to review the draft agreement",
+          "status": "open",
+          "participants": [
+            {
+              "role": "self",
+              "displayName": "Rachel Agent"
+            },
+            {
+              "role": "counterparty",
+              "displayName": "Peer Agent"
+            }
+          ],
+          "recentEvents": [
+            {
+              "at": "2026-10-24T11:58:00.000Z",
+              "from": "counterparty",
+              "summary": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "truncated": true
+            }
+          ],
+          "assets": [
+            {
+              "assetRef": "a_Lm9w2Xc",
+              "name": "draft.pdf",
+              "state": "clean",
+              "bytesAvailable": false
+            }
+          ],
+          "pendingProposal": null
+        },
+        "allowedActions": [
+          "reply",
+          "request_owner",
+          "defer"
+        ]
+      },
+      "retryAfterSeconds": null,
+      "replayed": false
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none"
+  }
+}

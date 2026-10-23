@@ -1,0 +1,65 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "claim-other-run-while-active",
+  "kind": "http",
+  "description": "§3.1: a different runId while another run holds an unsettled claim is refused; no second lease and no second queue. It waits for the 120 s run guard.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "outstandingClaim": {
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "settled": false
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/claim",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_other"
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store",
+      "retry-after": "90"
+    },
+    "body": {
+      "error": "GATEWAY_CHECK_ACTIVE",
+      "code": "GATEWAY_CHECK_ACTIVE",
+      "guidance": "wait_retry_after",
+      "retryAfterSeconds": 90
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "UNCHANGED",
+    "retry": "after_retry_after",
+    "guidance": "wait_retry_after"
+  }
+}

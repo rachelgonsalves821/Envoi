@@ -46,7 +46,8 @@
     "body": {
       "state": "idle",
       "packet": null,
-      "retryAfterSeconds": 1800
+      "retryAfterSeconds": 1800,
+      "replayed": false
     }
   },
   "client": {
