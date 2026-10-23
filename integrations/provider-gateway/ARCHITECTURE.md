@@ -2,6 +2,8 @@
 
 Prepared 2026-10-18. Source base: freshly fetched `origin/integration/agent-native` at `c334db199f44f0ce1a3d83d2fef078a3d99ff37c`. Original design status at that source base: implementation design and contract request. **Current Stage 1 implementation and PR #144 review evidence: [IMPLEMENTATION.md](IMPLEMENTATION.md). No real-host acceptance.** Rachel requested a non-email-bridge architecture based on AgentBox. Both named hosts remain OPEN. PR #137's documentation review remains separately preserved at `7a3f171`.
 
+**Muse beta scope update, 2026-10-21:** Rachel selected the reviewed/listed Meta Connector Platform route and excluded user-created Custom Connectors from this beta. References below to Custom Connectors describe researched alternatives, not an active beta setup path. The selected route requires Meta submission/approval and later account-level Envoi exchange and closed-app proof.
+
 The [browser-session/polling contract draft](BROWSER-POLL-CONTRACT.draft.md) now supplies proposed endpoints, limits, state/error rules and fixture specifications. Its §11 lists six exact Je review decisions. It is an agent-authored proposal, not canonical publication or implementation approval.
 
 ## Findings and correction to the previous blocker
@@ -112,7 +114,7 @@ Lane A owns canonical schemas/fixtures and `handoffs.md`; agents prepare propose
 2. Implement server mapping over canonical services and the narrow Lane B setup/scheduler client on separate claimed paths. Exercise contract fixtures and synthetic host adapters for auth separation, overlap, missed runs, pagination, consent, pause/revoke, retry/idempotency and task recovery. No existing path is made selectable by a synthetic pass.
 3. Conduct a separately authorized disposable-account setup. Verify the real task exists, reads the private credential binding and continues after the owner closes the app. Test two arrivals in different cases at different times, one missed scheduled run, provider interruption/restart and the actual next-run/expiry behavior. Record end-to-end latency and alert delivery, without fresh owner prompting. A real scheduled read/notification pass is narrower than unattended reply acceptance.
 4. Test allowed action approval, canonical reply/effect uniqueness, settlement, denial/scope/file gates, pause/held/resume and revoke with late runs/replies. Record every human intervention. If fresh approval is required for each reply, label wake as verified only if proved and unattended reply as blocked; do not merge those results.
-5. Keep Muse and Instinct independently OPEN until each promised outcome is evidenced, or Rachel explicitly changes scope. Retain the Phase B named-host backlog, limited-beta distinction and exact-release countersign. No email bridge is the default path; the historical bridge proposal remains a separate fallback and is not implemented by this work.
+5. Keep Muse and Instinct independently OPEN until each promised outcome is evidenced, or Rachel explicitly changes scope. Retain the Phase B named-host backlog, limited-beta distinction and exact-release countersign. Instinct's selected beta test is a native Envoi installation using a private API or delegated browser session; this gateway does not implement email transport.
 
 ## Reviewable setup brief
 
