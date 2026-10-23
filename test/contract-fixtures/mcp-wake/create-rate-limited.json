@@ -1,0 +1,71 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "create-rate-limited",
+  "kind": "http",
+  "description": "§5: the http-wake create limits apply per installation and per agent whichever surface is used.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": true
+  },
+  "context": {
+    "route": "provider_connector",
+    "clientKind": "pre_registered",
+    "wakeOrigins": [
+      "https://hooks.provider.example"
+    ],
+    "dns": {
+      "host": "hooks.provider.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_wake_create",
+        "arguments": {
+          "url": "https://hooks.provider.example/envoi/wake"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "errorEnvelope",
+    "headers": {
+      "retry-after": "600"
+    },
+    "body": {
+      "code": "RATE_LIMITED",
+      "error": "RATE_LIMITED",
+      "message": "Too many wake subscriptions were created. Try again later.",
+      "requestId": "req_example",
+      "retryAfterSeconds": 600
+    }
+  },
+  "client": {
+    "surface": "backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "after_retry_after",
+    "guidance": "service_busy",
+    "next": "See the row for this code in x-tool-errors or x-codes."
+  }
+}

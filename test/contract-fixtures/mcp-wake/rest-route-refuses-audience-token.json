@@ -1,0 +1,58 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "rest-route-refuses-audience-token",
+  "kind": "http",
+  "description": "§2.3: no REST audience exception. The same token on the REST wake route is an unrecognized bearer, as agent-remote-auth §9 says.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": true
+  },
+  "context": {
+    "route": "provider_connector",
+    "clientKind": "pre_registered",
+    "wakeOrigins": [
+      "https://hooks.provider.example"
+    ],
+    "dns": {
+      "host": "hooks.provider.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent/wake-subscriptions",
+    "auth": "bearer",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1",
+      "content-type": "application/json"
+    },
+    "body": {
+      "url": "https://hooks.provider.example/envoi/wake"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "use_mcp_wake_tools",
+    "next": "See the row for this code in x-tool-errors or x-codes."
+  }
+}

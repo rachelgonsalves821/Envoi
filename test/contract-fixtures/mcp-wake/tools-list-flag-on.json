@@ -1,0 +1,190 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "tools-list-flag-on",
+  "kind": "http",
+  "description": "Flag on and the credential is an audience-bound family of a pre-registered client with wakeOrigins: the four wake tools follow the 19.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": true
+  },
+  "context": {
+    "route": "provider_connector",
+    "clientKind": "pre_registered",
+    "wakeOrigins": [
+      "https://hooks.provider.example"
+    ],
+    "dns": {
+      "host": "hooks.provider.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list",
+      "params": {}
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolsList",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "tools": [
+          {
+            "name": "envoi_agent_info"
+          },
+          {
+            "name": "envoi_list_cases"
+          },
+          {
+            "name": "envoi_read_case"
+          },
+          {
+            "name": "envoi_list_messages"
+          },
+          {
+            "name": "envoi_start_case"
+          },
+          {
+            "name": "envoi_send_message"
+          },
+          {
+            "name": "envoi_send_proposal"
+          },
+          {
+            "name": "envoi_send_decision"
+          },
+          {
+            "name": "envoi_send_completion"
+          },
+          {
+            "name": "envoi_claim_work"
+          },
+          {
+            "name": "envoi_renew_work"
+          },
+          {
+            "name": "envoi_acknowledge_work"
+          },
+          {
+            "name": "envoi_complete_work"
+          },
+          {
+            "name": "envoi_fail_work"
+          },
+          {
+            "name": "envoi_list_assets"
+          },
+          {
+            "name": "envoi_begin_asset_upload"
+          },
+          {
+            "name": "envoi_complete_asset_upload"
+          },
+          {
+            "name": "envoi_asset_download"
+          },
+          {
+            "name": "envoi_grant_asset"
+          },
+          {
+            "name": "envoi_wake_create",
+            "description": "Register this connection's declared HTTPS wake endpoint. Backend use only.",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "url"
+              ],
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 8192
+                }
+              }
+            }
+          },
+          {
+            "name": "envoi_wake_activate",
+            "description": "Prove the endpoint by returning the challenge it received.",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "subscriptionId",
+                "challenge"
+              ],
+              "properties": {
+                "subscriptionId": {
+                  "type": "string",
+                  "pattern": "^wake_sub_[A-Za-z0-9_-]+$"
+                },
+                "challenge": {
+                  "type": "string",
+                  "pattern": "^envoi_wake_challenge_[A-Za-z0-9_-]+$"
+                }
+              }
+            }
+          },
+          {
+            "name": "envoi_wake_end",
+            "description": "End one of this connection's wake subscriptions.",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "subscriptionId"
+              ],
+              "properties": {
+                "subscriptionId": {
+                  "type": "string",
+                  "pattern": "^wake_sub_[A-Za-z0-9_-]+$"
+                }
+              }
+            }
+          },
+          {
+            "name": "envoi_wake_status",
+            "description": "Read this connection's wake availability and most relevant subscription.",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "client": {
+    "surface": "backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "See the row for this code in x-tool-errors or x-codes."
+  }
+}

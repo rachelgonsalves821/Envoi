@@ -1,0 +1,77 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "create-non-audience-token",
+  "kind": "http",
+  "description": "§2.1: a host credential that is not audience-bound uses the REST routes, not these tools.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": true
+  },
+  "context": {
+    "route": "local_helper",
+    "clientKind": "none",
+    "wakeOrigins": [],
+    "dns": {
+      "host": "hooks.provider.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_local_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_wake_create",
+        "arguments": {
+          "url": "https://hooks.provider.example/envoi/wake"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "toolFailureEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":false,\"tool\":\"envoi_wake_create\",\"code\":\"WAKE_ROUTE_NOT_SUPPORTED\",\"message\":\"This connection has no wake path.\",\"retryable\":false}"
+          }
+        ],
+        "isError": true
+      }
+    }
+  },
+  "client": {
+    "surface": "backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "use_rest_wake",
+    "next": "See the row for this code in x-tool-errors or x-codes."
+  }
+}

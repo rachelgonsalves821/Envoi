@@ -5045,3 +5045,79 @@ The contract stays v1: this clarifies approved behaviour and adds no wire field.
 1. **Approval retry and code storage.** Revision 1 replayed the original `200`, code included, while storing the code only as SHA-256; the two cannot both hold. Now the code is in exactly one response and is never stored in clear or in an envelope. A repeated identical approve gets `consentDecided` (§5.2), with no code. The fixture `consent-approve-replayed` is replaced by `consent-approve-retry-pending`.
 2. **The boundary after an exchange or expiry.** `consentDecided` reports `pending_exchange`, `completed`, `expired` or `withdrawn`, and the page never navigates on it. An honest retry therefore never reaches the token endpoint's reuse revocation, which is unchanged (`token-code-reused`). New fixtures: `consent-approve-retry-completed`, `consent-approve-retry-expired`, `consent-approve-retry-withdrawn`, `consent-approve-lost-response` (lost response, then a restart, then expiry) and `consent-view-decided`.
 3. **Additions.** `consentView` gains the optional `decision` (§5.1), and `schemas.json` gains `consentDecided` and `x-consent-decisions`. Nothing else in the wire contract changes.
+
+## mcp-wake v1
+
+**Contract:** `mcp-wake`, version 1 (Lane A backlog item 1 of board #34 comment 6371261746; Phase B backlog B-R8, MCP-scoped part). **Status:** published, awaiting Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED mcp-wake v1 @<publication sha>`. Nothing here is implemented, nothing is default-on, and no flag changes. It does not amend approved `agent-remote-auth` v1 revision 4 or `http-wake` v1: it adds an operation surface beside them.
+
+**Fixtures:** [`test/contract-fixtures/mcp-wake/`](../../../test/contract-fixtures/mcp-wake/): `schemas.json` (tables `x-flags`, `x-tools`, `x-binding`, `x-wake-origins`, `x-limits`, `x-notification`, `x-url-extra-reasons`, `x-codes`, `x-tool-errors`) and 22 cases. Executable checks: `test/contract-fixtures.test.js` (generic) and `test/contract-mcp-wake.test.js`.
+
+**Owner:** Lane A. **Consumers:** Lane B (the provider-connector client and `/connect` guidance) and the backend of every reviewed provider connector.
+
+### 1. The gap and the answer
+
+agent-remote-auth ("Not in this contract") left installations made by OAuth with no wake path: their audience-bound tokens are refused on `/api/agent/wake-subscriptions` (§9), and no `/mcp` tool creates a subscription. This contract adds four `/mcp` tools that drive the **existing** http-wake v1 subscription, key set, notification, retry and derivation machinery. Nothing is a second queue, a second signer or a second delivery engine, and REST keeps refusing audience tokens (fixture `rest-route-refuses-audience-token`).
+
+| Flag (server-only, default off) | Turns on |
+| --- | --- |
+| `ENVOI_MCP_WAKE_V1` | The four tools below in `tools/list` and `tools/call`. Requires `ENVOI_HTTP_WAKE_V1`, `ENVOI_INSTALLATIONS_V2`, `ENVOI_AGENT_REGISTRATION_V2` and `ENVOI_PROVIDER_CONNECTORS`; startup fails closed if any is off. |
+
+Flag off: `tools/list` is exactly the 19 `envoi-names` tools, byte for byte (`tools-list-flag-off`), and a call is an unknown tool (`create-flag-off-unknown-tool`). **Rollback:** subscriptions created through these tools carry a stored `createdVia: "mcp"` (never in a response). While the flag is off they read `ended` with `endedReason: "feature_disabled"` from the first read or attempt after the flag-off start, derived per attempt as http-wake §1 derives its epoch. REST-created subscriptions and the http-wake epoch are untouched (`rollback-flag-off`).
+
+### 2. Who may use it: binding and custody
+
+1. **Route and client (§2.1).** The caller's credential family must be audience-bound to `/mcp` **and** belong to a **pre-registered provider client** (agent-remote-auth §3.2) with at least one declared wake origin. A client identified by a client metadata document (`remote_mcp_oauth`) has no wake path in v1 (`WAKE_ROUTE_NOT_SUPPORTED`, `create-cimd-client-not-supported`): a public cloud-assistant client has no backend to receive a wake and cannot keep the OAuth tokens private from the model. A host credential that is not audience-bound uses the REST routes (`create-non-audience-token`); a scoped read token never sees the tools (`create-mcp-read-token-unavailable`).
+2. **Tenant, owner, installation (§2.1).** All ids are derived server-side from the family. Arguments never carry an inbox, agent, installation or owner id. A subscription belongs to one installation (http-wake §2.2). An id from another installation or an unknown id answers identically (`end-other-installation-not-found`).
+3. **Destination bound to client identity, not to model text (§2.2).** The `/mcp` tools are model-reachable in most hosts. A prompt-injected model must not be able to choose where Envoi sends metadata. So the URL's origin must equal one of the client's declared `wakeOrigins` (`x-wake-origins`: at most 3 exact HTTPS origins on port 443, no wildcard, IP literal or path), checked **before DNS** with the new reason `origin_not_declared` (`create-origin-not-declared`). `wakeOrigins` is an additive field of the pre-registered client record, which is server configuration; a client metadata document cannot set it in v1. Every http-wake §4 rule then applies unchanged (`create-private-address`).
+4. **Scope and credential custody (§2.3).** The tools need permission `receive_agent_messages` (OAuth scope `envoi.agent`, which every family has). **No new OAuth scope** is added and approved agent-remote-auth `x-scopes`, consent display and fixture bytes are untouched. The receiver is the connector backend: it is the principal that holds the OAuth access and refresh tokens, and it claims with them over `/mcp` (`envoi_claim_work`). Envoi stores no per-subscription secret: notifications are Ed25519-signed with Envoi's published key set (http-wake §5), so there is no receiver secret for Envoi to custody. No token, URL from a request or credential appears in any notification.
+
+### 3. Tools
+
+All arguments are closed objects (`x-tools.inputSchema`). Results use the case-tools envelope: success `{ok:true,tool,result}`, failure `{ok:false,tool,code,reason?,message,retryable}` with `isError:true`. HTTP-level failures are the existing `/mcp` envelopes (`x-codes`).
+
+| Tool | Arguments | Same effect as |
+| --- | --- | --- |
+| `envoi_wake_create` | `{url}` | `POST /api/agent/wake-subscriptions` (http-wake §3.1): pending subscription, one signed `wake.challenge` queued, replaces a pending one (`superseded`), same create limits |
+| `envoi_wake_activate` | `{subscriptionId, challenge}` | `…/activate` (§3.3): only the creating installation, only with the challenge sent to the URL; replacement and `replaced` as §3.4 |
+| `envoi_wake_end` | `{subscriptionId}` | `…/end` (§3.5), `ended_by_host` |
+| `envoi_wake_status` | `{}` | the `httpWake` field of `GET /api/agent/status` (§1): availability and the most relevant subscription, so a backend learns an ending and never creates again after `revoked_by_owner` |
+
+Tool error codes (`x-tool-errors`): `WAKE_SUBSCRIPTION_INVALID`, `WAKE_URL_REJECTED` (reasons are http-wake's plus `origin_not_declared`), `WAKE_SUBSCRIPTION_NOT_FOUND`, `WAKE_CHALLENGE_INVALID`, `WAKE_SUBSCRIPTION_ENDED`, `WAKE_ROUTE_NOT_SUPPORTED`.
+
+### 4. Notifications, admission and catch-up (all inherited)
+
+- Bodies are http-wake §2.3 byte for byte: opaque, at most 1,024 bytes, no case, message, work, lease, inbox, agent, installation, asset or credential id, no content, no URL, no token. `x-notification.newFields` is empty.
+- **Durable admission.** Notifications are created from the existing durable queue and event sequence (http-wake §6.5), not from a new store. A restart or outage loses none; coalescing and single flight are §6.3.
+- **Duplicates and loss.** `id` is the deduplication key (§7.2). A lost notification is covered by the receiver's startup claim and safety poll (at most `receiverSafetyPollMaxSeconds`, 900), both through `envoi_claim_work`; `envoi_wake_status` supplies the ended reason. A notification is a hint: acknowledging it is not completion, and work is claimed, fenced and settled only through the canonical `envoi_claim_work`, lease and fence rules (a3, case-session).
+- **Bounded retries.** http-wake §6.2 schedule and deadline, `410 Gone` ends the subscription (`receiver_gone`), ten failed deliveries or 24 h of failure end it (`delivery_failed`).
+- **Idempotency.** Create is not idempotent by design (a retry supersedes the pending one); activate and end are repeat-safe as in http-wake. Claims and settlement keep their existing idempotency keys and fences.
+- **Assets.** Notifications carry none. Files stay behind the existing scan, grant and case-session gates when the backend claims the work.
+
+### 5. Limits
+
+The http-wake `x-limits` apply, shared with REST: 5 creates per installation and 10 per agent per hour, 4 concurrent and 120 requests per minute per destination host, and so on. A limit is HTTP 429 `RATE_LIMITED` with `retryAfterSeconds` (`create-rate-limited`). A subscription lives 30 days and is replaced at least 7 days ahead (http-wake §2.2); the origin check repeats on every replacement.
+
+### 6. Pause, resume, revoke, late actions
+
+- **Pause.** `/mcp` answers HTTP 409 `AGENT_PAUSED` to **every** tool while the agent is paused, wake tools included, never a JSON-RPC result (`create-paused`). Existing active subscriptions receive `wake.control_changed/agent_paused` and, on resume, `wake.work_available/agent_resumed` (http-wake §8.1). Held work and ordering are unchanged.
+- **Revoke.** A revoked family is `CREDENTIAL_REVOKED` at `/mcp` (`create-revoked`) and its installation's subscriptions already ended with `credential_ended` (§8.3). An owner revoke of one subscription is the existing owner route; the backend sees `revoked_by_owner` in `envoi_wake_status`.
+- **Late actions.** Notification attempts derive the subscription's state before every send (§8), so nothing is sent for an ended subscription, and a backend that claims after revoke gets the existing rejected-settlement behaviour.
+- **Reconnect.** A new installation starts with no subscription (§8.3) and creates its own.
+
+### 7. What this does not do
+
+- It does not make a host "automatically reachable". Wake remains a declaration plus evidence: the installation keeps its declared `on_demand` mode, and the owner label changes only through a separately approved contract after a countersigned closed-app test (Phase B plan, shared host acceptance). No named host passes because of this contract.
+- It is not the answer for hosts whose backend is the provider's chat product (ChatGPT/Dots, Muse): see `provider-event-wake` v1.
+- It adds no OAuth scope, endpoint, REST exception or second queue.
+
+### 8. Decisions for review
+
+1. **Reuse `envoi.agent` (chosen) or add `envoi.wake`.** A new scope would amend approved agent-remote-auth `x-scopes`, consent display and fixtures; reuse changes none. The cost: the owner does not see a wake consent line. The destination is limited to origins the owner's connector already declares, and the owner can see and revoke every subscription on the existing owner list.
+2. **Destination bound to pre-registered `wakeOrigins` (chosen) or any public HTTPS URL.** The second is simpler but lets a prompt-injected model aim metadata at any server.
+3. **Wake tools return HTTP 409 while paused (chosen, consistent with `/mcp`)** or work while paused as REST does. The chosen rule keeps one pause behaviour on `/mcp`.
+4. **Flag-off ends tool-created subscriptions (chosen)** rather than leaving ones the backend can no longer manage.
+5. **Declared delivery mode stays `on_demand`.** A later revision may allow a declared upgrade after evidence.
+
+### 9. Implementation notes (Lane A, informative)
+
+New `src/mcp-wake-tools.js` calling the existing http-wake service functions with the family-derived installation; `tools/list` gating in `src/agent-mcp.js`; `createdVia` and the client record's `wakeOrigins` in both storage backends; flag parsing in `src/onboarding-flags.js`. Dependent implementation starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`. Tests: the 22 fixtures, FileStore and PostgreSQL parity for `createdVia` and the flag-off derivation, and the existing http-wake delivery suites unchanged.

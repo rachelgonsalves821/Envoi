@@ -1,0 +1,79 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "end-ok",
+  "kind": "http",
+  "description": "§3.3: the backend ends its own subscription.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": true
+  },
+  "context": {
+    "route": "provider_connector",
+    "clientKind": "pre_registered",
+    "wakeOrigins": [
+      "https://hooks.provider.example"
+    ],
+    "dns": {
+      "host": "hooks.provider.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "agentStatus": "active"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_wake_end",
+        "arguments": {
+          "subscriptionId": "wake_sub_mcp1"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "mcpToolCallResult",
+    "toolResult": "subscriptionEnvelope",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tool\":\"envoi_wake_end\",\"result\":{\"subscription\":{\"id\":\"wake_sub_mcp1\",\"installationId\":\"installation_oauth1\",\"agentId\":\"agent_oauth1\",\"url\":\"https://hooks.provider.example/envoi/wake\",\"status\":\"ended\",\"endedReason\":\"ended_by_host\",\"createdAt\":\"2026-10-24T12:00:00.000Z\",\"activatedAt\":\"2026-10-24T12:00:05.000Z\",\"expiresAt\":\"2026-11-23T12:00:05.000Z\",\"endedAt\":\"2026-10-24T13:00:00.000Z\",\"challengeExpiresAt\":null,\"replacesSubscriptionId\":null,\"delivery\":{\"state\":\"healthy\",\"lastAttemptAt\":\"2026-10-24T12:00:02.000Z\",\"lastSuccessAt\":\"2026-10-24T12:00:02.000Z\",\"consecutiveFailures\":0,\"lastFailureClass\":null}}}}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  },
+  "client": {
+    "surface": "backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "See the row for this code in x-tool-errors or x-codes."
+  }
+}
