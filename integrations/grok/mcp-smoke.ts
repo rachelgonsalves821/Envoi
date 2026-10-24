@@ -1,8 +1,10 @@
 import { pathToFileURL } from 'node:url';
 import { EnvoiConnector } from '../../sdk/typescript/src/connector';
 import { FileBridgeStore } from '../agent-bridges/file-store';
+import { validateEnvoiMcpDestination } from './mcp-origin';
 
 export interface XaiMcpProbeOptions {
+  apiUrl: string;
   apiKey: string;
   model: string;
   mcpUrl: string;
@@ -36,19 +38,17 @@ export async function probeXaiCaseAssetMcp(options: XaiCaseAssetProbeOptions): P
 
 async function runProbe(options: Omit<XaiMcpProbeOptions, 'expectedAddress'>, tool: string,
   prompt: string, expected: string | undefined, resultName: string): Promise<void> {
-  const target = new URL(options.mcpUrl);
-  if (target.pathname !== '/mcp' || !(
-    target.protocol === 'https:' ||
-    (target.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(target.hostname))
-  )) throw new TypeError('MCP URL must be an HTTPS /mcp endpoint');
+  const endpoint = options.endpoint || 'https://api.x.ai/v1/responses';
+  const xai = new URL(endpoint);
+  const localTestEndpoint = xai.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(xai.hostname);
+  if (!(xai.protocol === 'https:' && xai.hostname === 'api.x.ai') && !localTestEndpoint) {
+    throw new TypeError('xAI endpoint must be api.x.ai');
+  }
+  // Bind the scoped token to the Envoi origin even when this exported helper is called directly.
+  validateEnvoiMcpDestination(options.apiUrl, options.mcpUrl, !localTestEndpoint);
   if (!options.apiKey || !options.accessToken || /[\r\n]/.test(options.accessToken) || !expected) {
     throw new TypeError('Live xAI and current Envoi agent credentials are required');
   }
-  const endpoint = options.endpoint || 'https://api.x.ai/v1/responses';
-  const xai = new URL(endpoint);
-  if (!(xai.protocol === 'https:' && xai.hostname === 'api.x.ai') && !(
-    xai.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(xai.hostname)
-  )) throw new TypeError('xAI endpoint must be api.x.ai');
 
   let response: Response;
   try {
@@ -91,6 +91,7 @@ async function main() {
   if (!apiUrl || !stateDir || !apiKey || !mcpUrl) {
     throw new Error('ENVOI_API_URL, ENVOI_STATE_DIR, XAI_API_KEY and ENVOI_MCP_URL are required');
   }
+  validateEnvoiMcpDestination(apiUrl, mcpUrl);
   const store = new FileBridgeStore(stateDir);
   await store.init();
   const connector = new EnvoiConnector(apiUrl, store);
@@ -102,7 +103,7 @@ async function main() {
   const accessToken = (await connector.mintMcpReadToken(caseId || null)).mcpAccessToken;
   const session = await store.load();
   if (!session?.address) throw new Error('Enrolled Envoi session is required');
-  const base = { apiKey, model: process.env.XAI_MODEL || 'grok-4.7', mcpUrl, accessToken };
+  const base = { apiUrl, apiKey, model: process.env.XAI_MODEL || 'grok-4.7', mcpUrl, accessToken };
   if (caseId && expectedAssetId) {
     await probeXaiCaseAssetMcp({ ...base, caseId, expectedAssetId });
     process.stdout.write('xAI read the case file announcement through hosted MCP and returned its asset ID.\n');

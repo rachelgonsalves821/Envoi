@@ -133,7 +133,7 @@
     {
       "id": "a5-presence-on-demand",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#a5-presence-on-demand-v1",
       "dir": "a5-presence-on-demand",
       "schemas": "schemas.json",
@@ -613,7 +613,7 @@
     {
       "id": "agent-remote-auth",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-remote-auth-v1",
       "dir": "agent-remote-auth",
       "schemas": "schemas.json",
