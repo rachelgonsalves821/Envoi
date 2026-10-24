@@ -1,25 +1,25 @@
 # Provider contract re-review
 
-Lane B, 2026-10-23. Evidence branch `lane-b/B-C-contract-consumer-review`, isolated owned worktree `provider-contract-review`. Baseline `d05498d8dc13c6f07dc151da7a41a1619ff62436`. Review-only; no dependent production implementation or provider/account operation.
+Lane B, updated 2026-10-24. Evidence branch `lane-b/B-C-contract-consumer-review`, isolated owned worktree `provider-contract-review`. Baseline `d05498d8dc13c6f07dc151da7a41a1619ff62436`. Review-only; no dependent production implementation or provider/account operation.
 
 ## Current publications and verdicts
 
 | PR | Exact publication | Result |
 | --- | --- | --- |
 | #215 mcp-wake v1 | `32975892945718296a4968a3d6ddbc40ef6d175b` | [Lane B ACK6373782280](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6373782280); [human approval6374090183](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6374090183) remains credited. |
-| #216 provider-event-wake v1 revision2 | `d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b` | [CONTRACT-ACK6375518478](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375518478). E1-E3 and the final decision-prose correction pass. Human exact-head approval remains separate. |
-| #217 provider-gateway-native v1 revision2 | `ddf8df082e9cca33ce536d9a0e30a23afb58c7b8` | G1/G2 corrections and G3 pass. ACK pending [decision-cost precision request6375726310](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375726310). |
+| #216 provider-event-wake v1 revision2 | `d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b` | [CONTRACT-ACK6375518478](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375518478). E1-E3 and the final decision-prose correction pass. [Human exact-head contract approval6375805230](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375805230) is separately recorded; operational authority is not inferred. |
+| #217 provider-gateway-native v1 revision2 | `9bca2380a51038cfe72fd9b247730afb080988ce` | All contract corrections pass; [final ACK blocked by own-head audit failure6389037650](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6389037650). |
 | #218 provider-connector-tools v1 | `3af8669a907c316b95ff92fa7031a50a654e1a18` | [Lane B ACK6373782839](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6373782839); [human approval6374090183](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6374090183), optionA, remains credited. |
 
-The exact-publication author CI is terminal SUCCESS for [#216 run40028127612](https://github.com/rachelgonsalves821/Envoi/actions/runs/40028127612) and [#217 run40030128784](https://github.com/rachelgonsalves821/Envoi/actions/runs/40030128784), 26/26 steps each. CI is evidence at those publications, not approval or proof of actual provider capability.
+The #216 exact-head CI40028127612 remains SUCCESS26/26. The earlier #217 ddf8df0 CI40030128784 is historical green evidence only; current9bca238 [CI40128100998](https://github.com/rachelgonsalves821/Envoi/actions/runs/40128100998) is FAILURE at the production dependency audit. No old-head CI transfers to the new head. CI is not human approval or proof of provider capability.
 
 ## Independent execution
 
 From owned detached review worktrees pinned to the two heads, on Windows PowerShell with Node22.15.0:
 
 - #216: `node --test test/contract-fixtures.test.js test/contract-provider-event-wake.test.js`: 20/20 pass, no skips.
-- #217: `node --test test/contract-fixtures.test.js test/contract-provider-gateway-native.test.js`: 18/18 pass, no skips.
-- Lane B offline consumer: 128 canonical fixtures read directly from exact Git objects, inventories22/49/51/6; 24 positive groups pass, zero network calls. Exit2 now records only a separate static #217 decision-cost prose defect; no remaining G1/G2 causal contradiction. Final exact-head #217 suite at ddf8df0 is20/20, zero skips. Earlier #21720/18-count executions below remain historical, not current failures.
+- #217: `node --test test/contract-fixtures.test.js test/contract-provider-gateway-native.test.js`: current9bca23820/20 pass, no skips (earlier18/18 retained as historical evidence).
+- Lane B offline consumer: 128 canonical fixtures read directly from exact Git objects, inventories22/49/51/6; 24 positive groups pass, zero network calls. Current9bca238 consumer exits0:24/24 groups, zero findings and zero network calls. The separate decision-cost prose defect and earlier G1/G2 contradictions are resolved. Prior executions below remain explicitly historical.
 
 The initial consumer run had three harness failures, corrected before attributing any contract finding: it required a destination *recheck* marker on the first subscription instead of only cached renewals; it required receiver clocks on error-delivery cases and used two incorrect retry fixture IDs; and it incorrectly expected the ASCII4097 case to pass the schema's coarse character guard. The corrected assertions preserve the meaningful checks: cached-renewal destination validation, receiver freshness for successful deliveries, all signing/event causality, exact retry identity and delay, plus schema-valid multibyte overflow requiring a separate byte guard. This was a harness correction, not a server failure or a weakened contract requirement.
 
@@ -61,6 +61,14 @@ Exact-head CI40030128784 independently inspected: SUCCESS26/26 at ddf8df0, backe
 
 One static decision-cost correction remains before ACK/human packet: [REQUEST6375726310](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6375726310). Handoff section8 decision7 promises a maximum30-second wait after a run overruns. Its own valid fixtures contradict that explanation: run ends12:02:00; claim-next-item-after-settlement lease ends12:03:30 (90s later), renew-once lease ends12:04:30 (150s later). The normative rule of150seconds from the actual last claim/renewal is otherwise clear and passes. Request the explanatory sentence tie waiting to that actual lease expiry, up to150seconds after run end for an in-budget final claim/renewal. No policy change, timing relaxation, new route or wire/fixture MISMATCH round is requested. The offline consumer records this text counterexample separately from24 passing semantic groups; exit2 currently means this one prose finding. Await documentation-only exact publication and own CI, then recheck before ACK. Human approval remains separate.
 
+## #217 decision-text correction verified; current CI blocker
+
+At9bca2380a51038cfe72fd9b247730afb080988ce the sole delta fromddf8df0 is handoff decision7. It now correctly describes waiting until actual outstanding lease expiry and the90s/150s counterexamples. All51 canonical gateway fixtures, schema/tests, Stage1, runtime and root bytes are unchanged. REQUEST6375726310 is resolved. Own Windows PowerShell/Node22.15.0 generic+bespoke20/20, zero skips; independent offline24/24 groups on128 fixtures, zero findings/network calls, exit0. No additional contract correction or MISMATCH round.
+
+[BLOCKED final ACK6389037650](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6389037650): actual exact-head [CI40128100998](https://github.com/rachelgonsalves821/Envoi/actions/runs/40128100998) failed `npm audit --omit=dev`, reporting one moderate fast-uri finding (four GHSA references in the failed log). Full audit step was skipped. Every preceding backend/client/build/generated/config/container/PostgreSQL step passed; overall CI remains red. No exploitability or Production impact conclusion is claimed. Existing Lane A dependency-owner [request6389021920](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6389021920) covers the bounded owner correction; no duplicate writer/root edit is introduced here. Final ACK waits for the appropriate corrected head and fresh green checks, without weakening or waiving the audit gate.
+
+The current integration baseline is48e40e5 after the separately approved #222 integration. #220's earlier70a7ce9 technical ACK below remains head-specific; pending composition reconciliation/request6384667485 must preserve #222 once, obtain own-head checks and incremental review. No integration/main/author/shared branch or provider action is performed by this reviewer.
+
 ## Reproduction and ownership
 
 ```powershell
@@ -70,7 +78,7 @@ $env:ENVOI_CONTRACT_REVIEW_RESULT='integrations/gates/.runtime/provider-review-r
 node integrations/contract-fixtures/provider-contracts.review.mjs
 ```
 
-Exact Git publication objects and existing lockfile dependencies are required. Fetch objects into an owned worktree; never run repository work in the primary human checkout. Optional ENVOI_EVENT_CONTRACT_SHA and ENVOI_GATEWAY_CONTRACT_SHA accept exact40-hex replacements for a corrected publication with the same fixture inventory; update/review counts explicitly if fixtures change. Exit0 means no findings, exit1 a failed positive assertion, exit2 semantic findings. Current result is exit2,24/24 positive groups,1 static #217 decision-prose finding. Default pins are #216d920f65 and #217ddf8df0, with51 gateway fixtures. A corrected documentation-only head can be passed through ENVOI_GATEWAY_CONTRACT_SHA.
+Exact Git publication objects and existing lockfile dependencies are required. Fetch objects into an owned worktree; never run repository work in the primary human checkout. Optional ENVOI_EVENT_CONTRACT_SHA and ENVOI_GATEWAY_CONTRACT_SHA accept exact40-hex replacements for a corrected publication with the same fixture inventory; update/review counts explicitly if fixtures change. Exit0 means no findings, exit1 a failed positive assertion, exit2 semantic findings. Current consumer result is exit0,24/24 positive groups,zero findings. Default pins are #216d920f65 and #2179bca238, with51 gateway fixtures. CI is separately red at the production dependency audit, so exit0 does not confer final ACK.
 
 [CLAIM6374973855](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6374973855) owns only this consumer and report. Lane A owns all contract, canonical fixture, root test and handoff changes. After corrected publications: exact-head re-review and CI, then ACK, then human approval. L3 permits at most three MISMATCH rounds before BLOCKED for human decision. This #217 result is round2; no automatic escalation or premature implementation.
 

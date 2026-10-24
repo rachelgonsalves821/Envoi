@@ -10,7 +10,7 @@ const BASE = 'd05498d8dc13c6f07dc151da7a41a1619ff62436';
 export const publications = [
   { pr: 215, id: 'mcp-wake', sha: '32975892945718296a4968a3d6ddbc40ef6d175b', count: 22 },
   { pr: 216, id: 'provider-event-wake', sha: process.env.ENVOI_EVENT_CONTRACT_SHA ?? 'd920f65cf2ad2ec1933ab92c29d46fbdb4397a7b', count: 49 },
-  { pr: 217, id: 'provider-gateway-native', sha: process.env.ENVOI_GATEWAY_CONTRACT_SHA ?? 'ddf8df082e9cca33ce536d9a0e30a23afb58c7b8', count: 51 },
+  { pr: 217, id: 'provider-gateway-native', sha: process.env.ENVOI_GATEWAY_CONTRACT_SHA ?? '9bca2380a51038cfe72fd9b247730afb080988ce', count: 51 },
   { pr: 218, id: 'provider-connector-tools', sha: '3af8669a907c316b95ff92fa7031a50a654e1a18', count: 6 }
 ];
 assert.ok(publications.every(p => /^[a-f0-9]{40}$/.test(p.sha)), 'exact Git publication SHAs required');
