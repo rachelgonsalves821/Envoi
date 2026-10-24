@@ -1,5 +1,7 @@
 # Muse reviewed Connector Platform submission packet
 
+> **Superseded preparation note, 2026-10-24:** the two-tool proposal below is historical. The current packet consumes human-approved `provider-connector-tools` v1 (#218), option A, and the exact ten-tool minimum set. Use [Muse Connector Platform submission readiness](../muse/CONNECTOR-SUBMISSION-READINESS.md) for the active scope, classifications and M1–M5 gates. No additional action contract is required for that existing `/mcp` set. No Meta submission or hosted acceptance is claimed; flags remain OFF and Builds stays paused.
+
 **Status: preparation only, 2026-10-21.** Rachel selected Meta's reviewed/listed Connector Platform route for the Envoi beta and excluded user-created Custom Connectors. No submission, Meta approval, reviewed-route installation or live Envoi-origin exchange is recorded here. A historical excluded Custom Connector probe had a securely stored short-lived credential but received edge/runtime-policy denials, not Envoi data; see the [route closeout record](../onboarding/skill/PROVIDER-ROUTE-CLOSEOUT-2026-10-21.md). This packet maps [Meta's published intake requirements](https://platform.muse.ai/docs) to the evidence needed before Rachel submits. It is not a request to accept Meta terms or create an account.
 
 ## Use case and complete workflow
