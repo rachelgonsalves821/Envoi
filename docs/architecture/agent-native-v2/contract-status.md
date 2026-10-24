@@ -28,8 +28,9 @@ Reconciled 2026-10-23 against integration `d05498d8dc13c6f07dc151da7a41a1619ff62
 | | rev 2 | 6320802292 @bbd361e | 6321065617 | 6321077051 | 6321122478 @bbd361e |
 | | rev 3 (Policy A) | 6343901071 @af482b0 | 6343970266 | not selected; contained in rev 4 | |
 | | rev 4 (Policy B) | 6343901071 @7d85748 | 6343887844 | 6344626717 relaying PR #194 approval 6344615320 @7d85748 | #198 then #203, 6371328798 |
+| `provider-gateway-native` | v1 revision 2 | 6375676660, correction 6389044410, final 6389718662 @f56e3c4 (earlier heads @9b13fa3, @b785836, @ddf8df0, @9bca238 are superseded; MISMATCH rounds 6373764561, 6375143615) | 6389723646 | 6389743298 @f56e3c4 | the #217 merge in the B/C closure integration (see its INTEGRATED receipt on #34) |
 
-Exact-run references recorded with these decisions: on-demand CI 39658621237; remote-auth rev 4 CI 39798192314; registration rev 5 paired CI 39806612773 (and 39799191365 for the earlier pair); the ordered candidate #198 CI 39819555760; integration push CI at `9ddfae9` 39994248902 and at `d05498d` 39996743328. Agent-written approval relays are labelled as relays on the board. No new approval is created by this page.
+Exact-run references recorded with these decisions: provider-gateway-native revision 2 CI 40133226145; on-demand CI 39658621237; remote-auth rev 4 CI 39798192314; registration rev 5 paired CI 39806612773 (and 39799191365 for the earlier pair); the ordered candidate #198 CI 39819555760; integration push CI at `9ddfae9` 39994248902 and at `d05498d` 39996743328. Agent-written approval relays are labelled as relays on the board. No new approval is created by this page.
 
 ## Gates
 

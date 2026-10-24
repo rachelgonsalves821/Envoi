@@ -693,7 +693,7 @@
     {
       "id": "provider-gateway-native",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-gateway-native-v1",
       "dir": "provider-gateway-native",
       "schemas": "schemas.json",
