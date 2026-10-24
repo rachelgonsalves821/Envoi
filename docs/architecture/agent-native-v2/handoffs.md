@@ -5111,7 +5111,7 @@ It does not make Instinct "automatic". A scheduled run is a host schedule, not a
 4. **`native_work` needs the owner's explicit upgrade (chosen)** rather than being implied by the Stage 1 approval.
 5. **Replacement session through the existing owner-confirmed repair (chosen, G1)** rather than a new endpoint that issues cookies at upgrade time. It reuses Stage 1 unchanged and keeps the owner present for the cookie that carries write authority; the cost is one more owner step.
 6. **Outstanding-claim replay keyed by run (chosen, G2)** rather than a client-supplied claim key, so the Stage 1 `runId` stays the only correlation id.
-7. **Run budget stays 120 s and is checked before the 150 s lease (chosen, G2)** rather than exempting retries or lengthening the run. The cost is that a host that overruns its run must start a fresh run and may wait up to 30 s for the lease to lapse; the benefit is one bound, one queue and no duplicate item budget.
+7. **Run budget stays 120 s and is checked before the 150 s lease (chosen, G2)** rather than exempting retries or lengthening the run. The cost is that a host that overruns its run must start a fresh run and may wait until the actual outstanding lease expires. A lease is 150 s from its claim or renewal, so an in-budget last claim or renewal can leave up to 150 s after the run ends (in the fixtures: the run ends 12:02:00, the next-item lease expires 12:03:30, 90 s later, and the renewed lease expires 12:04:30, 150 s later); 30 s applies only to an initial claim at the start of the run with no renewal. The benefit is one bound, one queue and no duplicate item budget.
 
 ### 9. Implementation notes (Lane A, informative)
 
