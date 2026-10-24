@@ -1,0 +1,67 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "repair-pairing-created",
+  "kind": "http",
+  "description": "§2.3 step 1: the host re-pairs through the unchanged Stage 1 route. The body is the Stage 1 closed object; the scope comes from the owner's recorded grant, never from this request. Nothing is activated.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:00:20.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z",
+    "ownerGrant": {
+      "scope": "native_work",
+      "generation": 5
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/pairings",
+    "auth": "pending_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_pair=PLACEHOLDER_pending_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_pending_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "requestedName": "Instinct agent",
+      "requestedPermissions": [
+        "receive_agent_messages"
+      ],
+      "runtime": {
+        "type": "instinct",
+        "version": "1.0.0"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "schema": "pairingCreated",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "state": "pending_claim",
+      "claimUrl": "https://www.envoi-agents.com/claim",
+      "verificationCode": "AB12-CD34",
+      "expiresAt": "2026-10-24T12:10:20.000Z",
+      "retryAfterSeconds": 5
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "STARTING",
+    "retry": "none",
+    "guidance": "wait_for_owner"
+  }
+}

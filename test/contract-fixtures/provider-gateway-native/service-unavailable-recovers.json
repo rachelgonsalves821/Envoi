@@ -1,0 +1,64 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "service-unavailable-recovers",
+  "kind": "http",
+  "description": "§4.4: canonical outage: 503, no effect claimed, the same key is safe to retry within the run budget.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:01:00.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/act",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "idempotencyKey": "reply-7",
+      "action": "reply",
+      "text": "Tuesday 10:00 works for us."
+    }
+  },
+  "response": {
+    "status": 503,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "error": "GATEWAY_TEMPORARILY_UNAVAILABLE",
+      "code": "GATEWAY_TEMPORARILY_UNAVAILABLE",
+      "guidance": "retry_with_same_key"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "DEGRADED",
+    "retry": "backoff",
+    "guidance": "retry_with_same_key"
+  }
+}
