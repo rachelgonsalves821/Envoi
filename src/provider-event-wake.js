@@ -76,7 +76,9 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
       if(existing?.status==='ended'||!cached||cached.key!==oneWayKey||Date.parse(cached.expiresAt)<=time()){
         await store.deleteJson(cache);
         const challenge=`envoi_wake_challenge_${crypto.randomBytes(32).toString('base64url')}`,bodyText=JSON.stringify({type:'verification',challenge}),id=`wake_evt_${crypto.randomBytes(18).toString('base64url')}`;
-        const response=await httpWake.verifyCallback(binding,url,{bodyText,headers:signProviderWebhook({secret:params.delivery.secret,bodyText,id,at:now(),subscriptionId:identityId(binding,params.name,url)})});
+        let response;
+        try{response=await httpWake.verifyCallback(binding,url,{bodyText,headers:signProviderWebhook({secret:params.delivery.secret,bodyText,id,at:now(),subscriptionId:identityId(binding,params.name,url)})});}
+        catch(error){if(error.code==='WAKE_URL_REJECTED')throw callbackError('address_not_allowed');throw error;}
         let echoed=response.body?.challenge;try{echoed||=JSON.parse(response.bodyText).challenge;}catch{/* Bounded malformed response is a verification refusal. */}
         if(response.failureClass==='timeout')throw callbackError('timeout');
         if(!(response.status>=200&&response.status<300)||response.bodyTooLarge||!equal(echoed,challenge))throw callbackError('challenge_failed');
