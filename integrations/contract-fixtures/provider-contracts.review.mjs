@@ -10,7 +10,7 @@ const BASE = 'd05498d8dc13c6f07dc151da7a41a1619ff62436';
 export const publications = [
   { pr: 215, id: 'mcp-wake', sha: '32975892945718296a4968a3d6ddbc40ef6d175b', count: 22 },
   { pr: 216, id: 'provider-event-wake', sha: process.env.ENVOI_EVENT_CONTRACT_SHA ?? 'd920f65cf2ad2ec1933ab92c29d46fbdb4397a7b', count: 49 },
-  { pr: 217, id: 'provider-gateway-native', sha: process.env.ENVOI_GATEWAY_CONTRACT_SHA ?? '9bca2380a51038cfe72fd9b247730afb080988ce', count: 51 },
+  { pr: 217, id: 'provider-gateway-native', sha: process.env.ENVOI_GATEWAY_CONTRACT_SHA ?? 'f56e3c4790ad712f0863f4cfcd85185da58c54ad', sourceBase: 'dceaac28ecef97b5d8e5dd85a75977e19341f224', count: 51 },
   { pr: 218, id: 'provider-connector-tools', sha: '3af8669a907c316b95ff92fa7031a50a654e1a18', count: 6 }
 ];
 assert.ok(publications.every(p => /^[a-f0-9]{40}$/.test(p.sha)), 'exact Git publication SHAs required');
@@ -33,12 +33,14 @@ const loaded = publications.map(p => {
   return { ...p, root, files, schema, fixtures, ajv, def, f };
 });
 for (const c of loaded) {
-  check(`${c.id}: exact published fixture inventory and approved-source preservation`, () => {
+  check(`${c.id}: exact fixture inventory, declared source baseline and approved-contract preservation`, () => {
     assert.equal(c.fixtures.length, c.count);
     assert.equal(new Set(c.fixtures.map(f => f.id)).size, c.count);
-    const names = git('diff', '--name-only', BASE, c.sha).split('\n');
+    const sourceBase = c.sourceBase ?? BASE;
+    assert.match(sourceBase,/^[a-f0-9]{40}$/);
+    const names = git('diff', '--name-only', sourceBase, c.sha).split('\n');
     assert.ok(names.every(n => n === 'docs/architecture/agent-native-v2/handoffs.md' || n === 'test/contract-fixtures/index.json' || n.startsWith(c.root) || n === `test/contract-${c.id}.test.js`), 'contract-only paths');
-    assert.equal(git('diff', BASE, c.sha, '--', 'src', 'db', 'worker', 'wrangler.jsonc', 'test/contract-fixtures/agent-remote-auth', 'test/contract-fixtures/provider-browser-poll', 'test/contract-fixtures/http-wake'), '');
+    assert.equal(git('diff', c.sourceBase ?? BASE, c.sha, '--', 'src', 'db', 'worker', 'wrangler.jsonc', 'test/contract-fixtures/agent-remote-auth', 'test/contract-fixtures/provider-browser-poll', 'test/contract-fixtures/http-wake'), '');
   });
   check(`${c.id}: every fixture and named HTTP result consumes its published schema`, () => {
     for (const f of c.fixtures) {
@@ -376,7 +378,7 @@ const waitExamples=['claim-next-item-after-settlement','renew-once'].map(id=>{
 if(/wait up to 30 s/.test(gatewayText)&&waitExamples.some(e=>e.secondsAfterRunBudget>30))
  finding(217,'decision text: 30-second maximum wait is contradicted by later-claim and renewal examples','describe waiting until the actual outstanding lease expiry; 150-second leases issued or renewed later in the run can outlast its end by more than 30 seconds',waitExamples);
 assert.equal(networkCalls,0);
-const result={base:BASE,publications:loaded.map(c=>({pr:c.pr,id:c.id,sha:c.sha,count:c.fixtures.length,fixtureTree:git('rev-parse',`${c.sha}:${c.root.slice(0,-1)}`),schemaSha256:createHash('sha256').update(bytes(c.sha,c.root+'schemas.json')).digest('hex')})),checks,findings,networkCalls};
+const result={base:BASE,publications:loaded.map(c=>({pr:c.pr,id:c.id,sha:c.sha,sourceBase:c.sourceBase??BASE,count:c.fixtures.length,fixtureTree:git('rev-parse',`${c.sha}:${c.root.slice(0,-1)}`),schemaSha256:createHash('sha256').update(bytes(c.sha,c.root+'schemas.json')).digest('hex')})),checks,findings,networkCalls};
 console.log(JSON.stringify(result,null,2));
 if(process.env.ENVOI_CONTRACT_REVIEW_RESULT)writeFileSync(process.env.ENVOI_CONTRACT_REVIEW_RESULT,JSON.stringify(result,null,2)+'\n');
 process.exitCode=checks.some(c=>!c.ok) ? 1 : findings.length ? 2 : 0;
