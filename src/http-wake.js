@@ -282,7 +282,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       await save(sub);await index(sub);return sub;
     });},
     async endProfile(identity,id,reason='ended_by_host'){return store.withTransaction([lock(identity.inboxId)],async()=>{const sub=await owned(identity,id);if(!sub.profile)throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND');return endRecord(sub,reason);});},
-    async queueProfile(sub,type,reason,cursor=null){if(cursor)sub.cursor=cursor;await derive(sub);if(sub.status==='active'&&(!sub.targetState||sub.targetState==='active'))await queue(sub,type,reason);},
+    async queueProfile(sub,type,reason,cursor=null){return store.withTransaction([lock(sub.inboxId)],async()=>{const current=await derive(await store.getJson(subPath(sub.agentId,sub.id)));if(!current||current.generation!==sub.generation)return;if(cursor)current.cursor=cursor;if(current.status==='active'&&(!current.targetState||current.targetState==='active'))await queue(current,type,reason);});},
     async verifyCallback(identity,url,{bodyText,headers}){
       available();const resolved=await resolve(url);const token=crypto.randomUUID();const admitted=await admission.admit({subscriptionId:`verify:${identity.installationId}`,host:new URL(url).hostname,addresses:resolved.addresses,token,limited:true});
       if(!admitted)throw Object.assign(wakeError(429,'RATE_LIMITED'),{retryAfter:1});

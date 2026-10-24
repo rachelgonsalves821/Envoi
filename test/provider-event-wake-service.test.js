@@ -60,8 +60,10 @@ parity('provider retry preserves event identity and raw bytes with a fresh signi
 });
 parity('unsubscribe deletes secrets, invalidates verification and fences previous generations',async(t,kind)=>{
   const h=await harness(t,kind);const first=await h.provider.subscribe(identity,parameters(),protocol);await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));
+  const stale=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));
   const {secret:_,...delivery}=parameters().delivery;const unsubscribe={name:parameters().name,arguments:{},delivery};assert.deepEqual(await h.tx(()=>h.provider.unsubscribe(identity,unsubscribe,protocol)),{});assert.deepEqual(await h.tx(()=>h.provider.unsubscribe(identity,unsubscribe,protocol)),{});
   const ended=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));assert.equal(ended.secretEncrypted,undefined);assert.equal(ended.status,'ended');const sent=h.sent.length;
+  await h.http.queueProfile(stale,'wake.work_available','work_due');assert.equal((await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id))).status,'ended');
   await h.provider.subscribe(identity,parameters(),protocol);assert.equal(h.sent.length,sent+1);assert.equal(await h.http.runOnce(),false);
 });
 parity('Grok 202 is receipt only; 401 pauses and owner secret replacement resumes; sender defects do not retry',async(t,kind)=>{
