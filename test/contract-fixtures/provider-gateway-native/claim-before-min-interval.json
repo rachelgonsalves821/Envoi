@@ -1,0 +1,63 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "claim-before-min-interval",
+  "kind": "http",
+  "description": "§3.5: a new run sooner than 60 s after the last is rate limited.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:00:15.000Z",
+    "runStartedAt": "2026-10-24T12:00:15.000Z",
+    "previousRunStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/claim",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_new"
+    }
+  },
+  "response": {
+    "status": 429,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store",
+      "retry-after": "45"
+    },
+    "body": {
+      "error": "RATE_LIMITED",
+      "code": "RATE_LIMITED",
+      "guidance": "wait_retry_after",
+      "retryAfterSeconds": 45
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "UNCHANGED",
+    "retry": "after_retry_after",
+    "guidance": "wait_retry_after"
+  }
+}
