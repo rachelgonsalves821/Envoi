@@ -32,13 +32,19 @@ for (const backend of backends) {
       withTransaction: (keys, fn) => raw.withTransaction(keys.map(k => `${namespace}:${k}`), fn)
     };
     t.after(async () => { if (backend === 'PostgreSQL') await raw.close(); await rm(root, { recursive: true, force: true }); });
-    let at = Date.parse('2026-10-24T12:00:00.000Z'), enabled = true, paused = false, revoked = false, allowed = permissions.slice(), blocked = false, loseEffect = false, ownerRequired = false;
+    let at = Date.parse('2026-10-24T12:00:00.000Z'), enabled = true, paused = false, revoked = false, allowed = permissions.slice(), blocked = false, loseEffect = false, ownerRequired = false, invalidAudit = false;
+    const published = [];
     const key = crypto.randomBytes(32), workPath = id => path.join('canonical-work', `${id}.json`);
     const authorize = async () => {
       if (revoked) throw Object.assign(new Error(), { code: 'CREDENTIAL_REVOKED', statusCode: 401 });
       return { address: 'agent@agents.envoi-agents.com', paused, permissions: allowed };
     };
     const browserAdapter = {
+      audit: async (binding, type, data, createdAt) => {
+        const event = { id: crypto.randomUUID(), inboxId: binding.inboxId || 'ownerInbox', type, data, createdAt: createdAt || new Date(at).toISOString() };
+        await store.putJson(path.join('canonical-audits', `${event.id}.json`), event); return event;
+      },
+      publish: event => { published.push(event); },
       lockKeys: () => ['inbox:installation1'],
       createRegistration: async () => ({ registrationId: 'registration1', claim: { verificationCode: 'ABCD-EFGH', url: 'https://envoi.example/claim' } }),
       registrationStatus: async () => ({ state: 'approved' }),
@@ -70,6 +76,8 @@ for (const backend of backends) {
         else if (input.action === 'request_owner' || ownerRequired) { current.attempts--; current.leaseExpiresAt = null; current.state = 'held'; result = { state: 'owner_approval_pending', settled: false, requestId: 'canonical_request1' }; }
         else { current.state = 'completed'; current.reply = input.text; current.leaseExpiresAt = null; await store.putJson(path.join('canonical-replies', `${work.workId}.json`), { text: input.text, id: 'canonical_reply1' }); result = { state: 'sent', settled: true, receiptId: 'canonical_reply1' }; }
         await store.putJson(workPath(work.workId), current);
+        await input.audit('agent.native_effect', { workId: work.workId }, input.asOf, 'counterpartyInbox');
+        if (invalidAudit) await input.audit('agent.native_effect', {}, input.asOf, '../outside');
         if (loseEffect) { loseEffect = false; throw new Error('transaction failed after effect staging'); }
         return result;
       },
@@ -95,9 +103,9 @@ for (const backend of backends) {
     const initial = await connect(), readOnly = await initial.activate();
     const upgrade = () => native.updateScope('installation1', { scope: 'native_work', expectedRevision: 0, comparisonPhrase: phrase }, 'owner');
     const nativeSession = async () => { await upgrade(); at += 20_000; const repairing = await connect(); const confirmedAt = at; at += 5000; return { session: await repairing.activate(), confirmedAt }; };
-    return { store, root, readOnly, upgrade, connect, nativeSession, restart, work: id => store.getJson(workPath(id)),
+    return { store, root, published, readOnly, upgrade, connect, nativeSession, restart, work: id => store.getJson(workPath(id)),
       get browser() { return browser; }, get native() { return native; }, get phrase() { return phrase; }, get at() { return at; },
-      advance: ms => { at += ms; }, disable: () => { enabled = false; }, enable: () => { enabled = true; }, pause: () => { paused = true; }, revoke: () => { revoked = true; }, reduce: () => { allowed = ['receive_agent_messages']; }, block: () => { blocked = true; }, loseEffect: () => { loseEffect = true; }, requireOwner: () => { ownerRequired = true; } };
+      advance: ms => { at += ms; }, disable: () => { enabled = false; }, enable: () => { enabled = true; }, pause: () => { paused = true; }, revoke: () => { revoked = true; }, reduce: () => { allowed = ['receive_agent_messages']; }, block: () => { blocked = true; }, loseEffect: () => { loseEffect = true; }, requireOwner: () => { ownerRequired = true; }, invalidAudit: () => { invalidAudit = true; } };
   }
   test(`[${backend}] explicit owner upgrade ends old generation; repair preserves identity, permission scope and confirmation-bound lifetime`, async t => {
     const f = await fixture(t);
@@ -131,10 +139,13 @@ for (const backend of backends) {
   test(`[${backend}] atomic canonical reply and ledger roll back together; identical replay precedes expired run but never current controls`, async t => {
     const f = await fixture(t), { session: s } = await f.nativeSession(), c = await f.native.claim(s.secret, s.csrf, { runId: 'r' });
     const input = { runId: 'r', workRef: c.packet.workRef, idempotencyKey: 'reply1', action: 'reply', text: 'Tuesday works' };
+    const beforePublished = f.published.length, beforeAudits = (await f.store.listJson('canonical-audits')).length;
     f.loseEffect(); await assert.rejects(f.native.act(s.secret, s.csrf, input), /transaction failed/); assert.equal((await f.work('work1')).state, 'pending'); assert.equal((await f.store.listJson('canonical-replies')).length, 0);
+    assert.equal(f.published.length, beforePublished); assert.equal((await f.store.listJson('canonical-audits')).length, beforeAudits);
     const [a, b] = await Promise.all([f.native.act(s.secret, s.csrf, input), f.native.act(s.secret, s.csrf, input)]);
     matches('actResult', a); matches('actResult', b);
     assert.equal(a.state, 'sent'); assert.equal(a.settled, true); assert.equal(b.replayed, true); assert.equal(a.receiptRef, b.receiptRef); assert.equal((await f.store.listJson('canonical-replies')).length, 1);
+    assert.equal(f.published.length, beforePublished + 1); assert.equal(f.published.at(-1).inboxId, 'counterpartyInbox'); assert.equal(f.published.at(-1).createdAt, new Date(f.at).toISOString());
     f.advance(121_000); f.restart(); assert.equal((await f.native.act(s.secret, s.csrf, input)).replayed, true);
     await assert.rejects(f.native.act(s.secret, s.csrf, { ...input, text: 'Changed' }), code('IDEMPOTENCY_CONFLICT'));
     f.block(); await assert.rejects(f.native.act(s.secret, s.csrf, input), code('GATEWAY_SCOPE_DENIED'));
@@ -182,5 +193,22 @@ for (const backend of backends) {
     const g = await fixture(t), { session: gs } = await g.nativeSession(); const c = await g.native.claim(gs.secret, gs.csrf, { runId: 'r' }); g.pause();
     await assert.rejects(g.native.act(gs.secret, gs.csrf, { runId: 'r', workRef: c.packet.workRef, idempotencyKey: 'x', action: 'defer' }), code('AGENT_PAUSED')); assert.equal((await g.work('work1')).state, 'held'); assert.equal((await g.work('work1')).attempts, 0);
     const h = await fixture(t), { session: hs } = await h.nativeSession(); h.reduce(); await assert.rejects(h.native.claim(hs.secret, hs.csrf, { runId: 'r' }), code('GATEWAY_SCOPE_DENIED')); h.revoke(); await assert.rejects(h.native.claim(hs.secret, hs.csrf, { runId: 'r' }), code('CREDENTIAL_REVOKED'));
+  });
+  test(`[${backend}] rate budget belongs to owner and audit target stays closed`, async t => {
+    const f = await fixture(t), { session: s } = await f.nativeSession();
+    for (let i = 6; i <= 61; i++) await f.store.putJson(path.join('canonical-work', `work${i}.json`), { workId: `work${i}`, caseId: `case${i}`, kind: 'agent_message', text: 'Reply', state: 'pending', attempts: 0 });
+    let last;
+    for (let i = 0; i < 60; i++) {
+      if (i && i % 3 === 0) f.advance(60_000);
+      const c = await f.native.claim(s.secret, s.csrf, { runId: `r${Math.floor(i / 3)}` });
+      last = { runId: c.packet.runId, workRef: c.packet.workRef, idempotencyKey: `reply:${i}.accepted`, action: 'reply', text: 'Allowed' };
+      assert.equal((await f.native.act(s.secret, s.csrf, last)).state, 'sent');
+    }
+    f.advance(60_000); const c = await f.native.claim(s.secret, s.csrf, { runId: 'overflow' });
+    await assert.rejects(f.native.act(s.secret, s.csrf, { ...last, runId: 'overflow', workRef: c.packet.workRef, idempotencyKey: 'overflow' }), code('RATE_LIMITED'));
+    assert.equal((await f.store.listJson('canonical-replies')).length, 60);
+    const g = await fixture(t), { session: gs } = await g.nativeSession(), gc = await g.native.claim(gs.secret, gs.csrf, { runId: 'r' }); g.invalidAudit();
+    await assert.rejects(g.native.act(gs.secret, gs.csrf, { runId: 'r', workRef: gc.packet.workRef, idempotencyKey: 'invalid', action: 'reply', text: 'No' }), /Invalid canonical native audit/);
+    assert.equal((await g.store.listJson('canonical-replies')).length, 0);
   });
 }

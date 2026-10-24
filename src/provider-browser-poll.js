@@ -45,8 +45,8 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, native
   const read = async id => { const record = await store.getJson(file(id)); return record ? unseal(record.encrypted, digest(id)) : null; };
   const write = (id, value) => store.putJson(file(id), { key: digest(id), encrypted: seal(value, digest(id)) });
   const auditContext = new AsyncLocalStorage();
-  const audit = async (binding, type, data = {}) => {
-    if (adapter.audit) auditContext.getStore().push(await adapter.audit(binding, type, data));
+  const audit = async (binding, type, data = {}, createdAt = undefined) => {
+    if (adapter.audit) auditContext.getStore().push(await adapter.audit(binding, type, data, createdAt));
   };
   const lock = async (id, keys, operation) => {
     const events = [];

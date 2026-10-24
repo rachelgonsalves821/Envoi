@@ -36,6 +36,17 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
   const ledgerId = binding => `native-ledger:${binding.installationId}`;
   const rateId = binding => `native-owner-rate:${binding.ownerId}`;
   const readLedger = async binding => await port.read(ledgerId(binding)) || { runs: {}, work: {}, keys: {} };
+  // This callback is server-internal. Target inboxes must come from the canonical
+  // case binding, never HTTP input. Audit persistence shares the outer transaction;
+  // Stage1's audit context publishes only after that transaction commits.
+  const auditFor = binding => (...args) => {
+    const [type, data, createdAt, targetInboxId] = args;
+    if (args.length > 4 || typeof type !== 'string' || !/^[a-z][a-z0-9_.-]{0,199}$/.test(type)
+      || data === null || typeof data !== 'object' || Array.isArray(data)
+      || createdAt !== undefined && !Number.isFinite(Date.parse(createdAt))
+      || targetInboxId !== undefined && (typeof targetInboxId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(targetInboxId))) throw new TypeError('Invalid canonical native audit');
+    return port.audit(targetInboxId === undefined ? binding : { ...binding, inboxId: targetInboxId }, type, data, createdAt);
+  };
   const permissionCheck = identity => {
     if (identity.paused) fail(409, 'AGENT_PAUSED');
     if (!['receive_agent_messages', 'send_agent_messages', 'execute_cases'].every(p => identity.permissions?.includes(p))) fail(403, 'GATEWAY_SCOPE_DENIED');
@@ -47,7 +58,7 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
     ...(await adapter.lockKeys(binding, operation, input) || [])
   ];
   async function release(binding, work, reason) {
-    if (work && !work.closed && Date.parse(work.leaseExpiresAt) > now()) await adapter.release(binding, work, { reason, noAttempt: true, held: reason === 'paused', audit: (type, data) => port.audit(binding, type, data) });
+    if (work && !work.closed && Date.parse(work.leaseExpiresAt) > now()) await adapter.release(binding, work, { reason, noAttempt: true, held: reason === 'paused', audit: auditFor(binding) });
     if (work) work.closed = true;
   }
   async function revokeNative(binding, reason) {
@@ -88,12 +99,14 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       const installation = await port.read(`installation:${session.binding.installationId}`);
       if (session.nativeScope !== 'native_work' || installation?.native?.scope !== 'native_work') fail(403, 'GATEWAY_SCOPE_DENIED');
       const ledger = await readLedger(session.binding), work = input.workRef ? ledger.work[input.workRef] : null;
-      const identity = await adapter.authorize(session.binding, { work, operation: kind, input });
-      if (baseIdentity.paused || identity.paused) {
+      const holdPaused = async () => {
         for (const outstanding of Object.values(ledger.work)) await release(session.binding, outstanding, 'paused');
         await port.write(ledgerId(session.binding), ledger);
         return { refused: gatewayError(409, 'AGENT_PAUSED') };
-      }
+      };
+      if (baseIdentity.paused) return holdPaused();
+      const identity = await adapter.authorize(session.binding, { work, operation: kind, input });
+      if (identity.paused) return holdPaused();
       permissionCheck(identity);
       return fn(session, identity, ledger, work);
     }, csrf, false, binding => lockKeys(binding, kind, input));
@@ -126,7 +139,7 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       }
       if (active) { await port.write(ledgerId(binding), ledger); return { state: 'idle', packet: null, retryAfterSeconds: retry(Date.parse(active.leaseExpiresAt)), replayed: false }; }
       if (run.items >= nativeGatewayLimits.items || run.actions >= nativeGatewayLimits.actions) return { state: 'budget_reached', packet: null, retryAfterSeconds: 1800, replayed: false };
-      const claimed = await adapter.claim(binding, { runId: input.runId, leaseSeconds: 150, excludeWorkIds: run.excluded, asOf: iso(at), audit: (type, data) => port.audit(binding, type, data) });
+      const claimed = await adapter.claim(binding, { runId: input.runId, leaseSeconds: 150, excludeWorkIds: run.excluded, asOf: iso(at), audit: auditFor(binding) });
       if (now() > run.startedAt + nativeGatewayLimits.runMs) fail(409, 'GATEWAY_RUN_EXPIRED');
       if (!claimed || !claimed.workId) {
         await port.write(ledgerId(binding), ledger);
@@ -153,7 +166,7 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
   }
   async function act(secret, csrf, input) {
     validRunInput(input, ['runId', 'workRef', 'idempotencyKey', 'action', 'text'], ['runId', 'workRef', 'idempotencyKey', 'action']);
-    if (!safeId(input.idempotencyKey) || typeof input.workRef !== 'string' || !/^w_[a-zA-Z0-9]{12,}$/.test(input.workRef)) fail(400, 'GATEWAY_REQUEST_INVALID');
+    if (typeof input.idempotencyKey !== 'string' || [...input.idempotencyKey].length < 1 || [...input.idempotencyKey].length > 80 || typeof input.workRef !== 'string' || !/^w_[a-zA-Z0-9]{12,}$/.test(input.workRef)) fail(400, 'GATEWAY_REQUEST_INVALID');
     if (!replyActions.includes(input.action)) fail(400, 'GATEWAY_ACTION_UNSUPPORTED');
     if (input.action !== 'defer' && (typeof input.text !== 'string' || !input.text.trim()) || input.action === 'defer' && input.text !== undefined) fail(400, 'GATEWAY_REQUEST_INVALID');
     if (typeof input.text === 'string' && Buffer.byteLength(input.text) > 4096) fail(400, 'GATEWAY_REQUEST_INVALID', { reason: 'text_too_long' });
@@ -168,7 +181,7 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       const rate = await port.read(rateId(binding)) || { replies: [] };
       rate.replies = rate.replies.filter(at => at > now() - 3_600_000);
       if (input.action === 'reply' && rate.replies.length >= nativeGatewayLimits.repliesPerHour) fail(429, 'RATE_LIMITED', { retryAfterSeconds: retry(rate.replies[0] + 3_600_000) });
-      const effect = await adapter.act(binding, work, { action: input.action, text: input.text, idempotencyKey: input.idempotencyKey, requestDigest, asOf: iso(now()), audit: (type, data) => port.audit(binding, type, data) });
+      const effect = await adapter.act(binding, work, { action: input.action, text: input.text, idempotencyKey: input.idempotencyKey, requestDigest, asOf: iso(now()), audit: auditFor(binding) });
       if (!['sent', 'owner_approval_pending', 'deferred'].includes(effect?.state) || effect.state === 'sent' && !effect.settled) fail(503, 'GATEWAY_TEMPORARILY_UNAVAILABLE');
       const result = { state: effect.state, runId: input.runId, workRef: input.workRef,
         ...(effect.state === 'sent' ? { receiptRef: opaque('r') } : {}), ...(effect.state === 'owner_approval_pending' ? { requestRef: opaque('q') } : {}),
@@ -188,7 +201,7 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
     return operation(secret, csrf, 'renew', input, async (session, _identity, ledger, work) => {
       const run = liveWork(ledger, work, input, session.binding);
       if (work.renewals >= 1) fail(409, 'LEASE_LOST');
-      const renewed = await adapter.renew(session.binding, work, { leaseSeconds: 150, asOf: iso(now()), audit: (type, data) => port.audit(session.binding, type, data) });
+      const renewed = await adapter.renew(session.binding, work, { leaseSeconds: 150, asOf: iso(now()), audit: auditFor(session.binding) });
       if (!Number.isFinite(Date.parse(renewed?.leaseExpiresAt)) || Date.parse(renewed.leaseExpiresAt) <= now()) fail(503, 'GATEWAY_TEMPORARILY_UNAVAILABLE');
       work.leaseExpiresAt = renewed.leaseExpiresAt; work.packet.leaseExpiresAt = renewed.leaseExpiresAt; work.packet.renewalsLeft = 0; work.renewals++; run.actions++;
       await port.write(ledgerId(session.binding), ledger);
@@ -217,6 +230,7 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       const index = await port.read('native-installations') || { ids: [] };
       if (!index.ids.includes(installationId)) index.ids.push(installationId);
       await port.write('native-installations', index);
+      await port.audit(current.binding, 'agent.gateway_scope_changed', { scope: 'native_work', revision: current.native.revision, generation: current.native.generation });
       return { scope: 'native_work', revision: current.native.revision, generation: current.native.generation, previousGeneration,
         effectiveAt: iso(now()), requiresNewSessionCookie: true, repair: 'owner_confirmed_repair' };
     });
