@@ -19,5 +19,7 @@
   "durable_objects": {
     "bindings": [{ "name": "CLAMAV_CONTAINER", "class_name": "ClamAVContainer" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClamAVContainer"] }]
+  "exports": {
+    "ClamAVContainer": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

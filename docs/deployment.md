@@ -57,6 +57,46 @@ The closed beta runs one Cloudflare application Container behind its Worker. Pos
 
 ## Current hosting shape
 
+### Durable Object deployment configuration
+
+The application and scanner configurations declare their existing classes using
+`exports`: `SinaloaContainer` and `ClamAVContainer`, each with
+`type: "durable-object"` and `storage: "sqlite"`. The locked Wrangler supports
+this native format. Keep the same Worker, local binding, class and container
+names. The deployment configuration check rejects legacy `migrations`, changed
+storage, extra classes, destructive lifecycle states and external bindings.
+
+This replaces the legacy `v1` creation step. A provisioned Worker can report no
+`migration_tag`; the legacy path then attempts class creation again. Declarative
+exports reconcile against provisioned namespaces and do not need that tag.
+Existing SQLite namespaces remain in place, while a genuinely new Worker can
+still provision its initial namespace. See Cloudflare's
+[legacy-to-exports transition](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/#migrate-from-the-legacy-migrations-flow).
+
+Before approving the first deployment of this configuration, verify the intended
+account/Worker, existing namespace IDs, matching bindings, SQLite/container flags
+and container attachments using read-only provider metadata. Missing, duplicate
+or mismatched existing resources stop that release; do not substitute a new
+namespace. Inspect the actual upload metadata locally with
+`wrangler deploy --dry-run --containers-rollout=none --outfile <private-file>`
+using the explicit app environment or scanner configuration. It must contain the
+expected live `exports` entry and no `migrations`. Dry-run proves serialization,
+not a completed provider transition or preserved live data.
+
+The transition requires a separately approved deployment. Once a Worker uses
+`exports`, Cloudflare does not allow returning to legacy `migrations`; retaining
+an old Git configuration is not a complete rollback procedure. Any recovery
+deployment of earlier code must retain the reviewed exports format, current
+Production auth and preserved namespace attachments. Never replay the old `v1`
+creation, delete/rename/transfer a class, or overwrite accepted owner/workspace
+writes. Confirm provider reconciliation and unchanged namespace IDs before
+accepting that release. Existing exact-source, secret-name, maintenance,
+scanner-rollout and recovery gates still apply.
+
+Preparing or merging this change does not authorize deployment or enabling
+Cloudflare Builds. Keep Builds paused until the human separately approves the
+validated release and any later automatic-build resumption.
+
 Use one beta backend Container behind TLS with PostgreSQL and private S3-compatible object storage. Promote an exact recorded candidate to staging, then beta, using the explicit environment commands in the launch runbook. The beta application is custom-domain-only; run its smoke after binding www.envoi-agents.com. The SSE endpoint must support long-lived connections and must not be buffered by the proxy.
 
 The backend exposes `/health` for liveness and `/ready` for dependency readiness. In production, readiness fails with HTTP `503` if PostgreSQL, private object storage, the malware scanner, or an enabled public-email transport is unavailable. Checks are bounded by `ENVOI_READINESS_TIMEOUT_MS` and return only sanitized reasons. It handles `SIGTERM` by stopping quota cleanup and delivery workers, closing SSE connections, and closing the HTTP server cleanly.

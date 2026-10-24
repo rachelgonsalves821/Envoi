@@ -29,12 +29,9 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["SinaloaContainer"]
-    }
-  ],
+  "exports": {
+    "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+  },
   "env": {
     "staging": {
       "workers_dev": true,
@@ -63,12 +60,9 @@
           }
         ]
       },
-      "migrations": [
-        {
-          "tag": "v1",
-          "new_sqlite_classes": ["SinaloaContainer"]
-        }
-      ]
+      "exports": {
+        "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+      }
     },
     "beta": {
       "workers_dev": false,
@@ -131,12 +125,9 @@
           }
         ]
       },
-      "migrations": [
-        {
-          "tag": "v1",
-          "new_sqlite_classes": ["SinaloaContainer"]
-        }
-      ]
+      "exports": {
+        "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+      }
     }
   }
 }
