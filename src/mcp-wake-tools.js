@@ -8,7 +8,7 @@ export const mcpWakeTools = Object.freeze([
   {name:'envoi_wake_activate',description:'Activate a wake subscription using the challenge delivered to its backend.',permission:'receive_agent_messages',inputSchema:object({subscriptionId,challenge:{type:'string',pattern:'^envoi_wake_challenge_[A-Za-z0-9_-]+$'}},['subscriptionId','challenge'])},
   {name:'envoi_wake_end',description:'End this installation’s wake subscription.',permission:'receive_agent_messages',inputSchema:object({subscriptionId},['subscriptionId'])},
   {name:'envoi_wake_status',description:'Read this installation’s current wake availability and ending reason.',permission:'receive_agent_messages',inputSchema:object({})}
-]);
+].map(tool=>({...tool,scope:'envoi.agent',restEquivalent:{envoi_wake_create:'POST /api/agent/wake-subscriptions',envoi_wake_activate:'POST /api/agent/wake-subscriptions/{id}/activate',envoi_wake_end:'POST /api/agent/wake-subscriptions/{id}/end',envoi_wake_status:'GET /api/agent/status (httpWake)'}[tool.name]})));
 const errors = {
   WAKE_SUBSCRIPTION_INVALID:'The wake request is not valid.',WAKE_URL_REJECTED:'The wake URL is not allowed.',
   WAKE_SUBSCRIPTION_NOT_FOUND:'No such wake subscription.',WAKE_CHALLENGE_INVALID:'The wake challenge does not match.',

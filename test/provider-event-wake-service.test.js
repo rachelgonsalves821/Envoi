@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,readFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 import {FileStore} from '../src/storage.js';
 import {createHttpWake} from '../src/http-wake.js';
 import {createProviderEventWake,signProviderWebhook} from '../src/provider-event-wake.js';
-import {createMcpWakeTools} from '../src/mcp-wake-tools.js';
+import {createMcpWakeTools,mcpWakeTools} from '../src/mcp-wake-tools.js';
 import {createWakeTransport} from '../src/http-wake-transport.js';
 import {EventEmitter} from 'node:events';
 import {wakeSubscriptionPath,wakeQueueDir} from '../src/http-wake-paths.js';
@@ -84,7 +85,7 @@ parity('pause emits control only; revoke or explicit installation end blocks eff
   h.state.agent.status='active';await h.tx(()=>h.http.trigger({...binding,type:'wake.control_changed',reason:'case_controlled'}));h.beforeResolve(()=>{h.state.installation.status='ended';});const count=h.sent.length;await h.http.runOnce();assert.equal(h.sent.length,count);const record=await h.store.getJson(wakeSubscriptionPath(binding.agentId,created.id));assert.equal(record.endedReason,'credential_ended');assert.equal(record.secretEncrypted,undefined);
 });
 test('methods require qualifying audience and MCP2026; closed inputs and TTL/secret bounds are enforced',async t=>{
-  const h=await harness(t);assert.deepEqual(h.provider.discover(identity,'2025-11-25'),{});assert.deepEqual(h.provider.discover(identity,protocol),{events:{}});assert.throws(()=>h.provider.list(identity,{},'2025-11-25'),{rpcCode:-32601});assert.throws(()=>h.provider.list({...identity,family:{}},{},protocol),{rpcCode:-32601});
+  const h=await harness(t);assert.throws(()=>h.provider.discover(identity,'2025-11-25'),{rpcCode:-32601});assert.equal(h.provider.discover(identity,protocol).capabilities.events.constructor,Object);assert.throws(()=>h.provider.list(identity,{},'2025-11-25'),{rpcCode:-32601});assert.throws(()=>h.provider.list({...identity,family:{}},{},protocol),{rpcCode:-32601});
   for(const params of [parameters({ttlMs:10}),parameters({ttlMs:604800001}),parameters({arguments:{agentId:'foreign'}}),parameters({delivery:{...parameters().delivery,secret:'whsec_short'}})])await assert.rejects(h.provider.subscribe(identity,params,protocol),{rpcCode:-32602});
   await assert.rejects(h.provider.unsubscribe(identity,{name:'envoi.work_available',arguments:{},delivery:{url:parameters().delivery.url}},protocol),{rpcCode:-32602});
 });
@@ -119,4 +120,16 @@ test('provider transport reads only opt-in bounded verification bodies and honor
     const send=createWakeTransport({request:(_url,_options,callback)=>{const req=new EventEmitter();req.destroy=()=>{};req.end=()=>{const res=new EventEmitter();res.statusCode=status;res.headers={'retry-after':'90'};res.destroy=()=>res.emit('close');callback(res);res.emit('data',Buffer.from('{"challenge":"ok"}'));res.emit('end');};return req;}});
     const result=await send({url:'https://callbacks.envoi-provider.com/events',addresses:['192.0.43.11'],headers:{},bodyText:'{}',standardWebhooks:true,readResponseBody});assert.equal(result.retryAfterSeconds,90);assert.equal(result.bodyText,readResponseBody?'{"challenge":"ok"}':undefined);
   }
+});
+async function canonical(contract,file,ref){
+  const relative=`test/contract-fixtures/${contract}/${file}`;
+  // The implementation task starts at f897404, before these independently approved contract
+  // branches are composed. On the combined candidate the canonical files are read directly.
+  try{return JSON.parse(await readFile(new URL(`../${relative}`,import.meta.url),'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;return JSON.parse(execFileSync('git',['show',`${ref}:${relative}`],{cwd:new URL('..',import.meta.url),encoding:'utf8',windowsHide:true}));}
+}
+test('MCP wake tool metadata/input schemas and events discovery/list match approved canonical fixture tables',async t=>{
+  const h=await harness(t);const mcp=await canonical('mcp-wake','schemas.json','32975892945718296a4968a3d6ddbc40ef6d175b');
+  assert.deepEqual(mcpWakeTools.map(({description:_,...tool})=>tool),mcp['x-tools']);
+  const discover=await canonical('provider-event-wake','discover-events-capability.json','d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b');assert.deepEqual(h.provider.discover(identity,protocol),discover.response.body.result);
+  const list=await canonical('provider-event-wake','events-list.json','d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b');assert.deepEqual(h.provider.list(identity,{},protocol),list.response.body.result);
 });

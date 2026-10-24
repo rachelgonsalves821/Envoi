@@ -5,7 +5,7 @@ import { createWakeDestination, wakeError } from './http-wake-destination.js';
 export const providerEventsProtocolVersion='2026-07-28';
 export const providerEvents = Object.freeze([
   {name:'envoi.work_available',description:'Work for this connection became claimable. Opaque hint: claim to learn what.',delivery:['webhook'],inputSchema:{type:'object',additionalProperties:false,properties:{}},payloadSchema:{type:'object',additionalProperties:false,required:['reason'],properties:{reason:{enum:['message_delivered','human_instruction','agent_resumed','case_resumed','counterparty_resumed','work_due','subscription_activated']}}}},
-  {name:'envoi.control_changed',description:'This connection’s pause state or a case control changed. Opaque hint.',delivery:['webhook'],inputSchema:{type:'object',additionalProperties:false,properties:{}},payloadSchema:{type:'object',additionalProperties:false,required:['reason'],properties:{reason:{enum:['agent_paused','case_controlled']}}}}
+  {name:'envoi.control_changed',description:"This connection's pause state or a case control changed. Opaque hint.",delivery:['webhook'],inputSchema:{type:'object',additionalProperties:false,properties:{}},payloadSchema:{type:'object',additionalProperties:false,required:['reason'],properties:{reason:{enum:['agent_paused','case_controlled']}}}}
 ]);
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
 const equal=(a,b)=>{const one=Buffer.from(String(a??'')),two=Buffer.from(String(b??''));return one.length===two.length&&crypto.timingSafeEqual(one,two);};
@@ -61,7 +61,7 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
   const grokPublic=sub=>({id:sub.id,kind:'grok_webhook_trigger',installationId:sub.installationId,agentId:sub.agentId,url:sub.url,secretSet:Boolean(sub.secretEncrypted),state:sub.status==='ended'?'ended':sub.targetState||'active',stateReason:sub.status==='ended'?sub.endedReason:sub.stateReason||null,createdAt:sub.createdAt,updatedAt:sub.updatedAt||sub.createdAt,lastAttemptAt:sub.delivery.lastAttemptAt,lastAcceptedAt:sub.delivery.lastSuccessAt,consecutiveFailures:sub.delivery.consecutiveFailures});
   const grokAvailable=()=>{if(!grokTriggerEnabled)throw wakeError(404,'FEATURE_DISABLED');};
   return {available,events:providerEvents,
-    discover(identity,version){return available(identity,version)?{events:{}}:{};},
+    discover(identity,version){requireEvents(identity,version);return {protocolVersion:providerEventsProtocolVersion,capabilities:{tools:{},events:{}},serverInfo:{name:'envoi'}};},
     list(identity,params={},version){requireEvents(identity,version);if(!empty(params))throw invalid();return {events:providerEvents};},
     async subscribe(identity,params,version){
       requireEvents(identity,version);paramsValid(params,true);const binding=bound(identity);let url;
