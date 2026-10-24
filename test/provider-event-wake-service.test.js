@@ -69,6 +69,7 @@ parity('unsubscribe deletes secrets, invalidates verification and fences previou
 });
 parity('Grok 202 is receipt only; 401 pauses and owner secret replacement resumes; sender defects do not retry',async(t,kind)=>{
   const h=await harness(t,kind);const put=()=>h.provider.putGrok(binding,{url:'https://triggers.envoi-provider.com/run',secret});const initial=await h.tx(put);assert.equal(initial.target.secretSet,true);assert.equal(JSON.stringify(initial).includes(secret),false);
+  await assert.rejects(h.http.end(binding,initial.target.id),{code:'WAKE_SUBSCRIPTION_NOT_FOUND'});
   h.response({status:401,failureClass:'http_rejected'});await h.http.runOnce();assert.equal((await h.provider.getGrok(binding)).target.state,'needs_secret');h.advance(120000);assert.equal(await h.http.runOnce(),false);
   await h.tx(put);h.response({status:202,failureClass:null});await h.http.runOnce();const accepted=(await h.provider.getGrok(binding)).target;assert.equal(accepted.state,'active');assert.ok(accepted.lastAcceptedAt);assert.equal('processedAt' in accepted,false);
   await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));assert.equal(await h.http.runOnce(),false);h.advance(5000);h.response({status:413,failureClass:'http_rejected'});await h.http.runOnce();assert.equal((await h.provider.getGrok(binding)).target.state,'needs_attention');assert.ok(h.audits.some(row=>row[1]==='agent.wake_target_attention'));

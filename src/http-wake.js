@@ -104,7 +104,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
   // calls this every second.
   let lastHeartbeat = -Infinity;
   async function heartbeat() { if (!enabled || time()-lastHeartbeat < heartbeatEveryMs) return; lastHeartbeat = time(); await store.withTransaction(['http-wake:epoch'], async () => { const record = await store.getJson(epochPath); if (!record || Date.parse(record.activeUntil) <= time()) return startup(); await store.putJson(epochPath, { ...record, activeUntil:iso(time()+21600000) }); }); }
-  async function owned(identity, id) { const sub = await store.getJson(subPath(identity.agentId, id)); if (!sub || sub.inboxId !== identity.inboxId || sub.agentId !== identity.agentId || (identity.installationId && sub.installationId !== identity.installationId)) throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND'); return derive(sub); }
+  async function owned(identity, id, includeProfiles = false) { const sub = await store.getJson(subPath(identity.agentId, id)); if (!sub || (!includeProfiles && sub.profile) || sub.inboxId !== identity.inboxId || sub.agentId !== identity.agentId || (identity.installationId && sub.installationId !== identity.installationId)) throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND'); return derive(sub); }
   async function consumeCreate(identity) {
     const counterPath = path.join(root, 'create-limits', `${identity.agentId}.json`);
     const counter = await store.getJson(counterPath, { entries:[] });
@@ -281,7 +281,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       const at=now();const sub={...(current?.status!=='ended'?current:{}),id,...identity,generation:current?.status==='active'?current.generation:crypto.randomUUID(),profile,url,status:'active',endedReason:null,endedAt:null,createdAt:current?.status!=='ended'?current?.createdAt||at:at,activatedAt:current?.status!=='ended'?current?.activatedAt||at:at,expiresAt:expiresAt||iso(time()+2592000000),challengeExpiresAt:null,delivery:current?.delivery||{state:'healthy',lastAttemptAt:null,lastSuccessAt:null,consecutiveFailures:0,lastFailureClass:null},sequence:current?.sequence||0,dirty:{},...fields};
       await save(sub);await index(sub);return sub;
     });},
-    async endProfile(identity,id,reason='ended_by_host'){return store.withTransaction([lock(identity.inboxId)],async()=>{const sub=await owned(identity,id);if(!sub.profile)throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND');return endRecord(sub,reason);});},
+    async endProfile(identity,id,reason='ended_by_host'){return store.withTransaction([lock(identity.inboxId)],async()=>{const sub=await owned(identity,id,true);if(!sub.profile)throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND');return endRecord(sub,reason);});},
     async queueProfile(sub,type,reason,cursor=null){return store.withTransaction([lock(sub.inboxId)],async()=>{const current=await derive(await store.getJson(subPath(sub.agentId,sub.id)));if(!current||current.generation!==sub.generation)return;if(cursor)current.cursor=cursor;if(current.status==='active'&&(!current.targetState||current.targetState==='active'))await queue(current,type,reason);});},
     async verifyCallback(identity,url,{bodyText,headers}){
       available();const resolved=await resolve(url);const token=crypto.randomUUID();const admitted=await admission.admit({subscriptionId:`verify:${identity.installationId}`,host:new URL(url).hostname,addresses:resolved.addresses,token,limited:true});
