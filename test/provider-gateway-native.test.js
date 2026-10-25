@@ -154,7 +154,11 @@ for (const backend of backends) {
     assert.equal(f.published.length, beforePublished); assert.equal((await f.store.listJson('canonical-audits')).length, beforeAudits);
     const [a, b] = await Promise.all([f.native.act(s.secret, s.csrf, input), f.native.act(s.secret, s.csrf, input)]);
     matches('actResult', a); matches('actResult', b);
-    assert.equal(a.state, 'sent'); assert.equal(a.settled, true); assert.equal(b.replayed, true); assert.equal(a.receiptRef, b.receiptRef); assert.equal((await f.store.listJson('canonical-replies')).length, 1);
+    for (const result of [a, b]) { assert.equal(result.state, 'sent'); assert.equal(result.settled, true); }
+    // The request that acquires the lock first is scheduler-dependent. Exactly one
+    // commits the canonical effect and the other must replay the same receipt.
+    assert.deepEqual([a.replayed, b.replayed].sort(), [false, true]);
+    assert.equal(a.receiptRef, b.receiptRef); assert.equal((await f.store.listJson('canonical-replies')).length, 1);
     assert.equal(f.published.length, beforePublished + 1); assert.equal(f.published.at(-1).inboxId, 'counterpartyInbox'); assert.equal(f.published.at(-1).createdAt, new Date(f.at).toISOString());
     f.advance(121_000); f.restart(); assert.equal((await f.native.act(s.secret, s.csrf, input)).replayed, true);
     await assert.rejects(f.native.act(s.secret, s.csrf, { ...input, text: 'Changed' }), code('IDEMPOTENCY_CONFLICT'));
