@@ -220,7 +220,14 @@
 .app-shell .monad-evidence h3 { margin: 24px 0 8px; font-size: 14px; }
 .app-shell .monad-evidence p { margin: 6px 0 14px; color: var(--ink2); font-size: 13px; }
 .app-shell .monad-evidence label { display: block; margin: 16px 0 5px; font-size: 12px; font-weight: 600; }
-.app-shell .monad-evidence .monad-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.app-shell .monad-mode-options { display: grid; gap: 9px; margin: 17px 0; padding: 0; border: 0; }
+.app-shell .monad-mode-options legend { margin-bottom: 8px; font-size: 13px; font-weight: 650; }
+.app-shell .monad-evidence .monad-mode-option { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.app-shell .monad-evidence .monad-mode-option.selected { border-color: var(--accent); }
+.app-shell .monad-mode-option input { margin: 2px 0 0; }
+.app-shell .monad-mode-option span { display: grid; gap: 4px; }
+.app-shell .monad-mode-option strong { font-size: 13px; color: var(--ink); }
+.app-shell .monad-mode-option small { font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--ink2); }
 .app-shell .monad-evidence select { max-width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); }
 .app-shell .monad-evidence-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
 .app-shell .monad-evidence-status code { max-width: 100%; overflow-wrap: anywhere; color: var(--ink2); font-size: 11px; }

@@ -36,12 +36,12 @@ export function MonadPermissionPanel({ agents }: { agents: AgentOption[] }) {
   }, [selected?.inboxId, selected?.id, revision]);
 
   if (!agents.length) return null;
-  const toggle = async () => {
-    if (!selected || !settings || saving) return;
+  const setMode = async (enabled: boolean) => {
+    if (!selected || !settings || saving || settings.enabled === enabled) return;
     setSaving(true);
     setError('');
     try {
-      const updated = await api.updateMonadSettings(selected.inboxId, !settings.enabled);
+      const updated = await api.updateMonadSettings(selected.inboxId, enabled);
       setSettings(updated);
       setRevision(value => value + 1);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Monad setting could not be changed.'); }
@@ -56,10 +56,20 @@ export function MonadPermissionPanel({ agents }: { agents: AgentOption[] }) {
     <select id="monad-agent" value={`${selected.inboxId}:${selected.id}`} onChange={event => setSelection(event.target.value)}>
       {agents.map(agent => <option key={`${agent.inboxId}:${agent.id}`} value={`${agent.inboxId}:${agent.id}`}>{agent.name}</option>)}
     </select>
-    {settings?.entitled && settings.available && <label className="monad-toggle"><input type="checkbox" checked={settings.enabled} disabled={saving} onChange={() => void toggle()} /> Verify this agent’s permissions on Monad</label>}
+    {settings && <fieldset className="monad-mode-options" disabled={saving}>
+      <legend>How should this agent’s permissions be verified?</legend>
+      <label className={`monad-mode-option${!settings.enabled ? ' selected' : ''}`}>
+        <input type="radio" name="monad-permission-mode" checked={!settings.enabled} onChange={() => void setMode(false)} />
+        <span><strong>Envoi only</strong><small>Envoi enforces the permissions. New activity for this agent creates no Monad transactions.</small></span>
+      </label>
+      <label className={`monad-mode-option${settings.enabled ? ' selected' : ''}`}>
+        <input type="radio" name="monad-permission-mode" checked={settings.enabled} disabled={!settings.entitled || !settings.available} onChange={() => void setMode(true)} />
+        <span><strong>Monad verified · paid</strong><small>Envoi’s issuer signs and anchors changed permissions; denied attempts are also submitted. Approved actions with unchanged permissions create no new transaction.</small></span>
+      </label>
+    </fieldset>}
     {settings && !settings.entitled && <p>Monad verification is a paid add-on. Contact Envoi to enable it for your organization.</p>}
     {settings?.entitled && !settings.available && <p>Monad verification is not configured for this deployment.</p>}
-    {settings && !settings.enabled && <p>Monad is off for this agent. Standard Envoi permissions remain active.</p>}
+    {settings?.enabled && <p>When permissions change, the agent waits for finalized Monad proof before acting. Previously queued denied attempts can finish recording after this mode is turned off.</p>}
     {error && <p role="alert">{error}</p>}
     {!error && !settings && <p role="status">Loading Monad settings…</p>}
     {settings?.enabled && !error && !evidence && <p role="status">Loading Monad evidence…</p>}
