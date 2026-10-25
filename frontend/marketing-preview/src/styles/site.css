@@ -271,15 +271,19 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .product-intro p { max-width: 650px; margin-top: 20px; color: var(--ink-muted); font-size: 16px; }
 .product-walkthrough { display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); gap: 56px; align-items: start; padding-top: 72px; padding-bottom: 80px; }
 .thread-demo { min-width: 0; }
-.product-features h2 { font-size: 28px; }
-.product-features .feature-grid { grid-template-columns: 1fr; gap: 24px; padding-top: 28px; }
+.product-features h2 { font-size: 32px; }
+.product-features .feature-grid { grid-template-columns: 1fr; gap: 22px; padding-top: 28px; }
 .product-features .feature { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 14px; }
 .product-features .feature-number { margin-bottom: 0; }
-.product-features .feature h3 { font-size: 18px; margin-bottom: 8px; }
-.product-features .feature p { font-size: 14px; }
+.product-features .feature h3 { font-size: 22px; margin-bottom: 8px; }
+.product-features .feature p { font-size: 17px; line-height: 1.5; }
 body { font-weight: 300; }
 strong, b, input, button { font-weight: 300; }
 @media (prefers-reduced-motion: no-preference) {
+  @media (min-width: 1151px) {
+    .product-walkthrough[data-feature-reveal="true"] .feature { opacity: 0; transform: translateY(16px); transition: opacity 460ms var(--ease-enter), transform 460ms var(--ease-enter); }
+    .product-walkthrough[data-feature-reveal="true"] .feature.is-revealed { opacity: 1; transform: translateY(0); }
+  }
   html { scroll-behavior: smooth; }
   button, a { transition: color var(--duration-micro), background var(--duration-micro), border-color var(--duration-micro), transform var(--duration-micro); }
   .button:hover { transform: translateY(-1px); }

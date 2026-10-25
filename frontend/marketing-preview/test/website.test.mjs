@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createPlaybackState, advancePlayback, playbackDelay, selectScenario, acceptedWaitlistResponse } from '../src/scripts/playback.mjs';
+import { createPlaybackState, advancePlayback, playbackDelay, selectScenario, acceptedWaitlistResponse, visibleFeatureCount } from '../src/scripts/playback.mjs';
 
 const scenarios = JSON.parse(await readFile(new URL('../src/data/scenarios.json', import.meta.url)));
 
@@ -100,6 +100,14 @@ test('every demo numbers feature markers in conversation order while preserving 
     assert.ok(['policy', 'file'].includes(markedSteps[1].from), scenario.id);
     assert.equal(markedSteps[2].from, 'a', scenario.id);
     assert.ok(markedSteps[3].auth, scenario.id);
+  }
+});
+
+test('product features reveal with their matching conversation markers', () => {
+  for (const scenario of scenarios) {
+    const markers = scenario.steps.map(step => step.marker ?? 0);
+    const expected = scenario.id === 'client-deck' ? [1, 2, 3, 3, 4] : [1, 2, 3, 4];
+    assert.deepEqual(expected.map((_, index) => visibleFeatureCount(markers, index + 1)), expected, scenario.id);
   }
 });
 

@@ -1,4 +1,4 @@
-import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, acceptedWaitlistResponse } from './playback.mjs';
+import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, acceptedWaitlistResponse, visibleFeatureCount } from './playback.mjs';
 import { mountThemeControls } from './theme.mjs';
 
 mountThemeControls(document, window);
@@ -18,6 +18,10 @@ updateHeader();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const thread = document.querySelector<HTMLElement>('[data-thread]');
 if (thread) {
+  const walkthrough = thread.closest<HTMLElement>('.product-walkthrough');
+  const features = [...(walkthrough?.querySelectorAll<HTMLElement>('.feature') ?? [])];
+  if (walkthrough && features.length && !reducedMotion.matches) walkthrough.dataset.featureReveal = 'true';
+  let featuresComplete = false;
   const tabs = [...thread.querySelectorAll<HTMLButtonElement>('[data-scenario]')];
   const panels = [...thread.querySelectorAll<HTMLElement>('[data-panel]')];
   const playback = thread.querySelector<HTMLButtonElement>('[data-playback]')!;
@@ -43,6 +47,10 @@ if (thread) {
       if (pending) step.setAttribute('aria-hidden', 'true'); else step.removeAttribute('aria-hidden');
       step.querySelectorAll<HTMLAnchorElement>('a').forEach(link => { link.tabIndex = pending ? -1 : 0; });
     });
+    const latestFeature = visibleFeatureCount(steps.map(step => Number(step.querySelector('.feature-marker')?.textContent ?? 0)), state.visibleCount);
+    const revealedCount = featuresComplete || state.manual || state.reducedMotion ? features.length : latestFeature;
+    features.forEach((feature, index) => feature.classList.toggle('is-revealed', index < revealedCount));
+    if (revealedCount === features.length) featuresComplete = true;
     const stopped = state.paused || state.manual || state.reducedMotion;
     playback.setAttribute('aria-pressed', String(stopped));
     playback.setAttribute('aria-label', stopped ? 'Play conversation animation' : 'Pause conversation animation');
@@ -108,6 +116,7 @@ if (thread) {
   document.addEventListener('visibilitychange', schedule);
   reducedMotion.addEventListener('change', () => {
     state = reducedMotion.matches ? selectScenario(state.stepCount, true) : createPlaybackState(state.stepCount);
+    if (walkthrough) walkthrough.dataset.featureReveal = String(!reducedMotion.matches);
     render();
     schedule();
   });
