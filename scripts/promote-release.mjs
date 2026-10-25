@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { checkDeploymentConfiguration } from './check-deployment.mjs';
 import { CONTAINER_LEGACY_FALLBACKS } from '../worker/runtime-config.js';
 import { orphanedLegacyNames } from '../src/envoi-environment.js';
+import { onboardingFlagNames } from '../src/onboarding-flags.js';
 
 export const RELEASE_ACCOUNT_ID = '54a5d6c680bd813fa60f8e088b098b8d';
 export const APP_SECRET_NAMES = Object.freeze([
@@ -41,8 +42,13 @@ export function secretInventory({ cwd, env, run = spawnSync }, ...argv) {
 
 // N2-config-2: beta still holds SINALOA_* secrets until its ENVOI_* twins are added (H-5). Every beta
 // deploy path checks names first, so code that no longer reads the old names cannot reach beta early.
-export function requireBetaSecretNames(inventory) {
-  requireSecretNames(inventory('--env', 'beta'), [...APP_SECRET_NAMES, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY']);
+// The default beta path retains its separately reviewed Monad gate. Only the
+// fixed core-only profile can omit that unused credential, never a caller's flag.
+export function requireBetaSecretNames(inventory, { profile } = {}) {
+  const vars = releaseProfileVars(profile);
+  const required = vars?.ENVOI_MONAD_PERMISSIONS === 'false'
+    ? APP_SECRET_NAMES : [...APP_SECRET_NAMES, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY'];
+  requireSecretNames(inventory('--env', 'beta'), required);
   requireSecretNames(inventory('--config', 'scanner/wrangler.beta.jsonc'), ['ENVOI_SCANNER_TOKEN']);
 }
 
@@ -51,7 +57,18 @@ export function requireStagingSecretNames(inventory) {
   requireSecretNames(inventory('--config', 'scanner/wrangler.jsonc'), ['ENVOI_SCANNER_TOKEN']);
 }
 
-export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedFromMain, deploy = false }) {
+// Explicit release selection; the source/default deployment configuration stays
+// unchanged. Serialize every flag so keep_vars cannot retain a broader profile.
+export function releaseProfileVars(profile) {
+  if (profile === undefined) return null;
+  if (profile !== 'hermes-openclaw') throw new Error('Unsupported release profile');
+  const core = new Set(['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_CASE_SESSIONS_V1']);
+  return Object.freeze({ ...Object.fromEntries(onboardingFlagNames.map(name => [name, core.has(name) ? 'true' : 'false'])),
+    ENVOI_MONAD_PERMISSIONS: 'false' });
+}
+
+export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedFromMain, deploy = false, profile }) {
+  const vars = releaseProfileVars(profile);
   if (!['staging', 'beta'].includes(target)) throw new Error('Choose the explicit staging or beta release target');
   for (const value of [sha, headSha, mainSha]) {
     if (!/^[a-f0-9]{40}$/.test(value || '')) throw new Error('Release and Git references must use full lowercase 40-hex SHAs');
@@ -61,17 +78,20 @@ export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedF
   if (!descendedFromMain) throw new Error('Release candidate must descend from fetched origin/main');
   if (deploy && sha !== mainSha) throw new Error('Live promotion requires HEAD to equal fetched origin/main; merge and fetch the reviewed fixes first');
   return {
-    target, sha, accountId: RELEASE_ACCOUNT_ID, deploy,
+    target, sha, accountId: RELEASE_ACCOUNT_ID, deploy, ...(vars ? { profile, vars } : {}),
     args: ['deploy', '--env', target, '--var', `ENVOI_RELEASE_SHA:${sha}`,
+      ...Object.entries(vars || {}).flatMap(([name, value]) => ['--var', `${name}:${value}`]),
       ...(deploy ? [] : ['--dry-run', '--containers-rollout=none'])]
   };
 }
 
 export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env } = {}) {
   const [target, sha, ...flags] = args;
-  if (flags.length > 1 || flags.some(flag => flag !== '--deploy')) {
-    throw new Error('Usage: node scripts/promote-release.mjs staging|beta FULL_SHA [--deploy]');
+  if (flags.length > 2 || new Set(flags).size !== flags.length
+    || flags.some(flag => flag !== '--deploy' && flag !== '--profile=hermes-openclaw')) {
+    throw new Error('Usage: node scripts/promote-release.mjs staging|beta FULL_SHA [--deploy] [--profile=hermes-openclaw]');
   }
+  const profile = flags.includes('--profile=hermes-openclaw') ? 'hermes-openclaw' : undefined;
   const git = (...argv) => execFileSync('git', argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   if (flags.includes('--deploy')) git('fetch', 'origin', 'main');
   const headSha = git('rev-parse', 'HEAD');
@@ -79,17 +99,17 @@ export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', 
   const plan = promotionPlan({ target, sha, headSha, mainSha,
     clean: git('status', '--porcelain', '--untracked-files=all').length === 0,
     descendedFromMain: spawnSync('git', ['merge-base', '--is-ancestor', mainSha, headSha], { cwd }).status === 0,
-    deploy: flags.includes('--deploy') });
+    deploy: flags.includes('--deploy'), profile });
   await checkDeploymentConfiguration();
   const wrangler = resolve(cwd, 'node_modules/wrangler/bin/wrangler.js');
   const workerEnv = { ...env, CLOUDFLARE_ACCOUNT_ID: RELEASE_ACCOUNT_ID };
   if (plan.deploy) {
     const inventory = (...argv) => secretInventory({ cwd, env }, ...argv);
-    if (target === 'beta') requireBetaSecretNames(inventory);
+    if (target === 'beta') requireBetaSecretNames(inventory, { profile: plan.profile });
     else requireStagingSecretNames(inventory);
   }
   console.log(JSON.stringify({ target: plan.target, releaseSha: plan.sha, accountId: plan.accountId,
-    action: plan.deploy ? 'deploy' : 'dry-run',
+    action: plan.deploy ? 'deploy' : 'dry-run', ...(plan.profile ? { profile: plan.profile, vars: plan.vars } : {}),
     scope: 'Git identity, target configuration and (for deploy) secret names; live provider and product acceptance remain separate gates.' }));
   const result = spawnSync(process.execPath, [wrangler, ...plan.args], { cwd, env: workerEnv, stdio: 'inherit' });
   if (result.error) throw new Error('Unable to start Wrangler');

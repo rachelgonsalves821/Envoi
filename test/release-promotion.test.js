@@ -208,3 +208,61 @@ test('beta source refreshes an advanced local origin/main and detects hidden unt
     assert.equal(readBetaBuildSource({ cwd: build }).clean, false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+
+test('explicit Hermes/OpenClaw profile serializes every flag and keeps Monad disabled', async () => {
+  const { releaseProfileVars } = await import('../scripts/promote-release.mjs');
+  const { onboardingFlagNames, readOnboardingFlags } = await import('../src/onboarding-flags.js');
+  const vars = releaseProfileVars('hermes-openclaw');
+  assert.equal(Object.isFrozen(vars), true);
+  assert.deepEqual(Object.keys(vars).sort(), [...onboardingFlagNames, 'ENVOI_MONAD_PERMISSIONS'].sort());
+  assert.deepEqual(Object.entries(vars).filter(([,value]) => value === 'true').map(([name]) => name).sort(),
+    ['ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_INSTALLATIONS_V2']);
+  assert.equal(vars.ENVOI_MONAD_PERMISSIONS, 'false');
+  assert.doesNotThrow(() => readOnboardingFlags(vars));
+  assert.equal(releaseProfileVars(), null);
+  for (const unknown of ['', null, 'default', 'monad', {}, 'hermes-openclaw --var ENVOI_REMOTE_MCP_OAUTH:true']) {
+    assert.throws(() => releaseProfileVars(unknown), /Unsupported release profile/);
+  }
+  for (const target of ['staging', 'beta']) {
+    const plan = promotionPlan({ target, sha: main, headSha: main, mainSha: main, clean: true, descendedFromMain: true,
+      deploy: true, profile: 'hermes-openclaw' });
+    assert.equal(plan.profile, 'hermes-openclaw');
+    assert.deepEqual(plan.vars, vars);
+    assert.deepEqual(plan.args, ['deploy', '--env', target, '--var', `ENVOI_RELEASE_SHA:${main}`,
+      ...Object.entries(vars).flatMap(([name,value]) => ['--var', `${name}:${value}`])]);
+  }
+});
+
+test('profile selection cannot bypass clean exact-source and main-ancestry gates', () => {
+  const input = { target: 'beta', sha: main, headSha: main, mainSha: main, clean: true, descendedFromMain: true,
+    deploy: true, profile: 'hermes-openclaw' };
+  assert.throws(() => promotionPlan({ ...input, clean: false }), /clean/);
+  assert.throws(() => promotionPlan({ ...input, headSha: candidate }), /exactly/);
+  assert.throws(() => promotionPlan({ ...input, descendedFromMain: false }), /descend/);
+  assert.throws(() => promotionPlan({ ...input, mainSha: candidate }), /equal fetched origin/);
+  assert.throws(() => promotionPlan({ ...input, profile: 'other' }), /Unsupported release profile/);
+});
+
+test('core-only secret gate omits only disabled Monad and preserves all app/scanner protections', () => {
+  const profile = { profile: 'hermes-openclaw' };
+  const inventory = app => betaInventory({ app, scanner: ['ENVOI_SCANNER_TOKEN'] });
+  assert.doesNotThrow(() => requireBetaSecretNames(inventory(migratedApp), profile));
+  assert.throws(() => requireBetaSecretNames(inventory(migratedApp)), /ENVOI_MONAD_ISSUER_PRIVATE_KEY/);
+  for (const name of migratedApp) {
+    assert.throws(() => requireBetaSecretNames(inventory(migratedApp.filter(value => value !== name)), profile), /Missing encrypted/);
+  }
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), profile), /ENVOI_SCANNER_TOKEN/);
+  assert.throws(() => requireBetaSecretNames(inventory([...migratedApp, 'SINALOA_DB_CA']), profile), /retired names/);
+  let accessed = false;
+  assert.throws(() => requireBetaSecretNames(() => { accessed = true; return []; }, { profile: 'other' }), /Unsupported release profile/);
+  assert.equal(accessed, false);
+});
+
+test('release CLI refuses duplicate or arbitrary profile flags before source or secret access', async () => {
+  const { promoteRelease } = await import('../scripts/promote-release.mjs');
+  for (const flags of [ ['--profile=other'], ['--profile'], ['--profile=hermes-openclaw','--profile=hermes-openclaw'],
+    ['--deploy','--deploy'], ['--profile=hermes-openclaw','--var=ENVOI_REMOTE_MCP_OAUTH:true'] ]) {
+    await assert.rejects(promoteRelease(['beta', main, ...flags], { cwd: 'missing-profile-source-must-not-be-read' }), /Usage:/);
+  }
+});
