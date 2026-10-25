@@ -891,6 +891,17 @@
         "modern-number-preference.json",
         "legacy-null-preference.json"
       ]
+    },
+    {
+      "id": "provider-event-wake-discovery",
+      "version": 1,
+      "status": "approved",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#provider-event-wake-discovery-v1",
+      "dir": "provider-event-wake-discovery",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "discover-events-capability.json"
+      ]
     }
   ]
 }

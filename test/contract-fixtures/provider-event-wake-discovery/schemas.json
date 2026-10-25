@@ -1,0 +1,187 @@
+{
+  "$id": "provider-event-wake-discovery/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Human-approved complete MCP 2.0 discovery response; only the original discovery-result vector is superseded.",
+  "x-amends": {
+    "contract": "provider-event-wake",
+    "version": 1,
+    "section": "2 MCP Events discovery",
+    "fixture": "discover-events-capability.json"
+  },
+  "x-approval": {
+    "proposalSha256": "637ff3a31d2d0e0c86e8fbb761c6240394b9739cc9c0c034023f98d8467c1219",
+    "humanReceipt": "https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6402135050"
+  },
+  "definitions": {
+    "discoveryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resultType",
+        "supportedVersions",
+        "capabilities"
+      ],
+      "properties": {
+        "resultType": {
+          "const": "complete"
+        },
+        "supportedVersions": {
+          "const": [
+            "2026-07-28"
+          ]
+        },
+        "capabilities": {
+          "const": {
+            "tools": {},
+            "events": {}
+          }
+        }
+      }
+    },
+    "rpcResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "result": {
+          "$ref": "#/definitions/discoveryResult"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "flags",
+        "context",
+        "request",
+        "response",
+        "client"
+      ],
+      "properties": {
+        "contract": {
+          "const": "provider-event-wake-discovery"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "const": "discover-events-capability"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "http"
+        },
+        "flags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "context": {
+          "type": "object"
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "path",
+            "auth",
+            "headers",
+            "body"
+          ],
+          "properties": {
+            "method": {
+              "const": "POST"
+            },
+            "path": {
+              "const": "/mcp"
+            },
+            "auth": {
+              "const": "bearer"
+            },
+            "headers": {
+              "type": "object",
+              "required": [
+                "content-type",
+                "accept",
+                "mcp-protocol-version"
+              ],
+              "properties": {
+                "content-type": {
+                  "const": "application/json"
+                },
+                "accept": {
+                  "const": "application/json, text/event-stream"
+                },
+                "mcp-protocol-version": {
+                  "const": "2026-07-28"
+                }
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "body": {
+              "const": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server/discover",
+                "params": {}
+              }
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "schema",
+            "headers",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "const": 200
+            },
+            "schema": {
+              "const": "rpcResult"
+            },
+            "headers": {
+              "const": {
+                "content-type": "application/json; charset=utf-8",
+                "cache-control": "no-store"
+              }
+            },
+            "body": {
+              "$ref": "#/definitions/rpcResult"
+            }
+          }
+        },
+        "client": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}
