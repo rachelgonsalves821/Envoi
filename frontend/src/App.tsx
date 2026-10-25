@@ -13,6 +13,7 @@ import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpecte
 import { prepareCaseAssetDownload } from './case-files';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
+import { agentCatalog, productAsset } from './onboarding/agent-catalog';
 import { ClaimPage } from './onboarding/ClaimPage';
 import { AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
 import { authorizationHandle, authorizationSignInPath } from './onboarding/consent-state';
@@ -603,7 +604,7 @@ export function SignOutControl({ onLogout }: { onLogout: () => void }) {
 
 export function LoadingScreen({ checking = false, onLogout }: { checking?: boolean; onLogout?: () => void }) {
   return (
-    <main className="center-screen" aria-live="polite">
+    <main className="center-screen product-loading" aria-live="polite">
       <div className="brand-lockup"><BrandMark /><span>Envoi</span></div>
       <div className="decision-loader" aria-hidden="true"><span /><span /><span /></div>
       <p>{checking ? 'Checking your session…' : 'Loading your delegated work…'}</p>
@@ -1454,10 +1455,10 @@ function PoliciesPage({ entries }: { entries: AgentEntry[] }) {
 function IntegrationsPage({ view, workspace, entries, humanId, canManageInbox, onSelectWorkspace, onPermissions, onRefresh, onRefreshAgent, notify }: { view: HumanView; workspace: Workspace; entries: AgentEntry[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onPermissions: () => void; onRefresh: () => Promise<unknown>; onRefreshAgent: (inboxId: string) => Promise<void>; notify: (message: string) => void }) {
   const [enrollment, setEnrollment] = useState<EnrollmentResult | null>(null);
   const [open, setOpen] = useState(false);
-  return <div className="agents-page"><div className="agents-heading"><div><h1>Agents</h1><p>Your agents and their inboxes.</p></div>{canManageInbox && <ConnectionActions />}</div>
-    {canManageInbox && <><OwnerClaims key={humanId} humanId={humanId} onSelectAgent={(agentId, address) => { const entry = entries.find(item => item.inbox.kind === 'agent' && (item.agent.id === agentId || item.agent.address === address)); if (entry) void onSelectWorkspace(entry.inbox); }} /></>}
-    {canManageInbox && <details className="onboarding-advanced"><summary>Advanced · Quick Connect</summary><p>Legacy setup and frozen-agent re-onboarding.</p><button className="button secondary" onClick={() => setOpen(true)}>Add agent with Quick Connect</button></details>}
-{entries.length ? <div className="integration-grid">{entries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <PageEmpty icon={<Bot />} title="No agents yet" body="Connect your agent from its trusted runtime host." action={canManageInbox ? <a className="button primary" href="/connect">Connect an agent</a> : undefined} />}
+  return <div className="agents-page"><div className="agents-heading"><div><p className="eyebrow">YOUR WORKSPACE</p><h1>Manage agents</h1><p>Connect an agent, review its access, and see its work in one place.</p></div></div>
+    <section className="agents-onboard-hero"><div><p className="eyebrow">GET STARTED</p><h2>Bring your agents together.</h2><p>Each agent gets its own Envoi address and a secure workspace. Choose a platform to see the right setup path.</p>{canManageInbox && <ConnectionActions />}</div><div className="agents-hero-logos" aria-hidden="true">{agentCatalog.slice(0, 6).map(item => <span key={item.id}><img src={item.logo} alt="" width="42" height="42" /></span>)}</div></section>
+    {entries.length ? <div className="integration-grid">{entries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <div className="agents-empty"><span className="agents-empty-icon"><Bot size={24} aria-hidden="true" /></span><div><h2>No agents connected yet</h2><p>Start with a platform above. Your connected agents and their inboxes will appear here.</p></div></div>}
+    {canManageInbox && <div className="agents-secondary"><OwnerClaims key={humanId} humanId={humanId} onSelectAgent={(agentId, address) => { const entry = entries.find(item => item.inbox.kind === 'agent' && (item.agent.id === agentId || item.agent.address === address)); if (entry) void onSelectWorkspace(entry.inbox); }} /><details className="onboarding-advanced"><summary>Advanced · Quick Connect</summary><p>Legacy setup and frozen-agent re-onboarding. Use this only when your deployment supports that flow.</p><button className="button secondary" onClick={() => setOpen(true)}>Open Quick Connect</button></details></div>}
     {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
   </div>;
 }
@@ -1761,8 +1762,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
 }
 
 export function RuntimePicker({ runtime, onChange }: { runtime: ConnectorRuntime; onChange: (value: ConnectorRuntime) => void }) {
-  const descriptions: Record<string, string> = { OpenClaw: 'Needs a running Gateway', Hermes: 'Needs a configured Hermes profile', Grok: 'Needs an xAI API key' };
-  return <fieldset className="runtime-picker"><legend>What runs your agent?</legend><div className="runtime-options">{['OpenClaw', 'Hermes', 'Grok', 'Muse', 'Instinct', 'Dots'].map(label => { const option = RUNTIME_OPTIONS.find(item => item.label === label); const available = Boolean(option); return <label key={label} className={`runtime-option ${!available ? 'unavailable' : ''}`}><input type="radio" name="runtime" value={option?.id || label.toLowerCase()} checked={option?.id === runtime} disabled={!available} onChange={() => option && onChange(option.id)} /><span><strong>{label}</strong><small>{available ? descriptions[label] : 'Coming soon'}</small></span></label>; })}</div></fieldset>;
+  return <fieldset className="runtime-picker"><legend>Choose your agent runtime</legend><p className="runtime-picker-help">Select a supported bridge to create a token. Explore all six setup routes on the <a href="/connect">agent onboarding page</a>.</p><div className="runtime-options">{agentCatalog.map(item => { const option = RUNTIME_OPTIONS.find(candidate => candidate.id === item.id); const available = Boolean(option); return <label key={item.id} className={`runtime-option ${!available ? 'unavailable' : ''}`}><input type="radio" name="runtime" value={item.id} checked={item.id === runtime} disabled={!available} onChange={() => option && onChange(option.id)} /><img src={item.logo} alt="" width="40" height="40" /><span><strong>{item.name}</strong><small>{item.summary}</small><em>{available ? item.route : 'Not available for enrollment'}</em></span></label>; })}</div></fieldset>;
 }
 
 export function RuntimePreparation({ runtime, command, apiUrl, reconnect = false }: { runtime: ConnectorRuntime; command: string; apiUrl: string; reconnect?: boolean }) {
@@ -1837,7 +1837,7 @@ function AuthoritySeal({ decision }: { decision: PolicyEvaluation['decision'] })
 function EventIcon({ type }: { type: CaseEvent['type'] }) { const icons = { message: <Inbox />, decision: <Sparkles />, policyEvaluation: <ShieldCheck />, toolAction: <Zap />, humanAction: <UserRound />, stateChange: <RefreshCw />, error: <AlertCircle />, receipt: <ReceiptText /> }; return icons[type]; }
 function CaseIcon({ workCase }: { workCase: WorkCase }) { if (workCase.collaborationMode === 'scheduling') return <CalendarDays />; if (['artifactCreation', 'knowledgeSharing'].includes(workCase.collaborationMode || '')) return <FileText />; if (workCase.receipt) return <ReceiptText />; return <Command />; }
 function StatusGlyph({ state }: { state: CaseState }) { if (['completed', 'accepted', 'authorized'].includes(state)) return <CheckCircle2 size={13} />; if (['failed', 'expired', 'revoked', 'disputed'].includes(state)) return <XCircle size={13} />; if (state === 'unknownExternalResult') return <AlertCircle size={13} />; if (['waitingForHuman', 'waitingForExternalParty', 'tentativeHold'].includes(state)) return <Clock3 size={13} />; return <Play size={13} />; }
-function BrandMark() { return <span className="brand-mark" aria-hidden="true"><span /><span /></span>; }
+function BrandMark() { return <span className="brand-mark" aria-hidden="true"><img src={productAsset('/envoi-logo.png')} alt="" width="32" height="32" /></span>; }
 
 function sectionTitle(section: NavSection) { return ({ inbox: 'Inbox', needsMe: 'Needs me', active: 'In motion', waiting: 'Waiting', scheduled: 'Calendar', documents: 'Shared files', completed: 'Done', policies: 'Permissions', integrations: 'Agent connections', activity: 'Activity log' } as Record<NavSection, string>)[section]; }
 function emptyTitle(section: NavSection) { return section === 'inbox' ? 'Your agent inbox is empty' : section === 'needsMe' ? 'Your agents have it handled' : `No conversations in ${sectionTitle(section).toLowerCase()}`; }
