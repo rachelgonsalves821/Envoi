@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createPlaybackState, advancePlayback, playbackDelay, selectScenario, acceptedWaitlistResponse, visibleFeatureCount } from '../src/scripts/playback.mjs';
+import { createPlaybackState, advancePlayback, playbackDelay, selectScenario, togglePlayback, acceptedWaitlistResponse, visibleFeatureCount } from '../src/scripts/playback.mjs';
 
 const scenarios = JSON.parse(await readFile(new URL('../src/data/scenarios.json', import.meta.url)));
 
@@ -58,14 +58,25 @@ test('every demo reveals its full conversation at a readable pace', () => {
       elapsed += playbackDelay(state);
       state = advancePlayback(state);
     }
-    assert.equal(elapsed, (scenario.steps.length - 1) * 1000, scenario.id);
-    assert.equal(playbackDelay(state), 3000);
+    assert.equal(elapsed, (scenario.steps.length - 1) * 850, scenario.id);
+    assert.equal(playbackDelay(state), 2600);
   }
 });
 
 test('paused playback never advances', () => {
   const state = { ...createPlaybackState(5), paused: true };
   assert.deepEqual(advancePlayback(state), state);
+});
+
+test('pause preserves the current message and play resumes from it', () => {
+  const current = advancePlayback(createPlaybackState(5));
+  const paused = togglePlayback(current);
+  assert.equal(paused.visibleCount, 2);
+  assert.deepEqual(advancePlayback(paused), paused);
+  const resumed = togglePlayback(paused);
+  assert.equal(resumed.visibleCount, 2);
+  assert.equal(advancePlayback(resumed).visibleCount, 3);
+  assert.deepEqual(togglePlayback(selectScenario(5)), createPlaybackState(5));
 });
 
 test('manual scenario selection reveals all messages and stops automatic progression', () => {

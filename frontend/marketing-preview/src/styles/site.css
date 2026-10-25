@@ -303,7 +303,6 @@ strong, b, input, button { font-weight: 300; }
   button, a { transition: color var(--duration-micro), background var(--duration-micro), border-color var(--duration-micro), transform var(--duration-micro); }
   .button:hover { transform: translateY(-1px); }
   .thread-shell > [data-panel]:not([hidden]) { animation: panel-enter 220ms var(--ease-enter) both; }
-  .thread-demo.is-switching .thread-shell > [data-panel]:not([hidden]) { animation: none; opacity: 0; transition: opacity 160ms ease-in; }
   .thread-step.is-newest { animation: step-enter 250ms var(--ease-enter) both; }
   .thread-step.is-newest .thread-connector { animation: connector var(--duration-page) var(--ease-enter); }
   .handshake.in-view .handshake-edge > span { animation: handshake 5s var(--ease-enter) infinite; }
