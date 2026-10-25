@@ -861,7 +861,7 @@
     {
       "id": "agent-remote-auth-cimd",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-remote-auth-cimd-v1",
       "dir": "agent-remote-auth-cimd",
       "schemas": "schemas.json",
