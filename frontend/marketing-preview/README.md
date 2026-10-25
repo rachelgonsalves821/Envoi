@@ -4,6 +4,8 @@ The current About page direction and reusable visual rules are documented in [Br
 
 For UI implementation and review, use the shared [UI design references](../UI-GUIDANCE.md).
 
+For production integration and main-branch gates, follow the [PR #191 readiness plan](./PR-191-MAIN-READINESS.md).
+
 An isolated marketing design preview based on Rachel's `SKILL (1).md`, with public-facing copy drawn from `Envoi_vNENPitch.pdf`. No existing Envoi checkout, provider configuration, live agent, or Gate B-local resource is changed.
 
 ## Theme and Team update on October 22, 2026
@@ -12,7 +14,7 @@ About and Product share compact sun/moon radio controls at the right of the head
 
 The team banner uses the supplied names, roles, portraits and background logos: Rachel Gonsalves, CEO, Co-founder; Je Sai Kailash Pulipati, CTO, Co-founder. The supplied composite artwork is preserved locally in `public/team/founder-reference.png`; SVG viewports display its portraits and logo regions without redrawing them or inventing prose bios, institutions, endorsements or profile links.
 
-The isolated package gate passes **46/46 tests**, static build/route/link checks and full audit with zero vulnerabilities. Earlier browser checks covered About, Product and the former Team page in Light/Dark at 320, 375, 768, 1280 and 1920 requested viewport widths, with no page/header horizontal overflow (30 combinations). Navigation/reload persistence, native-radio keyboard selection and live System selection were checked; simulated operating-system changes and blocked storage are covered by unit tests, not an OS-settings change on the user's computer. See the historical [theme/Team screenshots and evidence](review-evidence/theme-team.md) and the latest [About team-banner placement evidence](review-evidence/about-team.md).
+The isolated package gate passes **48/48 tests**, static build/route/link checks and a full audit with zero vulnerabilities at the October 25 PR source head. Earlier browser checks covered About, Product and the former Team page in Light/Dark at 320, 375, 768, 1280 and 1920 requested viewport widths, with no page/header horizontal overflow (30 combinations). Navigation/reload persistence, native-radio keyboard selection and live System selection were checked; simulated operating-system changes and blocked storage are covered by unit tests, not an OS-settings change on the user's computer. See the historical [theme/Team screenshots and evidence](review-evidence/theme-team.md) and the latest [About team-banner placement evidence](review-evidence/about-team.md).
 
 No root dependency changes or security-PR #195 code are included. Je's existing review-only checklist below is unchanged; no new implementation, security, test or deployment task is assigned to him.
 
