@@ -1,0 +1,1 @@
+import{n as e,t}from"./analytics.DWN_LldZ.js";function n(n={}){e(n),document.querySelectorAll(`[data-analytics-auth]`).forEach(e=>{e.addEventListener(`click`,()=>{e.dataset.analyticsAuth===`sign-up`&&t(`sign_up_started`),e.dataset.analyticsAuth===`sign-in`&&t(`sign_in_started`)})})}n({projectToken:void 0,apiHost:void 0});
