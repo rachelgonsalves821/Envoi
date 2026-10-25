@@ -1,100 +1,43 @@
 ---
 import agents from '../data/agents.json';
-interface Props { ambient?: boolean; }
-const { ambient = false } = Astro.props;
 ---
-{ambient ? (
-  <div class="ambient-agents">
-    {agents.map((agent, index) => <div class={`ambient-agent ambient-agent-${index + 1}`}><span class="agent-tile"><img src={agent.logo} width="32" height="32" alt="" /></span><span class="agent-label">{agent.name}</span></div>)}
-  </div>
-) : (
-  <section class="agent-orbit" aria-labelledby="orbit-title">
-    <div class="orbit-caption">Agent ecosystem <span>Integration previews</span></div>
-    <div class="orbit-stage">
-      <div class="orbit-halo" aria-hidden="true"></div>
-      <div class="orbit-ring" aria-hidden="true">
-        {agents.map((agent, index) => <div class={`orbit-position orbit-position-${index + 1}`}><div class="orbit-agent"><span class="agent-tile"><img src={agent.logo} width="42" height="42" alt="" /></span><span class="agent-label">{agent.name}</span></div></div>)}
-      </div>
-      <div class="orbit-center"><img class="orbit-brand" src="/envoi-logo.png" width="1024" height="853" alt="" /><h2 id="orbit-title">Connect the agents your team already uses</h2><a href="#join">Join the waitlist <span aria-hidden="true">↗</span></a></div>
-    </div>
-    <ul class="visually-hidden" aria-label="Example agent platforms">{agents.map(agent => <li>{agent.name}, integration preview</li>)}</ul>
-  </section>
-)}
+<div class="ambient-agents">
+  <div class="ambient-ring"></div>
+  {agents.map((agent, index) => <div class={`ambient-agent ambient-agent-${index + 1}`}><span class="agent-tile"><img src={agent.logo} width="32" height="32" alt="" /></span><span class="agent-label">{agent.name}</span></div>)}
+</div>
 <style>
-  .agent-tile { display: grid; place-items: center; width: 76px; height: 76px; border: 1px solid var(--line); border-radius: 20px; background: var(--bg-raised); box-shadow: 0 14px 28px -17px var(--shadow-ink), 0 2px 6px rgba(15,42,67,.08); }
-  .agent-tile img { width: 42px; height: 42px; object-fit: contain; }
-  :global(:root[data-theme="dark"]) .agent-tile img { background: #eef5fb; border-radius: 8px; padding: 3px; }
-  .agent-label { margin-top: 8px; color: var(--ink-muted); font-size: 14px; line-height: 1.2; text-align: center; }
-  .agent-orbit { max-width: 1040px; margin: 0 auto; padding: 28px 0 4px; text-align: center; }
-  .orbit-caption { color: var(--accent); font-size: 12px; letter-spacing: .13em; text-transform: uppercase; }
-  .orbit-caption span { display: block; margin-top: 5px; color: var(--ink-dim); font-size: 11px; letter-spacing: .04em; text-transform: none; }
-  .orbit-stage { position: relative; height: 540px; display: grid; place-items: center; isolation: isolate; overflow: hidden; }
-  .orbit-halo { position: absolute; inset: 8% 12%; z-index: -1; border-radius: 50%; background: radial-gradient(ellipse at center, rgba(47,134,198,.13), rgba(242,163,58,.09) 35%, transparent 68%); filter: blur(20px); }
-  .orbit-ring { position: absolute; width: min(72vw, 680px); height: 380px; border: 1px dashed var(--line-strong); border-radius: 50%; }
-  .orbit-ring::before, .orbit-ring::after { content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 16px currentColor; }
-  .orbit-ring::before { top: 15%; right: 13%; background: var(--brand-blue); color: var(--brand-blue); }
-  .orbit-ring::after { bottom: 14%; left: 15%; background: var(--brand-amber); color: var(--brand-amber); }
-  .orbit-position { position: absolute; }
-  .orbit-position-1 { top: -34px; left: calc(50% - 38px); }
-  .orbit-position-2 { top: calc(50% - 45px); right: -35px; }
-  .orbit-position-3 { bottom: -34px; left: calc(50% - 38px); }
-  .orbit-position-4 { top: calc(50% - 45px); left: -35px; }
-  .orbit-agent { display: flex; align-items: center; flex-direction: column; min-width: 76px; }
-  .orbit-center { position: relative; z-index: 2; width: min(440px, 52%); padding: 32px; border: 1px solid var(--line); border-radius: 24px; background: var(--bg-raised); box-shadow: 0 20px 55px -32px var(--shadow-ink); }
-  .orbit-brand { display: block; width: 52px; height: auto; margin: 0 auto 16px; }
-  :global(:root[data-theme="dark"]) .orbit-brand { background: #eef5fb; border-radius: 8px; padding: 4px; }
-  .orbit-center h2 { font-size: clamp(28px, 3.2vw, 42px); line-height: 1.14; letter-spacing: -.035em; }
-  .orbit-center a { display: inline-flex; align-items: center; gap: 12px; margin-top: 22px; padding: 10px 17px; border-radius: var(--pill); background: var(--action-bg); color: var(--action-ink); font-size: 14px; }
-  .orbit-center a:hover { filter: brightness(1.08); }
   .ambient-agents { position: absolute; inset: 0; pointer-events: none; }
-  .ambient-agent { position: absolute; display: flex; flex-direction: column; align-items: center; opacity: .58; transform: translate(-50%, -50%); }
-  .ambient-agent .agent-tile { width: 60px; height: 60px; border-radius: 18px; }
-  .ambient-agent .agent-tile img { width: 30px; height: 30px; }
-  .ambient-agent .agent-label { font-size: 12px; }
-  .ambient-agent-1 { left: 50%; top: 8%; }
-  .ambient-agent-2 { left: 91%; top: 50%; }
-  .ambient-agent-3 { left: 50%; top: 92%; }
-  .ambient-agent-4 { left: 9%; top: 50%; }
+  .ambient-ring { position: absolute; inset: 5% 3%; border: 1px dashed var(--line-strong); border-radius: 50%; }
+  .ambient-agent { position: absolute; display: flex; flex-direction: column; align-items: center; width: 68px; opacity: .82; transform: translate(-50%, -50%); }
+  .agent-tile { display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-raised); box-shadow: 0 14px 28px -17px var(--shadow-ink), 0 2px 6px rgba(15,42,67,.08); }
+  .agent-tile img { width: 32px; height: 32px; object-fit: contain; }
+  :global(:root[data-theme="dark"]) .agent-tile img { background: #eef5fb; border-radius: 8px; padding: 3px; }
+  .agent-label { margin-top: 7px; color: var(--ink-muted); font-size: 13px; line-height: 1.2; text-align: center; }
+  .ambient-agent-1 { left: 50%; top: 5%; }
+  .ambient-agent-2 { left: 97%; top: 50%; }
+  .ambient-agent-3 { left: 50%; top: 95%; }
+  .ambient-agent-4 { left: 3%; top: 50%; }
   @media (prefers-reduced-motion: no-preference) {
-    .orbit-ring { animation: orbit-turn 90s linear infinite; }
-    .orbit-agent { animation: orbit-counterturn 90s linear infinite; }
     .ambient-agent { animation: hero-agent-orbit 84s linear infinite; }
     .ambient-agent-2 { animation-delay: -21s; }
     .ambient-agent-3 { animation-delay: -42s; }
     .ambient-agent-4 { animation-delay: -63s; }
-    :global(body.page-hidden) .orbit-ring, :global(body.page-hidden) .orbit-agent, :global(body.page-hidden) .ambient-agent { animation-play-state: paused; }
-    @keyframes orbit-turn { to { transform: rotate(360deg); } }
-    @keyframes orbit-counterturn { to { transform: rotate(-360deg); } }
+    :global(body.page-hidden) .ambient-agent { animation-play-state: paused; }
     @keyframes hero-agent-orbit {
-      0%, 100% { left: 50%; top: 8%; }
-      12.5% { left: 79%; top: 20%; }
-      25% { left: 91%; top: 50%; }
-      37.5% { left: 79%; top: 80%; }
-      50% { left: 50%; top: 92%; }
-      62.5% { left: 21%; top: 80%; }
-      75% { left: 9%; top: 50%; }
-      87.5% { left: 21%; top: 20%; }
+      0%, 100% { left: 50%; top: 5%; }
+      12.5% { left: 83%; top: 18%; }
+      25% { left: 97%; top: 50%; }
+      37.5% { left: 83%; top: 82%; }
+      50% { left: 50%; top: 95%; }
+      62.5% { left: 17%; top: 82%; }
+      75% { left: 3%; top: 50%; }
+      87.5% { left: 17%; top: 18%; }
     }
   }
   @media (max-width: 680px) {
-    .agent-orbit { padding-top: 10px; }
-    .orbit-stage { height: 440px; }
-    .orbit-ring { width: min(84vw, 390px); height: 295px; }
-    .orbit-center { width: min(65%, 280px); padding: 22px 16px; }
-    .orbit-brand { width: 40px; margin-bottom: 10px; }
-    .orbit-center h2 { font-size: clamp(21px, 5vw, 29px); }
-    .orbit-center a { margin-top: 14px; font-size: 12px; padding: 8px 12px; }
-    .agent-tile { width: 56px; height: 56px; border-radius: 16px; }
-    .agent-tile img { width: 30px; height: 30px; }
-    .orbit-agent { min-width: 56px; }
-    .orbit-position-1, .orbit-position-3 { left: calc(50% - 28px); }
-    .orbit-position-2 { right: -20px; }
-    .orbit-position-4 { left: -20px; }
-    .orbit-position-2, .orbit-position-4 { top: calc(50% - 34px); }
-    .agent-label { font-size: 12px; }
-    .ambient-agent { opacity: .4; }
-    .ambient-agent .agent-tile { width: 42px; height: 42px; }
-    .ambient-agent .agent-tile img { width: 24px; height: 24px; }
+    .ambient-agent { width: 56px; }
+    .agent-tile { width: 44px; height: 44px; border-radius: 13px; }
+    .agent-tile img { width: 26px; height: 26px; }
+    .agent-label { font-size: 11px; }
   }
-  @media (prefers-reduced-motion: reduce) { .orbit-ring { border-style: solid; } }
 </style>

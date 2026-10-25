@@ -48,13 +48,12 @@ About's compact workflow illustration contrasts an owner-mediated relay with a s
 
 The Thread pauses on hover, focus, explicit pause, offscreen visibility and hidden documents. Manual scenario selection shows the complete conversation and stops automatic progression. Reduced motion is static. Content is server-rendered and readable without JavaScript.
 
-## Waitlist and sign-in
+## Signup and sign-in
 
-The existing Envoi source exposes `POST /api/waitlist`, accepts JSON `{ email, company }`, and acknowledges with `{ accepted: true }`. The client preserves that contract. It never treats a non-JSON response or missing acknowledgment as success.
+The preview's visible calls to action link to the existing `/api/auth/workos/sign-up` route on `envoi-agents.com`. The header and footer sign-in links use `/api/auth/workos/sign-in`. Confirm the public origin and callback configuration before launch; override `PUBLIC_SIGN_UP_URL` and `PUBLIC_SIGN_IN_URL` at build time if necessary.
 
-Collection is **disabled by default**. Preview submissions do not send or retain email addresses. Before enabling `PUBLIC_WAITLIST_ENABLED=true`, integrate the static output with the existing same-origin Envoi API and test the real response. Do not enable it on a static host without that route. No new backend, private credentials, or cross-origin workaround is included.
+The previous waitlist component and its acceptance test remain in the preview package but are no longer rendered on the About or Product pages. The static preview does not collect email addresses. No new backend, private credentials, or cross-origin workaround is included.
 
-The sign-in link uses the existing `/api/auth/workos/sign-in` route on `envoi-agents.com`. Confirm the public origin and callback configuration before launch; override `PUBLIC_SIGN_IN_URL` at build time if necessary.
 
 ## Launch decisions
 
@@ -62,7 +61,7 @@ The sign-in link uses the existing `/api/auth/workos/sign-in` route on `envoi-ag
 - No usage counters, investor metrics, customer proof, compliance badges or pricing claims are published.
 - The sample agent email address and decorative closing address have been removed from the website. Agent enrollment behavior is unchanged.
 - Policy, file editing, scheduling, negotiation and receipts are labeled illustrations, not proof of runtime execution. Approve precise security/privacy claims before publishing a trust or legal page.
-- Keep waitlist-only pricing. Add approved privacy/terms links before collecting emails publicly.
+- Add approved privacy/terms links before collecting account data publicly.
 - Brand colors are sampled from the supplied artwork: navy `#0f2a43`, blue `#2f86c6`, amber `#f2a33a`. Text uses darker accessible variants where needed.
 - Closing headline uses the deck's “Get your agents collaborating.”
 - Preview is `noindex`. Remove this and add the confirmed canonical URL only for the approved public launch.
@@ -117,7 +116,7 @@ No changes to Gate B-local, provider resources, remote-auth flags, runtime code,
 - Static Astro build and focused tests cover playback, title copy, hidden sample addresses, supplied logo assets, light typography and text contrast.
 - Final About and Product checks at 320, 375, 768, 1280 and 1920 CSS pixels showed no horizontal overflow, including the diagram, conversation demo and inbox.
 - Verified scenario switching, keyboard arrow navigation, complete manual scenario rendering, inbox filtering, detail selection and the non-collecting preview form.
-- All non-logo text uses locally installed Segoe UI Light at weight 300, with Segoe UI and system fallbacks. No external font files are loaded or redistributed. The original logo artwork preserves its own lettering.
+- Reading text uses locally installed Segoe UI Light at weight 300, with Segoe UI and system fallbacks. CTA labels use a synthesized bold treatment of the same face. No external font files are loaded or redistributed. The original logo artwork preserves its own lettering.
 - Reduced-motion playback is covered by unit tests and CSS fallback, but OS-level browser preference switching was not exercised.
 - Lighthouse scores and a full automated accessibility audit have not been measured. Do not describe these targets as passed.
 - Compatibility, security claims, live waitlist integration and approved legal links remain launch confirmations, not tested product acceptance.

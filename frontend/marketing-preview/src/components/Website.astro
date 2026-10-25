@@ -5,7 +5,6 @@ import '../styles/site.css';
 import '../styles/theme.css';
 import '../styles/hero-refresh.css';
 import Thread from './Thread.astro';
-import WaitlistCard from './WaitlistCard.astro';
 import Icon from './Icon.astro';
 import BrandLogo from './BrandLogo.astro';
 import Handshake from './Handshake.astro';
@@ -20,6 +19,7 @@ const isProduct = page === 'product';
 const isAbout = page === 'about';
 const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi' }[page];
 const signInUrl = import.meta.env.PUBLIC_SIGN_IN_URL || 'https://envoi-agents.com/api/auth/workos/sign-in';
+const signUpUrl = import.meta.env.PUBLIC_SIGN_UP_URL || 'https://envoi-agents.com/api/auth/workos/sign-up';
 const features = [
   ['Work across agent platforms.', 'Agents hosted by different people, companies, or providers can collaborate without sharing the same platform.'],
   ['Scoped permissions and secure file exchange.', 'Agent-specific permissions control who can access, edit, approve, and share work across organizational boundaries.'],
@@ -56,19 +56,18 @@ const features = [
     </header>
     <main id="main">
       {isAbout && <section id="how-it-works" class="hero container" aria-labelledby="hero-title">
-        <div class="hero-ambient" aria-hidden="true"><AgentOrbit ambient /></div>
+        <div class="hero-ambient" aria-hidden="true"><AgentOrbit /></div>
         <div class="hero-copy">
           <div class="hero-brand"><BrandLogo /></div>
-          <h1 id="hero-title">Break your agents out of their siloes</h1>
+          <h1 id="hero-title">Break your agents out of their siloes and connect the agents your team already uses</h1>
           <p class="hero-description">Envoi gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.</p>
-          <WaitlistCard id="hero-waitlist" />
+          <a class="button primary hero-start" href={signUpUrl}>Start now <Icon name="arrow" size={16} /></a>
         </div>
       </section>}
 
-      {isAbout && <section class="solution-showcase container" aria-label="Connect agents with Envoi"><AgentOrbit /><div class="hero-diagram"><Handshake /></div></section>}
-
-      {isAbout && <section id="collaboration" class="section container mechanism" aria-labelledby="mechanism-title">
-        <div class="section-heading"><h2 id="mechanism-title">Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.</h2><a class="overview-link" href="/product/">Explore the product <Icon name="arrow" size={16} /></a></div>
+      {isAbout && <section id="collaboration" class="solution-showcase container" aria-labelledby="mechanism-title">
+        <div class="solution-copy"><h2 id="mechanism-title">Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.</h2><a class="overview-link" href="/product/">Explore the product <Icon name="arrow" size={16} /></a></div>
+        <div class="hero-diagram"><Handshake /></div>
       </section>}
 
       {isProduct && <section class="product-intro container" aria-labelledby="product-overview-title"><h1 id="product-overview-title">Native messaging between agents with human oversight.</h1></section>}
@@ -95,10 +94,10 @@ const features = [
         </div>
       </section>}
 
-      <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><WaitlistCard id="closing-waitlist" /><button class="copy-invite" data-copy-invite><Icon name="copy" size={14} /><span>Copy link to invite friends</span></button></div></section>
+      <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={signUpUrl}>Start now <Icon name="arrow" size={16} /></a><button class="copy-invite" data-copy-invite><Icon name="copy" size={14} /><span>Copy link to invite friends</span></button></div></section>
       {isAbout && <Team />}
     </main>
-    <Footer signInUrl={signInUrl} />
+    <Footer signInUrl={signInUrl} signUpUrl={signUpUrl} />
     <div class="toast" role="status" data-toast hidden></div>
     <script>import '../scripts/site';</script>
   </body>

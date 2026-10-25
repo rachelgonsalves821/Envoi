@@ -29,7 +29,7 @@ svg { flex: none; vertical-align: middle; }
 .main-nav a { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 6px 18px; border-radius: var(--pill); }
 .main-nav a[aria-current="page"], .main-nav a[aria-current="page"]:hover { color: var(--on-accent); background: var(--brand-navy); }
 .main-nav a:hover, .site-footer a:hover { color: var(--accent); }
-.sign-in { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line-strong); padding: 9px 15px; border-radius: var(--pill); font-size: 12px; }
+.sign-in { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line-strong); padding: 9px 15px; border-radius: var(--pill); font-size: 14px; font-weight: 700; font-synthesis: weight; }
 .sign-in > span { color: var(--ink-dim); }
 .sign-in:hover { background: var(--accent-wash); border-color: var(--accent); }
 .hero { max-width: 1440px; padding-top: 140px; padding-bottom: 80px; display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); column-gap: 56px; align-items: center; }
@@ -44,20 +44,20 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .form-row { padding: 5px; background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: 14px; display: flex; gap: 4px; box-shadow: inset 0 1px var(--soft-white); }
 .form-row input { color: var(--ink); background: transparent; border: 0; width: 100%; min-width: 0; padding: 10px; font-size: 13px; border-radius: 7px; }
 .form-row input::placeholder { color: var(--ink-dim); opacity: 1; }
-.button { border: 0; min-height: 44px; border-radius: var(--button-radius); padding: 0 15px; display: inline-flex; align-items: center; justify-content: center; gap: 16px; font-size: 13px; font-weight: 300; white-space: nowrap; }
-.primary { background: var(--brand-navy); color: var(--on-accent); }
-.primary:hover { filter: brightness(1.08); }
+.button { border: 1px solid var(--line-strong); min-height: 46px; border-radius: var(--pill); padding: 0 20px; display: inline-flex; align-items: center; justify-content: center; gap: 16px; background: var(--bg-raised); color: var(--ink); font-size: 15px; font-weight: 700; font-synthesis: weight; white-space: nowrap; }
+.primary { background: var(--bg-raised); color: var(--ink); }
+.primary:hover { background: var(--accent-wash); border-color: var(--accent); }
 .form-status { font-size: 10px; margin: 10px 0 0; color: var(--ink-dim); min-height: 16px; }
 .form-status.error { color: var(--agent-b); }
 .form-status.success { color: var(--confirmed-light); }
 .honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.copy-invite { display: inline-flex; align-items: center; gap: 9px; font-size: 11px; background: transparent; border: 0; padding: 9px 0; color: var(--ink-muted); margin-top: 6px; min-height: 36px; }
-.copy-invite:hover { color: var(--ink); }
+.copy-invite { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 700; font-synthesis: weight; background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: var(--pill); padding: 9px 15px; color: var(--ink); margin-top: 6px; min-height: 42px; }
+.copy-invite:hover { background: var(--accent-wash); border-color: var(--accent); }
 .demo-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 16px; }
 .demo-topline .eyebrow { color: var(--ink-muted); font-size: 14px; }
 .demo-label { font-size: 14px; color: var(--ink-dim); }
 .scenario-tabs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 20px; }
-.scenario-tabs button { color: var(--ink-muted); background: none; border: 1px solid var(--line-strong); border-radius: var(--pill); font-size: 14px; padding: 7px 11px; min-height: 34px; }
+.scenario-tabs button { color: var(--ink-muted); background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: var(--pill); font-size: 15px; font-weight: 700; font-synthesis: weight; padding: 7px 11px; min-height: 38px; }
 .scenario-tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--accent); background: var(--accent-wash); }
 .scenario-tabs button:hover { border-color: var(--accent); }
 .thread-shell { border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-sunken); box-shadow: var(--card-shadow); overflow: hidden; }
@@ -106,7 +106,7 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .thread-controls { border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; }
 .thread-controls > span { color: var(--ink-dim); font-size: 14px; display: flex; align-items: center; gap: 7px; }
 .thread-controls .small-dot { background: var(--confirmed-light); width: 4px; height: 4px; }
-.playback { display: flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--ink-muted); font-size: 14px; padding: 3px; min-height: 26px; }
+.playback { display: flex; align-items: center; gap: 5px; border: 1px solid var(--line-strong); border-radius: var(--pill); background: var(--bg-raised); color: var(--ink); font-size: 15px; font-weight: 700; font-synthesis: weight; padding: 4px 10px; min-height: 36px; }
 .demo-footnote { margin-top: 12px; color: var(--ink-dim); font-size: 14px; text-align: right; }
 .section { padding-top: 80px; padding-bottom: 80px; }
 .section-heading { text-align: center; }
@@ -153,9 +153,9 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .inbox-toolbar h3 > span { font-size: 14px; color: var(--graphite-muted); margin-left: 6px; }
 .inbox-toolbar > span { font-size: 14px; color: var(--graphite-muted); }
 .inbox-filters { display: flex; padding: 0 24px 16px; gap: 6px; border-bottom: 1px solid var(--paper-line); }
-.inbox-filters button { background: transparent; border: 1px solid transparent; padding: 4px 8px; border-radius: var(--pill); font-size: 14px; min-height: 30px; color: var(--graphite-muted); }
+.inbox-filters button { background: var(--bg-raised); border: 1px solid var(--line-strong); padding: 4px 10px; border-radius: var(--pill); font-size: 15px; font-weight: 700; font-synthesis: weight; min-height: 36px; color: var(--graphite-muted); }
 .inbox-filters button.active { background: var(--accent-wash); color: var(--cobalt-600); }
-.inbox-filters button > span { margin-left: 4px; font-size: 14px; }
+.inbox-filters button > span { margin-left: 4px; font-size: 15px; }
 .inbox-row { border: 0; border-bottom: 1px solid var(--paper-line); background: transparent; display: flex; align-items: start; padding: 22px 20px; gap: 12px; width: 100%; text-align: left; min-height: 120px; }
 .inbox-row.active { background: var(--accent-wash); box-shadow: inset 2px 0 var(--cobalt-600); }
 .inbox-row:hover { background: var(--porcelain); }
@@ -326,7 +326,7 @@ strong, b, input, button { font-weight: 300; }
   .demo-topline { flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
   .demo-topline .eyebrow { font-size: 14px; }
   .scenario-tabs { gap: 6px; margin-bottom: 12px; }
-  .scenario-tabs button { font-size: 14px; padding-inline: 9px; }
+  .scenario-tabs button { font-size: 15px; padding-inline: 9px; }
   .agent-lanes { padding: 16px; gap: 8px; }
   .agent-name { font-size: 16px; gap: 6px; }
   .agent-name small { font-size: 14px; }
@@ -373,7 +373,7 @@ strong, b, input, button { font-weight: 300; }
   .main-nav { display: flex; padding: 3px; gap: 0; }
   .main-nav a { font-size: 12px; padding: 5px 10px; min-height: 32px; }
   .site-header .wordmark { width: 48px; }
-  .sign-in { margin-left: auto; font-size: 11px; padding: 7px 12px; min-height: 36px; }
+  .sign-in { margin-left: auto; font-size: 13px; padding: 7px 12px; min-height: 36px; }
   .hero { display: flex; flex-direction: column; gap: 56px; padding-top: 120px; padding-bottom: 40px; }
   .hero-copy { padding-top: 0; width: 100%; }
   .hero-brand { width: 112px; margin-bottom: 24px; }
@@ -395,7 +395,7 @@ strong, b, input, button { font-weight: 300; }
   .demo-topline .eyebrow { font-size: 14px; }
   .demo-label { font-size: 14px; }
   .scenario-tabs { gap: 6px; }
-  .scenario-tabs button { font-size: 14px; }
+  .scenario-tabs button { font-size: 15px; }
   .thread-subject { font-size: 16px; }
   .agent-name { font-size: 16px; }
   .thread-messages { height: 560px; }

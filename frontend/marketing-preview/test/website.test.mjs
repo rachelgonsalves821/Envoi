@@ -143,12 +143,11 @@ test('sample agent email addresses are not displayed on the website', async () =
 
 test('the hero signup area has a single primary action without an unrelated tagline', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
-  const hero = page.match(/<div class="hero-copy">([\s\S]*?)<div class="hero-diagram">/)[1];
-  assert.equal((hero.match(/<WaitlistCard/g) || []).length, 1);
+  const hero = page.match(/<div class="hero-copy">([\s\S]*?)<\/section>/)[1];
+  assert.equal((hero.match(/class="button primary hero-start"/g) || []).length, 1);
+  assert.match(hero, /href=\{signUpUrl\}>Start now/);
+  assert.doesNotMatch(hero, /WaitlistCard|Join the waitlist/);
   assert.doesNotMatch(hero, /data-copy-invite|hero-aside|Agent collaboration across people/);
-  const form = await readFile(new URL('../src/components/WaitlistCard.astro', import.meta.url), 'utf8');
-  assert.match(form, /class="visually-hidden"[^>]*>Email address<\/label>/);
-  assert.doesNotMatch(form, /Request an invitation to Envoi/);
 });
 
 test('About uses the requested headline and workspace description without the old finance example', async () => {
@@ -157,7 +156,7 @@ test('About uses the requested headline and workspace description without the ol
   assert.equal(description, 'Envoi gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.');
   assert.doesNotMatch(page, /Your finance agent can build a budget|Your recruiting agent can create a hiring plan/);
   assert.doesNotMatch(description, /Native messaging|scoped file access|approval gates|building infrastructure/);
-  assert.match(page, /<h1 id="hero-title">Break your agents out of their siloes<\/h1>/);
+  assert.match(page, /<h1 id="hero-title">Break your agents out of their siloes and connect the agents your team already uses<\/h1>/);
   assert.doesNotMatch(page, /Agents cannot reliably work across people, vendors, or systems/);
   assert.doesNotMatch(page, /class="plain-columns"|class="comparison-chart"/);
 });
@@ -183,24 +182,30 @@ test('the collaboration diagram shows only the Envoi solution with named agent a
   assert.match(diagram, /\{second.name\}/);
 });
 
-test('About centers a named, reduced-motion agent orbit above the solution card', async () => {
+test('About has one centered dotted agent orbit and a compact data-request card beside its explanation', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   const orbit = await readFile(new URL('../src/components/AgentOrbit.astro', import.meta.url), 'utf8');
   const layout = await readFile(new URL('../src/styles/hero-refresh.css', import.meta.url), 'utf8');
+  assert.equal((page.match(/<AgentOrbit \/>/g) || []).length, 1);
   assert.ok(page.indexOf('<AgentOrbit />') < page.indexOf('<Handshake />'));
-  assert.match(orbit, /Connect the agents your team already uses/);
+  assert.match(page, /class="solution-copy"[\s\S]*class="hero-diagram"><Handshake \/>/);
+  assert.match(orbit, /class="ambient-ring"/);
+  assert.match(orbit, /\.ambient-ring \{[^}]*border: 1px dashed/);
   assert.match(orbit, /\{agent\.name\}/);
   assert.match(orbit, /src=\{agent\.logo\}/);
-  assert.match(orbit, /class="orbit-brand" src="\/envoi-logo\.png"/);
-  assert.match(orbit, /prefers-reduced-motion: reduce/);
-  assert.match(orbit, /90s linear infinite/);
+  assert.match(page, /PUBLIC_SIGN_UP_URL \|\| 'https:\/\/envoi-agents\.com\/api\/auth\/workos\/sign-up'/);
   assert.match(orbit, /hero-agent-orbit 84s linear infinite/);
   assert.match(orbit, /\.ambient-agent-4 \{ animation-delay: -63s;/);
-  assert.doesNotMatch(orbit, /ambient-drift|ambient-agent-2, \.ambient-agent-3 \{ display: none/);
+  assert.match(layout, /\.hero-ambient \{[^}]*left: 50%; top: calc\(50% \+ 20px\); transform: translate\(-50%, -50%\)/);
+  assert.match(layout, /\.solution-showcase \{ display: grid; grid-template-columns:/);
+  assert.match(layout, /@media \(max-width: 980px\) \{\s*\.solution-showcase \{ grid-template-columns: 1fr;/);
   assert.match(layout, /\.hero-copy \{[^}]*text-align: center/);
   assert.match(layout, /\.main-nav \{[^}]*justify-self: center/);
   const flow = await readFile(new URL('../src/components/Handshake.astro', import.meta.url), 'utf8');
-  assert.match(flow, /exchange-signal 5s/);
+  assert.match(flow, /Request Q4 revenue data/);
+  assert.match(flow, /Q4 figures attached/);
+  assert.match(flow, /request-slide 8s/);
+  assert.match(flow, /reply-slide 8s/);
 });
 
 test('diagram labels remain readable instead of shrinking to tiny mobile text', async () => {
@@ -208,8 +213,8 @@ test('diagram labels remain readable instead of shrinking to tiny mobile text', 
   const fontSizes = [...diagram.matchAll(/font-size:\s*(\d+)px/g)].map(match => Number(match[1]));
   assert.ok(fontSizes.length > 0);
   assert.ok(fontSizes.every(size => size >= 14));
-  assert.match(diagram, /@media \(max-width: 360px\)/);
-  assert.match(diagram, /\.direct-route \{ grid-template-columns: 1fr;/);
+  assert.match(diagram, /@media \(max-width: 600px\)/);
+  assert.match(diagram, /\.direct-route \{ grid-template-columns: minmax\(66px, 1fr\)/);
 });
 
 test('the removed inbox positioning is absent from the website and share metadata', async () => {
@@ -287,7 +292,7 @@ test('conversation and inbox typography stays comfortably sized at every breakpo
   }
 });
 
-test('all website typography uses the light system font rather than external font files', async () => {
+test('reading text uses the light system font while action labels are larger and bold', async () => {
   const fonts = await readFile(new URL('../src/styles/fonts.css', import.meta.url), 'utf8');
   const tokens = await readFile(new URL('../src/styles/tokens.css', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../src/styles/site.css', import.meta.url), 'utf8');
@@ -298,9 +303,9 @@ test('all website typography uses the light system font rather than external fon
   assert.match(tokens, /--sans: var\(--display\)/);
   assert.match(tokens, /--mono: var\(--display\)/);
   assert.doesNotMatch(fonts, /url\(|woff|Newsreader|Instrument Sans|Geist Mono/);
-  for (const source of [styles, hero, handshake]) {
-    assert.doesNotMatch(source, /font-weight:\s*(?!300\b)\d+/);
-  }
+  assert.match(styles, /body \{ font-weight: 300; \}/);
+  for (const selector of ['.button', '.sign-in', '.copy-invite']) assert.match(styles, new RegExp(`${selector.replace('.', '\\.') } \\{[^}]*font-weight: 700;`));
+  for (const source of [hero, handshake]) assert.doesNotMatch(source, /font-weight:\s*(?!300\b)\d+/);
 });
 
 test('About team cards use the supplied individual organization logos', async () => {

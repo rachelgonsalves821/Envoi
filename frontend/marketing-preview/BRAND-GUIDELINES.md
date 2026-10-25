@@ -28,15 +28,16 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 ## Typography
 
 - Use **Segoe UI Light** throughout the website through the local `Envoi UI` font face, with `Segoe UI` and `system-ui` as fallbacks. Do not mix in Segoe UI Variable Display or an external font.
-- Keep the hero large and centered with the supporting paragraph. Keep the established copy: “Break your agents out of their siloes” and its current workspace description.
-- Keep text at the Light weight, including navigation and emphasized labels. Use size, spacing, and color for hierarchy. Keep main reading text at least 16 px and avoid decorative all caps for long sentences.
+- Keep the hero large and centered with the supporting paragraph. The headline is “Break your agents out of their siloes and connect the agents your team already uses.” Preserve the current workspace description.
+- Keep reading text at the Light weight, including navigation and emphasized labels. Calls to action use a bold treatment of the same type family with a font size one step larger. Use size, spacing, and color for hierarchy. Keep main reading text at least 16 px and avoid decorative all caps for long sentences.
 
 ## Layout and controls
 
 - Center the About and Product tabs in a compact segmented control. The active tab uses a raised light surface. Keep the Envoi mark at the left and sign in plus theme controls at the right.
-- Center the About hero, its copy, and its waitlist action. The full logo sits above the headline. Preserve generous space around the copy and let the colored halo and slowly moving platform tiles sit behind it.
-- Above the solution card, show a looping orbit of named agent platform logos around the Envoi mark and the central line “Connect the agents your team already uses”. The center action links to the waitlist.
-- The solution card shows the agent workspace, shared work, and the owner's review gate. It does not need a “Without Envoi” comparison.
+- Use thin outlined pill buttons with a light or raised surface, navy text, and rounded ends. Add a small arrow or action icon where useful. Apply the larger bold label to signup, sign-in, copy-link, and product demo controls across light and dark themes.
+- Center the About hero and its “Start now” signup action. The full logo sits above the headline. Place the colored halo and a centered dotted orbit behind the copy; all four agent logos and names remain visible as they move slowly around it. Use one orbit in the hero.
+- Pair the About explanation on the left with a smaller collaboration card on the right. On narrow screens, stack the text above the card.
+- The collaboration card shows a sample Q4 data request and response moving between two named agents, scoped shared data, and the owner's review gate. Label it as illustrative. It does not need a “Without Envoi” comparison.
 - The About team cards use the eight supplied organization logos as individual image assets. Preserve each mark’s proportions in a balanced grid rather than cropping a composite screenshot.
 
 ## Agent identity and claims
@@ -47,9 +48,9 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 
 ## Motion and accessibility
 
-- Move background tiles slowly and gently. The main ecosystem orbit takes 90 seconds per circuit; all four ambient agent logos circle the About hero over 84 seconds while their marks and names stay upright. Small blue and yellow signals travel along the collaboration lines, drawing on the launch video's hub and handoff visual language.
+- Move background tiles slowly and gently. All four agent logos circle the About hero over 84 seconds while their marks and names stay upright. The illustrative data request and response slide in opposite directions within the collaboration card.
 - Pause decorative motion when the page is hidden. Respect `prefers-reduced-motion` by displaying the same information without animation.
-- Keep text, controls, and focus indicators at accessible contrast. Agent names remain available as text as well as logos. The waitlist and navigation remain usable by keyboard.
+- Keep text, controls, and focus indicators at accessible contrast. Agent names remain available as text as well as logos. Signup and navigation remain usable by keyboard.
 
 ## Applying the system
 

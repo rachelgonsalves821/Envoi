@@ -5,88 +5,76 @@ const [first, second] = agents;
 ---
 <figure class="collaboration-flow" aria-labelledby="collaboration-visual-title" data-collaboration-flow>
   <figcaption id="collaboration-visual-title"><strong>With Envoi, agents work together directly</strong><span>Illustrative workflow</span></figcaption>
-  <section class="direct-panel" aria-labelledby="direct-title">
-    <div class="flow-heading"><h3 id="direct-title">A shared client review</h3><span>Direct collaboration</span></div>
-    <div class="owner-layer"><span class="layer-label">Owner view</span><div class="review-gate"><Icon name="person" size={16} /><span>John reviews before sharing</span></div></div>
-    <div class="review-branch" aria-hidden="true"><span class="review-stem"></span><span class="review-arrow"><Icon name="arrow" size={13} /></span></div>
-    <div class="agent-layer">
-      <span class="layer-label">Agent workspace</span>
-      <div class="direct-route" role="group" aria-label="John's agent and Jordan's agent collaborate in a shared workspace">
-        <div class="direct-agent john-agent"><span class="node-symbol agent-symbol"><img src={first.logo} width="28" height="28" alt="" /></span><span>{first.name}</span><small>John's agent</small></div>
-        <span class="exchange-line" aria-hidden="true"><span></span></span>
-        <div class="shared-work"><Icon name="file" size={20} /><span>Shared work</span></div>
-        <span class="exchange-line" aria-hidden="true"><span></span></span>
-        <div class="direct-agent jordan-agent"><span class="node-symbol agent-symbol"><img src={second.logo} width="28" height="28" alt="" /></span><span>{second.name}</span><small>Jordan's agent</small></div>
-      </div>
+  <div class="flow-heading"><h3>A shared data request</h3><span>Direct collaboration</span></div>
+  <div class="agent-workspace">
+    <span class="layer-label">Agent workspace</span>
+    <div class="direct-route" role="group" aria-label="John's agent and Jordan's agent collaborate in a shared workspace">
+      <div class="direct-agent"><span class="agent-symbol"><img src={first.logo} width="34" height="34" alt="" /></span><strong>{first.name}</strong><small>John's agent</small></div>
+      <div class="shared-work"><Icon name="file" size={25} /><span>Scoped Q4 data</span></div>
+      <div class="direct-agent"><span class="agent-symbol"><img src={second.logo} width="34" height="34" alt="" /></span><strong>{second.name}</strong><small>Jordan's agent</small></div>
     </div>
-  </section>
+    <div class="message-track" aria-label="Illustrative data request and response">
+      <span class="message-bubble request">Request Q4 revenue data <span aria-hidden="true">→</span></span>
+      <span class="message-bubble reply"><span aria-hidden="true">←</span> Q4 figures attached</span>
+    </div>
+  </div>
+  <div class="owner-layer"><span class="layer-label">Owner view</span><div class="review-gate"><Icon name="person" size={16} /><span>John reviews before sharing</span></div></div>
 </figure>
-
 <style>
-  .collaboration-flow { margin: 0; padding: 28px; border: 1px solid var(--line); border-radius: 22px; background: var(--bg-raised); box-shadow: var(--card-shadow); }
+  .collaboration-flow { margin: 0; padding: 22px; border: 1px solid var(--line); border-radius: 20px; background: var(--bg-raised); box-shadow: var(--card-shadow); }
+  figcaption { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--line); font-size: 19px; line-height: 1.3; }
   figcaption strong { font-weight: 300; }
-  figcaption { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 22px; line-height: 1.4; padding-bottom: 24px; }
-  figcaption > span { font-size: 14px; color: var(--ink-muted); }
-  .relay-panel { padding: 24px 0 28px; border-top: 1px solid var(--line); }
-  .flow-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .flow-heading h3 { font-size: 22px; }
-  .flow-heading > span { font-size: 14px; color: var(--ink-muted); }
-  .relay-route { display: grid; grid-template-columns: 1fr 24px 1fr 24px 1fr 24px 1fr; align-items: start; list-style: none; padding: 0; margin: 28px 0 0; gap: 4px; }
-  .relay-route > li:not(.route-arrow), .direct-agent { display: flex; align-items: center; flex-direction: column; gap: 12px; font-size: 16px; line-height: 1.4; text-align: center; }
-  .node-symbol { width: 48px; height: 48px; border: 1px solid var(--line-strong); display: grid; place-items: center; color: var(--ink-muted); background: var(--bg); }
-  .node-symbol :global(svg) { width: 24px; height: 24px; }
-  .agent-symbol { border-radius: 10px; }
-  .agent-symbol img { width: 28px; height: 28px; object-fit: contain; }
-  :global(:root[data-theme="dark"]) .agent-symbol img { background: #eef5fb; border-radius: 5px; padding: 2px; }
-  .owner-symbol { border-radius: 50%; }
-  .route-arrow { margin-top: 14px; color: var(--ink-muted); }
-  .relay-note { margin-top: 20px; color: var(--ink-muted); font-size: 16px; }
-  .direct-panel { padding: 24px; background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 14px; }
-  .direct-panel .flow-heading > span { color: var(--accent); }
-  .owner-layer { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 24px; }
-  .layer-label { display: block; font-size: 14px; color: var(--ink-muted); }
-  .review-gate { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; border: 1px solid var(--brand-amber); border-radius: 8px; color: var(--needs-human-ink); background: var(--needs-human-bg); font-size: 16px; line-height: 1.4; }
-  .review-gate :global(svg) { width: 20px; height: 20px; }
-  .review-branch { position: relative; display: flex; flex-direction: column; align-items: center; height: 36px; color: var(--needs-human-ink); }
-  .review-stem { height: 100%; border-left: 1px dashed var(--needs-human-ink); }
-  .review-arrow { position: absolute; top: 0; transform: rotate(-90deg); background: var(--bg-sunken); line-height: 0; }
-  .agent-layer { padding: 20px 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-raised); }
-  .agent-layer > .layer-label { text-align: center; margin-bottom: 22px; }
-  .direct-route { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16px, .5fr) minmax(70px, 1fr) minmax(16px, .5fr) minmax(0, 1fr); align-items: center; gap: 4px; }
-  .john-agent .node-symbol { color: var(--accent); background: var(--accent-wash); border-color: var(--brand-blue); }
-  .jordan-agent .node-symbol { color: var(--agent-b); background: var(--agent-b-wash); border-color: var(--brand-amber); }
-  .shared-work { display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 16px; line-height: 1.4; color: var(--ink); }
-  .shared-work :global(svg) { color: var(--accent); width: 28px; height: 28px; }
-  .exchange-line { position: relative; border-top: 1px solid var(--accent); margin-top: -20px; }
-  .exchange-line::before, .exchange-line::after { position: absolute; content: ''; width: 4px; height: 4px; border-top: 1px solid var(--accent); border-right: 1px solid var(--accent); top: -3px; }
-  .exchange-line::before { left: 0; transform: rotate(-135deg); }
-  .exchange-line::after { right: 0; transform: rotate(45deg); }
-  .exchange-line > span { position: absolute; top: -4px; left: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--brand-blue); box-shadow: 0 0 12px var(--brand-blue); }
+  figcaption > span { flex: none; font-size: 14px; color: var(--ink-muted); }
+  .flow-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 18px 0 14px; }
+  .flow-heading h3 { font-size: 20px; }
+  .flow-heading > span { font-size: 14px; color: var(--accent); }
+  .agent-workspace { padding: 16px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-sunken); }
+  .layer-label { display: block; color: var(--ink-muted); font-size: 14px; }
+  .agent-workspace > .layer-label { text-align: center; }
+  .direct-route { display: grid; grid-template-columns: minmax(76px, 1fr) minmax(86px, 1.2fr) minmax(76px, 1fr); align-items: center; gap: 8px; margin-top: 16px; }
+  .direct-agent, .shared-work { display: flex; flex-direction: column; align-items: center; text-align: center; line-height: 1.3; }
+  .direct-agent { gap: 4px; }
+  .direct-agent strong { font-size: 15px; font-weight: 300; }
+  .direct-agent small { font-size: 14px; color: var(--ink-muted); }
+  .agent-symbol { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 4px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-raised); }
+  .agent-symbol img { width: 34px; height: 34px; object-fit: contain; }
+  :global(:root[data-theme="dark"]) .agent-symbol img { background: #eef5fb; border-radius: 6px; padding: 2px; }
+  .shared-work { gap: 8px; color: var(--ink-muted); font-size: 14px; }
+  .shared-work :global(svg) { color: var(--accent); }
+  .message-track { position: relative; height: 96px; margin: 16px 6px 0; border-top: 1px dashed var(--line-strong); }
+  .message-bubble { --bubble-width: min(224px, 82%); position: absolute; display: flex; align-items: center; justify-content: space-between; gap: 8px; width: var(--bubble-width); min-height: 34px; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--bg-raised); color: var(--ink); box-shadow: 0 4px 14px -10px var(--shadow-ink); font-size: 14px; white-space: nowrap; }
+  .request { left: 0; top: 10px; border-color: var(--brand-blue); }
+  .reply { right: 0; top: 53px; border-color: var(--brand-amber); }
+  .owner-layer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+  .review-gate { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--brand-amber); border-radius: 8px; color: var(--needs-human-ink); background: var(--needs-human-bg); font-size: 14px; }
   @media (prefers-reduced-motion: no-preference) {
-    .exchange-line > span { animation: exchange-signal 5s ease-in-out infinite; }
-    .exchange-line:last-of-type > span { animation-delay: -2.5s; background: var(--brand-amber); box-shadow: 0 0 12px var(--brand-amber); }
-    :global(body.page-hidden) .exchange-line > span { animation-play-state: paused; }
-    @keyframes exchange-signal { 0%, 15% { left: 0; opacity: 0; } 25%, 75% { opacity: 1; } 90%, 100% { left: calc(100% - 7px); opacity: 0; } }
+    .request { animation: request-slide 8s ease-in-out infinite; }
+    .reply { animation: reply-slide 8s ease-in-out infinite; }
+    :global(body.page-hidden) .message-bubble { animation-play-state: paused; }
+    @keyframes request-slide {
+      0%, 8% { left: 0; opacity: 1; }
+      42%, 48% { left: calc(100% - var(--bubble-width)); opacity: 1; }
+      56%, 100% { left: calc(100% - var(--bubble-width)); opacity: .4; }
+    }
+    @keyframes reply-slide {
+      0%, 48% { right: 0; opacity: .4; }
+      56% { right: 0; opacity: 1; }
+      90%, 100% { right: calc(100% - var(--bubble-width)); opacity: 1; }
+    }
   }
   @media (max-width: 600px) {
-    .collaboration-flow { padding: 20px 16px; }
-    figcaption { align-items: start; flex-direction: column; gap: 6px; font-size: 21px; padding-bottom: 20px; }
-    .direct-panel { padding: 20px 12px; }
-    .flow-heading { align-items: start; flex-direction: column; gap: 4px; }
-    .flow-heading h3 { font-size: 21px; }
-    .relay-route { grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr) 12px minmax(0, 1fr) 12px minmax(0, 1fr); gap: 0; }
-    .route-arrow :global(svg) { width: 12px; }
-    .node-symbol { width: 40px; height: 40px; }
-    .route-arrow { margin-top: 10px; }
-    .relay-route > li:not(.route-arrow), .direct-agent, .shared-work { font-size: 14px; }
-    .relay-note { font-size: 15px; }
-    .agent-layer { padding: 20px 8px; }
-    .direct-route { grid-template-columns: minmax(0, 1fr) 14px minmax(52px, 1fr) 14px minmax(0, 1fr); gap: 2px; }
-    .review-gate { font-size: 15px; padding-inline: 12px; }
-  }
-  @media (max-width: 360px) {
-    .direct-route { grid-template-columns: 1fr; gap: 14px; }
-    .direct-agent, .shared-work { flex-direction: row; justify-content: center; font-size: 16px; }
-    .exchange-line { width: 26px; height: 1px; justify-self: center; margin: 0; transform: rotate(90deg); }
+    .collaboration-flow { padding: 16px; }
+    figcaption { align-items: flex-start; flex-direction: column; gap: 4px; font-size: 17px; }
+    .flow-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+    .flow-heading h3 { font-size: 18px; }
+    .agent-workspace { padding: 12px; }
+    .direct-route { grid-template-columns: minmax(66px, 1fr) minmax(66px, 1.1fr) minmax(66px, 1fr); gap: 3px; }
+    .direct-agent strong { font-size: 14px; }
+    .direct-agent small { font-size: 14px; }
+    .shared-work { font-size: 14px; }
+    .agent-symbol { width: 42px; height: 42px; }
+    .agent-symbol img { width: 28px; height: 28px; }
+    .message-bubble { --bubble-width: min(224px, 82%); }
+    .owner-layer { align-items: flex-start; flex-direction: column; }
   }
 </style>
