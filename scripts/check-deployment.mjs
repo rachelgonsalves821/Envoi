@@ -5,6 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { CONTAINER_ENV_KEYS, CONTAINER_DEFAULTS } from '../worker/runtime-config.js';
 import { onboardingFlagNames } from '../src/onboarding-flags.js';
 
+// A declarative SQLite class keeps the existing namespace without replaying a
+// bootstrap migration when Cloudflare reports no migration_tag. Lifecycle
+// tombstones, transfers, storage changes and external bindings need a separate
+// reviewed change; they must never be accepted as ordinary configuration drift.
+export function validateContainerLifecycle(config, className, bindingName) {
+  assert.equal(Object.hasOwn(config, 'migrations'), false, 'Do not mix or restore legacy Durable Object migrations');
+  assert.deepEqual(config.exports, { [className]: { type: 'durable-object', storage: 'sqlite' } },
+    'Retain exactly the existing live SQLite class; no delete, rename, transfer or storage change');
+  assert.deepEqual(config.durable_objects?.bindings, [{ name: bindingName, class_name: className }],
+    'Retain the existing local Durable Object binding and class');
+  assert.equal(config.containers?.length, 1, 'Retain exactly one container application');
+  assert.equal(config.containers[0].class_name, className, 'Retain the existing container class');
+}
+
 // Beta is verified only after its custom domain is bound. Staging keeps its
 // separate workers.dev origin; never add beta workers.dev to edge admission.
 export function validateReleaseTargets(config) {
@@ -31,6 +45,7 @@ export async function checkDeploymentConfiguration() {
   const root = new URL('../', import.meta.url);
   const config = JSON.parse(await readFile(new URL('wrangler.jsonc', root), 'utf8'));
   validateReleaseTargets(config);
+  validateContainerLifecycle(config, 'SinaloaContainer', 'SINALOA_CONTAINER');
   assert.equal(config.keep_vars, true, 'Preserve dashboard-managed runtime variables on deployment');
   assert.equal(config.containers.length, 1, 'Beta routing supports exactly one container application');
   assert.equal(config.containers[0].max_instances, 1, 'Multiple instances require shared event/rate state and explicit routing; keep beta at one');
@@ -47,7 +62,7 @@ export async function checkDeploymentConfiguration() {
   assert.equal(staging.containers[0].class_name, 'SinaloaContainer');
   assert.equal(staging.containers[0].image, './Dockerfile.cloudflare');
   assert.ok(staging.durable_objects?.bindings?.some(item => item.name === 'SINALOA_CONTAINER' && item.class_name === 'SinaloaContainer'), 'Staging requires its own container binding');
-  assert.ok(staging.migrations?.some(item => item.new_sqlite_classes?.includes('SinaloaContainer')), 'Staging requires its own container migration');
+  validateContainerLifecycle(staging, 'SinaloaContainer', 'SINALOA_CONTAINER');
   assert.ok(staging.triggers?.crons?.includes('* * * * *'), 'Staging background jobs require their own wake-up schedule');
   const beta = config.env?.beta;
   assert.ok(beta, 'Beta must deploy as a Worker separate from the old production Worker');
@@ -61,7 +76,7 @@ export async function checkDeploymentConfiguration() {
   assert.equal(beta.containers[0].image, './Dockerfile.cloudflare');
   assert.equal(new Set([config.containers[0].name, staging.containers[0].name, beta.containers[0].name]).size, 3, 'Container application names must be distinct');
   assert.ok(beta.durable_objects?.bindings?.some(item => item.name === 'SINALOA_CONTAINER' && item.class_name === 'SinaloaContainer'), 'Beta requires its own container binding');
-  assert.ok(beta.migrations?.some(item => item.new_sqlite_classes?.includes('SinaloaContainer')), 'Beta requires its own container migration');
+  validateContainerLifecycle(beta, 'SinaloaContainer', 'SINALOA_CONTAINER');
   assert.equal(beta.vars?.ENVOI_PUBLIC_URL, 'https://www.envoi-agents.com');
   assert.ok(beta.vars?.ENVOI_CORS_ORIGIN?.split(',').includes(beta.vars.ENVOI_PUBLIC_URL));
   assert.equal(beta.vars?.ENVOI_EDGE_ALLOWED_HOSTS, 'www.envoi-agents.com,beta.sinaloa-inbox.com');
@@ -76,6 +91,11 @@ export async function checkDeploymentConfiguration() {
   assert.equal(betaScanner.containers?.[0]?.name, 'sinaloa-clamav-beta');
   assert.equal(betaScanner.containers?.[0]?.class_name, 'ClamAVContainer');
   assert.ok(betaScanner.triggers?.crons?.includes('*/5 * * * *'));
+  const stagingScanner = JSON.parse(await readFile(new URL('scanner/wrangler.jsonc', root), 'utf8'));
+  assert.equal(stagingScanner.name, 'sinaloa-scanner-staging');
+  for (const scanner of [stagingScanner, betaScanner]) {
+    validateContainerLifecycle(scanner, 'ClamAVContainer', 'CLAMAV_CONTAINER');
+  }
   assert.equal(new Set(CONTAINER_ENV_KEYS).size, CONTAINER_ENV_KEYS.length, 'Runtime allowlist contains duplicates');
   // agent-registration v1 §12: the Phase B flags reach the container and default off on beta.
   for (const name of onboardingFlagNames) {

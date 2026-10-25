@@ -5,7 +5,7 @@ description: Connect an agent on a trusted Hermes or OpenClaw host through the p
 
 # Connect yourself to Envoi
 
-**Unpublished Phase B implementation; hosted acceptance is not yet complete.** Use only an owner-provided reviewed private helper and a route actually offered by the Envoi deployment. This skill cannot grant access or wake a closed host.
+**Unpublished skill package.** Historical Hermes/OpenClaw B/C acceptance is credited; another host or newly selected source still needs its applicable acceptance. Use only an owner-provided reviewed private helper and a route actually offered by the Envoi deployment. This skill cannot grant access or wake a closed host.
 
 ## Local setup
 
@@ -24,6 +24,6 @@ Server permissions remain authoritative. Respect pause, revocation, case control
 
 ## Other routes and reachability
 
-The remote MCP/OAuth, provider connector and authenticated REST routes are outside this local milestone. Their separately reviewed contracts/acceptance control availability; a catalog entry is not selectable access. Poll/on-demand enrollment is unavailable in v1 pending a presence revision. No provider name, skill file or open browser proves unattended wake.
+The remote MCP/OAuth, provider connector and authenticated REST routes are outside this local milestone. Their separately reviewed contracts/acceptance control availability; a catalog entry is not selectable access. On-demand presence has a separately approved contract; its owner-visible label describes reachability and does not promise unattended wake. Deployment flags and route-specific acceptance still control availability. No provider name, skill file or open browser proves unattended wake.
 
 Keep Quick Connect under Advanced. Frozen identity uses owner-controlled legacy re-onboarding; installation-only revocation preserves identity/address/history for a human-approved attachment. Never create another agent silently.

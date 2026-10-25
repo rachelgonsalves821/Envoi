@@ -1,0 +1,51 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "repair-acquire-session-csrf",
+  "kind": "http",
+  "description": "§2.3 step 4: the replacement session reads the existing Stage 1 inbox shell, whose same-origin form carries the synchronizer token bound to this generation. No new route and no token in a URL; the generation-4 token is not accepted for generation 5.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 5,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:05:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:05:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:05:10.000Z",
+    "runStartedAt": null
+  },
+  "request": {
+    "method": "GET",
+    "path": "/agent-gateway/inbox",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session_g5"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "inboxShell",
+    "headers": {
+      "cache-control": "private, no-store",
+      "content-type": "text/html; charset=utf-8"
+    },
+    "bodyText": "<form method=\"post\" action=\"/api/agent-gateway/work/claim\"><input type=\"hidden\" name=\"csrf\" value=\"PLACEHOLDER_gateway_csrf_g5\"></form>"
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none"
+  }
+}

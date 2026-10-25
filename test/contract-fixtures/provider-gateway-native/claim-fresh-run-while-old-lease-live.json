@@ -1,0 +1,71 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "claim-fresh-run-while-old-lease-live",
+  "kind": "http",
+  "description": "§3.1a: an authorized fresh run (run_fresh, 130 s after the previous run started, more than the 60 s minimum) at 12:02:10 does not get the item: its old lease is live until 12:02:30, so nothing is claimable and the answer is idle with the time left. One queue, no duplicate lease.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:02:10.000Z",
+    "runStartedAt": "2026-10-24T12:02:10.000Z",
+    "previousRunStartedAt": "2026-10-24T12:00:00.000Z",
+    "outstandingClaim": {
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "settled": false,
+      "leaseExpiresAt": "2026-10-24T12:02:30.000Z"
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/claim",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_fresh"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "claimResult",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "state": "idle",
+      "packet": null,
+      "retryAfterSeconds": 20,
+      "replayed": false
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none"
+  },
+  "effects": {
+    "newLease": false
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "act-action-unsupported",
+  "kind": "http",
+  "description": "§4.1: proposals, decisions, completion and every asset operation are not in v1.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:00:30.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/act",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "idempotencyKey": "x-1",
+      "action": "complete_case",
+      "text": "Tuesday 10:00 works for us."
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "error": "GATEWAY_ACTION_UNSUPPORTED",
+      "code": "GATEWAY_ACTION_UNSUPPORTED",
+      "guidance": "use_supported_action"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "use_supported_action"
+  }
+}

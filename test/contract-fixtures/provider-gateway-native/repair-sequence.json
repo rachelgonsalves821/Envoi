@@ -1,0 +1,77 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "repair-sequence",
+  "kind": "sequence",
+  "description": "§2.3: the whole repair on controlled clocks. Each step names its fixture and the server time it runs at; the times strictly increase, the owner confirmation precedes the activation, and the successful claim and reply happen inside the new session, with a live lease and run budget.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:00:00.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "steps": [
+    {
+      "actor": "owner",
+      "at": "2026-10-24T12:00:00.000Z",
+      "does": "upgrades the delegation to native_work (generation 4 to 5, no cookie issued)",
+      "fixture": "scope-upgrade-owner"
+    },
+    {
+      "actor": "host",
+      "at": "2026-10-24T12:00:05.000Z",
+      "does": "the generation-4 cookie and CSRF token are refused",
+      "fixture": "old-session-refused-after-upgrade"
+    },
+    {
+      "actor": "host",
+      "at": "2026-10-24T12:00:20.000Z",
+      "does": "starts the unchanged Stage 1 pairing",
+      "fixture": "repair-pairing-created"
+    },
+    {
+      "actor": "owner",
+      "at": "2026-10-24T12:05:00.000Z",
+      "does": "confirms the repair for this exact installation (comparison phrase, current assurance); the seven-day bound starts here"
+    },
+    {
+      "actor": "host",
+      "at": "2026-10-24T12:05:05.000Z",
+      "does": "activates and receives the generation-5 cookie",
+      "fixture": "repair-activate-native-scope"
+    },
+    {
+      "actor": "host",
+      "at": "2026-10-24T12:05:10.000Z",
+      "does": "reads the inbox shell for the generation-5 CSRF token",
+      "fixture": "repair-acquire-session-csrf"
+    },
+    {
+      "actor": "host",
+      "at": "2026-10-24T12:05:20.000Z",
+      "does": "claims work in a new run: lease to 12:07:50",
+      "fixture": "claim-new-generation-ok"
+    },
+    {
+      "actor": "host",
+      "at": "2026-10-24T12:05:40.000Z",
+      "does": "replies to that item inside the live lease and the run budget",
+      "fixture": "reply-sent-after-repair"
+    }
+  ]
+}
