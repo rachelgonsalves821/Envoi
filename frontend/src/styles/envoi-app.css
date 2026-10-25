@@ -214,6 +214,21 @@
 .app-shell .permission-pill.allowed { background: #e8f5eb; color: var(--green); }
 .app-shell .permission-pill.off { background: var(--fill); color: var(--ink2); }
 .app-shell .permission-pill.always-on { background: var(--fill); color: var(--ink2); }
+.app-shell .monad-evidence { max-width: 1080px; margin-top: 28px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; }
+.app-shell .monad-evidence-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.app-shell .monad-evidence h2 { margin: 0; font-size: 17px; }
+.app-shell .monad-evidence h3 { margin: 24px 0 8px; font-size: 14px; }
+.app-shell .monad-evidence p { margin: 6px 0 14px; color: var(--ink2); font-size: 13px; }
+.app-shell .monad-evidence label { display: block; margin: 16px 0 5px; font-size: 12px; font-weight: 600; }
+.app-shell .monad-evidence select { max-width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); }
+.app-shell .monad-evidence-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+.app-shell .monad-evidence-status code { max-width: 100%; overflow-wrap: anywhere; color: var(--ink2); font-size: 11px; }
+.app-shell .monad-evidence a { color: var(--accent); font-size: 12px; }
+.app-shell .monad-violations { padding: 0; margin: 0; list-style: none; }
+.app-shell .monad-violations li { padding: 12px 0; border-top: 1px solid var(--line); }
+.app-shell .monad-violations li div { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; }
+.app-shell .monad-violations li div span, .app-shell .monad-violations li small { color: var(--ink2); font-size: 12px; }
+.app-shell .monad-violations li small { display: block; overflow-wrap: anywhere; margin: 4px 0; }
 .app-shell .activity-feed { max-width: 860px; }
 .app-shell .activity-feed h2 { margin: 24px 0 8px; color: var(--ink3); font-size: 12px; font-weight: 600; }
 .app-shell .activity-feed-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 0; border-bottom: 1px solid var(--line); }
