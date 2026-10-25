@@ -1036,8 +1036,14 @@ async function handleConsentRoute(req, res, route) {
 const httpWakeEnabled = onboardingFlags.httpWake;
 const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installationsEnabled: onboardingFlags.installations,
   mcpWakeEnabled: Boolean(onboardingFlags.mcpWake), mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger),
-  facts: async sub => ({ family: await store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)), agent: await store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`)),
-    installation: sub.installationId ? await store.getJson(installationPath(sub.inboxId, sub.agentId, sub.installationId)) : null }),
+  facts: async sub => {
+    const [family, agent] = await Promise.all([store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)),
+      store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`))]);
+    // Installation documents are immutable. Their current lifecycle is derived from
+    // the family by the canonical reader, including installation-end/revoke state.
+    const installation = sub.installationId && agent ? await installations.forFamily(sub.inboxId, agent, sub.familyId) : null;
+    return { family, agent, installation: installation?.id === sub.installationId ? installation : null };
+  },
   audit: async (inboxId, type, data, at) => {
     if (!inboxId) { await store.putJson(path.join('http-wake', 'epoch-audit', `${store.id('evt')}.json`), { type, data, createdAt: at }); return; }
     const record = await auditRecord(inboxId, type, data, at); await store.putJson(record.document.path, record.document.value);
@@ -3933,11 +3939,11 @@ async function route(req, res) {
     const inbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
     if (!inbox || !agent || !await canManageInbox(human, inbox, { maxAgeMs: 0 })) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'Workspace access is required.');
-    const families = await listAgentCredentialFamilies(inboxId, agentId);
     let family = null, installationId = null;
-    for (const candidate of families.filter(item => !item.revokedAt && Date.parse(item.refreshExpiresAt) > Date.now()).sort((a,b) => String(b.createdAt).localeCompare(String(a.createdAt)))) {
-      const installation = await installations.forFamily(inboxId, agent, candidate.id);
-      if (installation?.status === 'active') { family = candidate; installationId = installation.id; break; }
+    if (req.method === 'PUT') for (const installation of await installations.list(inboxId, agent)) {
+      if (installation.status !== 'active') continue;
+      const candidate = await store.getJson(agentCredentialFamilyPath(inboxId, agentId, installation.familyId));
+      if (candidate && !candidate.revokedAt && Date.parse(candidate.refreshExpiresAt) > Date.now()) { family = candidate; installationId = installation.id; break; }
     }
     if (req.method === 'PUT' && (!family || !canAct(agent, 'receive_agent_messages'))) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'An active installation is required.');
     const identity = { inboxId, agent, family, installationId, ownerRequest: req, ownerHumanId: human.id };
