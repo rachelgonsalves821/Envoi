@@ -162,12 +162,12 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       await queue(sub,type,reason,undefined,cursor);
     }
   }
-  async function pause(inboxId,agentId) {
+  async function pause(inboxId,agentId,cursor=null) {
     for (const sub of await agentSubs(agentId)) if (sub.inboxId === inboxId && sub.agentId === agentId && sub.status === 'active') {
       sub.dirty ||= {}; delete sub.dirty.work; await save(sub);
       for (const event of await liveEventsOf(sub)) if (event.lane === 'work' && ['queued','retrying'].includes(event.status)) { event.status='cancelled';event.finishedAt=now();await putEvent(event); }
     }
-    await trigger({ inboxId,agentId,type:'wake.control_changed',reason:'agent_paused' });
+    await trigger({ inboxId,agentId,type:'wake.control_changed',reason:'agent_paused',cursor });
   }
   async function finish(event,sub,result) {
     const at=time(); event.lastFailureClass=result.failureClass || null;
