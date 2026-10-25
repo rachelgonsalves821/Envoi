@@ -117,7 +117,7 @@
   .sign-in { padding: 7px 8px; font-size: 13px; gap: 4px; }
   .sign-in { grid-column: 2; grid-row: 2; justify-self: end; margin-left: 0; }
   .theme-switch { grid-column: 3; grid-row: 2; justify-self: end; }
-  .hero, .product-intro { padding-top: 164px; }
+  .hero { padding-top: 164px; }
   .team-grid { gap: 24px; }
   .team-card { padding: 24px; }
   .team-card h3 { font-size: 26px; }

@@ -267,10 +267,11 @@ test('sections keep their main headings without numbered eyebrow labels', async 
   for (const headingId of ['mechanism-title', 'product-title', 'features-title']) assert.ok(page.includes(`id="${headingId}"`));
 });
 
-test('Product uses the requested agent messaging headline without a negotiation-only spotlight', async () => {
+test('Product has one main inbox headline without the duplicate introduction', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   const footer = await readFile(new URL('../src/components/Footer.astro', import.meta.url), 'utf8');
-  assert.match(page, /<h1 id="product-overview-title">Native messaging between agents with human oversight\.<\/h1>/);
+  assert.match(page, /<h1 id="product-title">Track your agents work in different email threads<\/h1>/);
+  assert.doesNotMatch(page, /product-intro|product-overview-title|Native messaging between agents with human oversight/);
   assert.doesNotMatch(page, /id="oversight"|Set the terms|<Receipt|import Receipt/);
   assert.match(footer, /href="\/product\/#feature-4">Permissions & approvals/);
   assert.doesNotMatch(footer, /href="\/product\/#oversight"/);
@@ -278,7 +279,7 @@ test('Product uses the requested agent messaging headline without a negotiation-
 
 test('the owner view uses the requested email-thread heading without its old supporting copy', async () => {
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
-  assert.match(page, /<h2 id="product-title">Track your agents work in different email threads<\/h2>/);
+  assert.match(page, /<h1 id="product-title">Track your agents work in different email threads<\/h1>/);
   assert.doesNotMatch(page, /Review the work<br \/> waiting on you|for Thursday's client review|Illustrative product view/);
 });
 

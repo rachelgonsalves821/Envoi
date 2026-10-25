@@ -1,4 +1,4 @@
-.monad-section { position: relative; overflow: hidden; padding: 72px 0; background: var(--bg-sunken); border-top: 1px solid var(--line); }
+.monad-section { position: relative; overflow: hidden; padding: 72px 0; border-top: 1px solid var(--line); }
 .monad-section::before { content: ''; position: absolute; width: 640px; height: 640px; right: -130px; top: -130px; background: radial-gradient(circle, rgba(47,134,198,.22), rgba(242,163,58,.11) 45%, transparent 72%); pointer-events: none; }
 .monad-layout { position: relative; display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: clamp(36px, 6vw, 96px); align-items: start; }
 .monad-copy { max-width: 530px; }
@@ -25,7 +25,7 @@
 .monad-permission input:checked + .monad-switch { background: var(--accent); }
 .monad-permission input:checked + .monad-switch > span { transform: translateX(18px); }
 .monad-transaction-note { margin: 9px 2px 0; padding: 8px 10px; border-left: 2px solid var(--brand-amber); color: var(--ink-muted); background: var(--agent-b-wash); font-size: 13px; line-height: 1.35; }
-.monad-brand-note { display: flex; align-items: flex-start; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.monad-brand-note { display: flex; align-items: flex-start; gap: 16px; margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
 .monad-brand-note img { display: block; flex: none; width: 48px; height: 48px; object-fit: contain; }
 .monad-brand-copy { display: grid; gap: 10px; }
 .monad-brand-copy p { color: var(--ink-muted); font-size: 15px; line-height: 1.45; }
