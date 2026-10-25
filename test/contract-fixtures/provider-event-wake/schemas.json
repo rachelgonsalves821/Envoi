@@ -1,0 +1,1242 @@
+{
+  "$id": "provider-event-wake/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "provider-event-wake v1: two provider wake profiles over the existing durable queue. mcp_events (ChatGPT/Dots, Envoi is the event source) and grok_trigger (Envoi sends to an owner-supplied Grok trigger). Standard Webhooks HMAC, not the http-wake Ed25519 protocol.",
+  "x-flags": {
+    "ENVOI_MCP_EVENTS_V1": {
+      "default": false,
+      "requires": [
+        "ENVOI_HTTP_WAKE_V1",
+        "ENVOI_INSTALLATIONS_V2",
+        "ENVOI_AGENT_REGISTRATION_V2",
+        "ENVOI_REMOTE_MCP_OAUTH or ENVOI_PROVIDER_CONNECTORS"
+      ],
+      "failsStartupClosed": true
+    },
+    "ENVOI_GROK_TRIGGER_V1": {
+      "default": false,
+      "requires": [
+        "ENVOI_HTTP_WAKE_V1",
+        "ENVOI_INSTALLATIONS_V2",
+        "ENVOI_AGENT_REGISTRATION_V2"
+      ],
+      "failsStartupClosed": true
+    }
+  },
+  "x-protocol": {
+    "eventsProtocolVersion": "2026-07-28",
+    "existingToolsProtocolVersion": "2025-11-25",
+    "note": "events/* and the events capability exist only at 2026-07-28; the existing tools are unchanged at 2025-11-25"
+  },
+  "x-events": [
+    {
+      "name": "envoi.work_available",
+      "description": "Work for this connection became claimable. Opaque hint: claim to learn what.",
+      "delivery": [
+        "webhook"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "payloadSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "enum": [
+              "message_delivered",
+              "human_instruction",
+              "agent_resumed",
+              "case_resumed",
+              "counterparty_resumed",
+              "work_due",
+              "subscription_activated"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "envoi.control_changed",
+      "description": "This connection's pause state or a case control changed. Opaque hint.",
+      "delivery": [
+        "webhook"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "payloadSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "enum": [
+              "agent_paused",
+              "case_controlled"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "x-signing": {
+    "scheme": "Standard Webhooks",
+    "algorithm": "HMAC-SHA256",
+    "headers": [
+      "webhook-id",
+      "webhook-timestamp",
+      "webhook-signature"
+    ],
+    "signedContent": "{webhook-id}.{webhook-timestamp}.{raw body bytes}",
+    "key": "the whsec_ secret with the prefix removed, then base64-decoded (24..64 bytes)",
+    "signatureFormat": "v1,<base64>; several entries separated by a space during rotation",
+    "timestampToleranceSeconds": 300,
+    "serializeOnce": true
+  },
+  "x-secret": {
+    "prefix": "whsec_",
+    "minBytes": 24,
+    "maxBytes": 64,
+    "custody": "Stored encrypted at rest with the server data key, readable only by the delivery worker; never returned by any route, never logged, audited as a fingerprint-free \"secret set\"; deleted on end, revoke, flag-off and installation end.",
+    "source": {
+      "mcp_events": "supplied by the host in events/subscribe",
+      "grok_trigger": "supplied by the owner through the owner route; the model and the agent credential never see it"
+    }
+  },
+  "x-limits": {
+    "reuses": "http-wake/x-limits",
+    "additional": {
+      "verificationCacheSeconds": 3600,
+      "clockToleranceSeconds": 300,
+      "eventBodyMaxBytes": 1024,
+      "subscriptionTtlMinMs": 3600000,
+      "subscriptionTtlMaxMs": 604800000,
+      "defaultTtlMs": 604800000,
+      "ttlNullTreatedAs": "subscriptionTtlMaxMs",
+      "refreshGraceSeconds": 600,
+      "secretDualSignSeconds": 600,
+      "replayRetainedEvents": 1000,
+      "replayRetainedHours": 72,
+      "grokTargetsPerAgent": 1,
+      "grokMinIntervalSeconds": 5
+    }
+  },
+  "x-verification-cache": {
+    "key": [
+      "principal (installation)",
+      "canonical callback URL"
+    ],
+    "ttlSeconds": 3600,
+    "invalidatedBy": [
+      "expiry",
+      "secret_changed",
+      "url_changed",
+      "allowlist_changed",
+      "subscription_ended",
+      "installation_ended",
+      "flag_off"
+    ],
+    "destinationChecksOnHit": [
+      "provider callback allowlist",
+      "https and port 443",
+      "public addresses only",
+      "no redirects"
+    ],
+    "storage": "a timestamp and a one-way key; never the secret",
+    "note": "a hit skips only the challenge round trip"
+  },
+  "x-clock": {
+    "toleranceSeconds": 300,
+    "receiverRule": "accept when |receiver clock - webhook-timestamp| <= 300, else reject (stale when the receiver is later, future when it is earlier)",
+    "senderRule": "every attempt, including retries, is signed with Envoi's clock at the attempt time; a retry never reuses an earlier timestamp or signature",
+    "causal": "webhook-timestamp is never earlier than the event timestamp it carries"
+  },
+  "x-no-retry-statuses": {
+    "mcp_events": [
+      410,
+      413
+    ],
+    "grok_trigger": [
+      400,
+      401,
+      413
+    ]
+  },
+  "x-retry-statuses": {
+    "mcp_events": [
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "grok_trigger": [
+      408,
+      429,
+      500,
+      502,
+      503,
+      504
+    ]
+  },
+  "x-notification": {
+    "reuses": "http-wake §2.3: opaque reasons only",
+    "newFields": []
+  },
+  "x-codes": {
+    "AGENT_PAUSED": {
+      "status": 409,
+      "bySurface": {
+        "host": {
+          "lifecycle": "PAUSED",
+          "retry": "none",
+          "guidance": "wait_for_resume"
+        }
+      }
+    },
+    "CREDENTIAL_REVOKED": {
+      "status": 401,
+      "bySurface": {
+        "host": {
+          "lifecycle": "REVOKED",
+          "retry": "none",
+          "guidance": "owner_reconnect",
+          "guidanceByReason": {
+            "revoked": "owner_reconnect"
+          }
+        }
+      }
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "bySurface": {
+        "host": {
+          "lifecycle": "UNCHANGED",
+          "retry": "after_retry_after",
+          "guidance": "service_busy"
+        }
+      }
+    },
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "bySurface": {
+        "owner": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "none"
+        }
+      }
+    },
+    "FEATURE_DISABLED": {
+      "status": 404,
+      "bySurface": {
+        "owner": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "wake_unavailable"
+        }
+      }
+    },
+    "WAKE_URL_REJECTED": {
+      "status": 400,
+      "bySurface": {
+        "owner": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "fix_wake_url",
+          "guidanceByReason": {
+            "origin_not_allowed": "fix_wake_url"
+          }
+        }
+      }
+    },
+    "WAKE_TARGET_INVALID": {
+      "status": 400,
+      "bySurface": {
+        "owner": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "fix_secret",
+          "guidanceByReason": {
+            "secret_invalid": "fix_secret"
+          }
+        }
+      }
+    }
+  },
+  "x-callback-errors": {
+    "code": -32015,
+    "name": "CallbackEndpointError",
+    "reasons": [
+      "origin_not_allowed",
+      "address_not_allowed",
+      "challenge_failed",
+      "timeout"
+    ]
+  },
+  "x-target-states": {
+    "active": "sending",
+    "needs_secret": "401 from Grok: paused until the owner replaces the secret",
+    "needs_attention": "400 or 413: sender defect, paused",
+    "ended": "owner removed it, flag off, agent or installation ended"
+  },
+  "x-evidence-gates": [
+    "G1",
+    "G2",
+    "G3",
+    "G4",
+    "D1",
+    "D2",
+    "D3"
+  ],
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "retry": {
+      "enum": [
+        "none",
+        "backoff",
+        "after_retry_after",
+        "refresh_then_retry_once"
+      ]
+    },
+    "guidance": {
+      "enum": [
+        "none",
+        "renew_before_refresh",
+        "claim_after_truncated",
+        "fix_callback_url",
+        "fix_secret",
+        "fix_wake_url",
+        "events_unavailable",
+        "wake_unavailable",
+        "wait_for_resume",
+        "owner_reconnect",
+        "service_busy"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "AGENT_PAUSED",
+        "CREDENTIAL_REVOKED",
+        "RATE_LIMITED",
+        "AUTHENTICATION_REQUIRED",
+        "FEATURE_DISABLED",
+        "WAKE_URL_REJECTED",
+        "WAKE_TARGET_INVALID"
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "not": {
+            "pattern": "whsec_|(?:envoi|sinaloa)_agent_(?:access|refresh)_"
+          }
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "retryAfterSeconds"
+            ]
+          }
+        }
+      ]
+    },
+    "rpcResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "object"
+        }
+      }
+    },
+    "rpcError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                -32015,
+                -32601,
+                -32602
+              ]
+            },
+            "message": {
+              "type": "string"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reason"
+              ],
+              "properties": {
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "subscribeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "refreshBefore",
+        "cursor",
+        "truncated"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^evtsub_[0-9a-f]{20}$"
+        },
+        "refreshBefore": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{20}$"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "subscribeParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "arguments",
+        "delivery"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "envoi.work_available",
+            "envoi.control_changed"
+          ]
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 0
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "url",
+            "secret"
+          ],
+          "properties": {
+            "mode": {
+              "const": "webhook"
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^https://",
+              "maxLength": 2048
+            },
+            "secret": {
+              "type": "string",
+              "pattern": "^whsec_"
+            }
+          }
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{20}$"
+        },
+        "ttlMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "unsubscribeParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "arguments",
+        "delivery"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "envoi.work_available",
+            "envoi.control_changed"
+          ]
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 0
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "url"
+          ],
+          "properties": {
+            "mode": {
+              "const": "webhook"
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^https://",
+              "maxLength": 2048
+            }
+          }
+        }
+      }
+    },
+    "grokTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "installationId",
+        "agentId",
+        "url",
+        "secretSet",
+        "state",
+        "stateReason",
+        "createdAt",
+        "updatedAt",
+        "lastAttemptAt",
+        "lastAcceptedAt",
+        "consecutiveFailures"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^wake_target_[A-Za-z0-9_-]+$"
+        },
+        "kind": {
+          "const": "grok_webhook_trigger"
+        },
+        "installationId": {
+          "type": "string"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://",
+          "maxLength": 2048
+        },
+        "secretSet": {
+          "const": true
+        },
+        "state": {
+          "enum": [
+            "active",
+            "needs_secret",
+            "needs_attention",
+            "ended"
+          ]
+        },
+        "stateReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastAttemptAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastAcceptedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "consecutiveFailures": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "grokTargetResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "$ref": "#/definitions/grokTarget"
+        }
+      }
+    },
+    "fixtureFlags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ENVOI_HTTP_WAKE_V1",
+        "ENVOI_INSTALLATIONS_V2",
+        "ENVOI_MCP_EVENTS_V1",
+        "ENVOI_GROK_TRIGGER_V1"
+      ],
+      "properties": {
+        "ENVOI_AGENT_REGISTRATION_V2": {
+          "type": "boolean"
+        },
+        "ENVOI_INSTALLATIONS_V2": {
+          "type": "boolean"
+        },
+        "ENVOI_HTTP_WAKE_V1": {
+          "type": "boolean"
+        },
+        "ENVOI_REMOTE_MCP_OAUTH": {
+          "type": "boolean"
+        },
+        "ENVOI_PROVIDER_CONNECTORS": {
+          "type": "boolean"
+        },
+        "ENVOI_MCP_EVENTS_V1": {
+          "type": "boolean"
+        },
+        "ENVOI_GROK_TRIGGER_V1": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fixtureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "path",
+        "auth"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "auth": {
+          "enum": [
+            "bearer",
+            "human_session"
+          ]
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "schema",
+        "body"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "lifecycle",
+        "retry",
+        "guidance",
+        "next"
+      ],
+      "properties": {
+        "surface": {
+          "enum": [
+            "host",
+            "owner"
+          ]
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/lifecycle"
+        },
+        "retry": {
+          "$ref": "#/definitions/retry"
+        },
+        "guidance": {
+          "$ref": "#/definitions/guidance"
+        },
+        "next": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fixtureDelivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "attempt",
+        "sentAt",
+        "request",
+        "response",
+        "outcome"
+      ],
+      "properties": {
+        "profile": {
+          "enum": [
+            "mcp_events",
+            "grok_trigger"
+          ]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "url",
+            "headers",
+            "bodyText"
+          ],
+          "properties": {
+            "method": {
+              "const": "POST"
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^https://"
+            },
+            "headers": {
+              "type": "object"
+            },
+            "bodyText": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "integer"
+            },
+            "headers": {
+              "type": "object"
+            },
+            "body": {
+              "type": "object"
+            }
+          }
+        },
+        "sentAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "previousAttempt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sentAt",
+            "status",
+            "retryAfterSeconds"
+          ],
+          "properties": {
+            "sentAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "status": {
+              "type": "integer"
+            },
+            "retryAfterSeconds": {
+              "type": "integer"
+            }
+          }
+        },
+        "receiver": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "asOf",
+            "toleranceSeconds",
+            "deltaSeconds",
+            "verdict",
+            "reason"
+          ],
+          "properties": {
+            "asOf": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "toleranceSeconds": {
+              "const": 300
+            },
+            "deltaSeconds": {
+              "type": "integer"
+            },
+            "verdict": {
+              "enum": [
+                "accept",
+                "reject"
+              ]
+            },
+            "reason": {
+              "enum": [
+                null,
+                "timestamp_stale",
+                "timestamp_future"
+              ]
+            }
+          }
+        },
+        "outcome": {
+          "enum": [
+            "verified",
+            "acknowledged",
+            "accepted_receipt_only",
+            "retry_scheduled",
+            "subscription_ended_receiver_gone",
+            "target_needs_secret",
+            "target_needs_attention",
+            "receiver_rejected"
+          ]
+        }
+      }
+    },
+    "fixtureEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkedAt",
+        "sources",
+        "documented",
+        "unproven"
+      ],
+      "properties": {
+        "checkedAt": {
+          "type": "string",
+          "format": "date"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "product",
+              "url"
+            ]
+          }
+        },
+        "documented": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unproven": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gate",
+              "subject",
+              "claim",
+              "blocks"
+            ],
+            "properties": {
+              "gate": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "claim": {
+                "type": "string"
+              },
+              "blocks": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "fixtureStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "does"
+      ],
+      "properties": {
+        "actor": {
+          "enum": [
+            "host",
+            "envoi",
+            "operator",
+            "owner"
+          ]
+        },
+        "does": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixture": {
+          "type": "string"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind"
+      ],
+      "properties": {
+        "contract": {
+          "const": "provider-event-wake"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "delivery",
+            "sequence",
+            "rollback",
+            "evidence"
+          ]
+        },
+        "effects": {
+          "type": "object"
+        },
+        "flags": {
+          "$ref": "#/definitions/fixtureFlags"
+        },
+        "context": {
+          "type": "object"
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        },
+        "delivery": {
+          "$ref": "#/definitions/fixtureDelivery"
+        },
+        "evidence": {
+          "$ref": "#/definitions/fixtureEvidence"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/definitions/fixtureStep"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response",
+              "client"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "steps"
+                  ]
+                },
+                {
+                  "required": [
+                    "delivery"
+                  ]
+                },
+                {
+                  "required": [
+                    "evidence"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "delivery"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "delivery"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                },
+                {
+                  "required": [
+                    "steps"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "evidence"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "evidence"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "sequence",
+                  "rollback"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "steps"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                },
+                {
+                  "required": [
+                    "delivery"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "rollback"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "flags"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

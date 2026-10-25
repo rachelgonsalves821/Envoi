@@ -1,0 +1,67 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "repair-activate-native-scope",
+  "kind": "http",
+  "description": "§2.3 step 3: after the owner confirmed the repair at /claim for this exact installation (target: existing agent, comparison phrase, current assurance), the Stage 1 activate returns the replacement cookie: generation 5, scope native_work, absolute lifetime of seven days from the owner confirmation. No credential appears in the body.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:05:05.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z",
+    "ownerGrant": {
+      "scope": "native_work",
+      "generation": 5
+    },
+    "ownerConfirmedAt": "2026-10-24T12:05:00.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/pairing/activate",
+    "auth": "pending_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_pair=PLACEHOLDER_pending_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_pending_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "operationId": "op_PLACEHOLDER_repair_1"
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "pairingConnected",
+    "headers": {
+      "cache-control": "private, no-store",
+      "set-cookie": [
+        "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session_g5; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800",
+        "__Host-envoi_agent_pair=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
+      ]
+    },
+    "body": {
+      "state": "connected",
+      "agentAddress": "agent@agents.envoi-agents.com",
+      "permissionSummary": [
+        "receive_agent_messages",
+        "send_agent_messages"
+      ],
+      "expiresAt": "2026-10-31T12:05:00.000Z"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none"
+  }
+}

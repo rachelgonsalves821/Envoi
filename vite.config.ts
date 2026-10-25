@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { routeAvailabilityValidatorPlugin } from './frontend/build/route-availability.ts';
+import { remoteAuthValidatorPlugin } from './frontend/build/remote-auth.ts';
 import { inlineWebBuild } from './scripts/vite-inline-web.ts';
 
 export default defineConfig(({ mode }) => {
@@ -8,7 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     root: 'frontend',
     base: './',
-    plugins: [routeAvailabilityValidatorPlugin(), react(), inlineWebBuild()],
+    plugins: [routeAvailabilityValidatorPlugin(), remoteAuthValidatorPlugin(), react(), inlineWebBuild()],
     build: {
       outDir: '../web',
       emptyOutDir: true,

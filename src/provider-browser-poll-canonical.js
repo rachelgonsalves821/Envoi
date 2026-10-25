@@ -3,11 +3,12 @@ import { browserPollAvailable, providerGatewayAuthority } from './onboarding-fla
 import { installationPath } from './agent-installations.js';
 import { createProviderBrowserPoll, gatewayError } from './provider-browser-poll.js';
 import { createProviderBrowserPollHttp } from './provider-browser-poll-http.js';
+import { createProviderGatewayNative } from './provider-gateway-native.js';
 
 // This adapter is deliberately not a general proxy: Stage 1 can only register, privately
 // activate, validate canonical authority and project pending native messages.
 export function createCanonicalBrowserGateway({ store, flags, key, registrations, activateRegistration, reattachRegistration, rotateCredentials, auth,
-  canManageInbox, verifyOwnerCsrf, ownerCsrf, publicOrigin, clientIp, familyPath, rateLimit, pendingAllowed, writeAudit, publishAudit }) {
+  canManageInbox, verifyOwnerCsrf, ownerCsrf, publicOrigin, clientIp, familyPath, rateLimit, pendingAllowed, writeAudit, publishAudit, nativeAdapter = null }) {
   const enabled = () => browserPollAvailable(flags);
   const fail = (status, code) => { throw gatewayError(status, code); };
   const adapter = {
@@ -29,7 +30,7 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
       const workspaceInboxId = current.target.kind === 'new_agent' ? current.target.workspaceInboxId : current.target.agentInboxId;
       const workspace = await store.getJson(path.join('inboxes', workspaceInboxId, 'inbox.json'));
       if (!workspace || !await canManageInbox(human, workspace, { maxAgeMs: 0 })) fail(403, 'GATEWAY_SCOPE_DENIED');
-      return { humanId: human.id, workspaceInboxId };
+      return { humanId: human.id, workspaceInboxId, ...(current.target.kind === 'existing_agent' ? { installationId: current.target.replacesInstallationId } : {}) };
     },
     activate: async (registration, activationId, confirmed) => {
       const current = await registrations.getRegistration(registration.registrationId);
@@ -59,7 +60,7 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
         || inbox?.status === 'removed' || family.installationId !== b.installationId) fail(401, 'CREDENTIAL_REVOKED');
       if (!Number.isFinite(Date.parse(family.refreshExpiresAt)) || Date.parse(family.refreshExpiresAt) <= Date.now()) fail(401, 'CREDENTIAL_EXPIRED');
       if (!human || !workspace || !await canManageInbox(human, workspace, { maxAgeMs: 0 }) || !agent.permissions?.includes('receive_agent_messages')) fail(403, 'GATEWAY_SCOPE_DENIED');
-      return { address: agent.address, paused: agent.status === 'paused' };
+      return { address: agent.address, paused: agent.status === 'paused', permissions: agent.permissions };
     },
     renew: async (binding, operation) => {
       const value = await rotateCredentials(binding.credentials.refresh, operation.id);
@@ -101,15 +102,45 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
       return result;
     }
   };
-  const gateway = createProviderBrowserPoll({ store, key, enabled, adapter });
+  const nativeEnabled = () => Boolean(enabled() && flags.providerGatewayNative && flags.caseSessions && nativeAdapter);
+  const gateway = createProviderBrowserPoll({ store, key, enabled, nativeEnabled, adapter });
   const requireOwner = async req => {
     const human = await auth.getHuman(req);
     if (!human) fail(401, 'GATEWAY_SESSION_REQUIRED');
     if (req.headers['x-envoi-expected-human'] && req.headers['x-envoi-expected-human'] !== human.id) fail(403, 'ACCOUNT_CHANGED');
-    return { human, csrf: ownerCsrf(req) };
+    const nativeInstallations = [];
+    if (nativeEnabled() && req.method === 'GET' && new URL(req.url, 'http://localhost').pathname === '/agent-gateway/owner') {
+      for (const item of await nativeAdapter.ownerInstallations(human)) {
+        const record = await gateway.nativePort.read(`installation:${item.installationId}`);
+        if (record?.binding.ownerId !== human.id || record.binding.inboxId !== item.inboxId || record.binding.agentId !== item.agentId) continue;
+        nativeInstallations.push({ ...item, scope: record.native?.scope || 'read_notify', revision: record.native?.revision || 0 });
+      }
+    }
+    return { human, csrf: ownerCsrf(req), ...(nativeInstallations.length ? { nativeInstallations } : {}) };
   };
   const ownerMutation = (req, csrf) => { if (!verifyOwnerCsrf(req, csrf)) fail(403, 'GATEWAY_CSRF_INVALID'); };
-  const handler = createProviderBrowserPollHttp({ gateway, enabled, origin: publicOrigin, rateLimit,
+  const native = nativeAdapter ? createProviderGatewayNative({ gateway, enabled: nativeEnabled, adapter: {
+    ...nativeAdapter,
+    lockKeys: async (...args) => [...adapter.lockKeys(args[0]), ...await nativeAdapter.lockKeys(...args)],
+    authorize: async (binding, context) => {
+      const identity = await adapter.authorize(binding);
+      await nativeAdapter.authorize(binding, context);
+      return identity;
+    },
+    verifyOwnerScope: async (binding, input, req) => {
+      const { human, csrf } = await requireOwner(req);
+      ownerMutation(req, csrf);
+      if (human.id !== binding.ownerId) fail(403, 'GATEWAY_SCOPE_DENIED');
+      const identity = await adapter.authorize(binding);
+      await nativeAdapter.verifyOwnerScope(binding, input, req);
+      return identity;
+    }
+  } }) : null;
+  if (native) {
+    adapter.sessionReplacementKeys = native.sessionReplacementKeys;
+    adapter.sessionReplaced = native.sessionReplaced;
+  }
+  const handler = createProviderBrowserPollHttp({ gateway, enabled, native, origin: publicOrigin, rateLimit,
     owner: requireOwner,
     ownerConfirm: async (req, payload, csrf) => { await requireOwner(req); ownerMutation(req, csrf); return gateway.confirm(payload, req); },
     policy: async (req, match, payload, csrf) => {
@@ -127,6 +158,8 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
       });
     }
   });
-  handler.cleanup = gateway.cleanup;
+  handler.cleanup = async () => { await native?.reconcileFlags(); await gateway.cleanup(); };
+  handler.native = native;
+  handler.reconcileFlags = () => native?.reconcileFlags();
   return handler;
 }

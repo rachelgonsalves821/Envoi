@@ -29,12 +29,9 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["SinaloaContainer"]
-    }
-  ],
+  "exports": {
+    "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+  },
   "env": {
     "staging": {
       "workers_dev": true,
@@ -63,12 +60,9 @@
           }
         ]
       },
-      "migrations": [
-        {
-          "tag": "v1",
-          "new_sqlite_classes": ["SinaloaContainer"]
-        }
-      ]
+      "exports": {
+        "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+      }
     },
     "beta": {
       "workers_dev": false,
@@ -98,7 +92,13 @@
         "ENVOI_HTTP_WAKE_V1": "false",
         "ENVOI_PROVIDER_BROWSER_POLL": "false",
         "ENVOI_REMOTE_MCP_OAUTH": "false",
-        "ENVOI_PROVIDER_CONNECTORS": "false"
+        "ENVOI_PROVIDER_CONNECTORS": "false",
+        "ENVOI_MCP_WAKE_V1": "false",
+        "ENVOI_MCP_EVENTS_V1": "false",
+        "ENVOI_GROK_TRIGGER_V1": "false",
+        "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": "false",
+        "ENVOI_MCP_EVENTS_CALLBACK_ORIGINS": "",
+        "ENVOI_GROK_TRIGGER_ORIGINS": ""
       },
       "routes": [
         {
@@ -131,12 +131,9 @@
           }
         ]
       },
-      "migrations": [
-        {
-          "tag": "v1",
-          "new_sqlite_classes": ["SinaloaContainer"]
-        }
-      ]
+      "exports": {
+        "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+      }
     }
   }
 }

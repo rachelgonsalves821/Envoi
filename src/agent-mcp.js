@@ -122,7 +122,7 @@ async function invokeTool(name, args, identity, callRest) {
 // The transport rules every /mcp request follows (docs/agent-mcp-remote.md): method, Accept,
 // Content-Type, size, the JSON-RPC envelope, notifications, initialize and the protocol version.
 // Resolves to { request } for a request still to answer, or to undefined once it has responded.
-export async function readMcpRequest(req, res, { maxRequestBytes = 64 * 1024 } = {}) {
+export async function readMcpRequest(req, res, { maxRequestBytes = 64 * 1024, allowEventsVersion = false, eventsAvailable = false, recognizeEventMethods = false } = {}) {
   if (req.method === 'GET' || req.method === 'DELETE') {
     res.writeHead(405, { allow: 'POST', 'cache-control': 'no-store' });
     res.end();
@@ -161,44 +161,82 @@ export async function readMcpRequest(req, res, { maxRequestBytes = 64 * 1024 } =
     if (typeof request.params?.protocolVersion !== 'string' || !request.params?.clientInfo || !request.params?.capabilities) {
       return sendJson(res, 200, rpcError(id, -32602, 'Invalid initialize parameters'));
     }
-    const protocolVersion = supportedVersions.has(request.params.protocolVersion) ? request.params.protocolVersion : currentVersion;
-    return sendJson(res, 200, rpcResult(id, { protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'envoi', version: '0.1.0' } }));
+    const protocolVersion = allowEventsVersion && request.params.protocolVersion === '2026-07-28' ? '2026-07-28' : supportedVersions.has(request.params.protocolVersion) ? request.params.protocolVersion : currentVersion;
+    return sendJson(res, 200, rpcResult(id, { protocolVersion, capabilities: { tools: { listChanged: false }, ...(eventsAvailable && protocolVersion === '2026-07-28' ? { events: {} } : {}) }, serverInfo: { name: 'envoi', version: '0.1.0' } }));
   }
   const version = req.headers['mcp-protocol-version'];
-  if (version && !supportedVersions.has(String(version))) return sendJson(res, 400, rpcError(id, -32600, 'Unsupported MCP protocol version'));
+  const eventMethod = request.method === 'server/discover' || request.method.startsWith('events/');
+  // An unavailable extension is a missing protocol method. Let the method dispatcher give
+  // that answer even when its protocol header is newer than the enabled tool protocol.
+  const recognizeUnavailableEvent = recognizeEventMethods && eventMethod && version === '2026-07-28';
+  if (version && !supportedVersions.has(String(version)) && !(allowEventsVersion && version === '2026-07-28') && !recognizeUnavailableEvent) return sendJson(res, 400, rpcError(id, -32600, 'Unsupported MCP protocol version'));
   return { request };
 }
 
 export const mcpReply = { sendJson, rpcError, rpcResult, toolResult };
 
-export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null }) {
-  const read = await readMcpRequest(req, res, { maxRequestBytes });
+function wakeHttpError(error, res) {
+  if (!Number.isInteger(error?.statusCode)) return error;
+  const fields = { ...error.publicFields, ...(typeof error.reason === 'string' ? { reason: error.reason } : {}) };
+  const supplied = Number(error.retryAfter ?? fields.retryAfterSeconds);
+  if (error.statusCode === 429 || Number.isFinite(supplied) && supplied > 0) {
+    const seconds = Number.isFinite(supplied) && supplied > 0 ? Math.min(3600, Math.max(1, Math.ceil(supplied))) : 1;
+    fields.retryAfterSeconds = seconds;
+    res.setHeader('retry-after', String(seconds));
+  }
+  error.publicFields = fields;
+  return error;
+}
+
+export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false }) {
+  const eventAvailable = Boolean(providerEvents && await providerEvents.available(identity, '2026-07-28'));
+  const read = await readMcpRequest(req, res, { maxRequestBytes, allowEventsVersion: eventsEnabled, eventsAvailable: eventAvailable, recognizeEventMethods: true });
   if (!read?.request) return;
   const { request } = read;
   const id = request.id;
+  if (request.method === 'server/discover' || request.method.startsWith('events/')) {
+    const version = req.headers['mcp-protocol-version'];
+    if (!eventAvailable || version !== '2026-07-28') return sendJson(res, 200, rpcError(id, -32601, 'Method not found'));
+    const method = { 'server/discover': 'discover', 'events/list': 'list', 'events/subscribe': 'subscribe', 'events/unsubscribe': 'unsubscribe' }[request.method];
+    if (!method) return sendJson(res, 200, rpcError(id, -32601, 'Method not found'));
+    try {
+      const value = method === 'discover' ? await providerEvents.discover(identity, version) : await providerEvents[method](identity, request.params ?? {}, version);
+      return sendJson(res, 200, rpcResult(id, value));
+    } catch (error) {
+      if (!error.rpcCode) throw wakeHttpError(error, res);
+      return sendJson(res, 200, { jsonrpc: '2.0', id, error: { code: error.rpcCode, message: error.rpcCode === -32015 ? 'CallbackEndpointError' : error.rpcCode === -32601 ? 'Method not found' : 'Invalid params', ...(error.reason ? { data: { reason: error.reason } } : {}) } });
+    }
+  }
+  const wakeAvailable = Boolean(wakeTools && await wakeTools.available(identity));
+  const offeredTools = [...agentMcpTools, ...(wakeAvailable ? wakeTools.tools : [])];
   if (request.method === 'ping') return sendJson(res, 200, rpcResult(id, {}));
   if (request.method === 'tools/list') {
     if (request.params?.cursor) return sendJson(res, 200, rpcError(id, -32602, 'Tool cursor is invalid'));
-    return sendJson(res, 200, rpcResult(id, { tools: agentMcpTools.filter(tool => toolAvailable(identity, tool)).map(publicTool) }));
+    return sendJson(res, 200, rpcResult(id, { tools: offeredTools.filter(tool => toolAvailable(identity, tool)).map(publicTool) }));
   }
   if (request.method !== 'tools/call') return sendJson(res, 200, rpcError(id, -32601, 'Method not found'));
   const name = request.params?.name;
-  const tool = agentMcpTools.find(candidate => candidate.name === name);
+  const tool = offeredTools.find(candidate => candidate.name === name);
   // A credential with its own scope (agent-remote-auth §9) is refused with a scope error, before the arguments are read.
   if (tool && !toolAvailable(identity, tool)) onPermissionDenied?.(tool);
   if (tool && !toolAvailable(identity, tool) && denyUnavailable) denyUnavailable(tool);
   if (!tool || !toolAvailable(identity, tool)) return sendJson(res, 200, rpcError(id, -32602, 'Tool not available to this agent'));
-  const args = request.params?.arguments ?? {};
-  if (!validators.get(name)(args)) return sendJson(res, 200, rpcError(id, -32602, 'Invalid tool arguments'));
+  const wakeTool = wakeAvailable && wakeTools.tools.some(candidate => candidate.name === name);
+  const args = wakeTool && request.params?.arguments !== undefined ? request.params.arguments : request.params?.arguments ?? {};
+  // Wake's approved contract reports argument refusal in the case-tools envelope.
+  // The service validates its closed schema before reading any argument or doing work.
+  if (!wakeTool && !(validators.get(name) || (tool && ajv.compile(tool.inputSchema)))(args)) return sendJson(res, 200, rpcError(id, -32602, 'Invalid tool arguments'));
   if (identity.mcpScope && name !== 'envoi_agent_info' && args.caseId !== identity.mcpScope.caseId) {
     onPermissionDenied?.(tool);
     return sendJson(res, 200, rpcError(id, -32602, 'Case is outside this MCP token scope'));
   }
   try {
+    if (wakeTool) return sendJson(res, 200, rpcResult(id, await wakeTools.call(name, args, identity)));
     const response = await invokeTool(name, args, identity, callRest);
     if (response?.status && response.status >= 400) return sendJson(res, 200, rpcResult(id, toolResult({ status: response.status, ...response.payload }, true)));
     return sendJson(res, 200, rpcResult(id, toolResult(response)));
-  } catch {
+  } catch (error) {
+    if (wakeTool && error.statusCode) throw wakeHttpError(error, res);
     return sendJson(res, 200, rpcResult(id, toolResult({ error: 'Tool temporarily unavailable' }, true)));
   }
 }
