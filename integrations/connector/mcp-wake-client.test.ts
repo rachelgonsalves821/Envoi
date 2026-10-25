@@ -77,6 +77,16 @@ describe('protocol-bound private MCP Events', () => {
     await expect(unsub.client.unsubscribe(unsub.row.request.body.params)).resolves.toBeUndefined();
     expect(String(unsub.fetcher.mock.calls[0][1]!.body)).not.toContain('whsec_');
   });
+  it('normalizes an unpadded secret privately before subscribing without mutating the host input', async () => {
+    const { row, client, fetcher } = setup('provider-event-wake', 'subscribe-created', true);
+    const input = structuredClone(row.request.body.params);
+    input.delivery.secret = input.delivery.secret.replace(/=+$/, '');
+    const original = input.delivery.secret;
+    await expect(client.subscribe(input)).resolves.toEqual(row.response.body.result);
+    const sent = JSON.parse(String(fetcher.mock.calls[0][1]!.body));
+    expect(sent.params.delivery.secret).toBe(row.request.body.params.delivery.secret);
+    expect(input.delivery.secret).toBe(original);
+  });
   it('cannot call events at the old protocol or include extra capability/secret fields', async () => {
     const { row, client, fetcher } = setup('provider-event-wake', 'subscribe-created');
     await expect(client.subscribe(row.request.body.params)).rejects.toMatchObject({ code: 'EVENTS_PROTOCOL_REQUIRED' });

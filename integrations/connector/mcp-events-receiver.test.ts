@@ -52,4 +52,10 @@ describe('MCP events receiver consumes signed canonical bytes', () => {
     await expect(receiver.receive(request)).resolves.toEqual({ status: 202 });
     receiver.destroy(); await expect(receiver.receive(request)).resolves.toEqual({ status: 401 });
   });
+  it('verifies the same canonical wire signature with unpadded private secret storage', async () => {
+    const { request, row, accept } = setup();
+    const receiver = new McpEventsReceiver({ subscriptionId, secrets: [secret.replace(/=+$/, '')], inbox: { accept }, now: () => Date.parse(row.delivery.receiver.asOf) });
+    await expect(receiver.receive(request)).resolves.toEqual({ status: 202 });
+    expect(accept).toHaveBeenCalledOnce();
+  });
 });

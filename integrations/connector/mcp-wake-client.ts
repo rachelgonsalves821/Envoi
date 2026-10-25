@@ -1,4 +1,5 @@
 import { PrivateHostTransport, HostRequestError, closed, dateTime, matches, text, valid } from './private-host-http';
+import { webhookSecret } from './webhook-secret';
 
 export type EventName = 'envoi.work_available' | 'envoi.control_changed';
 export interface EventSubscription { id: string; refreshBefore: string; cursor: string | null; truncated: boolean }
@@ -128,12 +129,11 @@ export class McpWakeClient {
     closed(input.arguments, []); closed(input.delivery, ['mode', 'url', 'secret']);
     if (!['envoi.work_available', 'envoi.control_changed'].includes(input.name) || input.delivery.mode !== 'webhook') throw new TypeError('Invalid event subscription');
     callback(input.delivery.url, 2048);
-    if (!matches(input.delivery.secret, /^whsec_[A-Za-z0-9+/]+={0,2}$/)) throw new TypeError('A private 24–64-byte webhook secret is required');
-    const decoded = atob(input.delivery.secret.slice(6));
-    if (decoded.length < 24 || decoded.length > 64 || btoa(decoded) !== input.delivery.secret.slice(6)) throw new TypeError('A private 24–64-byte webhook secret is required');
+    const secret = webhookSecret(input.delivery.secret);
+    secret.bytes.fill(0); // only the canonical string is needed by this outgoing request
     if (Object.hasOwn(input, 'cursor') && !cursor(input.cursor)) throw new TypeError('Invalid event cursor');
     if (Object.hasOwn(input, 'ttlMs') && input.ttlMs !== null && (!Number.isSafeInteger(input.ttlMs) || Number(input.ttlMs) < 1)) throw new TypeError('Invalid event TTL');
-    const result = await this.#rpc('events/subscribe', input);
+    const result = await this.#rpc('events/subscribe', { ...input, delivery: { ...input.delivery, secret: secret.canonical } });
     closed(result, ['id', 'refreshBefore', 'cursor', 'truncated']);
     valid(matches(result.id, /^evtsub_[0-9a-f]{20}$/) && dateTime(result.refreshBefore) && cursor(result.cursor) && typeof result.truncated === 'boolean');
     return result as unknown as EventSubscription;

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { closed, dateTime, matches, valid } from './private-host-http';
 import type { EventName } from './mcp-wake-client';
+import { webhookSecret } from './webhook-secret';
 
 export interface McpEventHint { eventId: string; name: EventName; timestamp: string; data: { reason: string }; cursor: string | null }
 export interface McpEventInbox {
@@ -18,10 +19,8 @@ export class McpEventsReceiver {
   constructor(options: { subscriptionId: string; secrets: string[]; inbox: McpEventInbox; now?: () => number }) {
     if (!/^evtsub_[0-9a-f]{20}$/.test(options.subscriptionId) || options.secrets.length < 1 || options.secrets.length > 2) throw new TypeError('Invalid private event receiver binding');
     this.#keys = options.secrets.map(secret => {
-      if (!/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(secret)) throw new TypeError('Invalid private webhook secret');
-      const encoded = secret.slice(6), key = Buffer.from(encoded, 'base64');
-      if (key.length < 24 || key.length > 64 || key.toString('base64') !== encoded) throw new TypeError('Invalid private webhook secret');
-      return key;
+      const { bytes } = webhookSecret(secret);
+      return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength); // destroy() zeros this same allocation
     });
     this.#subscriptionId = options.subscriptionId; this.#inbox = options.inbox; this.#now = options.now ?? Date.now;
   }
