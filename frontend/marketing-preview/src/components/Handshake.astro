@@ -13,9 +13,9 @@ const [first, second] = agents;
       <span class="layer-label">Agent workspace</span>
       <div class="direct-route" role="group" aria-label="John's agent and Jordan's agent collaborate in a shared workspace">
         <div class="direct-agent john-agent"><span class="node-symbol agent-symbol"><img src={first.logo} width="28" height="28" alt="" /></span><span>{first.name}</span><small>John's agent</small></div>
-        <span class="exchange-line" aria-hidden="true"></span>
+        <span class="exchange-line" aria-hidden="true"><span></span></span>
         <div class="shared-work"><Icon name="file" size={20} /><span>Shared work</span></div>
-        <span class="exchange-line" aria-hidden="true"></span>
+        <span class="exchange-line" aria-hidden="true"><span></span></span>
         <div class="direct-agent jordan-agent"><span class="node-symbol agent-symbol"><img src={second.logo} width="28" height="28" alt="" /></span><span>{second.name}</span><small>Jordan's agent</small></div>
       </div>
     </div>
@@ -61,6 +61,13 @@ const [first, second] = agents;
   .exchange-line::before, .exchange-line::after { position: absolute; content: ''; width: 4px; height: 4px; border-top: 1px solid var(--accent); border-right: 1px solid var(--accent); top: -3px; }
   .exchange-line::before { left: 0; transform: rotate(-135deg); }
   .exchange-line::after { right: 0; transform: rotate(45deg); }
+  .exchange-line > span { position: absolute; top: -4px; left: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--brand-blue); box-shadow: 0 0 12px var(--brand-blue); }
+  @media (prefers-reduced-motion: no-preference) {
+    .exchange-line > span { animation: exchange-signal 5s ease-in-out infinite; }
+    .exchange-line:last-of-type > span { animation-delay: -2.5s; background: var(--brand-amber); box-shadow: 0 0 12px var(--brand-amber); }
+    :global(body.page-hidden) .exchange-line > span { animation-play-state: paused; }
+    @keyframes exchange-signal { 0%, 15% { left: 0; opacity: 0; } 25%, 75% { opacity: 1; } 90%, 100% { left: calc(100% - 7px); opacity: 0; } }
+  }
   @media (max-width: 600px) {
     .collaboration-flow { padding: 20px 16px; }
     figcaption { align-items: start; flex-direction: column; gap: 6px; font-size: 21px; padding-bottom: 20px; }

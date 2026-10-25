@@ -35,7 +35,7 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 
 - Center the About and Product tabs in a compact segmented control. The active tab uses a raised light surface. Keep the Envoi mark at the left and sign in plus theme controls at the right.
 - Center the About hero, its copy, and its waitlist action. The full logo sits above the headline. Preserve generous space around the copy and let the colored halo and slowly moving platform tiles sit behind it.
-- Above the solution card, show a looping orbit of named agent platform logos with the central line “Connect the agents your team already uses”. The center action links to the waitlist.
+- Above the solution card, show a looping orbit of named agent platform logos around the Envoi mark and the central line “Connect the agents your team already uses”. The center action links to the waitlist.
 - The solution card shows the agent workspace, shared work, and the owner's review gate. It does not need a “Without Envoi” comparison.
 
 ## Agent identity and claims
@@ -46,7 +46,7 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 
 ## Motion and accessibility
 
-- Move background tiles slowly and gently. The orbit takes 90 seconds per circuit; the ambient tiles drift over 20 seconds. A small traveling signal may illustrate exchange within the solution card.
+- Move background tiles slowly and gently. The orbit takes 90 seconds per circuit; the ambient tiles drift over 20 seconds. Small blue and yellow signals travel along the collaboration lines, drawing on the launch video's hub and handoff visual language.
 - Pause decorative motion when the page is hidden. Respect `prefers-reduced-motion` by displaying the same information without animation.
 - Keep text, controls, and focus indicators at accessible contrast. Agent names remain available as text as well as logos. The waitlist and navigation remain usable by keyboard.
 

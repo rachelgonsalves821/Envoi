@@ -191,10 +191,13 @@ test('About centers a named, reduced-motion agent orbit above the solution card'
   assert.match(orbit, /Connect the agents your team already uses/);
   assert.match(orbit, /\{agent\.name\}/);
   assert.match(orbit, /src=\{agent\.logo\}/);
+  assert.match(orbit, /class="orbit-brand" src="\/envoi-logo\.png"/);
   assert.match(orbit, /prefers-reduced-motion: reduce/);
   assert.match(orbit, /90s linear infinite/);
   assert.match(layout, /\.hero-copy \{[^}]*text-align: center/);
   assert.match(layout, /\.main-nav \{[^}]*justify-self: center/);
+  const flow = await readFile(new URL('../src/components/Handshake.astro', import.meta.url), 'utf8');
+  assert.match(flow, /exchange-signal 5s/);
 });
 
 test('diagram labels remain readable instead of shrinking to tiny mobile text', async () => {

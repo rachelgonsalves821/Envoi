@@ -15,7 +15,7 @@ const { ambient = false } = Astro.props;
       <div class="orbit-ring" aria-hidden="true">
         {agents.map((agent, index) => <div class={`orbit-position orbit-position-${index + 1}`}><div class="orbit-agent"><span class="agent-tile"><img src={agent.logo} width="42" height="42" alt="" /></span><span class="agent-label">{agent.name}</span></div></div>)}
       </div>
-      <div class="orbit-center"><h2 id="orbit-title">Connect the agents your team already uses</h2><a href="#join">Join the waitlist <span aria-hidden="true">↗</span></a></div>
+      <div class="orbit-center"><img class="orbit-brand" src="/envoi-logo.png" width="1024" height="853" alt="" /><h2 id="orbit-title">Connect the agents your team already uses</h2><a href="#join">Join the waitlist <span aria-hidden="true">↗</span></a></div>
     </div>
     <ul class="visually-hidden" aria-label="Example agent platforms">{agents.map(agent => <li>{agent.name}, integration preview</li>)}</ul>
   </section>
@@ -31,6 +31,9 @@ const { ambient = false } = Astro.props;
   .orbit-stage { position: relative; height: 540px; display: grid; place-items: center; isolation: isolate; overflow: hidden; }
   .orbit-halo { position: absolute; inset: 8% 12%; z-index: -1; border-radius: 50%; background: radial-gradient(ellipse at center, rgba(47,134,198,.13), rgba(242,163,58,.09) 35%, transparent 68%); filter: blur(20px); }
   .orbit-ring { position: absolute; width: min(72vw, 680px); height: 380px; border: 1px dashed var(--line-strong); border-radius: 50%; }
+  .orbit-ring::before, .orbit-ring::after { content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 16px currentColor; }
+  .orbit-ring::before { top: 15%; right: 13%; background: var(--brand-blue); color: var(--brand-blue); }
+  .orbit-ring::after { bottom: 14%; left: 15%; background: var(--brand-amber); color: var(--brand-amber); }
   .orbit-position { position: absolute; }
   .orbit-position-1 { top: -34px; left: calc(50% - 38px); }
   .orbit-position-2 { top: calc(50% - 45px); right: -35px; }
@@ -38,6 +41,8 @@ const { ambient = false } = Astro.props;
   .orbit-position-4 { top: calc(50% - 45px); left: -35px; }
   .orbit-agent { display: flex; align-items: center; flex-direction: column; min-width: 76px; }
   .orbit-center { position: relative; z-index: 2; width: min(440px, 52%); padding: 32px; border: 1px solid var(--line); border-radius: 24px; background: var(--bg-raised); box-shadow: 0 20px 55px -32px var(--shadow-ink); }
+  .orbit-brand { display: block; width: 52px; height: auto; margin: 0 auto 16px; }
+  :global(:root[data-theme="dark"]) .orbit-brand { background: #eef5fb; border-radius: 8px; padding: 4px; }
   .orbit-center h2 { font-size: clamp(28px, 3.2vw, 42px); line-height: 1.14; letter-spacing: -.035em; }
   .orbit-center a { display: inline-flex; align-items: center; gap: 12px; margin-top: 22px; padding: 10px 17px; border-radius: var(--pill); background: var(--action-bg); color: var(--action-ink); font-size: 14px; }
   .orbit-center a:hover { filter: brightness(1.08); }
@@ -67,6 +72,7 @@ const { ambient = false } = Astro.props;
     .orbit-stage { height: 440px; }
     .orbit-ring { width: min(84vw, 390px); height: 295px; }
     .orbit-center { width: min(65%, 280px); padding: 22px 16px; }
+    .orbit-brand { width: 40px; margin-bottom: 10px; }
     .orbit-center h2 { font-size: clamp(21px, 5vw, 29px); }
     .orbit-center a { margin-top: 14px; font-size: 12px; padding: 8px 12px; }
     .agent-tile { width: 56px; height: 56px; border-radius: 16px; }
