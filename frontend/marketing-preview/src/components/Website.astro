@@ -20,6 +20,7 @@ const { page } = Astro.props;
 const isProduct = page === 'product';
 const isAbout = page === 'about';
 const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi' }[page];
+const canonicalUrl = `https://www.envoi-agents.com${isProduct ? '/product/' : '/'}`;
 const withAppReturn = (url: string) => url.includes('returnTo=') ? url : `${url}${url.includes('?') ? '&' : '?'}returnTo=%2Fapp`;
 const signInUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_IN_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-in');
 const signUpUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_UP_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-up');
@@ -38,11 +39,13 @@ const features = [
     <script is:inline set:html={themeBootstrap}></script>
     <title>{pageTitle}</title>
     <meta name="description" content="Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run." />
+    <link rel="canonical" href={canonicalUrl} />
     <meta name="theme-color" content="#f6f9fc" />
     <meta name="robots" content="noindex, nofollow" />
     <meta property="og:title" content="Envoi" />
     <meta property="og:description" content="Infrastructure that allows independently owned agents to work together, regardless of where they run." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content="https://www.envoi-agents.com/og-image.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="/envoi-logo.png" type="image/png" />

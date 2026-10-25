@@ -11,7 +11,7 @@ Serve the reviewed About and Product pages from Envoi's production origin while 
 - After explicit human authorization to edit Lane A paths, a candidate branch merged PR #191 head `8b9aa3b` with Je's PR #235 head `4264ca3` without conflicts. The candidate adds server routing, a reproducible root marketing build, WorkOS success return to `/app`, client workspace links, generated marketing assets, and route tests. This candidate has not been merged to main or deployed.
 - PR #191 source head inspected at `a44d54e` changes only `frontend/**`. The Astro preview builds its own `dist/` with `/`, `/product/`, `/team/`, `/share/` and public assets. Its current build is not part of the root `npm run build`.
 - The root build emits one inlined Vite `web/index.html`. The server serves that file for `/`, `/claim`, and `/connect`; it does not serve `/product/` or `/team/`. Existing auth callbacks return to `/` by default.
-- `origin/main` is `e25e528`; PR #191 is 170 commits behind it. Je's draft PR #235, head `4264ca3` when inspected, is a guarded WorkOS/Hermes release candidate composed with current main. It has no marketing route integration. Recheck these SHAs at integration time.
+- At the initial audit, `origin/main` was `e25e528` and PR #191's isolated preview branch was 170 commits behind it. The candidate now incorporates that main history and Je's draft PR #235 head `4264ca3`. Recheck those refs before a merge or deployment.
 - The production `/product/` and `/team/` routes returned 404 when last checked. The preview sets `noindex, nofollow`, appropriate for review but not public launch.
 - Exact-head CI passed at `a44d54e` ([run 40205523319](https://github.com/rachelgonsalves821/Envoi/actions/runs/40205523319)); Je's PR #235 exact-head CI also passed at `4264ca3` ([run 40202880605](https://github.com/rachelgonsalves821/Envoi/actions/runs/40202880605)). These checks do not test a combined marketing/backend artifact.
 - At PR #191's older root lock, `npm audit --audit-level=high` reports one high finding in Wrangler's development dependency chain and five moderate findings. Current main has a newer lockfile and an `undici` override, so audit the eventual integrated lock rather than carrying this result forward.
@@ -41,6 +41,8 @@ Serve the reviewed About and Product pages from Envoi's production origin while 
 | Focused `marketing-routes`, `connect-routes`, and `workos-auth` server tests | 30 passed |
 | Root full backend `npm test` | 944 passed, 56 skipped, 0 failed |
 | Release smoke unit checks | 22 passed; rejects a missing Product route |
+| TypeScript SDK and Python SDK | 550 passed and 8 passed |
+| Integration suite | 1,088 passed, 4 skipped; one Windows reporter assertion failed, then passed after selecting TAP explicitly |
 
 The combined server test confirms `/`, `/product/`, marketing CSS/images, `/app`, `/claim`, `/connect`, `/authorize-agent`, `/team/`, query-preserving redirects, the legacy enrollment query redirect, and CSP nonces. It does not replace a real hosted WorkOS callback test.
 
