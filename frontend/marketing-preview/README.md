@@ -6,7 +6,7 @@ For UI implementation and review, use the shared [UI design references](../UI-GU
 
 For production integration and main-branch gates, follow the [PR #191 readiness plan](./PR-191-MAIN-READINESS.md).
 
-An isolated marketing design preview based on Rachel's `SKILL (1).md`, with public-facing copy drawn from `Envoi_vNENPitch.pdf`. No existing Envoi checkout, provider configuration, live agent, or Gate B-local resource is changed.
+The design began as an isolated marketing preview based on Rachel's `SKILL (1).md`, with public-facing copy drawn from `Envoi_vNENPitch.pdf`. The combined release candidate now packages the preview into the root build and serves it from the backend; it remains undeployed.
 
 ## Theme and Team update on October 22, 2026
 

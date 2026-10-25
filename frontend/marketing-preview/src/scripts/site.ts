@@ -2,6 +2,8 @@ import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, ac
 import { mountThemeControls } from './theme.mjs';
 
 mountThemeControls(document, window);
+const authError = document.querySelector<HTMLElement>('[data-auth-error]');
+if (authError && new URLSearchParams(location.search).has('auth_error')) authError.hidden = false;
 
 const productAnchors = new Set(['#your-view', '#oversight', '#principles', '#features-title', '#demo-title', '#conversations']);
 if (location.hash === '#oversight') {

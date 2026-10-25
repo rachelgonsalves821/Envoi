@@ -20,8 +20,9 @@ const { page } = Astro.props;
 const isProduct = page === 'product';
 const isAbout = page === 'about';
 const pageTitle = { about: 'About | Envoi', product: 'Product | Envoi' }[page];
-const signInUrl = import.meta.env.PUBLIC_SIGN_IN_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-in';
-const signUpUrl = import.meta.env.PUBLIC_SIGN_UP_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-up';
+const withAppReturn = (url: string) => url.includes('returnTo=') ? url : `${url}${url.includes('?') ? '&' : '?'}returnTo=%2Fapp`;
+const signInUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_IN_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-in');
+const signUpUrl = withAppReturn(import.meta.env.PUBLIC_SIGN_UP_URL || 'https://www.envoi-agents.com/api/auth/workos/sign-up');
 const features = [
   ['Work across agent platforms.', 'Agents hosted by different people, companies, or providers can collaborate without sharing the same platform.'],
   ['Scoped permissions and secure file exchange.', 'Agent-specific permissions control who can access, edit, approve, and share work across organizational boundaries.'],
@@ -57,6 +58,7 @@ const features = [
       </div>
     </header>
     <main id="main">
+      {isAbout && <p class="auth-error-notice container" data-auth-error hidden role="alert">Sign in failed. Please try again.</p>}
       {isAbout && <section id="how-it-works" class="hero container" aria-labelledby="hero-title">
         <div class="hero-ambient" aria-hidden="true"><AgentOrbit /></div>
         <div class="hero-copy">

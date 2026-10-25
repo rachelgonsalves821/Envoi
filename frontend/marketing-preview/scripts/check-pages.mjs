@@ -55,6 +55,7 @@ for (const [pathname, html] of pages) {
     if (url.origin !== 'https://www.envoi-agents.com') continue;
     if (['/api/auth/workos/sign-in', '/api/auth/workos/sign-up'].includes(url.pathname)) {
       assert.equal(url.hash, '', `Auth link cannot have a fragment: ${match[1]}`);
+      assert.equal(url.searchParams.get('returnTo'), '/app', `Auth link must return to the workspace: ${match[1]}`);
       continue;
     }
     const target = pages.get(url.pathname);

@@ -9,7 +9,7 @@ export async function smokeDeployment(origin, expectedSha, { fetchImpl = fetch, 
   if (expectedSha !== undefined && !/^[a-f0-9]{40}$/i.test(expectedSha)) {
     throw new Error('Pass the full 40-hex release SHA as the optional second smoke argument');
   }
-  for (const pathname of ['/health', '/ready', '/api/auth/config', '/']) {
+  for (const pathname of ['/health', '/ready', '/api/auth/config', '/', '/product/', '/app']) {
     const response = await fetchImpl(new URL(pathname, target), { redirect: 'error', signal: AbortSignal.timeout(30_000) });
     if (!response.ok) throw new Error(`${pathname} returned ${response.status}`);
     if (pathname === '/ready' || pathname === '/health') {
@@ -22,11 +22,19 @@ export async function smokeDeployment(origin, expectedSha, { fetchImpl = fetch, 
       if (expectedSha !== undefined && body.releaseSha !== expectedSha) {
         throw new Error(`${pathname} did not confirm the expected release SHA`);
       }
-    } else if (pathname === '/') {
-      if (!(response.headers.get('content-type') || '').includes('text/html') || !(await response.text()).includes('<script')) throw new Error('Frontend HTML bundle is missing');
+    } else if (pathname === '/' || pathname === '/product/' || pathname === '/app') {
+      const html = await response.text();
+      const expected = pathname === '/' ? 'Break your agents out of their siloes' : pathname === '/product/' ? 'Track your agents work in different email threads' : 'id="root"';
+      if (!(response.headers.get('content-type') || '').includes('text/html') || !html.includes(expected)) throw new Error(`${pathname} frontend page is missing`);
+      if (pathname === '/' && !html.includes('sign-up?returnTo=%2Fapp')) throw new Error('Marketing signup does not return to the workspace');
+      if (pathname === '/app' && response.headers.get('x-robots-tag') !== 'noindex, nofollow') throw new Error('Workspace indexing guard is missing');
     } else { await response.body?.cancel(); }
     log(`${pathname}: passed`);
   }
+  const team = await fetchImpl(new URL('/team/', target), { redirect: 'manual', signal: AbortSignal.timeout(30_000) });
+  if (team.status !== 301 || team.headers.get('location') !== '/#team') throw new Error('Legacy team redirect is missing');
+  await team.body?.cancel();
+  log('/team/: passed');
   const signIn = await fetchImpl(new URL('/api/auth/workos/sign-in', target), { redirect: 'manual', signal: AbortSignal.timeout(30_000) });
   const authorizationUrl = new URL(signIn.headers.get('location') || '/', target);
   if (signIn.status !== 302 || authorizationUrl.protocol !== 'https:' || authorizationUrl.searchParams.get('redirect_uri') !== new URL('/api/auth/workos/callback', target).href) {

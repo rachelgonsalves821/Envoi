@@ -26,6 +26,7 @@ import { configuredDeploymentIdentity, ensureDeploymentIdentity, verifyDeploymen
 import { clientIp, errorBody, publicHttpError, requestIdFrom } from './http-security.js';
 import { createPkcePair, exchangeCalendarAuthorizationCode } from './calendar-oauth.js';
 import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from './path-safety.js';
+import { marketingRoute, nonceStaticHtml } from './marketing-routes.js';
 import { claimIdempotency, completeIdempotency, replayResponse, scopedIdempotencyPath, semanticDigest, validateIdempotencyKey } from './idempotency.js';
 import { humanConversationMessagingEnabled } from './human-messaging.js';
 import { createHumanInstructions, isHumanInstruction, assertHumanInstructionWork, humanInstructionCaseDocuments, humanInstructionReplyDocuments, validateHumanInstructionInput } from './human-instructions.js';
@@ -4065,18 +4066,29 @@ async function route(req, res) {
   // agent-remote-auth v1 §5: /authorize-agent is the owner consent page, also the web app.
   // agent-registration v1 §3 and §7: claim.url is ${ENVOI_PUBLIC_URL}/claim; /connect is the
   // agent-facing page. Both are the web app, which reads availability from the routes endpoint.
-  const appShell = ['/', '/claim', '/connect', '/authorize-agent'].includes(url.pathname);
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/' && (url.searchParams.has('enroll') || url.searchParams.has('workspace'))) {
+    return redirect(res, `/app${url.search}`);
+  }
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/app/') return redirect(res, `/app${url.search}`);
+  const marketing = marketingRoute(url.pathname);
+  if (['GET', 'HEAD'].includes(req.method) && marketing?.redirect) {
+    const location = marketing.redirect === '/#team' ? `/${url.search}#team` : `${marketing.redirect}${url.search}`;
+    res.writeHead(301, { location, 'cache-control': 'public, max-age=3600' });
+    return res.end();
+  }
+  const appShell = ['/app', '/claim', '/connect', '/authorize-agent'].includes(url.pathname);
   if (['GET', 'HEAD'].includes(req.method) && url.pathname.startsWith('/connect/')) return serveConnectContent(req, res, url);
-  if (['GET', 'HEAD'].includes(req.method) && (appShell || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
-    const relative = appShell ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
+  if (['GET', 'HEAD'].includes(req.method) && (marketing?.file || appShell || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
+    const relative = marketing?.file || (appShell ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1));
     let filePath;
-    try { filePath = resolvePathWithin(path.resolve('web'), relative); }
+    try { filePath = resolvePathWithin(path.resolve(marketing?.file ? 'web/marketing' : 'web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
-    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
+    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.webp': 'image/webp', '.avif': 'image/avif' };
     try {
       const extension = path.extname(filePath);
       let content = await readFile(filePath);
-      if (extension === '.html') content = Buffer.from(content.toString('utf8').replace('<script', `<script nonce="${responseNonce}"`).replace('<style', `<style nonce="${responseNonce}"`));
+      if (extension === '.html') content = Buffer.from(nonceStaticHtml(content.toString('utf8'), responseNonce));
+      if (appShell || url.pathname === '/web/index.html') res.setHeader('x-robots-tag', 'noindex, nofollow');
       res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream', 'content-length': content.byteLength, 'cache-control': 'private, no-store' });
       return res.end(req.method === 'HEAD' ? undefined : content);
     }
@@ -4362,7 +4374,7 @@ async function route(req, res) {
     if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
     const authorization = await auth.startAuthorization({
       screenHint: url.pathname.endsWith('sign-up') ? 'sign-up' : 'sign-in',
-      returnTo: url.searchParams.get('returnTo') || '/',
+      returnTo: url.searchParams.get('returnTo') || '/app',
       forceFresh: url.searchParams.get('fresh') === '1'
     });
     // envoi-browser-names v1 §1.3: sign-in start also clears the retired flow cookie.
@@ -4518,7 +4530,7 @@ async function route(req, res) {
     };
     await store.putJson(calendarConnectorPath(pending.inboxId, providerId), connector);
     await audit(pending.inboxId, 'calendar.connected', { provider: providerId, humanId: pending.humanId });
-    const returnUrl = new URL(pending.returnTo || '/', process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`);
+    const returnUrl = new URL(pending.returnTo || '/app', process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`);
     returnUrl.searchParams.set('calendarConnected', providerId);
     return redirect(res, returnUrl.toString());
   }
@@ -4926,7 +4938,7 @@ async function route(req, res) {
     const state = crypto.randomBytes(32).toString('base64url');
     const pkce = createPkcePair();
     const publicUrl = (process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
-    const stateRecord = { provider: providerId, inboxId, humanId: human.id, codeVerifier: pkce.verifier, returnTo: `${publicUrl}/?workspace=${encodeURIComponent(inboxId)}`, createdAt: store.now(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), usedAt: null };
+    const stateRecord = { provider: providerId, inboxId, humanId: human.id, codeVerifier: pkce.verifier, returnTo: `${publicUrl}/app?workspace=${encodeURIComponent(inboxId)}`, createdAt: store.now(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), usedAt: null };
     await store.putJson(path.join('auth', 'calendar-oauth', `${hashSecret(state)}.json`), stateRecord);
     const authorizationUrl = new URL(provider.authorizeUrl);
     authorizationUrl.searchParams.set('client_id', provider.clientId);
