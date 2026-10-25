@@ -59,13 +59,15 @@ test('secret-name gate allows a policy keyring and requires a separate scanner c
 const secretList = names => names.map(name => ({ name, type: 'secret_text' }));
 const betaInventory = ({ app, scanner }) => (...argv) => argv.includes('scanner/wrangler.beta.jsonc') ? secretList(scanner) : secretList(app);
 const migratedApp = APP_SECRET_NAMES.map(name => name === 'ENVOI_DATA_ENCRYPTION_KEY' ? 'SINALOA_DATA_ENCRYPTION_KEY' : name);
+const betaApp = [...migratedApp, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY'];
 test('beta deploys refuse until the ENVOI_* twins exist (H-5)', () => {
   const legacyApp = APP_SECRET_NAMES.map(name => name.replace('ENVOI_', 'SINALOA_'));
   assert.throws(() => requireBetaSecretNames(betaInventory({ app: legacyApp, scanner: ['ENVOI_SCANNER_TOKEN'] })), /ENVOI_BETA_INVITED_EMAILS/);
-  assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['SINALOA_SCANNER_TOKEN'] })), /ENVOI_SCANNER_TOKEN/);
-  assert.doesNotThrow(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] })));
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] })), /ENVOI_MONAD_ISSUER_PRIVATE_KEY/);
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: betaApp, scanner: ['SINALOA_SCANNER_TOKEN'] })), /ENVOI_SCANNER_TOKEN/);
+  assert.doesNotThrow(() => requireBetaSecretNames(betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] })));
   const asked = [];
-  requireBetaSecretNames((...argv) => { asked.push(argv); return betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] })(...argv); });
+  requireBetaSecretNames((...argv) => { asked.push(argv); return betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] })(...argv); });
   assert.deepEqual(asked, [['--env', 'beta'], ['--config', 'scanner/wrangler.beta.jsonc']]);
 });
 test('an optional secret held only under a retired name is refused, not silently dropped', () => {
@@ -98,9 +100,9 @@ test('the direct beta deploy checks secret names before running Wrangler', async
   const runs = [];
   const run = (command, args) => { runs.push(args.slice(1)); return { status: 0 }; };
   const source = () => ({ headSha: main, mainSha: main, clean: true, descendedFromMain: true });
-  await assert.rejects(deployBetaBuild({ inventory: betaInventory({ app: migratedApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), run, source }), /ENVOI_SCANNER_TOKEN/);
+  await assert.rejects(deployBetaBuild({ inventory: betaInventory({ app: betaApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), run, source }), /ENVOI_SCANNER_TOKEN/);
   assert.equal(runs.length, 0);
-  await deployBetaBuild({ inventory: betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, source });
+  await deployBetaBuild({ inventory: betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, source });
   assert.deepEqual(runs, [['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]]);
 });
 test('automatic beta Builds pins the exact Git SHA and never selects the old production Worker', () => {

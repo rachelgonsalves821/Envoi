@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { keccak256, Wallet } from 'ethers';
+import { getAddress, keccak256, Wallet } from 'ethers';
 
 // Adapted from the hackathon's permission stamp and attempt-recording modules.
 // Transactions carry only a 32-byte commitment, never agent or request data.
@@ -32,7 +32,8 @@ const hexNumber = value => Number.parseInt(value, 16);
 const timeout = ms => AbortSignal.timeout(Math.max(1, ms));
 
 export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = process.env.ENVOI_MONAD_RPC_URL || 'https://testnet-rpc.monad.xyz',
-  privateKey = process.env.ENVOI_MONAD_ISSUER_PRIVATE_KEY, maxGasPrice = MAX_GAS_PRICE,
+  privateKey = process.env.ENVOI_MONAD_ISSUER_PRIVATE_KEY, issuerAddress = process.env.ENVOI_MONAD_ISSUER_ADDRESS,
+  maxGasPrice = MAX_GAS_PRICE,
   maxTransactions = process.env.ENVOI_MONAD_MAX_TRANSACTIONS ? Number(process.env.ENVOI_MONAD_MAX_TRANSACTIONS) : Infinity,
   request = fetch, now = Date.now, operationMs = 8_000 } = {}) {
   if (!enabled) return { enabled: false, ensurePermission: async () => null,
@@ -43,6 +44,8 @@ export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = pr
   if (maxTransactions !== Infinity && (!Number.isSafeInteger(maxTransactions) || maxTransactions <= 0))
     throw new Error('ENVOI_MONAD_MAX_TRANSACTIONS must be a positive integer when set');
   const signer = new Wallet(privateKey);
+  if (issuerAddress && signer.address !== getAddress(issuerAddress))
+    throw new Error('ENVOI_MONAD_ISSUER_PRIVATE_KEY does not match ENVOI_MONAD_ISSUER_ADDRESS');
   let queue = Promise.resolve();
   let reservedTransactions = 0;
   const serialized = operation => {
