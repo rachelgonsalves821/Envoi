@@ -39,7 +39,7 @@
   .hero h1 { font-size: clamp(31px, 8.5vw, 39px); }
   .hero-description { max-width: 510px; margin-top: 18px; font-size: 16px; }
   .hero-start { margin-top: 24px; }
-  .hero-ambient { width: calc(100% - 48px); height: min(610px, calc(100% - 60px)); }
+  .hero-ambient { width: calc(100% - 48px); height: min(560px, calc(100% - 70px)); top: calc(50% + 38px); }
   .hero::before { inset: 15% -20% 8%; }
   .solution-showcase { padding-top: 24px; padding-bottom: 52px; }
 }

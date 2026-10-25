@@ -220,7 +220,11 @@ test('About has one centered dotted agent orbit and a compact data-request card 
   assert.match(orbit, /src=\{agent\.logo\}/);
   assert.match(page, /PUBLIC_SIGN_UP_URL \|\| 'https:\/\/www\.envoi-agents\.com\/api\/auth\/workos\/sign-up'/);
   assert.match(orbit, /hero-agent-orbit 84s linear infinite/);
-  assert.match(orbit, /\.ambient-agent-4 \{ animation-delay: -63s;/);
+  assert.match(orbit, /\.ambient-agent-6 \{ animation-delay: -70s;/);
+  for (const [name, path] of [['Hermes', 'hermes.png'], ['Anthropic', 'anthropic.svg']]) {
+    assert.ok(orbit.includes(`name: '${name}', logo: '/agents/${path}'`));
+    assert.ok((await readFile(new URL(`../public/agents/${path}`, import.meta.url))).length > 100);
+  }
   assert.match(layout, /\.hero-ambient \{[^}]*left: 50%; top: calc\(50% \+ 20px\); transform: translate\(-50%, -50%\)/);
   assert.match(layout, /\.solution-showcase \{ display: grid; grid-template-columns:/);
   assert.match(layout, /@media \(max-width: 980px\) \{\s*\.solution-showcase \{ grid-template-columns: 1fr;/);

@@ -43,6 +43,7 @@ About's compact workflow illustration contrasts an owner-mediated relay with a s
 
 - `src/data/scenarios.json`: illustrative conversations and receipts.
 - `src/data/agents.json`: logo paths and their official asset sources for the integration previews, not a tested compatibility guarantee.
+- `src/components/AgentOrbit.astro`: the About orbit adds Hermes and Anthropic marks to the four shared agent tiles. The Hermes icon comes from the [official Hermes Agent repository](https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/public/apple-touch-icon.png); the Anthropic symbol comes from [Anthropic's press kit](https://www.anthropic.com/press-kit). Their appearance is a visual preview, not a partnership or tested connection claim.
 - `src/components/AgentsBanner.astro`: continuous logo rail with hover/focus pause, explicit pause/play, offscreen pause and a static reduced-motion layout. Decorative repetitions are hidden from screen readers.
 - `src/styles/tokens.css`: logo-derived navy, blue and amber palette, system typography and motion tokens.
 - `public/envoi-brand.png` and `public/envoi-logo.png`: Rachel's original transparent logo artwork, with its lettering preserved.
