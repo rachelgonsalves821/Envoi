@@ -5,6 +5,16 @@ import { createPlaybackState, advancePlayback, playbackDelay, selectScenario, ac
 
 const scenarios = JSON.parse(await readFile(new URL('../src/data/scenarios.json', import.meta.url)));
 
+test('default auth links use the beta public origin and backend WorkOS routes', async () => {
+  const website = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
+  const exampleEnv = await readFile(new URL('../.env.example', import.meta.url), 'utf8');
+  for (const [name, route] of [['SIGN_IN', 'sign-in'], ['SIGN_UP', 'sign-up']]) {
+    const url = `https://www.envoi-agents.com/api/auth/workos/${route}`;
+    assert.ok(website.includes(`import.meta.env.PUBLIC_${name}_URL || '${url}'`));
+    assert.ok(exampleEnv.includes(`PUBLIC_${name}_URL=${url}`));
+  }
+});
+
 test('the locked website toolchain excludes the reported vulnerable versions', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
@@ -203,7 +213,7 @@ test('About has one centered dotted agent orbit and a compact data-request card 
   assert.match(orbit, /\.ambient-ring \{[^}]*border: 1px dashed/);
   assert.match(orbit, /\{agent\.name\}/);
   assert.match(orbit, /src=\{agent\.logo\}/);
-  assert.match(page, /PUBLIC_SIGN_UP_URL \|\| 'https:\/\/envoi-agents\.com\/api\/auth\/workos\/sign-up'/);
+  assert.match(page, /PUBLIC_SIGN_UP_URL \|\| 'https:\/\/www\.envoi-agents\.com\/api\/auth\/workos\/sign-up'/);
   assert.match(orbit, /hero-agent-orbit 84s linear infinite/);
   assert.match(orbit, /\.ambient-agent-4 \{ animation-delay: -63s;/);
   assert.match(layout, /\.hero-ambient \{[^}]*left: 50%; top: calc\(50% \+ 20px\); transform: translate\(-50%, -50%\)/);

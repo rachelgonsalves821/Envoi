@@ -52,7 +52,7 @@ The Thread pauses on hover, focus, explicit pause, offscreen visibility and hidd
 
 ## Signup and sign-in
 
-The preview's visible calls to action link to the existing `/api/auth/workos/sign-up` route on `envoi-agents.com`. The header and footer sign-in links use `/api/auth/workos/sign-in`. Confirm the public origin and callback configuration before launch; override `PUBLIC_SIGN_UP_URL` and `PUBLIC_SIGN_IN_URL` at build time if necessary.
+The preview's visible calls to action link to the existing `/api/auth/workos/sign-up` route on `www.envoi-agents.com`, matching the configured beta public origin and WorkOS callback. The header and footer sign-in links use `/api/auth/workos/sign-in`. Confirm the public origin and callback configuration before launch; override `PUBLIC_SIGN_UP_URL` and `PUBLIC_SIGN_IN_URL` at build time if necessary.
 
 The previous waitlist component and its acceptance test remain in the preview package but are no longer rendered on the About or Product pages. The static preview does not collect email addresses. No new backend, private credentials, or cross-origin workaround is included.
 

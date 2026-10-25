@@ -51,9 +51,12 @@ for (const [pathname, html] of pages) {
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
   assert.equal(new Set(ids).size, ids.length, `${pathname} has duplicate IDs`);
   for (const match of html.matchAll(/href="([^"{}]+)"/g)) {
-    if (/^https?:\/\//.test(match[1])) continue;
-    const url = new URL(match[1], `https://envoi-agents.com${pathname}`);
-    if (url.origin !== 'https://envoi-agents.com') continue;
+    const url = new URL(match[1], `https://www.envoi-agents.com${pathname}`);
+    if (url.origin !== 'https://www.envoi-agents.com') continue;
+    if (['/api/auth/workos/sign-in', '/api/auth/workos/sign-up'].includes(url.pathname)) {
+      assert.equal(url.hash, '', `Auth link cannot have a fragment: ${match[1]}`);
+      continue;
+    }
     const target = pages.get(url.pathname);
     if (target) {
       if (url.hash) assert.ok(target.includes(`id="${decodeURIComponent(url.hash.slice(1))}"`), `Broken section: ${pathname} → ${match[1]}`);
