@@ -163,7 +163,7 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .sidebar-agent { display: flex; align-items: center; gap: 8px; font-size: 16px; padding: 8px; }
 .sidebar-agent-logo { flex: none; width: 22px; height: 22px; object-fit: contain; }
 .sidebar-count { margin-left: auto; font-size: 14px; color: var(--graphite-muted); }
-.sidebar-section { display: flex; align-items: center; gap: 8px; padding: 9px 12px 9px 24px; font-size: 16px; background: var(--accent-wash); color: var(--cobalt-600); border-radius: 6px; }
+.sidebar-section { display: flex; align-items: center; gap: 8px; margin-top: 30px; padding: 9px 12px; font-size: 16px; background: var(--accent-wash); color: var(--cobalt-600); border-radius: 6px; }
 .sidebar-section > span { margin-left: auto; font-size: 14px; }
 .sidebar-bottom { position: absolute; bottom: 20px; left: 24px; right: 12px; font-size: 14px; color: var(--graphite-muted); line-height: 1.5; display: flex; align-items: center; gap: 7px; }
 .product-inbox { border-right: 1px solid var(--paper-line); min-width: 0; }
