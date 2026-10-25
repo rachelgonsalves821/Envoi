@@ -46,3 +46,7 @@ Multiple replicas sharing one issuer remain unsupported because the current serv
 ## Verification
 
 `node --test test/monad-access.test.js test/monad-permissions.test.js worker/router.test.js` checks entitlement, opt-in, secret forwarding, and the chain flow with a fake RPC and ephemeral wallet. Live funded issuer and multi-instance tests remain necessary before enabling this outside a controlled testnet deployment.
+
+## Docker-free Cloudflare beta release
+
+Cloudflare Workers Builds can build the Container image on its own runner when the deployment computer has no Docker daemon. The beta Worker must remain connected to the repository's `main` branch with build command `npm run build` and deploy command `npm run cf:deploy:beta`. That deploy script fetches `origin/main`, requires a clean checkout at that exact commit, checks the beta secret names, and passes the commit SHA to Wrangler. Keep the Worker’s Git builds disabled until the reviewed release commit has passed CI, then enable builds for its merge to `main`. Confirm the new build uses that commit and succeeds, verify `/health` and `/ready` report its full SHA, and disable automatic builds again. A retry of an older build checks out its older commit and cannot release the new code. Do not use `wrangler versions upload` for this Container release because it does not roll out a new Container image.
