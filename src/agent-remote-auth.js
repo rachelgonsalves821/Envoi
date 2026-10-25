@@ -184,7 +184,7 @@ function supportsPublicClientAuthentication(document) {
   }
   const methods = document.token_endpoint_auth_methods_supported;
   return Array.isArray(methods) && methods.length >= 1 && methods.length <= 16
-    && methods.every(method) && new Set(methods).size === methods.length && methods.includes('none');
+    && Array.from(methods).every(method) && new Set(methods).size === methods.length && methods.includes('none');
 }
 
 // §3.1: the document. Returns null when valid, otherwise the x-client-metadata-checks reason.

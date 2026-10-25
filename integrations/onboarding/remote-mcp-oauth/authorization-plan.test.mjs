@@ -128,11 +128,13 @@ test('modern public capabilities do not relax trusted issuer, redirect, PKCE or 
   const { expected: _expected, ...input } = await inputs();
   const document = cimdCases.find(row => row.id === 'modern-chatgpt-preference').document;
   const current = { ...input, clientMetadata: document, redirectUri: document.redirect_uris[0] };
+  const sparseMethods = ['none']; sparseMethods.length = 2;
   for (const edit of [
     { redirectUri: 'https://attacker.invalid/callback' },
     { protectedResource: { ...current.protectedResource, resource: 'https://other.example/mcp' } },
     { authorizationServer: { ...current.authorizationServer, issuer: 'https://other.example' } },
     { codeVerifier: 'short' }, { scopes: ['envoi.agent', 'envoi.email'] },
-    { clientMetadata: { ...document, client_id: 'https://127.0.0.1/client.json' } }
+    { clientMetadata: { ...document, client_id: 'https://127.0.0.1/client.json' } },
+    { clientMetadata: { ...document, token_endpoint_auth_methods_supported: sparseMethods } }
   ]) assert.throws(() => planRemoteMcpAuthorization({ ...current, ...edit }), /Invalid remote MCP authorization setup/);
 });

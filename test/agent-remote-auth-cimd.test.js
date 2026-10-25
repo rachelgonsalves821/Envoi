@@ -29,12 +29,14 @@ for (const row of cases) {
 
 test('accepted modern metadata preserves all non-auth document checks', () => {
   const document = cases.find(row => row.id === 'modern-chatgpt-preference').document;
+  const sparseMethods = ['none']; sparseMethods.length = 2;
   for (const [changes, expected] of [
     [{ client_id: 'https://other.example/client.json' }, 'client_id_mismatch'],
     [{ client_name: 'bad\u202ename' }, 'client_name_invalid'],
     [{ redirect_uris: ['https://127.0.0.1/callback'] }, 'redirect_uris_invalid'],
     [{ grant_types: ['client_credentials'] }, 'grant_types_invalid'],
-    [{ response_types: ['token'] }, 'response_types_invalid']
+    [{ response_types: ['token'] }, 'response_types_invalid'],
+    [{ token_endpoint_auth_methods_supported: sparseMethods }, 'auth_method_not_none']
   ]) assert.equal(clientMetadataRejection({ ...document, ...changes }, document.client_id), expected);
 });
 
