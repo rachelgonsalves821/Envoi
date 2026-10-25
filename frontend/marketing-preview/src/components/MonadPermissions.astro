@@ -10,13 +10,8 @@ const permissions = [
 <section class="monad-section" id="monad-permissions" aria-labelledby="monad-title" data-monad-preview>
   <div class="container monad-layout">
     <div class="monad-copy">
-      <p class="eyebrow">Envoi × Monad · integration concept</p>
       <h2 id="monad-title">One permission set,<br /><em>controlled by you.</em></h2>
-      <p class="monad-lead">Give an agent only the actions it needs. In the proposed Monad flow, your wallet signs that exact scope, so another party can check who authorized it before the agent acts.</p>
-      <div class="monad-value">
-        <div><span class="monad-value-icon" aria-hidden="true">↗</span><p><strong>Works across agent platforms</strong><span>The authorization travels with the agent instead of relying on a shared provider.</span></p></div>
-        <div><span class="monad-value-icon" aria-hidden="true">✓</span><p><strong>Changes are explicit</strong><span>Adding or removing an action prepares a new scope for the owner to sign.</span></p></div>
-      </div>
+      <p class="monad-lead">Give an agent only the actions it needs. A signed permission set makes its scope clear before it acts.</p>
     </div>
     <div class="monad-stage">
       <div class="monad-panel">
@@ -30,16 +25,10 @@ const permissions = [
           </label>)}
         </div>
         <p class="monad-transaction-note" data-transaction-note hidden>Transaction authority also needs an amount limit and the owner's approval before it can be signed.</p>
-        <div class="monad-signature">
-          <div class="monad-signature-heading"><span class="monad-seal" aria-hidden="true">✦</span><div><strong>How this scope is signed</strong><span data-permission-count aria-live="polite">3 of 5 permissions selected</span></div></div>
-          <ol class="monad-signing-steps">
-            <li><span>01</span><p><strong>Envoi prepares</strong><small>Agent ID, selected actions, expiry and a one-time nonce.</small></p></li>
-            <li><span>02</span><p><strong>Your wallet signs</strong><small>An EIP-712 structured authorization with your private key.</small></p></li>
-            <li><span>03</span><p><strong>Verify on Monad</strong><small>A compatible contract can check the signer and scope.</small></p></li>
-          </ol>
-          <div class="monad-scope-summary"><span>Scope to sign</span><output data-permission-summary>Communicate · Calendar · Receive files</output></div>
+        <div class="monad-brand-note">
+          <img src="/monad-logo-mark.png" width="48" height="48" alt="Monad" />
+          <p>Monad provides the cryptographic permission layer and blockchain record of agent actions.</p>
         </div>
-        <p class="monad-disclaimer">Concept preview. These toggles update an example only; no wallet signature or on-chain transaction is sent.</p>
       </div>
     </div>
   </div>
@@ -47,22 +36,9 @@ const permissions = [
 <script>
   document.querySelectorAll<HTMLElement>('[data-monad-preview]').forEach(preview => {
     const inputs = [...preview.querySelectorAll<HTMLInputElement>('[data-permission]')];
-    const count = preview.querySelector<HTMLElement>('[data-permission-count]')!;
-    const summary = preview.querySelector<HTMLOutputElement>('[data-permission-summary]')!;
     const transactionNote = preview.querySelector<HTMLElement>('[data-transaction-note]')!;
-    const shortNames: Record<string, string> = {
-      'Communicate with other agents': 'Communicate',
-      'Share calendar availability': 'Calendar',
-      'Receive files': 'Receive files',
-      'Send files': 'Send files',
-      'Complete transactions': 'Transactions',
-    };
     const update = () => {
-      const selected = inputs.filter(input => input.checked).map(input => shortNames[input.dataset.permission || '']);
-      count.textContent = `${selected.length} of ${inputs.length} permissions selected`;
-      summary.textContent = selected.length ? selected.join(' · ') : 'No actions selected';
       transactionNote.hidden = !inputs.find(input => input.dataset.permission === 'Complete transactions')?.checked;
-      preview.classList.toggle('monad-empty-scope', selected.length === 0);
     };
     inputs.forEach(input => input.addEventListener('change', update));
     update();

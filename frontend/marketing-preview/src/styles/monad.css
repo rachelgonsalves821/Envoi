@@ -1,17 +1,10 @@
-.monad-section { position: relative; overflow: hidden; padding: 86px 0 96px; background: var(--bg-sunken); border-top: 1px solid var(--line); }
+.monad-section { position: relative; overflow: hidden; padding: 72px 0; background: var(--bg-sunken); border-top: 1px solid var(--line); }
 .monad-section::before { content: ''; position: absolute; width: 640px; height: 640px; right: -130px; top: -130px; background: radial-gradient(circle, rgba(47,134,198,.22), rgba(242,163,58,.11) 45%, transparent 72%); pointer-events: none; }
-.monad-layout { position: relative; display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: clamp(36px, 6vw, 96px); align-items: center; }
+.monad-layout { position: relative; display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: clamp(36px, 6vw, 96px); align-items: start; }
 .monad-copy { max-width: 530px; }
-.monad-copy .eyebrow { color: var(--accent); font-size: 13px; }
-.monad-copy h2 { margin-top: 18px; font-size: clamp(42px, 4.6vw, 64px); line-height: 1.05; }
+.monad-copy h2 { margin-top: 0; font-size: clamp(42px, 4.6vw, 64px); line-height: 1.05; }
 .monad-copy h2 em { color: var(--accent); font-style: normal; }
 .monad-lead { max-width: 470px; margin-top: 24px; color: var(--ink-muted); font-size: 18px; line-height: 1.55; }
-.monad-value { display: grid; gap: 22px; margin-top: 38px; }
-.monad-value > div { display: flex; align-items: flex-start; gap: 14px; }
-.monad-value-icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--accent); font-size: 18px; }
-.monad-value p { display: grid; gap: 3px; line-height: 1.4; }
-.monad-value strong { font-size: 17px; font-weight: 700; font-synthesis: weight; }
-.monad-value p span { color: var(--ink-muted); font-size: 15px; }
 .monad-stage { position: relative; padding: 18px; border-radius: 30px; background: linear-gradient(145deg, rgba(47,134,198,.24), rgba(242,163,58,.14) 55%, rgba(47,134,198,.1)); box-shadow: 0 30px 75px -45px var(--shadow-ink); }
 .monad-panel { position: relative; padding: 24px; border: 1px solid var(--line-strong); border-radius: 22px; background: var(--bg-raised); box-shadow: var(--card-shadow); }
 .monad-panel-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
@@ -32,22 +25,8 @@
 .monad-permission input:checked + .monad-switch { background: var(--accent); }
 .monad-permission input:checked + .monad-switch > span { transform: translateX(18px); }
 .monad-transaction-note { margin: 9px 2px 0; padding: 8px 10px; border-left: 2px solid var(--brand-amber); color: var(--ink-muted); background: var(--agent-b-wash); font-size: 13px; line-height: 1.35; }
-.monad-signature { margin-top: 14px; padding: 16px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--accent-wash); }
-.monad-signature-heading { display: flex; align-items: center; gap: 10px; }
-.monad-seal { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--brand-navy); color: #fff; }
-.monad-signature-heading > div { display: grid; line-height: 1.35; }
-.monad-signature-heading strong { font-weight: 700; font-synthesis: weight; font-size: 15px; }
-.monad-signature-heading span:last-child { color: var(--ink-muted); font-size: 13px; }
-.monad-signing-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0; margin: 14px 0 0; list-style: none; }
-.monad-signing-steps li { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
-.monad-signing-steps li > span { color: var(--accent); font-size: 12px; }
-.monad-signing-steps p { display: grid; gap: 3px; line-height: 1.25; }
-.monad-signing-steps strong { font-size: 13px; font-weight: 700; font-synthesis: weight; }
-.monad-signing-steps small { color: var(--ink-muted); font-size: 12px; }
-.monad-scope-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line-strong); font-size: 13px; }
-.monad-scope-summary > span { flex: none; color: var(--ink-muted); }
-.monad-scope-summary output { text-align: right; overflow-wrap: anywhere; }
-.monad-empty-scope .monad-scope-summary output { color: var(--needs-human-ink); }
-.monad-disclaimer { margin-top: 12px; color: var(--ink-dim); font-size: 12px; line-height: 1.35; }
+.monad-brand-note { display: flex; align-items: center; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.monad-brand-note img { display: block; flex: none; width: 48px; height: 48px; object-fit: contain; }
+.monad-brand-note p { color: var(--ink-muted); font-size: 15px; line-height: 1.4; }
 @media (max-width: 1000px) { .monad-layout { grid-template-columns: 1fr; } .monad-copy { max-width: 700px; } .monad-stage { max-width: 760px; width: 100%; } }
-@media (max-width: 680px) { .monad-section { padding: 60px 0; } .monad-copy h2 { font-size: 42px; } .monad-lead { font-size: 16px; } .monad-value { margin-top: 28px; } .monad-stage { padding: 6px; border-radius: 24px; } .monad-panel { padding: 12px; } .monad-panel-top h3 { font-size: 24px; } .monad-draft { font-size: 11px; } .monad-permission { padding: 8px; gap: 2px 8px; } .monad-signing-steps { grid-template-columns: 1fr; gap: 10px; } .monad-signing-steps li { gap: 10px; } .monad-signing-steps small { font-size: 13px; } }
+@media (max-width: 680px) { .monad-section { padding: 60px 0; } .monad-copy h2 { font-size: 42px; } .monad-lead { font-size: 16px; } .monad-stage { padding: 6px; border-radius: 24px; } .monad-panel { padding: 12px; } .monad-panel-top h3 { font-size: 24px; } .monad-draft { font-size: 11px; } .monad-permission { padding: 8px; gap: 2px 8px; } .monad-brand-note { align-items: flex-start; gap: 12px; } .monad-brand-note img { width: 40px; height: 40px; } .monad-brand-note p { font-size: 14px; } }
