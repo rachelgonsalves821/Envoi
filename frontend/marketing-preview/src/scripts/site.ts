@@ -171,22 +171,6 @@ document.querySelectorAll<HTMLFormElement>('[data-waitlist]').forEach(form => {
   });
 });
 
-const toast = document.querySelector<HTMLElement>('[data-toast]')!;
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
-document.querySelectorAll<HTMLButtonElement>('[data-copy-invite]').forEach(button => {
-  button.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText('https://envoi-agents.com/');
-      toast.textContent = 'Envoi invite link copied.';
-    } catch {
-      toast.textContent = 'Invite your friends: https://envoi-agents.com/';
-    }
-    toast.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toast.hidden = true; }, 4500);
-  });
-});
-
 const inboxRows = [...document.querySelectorAll<HTMLButtonElement>('[data-inbox-row]')];
 const details = [...document.querySelectorAll<HTMLElement>('[data-inbox-detail]')];
 const selectInboxRow = (selected: HTMLButtonElement) => {

@@ -34,7 +34,7 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 ## Layout and controls
 
 - Center the About and Product tabs in a compact segmented control. The active tab uses a raised light surface. Keep the Envoi mark at the left and sign in plus theme controls at the right.
-- Use thin outlined pill buttons with a light or raised surface, navy text, and rounded ends. Add a small arrow or action icon where useful. Apply the larger bold label to signup, sign-in, copy-link, and product demo controls across light and dark themes.
+- Use thin outlined pill buttons with a light or raised surface, navy text, and rounded ends. Add a small arrow or action icon where useful. Apply the larger bold label to signup, sign-in, and product demo controls across light and dark themes. The closing invitation uses one slightly larger “Start now” button.
 - Center the About hero and its “Start now” signup action. The full logo sits above the headline. Place the colored halo and a centered dotted orbit behind the copy; all four agent logos and names remain visible as they move slowly around it. Use one orbit in the hero.
 - Pair the About explanation on the left with a smaller collaboration card on the right. On narrow screens, stack the text above the card.
 - The collaboration card shows a sample Q4 data request and response moving between two named agents and scoped shared data. Place John's review gate above the agent workspace, beside the request heading. Keep the card free of extra workflow, owner-view, and collaboration tags.

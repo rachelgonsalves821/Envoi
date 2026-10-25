@@ -51,8 +51,6 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .form-status.error { color: var(--agent-b); }
 .form-status.success { color: var(--confirmed-light); }
 .honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.copy-invite { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 700; font-synthesis: weight; background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: var(--pill); padding: 9px 15px; color: var(--ink); margin-top: 6px; min-height: 42px; }
-.copy-invite:hover { background: var(--accent-wash); border-color: var(--accent); }
 .demo-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 8px; }
 .demo-topline .eyebrow { color: var(--ink-muted); font-size: 14px; }
 .demo-label { font-size: 14px; color: var(--ink-dim); }
@@ -242,8 +240,8 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .feature p { font-size: 12px; color: var(--ink-muted); }
 .closing { padding-top: 64px; padding-bottom: 64px; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 64px; text-align: left; border-top: 1px solid var(--line); }
 .closing h2 { font-size: clamp(36px, 4vw, 48px); line-height: 1.12; }
-.closing .waitlist-form { margin: 0 auto; text-align: left; position: relative; }
-.closing .copy-invite { position: relative; margin-top: 12px; }
+.closing-form { display: flex; align-items: center; justify-content: center; }
+.closing-form .button { min-height: 54px; padding-inline: 26px; gap: 20px; font-size: 16px; }
 .site-footer { border-top: 1px solid var(--line); }
 .footer-top { display: grid; grid-template-columns: 1.6fr repeat(4, minmax(0, 1fr)); gap: 32px; padding-top: 48px; padding-bottom: 48px; }
 .footer-brand .wordmark { font-size: 42px; }
@@ -254,7 +252,6 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .footer-note { display: block; color: var(--ink-dim); font-size: 10px; margin-top: 14px; }
 .footer-top > div:not(:first-child) > a:hover { color: var(--accent); }
 .footer-bottom { border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 20px; padding: 20px 0 28px; font-size: 9px; color: var(--ink-dim); }
-.toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); border: 1px solid var(--line-strong); background: var(--ink); color: var(--bg); padding: 12px 20px; border-radius: var(--button-radius); z-index: 60; font-size: 12px; max-width: calc(100% - 40px); text-align: center; }
 .brand-logo { display: block; width: 100%; height: auto; object-fit: contain; }
 .wordmark { display: block; width: 64px; flex: none; }
 .diagram-wordmark { display: block; width: 72px; }
@@ -474,6 +471,7 @@ strong, b, input, button { font-weight: 300; }
   .feature p { font-size: 12px; }
   .closing { grid-template-columns: 1fr; gap: 28px; padding-top: 48px; padding-bottom: 48px; }
   .closing h2 { font-size: 36px; }
+  .closing-form { justify-content: flex-start; }
   .footer-top { grid-template-columns: 1fr 1fr; gap: 32px 24px; padding-top: 40px; padding-bottom: 36px; }
   .footer-brand { grid-column: 1/-1; display: block; }
   .footer-bottom { flex-wrap: wrap; font-size: 8px; gap: 12px; }

@@ -98,11 +98,10 @@ const features = [
 
       {isProduct && <MonadPermissions />}
 
-      <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={signUpUrl}>Start now <Icon name="arrow" size={16} /></a><button class="copy-invite" data-copy-invite><Icon name="copy" size={14} /><span>Copy link to invite friends</span></button></div></section>
+      <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={signUpUrl}>Start now <Icon name="arrow" size={18} /></a></div></section>
       {isAbout && <Team />}
     </main>
     <Footer signInUrl={signInUrl} signUpUrl={signUpUrl} />
-    <div class="toast" role="status" data-toast hidden></div>
     <script>import '../scripts/site';</script>
   </body>
 </html>
