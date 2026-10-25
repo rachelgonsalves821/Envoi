@@ -28,11 +28,18 @@ if (thread) {
   let activeIndex = 0;
   let state = createPlaybackState(panels[0].querySelectorAll('[data-step]').length, reducedMotion.matches);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let switchTimer: ReturnType<typeof setTimeout> | undefined;
   let inView = false;
   let hovered = false;
   let focused = false;
 
-  const clearTimer = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };
+  const clearTimers = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    if (switchTimer !== undefined) clearTimeout(switchTimer);
+    timer = undefined;
+    switchTimer = undefined;
+    thread.classList.remove('is-switching');
+  };
   const render = () => {
     panels.forEach((panel, panelIndex) => {
       panel.hidden = panelIndex !== activeIndex;
@@ -60,17 +67,24 @@ if (thread) {
     playback.disabled = state.reducedMotion;
   };
   const schedule = () => {
-    clearTimer();
+    clearTimers();
     if (!inView || hovered || focused || document.hidden || state.paused || state.manual || state.reducedMotion) return;
     const complete = state.visibleCount === state.stepCount;
     timer = setTimeout(() => {
       if (complete) {
-        activeIndex = (activeIndex + 1) % panels.length;
-        state = createPlaybackState(panels[activeIndex].querySelectorAll('[data-step]').length);
-        panels[activeIndex].querySelector('.thread-messages')!.scrollTop = 0;
-      } else {
-        state = advancePlayback(state);
+        thread.classList.add('is-switching');
+        switchTimer = setTimeout(() => {
+          switchTimer = undefined;
+          activeIndex = (activeIndex + 1) % panels.length;
+          state = createPlaybackState(panels[activeIndex].querySelectorAll('[data-step]').length);
+          panels[activeIndex].querySelector('.thread-messages')!.scrollTop = 0;
+          render();
+          thread.classList.remove('is-switching');
+          schedule();
+        }, 160);
+        return;
       }
+      state = advancePlayback(state);
       render();
       const list = panels[activeIndex].querySelector<HTMLElement>('.thread-messages')!;
       const newest = list.querySelector<HTMLElement>('.is-newest');
@@ -81,6 +95,7 @@ if (thread) {
     }, playbackDelay(state));
   };
   const choose = (index: number) => {
+    clearTimers();
     activeIndex = index;
     state = selectScenario(panels[index].querySelectorAll('[data-step]').length, reducedMotion.matches);
     panels[index].querySelector('.thread-messages')!.scrollTop = 0;
@@ -102,6 +117,7 @@ if (thread) {
     });
   });
   playback.addEventListener('click', () => {
+    clearTimers();
     if (state.manual || state.paused) {
       state = createPlaybackState(state.stepCount, reducedMotion.matches);
       panels[activeIndex].querySelector('.thread-messages')!.scrollTop = 0;
@@ -115,6 +131,7 @@ if (thread) {
   thread.addEventListener('focusout', () => queueMicrotask(() => { focused = thread.contains(document.activeElement); schedule(); }));
   document.addEventListener('visibilitychange', schedule);
   reducedMotion.addEventListener('change', () => {
+    clearTimers();
     state = reducedMotion.matches ? selectScenario(state.stepCount, true) : createPlaybackState(state.stepCount);
     if (walkthrough) walkthrough.dataset.featureReveal = String(!reducedMotion.matches);
     render();

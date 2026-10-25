@@ -70,7 +70,7 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .agent-avatar > span, .diagram-avatar > span { position: absolute; bottom: 0; right: -1px; width: 6px; height: 6px; background: var(--accent); border: 1px solid var(--bg); border-radius: 50%; }
 .agent-b .agent-avatar, .agent-secondary .diagram-avatar { color: var(--agent-b); background: var(--agent-b-wash); }
 .agent-b .agent-avatar > span, .agent-secondary .diagram-avatar > span { background: var(--agent-b); }
-.thread-messages { height: auto; overflow: visible; padding: 0 22px 12px; margin: 0; list-style: none; position: relative; }
+.thread-messages { height: 500px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 0 22px 12px; margin: 0; list-style: none; position: relative; }
 .thread-messages::before, .thread-messages::after { content: ''; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); left: 36px; }
 .thread-messages::after { left: auto; right: 36px; }
 .thread-step { position: relative; margin: 4px 0 0; padding: 0 30px 0 0; }
@@ -280,19 +280,23 @@ body { font-weight: 300; }
 strong, b, input, button { font-weight: 300; }
 @media (prefers-reduced-motion: no-preference) {
   @media (min-width: 1151px) {
-    .product-walkthrough[data-feature-reveal="true"] .feature { opacity: 0; transform: translateY(16px); transition: opacity 460ms var(--ease-enter), transform 460ms var(--ease-enter); }
+    .product-walkthrough[data-feature-reveal="true"] .feature { opacity: 0; transform: translateY(8px); transition: opacity 300ms var(--ease-enter), transform 300ms var(--ease-enter); }
     .product-walkthrough[data-feature-reveal="true"] .feature.is-revealed { opacity: 1; transform: translateY(0); }
   }
   html { scroll-behavior: smooth; }
   button, a { transition: color var(--duration-micro), background var(--duration-micro), border-color var(--duration-micro), transform var(--duration-micro); }
   .button:hover { transform: translateY(-1px); }
-  .thread-step { transition: opacity var(--duration-page) var(--ease-enter), transform var(--duration-page) var(--ease-enter); }
+  .thread-shell > [data-panel]:not([hidden]) { animation: panel-enter 220ms var(--ease-enter) both; }
+  .thread-demo.is-switching .thread-shell > [data-panel]:not([hidden]) { animation: none; opacity: 0; transition: opacity 160ms ease-in; }
+  .thread-step.is-newest { animation: step-enter 250ms var(--ease-enter) both; }
   .thread-step.is-newest .thread-connector { animation: connector var(--duration-page) var(--ease-enter); }
   .handshake.in-view .handshake-edge > span { animation: handshake 5s var(--ease-enter) infinite; }
   .handshake.in-view .handshake-edge.reverse > span { animation-delay: 1.5s; animation-direction: reverse; }
   .receipt-stage.in-view::before { animation: breathe 8s ease-in-out infinite alternate; }
   body.page-hidden .handshake-edge > span, body.page-hidden .receipt-stage::before { animation-play-state: paused !important; }
   @keyframes connector { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @keyframes panel-enter { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes step-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes handshake { 0%, 10% { transform: translateX(0); opacity: 0; } 20% { opacity: 1; } 75%, 100% { transform: translateX(calc(100% - 5px)); opacity: 0; } }
   @keyframes breathe { from { opacity: .7; } to { opacity: 1; } }
 }
@@ -333,7 +337,7 @@ strong, b, input, button { font-weight: 300; }
   .agent-lanes { padding: 16px; gap: 8px; }
   .agent-name { font-size: 16px; gap: 6px; }
   .agent-name small { font-size: 14px; }
-  .thread-messages { height: auto; padding-inline: 12px; }
+  .thread-messages { height: 500px; padding-inline: 12px; }
   .thread-step, .thread-step.from-b { padding: 0 8px; }
   .thread-step.from-policy, .thread-step.from-receipt, .thread-step.from-human, .thread-step.from-file { padding: 0 4px; }
   .message-card { padding: 10px 12px; }
@@ -398,7 +402,7 @@ strong, b, input, button { font-weight: 300; }
   .scenario-tabs button { font-size: 15px; }
   .thread-subject { font-size: 16px; }
   .agent-name { font-size: 16px; }
-  .thread-messages { height: auto; }
+  .thread-messages { height: 500px; }
   .thread-messages .receipt-details { grid-template-columns: 1fr; }
   .thread-messages .receipt-details > div { flex-direction: row; }
   .thread-messages::before { left: 25px; }

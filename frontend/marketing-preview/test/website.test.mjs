@@ -37,7 +37,7 @@ test('automatic playback reveals exactly one step and stops at the receipt', () 
   assert.equal(state.visibleCount, 5);
 });
 
-test('every demo reveals its full conversation within three seconds of uninterrupted playback', () => {
+test('every demo reveals its full conversation within 1.2 seconds of uninterrupted playback', () => {
   for (const scenario of scenarios) {
     let state = createPlaybackState(scenario.steps.length);
     let elapsed = 0;
@@ -45,8 +45,8 @@ test('every demo reveals its full conversation within three seconds of uninterru
       elapsed += playbackDelay(state);
       state = advancePlayback(state);
     }
-    assert.ok(elapsed <= 3000, `${scenario.id}: ${elapsed}ms`);
-    assert.equal(playbackDelay(state), 1500);
+    assert.ok(elapsed <= 1200, `${scenario.id}: ${elapsed}ms`);
+    assert.equal(playbackDelay(state), 900);
   }
 });
 
