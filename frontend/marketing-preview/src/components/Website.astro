@@ -3,15 +3,16 @@ import '../styles/fonts.css';
 import '../styles/tokens.css';
 import '../styles/site.css';
 import '../styles/theme.css';
+import '../styles/hero-refresh.css';
 import Thread from './Thread.astro';
 import WaitlistCard from './WaitlistCard.astro';
 import Icon from './Icon.astro';
-import AgentsBanner from './AgentsBanner.astro';
 import BrandLogo from './BrandLogo.astro';
 import Handshake from './Handshake.astro';
 import Footer from './Footer.astro';
 import ThemeToggle from './ThemeToggle.astro';
 import Team from './Team.astro';
+import AgentOrbit from './AgentOrbit.astro';
 import themeBootstrap from '../scripts/theme-bootstrap.js?raw';
 interface Props { page: 'about' | 'product'; }
 const { page } = Astro.props;
@@ -55,17 +56,16 @@ const features = [
     </header>
     <main id="main">
       {isAbout && <section id="how-it-works" class="hero container" aria-labelledby="hero-title">
+        <div class="hero-ambient" aria-hidden="true"><AgentOrbit ambient /></div>
         <div class="hero-copy">
           <div class="hero-brand"><BrandLogo /></div>
           <h1 id="hero-title">Break your agents out of their siloes</h1>
           <p class="hero-description">Envoi gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.</p>
-
           <WaitlistCard id="hero-waitlist" />
         </div>
-        <div class="hero-diagram"><Handshake /></div>
       </section>}
 
-      {isAbout && <AgentsBanner />}
+      {isAbout && <section class="solution-showcase container" aria-label="Connect agents with Envoi"><AgentOrbit /><div class="hero-diagram"><Handshake /></div></section>}
 
       {isAbout && <section id="collaboration" class="section container mechanism" aria-labelledby="mechanism-title">
         <div class="section-heading"><h2 id="mechanism-title">Envoi is building infrastructure that allows independently owned agents to work together, regardless of where they run.</h2><a class="overview-link" href="/product/">Explore the product <Icon name="arrow" size={16} /></a></div>

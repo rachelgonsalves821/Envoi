@@ -1,33 +1,22 @@
 ---
 import Icon from './Icon.astro';
+import agents from '../data/agents.json';
+const [first, second] = agents;
 ---
 <figure class="collaboration-flow" aria-labelledby="collaboration-visual-title" data-collaboration-flow>
-  <figcaption id="collaboration-visual-title">A shared client review<span>Illustrative workflow</span></figcaption>
-  <section class="relay-panel" aria-labelledby="relay-title">
-    <div class="flow-heading"><h3 id="relay-title">Without Envoi</h3><span>Manual relay</span></div>
-    <ol class="relay-route" aria-label="Owners relay work between agents">
-      <li><span class="node-symbol agent-symbol"><Icon name="code" size={18} /></span><span>John's agent</span></li>
-      <li class="route-arrow" aria-hidden="true"><Icon name="arrow" size={18} /></li>
-      <li><span class="node-symbol owner-symbol"><Icon name="person" size={18} /></span><span>John</span></li>
-      <li class="route-arrow" aria-hidden="true"><Icon name="arrow" size={18} /></li>
-      <li><span class="node-symbol owner-symbol"><Icon name="person" size={18} /></span><span>Jordan</span></li>
-      <li class="route-arrow" aria-hidden="true"><Icon name="arrow" size={18} /></li>
-      <li><span class="node-symbol agent-symbol"><Icon name="code" size={18} /></span><span>Jordan's agent</span></li>
-    </ol>
-    <p class="relay-note">Owners pass messages and files between agents.</p>
-  </section>
+  <figcaption id="collaboration-visual-title"><strong>With Envoi, agents work together directly</strong><span>Illustrative workflow</span></figcaption>
   <section class="direct-panel" aria-labelledby="direct-title">
-    <div class="flow-heading"><h3 id="direct-title">With Envoi</h3><span>Direct collaboration</span></div>
+    <div class="flow-heading"><h3 id="direct-title">A shared client review</h3><span>Direct collaboration</span></div>
     <div class="owner-layer"><span class="layer-label">Owner view</span><div class="review-gate"><Icon name="person" size={16} /><span>John reviews before sharing</span></div></div>
     <div class="review-branch" aria-hidden="true"><span class="review-stem"></span><span class="review-arrow"><Icon name="arrow" size={13} /></span></div>
     <div class="agent-layer">
       <span class="layer-label">Agent workspace</span>
       <div class="direct-route" role="group" aria-label="John's agent and Jordan's agent collaborate in a shared workspace">
-        <div class="direct-agent john-agent"><span class="node-symbol agent-symbol"><Icon name="code" size={18} /></span><span>John's agent</span></div>
+        <div class="direct-agent john-agent"><span class="node-symbol agent-symbol"><img src={first.logo} width="28" height="28" alt="" /></span><span>{first.name}</span><small>John's agent</small></div>
         <span class="exchange-line" aria-hidden="true"></span>
         <div class="shared-work"><Icon name="file" size={20} /><span>Shared work</span></div>
         <span class="exchange-line" aria-hidden="true"></span>
-        <div class="direct-agent jordan-agent"><span class="node-symbol agent-symbol"><Icon name="code" size={18} /></span><span>Jordan's agent</span></div>
+        <div class="direct-agent jordan-agent"><span class="node-symbol agent-symbol"><img src={second.logo} width="28" height="28" alt="" /></span><span>{second.name}</span><small>Jordan's agent</small></div>
       </div>
     </div>
   </section>
@@ -35,6 +24,7 @@ import Icon from './Icon.astro';
 
 <style>
   .collaboration-flow { margin: 0; padding: 28px; border: 1px solid var(--line); border-radius: 22px; background: var(--bg-raised); box-shadow: var(--card-shadow); }
+  figcaption strong { font-weight: 600; }
   figcaption { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 22px; line-height: 1.4; padding-bottom: 24px; }
   figcaption > span { font-size: 14px; color: var(--ink-muted); }
   .relay-panel { padding: 24px 0 28px; border-top: 1px solid var(--line); }
@@ -46,6 +36,8 @@ import Icon from './Icon.astro';
   .node-symbol { width: 48px; height: 48px; border: 1px solid var(--line-strong); display: grid; place-items: center; color: var(--ink-muted); background: var(--bg); }
   .node-symbol :global(svg) { width: 24px; height: 24px; }
   .agent-symbol { border-radius: 10px; }
+  .agent-symbol img { width: 28px; height: 28px; object-fit: contain; }
+  :global(:root[data-theme="dark"]) .agent-symbol img { background: #eef5fb; border-radius: 5px; padding: 2px; }
   .owner-symbol { border-radius: 50%; }
   .route-arrow { margin-top: 14px; color: var(--ink-muted); }
   .relay-note { margin-top: 20px; color: var(--ink-muted); font-size: 16px; }

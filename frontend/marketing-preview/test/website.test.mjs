@@ -172,13 +172,29 @@ test('all illustrated owner names and initials use John consistently', async () 
   assert.equal(scenarios.find(scenario => scenario.id === 'client-deck').steps.at(-1).tag, 'Needs John');
 });
 
-test('the collaboration diagram separates owner review from direct agent work', async () => {
+test('the collaboration diagram shows only the Envoi solution with named agent artwork', async () => {
   const diagram = await readFile(new URL('../src/components/Handshake.astro', import.meta.url), 'utf8');
   assert.match(diagram, /<figure[^>]*aria-labelledby="collaboration-visual-title"/);
-  for (const label of ['Without Envoi', 'With Envoi', 'Owner view', 'Agent workspace', 'John reviews before sharing', 'Illustrative workflow']) assert.ok(diagram.includes(label), label);
-  assert.match(diagram, /<ol class="relay-route"[^>]*aria-label="Owners relay work between agents"/);
-  assert.match(diagram, /class="direct-route"[^>]*aria-label="John's agent and Jordan's agent collaborate in a shared workspace"/);
-  assert.doesNotMatch(diagram, /message-burst|Agreed|not measured time|animation:|<canvas|<script/);
+  for (const label of ['With Envoi', 'Owner view', 'Agent workspace', 'John reviews before sharing', 'Illustrative workflow']) assert.ok(diagram.includes(label), label);
+  assert.doesNotMatch(diagram, /Without Envoi|Manual relay|Owners pass messages/);
+  assert.match(diagram, /src=\{first.logo\}/);
+  assert.match(diagram, /src=\{second.logo\}/);
+  assert.match(diagram, /\{first.name\}/);
+  assert.match(diagram, /\{second.name\}/);
+});
+
+test('About centers a named, reduced-motion agent orbit above the solution card', async () => {
+  const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
+  const orbit = await readFile(new URL('../src/components/AgentOrbit.astro', import.meta.url), 'utf8');
+  const layout = await readFile(new URL('../src/styles/hero-refresh.css', import.meta.url), 'utf8');
+  assert.ok(page.indexOf('<AgentOrbit />') < page.indexOf('<Handshake />'));
+  assert.match(orbit, /Connect the agents your team already uses/);
+  assert.match(orbit, /\{agent\.name\}/);
+  assert.match(orbit, /src=\{agent\.logo\}/);
+  assert.match(orbit, /prefers-reduced-motion: reduce/);
+  assert.match(orbit, /90s linear infinite/);
+  assert.match(layout, /\.hero-copy \{[^}]*text-align: center/);
+  assert.match(layout, /\.main-nav \{[^}]*justify-self: center/);
 });
 
 test('diagram labels remain readable instead of shrinking to tiny mobile text', async () => {

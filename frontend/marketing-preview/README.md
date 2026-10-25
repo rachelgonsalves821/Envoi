@@ -1,5 +1,7 @@
 # Envoi website design
 
+The current About page direction and reusable visual rules are documented in [Brand guidelines](./BRAND-GUIDELINES.md).
+
 An isolated marketing design preview based on Rachel's `SKILL (1).md`, with public-facing copy drawn from `Envoi_vNENPitch.pdf`. No existing Envoi checkout, provider configuration, live agent, or Gate B-local resource is changed.
 
 ## Theme and Team update on October 22, 2026
