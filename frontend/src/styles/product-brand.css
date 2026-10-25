@@ -69,6 +69,9 @@ body:has(.onboarding-page) { background: #f6f9fc; }
 .app-shell .nav-item.active { background: #e7f3fb; color: var(--ink); font-weight: 600; }
 .app-shell .nav-item.active .nav-icon { color: var(--accent); }
 .app-shell .nav-section-heading { margin-top: 22px; margin-bottom: 6px; color: #57758e; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.app-shell .nav-section-title { margin-top: 18px; padding-top: 16px; border-top: 1px solid #e4edf4; }
+.app-shell .nav-list > .nav-section-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.app-shell .nav-spacer { flex: none; min-height: 0; }
 .app-shell .nav-footer { padding-top: 15px; }
 .app-shell .principal-card strong { color: var(--ink); font-size: 14px; }
 .app-shell .principal-card small { color: var(--ink2); }
@@ -78,7 +81,7 @@ body:has(.onboarding-page) { background: #f6f9fc; }
 .app-shell .agents-page, .app-shell .files-page { width: 100%; max-width: 1240px; }
 .app-shell .agents-heading { margin-bottom: 22px; }
 .app-shell .agents-heading .eyebrow { color: var(--accent); font-size: 11px; letter-spacing: .15em; margin-bottom: 5px; }
-.app-shell .agents-onboard-hero { min-height: 236px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(210px, .55fr); align-items: center; gap: 20px; position: relative; overflow: hidden; padding: clamp(24px, 3vw, 42px); margin-bottom: 28px; border: 1px solid #cbdfee; border-radius: 22px; background: radial-gradient(circle at 73% 46%, rgba(47,134,198,.14), transparent 30%), radial-gradient(circle at 88% 75%, rgba(242,163,58,.13), transparent 27%), #fff; box-shadow: 0 18px 45px rgba(15,42,67,.055); }
+.app-shell .agents-onboard-hero { min-height: 194px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(210px, .55fr); align-items: center; gap: 20px; position: relative; overflow: hidden; padding: clamp(22px, 2.5vw, 34px); margin-bottom: 28px; border: 1px solid #cbdfee; border-radius: 22px; background: radial-gradient(circle at 73% 46%, rgba(47,134,198,.14), transparent 30%), radial-gradient(circle at 88% 75%, rgba(242,163,58,.13), transparent 27%), #fff; box-shadow: 0 18px 45px rgba(15,42,67,.055); }
 .app-shell .agents-onboard-hero h2 { max-width: 650px; font-size: clamp(27px, 3vw, 42px); line-height: 1.1; font-weight: 500; letter-spacing: -.035em; text-wrap: balance; }
 .app-shell .agents-onboard-hero p:not(.eyebrow) { max-width: 590px; margin-top: 10px; color: var(--ink2); font-size: 16px; line-height: 1.55; }
 .app-shell .agents-onboard-hero .eyebrow { color: var(--accent); letter-spacing: .13em; margin-bottom: 12px; }
@@ -95,6 +98,34 @@ body:has(.onboarding-page) { background: #f6f9fc; }
 .app-shell .agents-empty-icon { width: 48px; height: 48px; display: grid; place-items: center; flex: none; border-radius: 50%; background: #e7f3fb; color: var(--accent); }
 .app-shell .agents-empty h2 { font-size: 20px; font-weight: 600; }
 .app-shell .agents-empty p { margin-top: 3px; color: var(--ink2); }
+.app-shell .agents-list-section { overflow: hidden; border: 1px solid #d4e4ef; border-radius: 18px; background: #fff; box-shadow: 0 12px 34px rgba(15,42,67,.04); }
+.app-shell .agents-list-topline { display: flex; align-items: center; justify-content: space-between; padding: 24px 26px 6px; }
+.app-shell .agents-list-topline h2 { color: #0f2a43; font-size: 22px; font-weight: 600; }
+.app-shell .agents-list-topline p { margin-top: 2px; color: #607a90; font-size: 14px; }
+.app-shell .agents-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 26px 20px; }
+.app-shell .agents-search, .app-shell .agents-filter { min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 13px; border: 1px solid #d0e1ed; border-radius: 11px; background: #fff; color: #607a90; }
+.app-shell .agents-search { width: min(100%, 370px); }
+.app-shell .agents-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #0f2a43; font: inherit; }
+.app-shell .agents-filter select { border: 0; outline: 0; background: transparent; color: #0f2a43; font: 600 14px "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.app-shell .agents-search:focus-within, .app-shell .agents-filter:focus-within { outline: 3px solid #2f86c6; outline-offset: 2px; }
+.app-shell .agents-table-head, .app-shell .integration-card { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(120px, .72fr) minmax(0, 1.2fr) minmax(180px, .86fr); align-items: center; gap: 16px; }
+.app-shell .agents-table-head { padding: 12px 26px; border-top: 1px solid #e2ecf3; background: #f3f8fb; color: #57758e; font: 600 12px "Segoe UI",system-ui,sans-serif; letter-spacing: .07em; text-transform: uppercase; }
+.app-shell .integration-grid { display: block; }
+.app-shell .integration-card { min-width: 0; padding: 19px 26px; margin: 0; border: 0; border-top: 1px solid #e2ecf3; border-radius: 0; background: #fff; box-shadow: none; }
+.app-shell .integration-card:first-child { border-top: 0; }
+.app-shell .integration-heading { min-width: 0; margin: 0; flex-wrap: nowrap; }
+.app-shell .agent-card-avatar { width: 42px; height: 42px; }
+.app-shell .integration-card .agent-stats { margin: 0; }
+.app-shell .agent-status-access { min-width: 0; display: grid; gap: 7px; }
+.app-shell .agent-status-access .agent-presence { width: fit-content; flex-basis: auto; margin: 0; }
+.app-shell .agent-status-access .capability-list { margin: 0; }
+.app-shell .integration-card .agent-card-actions { justify-content: flex-end; }
+.app-shell .integration-card .agent-card-actions .button { min-height: 38px; padding-inline: 13px; font-size: 13px; }
+.app-shell .integration-card .agent-setup { grid-column: 2 / 4; margin: 0; }
+.app-shell .integration-card > .agent-more, .app-shell .integration-card > .credential-once, .app-shell .integration-card > .agent-more ~ .inline-notice, .app-shell .integration-card > .inline-notice { grid-column: 1 / -1; }
+.app-shell .integration-card > .agent-more { padding-top: 10px; margin-top: 2px; border-top: 1px solid #edf2f6; }
+.app-shell .agents-filter-empty { padding: 32px 26px; border-top: 1px solid #e2ecf3; color: #47637a; }
+.app-shell .agents-filter-empty .button { margin-top: 12px; }
 .app-shell .agents-secondary { display: grid; gap: 18px; margin-top: 30px; }
 .app-shell .onboarding-advanced { margin: 0; background: #fff; border-color: var(--line); border-radius: 16px; }
 .app-shell .onboarding-advanced summary { color: var(--ink); }
@@ -178,6 +209,11 @@ body:has(.onboarding-page) { background: #f6f9fc; }
   .connect-layout { grid-template-columns: 1fr; }
   .connect-platform-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .app-shell .runtime-options { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .app-shell .agents-table-head { display: none; }
+  .app-shell .integration-card { grid-template-columns: minmax(0,1fr) auto; gap: 14px; }
+  .app-shell .integration-card .agent-stats, .app-shell .integration-card .agent-setup { grid-column: 1 / -1; }
+  .app-shell .integration-card .agent-status-access { grid-column: 1; }
+  .app-shell .integration-card .agent-card-actions { grid-column: 2; grid-row: 1 / 3; align-self: center; }
 }
 @media (max-width: 700px) {
   .app-shell .utility-content { padding: 22px 16px max(34px,env(safe-area-inset-bottom,0px)); }
@@ -186,6 +222,12 @@ body:has(.onboarding-page) { background: #f6f9fc; }
   .app-shell .runtime-options { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .app-shell .runtime-option { min-height: 154px; padding: 12px; }
   .app-shell .runtime-option:has(input:checked) { padding: 11px; }
+  .app-shell .agents-toolbar { flex-direction: column; align-items: stretch; padding-inline: 18px; }
+  .app-shell .agents-search { width: 100%; }
+  .app-shell .agents-list-topline { padding: 20px 18px 2px; }
+  .app-shell .integration-card { display: block; padding: 20px 18px; }
+  .app-shell .integration-card .integration-heading, .app-shell .integration-card .agent-stats, .app-shell .integration-card .agent-status-access, .app-shell .integration-card .agent-setup { margin-bottom: 15px; }
+  .app-shell .integration-card .agent-card-actions { justify-content: flex-start; }
   .connect-page { padding: calc(18px + env(safe-area-inset-top,0px)) 16px max(28px,env(safe-area-inset-bottom,0px)); }
   .connect-intro { min-height: 0; padding: 26px 0; }
   .connect-intro > img { display: none; }

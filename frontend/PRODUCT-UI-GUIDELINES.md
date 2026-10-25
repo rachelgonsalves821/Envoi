@@ -9,6 +9,7 @@ This extends the [public brand guidelines](marketing-preview/BRAND-GUIDELINES.md
 - Use the approved overlapping-ring Envoi mark from `public/envoi-logo.png` in navigation, onboarding, authentication, and loading. Do not recreate it with text or CSS.
 - Use the six agent marks in `public/agents/` with the platform name immediately adjacent. Do not substitute initials where a supported mark exists.
 - Favor restrained borders, spacing, and hierarchy over repeated heavy cards. Use blue for selection and focus, navy for primary actions, and yellow only as a small accent.
+- Group persistent navigation by task (Inbox, Agents, Folders, Workspace). Keep agent management scannable: search, status filter, aligned columns on desktop, and stacked details on phones.
 
 ## Interaction
 
