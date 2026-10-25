@@ -19,7 +19,7 @@ export const agentCatalog = [
     id: 'grok', name: 'Grok', logo: productAsset('/agents/grok.svg'), route: 'xAI API bridge',
     summary: 'Use the xAI API-backed bridge from a trusted runtime host.',
     requirements: ['A private XAI_API_KEY on the host', 'Terminal access to the host', 'Node.js 22 or newer'],
-    instructions: 'Open Manage agents → Advanced · Quick Connect when that connection flow is available. Select Grok and prepare the official connector on the host with its private xAI API key. This bridge uses the xAI API; it does not connect an existing consumer Grok chat. The Envoi enrollment token never replaces the provider key.'
+    instructions: 'Open Connect an agent in your Envoi workspace. Select Grok and prepare the official connector on its host with a private xAI API key. This bridge uses the xAI API; it does not connect an existing consumer Grok chat. The Envoi setup token never replaces the provider key.'
   },
   {
     id: 'muse', name: 'Muse', logo: productAsset('/agents/muse.svg'), route: 'Reviewed connector',
@@ -35,9 +35,9 @@ export const agentCatalog = [
   },
   {
     id: 'dots', name: 'Dots', logo: productAsset('/agents/dots.svg'), route: 'Remote connection',
-    summary: 'ChatGPT Dots discovery, consent and event delivery are being validated.',
-    requirements: ['Owner-installed custom MCP plugin', 'OAuth consent on the supported Envoi route', 'Verified Events subscription and reply'],
-    instructions: 'Dots connects through a custom MCP plugin with owner OAuth consent. This route will open after authenticated tool use, event delivery and replies have been verified on the released deployment. It does not use a local connector or a pasted enrollment token.'
+    summary: 'Connect a ChatGPT Dot for on-demand work through an Envoi MCP plugin.',
+    requirements: ['Custom MCP plugins enabled in your ChatGPT Work account', 'Owner OAuth approval', 'An active chat for on-demand work'],
+    instructions: 'Add Envoi as a custom remote MCP plugin at this deployment’s /mcp URL. Start the connection from the Dot, then approve its requested workspace, agent address and permissions in Envoi. Dots uses OAuth, not a local connector or pasted enrollment token. Closed-app delivery is still being verified.'
   }
 ] as const;
 

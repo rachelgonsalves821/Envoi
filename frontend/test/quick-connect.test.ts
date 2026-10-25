@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EnrollmentDialog, RuntimePicker, RuntimePreparation } from '../src/App';
 import { api } from '../src/api';
-import { RUNTIME_OPTIONS, connectorDownloads, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, dotsSetupPrompt, dotsSetupSkillFile, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentStatus } from '../src/quick-connect';
 import type { Inbox } from '../src/types';
 import type { QuickConnectHandoff } from '../../sdk/typescript/src/quick-connect';
 
@@ -35,6 +35,24 @@ describe('Quick Connect handoff', () => {
     expect(connectorDownloads(handoff)).toEqual({ connector: 'https://envoi.example/web/downloads/envoi-connector.mjs', release: 'https://envoi.example/web/downloads/release.json' });
     expect(() => connectorDownloads({ ...handoff, apiUrl: 'javascript:alert(1)' })).toThrow();
     expect(() => connectorDownloads({ ...handoff, apiUrl: 'https://user:secret@envoi.example' })).toThrow();
+  });
+
+  it('makes the downloaded connector skill match the selected runtime and one-use handoff', () => {
+    const skill = setupSkillFile({ ...handoff, runtime: 'hermes' });
+    expect(skill).toContain('name: envoi-hermes-setup');
+    expect(skill).toContain(handoff.enrollmentToken);
+    expect(skill).toContain('Delete it after setup');
+    expect(skill).toContain('node envoi-connector.mjs setup --handoff envoi-setup.json --prepare-runtime');
+  });
+
+  it('offers Dots on-demand setup without inventing a connector token or active address', () => {
+    const prompt = dotsSetupPrompt('https://envoi.example', 'Milo', 'milo@agents.envoi.example');
+    expect(prompt).toContain('https://envoi.example/mcp');
+    expect(prompt).toContain('assigned only after approval');
+    expect(prompt).toContain('on-demand work');
+    expect(prompt).not.toContain(handoff.enrollmentToken);
+    expect(dotsSetupSkillFile('https://envoi.example', 'Milo', 'milo@agents.envoi.example')).toContain(prompt);
+    expect(() => dotsSetupPrompt('javascript:alert(1)', 'Milo', 'milo@agents.envoi.example')).toThrow();
   });
 
   it.each(RUNTIME_OPTIONS)('provides the same setup flow for $label with isolated runtime-specific preparation', option => {
@@ -99,7 +117,8 @@ describe('Quick Connect handoff', () => {
     const markup = renderToStaticMarkup(createElement(EnrollmentDialog, { workspace: { id: 'inbox_1' } as Inbox,
       result: { enrollmentId: 'enrollment_1', enrollmentToken: handoff.enrollmentToken, enrollmentUrl: '/?enroll=secret', expiresAt: handoff.expiresAt,
         agentProfile: { name: handoff.agentName, localPart: 'potato' }, quickConnect: handoff }, setResult: vi.fn(), onClose: vi.fn() }));
-    expect(markup).toContain('Copy setup prompt');
+    expect(markup).toContain('Copy agent prompt');
+    expect(markup).toContain('Download agent skill file');
     expect(markup).toContain(`value="${handoff.address}"`);
     expect(markup).toContain('Waiting for your agent');
     expect(markup).toContain('Download setup file');

@@ -64,6 +64,25 @@ Setup data:
 ${JSON.stringify(handoff, null, 2)}`;
 }
 
+export function setupSkillFile(handoff: QuickConnectHandoff) {
+  const validated = validateQuickConnectHandoff(handoff, { allowExpired: true });
+  const label = runtimeLabel(validated.runtime);
+  return `---\nname: envoi-${validated.runtime}-setup\ndescription: Private one-time setup instructions for this ${label} agent.\n---\n\n# Connect ${label} to Envoi\n\nThis file contains a confidential, one-use setup token. Give it only to your trusted agent on its runtime host. Delete it after setup.\n\n${setupPrompt(validated)}\n`;
+}
+
+export function dotsSetupPrompt(origin: string, name: string, requestedAddress: string) {
+  const url = new URL(origin);
+  if (url.origin !== origin || url.username || url.password ||
+    (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) {
+    throw new Error('Use a trusted Envoi origin.');
+  }
+  return `Connect my ChatGPT Dot ${name} to Envoi for on-demand work. Ask me to install the Envoi custom MCP plugin at ${origin}/mcp in my ChatGPT Work account and complete its OAuth authorization. Do not ask for an Envoi enrollment token or paste credentials into chat. When Envoi asks me to approve the connection, I will select this workspace, request ${requestedAddress} as the agent address, and review the requested permissions. That address is assigned only after approval and OAuth exchange. Once connected, use the Envoi tools in an active chat to check for work and send a test reply. Do not claim closed-app delivery; that route is still being verified.`;
+}
+
+export function dotsSetupSkillFile(origin: string, name: string, requestedAddress: string) {
+  return `---\nname: envoi-dots-setup\ndescription: Connect a ChatGPT Dot to Envoi for on-demand work.\n---\n\n# Connect Dots to Envoi\n\n${dotsSetupPrompt(origin, name, requestedAddress)}\n`;
+}
+
 // Serial, bounded polling: one in-flight request, cancelled when the dialog closes.
 export function watchEnrollmentStatus(options: {
   enrollmentId: string;

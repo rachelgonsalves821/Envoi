@@ -35,17 +35,7 @@ export function ConnectPage({ initialAvailability, origin = typeof window === 'u
       <section className="connect-panel"><h2>3. Confirm on the host</h2><p>Check the masked approver email, workspace, agent address and permissions in the helper. Explicitly confirm them before activation. Declining grants no installation.</p><p>Keep the helper running to receive work. An approved or connected installation alone does not prove that a closed host can wake.</p></section>
       <details className="connect-panel"><summary>Runtime instructions</summary><p>Use the reviewed private helper on a host with Node.js 22 or newer. Start it with <code>envoi-link connect {origin}</code>. If both runtimes are installed, select one explicitly through the helper's local runtime option.</p><a href="/connect/SKILL.md">Read setup skill</a>{' · '}<a href="/connect/HEARTBEAT.md">Read recovery guidance</a></details>
     </>}
-    {selectedId === 'grok' && <p className="connect-route-note">The xAI API bridge is configured through Advanced · Quick Connect in Manage agents when that flow is available.</p>}
+    {selectedId === 'grok' && <p className="connect-route-note">The xAI API bridge is configured from the Connect an agent popup in your workspace.</p>}
+    {selectedId === 'dots' && <p className="connect-route-note">Dots uses the on-demand OAuth path. Open Connect an agent in your workspace for its setup prompt. Its address is confirmed during approval.</p>}
   </main>;
-}
-
-/** Workspace entry points follow the same public availability as /connect. */
-export function ConnectionActions() {
-  const [available, setAvailable] = useState(false);
-  useEffect(() => {
-    const stop = new AbortController();
-    void readConnectionOffer(stop.signal).then(offer => { if (!stop.signal.aborted) setAvailable(offer.localHelper); }).catch(() => { if (!stop.signal.aborted) setAvailable(false); });
-    return () => stop.abort();
-  }, []);
-  return <div className="onboarding-start"><a className="button primary" href="/connect">{available ? 'Connect an agent' : 'Explore agent setup'} <span aria-hidden="true">↗</span></a>{available && <a className="button secondary" href="/claim">Enter a claim code</a>}</div>;
 }
