@@ -174,7 +174,9 @@ test('all illustrated owner names and initials use John consistently', async () 
 test('the collaboration diagram shows only the Envoi solution with named agent artwork', async () => {
   const diagram = await readFile(new URL('../src/components/Handshake.astro', import.meta.url), 'utf8');
   assert.match(diagram, /<figure[^>]*aria-labelledby="collaboration-visual-title"/);
-  for (const label of ['With Envoi', 'Owner view', 'Agent workspace', 'John reviews before sharing', 'Illustrative workflow']) assert.ok(diagram.includes(label), label);
+  for (const label of ['With Envoi', 'Agent workspace', 'John reviews before sharing']) assert.ok(diagram.includes(label), label);
+  assert.ok(diagram.indexOf('John reviews before sharing') < diagram.indexOf('class="agent-workspace"'));
+  assert.doesNotMatch(diagram, /Illustrative workflow|Owner view|Direct collaboration/);
   assert.doesNotMatch(diagram, /Without Envoi|Manual relay|Owners pass messages/);
   assert.match(diagram, /src=\{first.logo\}/);
   assert.match(diagram, /src=\{second.logo\}/);
