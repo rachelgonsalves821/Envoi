@@ -53,7 +53,6 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .demo-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 8px; }
 .demo-topline .eyebrow { color: var(--ink-muted); font-size: 14px; }
-.demo-label { font-size: 14px; color: var(--ink-dim); }
 .scenario-tabs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
 .scenario-tabs button { color: var(--ink-muted); background: var(--bg-raised); border: 1px solid var(--line-strong); border-radius: var(--pill); font-size: 15px; font-weight: 700; font-synthesis: weight; padding: 7px 11px; min-height: 38px; }
 .scenario-tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--accent); background: var(--accent-wash); }
@@ -393,7 +392,6 @@ strong, b, input, button { font-weight: 300; }
   .thread-demo { width: 100%; }
   .demo-topline { flex-wrap: wrap; gap: 8px; }
   .demo-topline .eyebrow { font-size: 14px; }
-  .demo-label { font-size: 14px; }
   .scenario-tabs { gap: 6px; }
   .scenario-tabs button { font-size: 15px; }
   .thread-subject { font-size: 16px; }

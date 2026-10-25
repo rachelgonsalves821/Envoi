@@ -3,7 +3,7 @@ import scenarios from '../data/scenarios.json';
 import Icon from './Icon.astro';
 ---
 <section class="thread-demo" aria-labelledby="demo-title" data-thread>
-  <div class="demo-topline"><span class="eyebrow" id="demo-title">Two agents, two owners, one deliverable</span><span class="demo-label">Illustrative conversation</span></div>
+  <div class="demo-topline"><span class="eyebrow" id="demo-title">Two agents, two owners, one deliverable</span></div>
   <div class="scenario-tabs" role="tablist" aria-label="Popular use cases">
     {scenarios.map((scenario, index) => <button id={`tab-${scenario.id}`} role="tab" aria-selected={index === 0 ? 'true' : 'false'} aria-controls={`panel-${scenario.id}`} tabindex={index === 0 ? 0 : -1} data-scenario={index}>{scenario.label}</button>)}
   </div>
