@@ -75,6 +75,21 @@ test('production requires an exact invite list without SMS credentials', () => {
   assert.equal(validateProductionConfiguration(validProduction()).validated, true);
 });
 
+test('public signup requires an explicit mode, exact invite list and a bounded account limit', () => {
+  const closed = validateProductionConfiguration(validProduction());
+  assert.equal(closed.humanSignupMode, 'invite-only');
+  assert.equal(closed.publicSignupLimit, 0);
+  const publicMode = validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100' }));
+  assert.equal(publicMode.humanSignupMode, 'public');
+  assert.equal(publicMode.publicSignupLimit, 100);
+  for (const limit of [undefined, '0', '101', '1.5', 'NaN']) {
+    assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: limit })), /ENVOI_PUBLIC_SIGNUP_LIMIT/);
+  }
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'open' })), /ENVOI_HUMAN_SIGNUP_MODE/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100', ENVOI_BETA_INVITED_EMAILS: '' })), /ENVOI_BETA_INVITED_EMAILS is required/);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100', ENVOI_BETA_INVITED_EMAILS: Array.from({ length: 31 }, (_, index) => `person${index}@example.com`).join(',') })), /at most 30 distinct addresses/);
+});
+
 test('development configuration remains local while production fails unsafe dependencies closed', () => {
   assert.deepEqual(validateProductionConfiguration({ ENVOI_AUTH_MODE: 'development' }), { mode: 'development', validated: false });
   assert.throws(() => validateProductionConfiguration(validProduction({ DATABASE_URL: '', ENVOI_OBJECT_STORAGE_PROVIDER: 'local', ENVOI_AGENT_DOMAIN: 'envoi.mail' })), /DATABASE_URL is required[\s\S]*must be s3[\s\S]*cannot use \.mail/);

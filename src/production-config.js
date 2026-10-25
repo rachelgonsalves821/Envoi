@@ -55,6 +55,16 @@ export function validateProductionConfiguration(env = process.env) {
   required(env, 'WORKOS_COOKIE_PASSWORD', errors, 32);
   const invitedEmails = required(env, 'ENVOI_BETA_INVITED_EMAILS', errors).split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
   if (invitedEmails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) errors.push('ENVOI_BETA_INVITED_EMAILS must contain exact email addresses');
+  if (new Set(invitedEmails).size > 30) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 30 distinct addresses for the first beta');
+  const signupMode = env.ENVOI_HUMAN_SIGNUP_MODE || 'invite-only';
+  if (!['invite-only', 'public'].includes(signupMode)) errors.push('ENVOI_HUMAN_SIGNUP_MODE must be invite-only or public');
+  const publicSignupLimit = Number(env.ENVOI_PUBLIC_SIGNUP_LIMIT);
+  if (signupMode === 'public' && (!Number.isSafeInteger(publicSignupLimit) || publicSignupLimit < 1 || publicSignupLimit > 100)) {
+    errors.push('ENVOI_PUBLIC_SIGNUP_LIMIT must be an integer from 1 to 100 in public signup mode');
+  }
+  if (env.ENVOI_PUBLIC_SIGNUP_LIMIT !== undefined && (!Number.isSafeInteger(publicSignupLimit) || publicSignupLimit < 1 || publicSignupLimit > 100)) {
+    errors.push('ENVOI_PUBLIC_SIGNUP_LIMIT must be an integer from 1 to 100');
+  }
   const redirectUri = httpsUrl(required(env, 'WORKOS_REDIRECT_URI', errors), 'WORKOS_REDIRECT_URI', errors);
   if (publicUrl && redirectUri && publicUrl.origin !== redirectUri.origin) errors.push('WORKOS_REDIRECT_URI must use the ENVOI_PUBLIC_URL origin');
   const encryptionKey = required(env, 'ENVOI_DATA_ENCRYPTION_KEY', errors, 32);
@@ -200,5 +210,5 @@ export function validateProductionConfiguration(env = process.env) {
   if (env.ENVOI_SCAN_RETRY_BASE_MS !== undefined && env.ENVOI_SCAN_RETRY_MAX_MS !== undefined && Number(env.ENVOI_SCAN_RETRY_BASE_MS) > Number(env.ENVOI_SCAN_RETRY_MAX_MS)) errors.push('ENVOI_SCAN_RETRY_BASE_MS must not exceed ENVOI_SCAN_RETRY_MAX_MS');
 
   if (errors.length) throw new Error(`Invalid production configuration:\n- ${[...new Set(errors)].join('\n- ')}`);
-  return { mode: 'production', validated: true, deploymentEnvironment, publicOrigin: publicUrl.origin, corsOrigins: origins, platformDomain, externalEmailEnabled, emailDomain, objectStorageProvider: 's3', humanAuthProvider: 'workos', databaseTlsMode: 'verify-full', policyActiveKeyId };
+  return { mode: 'production', validated: true, deploymentEnvironment, publicOrigin: publicUrl.origin, corsOrigins: origins, platformDomain, externalEmailEnabled, emailDomain, objectStorageProvider: 's3', humanAuthProvider: 'workos', humanSignupMode: signupMode, publicSignupLimit: signupMode === 'public' ? publicSignupLimit : 0, databaseTlsMode: 'verify-full', policyActiveKeyId };
 }

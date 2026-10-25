@@ -161,17 +161,25 @@ export class WorkOSAuthService {
     if (this.cookiePassword.length < 32) throw new Error('WORKOS_COOKIE_PASSWORD must be at least 32 characters');
     this.workos = options.workos || new WorkOS(this.apiKey, { clientId: this.clientId, issuer: this.issuer });
     this.invitedEmails = new Set(String(options.invitedEmails ?? process.env.ENVOI_BETA_INVITED_EMAILS ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
+    this.signupMode = options.signupMode ?? process.env.ENVOI_HUMAN_SIGNUP_MODE ?? 'invite-only';
+    if (!['invite-only', 'public'].includes(this.signupMode)) throw new Error('ENVOI_HUMAN_SIGNUP_MODE must be invite-only or public');
+    this.publicSignupLimit = Number(options.publicSignupLimit ?? process.env.ENVOI_PUBLIC_SIGNUP_LIMIT ?? 0);
+    if (this.signupMode === 'public' && (!Number.isSafeInteger(this.publicSignupLimit) || this.publicSignupLimit < 1 || this.publicSignupLimit > 100)) {
+      throw new Error('ENVOI_PUBLIC_SIGNUP_LIMIT must be an integer from 1 to 100 in public signup mode');
+    }
     this.now = options.now || Date.now;
     this.sessionHours = Number(options.sessionHours ?? process.env.ENVOI_SESSION_HOURS ?? 24);
     if (!Number.isFinite(this.sessionHours) || this.sessionHours <= 0) throw new Error('Session duration must be positive');
   }
 
   config() {
-    return { provider: 'workos', hosted: true, inviteOnly: true, signInPath: '/api/auth/workos/sign-in', signUpPath: '/api/auth/workos/sign-up', csrfCookieName: csrfCookie, assurance: 'provider' };
+    return { provider: 'workos', hosted: true, inviteOnly: this.signupMode !== 'public', signInPath: '/api/auth/workos/sign-in', signUpPath: '/api/auth/workos/sign-up', csrfCookieName: csrfCookie, assurance: 'provider' };
   }
 
   admitted(user) {
-    return Boolean(user?.emailVerified && this.invitedEmails.has(String(user.email || '').trim().toLowerCase()));
+    const email = String(user?.email || '').trim().toLowerCase();
+    return Boolean(user?.emailVerified && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+      && (this.signupMode === 'public' || this.invitedEmails.has(email)));
   }
 
   async startAuthorization({ screenHint = 'sign-in', returnTo = '/', forceFresh = false } = {}) {
@@ -218,7 +226,7 @@ export class WorkOSAuthService {
       session: { sealSession: true, cookiePassword: this.cookiePassword }
     });
     if (!authentication.sealedSession) throw Object.assign(new Error('Authentication provider did not return a sealed session'), { statusCode: 502 });
-    if (!this.admitted(authentication.user)) throw Object.assign(new Error('Invited, verified WorkOS account required'), { statusCode: 403 });
+    if (!this.admitted(authentication.user)) throw Object.assign(new Error('Verified WorkOS account required by the current signup policy'), { statusCode: 403 });
     let verified;
     try {
       verified = await this.workos.userManagement.loadSealedSession({ sessionData: authentication.sealedSession, cookiePassword: this.cookiePassword }).authenticate();
@@ -232,15 +240,33 @@ export class WorkOSAuthService {
       catch {}
       return { reauthenticate: true, forceFresh: flow.forceFresh, returnTo: flow.returnTo };
     }
-    const human = await this.upsertHuman(authentication.user);
+    let human;
+    try { human = await this.upsertHuman(verified.user); }
+    catch (error) {
+      await this.store.withTransaction([this.sessionKey(verified.sessionId)], async () => {
+        const relative = this.sessionPath(verified.sessionId);
+        const existing = await this.store.getJson(relative);
+        if (existing) await this.store.putJson(relative, { ...existing, revokedAt: new Date(this.now()).toISOString(), replays: [] });
+      });
+      try { await this.workos.userManagement.revokeSession?.({ sessionId: verified.sessionId }); }
+      catch { /* Durable local revocation remains authoritative. */ }
+      throw error;
+    }
     return { human: publicHuman(human), sealedSession: authentication.sealedSession, returnTo: flow.returnTo };
   }
 
   async upsertHuman(user) {
     const indexPath = path.join('auth', 'workos-user-index', `${encodeURIComponent(user.id)}.json`);
-    return this.store.withTransaction([`auth:workos-user:${user.id}`], async () => {
+    const publicAdmission = this.signupMode === 'public' && !this.invitedEmails.has(String(user.email || '').trim().toLowerCase());
+    const admissionPath = path.join('auth', 'workos-public-admissions.json');
+    return this.store.withTransaction([`auth:workos-user:${user.id}`, ...(publicAdmission ? ['auth:workos-public-admissions'] : [])], async () => {
       const index = await this.store.getJson(indexPath);
       const existing = index ? await this.store.getJson(path.join('humans', `${index.humanId}.json`)) : null;
+      if (publicAdmission && !user.emailVerified) throw Object.assign(new Error('Verified WorkOS account required'), { statusCode: 403 });
+      const admission = publicAdmission ? (await this.store.getJson(admissionPath) || { userIds: [] }) : null;
+      if (admission && !admission.userIds.includes(user.id) && admission.userIds.length >= this.publicSignupLimit) {
+        throw Object.assign(new Error('Public beta signup capacity has been reached'), { statusCode: 403, code: 'PUBLIC_SIGNUP_FULL' });
+      }
       const now = this.store.now();
       const emailVerified = Boolean(user.emailVerified);
       const previouslyVerified = Boolean(existing?.emailVerified && existing?.verifiedAt);
@@ -256,7 +282,9 @@ export class WorkOSAuthService {
       };
       await this.store.putJsonBatch([
         { path: path.join('humans', `${human.id}.json`), value: human },
-        { path: indexPath, value: { humanId: human.id } }
+        { path: indexPath, value: { humanId: human.id } },
+        ...(admission && !admission.userIds.includes(user.id)
+          ? [{ path: admissionPath, value: { userIds: [...admission.userIds, user.id] } }] : [])
       ]);
       return human;
     });
