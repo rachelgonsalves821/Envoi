@@ -2,6 +2,8 @@
 
 The current About page direction and reusable visual rules are documented in [Brand guidelines](./BRAND-GUIDELINES.md).
 
+For UI implementation and review, use the shared [UI design references](../UI-GUIDANCE.md).
+
 An isolated marketing design preview based on Rachel's `SKILL (1).md`, with public-facing copy drawn from `Envoi_vNENPitch.pdf`. No existing Envoi checkout, provider configuration, live agent, or Gate B-local resource is changed.
 
 ## Theme and Team update on October 22, 2026
