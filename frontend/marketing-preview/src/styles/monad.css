@@ -25,8 +25,10 @@
 .monad-permission input:checked + .monad-switch { background: var(--accent); }
 .monad-permission input:checked + .monad-switch > span { transform: translateX(18px); }
 .monad-transaction-note { margin: 9px 2px 0; padding: 8px 10px; border-left: 2px solid var(--brand-amber); color: var(--ink-muted); background: var(--agent-b-wash); font-size: 13px; line-height: 1.35; }
-.monad-brand-note { display: flex; align-items: center; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.monad-brand-note { display: flex; align-items: flex-start; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .monad-brand-note img { display: block; flex: none; width: 48px; height: 48px; object-fit: contain; }
-.monad-brand-note p { color: var(--ink-muted); font-size: 15px; line-height: 1.4; }
+.monad-brand-copy { display: grid; gap: 10px; }
+.monad-brand-copy p { color: var(--ink-muted); font-size: 15px; line-height: 1.45; }
+.monad-brand-copy strong { color: var(--ink); font-size: 17px; font-weight: 600; font-synthesis: weight; }
 @media (max-width: 1000px) { .monad-layout { grid-template-columns: 1fr; } .monad-copy { max-width: 700px; } .monad-stage { max-width: 760px; width: 100%; } }
-@media (max-width: 680px) { .monad-section { padding: 60px 0; } .monad-copy h2 { font-size: 42px; } .monad-lead { font-size: 16px; } .monad-stage { padding: 6px; border-radius: 24px; } .monad-panel { padding: 12px; } .monad-panel-top h3 { font-size: 24px; } .monad-draft { font-size: 11px; } .monad-permission { padding: 8px; gap: 2px 8px; } .monad-brand-note { align-items: flex-start; gap: 12px; } .monad-brand-note img { width: 40px; height: 40px; } .monad-brand-note p { font-size: 14px; } }
+@media (max-width: 680px) { .monad-section { padding: 60px 0; } .monad-copy h2 { font-size: 42px; } .monad-lead { font-size: 16px; } .monad-stage { padding: 6px; border-radius: 24px; } .monad-panel { padding: 12px; } .monad-panel-top h3 { font-size: 24px; } .monad-draft { font-size: 11px; } .monad-permission { padding: 8px; gap: 2px 8px; } .monad-brand-note { gap: 12px; } .monad-brand-note img { width: 40px; height: 40px; } .monad-brand-copy p { font-size: 14px; } .monad-brand-copy strong { font-size: 16px; } }
