@@ -857,6 +857,40 @@
         "tools-list-envoi-agent-and-send.json",
         "tools-list-envoi-agent-only.json"
       ]
+    },
+    {
+      "id": "agent-remote-auth-cimd",
+      "version": 1,
+      "status": "published",
+      "handoff": "docs/architecture/agent-native-v2/handoffs.md#agent-remote-auth-cimd-v1",
+      "dir": "agent-remote-auth-cimd",
+      "schemas": "schemas.json",
+      "fixtures": [
+        "legacy-default.json",
+        "legacy-none.json",
+        "legacy-private-key-jwt.json",
+        "legacy-client-secret-basic.json",
+        "modern-public-only.json",
+        "modern-no-preference.json",
+        "modern-chatgpt-preference.json",
+        "modern-future-preference.json",
+        "modern-no-public-method.json",
+        "modern-no-legacy-fallback.json",
+        "modern-empty-list.json",
+        "modern-string-list.json",
+        "modern-null-list.json",
+        "modern-duplicate-method.json",
+        "modern-non-string-method.json",
+        "modern-empty-method.json",
+        "modern-control-method.json",
+        "modern-max-method-count.json",
+        "modern-over-method-count.json",
+        "modern-max-method-length.json",
+        "modern-over-method-length.json",
+        "modern-null-preference.json",
+        "modern-number-preference.json",
+        "legacy-null-preference.json"
+      ]
     }
   ]
 }

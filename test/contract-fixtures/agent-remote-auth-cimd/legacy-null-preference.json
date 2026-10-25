@@ -1,0 +1,27 @@
+{
+  "contract": "agent-remote-auth-cimd",
+  "version": 1,
+  "id": "legacy-null-preference",
+  "kind": "client-metadata",
+  "description": "Legacy null was never the approved public-client default.",
+  "document": {
+    "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+    "client_name": "Fixture Assistant",
+    "redirect_uris": [
+      "https://assistant.example.com/oauth/callback"
+    ],
+    "grant_types": [
+      "authorization_code",
+      "refresh_token"
+    ],
+    "response_types": [
+      "code"
+    ],
+    "token_endpoint_auth_method": null
+  },
+  "expected": {
+    "valid": false,
+    "rejection": "auth_method_not_none",
+    "authorizeOutcome": "invalid_client"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "contract": "agent-remote-auth-cimd",
+  "version": 1,
+  "id": "legacy-private-key-jwt",
+  "kind": "client-metadata",
+  "description": "A singular JWT method without modern public-client capability stays refused.",
+  "document": {
+    "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+    "client_name": "Fixture Assistant",
+    "redirect_uris": [
+      "https://assistant.example.com/oauth/callback"
+    ],
+    "grant_types": [
+      "authorization_code",
+      "refresh_token"
+    ],
+    "response_types": [
+      "code"
+    ],
+    "token_endpoint_auth_method": "private_key_jwt"
+  },
+  "expected": {
+    "valid": false,
+    "rejection": "auth_method_not_none",
+    "authorizeOutcome": "invalid_client"
+  }
+}
