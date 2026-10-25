@@ -24,11 +24,12 @@ Before starting Envoi, set a dedicated, minimally funded testnet issuer in the d
 ```text
 ENVOI_MONAD_RPC_URL=https://testnet-rpc.monad.xyz
 ENVOI_MONAD_ISSUER_PRIVATE_KEY=<testnet-only private key>
+ENVOI_MONAD_ISSUER_ADDRESS=<matching public wallet address>
 ENVOI_MONAD_PERMISSIONS=true
 ENVOI_MONAD_PAID_ORGANIZATION_IDS=<comma-separated entitled organization IDs>
 ```
 
-For the Cloudflare deployment, add `ENVOI_MONAD_ISSUER_PRIVATE_KEY` as an encrypted Worker secret in each environment being deployed (for example, `wrangler secret put ENVOI_MONAD_ISSUER_PRIVATE_KEY --env beta`). The Worker forwards this secret into its single container. Fund that address on Monad testnet before turning on the global switch; do not place the key in `wrangler.jsonc`, a PR, or chat. Set `ENVOI_MONAD_PERMISSIONS=true` only after the key is present. An explicit true with a missing key fails startup; the default false lets the standard product run without a key.
+For the Cloudflare deployment, add `ENVOI_MONAD_ISSUER_PRIVATE_KEY` as an encrypted Worker secret in each environment being deployed (for example, `wrangler secret put ENVOI_MONAD_ISSUER_PRIVATE_KEY --env beta`). The Worker forwards this secret into its single container. Set `ENVOI_MONAD_ISSUER_ADDRESS` to the matching public Receive address; Envoi refuses to start Monad mode if the private key derives a different address. Fund that address on Monad testnet before turning on the global switch; do not place the private key in `wrangler.jsonc`, a PR, or chat. Set `ENVOI_MONAD_PERMISSIONS=true` only after the key is present. An explicit true with a missing key fails startup; the default false lets the standard product run without a key.
 
 An Envoi administrator initially grants paid access by adding organization IDs to `ENVOI_MONAD_PAID_ORGANIZATION_IDS` in deployment configuration. This is a server-side entitlement allowlist; Envoi does not yet have billing checkout or subscription webhooks. An authorized workspace administrator can then turn Monad on or off for each agent inbox in Permissions. The server checks the current entitlement and inbox setting for every agent request; losing the entitlement disables new chain enforcement even if the saved switch remains on. Existing permission checks continue to apply in either mode.
 
