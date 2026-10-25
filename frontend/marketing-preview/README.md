@@ -10,13 +10,13 @@ About and Product share compact sun/moon radio controls at the right of the head
 
 The team banner uses the supplied names, roles, portraits and background logos: Rachel Gonsalves, CEO, Co-founder; Je Sai Kailash Pulipati, CTO, Co-founder. The supplied composite artwork is preserved locally in `public/team/founder-reference.png`; SVG viewports display its portraits and logo regions without redrawing them or inventing prose bios, institutions, endorsements or profile links.
 
-The isolated package gate passes **44/44 tests**, static build/route/link checks and full audit with zero vulnerabilities. Earlier browser checks covered About, Product and the former Team page in Light/Dark at 320, 375, 768, 1280 and 1920 requested viewport widths, with no page/header horizontal overflow (30 combinations). Navigation/reload persistence, native-radio keyboard selection and live System selection were checked; simulated operating-system changes and blocked storage are covered by unit tests, not an OS-settings change on the user's computer. See the historical [theme/Team screenshots and evidence](review-evidence/theme-team.md) and the latest [About team-banner placement evidence](review-evidence/about-team.md).
+The isolated package gate passes **46/46 tests**, static build/route/link checks and full audit with zero vulnerabilities. Earlier browser checks covered About, Product and the former Team page in Light/Dark at 320, 375, 768, 1280 and 1920 requested viewport widths, with no page/header horizontal overflow (30 combinations). Navigation/reload persistence, native-radio keyboard selection and live System selection were checked; simulated operating-system changes and blocked storage are covered by unit tests, not an OS-settings change on the user's computer. See the historical [theme/Team screenshots and evidence](review-evidence/theme-team.md) and the latest [About team-banner placement evidence](review-evidence/about-team.md).
 
 No root dependency changes or security-PR #195 code are included. Je's existing review-only checklist below is unchanged; no new implementation, security, test or deployment task is assigned to him.
 
 ## Copy source
 
-Slide 2 supplies About's collaboration problem and high-level infrastructure solution. The hero uses Rachel's requested headline, “Break your agents out of their siloes”, and her description of agent addresses and workspaces, replacing the finance/recruiting example. Slide 3 supplies Product's four feature headings, shared-deliverable example, permissions, audit trails and approval language. The illustrated owner is named John throughout. Slide 1 supplies the closing invitation to get agents collaborating. Headings remain single sentences rather than pairs of short fragments. Universal compatibility wording is narrowed pending runtime confirmation. No deck metrics, pricing, team claims, enterprise adoption statistics or release targets are published.
+Slide 2 supplies About's collaboration problem and high-level infrastructure solution. The hero combines “Break your agents out of their siloes” with “connect the agents your team already uses” and preserves her description of agent addresses and workspaces, replacing the finance/recruiting example. Slide 3 supplies Product's four feature headings, shared-deliverable example, permissions, audit trails and approval language. The illustrated owner is named John throughout. Slide 1 supplies the closing invitation to get agents collaborating. Headings remain single sentences rather than pairs of short fragments. Universal compatibility wording is narrowed pending runtime confirmation. No deck metrics, pricing, team claims, enterprise adoption statistics or release targets are published.
 
 ## Preview
 
@@ -27,11 +27,11 @@ npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:4328/`. Production-build preview: `npm run build` then `npm run preview`. Run focused checks with `npm test`.
+Open `http://localhost:4328/`. Production-build preview: `npm run build` then `npm run preview`. Run focused checks with `npm test`.
 
 ## Editing
 
-The header has two page tabs with native links that work without JavaScript. About (`/`) contains only the problem, high-level workspace diagram and solution, without repeating feature columns or the comparison chart. Product (`/product/`) contains detailed features, interactive agent conversations, the owner inbox and permissions/receipts. Each feature is explained once, followed by concrete examples instead of repeated promises. Shared layout and footer live in `src/components/Website.astro` and `Footer.astro`; there is no duplicated page shell. Older links such as `/#your-view` redirect to the corresponding Product section.
+The header has two page tabs with native links that work without JavaScript. About (`/`) contains only the problem, high-level workspace diagram and solution, without repeating feature columns or the comparison chart. Product (`/product/`) opens with the compact owner inbox and selected outcome, then shows detailed features and shorter interactive agent conversations with permissions/receipts. Each feature is explained once, followed by concrete examples instead of repeated promises. Shared layout and footer live in `src/components/Website.astro` and `Footer.astro`; there is no duplicated page shell. Older links such as `/#your-view` redirect to the corresponding Product section.
 
 The footer uses the provided layout reference with Product, Agents, Company and Access columns. Legal pages, social accounts, contact details and launch badges are omitted until real approved destinations or evidence are available.
 

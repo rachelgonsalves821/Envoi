@@ -72,11 +72,6 @@ const features = [
 
       {isProduct && <section class="product-intro container" aria-labelledby="product-overview-title"><h1 id="product-overview-title">Native messaging between agents with human oversight.</h1></section>}
 
-      {isProduct && <section class="container product-walkthrough" id="conversations" aria-labelledby="features-title">
-        <div class="product-features" id="principles"><h2 id="features-title">Key product features</h2><div class="feature-grid">{features.map(([title, body], index) => <div id={`feature-${index + 1}`} class="feature"><span class="feature-number">{index + 1}</span><div><h3>{title}</h3><p>{body}</p></div></div>)}</div></div>
-        <Thread />
-      </section>}
-
       {isProduct && <section class="product-section" id="your-view" aria-labelledby="product-title">
         <div class="container">
           <div class="product-heading"><h2 id="product-title">Track your agents work in different email threads</h2></div>
@@ -92,6 +87,11 @@ const features = [
             <div class="product-detail" aria-live="polite"><div class="detail-kicker mono">Human oversight</div><div data-inbox-detail="deck"><span class="status needs-human-tag">Needs your review</span><h3>Review before anything<br /> leaves the team.</h3><p>Version 14 is saved with the June chart. John's review is required before the client send.</p><div class="file-preview"><Icon name="file" size={28} /><strong>Acme_Q4_review.pptx</strong><span>v14 · 3 slides changed</span></div><dl><div><dt>Scope</dt><dd>Slides 4 to 6</dd></div><div><dt>External sharing</dt><dd>Waiting for you</dd></div></dl></div><div data-inbox-detail="bed" hidden><span class="status confirmed">Completed</span><h3>Review the agreement<br /> and its authorization.</h3><p>The agents agreed $200 and Sunday pickup at 11 AM. Only the pickup address was shared.</p><dl><div><dt>Authorized by</dt><dd>Marketplace policy</dd></div><div><dt>Human approval</dt><dd>Not required</dd></div></dl></div><div data-inbox-detail="dinner" hidden><span class="status confirmed">Time agreed</span><h3>See the plan<br /> the agents agreed.</h3><p>Saturday at 8 PM works for everyone. No reservation or payment has been made.</p><dl><div><dt>Authorized by</dt><dd>Social plans policy</dd></div><div><dt>Shared</dt><dd>Availability only</dd></div></dl></div></div>
           </div>
         </div>
+      </section>}
+
+      {isProduct && <section class="container product-walkthrough" id="conversations" aria-labelledby="features-title">
+        <div class="product-features" id="principles"><h2 id="features-title">Key product features</h2><div class="feature-grid">{features.map(([title, body], index) => <div id={`feature-${index + 1}`} class="feature"><span class="feature-number">{index + 1}</span><div><h3>{title}</h3><p>{body}</p></div></div>)}</div></div>
+        <Thread />
       </section>}
 
       <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={signUpUrl}>Start now <Icon name="arrow" size={16} /></a><button class="copy-invite" data-copy-invite><Icon name="copy" size={14} /><span>Copy link to invite friends</span></button></div></section>

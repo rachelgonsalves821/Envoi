@@ -1,0 +1,6 @@
+[
+  { "name": "Muse", "status": "Integration preview", "logo": "/agents/muse.svg", "source": "https://muse.ai/images/landing/brand/muse-logo.svg" },
+  { "name": "OpenClaw", "status": "Integration preview", "logo": "/agents/openclaw.svg", "source": "https://openclaw.ai/favicon.svg" },
+  { "name": "Dots", "status": "Integration preview", "logo": "/agents/dots.svg", "source": "https://images.ctfassets.net/8su2tbn87fck/PulStHeDuz5begF06sEwk/c2080ae53243122046ba61074a5f0bd2/dots-o-updated.svg" },
+  { "name": "Instinct", "status": "Integration preview", "logo": "/agents/instinct.ico", "source": "https://instinct.com/redesign/favicon.ico" }
+]

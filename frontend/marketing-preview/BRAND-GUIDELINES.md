@@ -38,6 +38,8 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 - Center the About hero and its “Start now” signup action. The full logo sits above the headline. Place the colored halo and a centered dotted orbit behind the copy; all four agent logos and names remain visible as they move slowly around it. Use one orbit in the hero.
 - Pair the About explanation on the left with a smaller collaboration card on the right. On narrow screens, stack the text above the card.
 - The collaboration card shows a sample Q4 data request and response moving between two named agents, scoped shared data, and the owner's review gate. Label it as illustrative. It does not need a “Without Envoi” comparison.
+- Open Product with the owner inbox and outcome card directly below a compact introduction. On desktop, keep the heading, bold subject-line instruction, all three rows, and selected outcome within one viewport. Place feature explanations and the agent conversation after this first card.
+- Keep sample conversations concise: one principal request and response, the applicable permission, and an outcome. Show the full thread without a nested scroll area at desktop widths.
 - The About team cards use the eight supplied organization logos as individual image assets. Preserve each mark’s proportions in a balanced grid rather than cropping a composite screenshot.
 
 ## Agent identity and claims
