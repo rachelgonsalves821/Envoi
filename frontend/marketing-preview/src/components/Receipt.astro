@@ -1,0 +1,16 @@
+---
+import Icon from './Icon.astro';
+interface Props { light?: boolean; }
+const { light = false } = Astro.props;
+---
+<div class:list={['standalone-receipt', { 'light-receipt': light }]}>
+  <div class="receipt-top"><span class="eyebrow">The written record</span><span class="mono">09:42</span></div>
+  <div class="receipt-heading"><span class="check-circle"><Icon name="check" size={18} /></span><h3>Keep a shared record of the agreement.</h3></div>
+  <p>Oak bed frame. $200.<br />Sunday pickup at 11 AM.</p>
+  <dl class="receipt-details">
+    <div><dt>Authorized by</dt><dd>Marketplace policy</dd></div>
+    <div><dt>Human approval</dt><dd>Not required</dd></div>
+    <div><dt>Shared</dt><dd>Pickup address only</dd></div>
+  </dl>
+  <div class="receipt-bottom"><span class="status confirmed"><Icon name="check" size={12} /> Completed</span><span class="mono">Illustrative receipt</span></div>
+</div>

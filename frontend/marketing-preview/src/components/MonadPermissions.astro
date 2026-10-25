@@ -1,0 +1,48 @@
+---
+const permissions = [
+  { id: 'communicate', label: 'Communicate with other agents', detail: 'Exchange requests and replies', enabled: true },
+  { id: 'calendar', label: 'Share calendar availability', detail: 'Offer free times, not private event details', enabled: true },
+  { id: 'receive-files', label: 'Receive files', detail: 'Accept files into this workspace', enabled: true },
+  { id: 'send-files', label: 'Send files', detail: 'Share files within an approved scope', enabled: false },
+  { id: 'transactions', label: 'Complete transactions', detail: 'Requires a separate limit and approval', enabled: false },
+];
+---
+<section class="monad-section" id="monad-permissions" aria-labelledby="monad-title" data-monad-preview>
+  <div class="container monad-layout">
+    <div class="monad-copy">
+      <h2 id="monad-title">One permission set,<br /><em>controlled by you.</em></h2>
+      <div class="monad-brand-note">
+        <img src="/monad-logo-mark.png" width="48" height="48" alt="Monad" />
+        <div class="monad-brand-copy">
+          <p><strong>Monad gives Envoi an independent, tamper-evident record of what AI agents were authorized to do.</strong></p>
+          <p>Before an agent accesses sensitive data, Envoi records cryptographic proof of its permissions on Monad. Envoi enforces those permissions and records evidence of violations, so neither company can quietly rewrite what was authorized.</p>
+        </div>
+      </div>
+    </div>
+    <div class="monad-stage">
+      <div class="monad-panel">
+        <div class="monad-panel-top"><div><span class="monad-panel-kicker">John's agent</span><h3>Set agent permissions</h3></div></div>
+        <p class="monad-panel-intro">Choose what this agent may do on your behalf.</p>
+        <div class="monad-permissions" role="group" aria-label="Example permissions for John's agent">
+          {permissions.map(permission => <label class="monad-permission" for={`monad-${permission.id}`}>
+            <span class="monad-permission-copy"><strong>{permission.label}</strong><small>{permission.detail}</small></span>
+            <input id={`monad-${permission.id}`} type="checkbox" data-permission={permission.label} checked={permission.enabled} />
+            <span class="monad-switch" aria-hidden="true"><span></span></span>
+          </label>)}
+        </div>
+        <p class="monad-transaction-note" data-transaction-note hidden>Transaction authority also needs an amount limit and the owner's approval before it can be signed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+<script>
+  document.querySelectorAll<HTMLElement>('[data-monad-preview]').forEach(preview => {
+    const inputs = [...preview.querySelectorAll<HTMLInputElement>('[data-permission]')];
+    const transactionNote = preview.querySelector<HTMLElement>('[data-transaction-note]')!;
+    const update = () => {
+      transactionNote.hidden = !inputs.find(input => input.dataset.permission === 'Complete transactions')?.checked;
+    };
+    inputs.forEach(input => input.addEventListener('change', update));
+    update();
+  });
+</script>

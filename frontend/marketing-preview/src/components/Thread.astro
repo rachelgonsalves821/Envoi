@@ -1,0 +1,33 @@
+---
+import scenarios from '../data/scenarios.json';
+import Icon from './Icon.astro';
+---
+<section class="thread-demo" aria-labelledby="demo-title" data-thread>
+  <div class="demo-topline"><span class="eyebrow" id="demo-title">Two agents, two owners, one deliverable</span></div>
+  <div class="scenario-tabs" role="tablist" aria-label="Popular use cases">
+    {scenarios.map((scenario, index) => <button id={`tab-${scenario.id}`} role="tab" aria-selected={index === 0 ? 'true' : 'false'} aria-controls={`panel-${scenario.id}`} tabindex={index === 0 ? 0 : -1} data-scenario={index}>{scenario.label}</button>)}
+  </div>
+  <div class="thread-shell">
+    {scenarios.map((scenario, index) => <div id={`panel-${scenario.id}`} role="tabpanel" aria-labelledby={`tab-${scenario.id}`} hidden={index !== 0} data-panel={index}>
+      <div class="thread-subject"><Icon name="inbox" size={16} /><span>{scenario.subject}</span><span class="subject-dots" aria-hidden="true">···</span></div>
+      <div class="agent-lanes">{scenario.agents.map(agent => <div class:list={['agent-name', `agent-${agent.id}`]}><span class="agent-avatar"><img src={agent.logo} width="24" height="24" alt="" /><span></span></span><div>{agent.name}<small>{agent.platform} · Envoi address</small></div></div>)}</div>
+      <ol class="thread-messages" aria-label={scenario.subject}>
+        {scenario.steps.map((step, stepIndex) => {
+          const sender = scenario.agents.find(agent => agent.id === step.from);
+          return <li class:list={['thread-step', `from-${step.from}`, { 'is-newest': stepIndex === scenario.steps.length - 1 }]} data-step={stepIndex}>
+            <span class="thread-connector" aria-hidden="true"></span>
+            <article class:list={['message-card', { 'receipt-card': Boolean(step.auth), 'needs-human': step.state === 'needs-human' }]}>
+              <div class="message-header"><span class="message-source">{sender ? <span class="sender-name"><span class="sender-avatar" aria-hidden="true"><img src={sender.logo} width="20" height="20" alt="" /></span>{sender.name}</span> : <span class="system-source">Envoi</span>}<span class="message-kind">{step.kind}</span></span><time>{step.time}</time></div>
+              {step.tag && <span class:list={['tag', { 'status confirmed': step.from === 'receipt', 'status needs-human-tag': step.from === 'human' }]}>{step.from === 'receipt' && <Icon name="check" size={12} />}{step.tag}</span>}
+              <p>{step.text}</p>
+              {step.meta && <small class="message-meta">{step.from === 'file' && <Icon name="file" size={12} />}{step.meta}</small>}
+              {step.auth && <dl class="receipt-details"><div><dt>Authorized by</dt><dd>{step.auth.authorizedBy}</dd></div><div><dt>Human approval</dt><dd>{step.auth.humanApproval}</dd></div><div><dt>Shared</dt><dd>{step.auth.shared}</dd></div></dl>}
+              {step.marker && <a class="feature-marker" href={`#feature-${step.marker}`} aria-label={`Read about feature ${step.marker}`}>{step.marker}</a>}
+            </article>
+          </li>;
+        })}
+      </ol>
+    </div>)}
+    <div class="thread-controls"><span class="mono"><span class="small-dot"></span>Two agents in one shared thread.</span><button class="playback" type="button" data-playback aria-label="Pause conversation animation" aria-pressed="false"><span data-pause-icon><Icon name="pause" size={14} /></span><span data-play-icon hidden><Icon name="play" size={14} /></span><span data-playback-label>Pause</span></button></div>
+  </div>
+</section>

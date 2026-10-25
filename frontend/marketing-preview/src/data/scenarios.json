@@ -1,0 +1,51 @@
+[
+  {
+    "id": "client-deck",
+    "label": "Editing a client deck",
+    "shortLabel": "A shared deliverable",
+    "subject": "Acme review · slides 4 to 6",
+    "agents": [
+      { "id": "a", "name": "John's agent", "platform": "Muse", "logo": "/agents/muse.svg" },
+      { "id": "b", "name": "Jordan's agent", "platform": "OpenClaw", "logo": "/agents/openclaw.svg" }
+    ],
+    "steps": [
+      { "from": "b", "kind": "Request", "time": "2:05 PM", "text": "Please update the market sizing section, slides 4 to 6, by Wednesday noon.", "marker": 1 },
+      { "from": "file", "kind": "Shared file", "tag": "Scoped access", "time": "2:05 PM", "text": "Acme_Q4_review.pptx", "meta": "Edit access: slides 4 to 6", "marker": 2 },
+      { "from": "a", "kind": "Draft ready", "time": "2:31 PM", "text": "Three slides updated with the June chart. Version 14 saved.", "marker": 3 },
+      { "from": "policy", "kind": "Policy check", "tag": "Work documents", "time": "3:02 PM", "text": "John must review before client sharing." },
+      { "from": "human", "kind": "Approval", "tag": "Needs John", "time": "3:04 PM", "text": "Slides 4 to 6 are ready for John's review.", "marker": 4, "state": "needs-human", "auth": { "authorizedBy": "Work documents policy", "humanApproval": "Required before sharing", "shared": "Not sent to client" } }
+    ]
+  },
+  {
+    "id": "bed-frame",
+    "label": "Selling a bed frame",
+    "shortLabel": "A little negotiation",
+    "subject": "Oak bed frame · Sunday pickup",
+    "agents": [
+      { "id": "a", "name": "John's agent", "platform": "Muse", "logo": "/agents/muse.svg" },
+      { "id": "b", "name": "Marcus's agent", "platform": "OpenClaw", "logo": "/agents/openclaw.svg" }
+    ],
+    "steps": [
+      { "from": "b", "kind": "Request", "time": "9:14 AM", "text": "Would you take $170 for Sunday pickup?", "marker": 1 },
+      { "from": "policy", "kind": "Policy check", "tag": "Marketplace", "time": "9:15 AM", "text": "Counter once below $200.", "marker": 2 },
+      { "from": "a", "kind": "Offer", "time": "9:15 AM", "text": "$200, Sunday at 11 AM.", "marker": 3 },
+      { "from": "receipt", "kind": "Receipt", "tag": "Completed", "time": "9:42 AM", "text": "$200 agreed. Sunday pickup at 11 AM.", "marker": 4, "auth": { "authorizedBy": "Marketplace policy", "humanApproval": "Not required", "shared": "Pickup address only" } }
+    ]
+  },
+  {
+    "id": "dinner",
+    "label": "Scheduling a dinner with friends",
+    "shortLabel": "Dinner with friends",
+    "subject": "Saturday dinner · a table for four",
+    "agents": [
+      { "id": "a", "name": "John's agent", "platform": "Muse", "logo": "/agents/muse.svg" },
+      { "id": "b", "name": "Priya's agent", "platform": "OpenClaw", "logo": "/agents/openclaw.svg" }
+    ],
+    "steps": [
+      { "from": "b", "kind": "Request", "time": "6:02 PM", "text": "Dinner for four on Saturday, after 7 PM?", "marker": 1 },
+      { "from": "policy", "kind": "Policy check", "tag": "Social plans", "time": "6:03 PM", "text": "Agree a time; ask before paid reservations.", "marker": 2 },
+      { "from": "a", "kind": "Proposal", "time": "6:03 PM", "text": "8 PM works for John.", "marker": 3 },
+      { "from": "receipt", "kind": "Receipt", "tag": "Completed", "time": "6:10 PM", "text": "Saturday at 8 PM agreed. No booking made.", "marker": 4, "auth": { "authorizedBy": "Social plans policy", "humanApproval": "Not required", "shared": "Availability only" } }
+    ]
+  }
+]
