@@ -58,7 +58,9 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
     if(subscribe)secretBytes(params.delivery.secret);
   }
   const identityId=(identity,name,url)=>`evtsub_${hash(JSON.stringify([identity.installationId,name,{},url])).slice(0,20)}`;
-  const grokPublic=sub=>({id:sub.id,kind:'grok_webhook_trigger',installationId:sub.installationId,agentId:sub.agentId,url:sub.url,secretSet:Boolean(sub.secretEncrypted),state:sub.status==='ended'?'ended':sub.targetState||'active',stateReason:sub.status==='ended'?sub.endedReason:sub.stateReason||null,createdAt:sub.createdAt,updatedAt:sub.updatedAt||sub.createdAt,lastAttemptAt:sub.delivery.lastAttemptAt,lastAcceptedAt:sub.delivery.lastSuccessAt,consecutiveFailures:sub.delivery.consecutiveFailures});
+  // The frozen public flag records that a secret was provisioned. Ended targets retain
+  // this historical metadata while their encrypted secret has already been deleted.
+  const grokPublic=sub=>({id:sub.id,kind:'grok_webhook_trigger',installationId:sub.installationId,agentId:sub.agentId,url:sub.url,secretSet:true,state:sub.status==='ended'?'ended':sub.targetState||'active',stateReason:sub.status==='ended'?sub.endedReason:sub.stateReason||null,createdAt:sub.createdAt,updatedAt:sub.updatedAt||sub.createdAt,lastAttemptAt:sub.delivery.lastAttemptAt,lastAcceptedAt:sub.delivery.lastSuccessAt,consecutiveFailures:sub.delivery.consecutiveFailures});
   const grokAvailable=()=>{if(!grokTriggerEnabled)throw wakeError(404,'FEATURE_DISABLED');};
   return {available,events:providerEvents,
     discover(identity,version){requireEvents(identity,version);return {protocolVersion:providerEventsProtocolVersion,capabilities:{tools:{},events:{}},serverInfo:{name:'envoi'}};},

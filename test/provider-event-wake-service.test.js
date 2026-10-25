@@ -74,6 +74,7 @@ parity('Grok 202 is receipt only; 401 pauses and owner secret replacement resume
   await h.tx(put);h.response({status:202,failureClass:null});await h.http.runOnce();const accepted=(await h.provider.getGrok(binding)).target;assert.equal(accepted.state,'active');assert.ok(accepted.lastAcceptedAt);assert.equal('processedAt' in accepted,false);
   await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));assert.equal(await h.http.runOnce(),false);h.advance(5000);h.response({status:413,failureClass:'http_rejected'});await h.http.runOnce();assert.equal((await h.provider.getGrok(binding)).target.state,'needs_attention');assert.ok(h.audits.some(row=>row[1]==='agent.wake_target_attention'));
   await h.tx(()=>h.provider.deleteGrok(binding));const record=await h.store.getJson(wakeSubscriptionPath(binding.agentId,initial.target.id));assert.equal(record.secretEncrypted,undefined);
+  const ended=(await h.provider.getGrok(binding)).target;assert.equal(ended.state,'ended');assert.equal(ended.secretSet,true);
 });
 parity('flag-off ends only its profile, durably deletes secrets and preserves Ed25519 REST subscriptions',async(t,kind)=>{
   const h=await harness(t,kind);const created=await h.tx(()=>h.http.create(binding,{url:'https://callbacks.envoi-provider.com/rest'}));const provider=await h.provider.subscribe(identity,parameters(),protocol);h.advance(1);
@@ -133,4 +134,14 @@ test('MCP wake tool metadata/input schemas and events discovery/list match appro
   assert.deepEqual(mcpWakeTools.map(({description:_,...tool})=>tool),mcp['x-tools']);
   const discover=await canonical('provider-event-wake','discover-events-capability.json','d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b');assert.deepEqual(h.provider.discover(identity,protocol),discover.response.body.result);
   const list=await canonical('provider-event-wake','events-list.json','d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b');assert.deepEqual(h.provider.list(identity,{},protocol),list.response.body.result);
+});
+parity('live a4 cursors advance through coalescing, retries and reconnect without regressing to older replay',async(t,kind)=>{
+  const h=await harness(t,kind);const created=await h.provider.subscribe(identity,parameters(),protocol);
+  await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered',cursor:'00000000000000000013'}));
+  await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered',cursor:'00000000000000000014'}));
+  await h.http.runOnce();assert.equal(JSON.parse(h.sent.at(-1).bodyText).cursor,'00000000000000000013');
+  h.response({status:429,failureClass:'http_retryable',retryAfterSeconds:10});await h.http.runOnce();assert.equal(JSON.parse(h.sent.at(-1).bodyText).cursor,'00000000000000000014');const retry=h.sent.at(-1).bodyText;
+  h.advance(10000);h.response({status:202,failureClass:null});await h.http.runOnce();assert.equal(h.sent.at(-1).bodyText,retry);
+  const current=await h.store.getJson(wakeSubscriptionPath(binding.agentId,created.id));assert.equal(current.cursor,'00000000000000000014');
+  await h.http.queueProfile(current,'wake.work_available','work_due','00000000000000000011');await h.http.runOnce();assert.equal(JSON.parse(h.sent.at(-1).bodyText).cursor,'00000000000000000014');
 });

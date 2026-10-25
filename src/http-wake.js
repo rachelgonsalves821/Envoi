@@ -76,10 +76,11 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     if (sub.status === 'active' && Date.parse(sub.expiresAt) <= time()) return endRecord(sub, 'expired', sub.expiresAt);
     return sub;
   }
-  async function queue(sub, type, reason, challenge) {
+  async function queue(sub, type, reason, challenge, cursor = null) {
+    if(cursor&&(!sub.cursor||cursor>sub.cursor))sub.cursor=cursor;
     const lane = type === 'wake.challenge' ? 'challenge' : type === 'wake.work_available' ? 'work' : 'control';
     const existing = (await liveEventsOf(sub)).find(event => event.lane === lane);
-    if (existing) { sub.dirty ||= {}; sub.dirty[lane] = { type, reason }; await save(sub); return; }
+    if (existing) { sub.dirty ||= {}; sub.dirty[lane] = { type, reason, ...(sub.cursor?{cursor:sub.cursor}:{}) }; await save(sub); return; }
     sub.sequence = Number(sub.sequence || 0) + 1;
     const body = { type, version:1, id:`wake_evt_${crypto.randomBytes(18).toString('base64url')}`, subscriptionId:sub.id, sequence:sub.sequence, ...(reason ? { reason } : {}), createdAt:now(), ...(challenge ? { challenge, expiresAt:sub.challengeExpiresAt } : {}) };
     const profile = profileOf(sub);
@@ -151,14 +152,14 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     const ended = records.filter(sub => sub.status === 'ended').sort((a,b)=>b.endedAt.localeCompare(a.endedAt)).slice(0,5);
     return [...active,...ended];
   }
-  async function trigger({ inboxId, agentId, type='wake.work_available', reason }) {
+  async function trigger({ inboxId, agentId, type='wake.work_available', reason, cursor=null }) {
     if (!enabled) return;
     for (const sub of await agentSubs(agentId)) if (sub.inboxId === inboxId && sub.agentId === agentId) {
       await derive(sub); if (sub.status !== 'active' || (sub.targetState && sub.targetState !== 'active')) continue;
       const { family,agent } = await facts(sub);
       if (Date.parse(family.refreshExpiresAt) <= time() || (type === 'wake.work_available' && agent.status === 'paused')) continue;
       if (reason === 'work_due') { if (sub.lastWorkDueAt && time()-Date.parse(sub.lastWorkDueAt)<60000) continue; sub.lastWorkDueAt=now(); }
-      await queue(sub,type,reason);
+      await queue(sub,type,reason,undefined,cursor);
     }
   }
   async function pause(inboxId,agentId) {
@@ -192,7 +193,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       if (result.failureClass === 'receiver_gone') await endRecord(sub,'receiver_gone');
       else if (sub.delivery.consecutiveFailures>=10 && at-Date.parse(sub.delivery.lastSuccessAt || sub.activatedAt)>=86400000) await endRecord(sub,'delivery_failed');
     }
-    if (!live(event) && sub.status === 'active' && (!sub.targetState || sub.targetState==='active') && sub.dirty?.[event.lane]) { const dirty=sub.dirty[event.lane];delete sub.dirty[event.lane];await save(sub);await queue(sub,dirty.type,dirty.reason); }
+    if (!live(event) && sub.status === 'active' && (!sub.targetState || sub.targetState==='active') && sub.dirty?.[event.lane]) { const dirty=sub.dirty[event.lane];delete sub.dirty[event.lane];await save(sub);await queue(sub,dirty.type,dirty.reason,undefined,dirty.cursor); }
   }
   async function runOnce() {
     if (!enabled) return false;
@@ -282,7 +283,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       await save(sub);await index(sub);return sub;
     });},
     async endProfile(identity,id,reason='ended_by_host'){return store.withTransaction([lock(identity.inboxId)],async()=>{const sub=await owned(identity,id,true);if(!sub.profile)throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND');return endRecord(sub,reason);});},
-    async queueProfile(sub,type,reason,cursor=null){return store.withTransaction([lock(sub.inboxId)],async()=>{const current=await derive(await store.getJson(subPath(sub.agentId,sub.id)));if(!current||current.generation!==sub.generation)return;if(cursor)current.cursor=cursor;if(current.status==='active'&&(!current.targetState||current.targetState==='active'))await queue(current,type,reason);});},
+    async queueProfile(sub,type,reason,cursor=null){return store.withTransaction([lock(sub.inboxId)],async()=>{const current=await derive(await store.getJson(subPath(sub.agentId,sub.id)));if(!current||current.generation!==sub.generation)return;if(current.status==='active'&&(!current.targetState||current.targetState==='active'))await queue(current,type,reason,undefined,cursor);});},
     async verifyCallback(identity,url,{bodyText,headers}){
       available();const resolved=await resolve(url);const token=crypto.randomUUID();const admitted=await admission.admit({subscriptionId:`verify:${identity.installationId}`,host:new URL(url).hostname,addresses:resolved.addresses,token,limited:true});
       if(!admitted)throw Object.assign(wakeError(429,'RATE_LIMITED'),{retryAfter:1});
