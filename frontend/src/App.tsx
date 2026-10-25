@@ -18,6 +18,7 @@ import { AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
 import { authorizationHandle, authorizationSignInPath } from './onboarding/consent-state';
 import { OwnerClaims } from './onboarding/OwnerClaims';
 import { AgentInstallations } from './onboarding/AgentInstallations';
+import { MonadPermissionPanel } from './MonadPermissionPanel';
 import { claimSignInPath } from './onboarding/connect-state';
 import { CsrfReloadBoundary, createHumanStreamRecovery } from './browser-session-recovery';
 import { captureAnalyticsEvent } from './analytics';
@@ -1435,7 +1436,7 @@ export function FileItem({ asset, workCase, creator, inboxId, notify, onOpenCase
 const PLANNED_ACTION_GATES = ['Calendar availability', 'Hold times', 'Submit forms', 'Spend money'];
 
 function PoliciesPage({ entries }: { entries: AgentEntry[] }) {
-  return <PageFrame eyebrow="" title="Permissions" description="Choose what each agent can do.">
+  return <PageFrame eyebrow="" title="Permissions" description="See each agent’s bounded permissions and Monad evidence.">
     <div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
       <div className="permission-table-head" role="row"><span role="columnheader">Action</span>{entries.map(({ agent }) => <span role="columnheader" key={agent.id}>{agent.name}</span>)}</div>
       {AGENT_PERMISSION_OPTIONS.map(option => <div className="permission-table-row" role="row" key={option.id}><div role="cell"><strong>{option.label}</strong><small>{option.description}</small></div>{entries.map(entry => {
@@ -1445,6 +1446,7 @@ function PoliciesPage({ entries }: { entries: AgentEntry[] }) {
       })}</div>)}
       {PLANNED_ACTION_GATES.map(label => <div className="permission-table-row" role="row" key={label}><div role="cell"><strong>{label}</strong><small>Permission gating is not available yet. Execution is disabled.</small></div>{entries.map(({ agent }) => <div role="cell" key={agent.id}><button className="permission-pill off" disabled title="This action is unavailable until backend support ships" aria-label={`${label} unavailable for ${agent.name}`}>Unavailable</button></div>)}</div>)}
     </div>
+    <MonadPermissionPanel agents={entries.filter(entry => entry.view.canManageInbox).map(({ agent, inbox }) => ({ id: agent.id, name: agent.name, inboxId: inbox.id }))} />
     {entries.length === 0 && <PageEmpty icon={<ShieldCheck />} title="No agents yet" body="Add an agent to see its permissions." />}
   </PageFrame>;
 }

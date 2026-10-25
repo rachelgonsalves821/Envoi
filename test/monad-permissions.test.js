@@ -127,3 +127,29 @@ test('violation intent survives an RPC outage and is sent by the retry worker', 
   assert.equal(result.status, 'recorded');
   assert.equal(rpc.sends, 1);
 });
+
+test('permission evidence distinguishes off, unstamped, and verified state', async () => {
+  const rpc = fixture();
+  const off = createMonadPermissionLayer({ enabled: false });
+  assert.equal((await off.permissionEvidence('inbox_1', agent)).permission.status, 'off');
+  const layer = createMonadPermissionLayer({ store: rpc.store, privateKey: wallet.privateKey, request: rpc.request, enabled: true, maxTransactions: 10 });
+  assert.equal((await layer.permissionEvidence('inbox_1', agent)).permission.status, 'not_recorded');
+  const stamped = await layer.ensurePermission('inbox_1', agent);
+  const evidence = await layer.permissionEvidence('inbox_1', agent);
+  assert.equal(evidence.permission.status, 'recorded');
+  assert.equal(evidence.permission.txHash, stamped.txHash);
+  assert.equal(rpc.sends, 1);
+});
+
+test('permission evidence shows only the selected agent denied attempts', async () => {
+  const rpc = fixture();
+  const layer = createMonadPermissionLayer({ store: rpc.store, privateKey: wallet.privateKey, request: rpc.request, enabled: true, maxTransactions: 10 });
+  const details = { inboxId: 'inbox_1', method: 'POST', pathname: '/api/agent/work/claim',
+    status: 403, reasonCode: 'AGENT_PAUSED', permissionFingerprint: 'fingerprint' };
+  await layer.recordViolation({ ...details, agentId: agent.id, requestId: 'selected' });
+  await layer.recordViolation({ ...details, agentId: 'other', requestId: 'other' });
+  const evidence = await layer.permissionEvidence('inbox_1', agent);
+  assert.deepEqual(evidence.violations.map(item => item.requestId), ['selected']);
+  assert.equal(evidence.violations[0].status, 'recorded');
+  assert.match(evidence.violations[0].explorerUrl, /testnet.monadexplorer.com/);
+});
