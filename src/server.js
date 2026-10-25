@@ -76,6 +76,7 @@ import { authorityToolError, createCaseTools, caseToolError, humanDecisionWorkMe
 import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
+import { commitment, createMonadPermissionLayer, permissionSnapshot } from './monad-permissions.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
 import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, oauthGrantablePermissions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthEndpointServed, remoteAuthLimits, remoteAuthOrigin, remoteAuthScopes, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
 import { organizationMaximumPermissions } from './agent-approval.js';
@@ -144,6 +145,16 @@ if (process.env.ENVOI_EXPECTED_DATABASE_FINGERPRINT && !process.env.DATABASE_URL
 const consumerIdentity = createConsumerIdentity({ connectionString: process.env.DATABASE_URL, releaseSha });
 const logConsumer = consumerLogger(consumerIdentity);
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL, { applicationName: consumerIdentity.applicationName }) : new FileStore(dataDir);
+const monadPermissions = createMonadPermissionLayer({
+  store, enabled: process.env.ENVOI_MONAD_PERMISSIONS === 'true'
+});
+const monadRequest = Symbol('monad-request');
+const monadPermissionDenied = Symbol('monad-permission-denied');
+const monadViolationRetry = monadPermissions.enabled
+  ? setInterval(() => { void monadPermissions.flushViolations().catch(() => {}); }, 30_000)
+  : null;
+monadViolationRetry?.unref?.();
+if (monadPermissions.enabled) void monadPermissions.flushViolations().catch(() => {});
 const auth = createHumanAuth(store);
 const presenceRecorder = createPresenceRecorder({
   store,
@@ -732,6 +743,15 @@ async function checkAgentCredential(req, url, res) {
   if (resolved.error) throw resolved.error;
   const identity = resolved.identity;
   if (identity) trackAgentPresence(req, res, identity);
+  if (identity && monadPermissions.enabled) {
+    req[monadRequest] = {
+      requestId: crypto.randomUUID(), inboxId: identity.inboxId, agentId: identity.agent.id,
+      method: req.method, pathname: url.pathname,
+      permissionFingerprint: commitment('permission', permissionSnapshot(identity.inboxId, identity.agent))
+    };
+    try { await monadPermissions.ensurePermission(identity.inboxId, identity.agent); }
+    catch { throw codedError(503, 'MONAD_PERMISSION_UNAVAILABLE', 'The current agent permission could not be verified on Monad.'); }
+  }
   // agent-registration §14.2: the first outer /mcp request an oauth_access token authenticates records usedAt before it is
   // dispatched (and retires the refresh recovery envelope that named it). The REST call a tool call makes never does.
   if (identity?.oauth && url.pathname === '/mcp') await markOAuthAccessUsed(identity.credential.tokenHash, { familyId: identity.familyId, usedAt: identity.credential.usedAt });
@@ -1560,6 +1580,24 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
     keyring: policyKeyring,
     now: store.now()
   });
+  if (monadPermissions.enabled) {
+    if (record.decision === 'deny') {
+      try {
+        await monadPermissions.recordViolation({
+          requestId: crypto.randomUUID(), inboxId, agentId: agent.id,
+          method: 'POLICY', pathname: requestedAction, status: 403,
+          reasonCode: record.reasonCode,
+          permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, agent))
+        });
+      } catch { /* The durable outbox retries an unsent violation. */ }
+    }
+    const proof = await monadPermissions.anchor('policy', {
+      inboxId, agentId: agent.id, caseId: caseRecord.id,
+      permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, agent)),
+      recordDigest: record.recordDigest
+    }).catch(() => null);
+    if (proof?.status !== 'recorded') throw codedError(503, 'MONAD_POLICY_UNAVAILABLE', 'The policy decision could not be verified on Monad.');
+  }
   return {
     decision: record.decision,
     reasonCode: record.reasonCode,
@@ -1598,6 +1636,14 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
   await policyDecisionChain(inboxId);
   if (!evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.actor !== principal.id || binding.agentId !== principal.id || binding.caseId !== caseRecord.id) {
     throw Object.assign(new Error('A current server-issued policy evaluation for this agent and case is required'), { statusCode: 403 });
+  }
+  if (monadPermissions.enabled) {
+    const proof = await monadPermissions.readAnchor('policy', {
+      inboxId, agentId: principal.id, caseId: caseRecord.id,
+      permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, principal)),
+      recordDigest: binding.recordDigest
+    }).catch(() => null);
+    if (!proof) throw codedError(503, 'MONAD_POLICY_UNAVAILABLE', 'The policy decision could not be verified on Monad.');
   }
   const proposalStateDigest = valueDigest(caseRecord.proposals || []);
   assertExactBinding(binding, { requestedAction: requestedAction || binding.requestedAction, actionPayload: actionPayload || {}, proposalDigest: proposalId ? proposalStateDigest : null, optionId, keyring: policyKeyring, at: store.now() });
@@ -3243,9 +3289,19 @@ async function handleCaseSessionMcp(req, res, url) {
   }
   // §6.4: the session's tools, less any the agent's current permissions no longer allow.
   const agent = await store.getJson(path.join('inboxes', session.inboxId, 'agents', `${session.agentId}.json`));
+  if (agent && monadPermissions.enabled) {
+    req[monadRequest] = {
+      requestId: crypto.randomUUID(), inboxId: session.inboxId, agentId: session.agentId,
+      method: req.method, pathname: url.pathname,
+      permissionFingerprint: commitment('permission', permissionSnapshot(session.inboxId, agent))
+    };
+    try { await monadPermissions.ensurePermission(session.inboxId, agent); }
+    catch { throw codedError(503, 'MONAD_PERMISSION_UNAVAILABLE', 'The current agent permission could not be verified on Monad.'); }
+  }
   const permitted = new Set(allowedCaseTools(agent?.permissions, session.workKind, caseSessionMcp.implemented));
   const scope = { sessionId: session.id, agentId: session.agentId, inboxId: session.inboxId, workId: session.workId, workKind: session.workKind, caseId: session.caseId, counterparty: session.counterparty };
-  return caseSessionMcp.handle(req, res, { effectiveTools: session.allowedTools.filter(name => permitted.has(name)), scope });
+  return caseSessionMcp.handle(req, res, { effectiveTools: session.allowedTools.filter(name => permitted.has(name)), scope,
+    onPermissionDenied: () => { req[monadPermissionDenied] = true; } });
 }
 
 // §3 and §8. Credential and pause checks have already run (rows 2–5).
@@ -3566,7 +3622,8 @@ async function route(req, res) {
       res.setHeader('www-authenticate', insufficientScopeChallenge(remoteAuth.origin, scope));
       throw codedError(403, 'INSUFFICIENT_SCOPE', insufficientScopeMessages[tool.permission] || 'This connection may not use this tool.');
     } : null;
-    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable });
+    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable,
+      onPermissionDenied: () => { req[monadPermissionDenied] = true; } });
   }
   // agent-remote-auth v1 §5: /authorize-agent is the owner consent page, also the web app.
   // agent-registration v1 §3 and §7: claim.url is ${ENVOI_PUBLIC_URL}/claim; /connect is the
@@ -5940,13 +5997,30 @@ if (scanJobStore) {
   void runObjectScans();
   void runObjectScanRetention();
 }
-const server = http.createServer((req, res) => route(req, res).catch((error) => {
-  const requestId = requestIdFrom(req.headers['x-request-id']);
-  const response = publicHttpError(error, requestId);
-  notePresence(req, { errorCode: response.body?.code || null });
-  if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
-  return json(res, response.status, response.body);
-}));
+const server = http.createServer(async (req, res) => {
+  let reasonCode = null;
+  try { await route(req, res); }
+  catch (error) {
+    const requestId = requestIdFrom(req.headers['x-request-id']);
+    const response = publicHttpError(error, requestId);
+    reasonCode = response.body?.code || null;
+    notePresence(req, { errorCode: reasonCode });
+    if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
+    json(res, response.status, response.body);
+  }
+  const deniedByControl = reasonCode === 'AGENT_PAUSED' || reasonCode === 'CASE_CONTROLLED';
+  if ((res.statusCode === 403 || deniedByControl || req[monadPermissionDenied]) && req[monadRequest]) {
+    try {
+      await monadPermissions.recordViolation({
+        ...req[monadRequest], status: res.statusCode, reasonCode: reasonCode || 'PERMISSION_DENIED'
+      });
+    } catch (error) {
+      console.error('Monad violation recording pending', {
+        requestId: req[monadRequest].requestId, name: error instanceof Error ? error.name : 'Error'
+      });
+    }
+  }
+});
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 server.listen(port, host, () => console.log(`Envoi backend listening on http://${host}:${server.address().port}`));
@@ -5957,6 +6031,7 @@ const shutdown = () => {
   shutdownStarted = true;
   scanLifecycleStopping = true;
   clearInterval(objectQuotaReaper);
+  if (monadViolationRetry) clearInterval(monadViolationRetry);
   clearInterval(agentRotationReaper);
   clearInterval(registrationCleanup);
   clearInterval(caseSessionCleanup);
