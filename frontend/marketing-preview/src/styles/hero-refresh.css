@@ -1,10 +1,8 @@
-:root { --display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif; }
-body { font-weight: 400; }
 .site-header { background: var(--header-bg); backdrop-filter: blur(16px); border-bottom: 1px solid var(--line); }
 .header-inner { display: grid; grid-template-columns: minmax(80px, 1fr) auto minmax(80px, 1fr) auto; column-gap: 22px; }
 .header-inner > .wordmark { justify-self: start; width: 50px; }
 .main-nav { justify-self: center; margin: 0; border-radius: 12px; padding: 4px; background: rgba(47,134,198,.08); border-color: rgba(47,134,198,.22); }
-.main-nav a { min-height: 34px; border-radius: 8px; font-weight: 600; }
+.main-nav a { min-height: 34px; border-radius: 8px; font-weight: 300; }
 .main-nav a[aria-current="page"], .main-nav a[aria-current="page"]:hover { color: var(--brand-navy); background: #fff; box-shadow: 0 2px 8px rgba(15,42,67,.1); }
 .sign-in { justify-self: end; margin: 0; }
 .hero { position: relative; display: grid; grid-template-columns: 1fr; align-items: center; min-height: 670px; max-width: none; padding-top: 170px; padding-bottom: 60px; isolation: isolate; overflow: hidden; }
@@ -12,7 +10,7 @@ body { font-weight: 400; }
 .hero-copy { position: relative; z-index: 2; max-width: 860px; margin: 0 auto; text-align: center; }
 .hero-brand { width: 100px; margin: 0 auto 24px; }
 .hero-copy::before { display: none; }
-.hero h1 { max-width: 850px; margin: 0 auto; font-size: clamp(44px, 5.4vw, 76px); font-weight: 600; line-height: 1.07; letter-spacing: -.055em; }
+.hero h1 { max-width: 850px; margin: 0 auto; font-size: clamp(44px, 5.4vw, 76px); font-weight: 300; line-height: 1.07; letter-spacing: -.055em; }
 .hero-description { max-width: 710px; margin: 24px auto 0; font-size: clamp(16px, 1.55vw, 19px); line-height: 1.55; }
 .hero .waitlist-form { max-width: 530px; margin: 34px auto 0; text-align: left; }
 .hero-ambient { position: absolute; inset: 0; z-index: -1; }

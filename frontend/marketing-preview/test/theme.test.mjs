@@ -177,7 +177,7 @@ test('Team uses the supplied names, roles, portraits and logos without invented 
   for (const label of ['Rachel Gonsalves', 'Je Sai Kailash Pulipati', 'CEO, Co-founder', 'CTO, Co-founder']) assert.ok(team.includes(label), label);
   assert.equal([...team.matchAll(/<article\b/g)].length, 2);
   assert.equal([...team.matchAll(/<p\b/g)].length, 2);
-  assert.equal([...team.matchAll(/href="\/team\/founder-reference.png"/g)].length, 4);
+  assert.equal([...team.matchAll(/href="\/team\/founder-reference.png"/g)].length, 2);
   assert.match(footer, /href="\/#team">Team/);
   assert.equal(artwork.subarray(1, 4).toString(), 'PNG');
   assert.equal(artwork.readUInt32BE(16), 826);

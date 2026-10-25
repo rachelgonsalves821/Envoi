@@ -291,11 +291,27 @@ test('all website typography uses the light system font rather than external fon
   const fonts = await readFile(new URL('../src/styles/fonts.css', import.meta.url), 'utf8');
   const tokens = await readFile(new URL('../src/styles/tokens.css', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../src/styles/site.css', import.meta.url), 'utf8');
+  const hero = await readFile(new URL('../src/styles/hero-refresh.css', import.meta.url), 'utf8');
+  const handshake = await readFile(new URL('../src/components/Handshake.astro', import.meta.url), 'utf8');
   assert.match(fonts, /local\('Segoe UI Light'\)/);
+  assert.match(tokens, /--display: 'Envoi UI', 'Segoe UI Light'/);
   assert.match(tokens, /--sans: var\(--display\)/);
   assert.match(tokens, /--mono: var\(--display\)/);
   assert.doesNotMatch(fonts, /url\(|woff|Newsreader|Instrument Sans|Geist Mono/);
-  assert.doesNotMatch(styles, /font-weight:\s*(?!300\b)\d+/);
+  for (const source of [styles, hero, handshake]) {
+    assert.doesNotMatch(source, /font-weight:\s*(?!300\b)\d+/);
+  }
+});
+
+test('About team cards use the supplied individual organization logos', async () => {
+  const team = await readFile(new URL('../src/components/Team.astro', import.meta.url), 'utf8');
+  const logoNames = ['mckinsey', 'harvard-business-school', 'adobe', 'classpass', 'diversio', 'sundai-hacker-club', 'n-logo', 'vit'];
+  for (const name of logoNames) {
+    assert.match(team, new RegExp(`src="/team/${name}\\.png"`));
+    const image = await readFile(new URL(`../public/team/${name}.png`, import.meta.url));
+    assert.equal(image.subarray(1, 4).toString(), 'PNG');
+  }
+  assert.doesNotMatch(team, /team-logos[^>]*><svg|team-logos[^>]*><image/);
 });
 
 test('the supplied brand images are available without replacing the logo lettering', async () => {

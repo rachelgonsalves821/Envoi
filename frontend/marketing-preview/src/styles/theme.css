@@ -98,9 +98,16 @@
 .team-portrait { display: block; width: 174px; height: 174px; border-radius: 50%; overflow: hidden; margin-bottom: 24px; }
 .team-card h3 { font-size: 30px; line-height: 1.25; letter-spacing: -.015em; }
 .team-role { font-size: 18px; color: var(--ink-muted); margin-top: 8px; margin-bottom: 30px; }
-.team-logos { display: grid; place-items: center; width: 100%; min-height: 144px; margin-top: auto; padding: 12px; border-radius: 14px; background: #eef5fd; }
-.team-logos svg { display: block; width: 100%; max-width: 355px; height: auto; }
-.team-card:last-child .team-logos svg { max-width: 258px; }
+.team-logos { display: grid; align-items: center; justify-items: center; gap: 12px; width: 100%; margin: auto 0 0; padding: 18px; list-style: none; border-radius: 14px; background: #eef5fd; }
+.team-logos-rachel { grid-template-columns: repeat(6, minmax(0, 1fr)); min-height: 198px; }
+.team-logos-rachel li:nth-child(-n+3) { grid-column: span 2; }
+.team-logos-rachel li:nth-child(n+4) { grid-column: span 3; }
+.team-logos-je { grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 198px; }
+.team-logos li { display: grid; place-items: center; min-width: 0; width: 100%; min-height: 74px; }
+.team-logos img { display: block; max-width: 100%; max-height: 78px; width: auto; height: auto; object-fit: contain; }
+.team-logos-rachel li:nth-child(4) img { max-height: 58px; }
+.team-logos-rachel li:nth-child(5) img { max-height: 44px; }
+.team-logos-je img { max-height: 98px; }
 @media (max-width: 780px) {
   html { scroll-padding-top: 138px; }
   .header-inner { height: auto; min-height: 116px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; padding-block: 10px; }
@@ -120,4 +127,7 @@
   .team-section { padding-bottom: 48px; }
   .team-intro { margin-bottom: 28px; }
   .team-portrait { width: 150px; height: 150px; }
+  .team-logos-rachel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .team-logos-rachel li:nth-child(n) { grid-column: auto; }
+  .team-logos-rachel li:last-child { grid-column: 1 / -1; max-width: 190px; }
 }

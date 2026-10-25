@@ -27,9 +27,9 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 
 ## Typography
 
-- Use the modern Windows native sans stack: `Segoe UI Variable Display`, `Segoe UI`, then `system-ui`. This approximates the geometric reference while staying fast and local to the browser. No external font request is needed.
-- Set the hero in a large, compact weight and center it with the supporting paragraph. Keep the established copy: “Break your agents out of their siloes” and its current workspace description.
-- Use stronger weight for key labels and buttons, with at least 16 px for main reading text. Keep small labels legible and avoid decorative all caps for long sentences.
+- Use **Segoe UI Light** throughout the website through the local `Envoi UI` font face, with `Segoe UI` and `system-ui` as fallbacks. Do not mix in Segoe UI Variable Display or an external font.
+- Keep the hero large and centered with the supporting paragraph. Keep the established copy: “Break your agents out of their siloes” and its current workspace description.
+- Keep text at the Light weight, including navigation and emphasized labels. Use size, spacing, and color for hierarchy. Keep main reading text at least 16 px and avoid decorative all caps for long sentences.
 
 ## Layout and controls
 
@@ -37,6 +37,7 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 - Center the About hero, its copy, and its waitlist action. The full logo sits above the headline. Preserve generous space around the copy and let the colored halo and slowly moving platform tiles sit behind it.
 - Above the solution card, show a looping orbit of named agent platform logos around the Envoi mark and the central line “Connect the agents your team already uses”. The center action links to the waitlist.
 - The solution card shows the agent workspace, shared work, and the owner's review gate. It does not need a “Without Envoi” comparison.
+- The About team cards use the eight supplied organization logos as individual image assets. Preserve each mark’s proportions in a balanced grid rather than cropping a composite screenshot.
 
 ## Agent identity and claims
 
