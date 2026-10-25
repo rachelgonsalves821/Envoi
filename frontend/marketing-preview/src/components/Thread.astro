@@ -17,8 +17,7 @@ import Icon from './Icon.astro';
           return <li class:list={['thread-step', `from-${step.from}`, { 'is-newest': stepIndex === scenario.steps.length - 1 }]} data-step={stepIndex}>
             <span class="thread-connector" aria-hidden="true"></span>
             <article class:list={['message-card', { 'receipt-card': Boolean(step.auth), 'needs-human': step.state === 'needs-human' }]}>
-              <div class="message-header"><span class="message-kind">{step.kind}</span><time>{step.time}</time></div>
-              {sender && <div class="sender-name">{sender.name}</div>}
+              <div class="message-header"><span class="message-source">{sender ? <span class="sender-name"><span class="sender-avatar" aria-hidden="true">{sender.initial}</span>{sender.name}</span> : <span class="system-source">Envoi</span>}<span class="message-kind">{step.kind}</span></span><time>{step.time}</time></div>
               {step.tag && <span class:list={['tag', { 'status confirmed': step.from === 'receipt', 'status needs-human-tag': step.from === 'human' }]}>{step.from === 'receipt' && <Icon name="check" size={12} />}{step.tag}</span>}
               <p>{step.text}</p>
               {step.meta && <small class="message-meta">{step.from === 'file' && <Icon name="file" size={12} />}{step.meta}</small>}

@@ -79,11 +79,18 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .thread-step.from-policy, .thread-step.from-receipt, .thread-step.from-human, .thread-step.from-file { padding: 0 12px; }
 .thread-step.pending { display: none; }
 .message-card { position: relative; padding: 7px 10px; border: 1px solid var(--line); background: var(--bg-raised); border-radius: 12px; box-shadow: inset 0 1px 0 var(--soft-white); overflow-wrap: anywhere; }
-.message-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; gap: 12px; }
-.message-kind { font: 300 14px var(--mono); color: var(--accent); }
+.from-a .message-card, .from-b .message-card { width: 88%; }
+.from-a .message-card { border-left: 3px solid var(--accent); }
+.from-b .message-card { margin-left: auto; border-right: 3px solid var(--agent-b); }
+.message-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; gap: 12px; }
+.message-source { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
+.sender-name { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-size: 15px; font-weight: 700; font-synthesis: weight; }
+.sender-avatar { display: inline-grid; place-items: center; flex: none; width: 21px; height: 21px; border-radius: 50%; background: var(--accent-wash); color: var(--accent); font-size: 13px; }
+.from-b .sender-avatar { background: var(--agent-b-wash); color: var(--agent-b); }
+.system-source { color: var(--ink-muted); font-size: 14px; }
+.message-kind { border-left: 1px solid var(--line-strong); padding-left: 7px; font: 300 14px var(--mono); color: var(--accent); }
 .from-b .message-kind { color: var(--agent-b); }
-.message-header time { font-size: 14px; color: var(--ink-dim); }
-.sender-name { position: absolute; height: 1px; width: 1px; clip-path: inset(50%); overflow: hidden; }
+.message-header time { flex: none; font-size: 14px; color: var(--ink-dim); }
 .message-card p { font-size: 16px; line-height: 1.45; color: var(--ink); }
 .thread-step:not(.is-newest) .message-card p { color: var(--ink-muted); }
 .message-meta { font-size: 14px; color: var(--ink-dim); display: flex; gap: 5px; align-items: center; margin-top: 5px; }
@@ -101,6 +108,7 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .receipt-details dt { color: var(--ink-dim); }
 .receipt-details dd { margin: 0; text-align: right; color: var(--ink-muted); }
 .feature-marker { display: grid; place-items: center; position: absolute; left: -13px; top: 18px; width: 26px; height: 26px; font: 300 14px var(--mono); border-radius: 50%; color: var(--accent); background: var(--bg-sunken); border: 1px solid var(--line-strong); }
+.from-b .feature-marker { left: auto; right: -13px; color: var(--agent-b); }
 .feature-marker:hover { background: var(--accent); color: var(--on-accent); }
 .thread-connector { position: absolute; top: 26px; left: 12px; right: 12px; height: 1px; background: var(--accent); transform: scaleX(0); transform-origin: left; }
 .from-b .thread-connector { transform-origin: right; background: var(--agent-b); }
@@ -408,7 +416,6 @@ strong, b, input, button { font-weight: 300; }
   .thread-messages::before { left: 25px; }
   .thread-messages::after { display: none; }
   .thread-step, .thread-step.from-b, .thread-step.from-policy, .thread-step.from-receipt, .thread-step.from-human, .thread-step.from-file { padding: 0 0 0 12px; }
-  .sender-name { position: static; width: auto; height: auto; clip-path: none; font-size: 14px; margin-bottom: 4px; color: var(--ink-dim); }
   .message-card p { font-size: 16px; }
   .thread-controls > span { font-size: 14px; }
   .demo-footnote { text-align: left; font-size: 14px; }
@@ -429,6 +436,7 @@ strong, b, input, button { font-weight: 300; }
   .plain-columns p { font-size: 14px; max-width: none; }
   .column-index { margin-bottom: 10px; }
   .product-section { padding-top: 148px; padding-bottom: 32px; }
+  .from-a .message-card, .from-b .message-card { width: 100%; }
   .product-heading { flex-direction: column; gap: 8px; margin-bottom: 8px; }
   .product-heading > p { max-width: none; font-size: 13px; }
   .product-heading > p > span { margin-top: 12px; }
