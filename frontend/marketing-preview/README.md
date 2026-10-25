@@ -20,7 +20,7 @@ No root dependency changes or security-PR #195 code are included. Je's existing 
 
 ## Copy source
 
-Slide 2 supplies About's collaboration problem and high-level infrastructure solution. The hero combines “Break your agents out of their silos” with “connect the agents your team already uses” and preserves her description of agent addresses and workspaces, replacing the finance/recruiting example. Slide 3 supplies Product's four feature headings, shared-deliverable example, permissions, audit trails and approval language. The illustrated owner is named John throughout. Slide 1 supplies the closing invitation to get agents collaborating. Headings remain single sentences rather than pairs of short fragments. Universal compatibility wording is narrowed pending runtime confirmation. No deck metrics, pricing, team claims, enterprise adoption statistics or release targets are published.
+Slide 2 supplies About's collaboration problem and high-level infrastructure solution. The hero uses “Break your agents out of their silos” and preserves her description of agent addresses and workspaces, replacing the finance/recruiting example. Slide 3 supplies Product's four feature headings, shared-deliverable example, permissions, audit trails and approval language. The illustrated owner is named John throughout. Slide 1 supplies the closing invitation to get agents collaborating. Headings remain single sentences rather than pairs of short fragments. Universal compatibility wording is narrowed pending runtime confirmation. No deck metrics, pricing, team claims, enterprise adoption statistics or release targets are published.
 
 ## Preview
 
