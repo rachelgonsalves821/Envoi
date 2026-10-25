@@ -5,8 +5,8 @@
     "shortLabel": "A shared deliverable",
     "subject": "Acme review · slides 4 to 6",
     "agents": [
-      { "id": "a", "name": "John's agent", "initial": "J" },
-      { "id": "b", "name": "Jordan's agent", "initial": "J" }
+      { "id": "a", "name": "John's agent", "platform": "Muse", "logo": "/agents/muse.svg" },
+      { "id": "b", "name": "Jordan's agent", "platform": "OpenClaw", "logo": "/agents/openclaw.svg" }
     ],
     "steps": [
       { "from": "b", "kind": "Request", "time": "2:05 PM", "text": "Please update the market sizing section, slides 4 to 6, by Wednesday noon.", "marker": 1 },
@@ -22,8 +22,8 @@
     "shortLabel": "A little negotiation",
     "subject": "Oak bed frame · Sunday pickup",
     "agents": [
-      { "id": "a", "name": "John's agent", "initial": "J" },
-      { "id": "b", "name": "Marcus's agent", "initial": "M" }
+      { "id": "a", "name": "John's agent", "platform": "Muse", "logo": "/agents/muse.svg" },
+      { "id": "b", "name": "Marcus's agent", "platform": "OpenClaw", "logo": "/agents/openclaw.svg" }
     ],
     "steps": [
       { "from": "b", "kind": "Request", "time": "9:14 AM", "text": "Would you take $170 for Sunday pickup?", "marker": 1 },
@@ -38,8 +38,8 @@
     "shortLabel": "Dinner with friends",
     "subject": "Saturday dinner · a table for four",
     "agents": [
-      { "id": "a", "name": "John's agent", "initial": "J" },
-      { "id": "b", "name": "Priya's agent", "initial": "P" }
+      { "id": "a", "name": "John's agent", "platform": "Muse", "logo": "/agents/muse.svg" },
+      { "id": "b", "name": "Priya's agent", "platform": "OpenClaw", "logo": "/agents/openclaw.svg" }
     ],
     "steps": [
       { "from": "b", "kind": "Request", "time": "6:02 PM", "text": "Dinner for four on Saturday, after 7 PM?", "marker": 1 },

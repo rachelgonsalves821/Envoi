@@ -14,6 +14,10 @@
   --accent-wash: rgba(47, 134, 198, .09);
   --agent-b: #8c5710;
   --agent-b-wash: rgba(242, 163, 58, .13);
+  --thread-john-bg: #e4f2fb;
+  --thread-john-line: #76b8df;
+  --thread-peer-bg: #fff0da;
+  --thread-peer-line: #dca154;
   --porcelain: #e9f0f6;
   --paper: #ffffff;
   --graphite: var(--brand-navy);

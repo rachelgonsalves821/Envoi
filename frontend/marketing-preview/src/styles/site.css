@@ -67,8 +67,11 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .agent-name { display: flex; align-items: center; gap: 9px; font-size: 16px; min-width: 0; }
 .agent-name small { display: block; color: var(--ink-dim); font-size: 14px; line-height: 1.3; }
 .agent-avatar, .diagram-avatar { display: grid; place-items: center; width: 28px; height: 28px; background: var(--accent-wash); color: var(--accent); border: 1px solid var(--line-strong); border-radius: 50%; font: 300 14px var(--display); position: relative; }
+.agent-avatar { width: 36px; height: 36px; border-radius: 10px; background: #fff; }
+.agent-avatar img { display: block; width: 26px; height: 26px; object-fit: contain; }
 .agent-avatar > span, .diagram-avatar > span { position: absolute; bottom: 0; right: -1px; width: 6px; height: 6px; background: var(--accent); border: 1px solid var(--bg); border-radius: 50%; }
 .agent-b .agent-avatar, .agent-secondary .diagram-avatar { color: var(--agent-b); background: var(--agent-b-wash); }
+.agent-b .agent-avatar { background: #fff; }
 .agent-b .agent-avatar > span, .agent-secondary .diagram-avatar > span { background: var(--agent-b); }
 .thread-messages { height: 500px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 0 22px 12px; margin: 0; list-style: none; position: relative; }
 .thread-messages::before, .thread-messages::after { content: ''; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); left: 36px; }
@@ -80,19 +83,23 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .thread-step.pending { display: none; }
 .message-card { position: relative; padding: 7px 10px; border: 1px solid var(--line); background: var(--bg-raised); border-radius: 12px; box-shadow: inset 0 1px 0 var(--soft-white); overflow-wrap: anywhere; }
 .from-a .message-card, .from-b .message-card { width: 88%; }
-.from-a .message-card { border-left: 3px solid var(--accent); }
-.from-b .message-card { margin-left: auto; border-right: 3px solid var(--agent-b); }
+.from-a .message-card { background: var(--thread-john-bg); border-color: var(--thread-john-line); border-left: 4px solid var(--accent); }
+.from-b .message-card { margin-left: auto; background: var(--thread-peer-bg); border-color: var(--thread-peer-line); border-right: 4px solid var(--agent-b); }
 .message-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; gap: 12px; }
 .message-source { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
 .sender-name { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-size: 15px; font-weight: 700; font-synthesis: weight; }
-.sender-avatar { display: inline-grid; place-items: center; flex: none; width: 21px; height: 21px; border-radius: 50%; background: var(--accent-wash); color: var(--accent); font-size: 13px; }
-.from-b .sender-avatar { background: var(--agent-b-wash); color: var(--agent-b); }
+.sender-avatar { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 7px; background: #fff; border: 1px solid var(--thread-john-line); }
+.sender-avatar img { display: block; width: 20px; height: 20px; object-fit: contain; }
+.from-a .sender-name { color: var(--accent); }
+.from-b .sender-name { color: var(--agent-b); }
+.from-b .sender-avatar { border-color: var(--thread-peer-line); }
 .system-source { color: var(--ink-muted); font-size: 14px; }
 .message-kind { border-left: 1px solid var(--line-strong); padding-left: 7px; font: 300 14px var(--mono); color: var(--accent); }
 .from-b .message-kind { color: var(--agent-b); }
 .message-header time { flex: none; font-size: 14px; color: var(--ink-dim); }
 .message-card p { font-size: 16px; line-height: 1.45; color: var(--ink); }
 .thread-step:not(.is-newest) .message-card p { color: var(--ink-muted); }
+.thread-step.from-a .message-card p, .thread-step.from-b .message-card p { color: var(--ink); }
 .message-meta { font-size: 14px; color: var(--ink-dim); display: flex; gap: 5px; align-items: center; margin-top: 5px; }
 .from-policy .message-card { background: var(--bg-sunken); border-color: var(--accent); border-style: dashed; }
 .from-policy .message-card p { color: var(--ink-muted); font-size: 16px; }

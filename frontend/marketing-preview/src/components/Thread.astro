@@ -10,14 +10,14 @@ import Icon from './Icon.astro';
   <div class="thread-shell">
     {scenarios.map((scenario, index) => <div id={`panel-${scenario.id}`} role="tabpanel" aria-labelledby={`tab-${scenario.id}`} hidden={index !== 0} data-panel={index}>
       <div class="thread-subject"><Icon name="inbox" size={16} /><span>{scenario.subject}</span><span class="subject-dots" aria-hidden="true">···</span></div>
-      <div class="agent-lanes">{scenario.agents.map(agent => <div class:list={['agent-name', `agent-${agent.id}`]}><span class="agent-avatar">{agent.initial}<span></span></span><div>{agent.name}<small>Envoi address</small></div></div>)}</div>
+      <div class="agent-lanes">{scenario.agents.map(agent => <div class:list={['agent-name', `agent-${agent.id}`]}><span class="agent-avatar"><img src={agent.logo} width="24" height="24" alt="" /><span></span></span><div>{agent.name}<small>{agent.platform} · Envoi address</small></div></div>)}</div>
       <ol class="thread-messages" aria-label={scenario.subject}>
         {scenario.steps.map((step, stepIndex) => {
           const sender = scenario.agents.find(agent => agent.id === step.from);
           return <li class:list={['thread-step', `from-${step.from}`, { 'is-newest': stepIndex === scenario.steps.length - 1 }]} data-step={stepIndex}>
             <span class="thread-connector" aria-hidden="true"></span>
             <article class:list={['message-card', { 'receipt-card': Boolean(step.auth), 'needs-human': step.state === 'needs-human' }]}>
-              <div class="message-header"><span class="message-source">{sender ? <span class="sender-name"><span class="sender-avatar" aria-hidden="true">{sender.initial}</span>{sender.name}</span> : <span class="system-source">Envoi</span>}<span class="message-kind">{step.kind}</span></span><time>{step.time}</time></div>
+              <div class="message-header"><span class="message-source">{sender ? <span class="sender-name"><span class="sender-avatar" aria-hidden="true"><img src={sender.logo} width="20" height="20" alt="" /></span>{sender.name}</span> : <span class="system-source">Envoi</span>}<span class="message-kind">{step.kind}</span></span><time>{step.time}</time></div>
               {step.tag && <span class:list={['tag', { 'status confirmed': step.from === 'receipt', 'status needs-human-tag': step.from === 'human' }]}>{step.from === 'receipt' && <Icon name="check" size={12} />}{step.tag}</span>}
               <p>{step.text}</p>
               {step.meta && <small class="message-meta">{step.from === 'file' && <Icon name="file" size={12} />}{step.meta}</small>}

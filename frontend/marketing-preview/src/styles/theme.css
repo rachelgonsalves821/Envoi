@@ -17,6 +17,10 @@
   --accent-wash: rgba(133, 197, 243, .1);
   --agent-b: #f2bd73;
   --agent-b-wash: rgba(242, 189, 115, .12);
+  --thread-john-bg: #17364d;
+  --thread-john-line: #5eaddd;
+  --thread-peer-bg: #3d2e20;
+  --thread-peer-line: #d9a35f;
   --porcelain: #203243;
   --paper: #182532;
   --graphite: var(--ink);
@@ -56,6 +60,10 @@
     --accent-wash: rgba(133, 197, 243, .1);
     --agent-b: #f2bd73;
     --agent-b-wash: rgba(242, 189, 115, .12);
+    --thread-john-bg: #17364d;
+    --thread-john-line: #5eaddd;
+    --thread-peer-bg: #3d2e20;
+    --thread-peer-line: #d9a35f;
     --porcelain: #203243;
     --paper: #182532;
     --graphite: var(--ink);

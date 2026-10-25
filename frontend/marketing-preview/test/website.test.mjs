@@ -187,7 +187,9 @@ test('all illustrated owner names and initials use John consistently', async () 
   assert.doesNotMatch(sources.join('') + JSON.stringify(scenarios), /Rachel|>R</);
   assert.match(sources[0], /class="owner-avatar">J<\/span><span>John's workspace/);
   for (const scenario of scenarios) {
-    assert.deepEqual(scenario.agents.find(agent => agent.id === 'a'), { id: 'a', name: "John's agent", initial: 'J' });
+    assert.deepEqual(scenario.agents.find(agent => agent.id === 'a'), { id: 'a', name: "John's agent", platform: 'Muse', logo: '/agents/muse.svg' });
+    assert.equal(scenario.agents.find(agent => agent.id === 'b').platform, 'OpenClaw');
+    assert.equal(scenario.agents.find(agent => agent.id === 'b').logo, '/agents/openclaw.svg');
   }
   assert.equal(scenarios.find(scenario => scenario.id === 'client-deck').steps.at(-1).tag, 'Needs John');
 });
