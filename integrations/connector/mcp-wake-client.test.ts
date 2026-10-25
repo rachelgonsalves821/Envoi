@@ -86,6 +86,14 @@ describe('protocol-bound private MCP Events', () => {
       { supportedVersions: result.supportedVersions, capabilities: result.capabilities },
       { resultType: result.resultType, capabilities: result.capabilities },
       ...[[], ['2025-11-25'], ['2026-07-28', '2026-07-28'], '2026-07-28'].map(supportedVersions => ({ ...result, supportedVersions })),
+      ...[
+        {}, { tools: {} }, { events: {} },
+        { tools: [], events: {} }, { tools: null, events: {} },
+        { tools: 'invalid', events: {} }, { tools: { secret: token }, events: {} },
+        { tools: {}, events: [] }, { tools: {}, events: null },
+        { tools: {}, events: 'invalid' }, { tools: {}, events: { secret: token } },
+        { tools: {}, events: {}, extra: {} }
+      ].map(capabilities => ({ ...result, capabilities })),
       { ...result, accessToken: token },
       { ...result, capabilities: { ...result.capabilities, events: { secret: token } } }
     ]) {

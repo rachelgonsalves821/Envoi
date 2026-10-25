@@ -118,9 +118,10 @@ export class McpWakeClient {
     closed(result, ['resultType', 'supportedVersions', 'capabilities']);
     valid(result.resultType === 'complete' && Array.isArray(result.supportedVersions)
       && result.supportedVersions.length === 1 && result.supportedVersions[0] === '2026-07-28');
-    closed(result.capabilities, [], ['tools', 'events']);
-    if (result.capabilities.events !== undefined) closed(result.capabilities.events, []);
-    return result.capabilities.events !== undefined;
+    closed(result.capabilities, ['tools', 'events']);
+    closed(result.capabilities.tools, []);
+    closed(result.capabilities.events, []);
+    return true;
   }
   async subscribe(input: EventInput): Promise<EventSubscription> {
     this.#eventsVersion();
