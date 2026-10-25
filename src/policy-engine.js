@@ -10,7 +10,9 @@ const SAFE_INTERNAL_ACTIONS = new Set([
   'proposal.create',
   'proposal.counter',
   'proposal.accept',
-  'message.draft'
+  'message.draft',
+  // provider-gateway-native v1: a reply in the already claimed canonical case.
+  'message.reply'
 ]);
 const POLICY_ACTION = /^(calendar\.|email\.|payment\.|contract\.|asset\.share(?:\.|$)|external\.)/;
 

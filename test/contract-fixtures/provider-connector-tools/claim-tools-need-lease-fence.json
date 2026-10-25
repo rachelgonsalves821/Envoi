@@ -1,0 +1,65 @@
+{
+  "contract": "provider-connector-tools",
+  "version": 1,
+  "id": "claim-tools-need-lease-fence",
+  "kind": "http",
+  "description": "§2: settlement tools require the opaque lease token and, for acknowledge and complete, an idempotency key; a call without them is invalid arguments. The provider model never receives a general bearer or case-session token.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "context": {
+    "grantedScopes": [
+      "envoi.agent"
+    ],
+    "permissions": [
+      "receive_agent_messages"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_complete_work",
+        "arguments": {
+          "workId": "work_example"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "rpcError",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32602,
+        "message": "Invalid tool arguments"
+      }
+    }
+  },
+  "client": {
+    "surface": "provider_backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "See the contract tables."
+  }
+}

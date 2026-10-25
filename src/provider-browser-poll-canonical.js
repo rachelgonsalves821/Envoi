@@ -108,7 +108,15 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
     const human = await auth.getHuman(req);
     if (!human) fail(401, 'GATEWAY_SESSION_REQUIRED');
     if (req.headers['x-envoi-expected-human'] && req.headers['x-envoi-expected-human'] !== human.id) fail(403, 'ACCOUNT_CHANGED');
-    return { human, csrf: ownerCsrf(req) };
+    const nativeInstallations = [];
+    if (nativeEnabled() && req.method === 'GET' && new URL(req.url, 'http://localhost').pathname === '/agent-gateway/owner') {
+      for (const item of await nativeAdapter.ownerInstallations(human)) {
+        const record = await gateway.nativePort.read(`installation:${item.installationId}`);
+        if (record?.binding.ownerId !== human.id || record.binding.inboxId !== item.inboxId || record.binding.agentId !== item.agentId) continue;
+        nativeInstallations.push({ ...item, scope: record.native?.scope || 'read_notify', revision: record.native?.revision || 0 });
+      }
+    }
+    return { human, csrf: ownerCsrf(req), ...(nativeInstallations.length ? { nativeInstallations } : {}) };
   };
   const ownerMutation = (req, csrf) => { if (!verifyOwnerCsrf(req, csrf)) fail(403, 'GATEWAY_CSRF_INVALID'); };
   const native = nativeAdapter ? createProviderGatewayNative({ gateway, enabled: nativeEnabled, adapter: {

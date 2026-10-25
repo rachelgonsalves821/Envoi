@@ -1,0 +1,57 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "grok-delivery-accepted",
+  "kind": "delivery",
+  "description": "§8.2: 202 Accepted means Grok accepted the trigger and will start asynchronously. It is receipt only: Envoi marks nothing processed.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "context": {
+    "profile": "grok_trigger",
+    "agentStatus": "active",
+    "targetAllowlist": [
+      "https://triggers.grok.example"
+    ],
+    "dns": {
+      "host": "triggers.grok.example",
+      "addresses": [
+        "192.0.43.12"
+      ]
+    }
+  },
+  "delivery": {
+    "profile": "grok_trigger",
+    "attempt": 1,
+    "sentAt": "2026-10-24T12:00:02.000Z",
+    "request": {
+      "method": "POST",
+      "url": "https://triggers.grok.example/t/PLACEHOLDER_trigger",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "webhook-id": "wake_evt_Zr8dN1kQw3PtYb6Lx0Hs",
+        "webhook-timestamp": "1792843202",
+        "webhook-signature": "v1,8B3SrTqEczwedYRYMUR19Jj34oj3rqNkb4JsaClbADY="
+      },
+      "bodyText": "{\"type\":\"wake.work_available\",\"version\":1,\"id\":\"wake_evt_Zr8dN1kQw3PtYb6Lx0Hs\",\"subscriptionId\":\"wake_target_grok1\",\"sequence\":3,\"reason\":\"message_delivered\",\"createdAt\":\"2026-10-24T12:00:00.000Z\"}"
+    },
+    "response": {
+      "status": 202
+    },
+    "receiver": {
+      "asOf": "2026-10-24T12:00:02.400Z",
+      "toleranceSeconds": 300,
+      "deltaSeconds": 0,
+      "verdict": "accept",
+      "reason": null
+    },
+    "outcome": "accepted_receipt_only"
+  }
+}

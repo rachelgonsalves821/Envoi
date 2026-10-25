@@ -5116,3 +5116,198 @@ It does not make Instinct "automatic". A scheduled run is a host schedule, not a
 ### 9. Implementation notes (Lane A, informative)
 
 Extend `src/provider-browser-poll*.js` with the work routes calling the existing claim, case-session and typed-reply services under `gateway-installation:{id}` locks; scope field and generation in the gateway record in both storage backends; owner route and flag in `src/server.js` and `src/onboarding-flags.js`. Dependent implementation starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`. Tests: the 51 fixtures with FileStore and PostgreSQL parity for idempotency, fences, lease expiry, generation bumps and flag-off release; Stage 1 suites unchanged.
+
+> Implementation-preparation receipt (2026-10-24): the publication below is human-approved at `32975892945718296a4968a3d6ddbc40ef6d175b`, board #34 comment 6374090183. Its original publication-era status text is retained verbatim; the board approval and registry status govern. No new contract decision is made here.
+
+## mcp-wake v1
+
+**Contract:** `mcp-wake`, version 1 (Lane A backlog item 1 of board #34 comment 6371261746; Phase B backlog B-R8, MCP-scoped part). **Status:** published, awaiting Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED mcp-wake v1 @<publication sha>`. Nothing here is implemented, nothing is default-on, and no flag changes. It does not amend approved `agent-remote-auth` v1 revision 4 or `http-wake` v1: it adds an operation surface beside them.
+
+**Fixtures:** [`test/contract-fixtures/mcp-wake/`](../../../test/contract-fixtures/mcp-wake/): `schemas.json` (tables `x-flags`, `x-tools`, `x-binding`, `x-wake-origins`, `x-limits`, `x-notification`, `x-url-extra-reasons`, `x-codes`, `x-tool-errors`) and 22 cases. Executable checks: `test/contract-fixtures.test.js` (generic) and `test/contract-mcp-wake.test.js`.
+
+**Owner:** Lane A. **Consumers:** Lane B (the provider-connector client and `/connect` guidance) and the backend of every reviewed provider connector.
+
+### 1. The gap and the answer
+
+agent-remote-auth ("Not in this contract") left installations made by OAuth with no wake path: their audience-bound tokens are refused on `/api/agent/wake-subscriptions` (§9), and no `/mcp` tool creates a subscription. This contract adds four `/mcp` tools that drive the **existing** http-wake v1 subscription, key set, notification, retry and derivation machinery. Nothing is a second queue, a second signer or a second delivery engine, and REST keeps refusing audience tokens (fixture `rest-route-refuses-audience-token`).
+
+| Flag (server-only, default off) | Turns on |
+| --- | --- |
+| `ENVOI_MCP_WAKE_V1` | The four tools below in `tools/list` and `tools/call`. Requires `ENVOI_HTTP_WAKE_V1`, `ENVOI_INSTALLATIONS_V2`, `ENVOI_AGENT_REGISTRATION_V2` and `ENVOI_PROVIDER_CONNECTORS`; startup fails closed if any is off. |
+
+Flag off: `tools/list` is exactly the 19 `envoi-names` tools, byte for byte (`tools-list-flag-off`), and a call is an unknown tool (`create-flag-off-unknown-tool`). **Rollback:** subscriptions created through these tools carry a stored `createdVia: "mcp"` (never in a response). While the flag is off they read `ended` with `endedReason: "feature_disabled"` from the first read or attempt after the flag-off start, derived per attempt as http-wake §1 derives its epoch. REST-created subscriptions and the http-wake epoch are untouched (`rollback-flag-off`).
+
+### 2. Who may use it: binding and custody
+
+1. **Route and client (§2.1).** The caller's credential family must be audience-bound to `/mcp` **and** belong to a **pre-registered provider client** (agent-remote-auth §3.2) with at least one declared wake origin. A client identified by a client metadata document (`remote_mcp_oauth`) has no wake path in v1 (`WAKE_ROUTE_NOT_SUPPORTED`, `create-cimd-client-not-supported`): a public cloud-assistant client has no backend to receive a wake and cannot keep the OAuth tokens private from the model. A host credential that is not audience-bound uses the REST routes (`create-non-audience-token`); a scoped read token never sees the tools (`create-mcp-read-token-unavailable`).
+2. **Tenant, owner, installation (§2.1).** All ids are derived server-side from the family. Arguments never carry an inbox, agent, installation or owner id. A subscription belongs to one installation (http-wake §2.2). An id from another installation or an unknown id answers identically (`end-other-installation-not-found`).
+3. **Destination bound to client identity, not to model text (§2.2).** The `/mcp` tools are model-reachable in most hosts. A prompt-injected model must not be able to choose where Envoi sends metadata. So the URL's origin must equal one of the client's declared `wakeOrigins` (`x-wake-origins`: at most 3 exact HTTPS origins on port 443, no wildcard, IP literal or path), checked **before DNS** with the new reason `origin_not_declared` (`create-origin-not-declared`). `wakeOrigins` is an additive field of the pre-registered client record, which is server configuration; a client metadata document cannot set it in v1. Every http-wake §4 rule then applies unchanged (`create-private-address`).
+4. **Scope and credential custody (§2.3).** The tools need permission `receive_agent_messages` (OAuth scope `envoi.agent`, which every family has). **No new OAuth scope** is added and approved agent-remote-auth `x-scopes`, consent display and fixture bytes are untouched. The receiver is the connector backend: it is the principal that holds the OAuth access and refresh tokens, and it claims with them over `/mcp` (`envoi_claim_work`). Envoi stores no per-subscription secret: notifications are Ed25519-signed with Envoi's published key set (http-wake §5), so there is no receiver secret for Envoi to custody. No token, URL from a request or credential appears in any notification.
+
+### 3. Tools
+
+All arguments are closed objects (`x-tools.inputSchema`). Results use the case-tools envelope: success `{ok:true,tool,result}`, failure `{ok:false,tool,code,reason?,message,retryable}` with `isError:true`. HTTP-level failures are the existing `/mcp` envelopes (`x-codes`).
+
+| Tool | Arguments | Same effect as |
+| --- | --- | --- |
+| `envoi_wake_create` | `{url}` | `POST /api/agent/wake-subscriptions` (http-wake §3.1): pending subscription, one signed `wake.challenge` queued, replaces a pending one (`superseded`), same create limits |
+| `envoi_wake_activate` | `{subscriptionId, challenge}` | `…/activate` (§3.3): only the creating installation, only with the challenge sent to the URL; replacement and `replaced` as §3.4 |
+| `envoi_wake_end` | `{subscriptionId}` | `…/end` (§3.5), `ended_by_host` |
+| `envoi_wake_status` | `{}` | the `httpWake` field of `GET /api/agent/status` (§1): availability and the most relevant subscription, so a backend learns an ending and never creates again after `revoked_by_owner` |
+
+Tool error codes (`x-tool-errors`): `WAKE_SUBSCRIPTION_INVALID`, `WAKE_URL_REJECTED` (reasons are http-wake's plus `origin_not_declared`), `WAKE_SUBSCRIPTION_NOT_FOUND`, `WAKE_CHALLENGE_INVALID`, `WAKE_SUBSCRIPTION_ENDED`, `WAKE_ROUTE_NOT_SUPPORTED`.
+
+### 4. Notifications, admission and catch-up (all inherited)
+
+- Bodies are http-wake §2.3 byte for byte: opaque, at most 1,024 bytes, no case, message, work, lease, inbox, agent, installation, asset or credential id, no content, no URL, no token. `x-notification.newFields` is empty.
+- **Durable admission.** Notifications are created from the existing durable queue and event sequence (http-wake §6.5), not from a new store. A restart or outage loses none; coalescing and single flight are §6.3.
+- **Duplicates and loss.** `id` is the deduplication key (§7.2). A lost notification is covered by the receiver's startup claim and safety poll (at most `receiverSafetyPollMaxSeconds`, 900), both through `envoi_claim_work`; `envoi_wake_status` supplies the ended reason. A notification is a hint: acknowledging it is not completion, and work is claimed, fenced and settled only through the canonical `envoi_claim_work`, lease and fence rules (a3, case-session).
+- **Bounded retries.** http-wake §6.2 schedule and deadline, `410 Gone` ends the subscription (`receiver_gone`), ten failed deliveries or 24 h of failure end it (`delivery_failed`).
+- **Idempotency.** Create is not idempotent by design (a retry supersedes the pending one); activate and end are repeat-safe as in http-wake. Claims and settlement keep their existing idempotency keys and fences.
+- **Assets.** Notifications carry none. Files stay behind the existing scan, grant and case-session gates when the backend claims the work.
+
+### 5. Limits
+
+The http-wake `x-limits` apply, shared with REST: 5 creates per installation and 10 per agent per hour, 4 concurrent and 120 requests per minute per destination host, and so on. A limit is HTTP 429 `RATE_LIMITED` with `retryAfterSeconds` (`create-rate-limited`). A subscription lives 30 days and is replaced at least 7 days ahead (http-wake §2.2); the origin check repeats on every replacement.
+
+### 6. Pause, resume, revoke, late actions
+
+- **Pause.** `/mcp` answers HTTP 409 `AGENT_PAUSED` to **every** tool while the agent is paused, wake tools included, never a JSON-RPC result (`create-paused`). Existing active subscriptions receive `wake.control_changed/agent_paused` and, on resume, `wake.work_available/agent_resumed` (http-wake §8.1). Held work and ordering are unchanged.
+- **Revoke.** A revoked family is `CREDENTIAL_REVOKED` at `/mcp` (`create-revoked`) and its installation's subscriptions already ended with `credential_ended` (§8.3). An owner revoke of one subscription is the existing owner route; the backend sees `revoked_by_owner` in `envoi_wake_status`.
+- **Late actions.** Notification attempts derive the subscription's state before every send (§8), so nothing is sent for an ended subscription, and a backend that claims after revoke gets the existing rejected-settlement behaviour.
+- **Reconnect.** A new installation starts with no subscription (§8.3) and creates its own.
+
+### 7. What this does not do
+
+- It does not make a host "automatically reachable". Wake remains a declaration plus evidence: the installation keeps its declared `on_demand` mode, and the owner label changes only through a separately approved contract after a countersigned closed-app test (Phase B plan, shared host acceptance). No named host passes because of this contract.
+- It is not the answer for hosts whose backend is the provider's chat product (ChatGPT/Dots, Muse): see `provider-event-wake` v1.
+- It adds no OAuth scope, endpoint, REST exception or second queue.
+
+### 8. Decisions for review
+
+1. **Reuse `envoi.agent` (chosen) or add `envoi.wake`.** A new scope would amend approved agent-remote-auth `x-scopes`, consent display and fixtures; reuse changes none. The cost: the owner does not see a wake consent line. The destination is limited to origins the owner's connector already declares, and the owner can see and revoke every subscription on the existing owner list.
+2. **Destination bound to pre-registered `wakeOrigins` (chosen) or any public HTTPS URL.** The second is simpler but lets a prompt-injected model aim metadata at any server.
+3. **Wake tools return HTTP 409 while paused (chosen, consistent with `/mcp`)** or work while paused as REST does. The chosen rule keeps one pause behaviour on `/mcp`.
+4. **Flag-off ends tool-created subscriptions (chosen)** rather than leaving ones the backend can no longer manage.
+5. **Declared delivery mode stays `on_demand`.** A later revision may allow a declared upgrade after evidence.
+
+### 9. Implementation notes (Lane A, informative)
+
+New `src/mcp-wake-tools.js` calling the existing http-wake service functions with the family-derived installation; `tools/list` gating in `src/agent-mcp.js`; `createdVia` and the client record's `wakeOrigins` in both storage backends; flag parsing in `src/onboarding-flags.js`. Dependent implementation starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`. Tests: the 22 fixtures, FileStore and PostgreSQL parity for `createdVia` and the flag-off derivation, and the existing http-wake delivery suites unchanged.
+
+> Implementation-preparation receipt (2026-10-24): the publication below is human-approved at `d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b`, board #34 comment 6389430643. Its original publication-era status text is retained verbatim; the board approval and registry status govern. No new contract decision is made here.
+
+## provider-event-wake v1
+
+**Contract:** `provider-event-wake`, version 1 (Lane A backlog item 2 of board #34 comment 6371261746; Phase B backlog B-R7/B-R8, named-host part). **Status:** published, **revision 2** (this text answers Lane B's `MISMATCH` E1 to E3, board #34 comment 6373764059; revision 1 @3e1574f is superseded and was never ACKed or approved, so the contract stays v1), awaiting Lane B's re-review `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED provider-event-wake v1 @<publication sha>`. Nothing here is implemented, nothing is default-on, and no flag changes. It amends no approved contract.
+
+**Fixtures:** [`test/contract-fixtures/provider-event-wake/`](../../../test/contract-fixtures/provider-event-wake/): `schemas.json` (tables `x-flags`, `x-protocol`, `x-events`, `x-signing`, `x-secret`, `x-limits`, `x-no-retry-statuses`, `x-retry-statuses`, `x-notification`, `x-codes`, `x-callback-errors`, `x-target-states`, `x-evidence-gates`) and 49 cases, including signed deliveries whose HMAC and timestamp freshness the test recomputes. Revision 2 adds `x-verification-cache` and `x-clock`. Executable checks: `test/contract-fixtures.test.js` and `test/contract-provider-event-wake.test.js`.
+
+**Owner:** Lane A. **Consumers:** Lane B (ChatGPT/Dots plugin setup, Grok setup guidance, trusted bridge) and the owner UI.
+
+### 1. Why a separate contract
+
+Both providers document a **Standard Webhooks HMAC** protocol, not the Ed25519 `envoi-wake/1` protocol of http-wake v1. A provider will not run Envoi's receiver code, so the generic wake cannot be assumed to work. The interfaces below were read from the providers' public documentation on **2026-10-23**; account and workspace capability is **not** established and is listed as open gates (fixture `grok-evidence-gates`). The two profiles reuse the existing durable queue, event sequence, opaque notification content (http-wake §2.3), destination safety (http-wake §4), retry deadline, limits and derivation of ended states (http-wake §6, §8). They add no queue, no parallel notification store and no provider-only inbox.
+
+| Flag (server-only, default off; startup fails closed if a requirement is off) | Profile | Requires |
+| --- | --- | --- |
+| `ENVOI_MCP_EVENTS_V1` | `mcp_events`: ChatGPT/Dots subscribes to Envoi's MCP Events | `ENVOI_HTTP_WAKE_V1`, both V2 flags, and `ENVOI_REMOTE_MCP_OAUTH` or `ENVOI_PROVIDER_CONNECTORS` |
+| `ENVOI_GROK_TRIGGER_V1` | `grok_trigger`: Envoi sends to an owner-supplied Grok webhook trigger | `ENVOI_HTTP_WAKE_V1`, both V2 flags |
+
+### 2. Profile `mcp_events` (ChatGPT / Dots): Envoi is the event source
+
+Interface (documented): MCP 2.0 protocol `2026-07-28`; `server/discover` advertises `capabilities.events: {}`; the same authenticated endpoint implements `events/list`, `events/subscribe`, `events/unsubscribe`; webhook delivery only (no polling, streaming, `gap` or `terminated` notifications); HTTPS callbacks, no redirects, no private addresses; Standard Webhooks signing; body limit 256 KiB; verification challenge echo; renewal before `refreshBefore`; cursor replay with `truncated`. Source: <https://developers.openai.com/plugins/build/mcp-events>.
+
+1. **Prerequisite (open gate D3).** `/mcp` today negotiates `2025-11-25`. The events methods and capability exist **only** at `2026-07-28` (`subscribe-older-protocol-version` answers `-32601`); the 19 tools are unchanged at the old version. Supporting 2026-07-28 at `/mcp` is a separate implementation task and decision for the human (decision 1 below).
+2. **Who may subscribe (`discover-events-capability`, `subscribe-not-qualifying-family`).** Only an audience-bound family of `remote_mcp_oauth` or `provider_connector`. For any other credential the methods do not exist. `events/subscribe` is a protocol method the host's runtime calls after user authorization; it is not a model tool.
+3. **Events (`x-events`, `events-list`).** `envoi.work_available` (reasons as http-wake §2.3) and `envoi.control_changed` (`agent_paused`, `case_controlled`). Arguments are `{}`: a subscription is scoped to the authenticated installation, never to a case. Payloads carry only `reason`. `data` and the envelope hold no case, message, work, lease, inbox, agent, installation, asset or credential id, no content, no URL, no token. `eventId` is the random `wake_evt_…` id and equals `webhook-id`.
+4. **Subscribe (`subscribe-created`, `subscribe-renewed-same-identity`).** The subscription belongs to the installation of the calling family; the tenant, owner and agent are derived server-side. The id is deterministic from installation, event name, canonical arguments and URL (`evtsub_` plus 20 hex), so a repeat with the same identity is a renewal that moves `refreshBefore` (default and maximum TTL 7 days, minimum 1 hour; `ttlMs: null` is treated as the maximum), replaces the secret (dual signing for 10 minutes, `delivery-secret-rotation-dual-signature`) and never creates a second subscription. At most one subscription per installation and event.
+5. **Callback safety (`subscribe-callback-origin-not-allowed`, `subscribe-callback-address-not-allowed`).** HTTPS, port 443, public addresses, no redirects: http-wake §4 verbatim. In addition the URL's origin must be in an operator-recorded **provider callback allowlist**, which is **empty by default** and filled only from evidence the human records (gate D2). So the feature is inert until the hosts ChatGPT actually uses are observed; no hostname is guessed in this contract. Refusals are JSON-RPC `-32015 CallbackEndpointError` with `data.reason` `origin_not_allowed`, `address_not_allowed`, `challenge_failed` or `timeout`.
+6. **Verification (`verification-request`, `subscribe-verification-failed`).** Before any event Envoi sends one signed `{"type":"verification","challenge":…}` and requires a 2xx response echoing the challenge (constant-time compare). Nothing is stored and nothing is sent if it fails. **Bounded verification cache (E2: `x-verification-cache`, `subscribe-renewed-same-identity`, `subscribe-renewed-secret-rotated`, `subscribe-verification-cache-expired`, `subscribe-verification-binding-changed`, `subscribe-cache-hit-address-now-disallowed`).** As the provider's guide allows, a successful verification is cached per authenticated principal (the installation) and canonical callback URL for at most 3,600 s. A subscribe or renewal that matches an unexpired entry with the same secret sends no new challenge. The entry is invalidated by expiry, a changed secret (a verification signed with the new secret proves the callback holds it), a changed URL (a different URL is its own key), a changed allowlist, an ended subscription or installation, and flag-off. A hit skips only the challenge round trip: the allowlist, scheme, port, public-address and no-redirect checks run on every request, so a cached URL that now resolves to a private address is refused and its entry dropped. The cache stores a timestamp and a one-way key, never the secret. No callback origin is inferred; the allowlist stays empty by default.
+7. **Secret custody (`x-secret`).** The host supplies a `whsec_` secret (24 to 64 bytes decoded; `subscribe-secret-invalid`). Envoi must hold it to sign, so it is stored encrypted with the server data key, readable only by the delivery worker, never returned, logged or audited, and deleted on unsubscribe, end, revoke, flag-off and installation end. This is the one new secret Envoi stores; every other key in the system is unchanged.
+8. **Delivery, retries, acknowledgement (`delivery-*`).** One event per POST, body at most 1,024 bytes, serialized once and signed as sent: `{webhook-id}.{webhook-timestamp}.{raw body}` with HMAC-SHA256 under the decoded secret. A retry keeps `eventId` and `webhook-id` and is signed again at the retry time (E3: `x-clock`): `webhook-timestamp` is the signing time, never earlier than the event it carries, and a retry waits for `Retry-After` before its fresh timestamp and signature. Receivers accept a request only when their clock is within 300 s of `webhook-timestamp`; the fixtures carry a declared receiver clock (`asOf`) and verdict for fresh, 300 s and 301 s edges, stale replay and future-clock cases, and show that a stale replay of a valid signature is rejected by the clock check, not the HMAC (`delivery-replayed-stale`, `delivery-future-timestamp-rejected`, `delivery-clock-edge-300s-accepted`, `delivery-clock-edge-301s-rejected`, `grok-delivery-replayed-stale`, `grok-delivery-retry-fresh-clock`). Retries follow the http-wake schedule and deadline (10, 30, 120, 600, 1800 s; six attempts; one hour); `408, 425, 429, 5xx` retry honouring `Retry-After`; `410` ends the subscription (`receiver_gone`) and `413` is never retried. **A 2xx is receipt only.** Envoi infers nothing about processing; completion exists only as a canonical, fenced claim and settlement over `/mcp`. Events may arrive out of order and more than once; the receiver deduplicates by `eventId` and every write is idempotent.
+9. **Durable admission and catch-up (`subscribe-replay-truncated`).** Events are created from the existing durable queue and the a4 event sequence. The subscribe `cursor` is the a4 cursor (20 digits). A cursor inside the retained history (72 hours or 1,000 events) replays the missed `envoi.work_available` hints; older yields `truncated: true`. Either way the host claims once after every subscribe and keeps a safety poll (at most 900 s), because a hint can be lost.
+10. **Pause, resume, revoke (`subscribe-paused`, `subscribe-revoked`, `delivery-control-changed`).** `/mcp` answers HTTP 409 `AGENT_PAUSED` to subscribe while paused; existing subscriptions receive `envoi.control_changed/agent_paused` and, on resume, `envoi.work_available/agent_resumed`. A revoked family is `CREDENTIAL_REVOKED` and its subscriptions ended (`credential_ended`) before any further attempt: derivation happens before every send (http-wake §8). Late claims after revoke get the existing rejected-settlement behaviour. Unsubscribe is idempotent and reveals nothing (`unsubscribe-unknown-is-idempotent`). Its request is the documented form, the original name and arguments plus `delivery` with `mode: "webhook"` and the original `url` (E1: `unsubscribeParams`, `unsubscribe-ok`); a request without `delivery.mode` is invalid params (`unsubscribe-delivery-mode-missing`), and the result carries no secret.
+11. **Limits.** http-wake `x-limits` plus the additions in `x-limits.additional`; creates share the per-installation and per-agent hourly limit (`subscribe-rate-limited`).
+
+### 3. Profile `grok_trigger`: Envoi sends to an owner-supplied trigger
+
+Interface (documented, checked 2026-10-23, source <https://docs.x.ai/grok/automations/webhooks>): each saved Grok automation has a unique webhook endpoint; the sender POSTs with `webhook-id`, `webhook-timestamp`, `webhook-signature` (`v1,` plus base64 HMAC-SHA256 of `{id}.{timestamp}.{raw body}` under the decoded `whsec_` secret); timestamps beyond five minutes are rejected; the secret is shown once and rotating it invalidates the old one; bodies over 1 MiB get `413`; `202 Accepted` starts the automation asynchronously; `400`, `401`, `413`, `429`, `503` are defined. **Not documented:** the endpoint URL form, duplicate handling, retry behaviour, whether the payload reaches the model as data, and plan requirements.
+
+1. **What this profile is.** A **sender**: a transport that nudges a Grok automation. It is not a claim path. Whether the automation can then act on Envoi at all is open gate G1; until proven, no statement that Grok processes work is allowed, and the sender ships disabled. This contract does not assume that Grok supports remote MCP or Envoi's REST routes.
+2. **Credential custody (`grok-target-put`, `grok-target-get-no-secret`, `grok-target-agent-token-refused`).** The **owner** supplies the trigger URL and the signing secret in a signed-in owner session (CSRF, origin, assurance as the existing owner routes): `PUT/GET/DELETE /api/inboxes/{inboxId}/agents/{agentId}/wake-targets/grok`. One target per agent. The response and every read show `secretSet: true`, never the secret or any part of it. An agent credential, the model and the browser-delegated cookie cannot read or change it. Secret storage, rotation and deletion follow `x-secret`.
+3. **Destination (`grok-target-put-origin-not-allowed`).** HTTPS and http-wake §4 rules plus an exact-origin allowlist, **empty by default** until the trigger URL form is observed (gate G2).
+4. **Payload.** The unchanged opaque http-wake §2.3 `wake.work_available` body (at most 1,024 bytes). It never carries content, ids, a URL or a token. If the automation needs work content it must obtain it through an authenticated, fenced canonical claim by a trusted bridge (G1); Envoi never pushes case content through the trigger.
+5. **Outcomes (`grok-delivery-*`, `x-no-retry-statuses`).** `202` is receipt only (`accepted_receipt_only`): no acknowledgement, claim, processing or presence is inferred. `429`, `408`, `5xx` retry on the http-wake schedule with `Retry-After` and a fresh timestamp and signature, the same `webhook-id`. `401` means a rotated secret, a stale clock or a trigger that stopped accepting: the target moves to `needs_secret`, no retry loop, owner action required. `400` and `413` are sender defects: `needs_attention`, audited, not retried. Delivery is at least once; because Grok's dedupe is undocumented (G3), the receiving side must deduplicate by `id`.
+6. **Pause, revoke, rotation.** Paused agent: only `wake.control_changed` is sent. Revoked agent, ended installation, owner delete or flag-off end the target and delete the secret before any further attempt. After the owner updates the secret, Envoi sends one `wake.work_available/work_due` so the bridge claims.
+7. **Limits.** One target per agent; at least 5 seconds between sends to a target; http-wake coalescing and single flight; Grok's own `429` is honoured.
+
+### 4. Reuse, assets, idempotency, rollback
+
+- **Canonical system only.** Subscriptions and targets are installation-bound records beside http-wake subscriptions; delivery uses the one durable queue and its fences; claims and settlement use the existing work, case-session and case-tools services and idempotency keys. Assets stay behind the existing scan, grant and case-session gates; no notification carries one.
+- **Duplicate and lost delivery.** `eventId`/`id` is the dedupe key; a lost notification is recovered by the startup claim and safety poll; a duplicate does no extra canonical effect because claims are fenced.
+- **Rollback (`rollback-flags-off`).** Each flag off ends the profile's records with `feature_disabled` from the first read or attempt after the flag-off start, deletes their secrets, sends nothing, and leaves work, leases, the a4 stream and Ed25519 http-wake subscriptions untouched.
+
+### 5. Decisions for review
+
+1. **Support MCP 2.0 (`2026-07-28`) at `/mcp` for events only (chosen), or not at all.** Without it the `mcp_events` profile cannot exist; Dots then relies on a safety poll while its app is open.
+2. **Provider callback and trigger allowlists empty by default (chosen)** rather than hard-coding hostnames this contract cannot verify. Until the human records observed evidence (gates D2 and G2) both profiles are inert.
+3. **Envoi stores the host-supplied or owner-supplied `whsec_` secret, encrypted (chosen).** HMAC signing cannot work without Envoi holding the key. The custody is exactly §2.7 and `x-secret`: encrypted at rest with the server data key, readable only by the delivery worker, never returned by any route, never logged or audited, and deleted on unsubscribe, end, revoke, flag-off and installation end. It is the one new secret Envoi stores. The alternative is to decline both profiles.
+4. **Verification cached for at most 3,600 s per principal and callback URL (chosen, E2)**, with the destination checks run on every request and the entry invalidated by expiry, a changed secret, URL or allowlist, and by ending (§2.6, `x-verification-cache`). The alternative is to verify on every renewal; the cost of the choice is that a callback that stops answering is noticed at the next expiry or event, not at every renewal.
+5. **Grok sender ships as transport only; no processing claim until G1.** Whether a trusted bridge, the existing authenticated REST helper (which rejects scheduled polling) or no Grok route at all is selected is the owner's and Lane B's evidence-backed choice.
+6. **No change to a5-presence labels.** A `202` or `2xx` never turns `on_demand` into automatic reachability; only a separately approved contract after countersigned closed-app evidence does.
+
+### 6. Out of scope
+
+Provider submission, plugin installation, account setup and real-account operations (their owner); changes to approved agent-remote-auth, http-wake or a5 bytes; any named-host pass.
+
+### 7. Implementation notes (Lane A, informative)
+
+New `src/provider-event-wake.js` over the http-wake service and queue; `/mcp` event methods behind the version check in `src/agent-mcp.js`; encrypted secret field in both storage backends; owner routes and flags in `src/server.js` and `src/onboarding-flags.js`. Dependent implementation starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`. Tests: the 49 fixtures with FileStore and PostgreSQL parity for the encrypted secret, derivation and flag-off deletion; the existing http-wake suites unchanged.
+
+> Implementation-preparation receipt (2026-10-24): the publication below is human-approved at `3af8669a907c316b95ff92fa7031a50a654e1a18`, board #34 comment 6374090183. Its original publication-era status text is retained verbatim; the board approval and registry status govern. No new contract decision is made here.
+
+## provider-connector-tools v1
+
+**Contract:** `provider-connector-tools`, version 1 (Lane A backlog: reconcile Muse's reviewed-connector authorization and tool boundaries; Phase B backlog B-R4). **Status:** published, awaiting Lane B's `CONTRACT-ACK` and a version-specific `CONTRACT-APPROVED provider-connector-tools v1 @<publication sha>`. It adds **no tool, scope, route or flag** and changes no approved contract; it classifies what already exists so a reviewed provider connector can describe it truthfully.
+
+**Fixtures:** [`test/contract-fixtures/provider-connector-tools/`](../../../test/contract-fixtures/provider-connector-tools/): `schemas.json` (tables `x-tool-classification`, `x-effect-classes`, `x-minimum-submission-set`, `x-visible-by-permission`, `x-rules`, `x-read-only-options`, `x-evidence-gates`, `x-codes`) and 6 cases. `test/contract-provider-connector-tools.test.js` imports the live `agentMcpTools` table and fails if the classification drifts from it.
+
+**Owner:** Lane A. **Consumers:** Lane B (the Muse readiness packet, PR #204 `integrations/muse/CONNECTOR-SUBMISSION-READINESS.md`) and whoever submits to Meta. Provider submission, test accounts, portal operations and Meta's final classification stay with their owner.
+
+### 1. What was reconciled
+
+The Muse packet (#204 @35c279d) asked Lane A for "a versioned provider action/wake contract" and for a decision on a read-only OAuth choice. Against the approved contracts:
+
+1. **Provider actions need no new contract.** The identity, snapshot, claim, renew, acknowledge, complete, fail and reply operations a reviewed connector needs are the `/mcp` tools of agent-registration v1 §6.6, reached by the `provider_connector` route of agent-remote-auth v1 §9. Their fences, idempotency keys and settlement rules are unchanged. What was missing is a **truthful classification** of those tools by effect and scope (this contract), because Meta classifies per tool.
+2. **The grant is not read-only.** The required scope `envoi.agent` maps to `receive_agent_messages`, which includes claim and settlement authority (`envoi_claim_work`, `…renew…`, `…acknowledge…`, `…complete…`, `…fail…`). Submitting only read tools does not change what the OAuth grant allows. Sending needs the optional `envoi.send` (fixtures `tools-list-envoi-agent-only`, `tools-list-envoi-agent-and-send`, `send-without-send-scope`).
+3. **Wake is not provided by this contract.** If Meta exposes a supported callback or trigger, it consumes `mcp-wake` v1 (declared origins) or `provider-event-wake` v1; otherwise Muse's background availability stays blocked (gate M4). Nothing here claims or implies it.
+
+### 2. Classification (`x-tool-classification`)
+
+Every one of the 19 tools has: the live `permission` and derived scope, an `effect` (`read`, `write`, `sensitive_write`), the state it changes, whether it has an outward effect, whether a per-use provider approval is proposed, whether it is lease fenced and whether it needs an idempotency key. In short:
+- **Read:** `envoi_agent_info`, `envoi_list_cases`, `envoi_read_case`, `envoi_list_messages`, `envoi_list_assets`, `envoi_asset_download`. No state changes.
+- **Write (this installation's own state):** `envoi_claim_work`, `…renew…`, `…acknowledge…`, `…complete…`, `…fail…` (work leases and settlement) and the asset upload tools. Work state is never presented as an inbox read.
+- **Sensitive write (outward):** `envoi_send_message`, `envoi_start_case`, `envoi_send_proposal`, `envoi_send_decision`, `envoi_send_completion` and `envoi_grant_asset`. Meta makes the final classification; Envoi proposes the strictest.
+
+### 3. Minimum submission set (`x-minimum-submission-set`)
+
+Identity (`envoi_agent_info`), one snapshot (`envoi_list_cases`, `envoi_read_case`, `envoi_list_messages`), claim and settlement (the five work tools) and one reply (`envoi_send_message`, which needs a case and an exact recipient). Excluded from the first submission: starting new cases, proposals, decisions, completions, every asset tool and the wake tools. Any addition needs its own Meta review and a revision of this contract.
+
+### 4. Rules (`x-rules`)
+
+R1 a provider approval is never Envoi authority and never an argument (`send-provider-approval-field-refused`: closed arguments, `-32602`); R2 Envoi's own policy and human-decision checks apply regardless of any provider prompt, and a provider approval does not satisfy a required Envoi decision; R3 an outward effect is never called a read; R4 the queued receipt of a send, work settlement and the other agent's receipt are different facts; R5 lease tokens and idempotency keys stay mandatory (`claim-tools-need-lease-fence`) and a provider model never gets a general agent bearer or case-session token; R6 the grant is wider than the submitted tools and must not be described as read-only.
+
+### 5. Read-only choice (decision for the human, gate M2)
+
+- **A (Lane A's recommendation):** keep `envoi.agent`, describe it honestly, submit only the minimum set, and ask Meta whether that satisfies its read-only guidance. No approved contract changes.
+- **B:** add a read-only permission and scope. That is a revision of agent-registration v1 (permissions) **and** agent-remote-auth v1 (`x-scopes`, consent display), each needing Lane B's ACK and the human's exact approval. It is not published here because Meta's requirement is not yet known.
+- **C:** a second read-only provider client over such a permission: B's cost plus a second client record.
+
+### 6. Open gates (`muse-evidence-gates`)
+
+M1 Meta's final per-tool classification; M2 whether Meta requires a read-only offering; M3 the OAuth client type, redirect and credential behaviour Meta's reviewed connector actually uses; M4 a Meta-supported closed-app trigger and its callback origins; M5 per-use approval behaviour for a reply and whether unattended replies are possible. Each belongs to the account/provider owner. Muse stays UNPROVEN until all are recorded against one release.
+
+### 7. Implementation notes (Lane A, informative)
+
+No server change. The classification test keeps the table honest against `src/agent-mcp.js`. Lane B updates the Muse readiness packet to cite this table instead of its candidate inventory. Dependent work starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`.

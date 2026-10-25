@@ -1,5 +1,7 @@
 # Owned Windows credential-directory ACL fix
 
+> Historical checkpoint. Current approvals, implementation and remaining acceptance are recorded in [the B/C candidate report](../../docs/architecture/agent-native-v2/BC-IMPLEMENTATION-CANDIDATE.md).
+
 Task B-C-owned-directory-ACL, Lane B. Responds to [REQUEST6373593962](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6373593962). Source base: integration/agent-native `d05498d8dc13c6f07dc151da7a41a1619ff62436`. This is one bounded follow-up, not another B/C composition or a replacement for #219/#220.
 
 ## Problem and change

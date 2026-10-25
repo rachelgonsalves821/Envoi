@@ -1,0 +1,63 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "verification-request",
+  "kind": "delivery",
+  "description": "§4.2: the signed verification before any event. The callback answers 2xx with the challenge echoed; a different or missing echo is challenge_failed.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "context": {
+    "profile": "mcp_events",
+    "route": "remote_mcp_oauth",
+    "agentStatus": "active",
+    "callbackOriginAllowlist": [
+      "https://dots.callbacks.example"
+    ],
+    "dns": {
+      "host": "dots.callbacks.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    },
+    "subscriptionId": "evtsub_0f3a9c2e51b84d7aa6c1"
+  },
+  "delivery": {
+    "profile": "mcp_events",
+    "attempt": 1,
+    "sentAt": "2026-10-24T12:00:00.000Z",
+    "request": {
+      "method": "POST",
+      "url": "https://dots.callbacks.example/envoi/events",
+      "headers": {
+        "content-type": "application/json",
+        "user-agent": "Envoi-Wake/1",
+        "webhook-id": "wake_evt_verify0001",
+        "webhook-timestamp": "1792843200",
+        "webhook-signature": "v1,q+mOXdgTwK9znhOJfmNNV3A1iCuUkPaoLSz1uALGenU=",
+        "x-mcp-subscription-id": "evtsub_0f3a9c2e51b84d7aa6c1"
+      },
+      "bodyText": "{\"type\":\"verification\",\"challenge\":\"envoi_wake_challenge_PLACEHOLDER_example\"}"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "challenge": "envoi_wake_challenge_PLACEHOLDER_example"
+      }
+    },
+    "receiver": {
+      "asOf": "2026-10-24T12:00:00.400Z",
+      "toleranceSeconds": 300,
+      "deltaSeconds": 0,
+      "verdict": "accept",
+      "reason": null
+    },
+    "outcome": "verified"
+  }
+}

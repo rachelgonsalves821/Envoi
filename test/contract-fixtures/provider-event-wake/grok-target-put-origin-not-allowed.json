@@ -1,0 +1,62 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "grok-target-put-origin-not-allowed",
+  "kind": "http",
+  "description": "§8.1: a URL whose origin is not in the sender allowlist is refused before DNS; the allowlist is empty until the human records the observed trigger URL form.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "context": {
+    "profile": "grok_trigger",
+    "agentStatus": "active",
+    "targetAllowlist": [
+      "https://triggers.grok.example"
+    ],
+    "dns": {
+      "host": "triggers.grok.example",
+      "addresses": [
+        "192.0.43.12"
+      ]
+    }
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/api/inboxes/inbox_grok1/agents/agent_grok1/wake-targets/grok",
+    "auth": "human_session",
+    "headers": {
+      "cookie": "envoi_session=PLACEHOLDER_session; envoi_csrf=PLACEHOLDER_csrf",
+      "x-envoi-csrf": "PLACEHOLDER_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "url": "https://other.example/t/x",
+      "secret": "whsec_UExBQ0VIT0xERVItRklYVFVSRS1TRUNSRVQtMDAwMQ=="
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "WAKE_URL_REJECTED",
+      "error": "WAKE_URL_REJECTED",
+      "message": "The wake URL is not allowed.",
+      "requestId": "req_example",
+      "reason": "origin_not_allowed"
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "fix_wake_url",
+    "next": "See the row for this outcome in the contract tables."
+  }
+}

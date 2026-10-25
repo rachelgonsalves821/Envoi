@@ -1,5 +1,7 @@
 # Phase B/C client integration candidate
 
+> Historical checkpoint. Current approvals, implementation and remaining acceptance are recorded in [the B/C candidate report](../../docs/architecture/agent-native-v2/BC-IMPLEMENTATION-CANDIDATE.md).
+
 Task `B-C-CLIENT-INTEGRATION-READY`, Lane B, 2026-10-23. Base: `d05498d8dc13c6f07dc151da7a41a1619ff62436` on `integration/agent-native`. This candidate preserves approved #203/#173 authorization and the existing P0/WorkOS behavior. Phase D belongs to Rachel and is excluded.
 
 ## Source selection

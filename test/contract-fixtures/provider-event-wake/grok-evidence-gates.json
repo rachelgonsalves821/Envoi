@@ -1,0 +1,85 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "grok-evidence-gates",
+  "kind": "evidence",
+  "description": "§8.4: what the public interface documents (checked 2026-10-23) and what is still unproven. Nothing unproven is assumed; the sender stays disabled in every environment until the human records each open gate.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "evidence": {
+    "checkedAt": "2026-10-23",
+    "sources": [
+      {
+        "product": "ChatGPT MCP Events",
+        "url": "https://developers.openai.com/plugins/build/mcp-events"
+      },
+      {
+        "product": "Grok automation webhook triggers",
+        "url": "https://docs.x.ai/grok/automations/webhooks"
+      }
+    ],
+    "documented": [
+      "grok: unique trigger endpoint per saved automation",
+      "grok: headers webhook-id, webhook-timestamp, webhook-signature (v1, base64 HMAC-SHA256)",
+      "grok: signed content id.timestamp.rawBody, key = whsec_ secret base64-decoded",
+      "grok: timestamps more than five minutes from Grok time rejected",
+      "grok: secret shown once, rotation invalidates the old secret",
+      "grok: 1 MiB body limit",
+      "grok: 202 accepted asynchronously; 400, 401, 413, 429, 503",
+      "chatgpt: MCP 2.0 protocol 2026-07-28, events/list, events/subscribe, events/unsubscribe, server/discover events capability",
+      "chatgpt: Standard Webhooks HMAC signature, verification challenge echo, 256 KiB limit, HTTPS only, no redirects, no private addresses",
+      "chatgpt: renewal before refreshBefore, cursor replay, truncated, secret rotation with space separated signatures"
+    ],
+    "unproven": [
+      {
+        "gate": "G1",
+        "subject": "grok",
+        "claim": "the automation can call Envoi with a private credential, or a trusted bridge can claim for it",
+        "blocks": "any claim that Grok processes work"
+      },
+      {
+        "gate": "G2",
+        "subject": "grok",
+        "claim": "trigger URL form and host, for the sender allowlist",
+        "blocks": "enabling the sender"
+      },
+      {
+        "gate": "G3",
+        "subject": "grok",
+        "claim": "duplicate handling for a repeated webhook-id, retry behaviour and whether the payload reaches the model as data",
+        "blocks": "at-least-once assumptions"
+      },
+      {
+        "gate": "G4",
+        "subject": "grok",
+        "claim": "plan and account capability for the owner's real account",
+        "blocks": "owner setup guidance"
+      },
+      {
+        "gate": "D1",
+        "subject": "chatgpt",
+        "claim": "the owner's account and workspace can install a custom remote MCP plugin with events and event-triggered tasks",
+        "blocks": "any Dots acceptance"
+      },
+      {
+        "gate": "D2",
+        "subject": "chatgpt",
+        "claim": "the callback hosts ChatGPT uses, for the provider callback allowlist",
+        "blocks": "enabling subscribe"
+      },
+      {
+        "gate": "D3",
+        "subject": "envoi",
+        "claim": "/mcp supports MCP 2.0 (2026-07-28) transport alongside 2025-11-25",
+        "blocks": "implementation of events/*"
+      }
+    ]
+  }
+}
