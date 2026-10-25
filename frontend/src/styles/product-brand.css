@@ -167,8 +167,11 @@ body:has(.onboarding-page) { background: #f6f9fc; }
 .app-shell .participant-duo .participant-card { border: 1px solid #d6e5ef; background: #fff; }
 .app-shell .participant-duo .participant-card.mine { border-color: #bad8eb; background: #edf7fd; }
 .app-shell .decision-card { border: 1px solid #c9dfed; border-left: 4px solid #2f86c6; box-shadow: 0 8px 24px rgba(15,42,67,.04); }
-.app-shell .message-bubble { border: 1px solid #dce8ef; background: #fff; }
-.app-shell .mine .message-bubble { border-color: #b9d9eb; background: #e7f3fb; }
+.app-shell .message-bubble { border: 1px solid #dce8ef; background: #fff; color: #0f2a43; }
+.app-shell .mine .message-bubble { border-color: #b7ddb0; background: #dff5d8; }
+.app-shell .conversation-message.owner-instruction .message-bubble { border-color: #176fae; background: #176fae; color: #fff; font-weight: 700; }
+.app-shell .conversation-message.owner-instruction .counterparty-avatar { background: #176fae; color: #fff; }
+.app-shell .conversation-message.owner-instruction .message-meta span { color: #176fae; font-weight: 700; }
 .app-shell .files-page { margin: 0; padding: 0 0 48px; }
 .app-shell .files-heading { margin-bottom: 22px; }
 .app-shell .files-heading h1 { color: var(--ink); font-size: clamp(28px,3vw,38px); font-weight: 600; }
