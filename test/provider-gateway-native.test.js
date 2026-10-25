@@ -34,6 +34,8 @@ for (const backend of backends) {
     t.after(async () => { if (backend === 'PostgreSQL') await raw.close(); await rm(root, { recursive: true, force: true }); });
     let at = Date.parse('2026-10-24T12:00:00.000Z'), enabled = true, paused = false, revoked = false, allowed = permissions.slice(), blocked = false, loseEffect = false, ownerRequired = false, invalidAudit = false;
     const published = [];
+    const latency = { claim: 0, act: 0, renew: 0, commit: 0 };
+    let effectControl = null;
     const key = crypto.randomBytes(32), workPath = id => path.join('canonical-work', `${id}.json`);
     const authorize = async () => {
       if (revoked) throw Object.assign(new Error(), { code: 'CREDENTIAL_REVOKED', statusCode: 401 });
@@ -57,13 +59,14 @@ for (const backend of backends) {
     };
     const nativeAdapter = {
       lockKeys: async () => ['inbox:installation1'],
-      authorize: async (_b, { work }) => { if (blocked && work) throw Object.assign(new Error(), { code: 'GATEWAY_SCOPE_DENIED', statusCode: 403 }); return authorize(); },
+      authorize: async (_b, { work, commit }) => { if (commit) at += latency.commit; if (blocked && work) throw Object.assign(new Error(), { code: 'GATEWAY_SCOPE_DENIED', statusCode: 403 }); return authorize(); },
       verifyOwnerScope: async (_b, _input, owner) => { if (owner !== 'owner') throw Object.assign(new Error(), { code: 'AUTHENTICATION_REQUIRED', statusCode: 401 }); return authorize(); },
       claim: async (_b, { leaseSeconds, excludeWorkIds }) => {
         for (const current of (await store.listJson('canonical-work')).sort((a, b) => a.workId.localeCompare(b.workId))) {
           if (excludeWorkIds.includes(current.workId) || current.state === 'completed' || current.state === 'held' || Date.parse(current.leaseExpiresAt) > at) continue;
           current.fence = (current.fence || 0) + 1; current.leaseToken = 'PRIVATE_LEASE_' + crypto.randomUUID(); current.leaseExpiresAt = new Date(at + leaseSeconds * 1000).toISOString(); current.attempts = (current.attempts || 0) + 1;
           await store.putJson(workPath(current.workId), current);
+          at += latency.claim;
           return { ...current, caseSession: 'PRIVATE_CASE_SESSION', snapshot: { objective: 'Review a time', status: 'open', participants: [{ role: 'self', displayName: 'Agent' }], recentEvents: [{ at: new Date(at).toISOString(), from: 'counterparty', summary: current.text }], assets: [{ name: 'file.pdf', url: 'https://PRIVATE_ASSET', state: 'clean' }], pendingProposal: null } };
         }
         return null;
@@ -77,6 +80,11 @@ for (const backend of backends) {
         else { current.state = 'completed'; current.reply = input.text; current.leaseExpiresAt = null; await store.putJson(path.join('canonical-replies', `${work.workId}.json`), { text: input.text, id: 'canonical_reply1' }); result = { state: 'sent', settled: true, receiptId: 'canonical_reply1' }; }
         await store.putJson(workPath(work.workId), current);
         await input.audit('agent.native_effect', { workId: work.workId }, input.asOf, 'counterpartyInbox');
+        at += latency.act;
+        if (effectControl === 'revoke') revoked = true;
+        if (effectControl === 'pause') paused = true;
+        if (effectControl === 'block') blocked = true;
+        if (effectControl === 'disable') enabled = false;
         if (invalidAudit) await input.audit('agent.native_effect', {}, input.asOf, '../outside');
         if (loseEffect) { loseEffect = false; throw new Error('transaction failed after effect staging'); }
         return result;
@@ -84,7 +92,7 @@ for (const backend of backends) {
       renew: async (_b, work, { leaseSeconds }) => {
         const current = await store.getJson(workPath(work.workId));
         if (current.fence !== work.fence || Date.parse(current.leaseExpiresAt) <= at) throw Object.assign(new Error(), { code: 'LEASE_LOST', statusCode: 409 });
-        current.leaseExpiresAt = new Date(at + leaseSeconds * 1000).toISOString(); await store.putJson(workPath(work.workId), current); return { leaseExpiresAt: current.leaseExpiresAt };
+        current.leaseExpiresAt = new Date(at + leaseSeconds * 1000).toISOString(); await store.putJson(workPath(work.workId), current); at += latency.renew; return { leaseExpiresAt: current.leaseExpiresAt };
       },
       release: async (_b, work, { held }) => { const current = await store.getJson(workPath(work.workId)); if (current.fence === work.fence && Date.parse(current.leaseExpiresAt) > at) { current.attempts--; current.leaseExpiresAt = null; if (held) current.state = 'held'; await store.putJson(workPath(work.workId), current); } }
     };
@@ -105,7 +113,7 @@ for (const backend of backends) {
     const nativeSession = async () => { await upgrade(); at += 20_000; const repairing = await connect(); const confirmedAt = at; at += 5000; return { session: await repairing.activate(), confirmedAt }; };
     return { store, root, published, readOnly, upgrade, connect, nativeSession, restart, work: id => store.getJson(workPath(id)),
       get browser() { return browser; }, get native() { return native; }, get phrase() { return phrase; }, get at() { return at; },
-      advance: ms => { at += ms; }, disable: () => { enabled = false; }, enable: () => { enabled = true; }, pause: () => { paused = true; }, revoke: () => { revoked = true; }, reduce: () => { allowed = ['receive_agent_messages']; }, block: () => { blocked = true; }, loseEffect: () => { loseEffect = true; }, requireOwner: () => { ownerRequired = true; }, invalidAudit: () => { invalidAudit = true; } };
+      advance: ms => { at += ms; }, delay: (operation, ms) => { latency[operation] = ms; }, effectControl: control => { effectControl = control; }, disable: () => { enabled = false; }, enable: () => { enabled = true; }, pause: () => { paused = true; }, revoke: () => { revoked = true; }, reduce: () => { allowed = ['receive_agent_messages']; }, block: () => { blocked = true; }, loseEffect: () => { loseEffect = true; }, requireOwner: () => { ownerRequired = true; }, invalidAudit: () => { invalidAudit = true; } };
   }
   test(`[${backend}] explicit owner upgrade ends old generation; repair preserves identity, permission scope and confirmation-bound lifetime`, async t => {
     const f = await fixture(t);
@@ -210,5 +218,37 @@ for (const backend of backends) {
     const g = await fixture(t), { session: gs } = await g.nativeSession(), gc = await g.native.claim(gs.secret, gs.csrf, { runId: 'r' }); g.invalidAudit();
     await assert.rejects(g.native.act(gs.secret, gs.csrf, { runId: 'r', workRef: gc.packet.workRef, idempotencyKey: 'invalid', action: 'reply', text: 'No' }), /Invalid canonical native audit/);
     assert.equal((await g.store.listJson('canonical-replies')).length, 0);
+  });
+  test(`[${backend}] outstanding claim replay checks current case controls without a request workRef`, async t => {
+    const f = await fixture(t), { session: s } = await f.nativeSession(); await f.native.claim(s.secret, s.csrf, { runId: 'r' });
+    f.block();
+    await assert.rejects(f.native.claim(s.secret, s.csrf, { runId: 'r' }), code('GATEWAY_SCOPE_DENIED'));
+    assert.equal((await f.work('work1')).attempts, 1);
+  });
+  test(`[${backend}] awaited effects and final authorization cannot commit after run budget`, async t => {
+    for (const operation of ['claim', 'act', 'renew', 'commit']) {
+      const f = await fixture(t), { session: s } = await f.nativeSession();
+      let c;
+      if (operation !== 'claim') c = await f.native.claim(s.secret, s.csrf, { runId: 'r' });
+      const beforeAudits = (await f.store.listJson('canonical-audits')).length, beforePublished = f.published.length;
+      f.delay(operation, 120_001);
+      const input = { runId: 'r', workRef: c?.packet.workRef, idempotencyKey: 'slow', action: 'reply', text: 'Should roll back' };
+      const call = operation === 'claim' ? f.native.claim(s.secret, s.csrf, { runId: 'r' }) : operation === 'renew'
+        ? f.native.renew(s.secret, s.csrf, { runId: 'r', workRef: c.packet.workRef }) : f.native.act(s.secret, s.csrf, input);
+      await assert.rejects(call, code('GATEWAY_RUN_EXPIRED'));
+      assert.equal((await f.store.listJson('canonical-replies')).length, 0);
+      assert.equal((await f.store.listJson('canonical-audits')).length, beforeAudits); assert.equal(f.published.length, beforePublished);
+      assert.equal((await f.work('work1')).state, 'pending'); assert.equal((await f.work('work1')).attempts, operation === 'claim' ? 0 : 1);
+      if (operation === 'renew') assert.equal((await f.work('work1')).leaseExpiresAt, c.packet.leaseExpiresAt);
+    }
+  });
+  test(`[${backend}] lifecycle and case controls changed during awaited effect roll back reply, settlement and audit`, async t => {
+    for (const [control, expected] of [['revoke', 'CREDENTIAL_REVOKED'], ['pause', 'AGENT_PAUSED'], ['block', 'GATEWAY_SCOPE_DENIED'], ['disable', 'FEATURE_DISABLED']]) {
+      const f = await fixture(t), { session: s } = await f.nativeSession(), c = await f.native.claim(s.secret, s.csrf, { runId: 'r' });
+      const beforePublished = f.published.length;
+      f.effectControl(control);
+      await assert.rejects(f.native.act(s.secret, s.csrf, { runId: 'r', workRef: c.packet.workRef, idempotencyKey: 'control', action: 'reply', text: 'Blocked' }), code(expected));
+      assert.equal((await f.store.listJson('canonical-replies')).length, 0); assert.equal((await f.work('work1')).state, 'pending'); assert.equal(f.published.length, beforePublished);
+    }
   });
 }

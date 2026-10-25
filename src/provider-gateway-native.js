@@ -82,6 +82,15 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
     }
   }
   async function reconcileFlags() { if (!enabled()) await rollback(); }
+  async function commitAuthority(session, work, kind, input) {
+    const at = now();
+    if (session.expiresAt <= at || session.lastActivity + 86_400_000 <= at) fail(401, 'GATEWAY_SESSION_EXPIRED', { reason: 'expired' });
+    const installation = await port.read(`installation:${session.binding.installationId}`);
+    if (!installation || installation.binding.generation !== session.binding.generation) fail(401, 'GATEWAY_SESSION_EXPIRED', { reason: 'generation_changed' });
+    if (!enabled()) fail(404, 'FEATURE_DISABLED');
+    if (session.nativeScope !== 'native_work' || installation.native?.scope !== 'native_work') fail(403, 'GATEWAY_SCOPE_DENIED');
+    permissionCheck(await adapter.authorize(session.binding, { work, operation: kind, input, commit: true }));
+  }
   async function operation(secret, csrf, kind, input, fn) {
     if (csrf === undefined) fail(403, 'GATEWAY_CSRF_INVALID');
     // Canonical refresh can own a separate replay-safe transaction. Verify the
@@ -98,7 +107,11 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       if (!enabled()) { await revokeNative(session.binding, 'flag_off'); return { refused: gatewayError(404, 'FEATURE_DISABLED') }; }
       const installation = await port.read(`installation:${session.binding.installationId}`);
       if (session.nativeScope !== 'native_work' || installation?.native?.scope !== 'native_work') fail(403, 'GATEWAY_SCOPE_DENIED');
-      const ledger = await readLedger(session.binding), work = input.workRef ? ledger.work[input.workRef] : null;
+      const ledger = await readLedger(session.binding);
+      // A claim retry contains only runId. Its outstanding work still needs the
+      // same live case/counterparty checks as act before returning a replay.
+      const work = input.workRef ? ledger.work[input.workRef] : kind === 'claim'
+        ? Object.values(ledger.work).find(item => item.runId === input.runId && !item.closed && Date.parse(item.leaseExpiresAt) > now()) : null;
       const holdPaused = async () => {
         for (const outstanding of Object.values(ledger.work)) await release(session.binding, outstanding, 'paused');
         await port.write(ledgerId(session.binding), ledger);
@@ -108,7 +121,14 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       const identity = await adapter.authorize(session.binding, { work, operation: kind, input });
       if (identity.paused) return holdPaused();
       permissionCheck(identity);
-      return fn(session, identity, ledger, work);
+      const result = await fn(session, identity, ledger, work);
+      const currentWork = result.packet?.workRef ? ledger.work[result.packet.workRef] : work;
+      await commitAuthority(session, currentWork, kind, input);
+      // Every adapter effect and this ledger are staged in the outer transaction.
+      // An awaited projection/policy/effect must not let a 120 s run commit late.
+      // A stored act replay is intentionally allowed after its old run expired.
+      if (!(kind === 'act' && result.replayed) && ledger.runs[input.runId]) runBudget(ledger.runs[input.runId]);
+      return result;
     }, csrf, false, binding => lockKeys(binding, kind, input));
     if (result?.refused) throw result.refused;
     return result;
@@ -139,7 +159,7 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       }
       if (active) { await port.write(ledgerId(binding), ledger); return { state: 'idle', packet: null, retryAfterSeconds: retry(Date.parse(active.leaseExpiresAt)), replayed: false }; }
       if (run.items >= nativeGatewayLimits.items || run.actions >= nativeGatewayLimits.actions) return { state: 'budget_reached', packet: null, retryAfterSeconds: 1800, replayed: false };
-      const claimed = await adapter.claim(binding, { runId: input.runId, leaseSeconds: 150, excludeWorkIds: run.excluded, asOf: iso(at), audit: auditFor(binding) });
+      const claimed = await adapter.claim(binding, { runId: input.runId, leaseSeconds: 150, excludeWorkIds: run.excluded, asOf: iso(at), runDeadline: run.startedAt + nativeGatewayLimits.runMs, audit: auditFor(binding) });
       if (now() > run.startedAt + nativeGatewayLimits.runMs) fail(409, 'GATEWAY_RUN_EXPIRED');
       if (!claimed || !claimed.workId) {
         await port.write(ledgerId(binding), ledger);
@@ -181,7 +201,8 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       const rate = await port.read(rateId(binding)) || { replies: [] };
       rate.replies = rate.replies.filter(at => at > now() - 3_600_000);
       if (input.action === 'reply' && rate.replies.length >= nativeGatewayLimits.repliesPerHour) fail(429, 'RATE_LIMITED', { retryAfterSeconds: retry(rate.replies[0] + 3_600_000) });
-      const effect = await adapter.act(binding, work, { action: input.action, text: input.text, idempotencyKey: input.idempotencyKey, requestDigest, asOf: iso(now()), audit: auditFor(binding) });
+      const effect = await adapter.act(binding, work, { action: input.action, text: input.text, idempotencyKey: input.idempotencyKey, requestDigest, asOf: iso(now()), runDeadline: run.startedAt + nativeGatewayLimits.runMs, audit: auditFor(binding) });
+      runBudget(run);
       if (!['sent', 'owner_approval_pending', 'deferred'].includes(effect?.state) || effect.state === 'sent' && !effect.settled) fail(503, 'GATEWAY_TEMPORARILY_UNAVAILABLE');
       const result = { state: effect.state, runId: input.runId, workRef: input.workRef,
         ...(effect.state === 'sent' ? { receiptRef: opaque('r') } : {}), ...(effect.state === 'owner_approval_pending' ? { requestRef: opaque('q') } : {}),
@@ -201,7 +222,8 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
     return operation(secret, csrf, 'renew', input, async (session, _identity, ledger, work) => {
       const run = liveWork(ledger, work, input, session.binding);
       if (work.renewals >= 1) fail(409, 'LEASE_LOST');
-      const renewed = await adapter.renew(session.binding, work, { leaseSeconds: 150, asOf: iso(now()), audit: auditFor(session.binding) });
+      const renewed = await adapter.renew(session.binding, work, { leaseSeconds: 150, asOf: iso(now()), runDeadline: run.startedAt + nativeGatewayLimits.runMs, audit: auditFor(session.binding) });
+      runBudget(run);
       if (!Number.isFinite(Date.parse(renewed?.leaseExpiresAt)) || Date.parse(renewed.leaseExpiresAt) <= now()) fail(503, 'GATEWAY_TEMPORARILY_UNAVAILABLE');
       work.leaseExpiresAt = renewed.leaseExpiresAt; work.packet.leaseExpiresAt = renewed.leaseExpiresAt; work.packet.renewalsLeft = 0; work.renewals++; run.actions++;
       await port.write(ledgerId(session.binding), ledger);
