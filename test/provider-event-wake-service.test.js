@@ -206,3 +206,12 @@ parity('MCP create and activation recheck authority after asynchronous work and 
   const created=await h.tx(()=>h.http.create(binding,{url:'https://callbacks.envoi-provider.com/mcp'},{createdVia:'mcp'}));h.advance(2000);await h.http.runOnce();const challenge=JSON.parse(h.sent.at(-1).bodyText).challenge;activation=true;
   await assert.rejects(h.tx(()=>h.http.activate(binding,created.subscription.id,{challenge})),{statusCode:401,code:'CREDENTIAL_REVOKED'});assert.equal(reads,3);assert.notEqual((await h.store.getJson(wakeSubscriptionPath(binding.agentId,created.subscription.id))).status,'active');
 });
+
+parity('canonical owner decisions wake extension hosts using an approved opaque reason',async(t,kind)=>{
+  const h=await harness(t,kind);await h.provider.subscribe(identity,parameters(),protocol);
+  await h.tx(()=>h.http.trigger({...binding,reason:'human_decision',cursor:'00000000000000000013'}));
+  assert.equal(await h.http.runOnce(),true);
+  const delivered=JSON.parse(h.sent.at(-1).bodyText);
+  assert.equal(delivered.name,'envoi.work_available');assert.deepEqual(delivered.data,{reason:'work_due'});
+  assert.equal(delivered.cursor,'00000000000000000013');assert.equal(JSON.stringify(delivered).includes('human_decision'),false);
+});

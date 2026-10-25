@@ -3994,6 +3994,10 @@ async function route(req, res) {
       if (!fresh || fresh.inboxId !== identity.inboxId || fresh.agent.id !== identity.agent.id || fresh.family?.id !== identity.family?.id
         || fresh.installationId !== identity.installationId) throw credentialError('CREDENTIAL_REVOKED');
       if (fresh.paused) throw agentPausedError();
+      if (!fresh.agent.permissions?.includes('receive_agent_messages')) {
+        if (fresh.oauth) res.setHeader('www-authenticate', insufficientScopeChallenge(remoteAuth.origin, 'envoi.agent'));
+        throw codedError(403, 'INSUFFICIENT_SCOPE', 'This connection no longer holds receive permission.');
+      }
       return fresh;
     };
     const events = { ...providerEventWake };

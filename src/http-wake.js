@@ -83,6 +83,8 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     return sub;
   }
   async function queue(sub, type, reason, challenge, cursor = null) {
+    // Canonical owner decisions reoffer work; extension hints use the approved general due reason.
+    if ((sub.profile || sub.createdVia === 'mcp') && reason === 'human_decision') reason = 'work_due';
     if(cursor&&(!sub.cursor||cursor>sub.cursor))sub.cursor=cursor;
     const lane = type === 'wake.challenge' ? 'challenge' : type === 'wake.work_available' ? 'work' : 'control';
     const existing = (await liveEventsOf(sub)).find(event => event.lane === lane);
