@@ -115,12 +115,11 @@ export class McpWakeClient {
   async discoverEvents(): Promise<boolean> {
     this.#eventsVersion();
     const result = await this.#rpc('server/discover', {});
-    closed(result, ['protocolVersion', 'capabilities', 'serverInfo']);
-    valid(result.protocolVersion === '2026-07-28');
+    closed(result, ['resultType', 'supportedVersions', 'capabilities']);
+    valid(result.resultType === 'complete' && Array.isArray(result.supportedVersions)
+      && result.supportedVersions.length === 1 && result.supportedVersions[0] === '2026-07-28');
     closed(result.capabilities, [], ['tools', 'events']);
     if (result.capabilities.events !== undefined) closed(result.capabilities.events, []);
-    closed(result.serverInfo, ['name'], ['version']);
-    valid(text(result.serverInfo.name, 100));
     return result.capabilities.events !== undefined;
   }
   async subscribe(input: EventInput): Promise<EventSubscription> {

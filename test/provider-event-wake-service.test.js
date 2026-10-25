@@ -132,7 +132,7 @@ async function canonical(contract,file,ref){
 test('MCP wake tool metadata/input schemas and events discovery/list match approved canonical fixture tables',async t=>{
   const h=await harness(t);const mcp=await canonical('mcp-wake','schemas.json','32975892945718296a4968a3d6ddbc40ef6d175b');
   assert.deepEqual(mcpWakeTools.map(({description:_,...tool})=>tool),mcp['x-tools']);
-  const discover=await canonical('provider-event-wake','discover-events-capability.json','d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b');assert.deepEqual(h.provider.discover(identity,protocol),discover.response.body.result);
+  const discover=await canonical('provider-event-wake-discovery','discover-events-capability.json','4e7163203a78ab584ff9569044b99d28b681f0ba');assert.deepEqual(h.provider.discover(identity,protocol),discover.response.body.result);
   const list=await canonical('provider-event-wake','events-list.json','d920f65cf2ad2ec1933ab92c29d46fbdb4397a7b');assert.deepEqual(h.provider.list(identity,{},protocol),list.response.body.result);
 });
 parity('live a4 cursors advance through coalescing, retries and reconnect without regressing to older replay',async(t,kind)=>{

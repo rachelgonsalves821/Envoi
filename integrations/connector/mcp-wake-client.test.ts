@@ -10,7 +10,7 @@ function responseFor(row: any, init?: RequestInit) {
   if (body.jsonrpc && init?.body) body.id = JSON.parse(String(init.body)).id;
   return new Response(JSON.stringify(body), { status: row.response.status, headers: { 'content-type': 'application/json', ...row.response.headers } });
 }
-function setup(contract: 'mcp-wake' | 'provider-event-wake', name: string, events = false) {
+function setup(contract: 'mcp-wake' | 'provider-event-wake' | 'provider-event-wake-discovery', name: string, events = false) {
   const row = fixture(contract, name);
   const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => responseFor(row, init));
   const client = new McpWakeClient({ origin, accessToken: async () => token, fetch: fetcher as typeof fetch, protocolVersion: events ? '2026-07-28' : '2025-11-25' });
@@ -71,11 +71,30 @@ describe('protocol-bound private MCP Events', () => {
     expect(JSON.stringify(result)).not.toContain('whsec_');
   });
   it('discovers exact events capability and unsubscribes without the secret', async () => {
-    const discover = setup('provider-event-wake', 'discover-events-capability', true);
+    const discover = setup('provider-event-wake-discovery', 'discover-events-capability', true);
     await expect(discover.client.discoverEvents()).resolves.toBe(true);
     const unsub = setup('provider-event-wake', 'unsubscribe-ok', true);
     await expect(unsub.client.unsubscribe(unsub.row.request.body.params)).resolves.toBeUndefined();
     expect(String(unsub.fetcher.mock.calls[0][1]!.body)).not.toContain('whsec_');
+  });
+  it('rejects historical, incomplete, incompatible and authority-bearing discovery without a fallback', async () => {
+    const row = fixture('provider-event-wake-discovery', 'discover-events-capability');
+    const result = row.response.body.result;
+    for (const invalid of [
+      fixture('provider-event-wake', 'discover-events-capability').response.body.result,
+      { ...result, resultType: 'partial' },
+      { supportedVersions: result.supportedVersions, capabilities: result.capabilities },
+      { resultType: result.resultType, capabilities: result.capabilities },
+      ...[[], ['2025-11-25'], ['2026-07-28', '2026-07-28'], '2026-07-28'].map(supportedVersions => ({ ...result, supportedVersions })),
+      { ...result, accessToken: token },
+      { ...result, capabilities: { ...result.capabilities, events: { secret: token } } }
+    ]) {
+      const changed = { ...row, response: { ...row.response, body: { ...row.response.body, result: invalid } } };
+      const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => responseFor(changed, init));
+      const client = new McpWakeClient({ origin, accessToken: async () => token, fetch: fetcher as typeof fetch, protocolVersion: '2026-07-28' });
+      await expect(client.discoverEvents()).rejects.toMatchObject({ code: 'INVALID_RESPONSE', message: 'Envoi host request failed (INVALID_RESPONSE)' });
+      expect(fetcher).toHaveBeenCalledOnce();
+    }
   });
   it('normalizes an unpadded secret privately before subscribing without mutating the host input', async () => {
     const { row, client, fetcher } = setup('provider-event-wake', 'subscribe-created', true);
