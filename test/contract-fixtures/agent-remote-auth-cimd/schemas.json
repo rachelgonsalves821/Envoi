@@ -1,0 +1,142 @@
+{
+  "$id": "agent-remote-auth-cimd/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Published CIMD auth-method amendment only; no runtime implementation before human approval.",
+  "x-amends": {
+    "contract": "agent-remote-auth",
+    "version": 1,
+    "revision": 4,
+    "section": "3.1 client metadata auth method"
+  },
+  "x-selected-method": "none",
+  "x-limits": {
+    "methodsMax": 16,
+    "methodLengthMax": 128
+  },
+  "x-rejection": "auth_method_not_none",
+  "definitions": {
+    "method": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[\\x21-\\x7e]+$"
+    },
+    "clientAuthMetadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "token_endpoint_auth_method": {
+          "$ref": "#/definitions/method"
+        },
+        "token_endpoint_auth_methods_supported": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/method"
+          },
+          "contains": {
+            "const": "none"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "token_endpoint_auth_methods_supported"
+            ]
+          },
+          "then": {},
+          "else": {
+            "properties": {
+              "token_endpoint_auth_method": {
+                "const": "none"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind",
+        "document",
+        "expected"
+      ],
+      "properties": {
+        "contract": {
+          "const": "agent-remote-auth-cimd"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "client-metadata"
+        },
+        "document": {
+          "type": "object"
+        },
+        "expected": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "valid",
+                "selectedMethod",
+                "authorizeOutcome"
+              ],
+              "properties": {
+                "valid": {
+                  "const": true
+                },
+                "selectedMethod": {
+                  "const": "none"
+                },
+                "authorizeOutcome": {
+                  "const": "consent"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "valid",
+                "rejection",
+                "authorizeOutcome"
+              ],
+              "properties": {
+                "valid": {
+                  "const": false
+                },
+                "rejection": {
+                  "const": "auth_method_not_none"
+                },
+                "authorizeOutcome": {
+                  "const": "invalid_client"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

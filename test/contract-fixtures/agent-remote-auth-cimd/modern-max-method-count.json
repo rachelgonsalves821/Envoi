@@ -1,0 +1,44 @@
+{
+  "contract": "agent-remote-auth-cimd",
+  "version": 1,
+  "id": "modern-max-method-count",
+  "kind": "client-metadata",
+  "description": "The proposed exact maximum of sixteen unique methods is accepted.",
+  "document": {
+    "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+    "client_name": "Fixture Assistant",
+    "redirect_uris": [
+      "https://assistant.example.com/oauth/callback"
+    ],
+    "grant_types": [
+      "authorization_code",
+      "refresh_token"
+    ],
+    "response_types": [
+      "code"
+    ],
+    "token_endpoint_auth_methods_supported": [
+      "none",
+      "future_0",
+      "future_1",
+      "future_2",
+      "future_3",
+      "future_4",
+      "future_5",
+      "future_6",
+      "future_7",
+      "future_8",
+      "future_9",
+      "future_10",
+      "future_11",
+      "future_12",
+      "future_13",
+      "future_14"
+    ]
+  },
+  "expected": {
+    "valid": true,
+    "selectedMethod": "none",
+    "authorizeOutcome": "consent"
+  }
+}
