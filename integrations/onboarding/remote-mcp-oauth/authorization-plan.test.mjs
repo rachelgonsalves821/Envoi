@@ -95,3 +95,46 @@ test('a hostname containing hex letters remains a valid HTTPS redirect', async (
   }, redirectUri });
   assert.equal(new URL(plan.authorizationUrl).searchParams.get('redirect_uri'), redirectUri);
 });
+
+// Consume the same approved amendment vectors as the server validator; no copied fixtures.
+const cimdRegistry = JSON.parse(await readFile(new URL('../../../test/contract-fixtures/index.json', import.meta.url), 'utf8'));
+const cimdEntry = cimdRegistry.contracts.find(contract => contract.id === 'agent-remote-auth-cimd');
+const cimdCases = await Promise.all(cimdEntry.fixtures.map(async name => {
+  const bytes = await readFile(new URL(`../../../test/contract-fixtures/${cimdEntry.dir}/${name}`, import.meta.url), 'utf8');
+  return JSON.parse(bytes);
+}));
+for (const row of cimdCases) {
+  test(`approved CIMD client planner: ${row.id}`, async () => {
+    const { expected: _expected, ...input } = await inputs();
+    const current = { ...input, clientMetadata: row.document, redirectUri: row.document.redirect_uris[0] };
+    if (!row.expected.valid) {
+      assert.throws(() => planRemoteMcpAuthorization(current), /Invalid remote MCP authorization setup/);
+      return;
+    }
+    const result = planRemoteMcpAuthorization(current);
+    const params = new URL(result.authorizationUrl).searchParams;
+    assert.equal(params.get('client_id'), row.document.client_id);
+    assert.equal(params.get('redirect_uri'), row.document.redirect_uris[0]);
+    assert.equal(params.get('code_challenge_method'), 'S256');
+    assert.equal(params.get('resource'), `${input.origin}/mcp`);
+    assert.equal(params.get('scope'), 'envoi.agent envoi.send');
+    assert.equal(params.has('client_assertion'), false);
+    assert.equal(params.has('client_secret'), false);
+    assert.equal(JSON.stringify(result).includes(input.codeVerifier), false);
+  });
+}
+
+test('modern public capabilities do not relax trusted issuer, redirect, PKCE or scope checks', async () => {
+  const { expected: _expected, ...input } = await inputs();
+  const document = cimdCases.find(row => row.id === 'modern-chatgpt-preference').document;
+  const current = { ...input, clientMetadata: document, redirectUri: document.redirect_uris[0] };
+  const sparseMethods = ['none']; sparseMethods.length = 2;
+  for (const edit of [
+    { redirectUri: 'https://attacker.invalid/callback' },
+    { protectedResource: { ...current.protectedResource, resource: 'https://other.example/mcp' } },
+    { authorizationServer: { ...current.authorizationServer, issuer: 'https://other.example' } },
+    { codeVerifier: 'short' }, { scopes: ['envoi.agent', 'envoi.email'] },
+    { clientMetadata: { ...document, client_id: 'https://127.0.0.1/client.json' } },
+    { clientMetadata: { ...document, token_endpoint_auth_methods_supported: sparseMethods } }
+  ]) assert.throws(() => planRemoteMcpAuthorization({ ...current, ...edit }), /Invalid remote MCP authorization setup/);
+});

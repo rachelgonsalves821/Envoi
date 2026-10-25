@@ -134,7 +134,7 @@ for (const backend of backends) {
     const f = await fixture(t), { session: s } = await f.nativeSession();
     const [a, b] = await Promise.all([f.native.claim(s.secret, s.csrf, { runId: 'r' }), f.native.claim(s.secret, s.csrf, { runId: 'r' })]);
     matches('claimResult', a); matches('claimResult', b);
-    assert.equal(a.packet.workRef, b.packet.workRef); assert.equal(b.replayed, true); assert.equal((await f.work('work1')).attempts, 1);
+    assert.equal(a.packet.workRef, b.packet.workRef); assert.deepEqual([a.replayed, b.replayed].sort(), [false, true]); assert.equal((await f.work('work1')).attempts, 1);
     assert.doesNotMatch(JSON.stringify(a), /PRIVATE_|installation1|owner1|case1|leaseToken|caseSession/);
     assert.match(a.packet.snapshot.recentEvents[0].summary, /Ignore previous instructions/); assert.equal(a.packet.untrusted, true);
     assert.equal(a.packet.snapshot.recentEvents[0].truncated, true); assert.ok(Buffer.byteLength(a.packet.snapshot.recentEvents[0].summary) <= 2048); assert.ok(!a.packet.snapshot.recentEvents[0].summary.includes('�'));

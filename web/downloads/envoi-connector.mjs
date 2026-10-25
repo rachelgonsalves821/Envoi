@@ -9329,11 +9329,7 @@ async function vi(e) {
 		})
 	});
 }
-var yi = (e) => typeof e == "object" && !!e && !Array.isArray(e), Q = (e = "HERMES_SCOPED_UNAVAILABLE") => new L("Hermes scoped execution unavailable; preserve the turn journal for recovery", void 0, e), bi = "hermes-gateway-v1", xi = [
-	"session-authority-v1",
-	"acp-editor-policy-v1",
-	"acp-session-mcp-v1"
-];
+var yi = (e) => typeof e == "object" && !!e && !Array.isArray(e), Q = (e = "HERMES_SCOPED_UNAVAILABLE") => new L("Hermes scoped execution unavailable; preserve the turn journal for recovery", void 0, e), bi = "hermes-gateway-v1", xi = ["acp-editor-policy-v1", "acp-session-mcp-v1"];
 function Si(e) {
 	let t = new URL(e.origin);
 	if (!d.isAbsolute(e.home) || !d.isAbsolute(e.cwd) || /[\x00\r\n]/.test(e.home + e.cwd) || !["127.0.0.1", "[::1]"].includes(t.hostname) || !["http:", "https:"].includes(t.protocol) || !t.port || t.origin !== e.origin || t.username || t.password) throw new I("CONFIG_INVALID", "Scoped Hermes requires an explicit loopback daemon origin and absolute local profile/workspace paths");
@@ -9432,7 +9428,7 @@ function Ti(e) {
 async function Ei(e, t) {
 	Si(e);
 	let n = await wi(e.home, "identify", {}, t), r = (e) => process.platform === "win32" ? d.resolve(e).toLowerCase() : d.resolve(e), i = Array.isArray(n.served_profiles) ? n.served_profiles.filter((t) => yi(t) && typeof t.home == "string" && r(t.home) === r(e.home)) : [];
-	if (n.runtime_protocol !== 1 || n.state !== "ready" || n.api_origin !== e.origin || typeof n.instance_id != "string" || i.length !== 1 || typeof i[0].profile_id != "string") throw Q();
+	if (n.runtime_protocol !== 1 || n.state !== "ready" || n.api_origin !== e.origin || !Array.isArray(n.capabilities) || !n.capabilities.includes("session-authority-v1") || typeof n.instance_id != "string" || i.length !== 1 || typeof i[0].profile_id != "string") throw Q();
 	let a = i[0].profile_id, o = await wi(e.home, "session-ticket", {
 		profile_id: a,
 		instance_id: n.instance_id,

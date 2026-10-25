@@ -2482,7 +2482,9 @@ async function settleActivation({ agent, inboxId, existing }) {
 // §6.1 row 11 re-checks, inside the activation's lock. False means the approval no longer holds.
 async function activationRechecksPass(registration) {
   const { target } = registration;
-  const approver = await store.getJson(path.join('humans', `${registration.approverHumanId}.json`));
+  const approver = auth.provider === 'workos'
+    ? await auth.getStoredHumanForAuthorization(registration.approverHumanId)
+    : await store.getJson(path.join('humans', `${registration.approverHumanId}.json`));
   if (!approver || (auth.provider === 'workos' && typeof auth.admitted === 'function' && !auth.admitted(approver))) return false;
   if (!(registration.oauth ? remoteRouteAvailable(onboardingFlags, registration.connectionRoute) : routeAvailable(onboardingFlags, registration.connectionRoute))) return false;
   const inbox = await store.getJson(path.join('inboxes', target.kind === 'new_agent' ? target.workspaceInboxId : target.agentInboxId, 'inbox.json'));

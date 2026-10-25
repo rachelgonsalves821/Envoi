@@ -12,7 +12,7 @@ import { startScopedMcpRelay } from './scoped-relay';
 const object = (value: unknown): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const failure = (code = 'HERMES_SCOPED_UNAVAILABLE') => new EnvoiError('Hermes scoped execution unavailable; preserve the turn journal for recovery', undefined, code);
 const protocol = 'hermes-gateway-v1';
-const requiredCapabilities = ['session-authority-v1', 'acp-editor-policy-v1', 'acp-session-mcp-v1'];
+const requiredCapabilities = ['acp-editor-policy-v1', 'acp-session-mcp-v1'];
 
 export interface HermesScopedHost {
   home: string;
@@ -127,6 +127,7 @@ export async function connectHermesHost(host: HermesScopedHost, signal: AbortSig
   const matches = Array.isArray(identity.served_profiles) ? identity.served_profiles.filter((entry: unknown) => object(entry)
     && typeof entry.home === 'string' && canonical(entry.home) === canonical(host.home)) : [];
   if (identity.runtime_protocol !== 1 || identity.state !== 'ready' || identity.api_origin !== host.origin
+    || !Array.isArray(identity.capabilities) || !identity.capabilities.includes('session-authority-v1')
     || typeof identity.instance_id !== 'string' || matches.length !== 1 || typeof matches[0].profile_id !== 'string') throw failure();
   const profileId = matches[0].profile_id;
   const grant = await control(host.home, 'session-ticket', { profile_id: profileId, instance_id: identity.instance_id, purpose: 'interactive' }, signal);

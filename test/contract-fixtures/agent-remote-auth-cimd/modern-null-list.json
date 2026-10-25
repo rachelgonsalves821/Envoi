@@ -1,0 +1,27 @@
+{
+  "contract": "agent-remote-auth-cimd",
+  "version": 1,
+  "id": "modern-null-list",
+  "kind": "client-metadata",
+  "description": "Null is not an omitted list.",
+  "document": {
+    "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+    "client_name": "Fixture Assistant",
+    "redirect_uris": [
+      "https://assistant.example.com/oauth/callback"
+    ],
+    "grant_types": [
+      "authorization_code",
+      "refresh_token"
+    ],
+    "response_types": [
+      "code"
+    ],
+    "token_endpoint_auth_methods_supported": null
+  },
+  "expected": {
+    "valid": false,
+    "rejection": "auth_method_not_none",
+    "authorizeOutcome": "invalid_client"
+  }
+}
