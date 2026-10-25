@@ -172,6 +172,21 @@ export function clientIdUrlRejection(clientId, origin) {
   return null;
 }
 
+// agent-remote-auth-cimd v1: CIMD clients remain public. A modern list is
+// authoritative for capability; the singular member is only a legacy preference.
+function supportsPublicClientAuthentication(document) {
+  const method = value => typeof value === 'string' && value.length >= 1 && value.length <= 128
+    && !/[^\x21-\x7e]/.test(value);
+  const preferencePresent = Object.hasOwn(document, 'token_endpoint_auth_method');
+  if (preferencePresent && !method(document.token_endpoint_auth_method)) return false;
+  if (!Object.hasOwn(document, 'token_endpoint_auth_methods_supported')) {
+    return !preferencePresent || document.token_endpoint_auth_method === 'none';
+  }
+  const methods = document.token_endpoint_auth_methods_supported;
+  return Array.isArray(methods) && methods.length >= 1 && methods.length <= 16
+    && Array.from(methods).every(method) && new Set(methods).size === methods.length && methods.includes('none');
+}
+
 // §3.1: the document. Returns null when valid, otherwise the x-client-metadata-checks reason.
 export function clientMetadataRejection(document, clientId) {
   if (!document || typeof document !== 'object' || Array.isArray(document)) return 'not_json';
@@ -179,7 +194,7 @@ export function clientMetadataRejection(document, clientId) {
   if (!validDisplayName(document.client_name)) return 'client_name_invalid';
   const uris = document.redirect_uris;
   if (!Array.isArray(uris) || uris.length < 1 || uris.length > remoteAuthLimits.clientMetadata.redirectUrisMax || uris.some(uri => redirectUriRejection(uri))) return 'redirect_uris_invalid';
-  if (document.token_endpoint_auth_method !== undefined && document.token_endpoint_auth_method !== 'none') return 'auth_method_not_none';
+  if (!supportsPublicClientAuthentication(document)) return 'auth_method_not_none';
   const grants = document.grant_types;
   if (grants !== undefined && (!Array.isArray(grants) || !grants.includes('authorization_code') || grants.some(grant => !['authorization_code', 'refresh_token'].includes(grant)))) return 'grant_types_invalid';
   const responses = document.response_types;

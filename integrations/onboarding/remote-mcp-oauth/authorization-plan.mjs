@@ -23,6 +23,21 @@ function validRedirect(value) {
   return url.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(url.hostname);
 }
 
+// agent-remote-auth-cimd v1: CIMD clients remain public. A modern list is
+// authoritative for capability; the singular member is only a legacy preference.
+function supportsPublicClientAuthentication(document) {
+  const method = value => typeof value === 'string' && value.length >= 1 && value.length <= 128
+    && !/[^\x21-\x7e]/.test(value);
+  const preferencePresent = Object.hasOwn(document, 'token_endpoint_auth_method');
+  if (preferencePresent && !method(document.token_endpoint_auth_method)) return false;
+  if (!Object.hasOwn(document, 'token_endpoint_auth_methods_supported')) {
+    return !preferencePresent || document.token_endpoint_auth_method === 'none';
+  }
+  const methods = document.token_endpoint_auth_methods_supported;
+  return Array.isArray(methods) && methods.length >= 1 && methods.length <= 16
+    && Array.from(methods).every(method) && new Set(methods).size === methods.length && methods.includes('none');
+}
+
 // Pure preparation for a trusted host. The caller keeps verifier, state, returned code,
 // code-bearing URL and tokens in its private OAuth flow; none belongs in model context.
 // This does not discover a server, offer a route, enroll a host or make it reachable.
@@ -55,8 +70,7 @@ export function planRemoteMcpAuthorization({ origin, protectedResource, authoriz
     || clientUrl.origin === issuer
     || isIP(clientUrl.hostname.replace(/^\[|\]$/g, '')) !== 0
     || clientUrl.port || clientMetadata.client_id.length > 2048
-    || (clientMetadata.token_endpoint_auth_method !== undefined
-      && clientMetadata.token_endpoint_auth_method !== 'none')
+    || !supportsPublicClientAuthentication(clientMetadata)
     || !Array.isArray(clientMetadata.redirect_uris)
     || !clientMetadata.redirect_uris.includes(redirectUri)
     || !validRedirect(redirectUri)

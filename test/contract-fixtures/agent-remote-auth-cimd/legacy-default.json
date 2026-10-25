@@ -1,0 +1,26 @@
+{
+  "contract": "agent-remote-auth-cimd",
+  "version": 1,
+  "id": "legacy-default",
+  "kind": "client-metadata",
+  "description": "Both auth-method fields absent keeps the approved public-client default.",
+  "document": {
+    "client_id": "https://assistant.example.com/oauth/envoi-client.json",
+    "client_name": "Fixture Assistant",
+    "redirect_uris": [
+      "https://assistant.example.com/oauth/callback"
+    ],
+    "grant_types": [
+      "authorization_code",
+      "refresh_token"
+    ],
+    "response_types": [
+      "code"
+    ]
+  },
+  "expected": {
+    "valid": true,
+    "selectedMethod": "none",
+    "authorizeOutcome": "consent"
+  }
+}
