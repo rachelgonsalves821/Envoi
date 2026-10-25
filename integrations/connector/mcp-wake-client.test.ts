@@ -87,6 +87,16 @@ describe('protocol-bound private MCP Events', () => {
     expect(sent.params.delivery.secret).toBe(row.request.body.params.delivery.secret);
     expect(input.delivery.secret).toBe(original);
   });
+  it.each([3600000, 604800000, null])('accepts the approved TTL boundary/default %s', async ttlMs => {
+    const { row, client, fetcher } = setup('provider-event-wake', 'subscribe-created', true);
+    await expect(client.subscribe({ ...row.request.body.params, ttlMs })).resolves.toEqual(row.response.body.result);
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body)).params.ttlMs).toBe(ttlMs);
+  });
+  it.each([0, 1, 3599999, 604800001, 3600000.5, Number.POSITIVE_INFINITY, '3600000'])('rejects TTL %s outside the approved closed range before sending', async ttlMs => {
+    const { row, client, fetcher } = setup('provider-event-wake', 'subscribe-created', true);
+    await expect(client.subscribe({ ...row.request.body.params, ttlMs })).rejects.toThrow('Event TTL must be between one hour and seven days');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it('cannot call events at the old protocol or include extra capability/secret fields', async () => {
     const { row, client, fetcher } = setup('provider-event-wake', 'subscribe-created');
     await expect(client.subscribe(row.request.body.params)).rejects.toMatchObject({ code: 'EVENTS_PROTOCOL_REQUIRED' });

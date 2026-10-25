@@ -77,7 +77,8 @@ export class NativeGatewayClient {
     closed(input, ['runId', 'workRef', 'idempotencyKey', 'action'], ['text']);
     run(input.runId); work(input.workRef);
     if (!text(input.idempotencyKey, 80) || !input.idempotencyKey.length || !actions.includes(input.action)) throw new TypeError('Invalid native action');
-    if (input.action === 'reply' && !Object.hasOwn(input, 'text')) throw new TypeError('Reply text is required');
+    if (input.action !== 'defer' && (!Object.hasOwn(input, 'text') || typeof input.text !== 'string' || !input.text.trim())) throw new TypeError('Reply or owner-request text is required');
+    if (input.action === 'defer' && Object.hasOwn(input, 'text')) throw new TypeError('Defer does not accept text');
     if (Object.hasOwn(input, 'text') && (!text(input.text, 4096) || !input.text.length || utf8Bytes(input.text) > 4096)) throw new TypeError('Text must fit 4096 UTF-8 bytes');
     const result = await this.#transport.post('/api/agent-gateway/work/act', input);
     closed(result, ['state', 'runId', 'workRef', 'settled', 'replayed'], ['receiptRef', 'requestRef']);

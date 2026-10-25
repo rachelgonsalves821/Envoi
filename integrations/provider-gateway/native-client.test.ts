@@ -43,6 +43,18 @@ describe('native work private host client', () => {
     test.row.request.body.idempotencyKey += '😀';
     await expect(test.client.act(test.row.request.body)).rejects.toThrow('Invalid native action');
   });
+  it.each([['reply', undefined], ['request_owner', undefined], ['request_owner', '   '], ['reply', '\n\t']])('rejects %s with missing/blank text before sending', async (action, value) => {
+    const test = setup('request-owner');
+    const input = { ...test.row.request.body, action };
+    if (value === undefined) delete input.text; else input.text = value;
+    await expect(test.client.act(input)).rejects.toThrow('Reply or owner-request text is required');
+    expect(test.fetcher).not.toHaveBeenCalled();
+  });
+  it.each(['do not send this', '', undefined])('rejects a defer text field before sending (%s)', async value => {
+    const test = setup('defer-releases-lease');
+    await expect(test.client.act({ ...test.row.request.body, text: value })).rejects.toThrow('Defer does not accept text');
+    expect(test.fetcher).not.toHaveBeenCalled();
+  });
   it.each(['reply-text-multibyte-over-byte-limit', 'reply-text-one-byte-over-limit'])('rejects %s before transport', async name => {
     const { row, client, fetcher } = setup(name);
     await expect(client.act(row.request.body)).rejects.toThrow('4096 UTF-8 bytes'); expect(fetcher).not.toHaveBeenCalled();

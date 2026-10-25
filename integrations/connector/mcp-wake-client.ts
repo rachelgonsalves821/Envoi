@@ -132,7 +132,7 @@ export class McpWakeClient {
     const secret = webhookSecret(input.delivery.secret);
     secret.bytes.fill(0); // only the canonical string is needed by this outgoing request
     if (Object.hasOwn(input, 'cursor') && !cursor(input.cursor)) throw new TypeError('Invalid event cursor');
-    if (Object.hasOwn(input, 'ttlMs') && input.ttlMs !== null && (!Number.isSafeInteger(input.ttlMs) || Number(input.ttlMs) < 1)) throw new TypeError('Invalid event TTL');
+    if (Object.hasOwn(input, 'ttlMs') && input.ttlMs !== null && (!Number.isSafeInteger(input.ttlMs) || Number(input.ttlMs) < 3600000 || Number(input.ttlMs) > 604800000)) throw new TypeError('Event TTL must be between one hour and seven days');
     const result = await this.#rpc('events/subscribe', { ...input, delivery: { ...input.delivery, secret: secret.canonical } });
     closed(result, ['id', 'refreshBefore', 'cursor', 'truncated']);
     valid(matches(result.id, /^evtsub_[0-9a-f]{20}$/) && dateTime(result.refreshBefore) && cursor(result.cursor) && typeof result.truncated === 'boolean');
