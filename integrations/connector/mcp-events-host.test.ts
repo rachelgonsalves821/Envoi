@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { McpEventsHost } from './mcp-events-host';
 import type { McpWakeClient } from './mcp-wake-client';
 import type { McpEventHint } from './mcp-events-receiver';
+import { HostRequestError } from './private-host-http';
 
 function setup() {
   let now = Date.parse('2026-10-24T12:00:00Z');
@@ -44,5 +45,20 @@ describe('private MCP events host catch-up and recovery', () => {
     const test = setup(); test.client.discoverEvents.mockResolvedValue(false);
     await expect(test.host.tick()).rejects.toMatchObject({ code: 'EVENTS_UNAVAILABLE' });
     expect(test.client.subscribe).not.toHaveBeenCalled(); expect(test.driver.processWorkOnce).not.toHaveBeenCalled();
+  });
+  it('holds every subscription and work tick until the server Retry-After minimum has elapsed', async () => {
+    const test = setup();
+    test.client.subscribe.mockRejectedValueOnce(new HostRequestError('RATE_LIMITED', 429, 120));
+    await expect(test.host.tick()).rejects.toMatchObject({ retryAfterSeconds: 120 });
+    test.advance(119000); await test.host.tick();
+    expect(test.client.subscribe).toHaveBeenCalledOnce(); expect(test.driver.processWorkOnce).not.toHaveBeenCalled();
+    test.advance(1000); await test.host.tick();
+    expect(test.client.subscribe).toHaveBeenCalledTimes(2); expect(test.driver.processWorkOnce).toHaveBeenCalledOnce();
+  });
+  it('uses the safety interval as bounded backoff when a 503 supplies no valid delay', async () => {
+    const test = setup(); test.client.subscribe.mockRejectedValueOnce(new HostRequestError('GATEWAY_TEMPORARILY_UNAVAILABLE', 503));
+    await expect(test.host.tick()).rejects.toMatchObject({ status: 503 });
+    await test.host.tick(); expect(test.client.subscribe).toHaveBeenCalledOnce();
+    test.advance(60000); await test.host.tick(); expect(test.client.subscribe).toHaveBeenCalledTimes(2);
   });
 });

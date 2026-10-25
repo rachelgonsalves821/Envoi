@@ -17,6 +17,7 @@ export interface McpEventsWorkDriver {
 /** Invoke tick on host startup and a trusted scheduler (at most 900 seconds apart), never a model timer. */
 export class McpEventsHost {
   #nextPoll = 0;
+  #retryAt = 0;
   #ready = false;
   #flight: Promise<void> | null = null;
   #stopped = false;
@@ -30,7 +31,13 @@ export class McpEventsHost {
   }
   tick(): Promise<void> {
     if (this.#flight) return this.#flight;
-    const operation = this.#tick(); this.#flight = operation;
+    if (this.#now() < this.#retryAt) return Promise.resolve();
+    const operation = this.#tick().catch(error => {
+      if (error instanceof HostRequestError && (error.retryAfterSeconds !== undefined || error.status === 429 || error.status === 503)) {
+        this.#retryAt = this.#now() + (error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : this.#pollMs);
+      }
+      throw error;
+    }); this.#flight = operation;
     void operation.finally(() => { this.#flight = null; }).catch(() => {});
     return operation;
   }

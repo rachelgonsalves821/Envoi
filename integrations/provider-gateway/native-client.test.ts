@@ -27,6 +27,22 @@ describe('native work private host client', () => {
     const { row, client } = setup('renew-once');
     await expect(client.renew(row.request.body)).resolves.toEqual(row.response.body);
   });
+  it('accepts server-bounded Unicode code points while retaining the separate UTF-8 summary cap', async () => {
+    const test = setup('claim-work');
+    const snapshot = test.row.response.body.packet.snapshot;
+    snapshot.objective = '😀'.repeat(500);
+    snapshot.participants[0].displayName = '😀'.repeat(80);
+    snapshot.recentEvents[0].summary = '😀'.repeat(512);
+    await expect(test.client.claim(test.row.request.body)).resolves.toMatchObject({ state: 'work' });
+    snapshot.objective += '😀';
+    await expect(test.client.claim(test.row.request.body)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+  it('accepts an 80-code-point idempotency key, matching the native server schema', async () => {
+    const test = setup('reply-sent'); test.row.request.body.idempotencyKey = '😀'.repeat(80);
+    await expect(test.client.act(test.row.request.body)).resolves.toMatchObject({ state: 'sent' });
+    test.row.request.body.idempotencyKey += '😀';
+    await expect(test.client.act(test.row.request.body)).rejects.toThrow('Invalid native action');
+  });
   it.each(['reply-text-multibyte-over-byte-limit', 'reply-text-one-byte-over-limit'])('rejects %s before transport', async name => {
     const { row, client, fetcher } = setup(name);
     await expect(client.act(row.request.body)).rejects.toThrow('4096 UTF-8 bytes'); expect(fetcher).not.toHaveBeenCalled();

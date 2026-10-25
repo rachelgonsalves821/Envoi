@@ -1,7 +1,7 @@
 /** Host-only transport. Never expose this object, headers or raw failures as model tools. */
 export type HostLifecycle = 'RUNNING' | 'PAUSED' | 'REVOKED' | 'NEEDS_RECONNECT';
 export class HostRequestError extends Error {
-  constructor(public readonly code: string, public readonly status?: number) {
+  constructor(public readonly code: string, public readonly status?: number, public readonly retryAfterSeconds?: number) {
     super(`Envoi host request failed (${code})`);
     this.name = 'HostRequestError';
   }
@@ -17,7 +17,13 @@ export function valid(condition: unknown): asserts condition {
 }
 export const utf8Bytes = (value: string) => new TextEncoder().encode(value).length;
 export const dateTime = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value));
-export const text = (value: unknown, max = 2048): value is string => typeof value === 'string' && value.length <= max;
+// JSON Schema maxLength counts Unicode code points; UTF-8 transport caps are separate.
+export function text(value: unknown, max = 2048): value is string {
+  if (typeof value !== 'string') return false;
+  let length = 0;
+  for (const _point of value) if (++length > max) return false;
+  return true;
+}
 export const matches = (value: unknown, pattern: RegExp): value is string => typeof value === 'string' && pattern.test(value);
 const httpCodes = new Set([
   'AGENT_PAUSED', 'CREDENTIAL_REVOKED', 'CREDENTIAL_EXPIRED', 'ACCESS_TOKEN_EXPIRED', 'AUTHENTICATION_REQUIRED', 'RATE_LIMITED',
@@ -25,6 +31,15 @@ const httpCodes = new Set([
   'GATEWAY_CHECK_ACTIVE', 'GATEWAY_ACTION_UNSUPPORTED', 'LEASE_LOST', 'GATEWAY_RUN_EXPIRED', 'GATEWAY_RUN_MISMATCH',
   'IDEMPOTENCY_CONFLICT', 'GATEWAY_TEMPORARILY_UNAVAILABLE'
 ]);
+const maximumRetrySeconds = 86400;
+function retryDelay(response: Response, payload: unknown): number | undefined {
+  const bounded = (value: unknown) => Number.isSafeInteger(value) && Number(value) > 0 ? Math.min(maximumRetrySeconds, Number(value)) : 0;
+  const header = response.headers.get('retry-after');
+  const headerSeconds = header && /^\d{1,15}$/.test(header) ? bounded(Number(header))
+    : header && Number.isFinite(Date.parse(header)) ? bounded(Math.max(1, Math.ceil((Date.parse(header) - Date.now()) / 1000))) : 0;
+  const bodySeconds = payload && typeof payload === 'object' && 'retryAfterSeconds' in payload ? bounded(payload.retryAfterSeconds) : 0;
+  return Math.max(headerSeconds, bodySeconds) || undefined;
+}
 
 export function httpsOrigin(value: string): string {
   let url: URL;
@@ -101,7 +116,7 @@ export class PrivateHostTransport {
         if (code === 'AGENT_PAUSED') this.#state = 'PAUSED';
         if (code === 'CREDENTIAL_REVOKED' || code === 'GATEWAY_SESSION_REVOKED') this.#state = 'REVOKED';
         if (['GATEWAY_SESSION_EXPIRED', 'GATEWAY_SCOPE_CHANGED', 'GATEWAY_SCOPE_REQUIRED', 'GATEWAY_SESSION_REQUIRED', 'GATEWAY_GENERATION_STALE'].includes(code)) this.#state = 'NEEDS_RECONNECT';
-        throw new HostRequestError(code, response.status);
+        throw new HostRequestError(code, response.status, retryDelay(response, payload));
       }
       return payload;
     } catch (error) {
