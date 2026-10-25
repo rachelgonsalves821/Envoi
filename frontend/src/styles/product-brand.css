@@ -24,6 +24,19 @@ button { user-select: none; -webkit-user-select: none; }
 .auth-card h2 { font-family: "Segoe UI Light", "Segoe UI", system-ui, sans-serif; color: #0f2a43; }
 .auth-page .button:focus-visible { outline: 3px solid #2f86c6; outline-offset: 3px; }
 
+body:has(.onboarding-page) { background: #f6f9fc; }
+.onboarding-page { min-height: 100svh; color: #0f2a43; font-family: "Segoe UI Light", "Segoe UI", system-ui, sans-serif; }
+.onboarding-page h1 { font-size: clamp(32px,4vw,48px); font-weight: 300; }
+.onboarding-page .eyebrow { color: #267db9; letter-spacing: .12em; }
+.onboarding-page p, .onboarding-page dd, .onboarding-page label { color: #47637a; }
+.onboarding-page .onboarding-panel, .onboarding-page .onboarding-request, .onboarding-page .onboarding-result { border-color: #d4e4ef; border-radius: 18px; background: #fff; box-shadow: 0 10px 30px rgba(15,42,67,.04); }
+.onboarding-page fieldset, .onboarding-page .onboarding-list article { border-color: #d4e4ef; border-radius: 12px; }
+.onboarding-page input:not([type=checkbox]):not([type=radio]), .onboarding-page select { border-color: #b9d1e4; border-radius: 10px; background: #fff; color: #0f2a43; }
+.onboarding-page input:focus-visible, .onboarding-page select:focus-visible, .onboarding-page button:focus-visible { outline-color: #2f86c6; }
+.onboarding-page input[type=checkbox], .onboarding-page input[type=radio] { accent-color: #267db9; }
+.onboarding-page .button.primary { border-radius: 999px; background: #0f2a43; color: #fff; }
+.onboarding-page .button.secondary { border-radius: 999px; border-color: #b9d1e4; background: #fff; color: #0f2a43; }
+
 .app-shell {
   --bg: #f6f9fc;
   --side: #fff;
