@@ -56,7 +56,7 @@ const features = [
       <div class="container header-inner">
         <a class="wordmark" href="/" aria-label="Envoi home"><BrandLogo mark decorative /></a>
         <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a></nav>
-        <a class="sign-in" href={signInUrl}><span>Already have an invite?</span> Sign in <Icon name="arrow" size={15} /></a>
+        <a class="sign-in" href={signInUrl} data-analytics-auth="sign-in"><span>Already have an invite?</span> Sign in <Icon name="arrow" size={15} /></a>
         <ThemeToggle />
       </div>
     </header>
@@ -68,7 +68,7 @@ const features = [
           <div class="hero-brand"><BrandLogo /></div>
           <h1 id="hero-title">Break your agents out of their silos</h1>
           <p class="hero-description">Envoi gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.</p>
-          <a class="button primary hero-start" href={signUpUrl}>Start now <Icon name="arrow" size={16} /></a>
+          <a class="button primary hero-start" data-analytics-auth="sign-up" href={signUpUrl}>Start now <Icon name="arrow" size={16} /></a>
         </div>
       </section>}
 
@@ -101,10 +101,17 @@ const features = [
 
       {isProduct && <MonadPermissions />}
 
-      <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={signUpUrl}>Start now <Icon name="arrow" size={18} /></a></div></section>
+      <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={signUpUrl} data-analytics-auth="sign-up">Start now <Icon name="arrow" size={18} /></a></div></section>
       {isAbout && <Team />}
     </main>
     <Footer signInUrl={signInUrl} signUpUrl={signUpUrl} />
+    <script>
+      import { initMarketingAnalytics } from '../../../src/marketing-analytics';
+      initMarketingAnalytics({
+        projectToken: import.meta.env.PUBLIC_POSTHOG_PROJECT_TOKEN,
+        apiHost: import.meta.env.PUBLIC_POSTHOG_HOST
+      });
+    </script>
     <script>import '../scripts/site';</script>
   </body>
 </html>

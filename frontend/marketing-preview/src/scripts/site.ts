@@ -1,5 +1,6 @@
 import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, togglePlayback, acceptedWaitlistResponse, visibleFeatureCount } from './playback.mjs';
 import { mountThemeControls } from './theme.mjs';
+import { captureAnalyticsEvent } from '../../../src/analytics';
 
 mountThemeControls(document, window);
 const authError = document.querySelector<HTMLElement>('[data-auth-error]');
@@ -175,6 +176,7 @@ document.querySelectorAll<HTMLFormElement>('[data-waitlist]').forEach(form => {
       });
       const payload = await response.json().catch(() => null);
       if (!acceptedWaitlistResponse(response.ok, payload)) throw new Error(response.status === 429 ? 'Please wait a little before trying again.' : 'We couldn’t save your email. Please try again.');
+      captureAnalyticsEvent('waitlist_joined');
       status.textContent = 'You’re on the list. We’ll be in touch when an invitation is ready.';
       status.classList.add('success');
       form.reset();
