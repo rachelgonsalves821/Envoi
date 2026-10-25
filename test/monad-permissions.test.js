@@ -91,11 +91,19 @@ test('wrong chain never sends a permission transaction', async () => {
   assert.equal(rpc.sends, 0);
 });
 
-test('zero transaction allowance fails closed without broadcasting', async () => {
+test('enabled-by-default layer requires a key; explicit zero cap is refused', async () => {
   const rpc = fixture();
-  const layer = createMonadPermissionLayer({ store: rpc.store, privateKey: wallet.privateKey, request: rpc.request, enabled: true });
-  await assert.rejects(layer.ensurePermission('inbox_1', agent), /allowance/);
+  assert.throws(() => createMonadPermissionLayer({ store: rpc.store, privateKey: '', request: rpc.request }), /ISSUER_PRIVATE_KEY/);
+  assert.throws(() => createMonadPermissionLayer({ store: rpc.store, privateKey: wallet.privateKey, request: rpc.request, maxTransactions: 0 }), /positive integer/);
   assert.equal(rpc.sends, 0);
+});
+
+test('configured issuer anchors permissions without a transaction-count cap by default', async () => {
+  const rpc = fixture();
+  const layer = createMonadPermissionLayer({ store: rpc.store, privateKey: wallet.privateKey, request: rpc.request });
+  assert.equal((await layer.ensurePermission('inbox_1', agent)).status, 'recorded');
+  assert.equal(layer.budgetStatus().maxTransactions, null);
+  assert.equal(rpc.sends, 1);
 });
 
 test('policy execution reads a prior commitment without creating one', async () => {

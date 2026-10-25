@@ -1,6 +1,6 @@
 # Monad permissions integration
 
-This feature adapts the [Harvard iLabs Envoi hackathon chain module](https://github.com/pjsk02/Hackathon-Harvard-iLabs/tree/main/server/chain) to Envoi's existing agent credentials, permission lists, and signed policy decisions. It is opt in and targets Monad **testnet** (chain ID 10143). It does not deploy a smart contract.
+This feature adapts the [Harvard iLabs Envoi hackathon chain module](https://github.com/pjsk02/Hackathon-Harvard-iLabs/tree/main/server/chain) to Envoi's existing agent credentials, permission lists, and signed policy decisions. It is enabled by default and targets Monad **testnet** (chain ID 10143). It does not deploy a smart contract.
 
 ## How enforcement works
 
@@ -13,18 +13,18 @@ The chain records commitments and their ordering. Envoi's store holds the preima
 
 ## Configuration
 
-Set these only for an isolated testnet environment with a dedicated, minimally funded issuer:
+Before starting Envoi, set a dedicated, minimally funded testnet issuer in the deployment's secret configuration:
 
 ```text
-ENVOI_MONAD_PERMISSIONS=true
 ENVOI_MONAD_RPC_URL=https://testnet-rpc.monad.xyz
 ENVOI_MONAD_ISSUER_PRIVATE_KEY=<testnet-only private key>
-ENVOI_MONAD_MAX_TRANSACTIONS=<explicit positive integer>
 ```
 
-The key is required at startup when the feature is enabled. The allowance defaults to zero. Every new permission, policy, or violation commitment consumes one slot; exact signed transaction retries do not. Transactions use at most 30,000 gas and refuse a gas price above 200 gwei. The allowance is **per process**, so coordinate one issuer/writer and a total test spend across restarts. No key or live transaction is needed for the automated tests.
+For the Cloudflare deployment, add `ENVOI_MONAD_ISSUER_PRIVATE_KEY` as an encrypted Worker secret in each environment being deployed (for example, `wrangler secret put ENVOI_MONAD_ISSUER_PRIVATE_KEY --env beta`). The Worker forwards this secret into its single container. Fund that address on Monad testnet before deploying; do not place the key in `wrangler.jsonc` or commit it.
 
-The default remains off because the current service has no shared nonce coordinator for multiple server instances and no production budget ledger. Enabling it on multiple replicas with one issuer is unsupported. A denial is immediate in Envoi; transaction inclusion and finality are asynchronous and may be pending during an RPC outage. The outbox retries after recovery. Do not describe pending evidence as already recorded on chain.
+Monad is enabled unless `ENVOI_MONAD_PERMISSIONS=false` is set explicitly. A missing key fails startup instead of silently disabling the truth layer. The transaction-count allowance is unlimited when `ENVOI_MONAD_MAX_TRANSACTIONS` is unset; an optional positive integer caps new permission, policy, and violation commitments per process. Exact signed transaction retries do not consume another slot. Transactions use at most 30,000 gas and refuse a gas price above 200 gwei. Coordinate one issuer/writer across the deployment. Automated suites explicitly disable the live server integration and use a fake RPC for Monad-specific tests.
+
+Multiple replicas sharing one issuer remain unsupported because the current service has no shared nonce coordinator. Do not run this integration on multiple writers. Without a transaction-count cap, spending is bounded only by the dedicated wallet's funds and the per-transaction gas-price ceiling. A denial is immediate in Envoi; transaction inclusion and finality are asynchronous and may be pending during an RPC outage. The outbox retries after recovery. Do not describe pending evidence as already recorded on chain. `ENVOI_MONAD_PERMISSIONS=false` is an explicit rollback for deployments that cannot yet provide the issuer and single-writer topology.
 
 ## Hackathon code ported and adapted
 

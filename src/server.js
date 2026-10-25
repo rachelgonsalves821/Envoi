@@ -146,7 +146,7 @@ const consumerIdentity = createConsumerIdentity({ connectionString: process.env.
 const logConsumer = consumerLogger(consumerIdentity);
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL, { applicationName: consumerIdentity.applicationName }) : new FileStore(dataDir);
 const monadPermissions = createMonadPermissionLayer({
-  store, enabled: process.env.ENVOI_MONAD_PERMISSIONS === 'true'
+  store, enabled: process.env.ENVOI_MONAD_PERMISSIONS !== 'false'
 });
 const monadRequest = Symbol('monad-request');
 const monadPermissionDenied = Symbol('monad-permission-denied');

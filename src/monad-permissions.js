@@ -31,16 +31,17 @@ export function violationRecord({ requestId, inboxId, agentId, method, pathname,
 const hexNumber = value => Number.parseInt(value, 16);
 const timeout = ms => AbortSignal.timeout(Math.max(1, ms));
 
-export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = process.env.ENVOI_MONAD_RPC_URL || 'https://testnet-rpc.monad.xyz',
+export function createMonadPermissionLayer({ store, enabled = true, rpcUrl = process.env.ENVOI_MONAD_RPC_URL || 'https://testnet-rpc.monad.xyz',
   privateKey = process.env.ENVOI_MONAD_ISSUER_PRIVATE_KEY, maxGasPrice = MAX_GAS_PRICE,
-  maxTransactions = Number(process.env.ENVOI_MONAD_MAX_TRANSACTIONS || 0),
+  maxTransactions = process.env.ENVOI_MONAD_MAX_TRANSACTIONS ? Number(process.env.ENVOI_MONAD_MAX_TRANSACTIONS) : Infinity,
   request = fetch, now = Date.now, operationMs = 8_000 } = {}) {
   if (!enabled) return { enabled: false, ensurePermission: async () => null,
     recordViolation: async () => null, anchor: async () => null, readAnchor: async () => null,
     permissionEvidence: async () => ({ enabled: false, chainId: MONAD_TESTNET_CHAIN_ID,
       permission: { status: 'off' }, violations: [] }) };
   if (!store || !privateKey) throw new Error('Monad permissions require a store and ENVOI_MONAD_ISSUER_PRIVATE_KEY');
-  if (!Number.isSafeInteger(maxTransactions) || maxTransactions < 0) throw new Error('ENVOI_MONAD_MAX_TRANSACTIONS must be a nonnegative integer');
+  if (maxTransactions !== Infinity && (!Number.isSafeInteger(maxTransactions) || maxTransactions <= 0))
+    throw new Error('ENVOI_MONAD_MAX_TRANSACTIONS must be a positive integer when set');
   const signer = new Wallet(privateKey);
   let queue = Promise.resolve();
   let reservedTransactions = 0;
@@ -191,5 +192,5 @@ export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = pr
   }
 
   return { enabled: true, ensurePermission, recordViolation, flushViolations, anchor, readAnchor, verify, permissionEvidence,
-    budgetStatus: () => ({ maxTransactions, reservedTransactions }) };
+    budgetStatus: () => ({ maxTransactions: Number.isFinite(maxTransactions) ? maxTransactions : null, reservedTransactions }) };
 }
