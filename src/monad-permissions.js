@@ -10,12 +10,12 @@ const HEX32 = /^0x[0-9a-f]{64}$/i;
 
 export function permissionSnapshot(inboxId, agent) {
   return {
-    version: 1, inboxId, agentId: agent.id, status: agent.status,
+    version: 2, inboxId, agentId: agent.id, status: agent.status,
     onboardingStatus: agent.onboardingStatus,
     permissions: [...new Set(agent.permissions || [])].sort(),
     accessGeneration: agent.accessGeneration || 0,
-    approvedAt: agent.approvedAt || null, revokedAt: agent.revokedAt || null,
-    updatedAt: agent.updatedAt || null
+    approvedAt: agent.approvedAt || null, approvedByHumanId: agent.approvedByHumanId || null,
+    revokedAt: agent.revokedAt || null
   };
 }
 
@@ -36,7 +36,7 @@ export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = pr
   maxTransactions = process.env.ENVOI_MONAD_MAX_TRANSACTIONS ? Number(process.env.ENVOI_MONAD_MAX_TRANSACTIONS) : Infinity,
   request = fetch, now = Date.now, operationMs = 8_000 } = {}) {
   if (!enabled) return { enabled: false, ensurePermission: async () => null,
-    recordViolation: async () => null, anchor: async () => null, readAnchor: async () => null,
+    recordViolation: async () => null,
     permissionEvidence: async () => ({ enabled: false, chainId: MONAD_TESTNET_CHAIN_ID,
       permission: { status: 'off' }, violations: [] }) };
   if (!store || !privateKey) throw new Error('Monad permissions require a store and ENVOI_MONAD_ISSUER_PRIVATE_KEY');
@@ -91,6 +91,7 @@ export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = pr
   }
 
   async function anchor(kind, value) {
+    if (kind !== 'permission' && kind !== 'violation') throw new Error('Unsupported Monad commitment kind');
     const digest = commitment(kind, value);
     if (!HEX32.test(digest)) throw new Error('Invalid Monad commitment');
     return serialized(async () => {
@@ -191,6 +192,6 @@ export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = pr
     return { enabled: true, chainId: MONAD_TESTNET_CHAIN_ID, permission, violations };
   }
 
-  return { enabled: true, ensurePermission, recordViolation, flushViolations, anchor, readAnchor, verify, permissionEvidence,
+  return { enabled: true, ensurePermission, recordViolation, flushViolations, verify, permissionEvidence,
     budgetStatus: () => ({ maxTransactions: Number.isFinite(maxTransactions) ? maxTransactions : null, reservedTransactions }) };
 }

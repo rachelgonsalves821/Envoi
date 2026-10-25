@@ -1650,12 +1650,6 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
         });
       } catch { /* The durable outbox retries an unsent violation. */ }
     }
-    const proof = await monadPermissions.anchor('policy', {
-      inboxId, agentId: agent.id, caseId: caseRecord.id,
-      permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, agent)),
-      recordDigest: record.recordDigest
-    }).catch(() => null);
-    if (proof?.status !== 'recorded') throw codedError(503, 'MONAD_POLICY_UNAVAILABLE', 'The policy decision could not be verified on Monad.');
   }
   return {
     decision: record.decision,
@@ -1695,14 +1689,6 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
   await policyDecisionChain(inboxId);
   if (!evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.actor !== principal.id || binding.agentId !== principal.id || binding.caseId !== caseRecord.id) {
     throw Object.assign(new Error('A current server-issued policy evaluation for this agent and case is required'), { statusCode: 403 });
-  }
-  if (await monadAccess.active(inboxId)) {
-    const proof = await monadPermissions.readAnchor('policy', {
-      inboxId, agentId: principal.id, caseId: caseRecord.id,
-      permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, principal)),
-      recordDigest: binding.recordDigest
-    }).catch(() => null);
-    if (!proof) throw codedError(503, 'MONAD_POLICY_UNAVAILABLE', 'The policy decision could not be verified on Monad.');
   }
   const proposalStateDigest = valueDigest(caseRecord.proposals || []);
   assertExactBinding(binding, { requestedAction: requestedAction || binding.requestedAction, actionPayload: actionPayload || {}, proposalDigest: proposalId ? proposalStateDigest : null, optionId, keyring: policyKeyring, at: store.now() });

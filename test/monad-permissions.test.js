@@ -57,6 +57,9 @@ test('current permission is committed, read back, and reused without a second tr
   const second = await layer.ensurePermission('inbox_1', agent);
   assert.equal(second.txHash, first.txHash);
   assert.equal(rpc.sends, 1);
+  const metadataChanged = await layer.ensurePermission('inbox_1', { ...agent, updatedAt: '2026-10-25T00:00:00.000Z' });
+  assert.equal(metadataChanged.txHash, first.txHash);
+  assert.equal(rpc.sends, 1);
   const changed = await layer.ensurePermission('inbox_1', { ...agent, permissions: [] });
   assert.notEqual(changed.txHash, first.txHash);
   assert.equal(rpc.sends, 2);
@@ -104,17 +107,6 @@ test('configured issuer anchors permissions without a transaction-count cap', as
   const layer = createMonadPermissionLayer({ store: rpc.store, privateKey: wallet.privateKey, request: rpc.request, enabled: true });
   assert.equal((await layer.ensurePermission('inbox_1', agent)).status, 'recorded');
   assert.equal(layer.budgetStatus().maxTransactions, null);
-  assert.equal(rpc.sends, 1);
-});
-
-test('policy execution reads a prior commitment without creating one', async () => {
-  const rpc = fixture();
-  const layer = createMonadPermissionLayer({ store: rpc.store, privateKey: wallet.privateKey, request: rpc.request, enabled: true, maxTransactions: 10 });
-  const policy = { inboxId: 'inbox_1', agentId: agent.id, caseId: 'case_1', recordDigest: 'signed-decision' };
-  assert.equal(await layer.readAnchor('policy', policy), null);
-  await layer.anchor('policy', policy);
-  assert.equal((await layer.readAnchor('policy', policy)).status, 'recorded');
-  assert.equal(await layer.readAnchor('policy', { ...policy, recordDigest: 'changed' }), null);
   assert.equal(rpc.sends, 1);
 });
 
