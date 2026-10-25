@@ -8,7 +8,7 @@ export function advancePlayback(state) {
 }
 
 export function playbackDelay(state) {
-  return state.visibleCount === state.stepCount ? 900 : 280;
+  return state.visibleCount === state.stepCount ? 1200 : 380;
 }
 
 export function visibleFeatureCount(markers, visibleCount) {
