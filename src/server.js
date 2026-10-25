@@ -4437,6 +4437,17 @@ async function route(req, res) {
 
   if (await inboxPreferencesHttp.handleRequest(req, res, url)) return;
 
+  const monadEvidenceRoute = suffix.match(/^agents\/([^/]+)\/monad-evidence$/);
+  if (req.method === 'GET' && monadEvidenceRoute) {
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Authentication required');
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const agentId = assertSafeIdentifier(monadEvidenceRoute[1], 'agentId');
+    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    if (!agent || inbox.ownerAgentId !== agentId) return fail(res, 404, 'Owned agent not found');
+    return json(res, 200, await monadPermissions.permissionEvidence(inboxId, agent));
+  }
+
   // agent-registration v1 §6.5: the owner's installation list and per-installation revoke.
   const installationRoute = suffix.match(/^agents\/([^/]+)\/installations(?:\/([^/]+)\/revoke)?$/);
   if (installationRoute && (req.method === 'GET' ? !installationRoute[2] : req.method === 'POST' && installationRoute[2])) {

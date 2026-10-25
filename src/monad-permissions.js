@@ -36,7 +36,9 @@ export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = pr
   maxTransactions = Number(process.env.ENVOI_MONAD_MAX_TRANSACTIONS || 0),
   request = fetch, now = Date.now, operationMs = 8_000 } = {}) {
   if (!enabled) return { enabled: false, ensurePermission: async () => null,
-    recordViolation: async () => null, anchor: async () => null, readAnchor: async () => null };
+    recordViolation: async () => null, anchor: async () => null, readAnchor: async () => null,
+    permissionEvidence: async () => ({ enabled: false, chainId: MONAD_TESTNET_CHAIN_ID,
+      permission: { status: 'off' }, violations: [] }) };
   if (!store || !privateKey) throw new Error('Monad permissions require a store and ENVOI_MONAD_ISSUER_PRIVATE_KEY');
   if (!Number.isSafeInteger(maxTransactions) || maxTransactions < 0) throw new Error('ENVOI_MONAD_MAX_TRANSACTIONS must be a nonnegative integer');
   const signer = new Wallet(privateKey);
@@ -162,6 +164,32 @@ export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = pr
     return results;
   }
 
-  return { enabled: true, ensurePermission, recordViolation, flushViolations, anchor, readAnchor, verify,
+  async function permissionEvidence(inboxId, agent) {
+    const snapshot = permissionSnapshot(inboxId, agent);
+    const digest = commitment('permission', snapshot);
+    const stored = await store.getJson(recordPath('permission', digest));
+    let permission = { status: 'not_recorded', digest };
+    if (stored?.txHash) {
+      try {
+        const verified = await readAnchor('permission', snapshot);
+        permission = verified || { status: 'pending', digest, txHash: stored.txHash };
+      } catch {
+        permission = { status: 'unavailable', digest, txHash: stored.txHash };
+      }
+    }
+    const violations = (await store.listJson(path.join('monad', 'violation-outbox')))
+      .filter(item => item.record?.inboxId === inboxId && item.record?.agentId === agent.id)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, 20)
+      .map(item => ({ requestId: item.record.requestId, method: item.record.method,
+        pathname: item.record.pathname, reasonCode: item.record.reasonCode,
+        createdAt: item.createdAt, status: item.status,
+        ...(item.txHash ? { txHash: item.txHash } : {}),
+        ...(item.status === 'recorded' && item.txHash
+          ? { explorerUrl: 'https://testnet.monadexplorer.com/tx/' + item.txHash } : {}) }));
+    return { enabled: true, chainId: MONAD_TESTNET_CHAIN_ID, permission, violations };
+  }
+
+  return { enabled: true, ensurePermission, recordViolation, flushViolations, anchor, readAnchor, verify, permissionEvidence,
     budgetStatus: () => ({ maxTransactions, reservedTransactions }) };
 }
