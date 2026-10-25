@@ -58,14 +58,15 @@ async function setup() {
   let claimable = true, currentStatus = 'terminal', outcome = 'completed', admissionId = 'admission_fixture';
   let serverSpec: Record<string, any> | undefined, onPrompt: () => Promise<void> = async () => {};
   const inputs = new Set<string>();
-  let lostSubmit = false, loseReceipt = false, sourceCapabilities = ['session-authority-v1', 'acp-editor-policy-v1', 'acp-session-mcp-v1'];
+  let lostSubmit = false, loseReceipt = false, sourceCapabilities = ['acp-editor-policy-v1', 'acp-session-mcp-v1'];
+  let controlCapabilities = ['session-authority-v1', 'durable-admission-v1', 'event-replay-v1'];
   const netTarget = process.platform === 'win32' ? `\\\\.\\pipe\\hermes-gateway-${createHash('sha256').update(path.resolve(home).toLowerCase()).digest('hex').slice(0, 16)}` : path.join(home, 'gateway.sock');
   const server = createServer(socket => {
     socket.setEncoding('utf8'); let text = '';
     socket.on('data', chunk => {
       text += chunk; if (!text.includes('\n')) return;
       const request = JSON.parse(text); bootstrap.push(request);
-      const result = request.verb === 'identify' ? { runtime_protocol: 1, state: 'ready', api_origin: daemon, instance_id: 'instance_fixture',
+      const result = request.verb === 'identify' ? { runtime_protocol: 1, state: 'ready', api_origin: daemon, instance_id: 'instance_fixture', capabilities: controlCapabilities,
         served_profiles: [{ home, profile_id: home }] } : { runtime_protocol: 1, instance_id: 'instance_fixture', profile_id: home, ticket: 'PRIVATE_FIXTURE_TICKET_1234567890' };
       socket.end(JSON.stringify({ protocol: 1, id: 1, ok: true, result }) + '\n');
     });
@@ -172,6 +173,7 @@ async function setup() {
     setStatus: (status: string, result = 'completed') => { currentStatus = status; outcome = result; },
     loseSubmit: () => { lostSubmit = true; }, loseReceipt: () => { loseReceipt = true; },
     capabilities: (capabilities: string[]) => { sourceCapabilities = capabilities; },
+    controlCapabilities: (capabilities: string[]) => { controlCapabilities = capabilities; },
     reclaim: () => { claimable = true; minted.body.session.fence++; },
     journal: () => new FileScopedRunStore(directory).load(work.workId)
   };
@@ -279,6 +281,28 @@ describe('production Hermes scoped composition with inert authenticated daemon t
     expect(Date.now() - started).toBeLessThan(2000);
     expect(scenario.rpcRequests.filter(entry => entry.method === 'session.interrupt')).toHaveLength(1);
     expect(scenario.sockets.every(socket => socket.readyState === 3)).toBe(true);
+  });
+  it('accepts the official control/descriptor capability split without submitting a model turn', async () => {
+    const scenario = await setup();
+    await expect(hermesAdapter.preflight(scenario.config, { env: {} })).resolves.toBeUndefined();
+    expect(scenario.bootstrap.map(entry => entry.verb)).toEqual(['identify', 'session-ticket']);
+    expect(scenario.rpcRequests.map(entry => entry.method)).toEqual(['runtime.describe']);
+    expect(scenario.modelText).toHaveLength(0);
+    expect(scenario.sockets.every(socket => socket.readyState === 3)).toBe(true);
+  });
+  it('requires session authority on the authenticated control identity before requesting a ticket', async () => {
+    const scenario = await setup(); scenario.controlCapabilities([]);
+    scenario.capabilities(['session-authority-v1', 'acp-editor-policy-v1', 'acp-session-mcp-v1']);
+    await expect(hermesAdapter.preflight(scenario.config, { env: {} })).rejects.toThrow();
+    expect(scenario.bootstrap.map(entry => entry.verb)).toEqual(['identify']);
+    expect(scenario.rpcRequests).toHaveLength(0); expect(scenario.modelText).toHaveLength(0);
+  });
+  it.each(['acp-editor-policy-v1', 'acp-session-mcp-v1'])('refuses missing %s on the scoped descriptor even if control advertises it', async missing => {
+    const scenario = await setup();
+    scenario.controlCapabilities(['session-authority-v1', 'acp-editor-policy-v1', 'acp-session-mcp-v1']);
+    scenario.capabilities(['acp-editor-policy-v1', 'acp-session-mcp-v1'].filter(value => value !== missing));
+    await expect(hermesAdapter.preflight(scenario.config, { env: {} })).rejects.toThrow();
+    expect(scenario.modelText).toHaveLength(0); expect(scenario.rpcRequests.map(entry => entry.method)).toEqual(['runtime.describe']);
   });
   it('refuses unsupported runtime capabilities in read-only setup preflight', async () => {
     const scenario = await setup(); scenario.capabilities([]);
