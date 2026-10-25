@@ -72,7 +72,7 @@ test('the container receives the onboarding flags', () => {
 });
 
 test('the container receives Monad settings and the issuer secret', () => {
-  const names = ['ENVOI_MONAD_PERMISSIONS', 'ENVOI_MONAD_RPC_URL', 'ENVOI_MONAD_ISSUER_PRIVATE_KEY', 'ENVOI_MONAD_MAX_TRANSACTIONS'];
+  const names = ['ENVOI_MONAD_PERMISSIONS', 'ENVOI_MONAD_RPC_URL', 'ENVOI_MONAD_ISSUER_PRIVATE_KEY', 'ENVOI_MONAD_PAID_ORGANIZATION_IDS', 'ENVOI_MONAD_MAX_TRANSACTIONS'];
   for (const name of names) assert.ok(CONTAINER_ENV_KEYS.includes(name), name);
   const settings = { ENVOI_MONAD_RPC_URL: 'https://testnet-rpc.monad.xyz', ENVOI_MONAD_ISSUER_PRIVATE_KEY: 'issuer-secret' };
   assert.deepEqual(selectEnvironment(settings, CONTAINER_ENV_KEYS, {}), settings);

@@ -31,7 +31,7 @@ export function violationRecord({ requestId, inboxId, agentId, method, pathname,
 const hexNumber = value => Number.parseInt(value, 16);
 const timeout = ms => AbortSignal.timeout(Math.max(1, ms));
 
-export function createMonadPermissionLayer({ store, enabled = true, rpcUrl = process.env.ENVOI_MONAD_RPC_URL || 'https://testnet-rpc.monad.xyz',
+export function createMonadPermissionLayer({ store, enabled = false, rpcUrl = process.env.ENVOI_MONAD_RPC_URL || 'https://testnet-rpc.monad.xyz',
   privateKey = process.env.ENVOI_MONAD_ISSUER_PRIVATE_KEY, maxGasPrice = MAX_GAS_PRICE,
   maxTransactions = process.env.ENVOI_MONAD_MAX_TRANSACTIONS ? Number(process.env.ENVOI_MONAD_MAX_TRANSACTIONS) : Infinity,
   request = fetch, now = Date.now, operationMs = 8_000 } = {}) {

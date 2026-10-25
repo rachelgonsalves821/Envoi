@@ -1433,7 +1433,7 @@ export function FileItem({ asset, workCase, creator, inboxId, notify, onOpenCase
 const PLANNED_ACTION_GATES = ['Calendar availability', 'Hold times', 'Submit forms', 'Spend money'];
 
 function PoliciesPage({ entries }: { entries: AgentEntry[] }) {
-  return <PageFrame eyebrow="" title="Permissions" description="See each agent’s bounded permissions and Monad evidence.">
+  return <PageFrame eyebrow="" title="Permissions" description="See each agent’s bounded permissions.">
     <div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
       <div className="permission-table-head" role="row"><span role="columnheader">Action</span>{entries.map(({ agent }) => <span role="columnheader" key={agent.id}>{agent.name}</span>)}</div>
       {AGENT_PERMISSION_OPTIONS.map(option => <div className="permission-table-row" role="row" key={option.id}><div role="cell"><strong>{option.label}</strong><small>{option.description}</small></div>{entries.map(entry => {

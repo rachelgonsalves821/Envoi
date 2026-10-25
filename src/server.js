@@ -77,6 +77,7 @@ import { createCaseReferenceCodec } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
 import { commitment, createMonadPermissionLayer, permissionSnapshot } from './monad-permissions.js';
+import { createMonadAccess } from './monad-access.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
 import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, oauthGrantablePermissions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthEndpointServed, remoteAuthLimits, remoteAuthOrigin, remoteAuthScopes, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
 import { organizationMaximumPermissions } from './agent-approval.js';
@@ -146,7 +147,11 @@ const consumerIdentity = createConsumerIdentity({ connectionString: process.env.
 const logConsumer = consumerLogger(consumerIdentity);
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL, { applicationName: consumerIdentity.applicationName }) : new FileStore(dataDir);
 const monadPermissions = createMonadPermissionLayer({
-  store, enabled: process.env.ENVOI_MONAD_PERMISSIONS !== 'false'
+  store, enabled: process.env.ENVOI_MONAD_PERMISSIONS === 'true'
+});
+const monadAccess = createMonadAccess({
+  store, available: monadPermissions.enabled,
+  paidOrganizationIds: process.env.ENVOI_MONAD_PAID_ORGANIZATION_IDS
 });
 const monadRequest = Symbol('monad-request');
 const monadPermissionDenied = Symbol('monad-permission-denied');
@@ -743,7 +748,7 @@ async function checkAgentCredential(req, url, res) {
   if (resolved.error) throw resolved.error;
   const identity = resolved.identity;
   if (identity) trackAgentPresence(req, res, identity);
-  if (identity && monadPermissions.enabled) {
+  if (identity && await monadAccess.active(identity.inboxId)) {
     req[monadRequest] = {
       requestId: crypto.randomUUID(), inboxId: identity.inboxId, agentId: identity.agent.id,
       method: req.method, pathname: url.pathname,
@@ -1580,7 +1585,7 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
     keyring: policyKeyring,
     now: store.now()
   });
-  if (monadPermissions.enabled) {
+  if (await monadAccess.active(inboxId)) {
     if (record.decision === 'deny') {
       try {
         await monadPermissions.recordViolation({
@@ -1637,7 +1642,7 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
   if (!evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.actor !== principal.id || binding.agentId !== principal.id || binding.caseId !== caseRecord.id) {
     throw Object.assign(new Error('A current server-issued policy evaluation for this agent and case is required'), { statusCode: 403 });
   }
-  if (monadPermissions.enabled) {
+  if (await monadAccess.active(inboxId)) {
     const proof = await monadPermissions.readAnchor('policy', {
       inboxId, agentId: principal.id, caseId: caseRecord.id,
       permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, principal)),
@@ -3289,7 +3294,7 @@ async function handleCaseSessionMcp(req, res, url) {
   }
   // §6.4: the session's tools, less any the agent's current permissions no longer allow.
   const agent = await store.getJson(path.join('inboxes', session.inboxId, 'agents', `${session.agentId}.json`));
-  if (agent && monadPermissions.enabled) {
+  if (agent && await monadAccess.active(session.inboxId)) {
     req[monadRequest] = {
       requestId: crypto.randomUUID(), inboxId: session.inboxId, agentId: session.agentId,
       method: req.method, pathname: url.pathname,
@@ -4437,6 +4442,21 @@ async function route(req, res) {
 
   if (await inboxPreferencesHttp.handleRequest(req, res, url)) return;
 
+  if (suffix === 'monad-settings' && (req.method === 'GET' || req.method === 'POST')) {
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Authentication required');
+    if (!await canManageInbox(human, inbox, { maxAgeMs: 0 })) return fail(res, 403, 'Workspace administrator required');
+    if (req.method === 'GET') return json(res, 200, await monadAccess.status(inbox));
+    const input = await body(req, 4096);
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 || typeof input.enabled !== 'boolean') return fail(res, 400, 'Expected { enabled: boolean }');
+    const settings = await withInboxMutation(inboxId, async () => {
+      const current = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
+      if (!current || !await canManageInbox(await auth.getHuman(req), current, { maxAgeMs: 0 })) throw codedError(403, 'GATEWAY_SCOPE_DENIED', 'Workspace administrator required');
+      return monadAccess.set(current, input.enabled);
+    });
+    return json(res, 200, settings);
+  }
+
   const monadEvidenceRoute = suffix.match(/^agents\/([^/]+)\/monad-evidence$/);
   if (req.method === 'GET' && monadEvidenceRoute) {
     const human = await auth.getHuman(req);
@@ -4445,7 +4465,9 @@ async function route(req, res) {
     const agentId = assertSafeIdentifier(monadEvidenceRoute[1], 'agentId');
     const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
     if (!agent || inbox.ownerAgentId !== agentId) return fail(res, 404, 'Owned agent not found');
-    return json(res, 200, await monadPermissions.permissionEvidence(inboxId, agent));
+    return json(res, 200, await monadAccess.active(inboxId)
+      ? await monadPermissions.permissionEvidence(inboxId, agent)
+      : { enabled: false, chainId: 10143, permission: { status: 'off' }, violations: [] });
   }
 
   // agent-registration v1 §6.5: the owner's installation list and per-installation revoke.

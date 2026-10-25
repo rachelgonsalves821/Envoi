@@ -220,6 +220,7 @@
 .app-shell .monad-evidence h3 { margin: 24px 0 8px; font-size: 14px; }
 .app-shell .monad-evidence p { margin: 6px 0 14px; color: var(--ink2); font-size: 13px; }
 .app-shell .monad-evidence label { display: block; margin: 16px 0 5px; font-size: 12px; font-weight: 600; }
+.app-shell .monad-evidence .monad-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .app-shell .monad-evidence select { max-width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); }
 .app-shell .monad-evidence-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
 .app-shell .monad-evidence-status code { max-width: 100%; overflow-wrap: anywhere; color: var(--ink2); font-size: 11px; }
