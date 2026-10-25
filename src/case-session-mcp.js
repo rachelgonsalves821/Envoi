@@ -23,7 +23,7 @@ export function createCaseSessionMcp(tools = new Map()) {
   return {
     implemented: new Set(tools.keys()),
     // `effectiveTools` is the §6.4 effective set for this request, in x-case-tools order.
-    async handle(req, res, { effectiveTools, scope }) {
+    async handle(req, res, { effectiveTools, scope, onPermissionDenied = null }) {
       const read = await readMcpRequest(req, res);
       if (!read?.request) return;
       const { request } = read;
@@ -37,7 +37,10 @@ export function createCaseSessionMcp(tools = new Map()) {
       }
       if (request.method !== 'tools/call') return sendJson(res, 200, rpcError(id, -32601, 'Method not found'));
       const name = request.params?.name;
-      if (typeof name !== 'string' || !effectiveTools.includes(name)) return sendJson(res, 200, codedRpcError(id, 'Tool not available in this case session', 'TOOL_NOT_IN_SESSION'));
+      if (typeof name !== 'string' || !effectiveTools.includes(name)) {
+        if (typeof name === 'string' && tools.has(name)) onPermissionDenied?.(name);
+        return sendJson(res, 200, codedRpcError(id, 'Tool not available in this case session', 'TOOL_NOT_IN_SESSION'));
+      }
       const args = request.params?.arguments ?? {};
       if (!validators.get(name)(args)) return sendJson(res, 200, codedRpcError(id, 'Invalid tool arguments', 'TOOL_ARGUMENTS_INVALID'));
       try { return sendJson(res, 200, rpcResult(id, await tools.get(name).run(args, scope))); }

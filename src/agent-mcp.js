@@ -188,7 +188,7 @@ function wakeHttpError(error, res) {
   return error;
 }
 
-export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, wakeTools = null, providerEvents = null, eventsEnabled = false }) {
+export async function handleAgentMcp(req, res, { identity, callRest, maxRequestBytes = 64 * 1024, denyUnavailable = null, onPermissionDenied = null, wakeTools = null, providerEvents = null, eventsEnabled = false }) {
   const eventAvailable = Boolean(providerEvents && await providerEvents.available(identity, '2026-07-28'));
   const read = await readMcpRequest(req, res, { maxRequestBytes, allowEventsVersion: eventsEnabled, eventsAvailable: eventAvailable, recognizeEventMethods: true });
   if (!read?.request) return;
@@ -218,6 +218,7 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   const name = request.params?.name;
   const tool = offeredTools.find(candidate => candidate.name === name);
   // A credential with its own scope (agent-remote-auth §9) is refused with a scope error, before the arguments are read.
+  if (tool && !toolAvailable(identity, tool)) onPermissionDenied?.(tool);
   if (tool && !toolAvailable(identity, tool) && denyUnavailable) denyUnavailable(tool);
   if (!tool || !toolAvailable(identity, tool)) return sendJson(res, 200, rpcError(id, -32602, 'Tool not available to this agent'));
   const wakeTool = wakeAvailable && wakeTools.tools.some(candidate => candidate.name === name);
@@ -226,6 +227,7 @@ export async function handleAgentMcp(req, res, { identity, callRest, maxRequestB
   // The service validates its closed schema before reading any argument or doing work.
   if (!wakeTool && !(validators.get(name) || (tool && ajv.compile(tool.inputSchema)))(args)) return sendJson(res, 200, rpcError(id, -32602, 'Invalid tool arguments'));
   if (identity.mcpScope && name !== 'envoi_agent_info' && args.caseId !== identity.mcpScope.caseId) {
+    onPermissionDenied?.(tool);
     return sendJson(res, 200, rpcError(id, -32602, 'Case is outside this MCP token scope'));
   }
   try {

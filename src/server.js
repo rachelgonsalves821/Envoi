@@ -78,6 +78,8 @@ import { createHttpWake } from './http-wake.js';
 import { createMcpWakeTools } from './mcp-wake-tools.js';
 import { createProviderEventWake } from './provider-event-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
+import { commitment, createMonadPermissionLayer, permissionSnapshot } from './monad-permissions.js';
+import { createMonadAccess } from './monad-access.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
 import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, oauthGrantablePermissions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthEndpointServed, remoteAuthLimits, remoteAuthOrigin, remoteAuthScopes, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
 import { organizationMaximumPermissions } from './agent-approval.js';
@@ -146,6 +148,20 @@ if (process.env.ENVOI_EXPECTED_DATABASE_FINGERPRINT && !process.env.DATABASE_URL
 const consumerIdentity = createConsumerIdentity({ connectionString: process.env.DATABASE_URL, releaseSha });
 const logConsumer = consumerLogger(consumerIdentity);
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL, { applicationName: consumerIdentity.applicationName }) : new FileStore(dataDir);
+const monadPermissions = createMonadPermissionLayer({
+  store, enabled: process.env.ENVOI_MONAD_PERMISSIONS === 'true'
+});
+const monadAccess = createMonadAccess({
+  store, available: monadPermissions.enabled,
+  paidOrganizationIds: process.env.ENVOI_MONAD_PAID_ORGANIZATION_IDS
+});
+const monadRequest = Symbol('monad-request');
+const monadPermissionDenied = Symbol('monad-permission-denied');
+const monadViolationRetry = monadPermissions.enabled
+  ? setInterval(() => { void monadPermissions.flushViolations().catch(() => {}); }, 30_000)
+  : null;
+monadViolationRetry?.unref?.();
+if (monadPermissions.enabled) void monadPermissions.flushViolations().catch(() => {});
 const auth = createHumanAuth(store);
 const presenceRecorder = createPresenceRecorder({
   store,
@@ -734,6 +750,15 @@ async function checkAgentCredential(req, url, res) {
   if (resolved.error) throw resolved.error;
   const identity = resolved.identity;
   if (identity) trackAgentPresence(req, res, identity);
+  if (identity && await monadAccess.active(identity.inboxId)) {
+    req[monadRequest] = {
+      requestId: crypto.randomUUID(), inboxId: identity.inboxId, agentId: identity.agent.id,
+      method: req.method, pathname: url.pathname,
+      permissionFingerprint: commitment('permission', permissionSnapshot(identity.inboxId, identity.agent))
+    };
+    try { await monadPermissions.ensurePermission(identity.inboxId, identity.agent); }
+    catch { throw codedError(503, 'MONAD_PERMISSION_UNAVAILABLE', 'The current agent permission could not be verified on Monad.'); }
+  }
   // agent-registration §14.2: the first outer /mcp request an oauth_access token authenticates records usedAt before it is
   // dispatched (and retires the refresh recovery envelope that named it). The REST call a tool call makes never does.
   if (identity?.oauth && url.pathname === '/mcp') await markOAuthAccessUsed(identity.credential.tokenHash, { familyId: identity.familyId, usedAt: identity.credential.usedAt });
@@ -1614,6 +1639,24 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
     keyring: policyKeyring,
     now: store.now()
   });
+  if (await monadAccess.active(inboxId)) {
+    if (record.decision === 'deny') {
+      try {
+        await monadPermissions.recordViolation({
+          requestId: crypto.randomUUID(), inboxId, agentId: agent.id,
+          method: 'POLICY', pathname: requestedAction, status: 403,
+          reasonCode: record.reasonCode,
+          permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, agent))
+        });
+      } catch { /* The durable outbox retries an unsent violation. */ }
+    }
+    const proof = await monadPermissions.anchor('policy', {
+      inboxId, agentId: agent.id, caseId: caseRecord.id,
+      permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, agent)),
+      recordDigest: record.recordDigest
+    }).catch(() => null);
+    if (proof?.status !== 'recorded') throw codedError(503, 'MONAD_POLICY_UNAVAILABLE', 'The policy decision could not be verified on Monad.');
+  }
   return {
     decision: record.decision,
     reasonCode: record.reasonCode,
@@ -1652,6 +1695,14 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
   await policyDecisionChain(inboxId);
   if (!evaluation || !binding || !verifyDecisionRecord(binding, { keyring: policyKeyring, requireSigned: true }) || evaluation.actor !== principal.id || binding.agentId !== principal.id || binding.caseId !== caseRecord.id) {
     throw Object.assign(new Error('A current server-issued policy evaluation for this agent and case is required'), { statusCode: 403 });
+  }
+  if (await monadAccess.active(inboxId)) {
+    const proof = await monadPermissions.readAnchor('policy', {
+      inboxId, agentId: principal.id, caseId: caseRecord.id,
+      permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, principal)),
+      recordDigest: binding.recordDigest
+    }).catch(() => null);
+    if (!proof) throw codedError(503, 'MONAD_POLICY_UNAVAILABLE', 'The policy decision could not be verified on Monad.');
   }
   const proposalStateDigest = valueDigest(caseRecord.proposals || []);
   assertExactBinding(binding, { requestedAction: requestedAction || binding.requestedAction, actionPayload: actionPayload || {}, proposalDigest: proposalId ? proposalStateDigest : null, optionId, keyring: policyKeyring, at: store.now() });
@@ -3303,9 +3354,19 @@ async function handleCaseSessionMcp(req, res, url) {
   }
   // §6.4: the session's tools, less any the agent's current permissions no longer allow.
   const agent = await store.getJson(path.join('inboxes', session.inboxId, 'agents', `${session.agentId}.json`));
+  if (agent && await monadAccess.active(session.inboxId)) {
+    req[monadRequest] = {
+      requestId: crypto.randomUUID(), inboxId: session.inboxId, agentId: session.agentId,
+      method: req.method, pathname: url.pathname,
+      permissionFingerprint: commitment('permission', permissionSnapshot(session.inboxId, agent))
+    };
+    try { await monadPermissions.ensurePermission(session.inboxId, agent); }
+    catch { throw codedError(503, 'MONAD_PERMISSION_UNAVAILABLE', 'The current agent permission could not be verified on Monad.'); }
+  }
   const permitted = new Set(allowedCaseTools(agent?.permissions, session.workKind, caseSessionMcp.implemented));
   const scope = { sessionId: session.id, agentId: session.agentId, inboxId: session.inboxId, workId: session.workId, workKind: session.workKind, caseId: session.caseId, counterparty: session.counterparty };
-  return caseSessionMcp.handle(req, res, { effectiveTools: session.allowedTools.filter(name => permitted.has(name)), scope });
+  return caseSessionMcp.handle(req, res, { effectiveTools: session.allowedTools.filter(name => permitted.has(name)), scope,
+    onPermissionDenied: () => { req[monadPermissionDenied] = true; } });
 }
 
 // §3 and §8. Credential and pause checks have already run (rows 2–5).
@@ -4009,7 +4070,8 @@ async function route(req, res) {
     const events = { ...providerEventWake };
     for (const name of ['discover', 'list', 'unsubscribe']) events[name] = (_caller, ...args) => withInboxMutation(identity.inboxId, async () => providerEventWake[name](await freshMcpIdentity(), ...args));
     events.subscribe = async (_caller, ...args) => providerEventWake.subscribe(await freshMcpIdentity(), ...args);
-    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable, eventsEnabled: Boolean(onboardingFlags.mcpEvents), providerEvents: events,
+    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable, onPermissionDenied: () => { req[monadPermissionDenied] = true; },
+      eventsEnabled: Boolean(onboardingFlags.mcpEvents), providerEvents: events,
       wakeTools: { ...mcpWakeTools, call: (name, args) => withInboxMutation(identity.inboxId, async () => mcpWakeTools.call(name, args, await freshMcpIdentity())) } });
   }
   // agent-remote-auth v1 §5: /authorize-agent is the owner consent page, also the web app.
@@ -4697,6 +4759,34 @@ async function route(req, res) {
   if (!inbox) return fail(res, 404, 'Inbox not found');
 
   if (await inboxPreferencesHttp.handleRequest(req, res, url)) return;
+
+  if (suffix === 'monad-settings' && (req.method === 'GET' || req.method === 'POST')) {
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Authentication required');
+    if (!await canManageInbox(human, inbox, { maxAgeMs: 0 })) return fail(res, 403, 'Workspace administrator required');
+    if (req.method === 'GET') return json(res, 200, await monadAccess.status(inbox));
+    const input = await body(req, 4096);
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 || typeof input.enabled !== 'boolean') return fail(res, 400, 'Expected { enabled: boolean }');
+    const settings = await withInboxMutation(inboxId, async () => {
+      const current = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
+      if (!current || !await canManageInbox(await auth.getHuman(req), current, { maxAgeMs: 0 })) throw codedError(403, 'GATEWAY_SCOPE_DENIED', 'Workspace administrator required');
+      return monadAccess.set(current, input.enabled);
+    });
+    return json(res, 200, settings);
+  }
+
+  const monadEvidenceRoute = suffix.match(/^agents\/([^/]+)\/monad-evidence$/);
+  if (req.method === 'GET' && monadEvidenceRoute) {
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Authentication required');
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const agentId = assertSafeIdentifier(monadEvidenceRoute[1], 'agentId');
+    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    if (!agent || inbox.ownerAgentId !== agentId) return fail(res, 404, 'Owned agent not found');
+    return json(res, 200, await monadAccess.active(inboxId)
+      ? await monadPermissions.permissionEvidence(inboxId, agent)
+      : { enabled: false, chainId: 10143, permission: { status: 'off' }, violations: [] });
+  }
 
   // agent-registration v1 §6.5: the owner's installation list and per-installation revoke.
   const installationRoute = suffix.match(/^agents\/([^/]+)\/installations(?:\/([^/]+)\/revoke)?$/);
@@ -6259,13 +6349,30 @@ if (scanJobStore) {
   void runObjectScans();
   void runObjectScanRetention();
 }
-const server = http.createServer((req, res) => route(req, res).catch((error) => {
-  const requestId = requestIdFrom(req.headers['x-request-id']);
-  const response = publicHttpError(error, requestId);
-  notePresence(req, { errorCode: response.body?.code || null });
-  if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
-  return json(res, response.status, response.body);
-}));
+const server = http.createServer(async (req, res) => {
+  let reasonCode = null;
+  try { await route(req, res); }
+  catch (error) {
+    const requestId = requestIdFrom(req.headers['x-request-id']);
+    const response = publicHttpError(error, requestId);
+    reasonCode = response.body?.code || null;
+    notePresence(req, { errorCode: reasonCode });
+    if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
+    json(res, response.status, response.body);
+  }
+  const deniedByControl = reasonCode === 'AGENT_PAUSED' || reasonCode === 'CASE_CONTROLLED';
+  if ((res.statusCode === 403 || deniedByControl || req[monadPermissionDenied]) && req[monadRequest]) {
+    try {
+      await monadPermissions.recordViolation({
+        ...req[monadRequest], status: res.statusCode, reasonCode: reasonCode || 'PERMISSION_DENIED'
+      });
+    } catch (error) {
+      console.error('Monad violation recording pending', {
+        requestId: req[monadRequest].requestId, name: error instanceof Error ? error.name : 'Error'
+      });
+    }
+  }
+});
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 server.listen(port, host, () => console.log(`Envoi backend listening on http://${host}:${server.address().port}`));
@@ -6276,6 +6383,7 @@ const shutdown = () => {
   shutdownStarted = true;
   scanLifecycleStopping = true;
   clearInterval(objectQuotaReaper);
+  if (monadViolationRetry) clearInterval(monadViolationRetry);
   clearInterval(agentRotationReaper);
   clearInterval(registrationCleanup);
   clearInterval(caseSessionCleanup);

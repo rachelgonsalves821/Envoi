@@ -42,6 +42,7 @@
     "@workos-inc/node": "^10.14.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
+    "ethers": "^6.17.0",
     "lucide-react": "^1.48.0",
     "otplib": "^13.5.0",
     "pg": "^8.13.1",
