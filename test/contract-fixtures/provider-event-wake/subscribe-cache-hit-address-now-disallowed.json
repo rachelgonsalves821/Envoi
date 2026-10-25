@@ -1,0 +1,95 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "subscribe-cache-hit-address-now-disallowed",
+  "kind": "http",
+  "description": "§4.2: a cache hit never skips destination validation. The origin is still allowed but now resolves to a private address: refused with address_not_allowed, nothing sent, the cache entry is dropped.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "context": {
+    "profile": "mcp_events",
+    "route": "remote_mcp_oauth",
+    "agentStatus": "active",
+    "callbackOriginAllowlist": [
+      "https://dots.callbacks.example"
+    ],
+    "dns": {
+      "host": "dots.callbacks.example",
+      "addresses": [
+        "10.0.0.8"
+      ]
+    },
+    "existingSubscription": "evtsub_0f3a9c2e51b84d7aa6c1",
+    "verificationCache": {
+      "principal": "installation_oauth1",
+      "url": "https://dots.callbacks.example/envoi/events",
+      "secretVersion": 1,
+      "verifiedAt": "2026-10-24T11:50:00.000Z",
+      "ageSeconds": 600
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "events/subscribe",
+      "params": {
+        "name": "envoi.work_available",
+        "arguments": {},
+        "delivery": {
+          "mode": "webhook",
+          "url": "https://dots.callbacks.example/envoi/events",
+          "secret": "whsec_UExBQ0VIT0xERVItRklYVFVSRS1TRUNSRVQtMDAwMQ=="
+        },
+        "cursor": "00000000000000000104"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "rpcError",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32015,
+        "message": "CallbackEndpointError",
+        "data": {
+          "reason": "address_not_allowed"
+        }
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "fix_callback_url",
+    "next": "See the row for this outcome in the contract tables."
+  },
+  "effects": {
+    "verificationSent": false,
+    "verificationCache": "dropped",
+    "destinationChecksRerun": true
+  }
+}

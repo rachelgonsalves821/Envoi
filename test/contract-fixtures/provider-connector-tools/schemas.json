@@ -1,0 +1,692 @@
+{
+  "$id": "provider-connector-tools/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "provider-connector-tools v1: the classification of every existing /mcp tool by effect and scope, and the rules a reviewed provider connector must follow. Derived from the live tool table; adds no tool, scope, route or flag.",
+  "x-tool-classification": [
+    {
+      "name": "envoi_agent_info",
+      "permission": null,
+      "scope": "envoi.agent",
+      "effect": "read",
+      "stateChange": "none",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "identity",
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_list_cases",
+      "permission": "read",
+      "scope": "envoi.agent or envoi.send",
+      "effect": "read",
+      "stateChange": "none",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "snapshot",
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_read_case",
+      "permission": "read",
+      "scope": "envoi.agent or envoi.send",
+      "effect": "read",
+      "stateChange": "none",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "snapshot",
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_list_messages",
+      "permission": "read",
+      "scope": "envoi.agent or envoi.send",
+      "effect": "read",
+      "stateChange": "none",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "snapshot",
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_start_case",
+      "permission": "send_agent_messages",
+      "scope": "envoi.send",
+      "effect": "sensitive_write",
+      "stateChange": "message_sent",
+      "outwardEffect": true,
+      "proposedPerUseProviderApproval": true,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": true
+    },
+    {
+      "name": "envoi_send_message",
+      "permission": "send_agent_messages",
+      "scope": "envoi.send",
+      "effect": "sensitive_write",
+      "stateChange": "message_sent",
+      "outwardEffect": true,
+      "proposedPerUseProviderApproval": true,
+      "minimumSubmissionRole": "reply",
+      "leaseFenced": false,
+      "idempotencyKeyRequired": true
+    },
+    {
+      "name": "envoi_send_proposal",
+      "permission": "send_agent_messages",
+      "scope": "envoi.send",
+      "effect": "sensitive_write",
+      "stateChange": "message_sent",
+      "outwardEffect": true,
+      "proposedPerUseProviderApproval": true,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": true
+    },
+    {
+      "name": "envoi_send_decision",
+      "permission": "send_agent_messages",
+      "scope": "envoi.send",
+      "effect": "sensitive_write",
+      "stateChange": "message_sent",
+      "outwardEffect": true,
+      "proposedPerUseProviderApproval": true,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": true
+    },
+    {
+      "name": "envoi_send_completion",
+      "permission": "send_agent_messages",
+      "scope": "envoi.send",
+      "effect": "sensitive_write",
+      "stateChange": "message_sent",
+      "outwardEffect": true,
+      "proposedPerUseProviderApproval": true,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": true
+    },
+    {
+      "name": "envoi_claim_work",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "effect": "write",
+      "stateChange": "work_lease",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "claim",
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_renew_work",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "effect": "write",
+      "stateChange": "work_lease",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "claim",
+      "leaseFenced": true,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_acknowledge_work",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "effect": "write",
+      "stateChange": "work_state",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "claim",
+      "leaseFenced": true,
+      "idempotencyKeyRequired": true
+    },
+    {
+      "name": "envoi_complete_work",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "effect": "write",
+      "stateChange": "work_state",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "claim",
+      "leaseFenced": true,
+      "idempotencyKeyRequired": true
+    },
+    {
+      "name": "envoi_fail_work",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "effect": "write",
+      "stateChange": "work_state",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": "claim",
+      "leaseFenced": true,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_list_assets",
+      "permission": "read",
+      "scope": "envoi.agent or envoi.send",
+      "effect": "read",
+      "stateChange": "none",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_begin_asset_upload",
+      "permission": "create_assets",
+      "scope": "envoi.files",
+      "effect": "write",
+      "stateChange": "asset_state",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": true
+    },
+    {
+      "name": "envoi_complete_asset_upload",
+      "permission": "create_assets",
+      "scope": "envoi.files",
+      "effect": "write",
+      "stateChange": "asset_state",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_asset_download",
+      "permission": "read",
+      "scope": "envoi.agent or envoi.send",
+      "effect": "read",
+      "stateChange": "none",
+      "outwardEffect": false,
+      "proposedPerUseProviderApproval": false,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": false
+    },
+    {
+      "name": "envoi_grant_asset",
+      "permission": "create_assets",
+      "scope": "envoi.files",
+      "effect": "sensitive_write",
+      "stateChange": "asset_shared",
+      "outwardEffect": true,
+      "proposedPerUseProviderApproval": true,
+      "minimumSubmissionRole": null,
+      "leaseFenced": false,
+      "idempotencyKeyRequired": true
+    }
+  ],
+  "x-effect-classes": {
+    "read": "retrieves without changing state",
+    "write": "changes Envoi state for this installation only (a lease, work state, an asset reservation)",
+    "sensitive_write": "sends content to another party or shares a file; Meta decides its own class and requires approval on every use"
+  },
+  "x-minimum-submission-set": {
+    "tools": [
+      "envoi_agent_info",
+      "envoi_list_cases",
+      "envoi_read_case",
+      "envoi_list_messages",
+      "envoi_send_message",
+      "envoi_claim_work",
+      "envoi_renew_work",
+      "envoi_acknowledge_work",
+      "envoi_complete_work",
+      "envoi_fail_work"
+    ],
+    "roles": {
+      "identity": "identify the installation",
+      "snapshot": "read one authorized case or inbox item",
+      "claim": "claim, renew, acknowledge, complete or fail one fenced item",
+      "reply": "one canonical reply to the current case"
+    },
+    "excluded": [
+      "envoi_start_case",
+      "envoi_send_proposal",
+      "envoi_send_decision",
+      "envoi_send_completion",
+      "envoi_list_assets",
+      "envoi_begin_asset_upload",
+      "envoi_complete_asset_upload",
+      "envoi_asset_download",
+      "envoi_grant_asset"
+    ],
+    "note": "Adding a tool needs its own review by Meta and a revision of this contract."
+  },
+  "x-visible-by-permission": {
+    "receive_agent_messages": [
+      "envoi_agent_info",
+      "envoi_list_cases",
+      "envoi_read_case",
+      "envoi_list_messages",
+      "envoi_claim_work",
+      "envoi_renew_work",
+      "envoi_acknowledge_work",
+      "envoi_complete_work",
+      "envoi_fail_work",
+      "envoi_list_assets",
+      "envoi_asset_download"
+    ],
+    "receive_agent_messages+send_agent_messages": [
+      "envoi_agent_info",
+      "envoi_list_cases",
+      "envoi_read_case",
+      "envoi_list_messages",
+      "envoi_start_case",
+      "envoi_send_message",
+      "envoi_send_proposal",
+      "envoi_send_decision",
+      "envoi_send_completion",
+      "envoi_claim_work",
+      "envoi_renew_work",
+      "envoi_acknowledge_work",
+      "envoi_complete_work",
+      "envoi_fail_work",
+      "envoi_list_assets",
+      "envoi_asset_download"
+    ]
+  },
+  "x-rules": {
+    "R1": "A provider's approval prompt is the provider's control. It is never Envoi authority and never an argument: tool arguments are closed objects.",
+    "R2": "Envoi's own policy, human-decision and permission checks apply to every call regardless of any provider approval, and a provider approval does not satisfy a required Envoi human decision (case-tools v1 authority).",
+    "R3": "A send, proposal, decision, completion, start or asset grant is outward. It is never described as a read, and a read is never given a side effect.",
+    "R4": "The accepted/queued receipt of a send, work settlement, and the other agent's receipt are three different facts (case-tools v1).",
+    "R5": "Claim, renewal and settlement stay behind the opaque lease token and idempotency keys; a provider model never receives an agent bearer, a case-session token or a lease token it did not obtain from a tool result in the same call chain.",
+    "R6": "The grant is wider than the submitted tools: envoi.agent always includes claim and settlement authority. It must not be described to the owner or to Meta as read-only."
+  },
+  "x-read-only-options": {
+    "A": "Accept envoi.agent for the first reviewed workflow, describe it honestly, submit only the minimum tool set. Changes no approved contract. Chosen as Lane A's recommendation if Meta accepts it (gate M2).",
+    "B": "Add a read-only permission and scope: a revision of agent-registration v1 (permissions) and agent-remote-auth v1 (x-scopes, consent display), each needing Lane B ACK and the human's exact approval. Not published here.",
+    "C": "Register a second, read-only provider client over a separate approved permission. Same cost as B plus a second client record."
+  },
+  "x-evidence-gates": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5"
+  ],
+  "x-codes": {
+    "INSUFFICIENT_SCOPE": {
+      "status": 403,
+      "lifecycle": "UNCHANGED",
+      "retry": "none",
+      "guidance": "reauthorize"
+    }
+  },
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "retry": {
+      "enum": [
+        "none",
+        "backoff",
+        "after_retry_after"
+      ]
+    },
+    "guidance": {
+      "enum": [
+        "none",
+        "reauthorize"
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "INSUFFICIENT_SCOPE"
+          ]
+        },
+        "error": {
+          "enum": [
+            "INSUFFICIENT_SCOPE"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "requestId": {
+          "type": "string"
+        }
+      }
+    },
+    "toolsList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tools"
+          ],
+          "properties": {
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "rpcError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "const": -32602
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "fixtureFlags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ENVOI_PROVIDER_CONNECTORS"
+      ],
+      "properties": {
+        "ENVOI_AGENT_REGISTRATION_V2": {
+          "type": "boolean"
+        },
+        "ENVOI_INSTALLATIONS_V2": {
+          "type": "boolean"
+        },
+        "ENVOI_REMOTE_MCP_OAUTH": {
+          "type": "boolean"
+        },
+        "ENVOI_PROVIDER_CONNECTORS": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fixtureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "path",
+        "auth"
+      ],
+      "properties": {
+        "method": {
+          "const": "POST"
+        },
+        "path": {
+          "const": "/mcp"
+        },
+        "auth": {
+          "const": "bearer"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "schema",
+        "body"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "lifecycle",
+        "retry",
+        "guidance",
+        "next"
+      ],
+      "properties": {
+        "surface": {
+          "const": "provider_backend"
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/lifecycle"
+        },
+        "retry": {
+          "$ref": "#/definitions/retry"
+        },
+        "guidance": {
+          "$ref": "#/definitions/guidance"
+        },
+        "next": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fixtureEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkedAt",
+        "sources",
+        "unproven"
+      ],
+      "properties": {
+        "checkedAt": {
+          "type": "string",
+          "format": "date"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "product",
+              "url"
+            ]
+          }
+        },
+        "unproven": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gate",
+              "claim",
+              "owner"
+            ],
+            "properties": {
+              "gate": {
+                "type": "string"
+              },
+              "claim": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind"
+      ],
+      "properties": {
+        "contract": {
+          "const": "provider-connector-tools"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "evidence"
+          ]
+        },
+        "flags": {
+          "$ref": "#/definitions/fixtureFlags"
+        },
+        "context": {
+          "type": "object"
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        },
+        "evidence": {
+          "$ref": "#/definitions/fixtureEvidence"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response",
+              "client"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "evidence"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "evidence"
+            ],
+            "not": {
+              "required": [
+                "request"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

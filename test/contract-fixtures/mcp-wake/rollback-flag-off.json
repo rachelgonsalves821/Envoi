@@ -1,0 +1,35 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "rollback-flag-off",
+  "kind": "rollback",
+  "description": "Turning ENVOI_MCP_WAKE_V1 off ends the subscriptions created through these tools; subscriptions created through the REST routes are untouched.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": false
+  },
+  "steps": [
+    {
+      "actor": "operator",
+      "does": "sets ENVOI_MCP_WAKE_V1 off and restarts",
+      "fixture": "tools-list-flag-off"
+    },
+    {
+      "actor": "envoi",
+      "does": "every subscription stored with createdVia \"mcp\" reads ended / feature_disabled from the first read or attempt after the flag-off start (§1)"
+    },
+    {
+      "actor": "envoi",
+      "does": "REST-created http-wake subscriptions keep their state; the http-wake epoch does not move"
+    },
+    {
+      "actor": "connector_backend",
+      "does": "tools/call envoi_wake_status is an unknown tool; the backend falls back to its safety poll with envoi_claim_work",
+      "fixture": "create-flag-off-unknown-tool"
+    }
+  ]
+}

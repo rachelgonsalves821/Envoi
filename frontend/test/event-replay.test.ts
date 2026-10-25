@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from '../src/event-replay';
 
 it('refreshes bounded replay notices while preserving native reconnect state', () => {
@@ -73,10 +73,16 @@ it('can use the server ready payload when no inherited id is available, and keep
 });
 
 it('covers the literal data events emitted by the server and keeps control events separate', () => {
-  const source = readFileSync(new URL('../../src/server.js', import.meta.url), 'utf8');
+  // Feature audit callbacks publish through the same committed workspace stream as
+  // server.js. Read the modules present in this checkout, including composed native
+  // and provider implementations, rather than overlooking their literal events.
+  const modules = new Set(['server.js', 'provider-browser-poll.js', 'provider-gateway-native.js', 'provider-event-wake.js', 'http-wake.js']);
+  const directory = new URL('../../src/', import.meta.url);
+  const source = readdirSync(directory).filter(name => modules.has(name)).map(name => readFileSync(new URL(name, directory), 'utf8')).join('\n');
   const emitted = [...source.matchAll(/(?:audit|writeAudit)\(\s*(?:[^,\n]+,\s*)?['"]([a-z][a-z_.]+)['"]/g)].map(match => match[1]);
   expect(emitted.length).toBeGreaterThan(25);
-  for (const type of emitted) expect(WORKSPACE_EVENT_TYPES, type).toContain(type);
+  // Global HTTP-wake startup epochs use a null inbox and do not enter a workspace stream.
+  for (const type of emitted.filter(type => type !== 'http_wake.epoch_moved')) expect(WORKSPACE_EVENT_TYPES, type).toContain(type);
   for (const type of ['agent.reenroll_token_created', 'agent.reconnect_token_created']) expect(WORKSPACE_EVENT_TYPES).toContain(type);
   expect(WORKSPACE_EVENT_TYPES).not.toContain('session.revoked');
   expect(WORKSPACE_EVENT_TYPES).not.toContain('ready');
@@ -91,4 +97,17 @@ it('covers the literal data events emitted by the server and keeps control event
   }
   expect(WORKSPACE_EVENT_TYPES).toContain('work.available');
   expect(PROGRESS_ONLY_EVENTS.has('work.available')).toBe(true);
+});
+
+it('refreshes visible native work, owner scope and provider target state rather than treating them as progress-only', () => {
+  const store = createEventCursorStore();
+  const scope = store.scope('owner', 'workspace', () => true);
+  const types = ['agent.gateway_scope_changed', 'agent.gateway_work_released', 'agent.gateway_work_replied', 'agent.wake_target_secret_set', 'agent.wake_target_attention'];
+  types.forEach((type, index) => {
+    expect(WORKSPACE_EVENT_TYPES).toContain(type);
+    expect(PROGRESS_ONLY_EVENTS.has(type)).toBe(false);
+    expect(scope.record(message(type, String(index + 1).padStart(20, '0')))).toBe(true);
+  });
+  expect(scope.url()).toContain('cursor=00000000000000000005');
+  expect(WORKSPACE_EVENT_TYPES).not.toContain('http_wake.epoch_moved');
 });

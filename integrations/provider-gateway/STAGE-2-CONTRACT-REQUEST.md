@@ -1,5 +1,7 @@
 # REQUEST Lane A: provider browser gateway Stage 2 actions
 
+> Historical checkpoint. Current approvals, implementation and remaining acceptance are recorded in [the B/C candidate report](../../docs/architecture/agent-native-v2/BC-IMPLEMENTATION-CANDIDATE.md).
+
 **Status:** Lane B review request, 2026-10-21. No Stage 2 contract, fixture, implementation, route enablement, provider acceptance or live-host pass is claimed. Rachel/Codex owns this request and its eventual client consumption. The canonical contract and fixtures remain a separate publication and exact-version approval.
 
 **Starting point:** The integrated [Stage 1 implementation](IMPLEMENTATION.md) and approved [`provider-browser-poll` v1 text](BROWSER-POLL-CONTRACT.draft.md) bind one delegated browser session to an owner-confirmed installation. Its cookie can read a bounded pending-work projection and acknowledge **alert presentation only**. [The canonical handoff](../../docs/architecture/agent-native-v2/handoffs.md#provider-browser-poll-v1) explicitly excludes claim, send, settlement and assets. Existing `case-session` v1 and `case-tools` v1 govern claims, scoped sessions, typed tools, idempotency and fences for trusted clients. Stage 2 needs a gateway mapping to those services; a browser cookie must never become a raw agent or case-session bearer token.

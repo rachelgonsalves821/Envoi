@@ -1,0 +1,806 @@
+{
+  "$id": "mcp-wake/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "mcp-wake v1: wake subscriptions managed through /mcp tools by the backend of a pre-registered provider client. Bodies, signing, destination safety and delivery are http-wake v1; nothing here adds a queue.",
+  "x-flags": {
+    "ENVOI_MCP_WAKE_V1": {
+      "default": false,
+      "requires": [
+        "ENVOI_HTTP_WAKE_V1",
+        "ENVOI_INSTALLATIONS_V2",
+        "ENVOI_AGENT_REGISTRATION_V2",
+        "ENVOI_PROVIDER_CONNECTORS"
+      ],
+      "failsStartupClosed": true
+    }
+  },
+  "x-tools": [
+    {
+      "name": "envoi_wake_create",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "restEquivalent": "POST /api/agent/wake-subscriptions",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        }
+      }
+    },
+    {
+      "name": "envoi_wake_activate",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "restEquivalent": "POST /api/agent/wake-subscriptions/{id}/activate",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subscriptionId",
+          "challenge"
+        ],
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "pattern": "^wake_sub_[A-Za-z0-9_-]+$"
+          },
+          "challenge": {
+            "type": "string",
+            "pattern": "^envoi_wake_challenge_[A-Za-z0-9_-]+$"
+          }
+        }
+      }
+    },
+    {
+      "name": "envoi_wake_end",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "restEquivalent": "POST /api/agent/wake-subscriptions/{id}/end",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subscriptionId"
+        ],
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "pattern": "^wake_sub_[A-Za-z0-9_-]+$"
+          }
+        }
+      }
+    },
+    {
+      "name": "envoi_wake_status",
+      "permission": "receive_agent_messages",
+      "scope": "envoi.agent",
+      "restEquivalent": "GET /api/agent/status (httpWake)",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ],
+  "x-binding": {
+    "tenantAndOwner": "Server-derived from the credential family; never from arguments. A subscription belongs to exactly one installation (http-wake §2.2).",
+    "audience": "The credential family must be audience-bound to /mcp and belong to a pre-registered provider client with non-empty wakeOrigins.",
+    "destination": "The URL origin must equal one of the client's declared wakeOrigins (exact scheme, host and port 443). Checked before DNS. Then every http-wake §4 rule applies.",
+    "receiver": "The receiver is the client's backend. It is the principal that holds the OAuth tokens. A model-visible channel never holds them."
+  },
+  "x-wake-origins": {
+    "maxOrigins": 3,
+    "form": "https origin only: no path, query, fragment, wildcard, IP literal or port other than 443",
+    "source": "The pre-registered client record (agent-remote-auth §3.2), which is server configuration. A client metadata document cannot declare it in v1."
+  },
+  "x-limits": {
+    "reuses": "http-wake/x-limits",
+    "additional": {}
+  },
+  "x-notification": {
+    "reuses": "http-wake §2.3 byte for byte",
+    "newFields": []
+  },
+  "x-url-extra-reasons": [
+    "origin_not_declared"
+  ],
+  "x-codes": {
+    "AGENT_PAUSED": {
+      "status": 409,
+      "when": "§6: /mcp is HTTP 409 while paused.",
+      "bySurface": {
+        "backend": {
+          "lifecycle": "PAUSED",
+          "retry": "none",
+          "guidance": "wait_for_resume"
+        }
+      }
+    },
+    "CREDENTIAL_REVOKED": {
+      "status": 401,
+      "when": "§6: a revoked family at /mcp.",
+      "bySurface": {
+        "backend": {
+          "lifecycle": "REVOKED",
+          "retry": "none",
+          "guidance": "owner_reconnect",
+          "guidanceByReason": {
+            "revoked": "owner_reconnect"
+          }
+        }
+      }
+    },
+    "AUTHENTICATION_REQUIRED": {
+      "status": 401,
+      "when": "§2.3: an audience-bound token on a REST wake route.",
+      "bySurface": {
+        "backend": {
+          "lifecycle": "UNCHANGED",
+          "retry": "none",
+          "guidance": "use_mcp_wake_tools"
+        }
+      }
+    },
+    "RATE_LIMITED": {
+      "status": 429,
+      "when": "§5: http-wake create limits.",
+      "bySurface": {
+        "backend": {
+          "lifecycle": "UNCHANGED",
+          "retry": "after_retry_after",
+          "guidance": "service_busy"
+        }
+      }
+    }
+  },
+  "x-tool-errors": {
+    "WAKE_SUBSCRIPTION_INVALID": {
+      "message": "The wake request is not valid.",
+      "retryable": false,
+      "guidance": "update_connector"
+    },
+    "WAKE_URL_REJECTED": {
+      "message": "The wake URL is not allowed.",
+      "retryable": false,
+      "guidance": "fix_wake_url",
+      "reasons": [
+        "origin_not_declared",
+        "url_too_long",
+        "url_invalid",
+        "scheme_not_https",
+        "userinfo_present",
+        "port_not_allowed",
+        "query_present",
+        "fragment_present",
+        "address_literal",
+        "self_target",
+        "reserved_name",
+        "address_not_allowed"
+      ]
+    },
+    "WAKE_SUBSCRIPTION_NOT_FOUND": {
+      "message": "No such wake subscription.",
+      "retryable": false,
+      "guidance": "none"
+    },
+    "WAKE_CHALLENGE_INVALID": {
+      "message": "The wake challenge does not match.",
+      "retryable": false,
+      "guidance": "create_new_subscription"
+    },
+    "WAKE_SUBSCRIPTION_ENDED": {
+      "message": "The wake subscription has ended.",
+      "retryable": false,
+      "guidance": "create_new_subscription"
+    },
+    "WAKE_ROUTE_NOT_SUPPORTED": {
+      "message": "This connection has no wake path.",
+      "retryable": false,
+      "guidance": "no_wake_path",
+      "guidanceByRoute": {
+        "local_helper": "use_rest_wake",
+        "authenticated_rest": "use_rest_wake"
+      }
+    }
+  },
+  "definitions": {
+    "lifecycle": {
+      "enum": [
+        "STARTING",
+        "RUNNING",
+        "DEGRADED",
+        "PAUSED",
+        "NEEDS_RECONNECT",
+        "REVOKED",
+        "STOPPED",
+        "UNCHANGED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "retry": {
+      "enum": [
+        "none",
+        "backoff",
+        "after_retry_after",
+        "refresh_then_retry_once"
+      ]
+    },
+    "guidance": {
+      "enum": [
+        "none",
+        "activate_with_challenge",
+        "fix_wake_url",
+        "update_connector",
+        "no_wake_path",
+        "use_rest_wake",
+        "use_mcp_wake_tools",
+        "wake_unavailable",
+        "wait_for_resume",
+        "owner_reconnect",
+        "service_busy",
+        "create_new_subscription",
+        "owner_revoked_wake"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "AGENT_PAUSED",
+        "CREDENTIAL_REVOKED",
+        "AUTHENTICATION_REQUIRED",
+        "RATE_LIMITED"
+      ]
+    },
+    "toolErrorCode": {
+      "enum": [
+        "WAKE_SUBSCRIPTION_INVALID",
+        "WAKE_URL_REJECTED",
+        "WAKE_SUBSCRIPTION_NOT_FOUND",
+        "WAKE_CHALLENGE_INVALID",
+        "WAKE_SUBSCRIPTION_ENDED",
+        "WAKE_ROUTE_NOT_SUPPORTED"
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "error",
+        "message",
+        "requestId"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "not": {
+            "pattern": "(?:(?:envoi|sinaloa)_agent_(?:access|refresh)_|envoi_mcp_read_|envoi_case_session_|envoi_reg_|envoi_wake_challenge_)"
+          }
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "retryAfterSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RATE_LIMITED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "retryAfterSeconds"
+            ]
+          }
+        }
+      ]
+    },
+    "mcpToolsList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tools"
+          ],
+          "properties": {
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "mcpRpcError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "const": -32602
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "mcpToolCallResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "content",
+            "isError"
+          ],
+          "properties": {
+            "isError": {
+              "type": "boolean"
+            },
+            "content": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "text"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "subscriptionEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "tool",
+        "result"
+      ],
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "tool": {
+          "enum": [
+            "envoi_wake_create",
+            "envoi_wake_activate",
+            "envoi_wake_end"
+          ]
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "subscription"
+          ],
+          "properties": {
+            "subscription": {
+              "type": "object",
+              "description": "http-wake/subscription, validated by this contract's test against that definition"
+            }
+          }
+        }
+      }
+    },
+    "statusEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "tool",
+        "result"
+      ],
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "tool": {
+          "const": "envoi_wake_status"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "httpWake"
+          ],
+          "properties": {
+            "httpWake": {
+              "type": "object",
+              "description": "http-wake/agentStatusHttpWake.properties.httpWake"
+            }
+          }
+        }
+      }
+    },
+    "toolFailureEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "tool",
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "ok": {
+          "const": false
+        },
+        "tool": {
+          "type": "string",
+          "pattern": "^envoi_wake_"
+        },
+        "code": {
+          "$ref": "#/definitions/toolErrorCode"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fixtureFlags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ENVOI_HTTP_WAKE_V1",
+        "ENVOI_INSTALLATIONS_V2",
+        "ENVOI_MCP_WAKE_V1"
+      ],
+      "properties": {
+        "ENVOI_AGENT_REGISTRATION_V2": {
+          "type": "boolean"
+        },
+        "ENVOI_INSTALLATIONS_V2": {
+          "type": "boolean"
+        },
+        "ENVOI_HTTP_WAKE_V1": {
+          "type": "boolean"
+        },
+        "ENVOI_PROVIDER_CONNECTORS": {
+          "type": "boolean"
+        },
+        "ENVOI_REMOTE_MCP_OAUTH": {
+          "type": "boolean"
+        },
+        "ENVOI_MCP_WAKE_V1": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fixtureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "path",
+        "auth"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "auth": {
+          "const": "bearer"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "schema",
+        "body"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "toolResult": {
+          "type": "string",
+          "description": "The definition the single content text parses to"
+        },
+        "headers": {
+          "type": "object"
+        },
+        "body": {}
+      }
+    },
+    "fixtureClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "lifecycle",
+        "retry",
+        "guidance",
+        "next"
+      ],
+      "properties": {
+        "surface": {
+          "const": "backend"
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/lifecycle"
+        },
+        "retry": {
+          "$ref": "#/definitions/retry"
+        },
+        "guidance": {
+          "$ref": "#/definitions/guidance"
+        },
+        "next": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fixtureContext": {
+      "type": "object"
+    },
+    "fixtureStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "does"
+      ],
+      "properties": {
+        "actor": {
+          "enum": [
+            "connector_backend",
+            "envoi",
+            "operator"
+          ]
+        },
+        "does": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixture": {
+          "type": "string"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "description",
+        "kind"
+      ],
+      "properties": {
+        "contract": {
+          "const": "mcp-wake"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "http",
+            "sequence",
+            "rollback"
+          ]
+        },
+        "flags": {
+          "$ref": "#/definitions/fixtureFlags"
+        },
+        "context": {
+          "$ref": "#/definitions/fixtureContext"
+        },
+        "request": {
+          "$ref": "#/definitions/fixtureRequest"
+        },
+        "response": {
+          "$ref": "#/definitions/fixtureResponse"
+        },
+        "client": {
+          "$ref": "#/definitions/fixtureClient"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/definitions/fixtureStep"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "http"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request",
+              "response",
+              "client"
+            ],
+            "not": {
+              "required": [
+                "steps"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "sequence",
+                  "rollback"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "steps"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "request"
+                  ]
+                },
+                {
+                  "required": [
+                    "response"
+                  ]
+                },
+                {
+                  "required": [
+                    "client"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "rollback"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "flags"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

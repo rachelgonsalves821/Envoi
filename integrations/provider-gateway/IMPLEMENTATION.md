@@ -1,5 +1,7 @@
 # Installation-scoped browser gateway — Stage 1
 
+> Historical checkpoint. Current approvals, implementation and remaining acceptance are recorded in [the B/C candidate report](../../docs/architecture/agent-native-v2/BC-IMPLEMENTATION-CANDIDATE.md).
+
 The human authorized implementation of `provider-browser-poll v1` against PR #141 at `8f3c756`, then explicitly delegated gateway server/contract/fixture paths to this task. Code lives in three `src/provider-browser-poll*.js` modules with narrow registration/activation and server-router hooks. The existing canonical registration, installation, credential-family, owner membership, message, claim and case-control services remain authoritative. No email bridge or new conversation store.
 
 ## Implemented boundary

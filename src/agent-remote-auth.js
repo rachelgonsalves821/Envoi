@@ -121,7 +121,7 @@ export function parsePreRegisteredClients(raw) {
   let entries;
   try { entries = JSON.parse(raw); } catch { throw new Error('ENVOI_OAUTH_CLIENTS must be a JSON array'); }
   if (!Array.isArray(entries)) throw new Error('ENVOI_OAUTH_CLIENTS must be a JSON array');
-  const fields = ['clientId', 'clientName', 'connectionRoute', 'redirectUris', 'tokenEndpointAuthMethod', 'clientSecretSha256', 'bootstrapCode', 'provider'];
+  const fields = ['clientId', 'clientName', 'connectionRoute', 'redirectUris', 'tokenEndpointAuthMethod', 'clientSecretSha256', 'bootstrapCode', 'provider', 'wakeOrigins'];
   for (const [index, entry] of entries.entries()) {
     const fail = reason => { throw new Error(`ENVOI_OAUTH_CLIENTS[${index}]: ${reason}`); };
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail('must be an object');
@@ -140,7 +140,18 @@ export function parsePreRegisteredClients(raw) {
     if (entry.bootstrapCode && (!secret || entry.connectionRoute !== 'provider_connector')) fail('bootstrapCode needs client_secret_basic and provider_connector');
     if (!entry.bootstrapCode && entry.redirectUris.length === 0) fail('redirectUris may be empty only for a bootstrap-only client');
     if (typeof entry.provider !== 'string' || entry.provider.length < 1 || entry.provider.length > 40 || unsafeNameCharacters.test(entry.provider)) fail('provider must be a short label');
-    clients.set(entry.clientId, Object.freeze({ ...entry, redirectUris: Object.freeze([...entry.redirectUris]), registration: 'pre_registered' }));
+    if (entry.wakeOrigins !== undefined) {
+      if (entry.connectionRoute !== 'provider_connector' || !Array.isArray(entry.wakeOrigins) || entry.wakeOrigins.length > 3
+        || new Set(entry.wakeOrigins).size !== entry.wakeOrigins.length || entry.wakeOrigins.some(origin => {
+          if (typeof origin !== 'string') return true;
+          try {
+            const url = new URL(origin);
+            return url.protocol !== 'https:' || url.origin !== origin || url.username || url.password || url.port
+              || !url.hostname || net.isIP(url.hostname.replace(/^\[|\]$/g, '')) || url.hostname.includes('*');
+          } catch { return true; }
+        })) fail('wakeOrigins must be at most three unique exact HTTPS origins for a provider_connector');
+    }
+    clients.set(entry.clientId, Object.freeze({ ...entry, ...(entry.wakeOrigins ? { wakeOrigins: Object.freeze([...entry.wakeOrigins]) } : {}), redirectUris: Object.freeze([...entry.redirectUris]), registration: 'pre_registered' }));
   }
   return clients;
 }

@@ -25,7 +25,7 @@ const text = (value, bytes = 2048) => {
 
 // All persistent values, including rotation/recovery state, are encrypted. The adapter owns
 // canonical authentication, membership, work projection and existing registration services.
-export function createProviderBrowserPoll({ store, key, enabled, adapter, now = () => Date.now() }) {
+export function createProviderBrowserPoll({ store, key, enabled, adapter, nativeEnabled = () => false, now = () => Date.now() }) {
   if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('Gateway encryption key must have 32 bytes');
   const digest = value => crypto.createHmac('sha256', key).update(`gateway:${value}`).digest('hex');
   const file = id => path.join('auth', 'provider-browser-poll', `${digest(id)}.json`);
@@ -45,8 +45,8 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
   const read = async id => { const record = await store.getJson(file(id)); return record ? unseal(record.encrypted, digest(id)) : null; };
   const write = (id, value) => store.putJson(file(id), { key: digest(id), encrypted: seal(value, digest(id)) });
   const auditContext = new AsyncLocalStorage();
-  const audit = async (binding, type, data = {}) => {
-    if (adapter.audit) auditContext.getStore().push(await adapter.audit(binding, type, data));
+  const audit = async (binding, type, data = {}, createdAt = undefined) => {
+    if (adapter.audit) auditContext.getStore().push(await adapter.audit(binding, type, data, createdAt));
   };
   const lock = async (id, keys, operation) => {
     const events = [];
@@ -124,8 +124,9 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
       const p = pendingState(await read(index.pendingId));
       if (p.phrase !== input.comparisonPhrase) error(409, 'GATEWAY_PAIRING_STATE');
       const owner = await adapter.confirmOwner(p.registration, ownerContext);
-      p.confirmedOwner = owner; await write(index.pendingId, p);
-      return { state: 'owner_confirmed', cadenceSeconds: 1800, scope: 'read_notify', expiresAfterDays: 7 };
+      p.confirmedOwner = owner; p.ownerConfirmedAt = now(); await write(index.pendingId, p);
+      const prior = owner.installationId ? await read(`installation:${owner.installationId}`) : null;
+      return { state: 'owner_confirmed', cadenceSeconds: 1800, scope: nativeEnabled() && prior?.native?.scope === 'native_work' ? 'native_work' : 'read_notify', expiresAfterDays: 7 };
     });
   }
   async function activate(secret, suppliedCsrf, input) {
@@ -143,7 +144,8 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
     });
     // Canonical activation owns its own transaction and idempotency/replay detection.
     const binding = p.completed ? p.completed.binding : await adapter.activate(p.registration, p.activationId, p.confirmedOwner);
-    const result = await lock(id, adapter.lockKeys(binding), async () => {
+    const replacementKeys = adapter.sessionReplacementKeys ? await adapter.sessionReplacementKeys(binding) : [];
+    const result = await lock(id, [...adapter.lockKeys(binding), ...replacementKeys], async () => {
       const current = pendingState(await read(id));
       if (current.completed) {
         if (current.completed.recoverUntil <= now()) error(503, 'GATEWAY_RECOVERY_REQUIRED');
@@ -153,8 +155,11 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
       if (existing?.rotation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
       if (binding.reattaching && existing?.binding.generation !== binding.generation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
       binding.generation = random();
-      await write(`installation:${binding.installationId}`, { kind: 'installation', binding });
-      const sessionSecret = random(), session = { binding, csrf: random(), createdAt: now(), lastActivity: now(), expiresAt: now() + gatewayLimits.absolute, ended: false };
+      if (existing?.native && adapter.sessionReplaced) await adapter.sessionReplaced(binding);
+      const native = binding.reattaching ? existing?.native : undefined;
+      const nativeScope = nativeEnabled() && native?.scope === 'native_work' ? 'native_work' : 'read_notify';
+      await write(`installation:${binding.installationId}`, { kind: 'installation', binding, comparisonPhrase: current.phrase, ...(native ? { native } : {}) });
+      const sessionSecret = random(), session = { binding, nativeScope, csrf: random(), createdAt: now(), lastActivity: now(), expiresAt: (nativeScope === 'native_work' ? current.ownerConfirmedAt : now()) + gatewayLimits.absolute, ended: false };
       await write(`session:${sessionSecret}`, session);
       current.completed = { secret: sessionSecret, binding, recoverUntil: now() + gatewayLimits.recovery };
       current.state = 'connected'; await write(id, current);
@@ -166,14 +171,18 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
     const view = await session(result.secret);
     return { secret: result.secret, ...view };
   }
-  async function authorized(secret, mutate, operation, suppliedCsrf, allowRotation = false) {
+  async function authorized(secret, mutate, operation, suppliedCsrf, allowRotation = false, extraKeys = []) {
     on(); const id = `session:${secret}`, initial = await read(id);
     if (!initial) error(401, 'GATEWAY_SESSION_REQUIRED');
-    return lock(id, adapter.lockKeys(initial.binding), async () => {
+    const additions = typeof extraKeys === 'function' ? await extraKeys(initial.binding) : extraKeys;
+    return lock(id, [...adapter.lockKeys(initial.binding), ...additions], async () => {
       on(); const current = await read(id);
       if (!current || current.ended) error(401, 'GATEWAY_SESSION_REQUIRED');
       const installation = await read(`installation:${current.binding.installationId}`);
-      if (!installation || installation.binding.generation !== current.binding.generation) error(401, 'GATEWAY_SESSION_REQUIRED');
+      if (!installation || installation.binding.generation !== current.binding.generation) {
+        if (installation?.native) error(401, 'GATEWAY_SESSION_EXPIRED', { reason: 'generation_changed' });
+        error(401, 'GATEWAY_SESSION_REQUIRED');
+      }
       if (current.expiresAt <= now() || current.lastActivity + gatewayLimits.idle <= now()) error(401, 'GATEWAY_SESSION_EXPIRED');
       if (suppliedCsrf !== undefined) csrf(current, suppliedCsrf);
       if (current.rotation && !allowRotation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
@@ -186,9 +195,11 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
   async function session(secret) {
     return authorized(secret, false, async (s, identity) => {
       const ledger = await read(ledgerId(s.binding)) || { cadence: 1800 };
+      const installation = await read(`installation:${s.binding.installationId}`);
+      const native = s.nativeScope === 'native_work' && nativeEnabled() && installation?.native?.scope === 'native_work';
       const graceSeconds = Math.max(120, Math.min(600, Math.ceil(ledger.cadence / 5)));
       return { state: identity.paused ? 'paused' : 'connected', csrf: s.csrf,
-        agentAddress: text(identity.address, 256), permissionSummary: ['receive_agent_messages'], expiresAt: iso(s.expiresAt),
+        agentAddress: text(identity.address, 256), permissionSummary: native ? ['receive_agent_messages', ...(identity.permissions?.includes('send_agent_messages') ? ['send_agent_messages'] : [])] : ['receive_agent_messages'], expiresAt: iso(s.expiresAt),
         polling: { cadenceSeconds: ledger.cadence, graceSeconds, lastSuccessfulCheckAt: ledger.lastCheck ? iso(ledger.lastCheck) : null,
           expectedNextCheckAt: ledger.lastCheck ? iso(ledger.lastCheck + ledger.cadence * 1000) : null, scheduleReportedState: 'unknown',
           checkState: identity.paused ? 'paused' : !ledger.lastCheck ? 'not_yet_checked' : now() > ledger.lastCheck + (ledger.cadence + graceSeconds) * 1000 ? 'overdue' : 'scheduled', closedAppEvidenceState: 'unverified' } };
@@ -280,7 +291,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
       if (!s.rotation) {
         s.rotation = { id: `rotation_${random()}`, startedAt: now() };
         await write(`session:${secret}`, s);
-        await write(`installation:${s.binding.installationId}`, { kind: 'installation', binding: s.binding, rotation: s.rotation });
+        await write(`installation:${s.binding.installationId}`, { ...await read(`installation:${s.binding.installationId}`), kind: 'installation', binding: s.binding, rotation: s.rotation });
       }
       if (s.rotation.startedAt + gatewayLimits.recovery <= now()) error(503, 'GATEWAY_RECOVERY_REQUIRED');
       return { binding: s.binding, operation: s.rotation };
@@ -294,7 +305,8 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
       if (s.rotation?.id === plan.operation.id) {
         s.binding.credentials = successor;
         delete s.rotation;
-        await write(`installation:${s.binding.installationId}`, { kind: 'installation', binding: s.binding });
+        const installation = await read(`installation:${s.binding.installationId}`); delete installation.rotation;
+        await write(`installation:${s.binding.installationId}`, { ...installation, kind: 'installation', binding: s.binding });
         await write(`session:${secret}`, s);
       }
       return { state: 'connected', expiresAt: iso(s.expiresAt) };
@@ -361,5 +373,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, now = 
     await adapter.authorize(value.binding);
     return value.binding;
   }
-  return { setup, begin, pairing, confirm, activate, session, check, acknowledge, renew, end, updatePolicy, cleanup, digest, bindingForInstallation };
+  // Server-internal capability. HTTP serializers never return it or a binding.
+  const nativePort = Object.freeze({ authorized, read, write, remove: id => store.deleteJson(file(id)), lock, digest, bindingForInstallation, audit });
+  return { setup, begin, pairing, confirm, activate, session, check, acknowledge, renew, end, updatePolicy, cleanup, digest, bindingForInstallation, nativePort };
 }

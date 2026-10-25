@@ -1,0 +1,35 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "rollback-flags-off",
+  "kind": "rollback",
+  "description": "Turning either flag off: subscriptions of that profile end with feature_disabled from the first read or attempt; the encrypted secrets are deleted; notifications and http-wake subscriptions are untouched.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": false,
+    "ENVOI_GROK_TRIGGER_V1": false
+  },
+  "steps": [
+    {
+      "actor": "operator",
+      "does": "sets ENVOI_MCP_EVENTS_V1 and ENVOI_GROK_TRIGGER_V1 off and restarts",
+      "fixture": "subscribe-flag-off"
+    },
+    {
+      "actor": "envoi",
+      "does": "every stored events subscription and Grok target of that profile reads ended / feature_disabled; no attempt is made; the stored secret is deleted on the first read after the flag-off start"
+    },
+    {
+      "actor": "host",
+      "does": "events/subscribe is an unknown method; its safety poll through envoi_claim_work continues"
+    },
+    {
+      "actor": "envoi",
+      "does": "work, leases, the a4 stream and Ed25519 http-wake subscriptions are unchanged"
+    }
+  ]
+}

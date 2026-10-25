@@ -1,0 +1,71 @@
+{
+  "contract": "provider-connector-tools",
+  "version": 1,
+  "id": "send-provider-approval-field-refused",
+  "kind": "http",
+  "description": "§4: tool arguments are closed. A provider cannot pass its own approval as an argument and have Envoi treat it as authority; the call is invalid and nothing is sent.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_PROVIDER_CONNECTORS": true
+  },
+  "context": {
+    "grantedScopes": [
+      "envoi.agent",
+      "envoi.send"
+    ],
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "envoi_send_message",
+        "arguments": {
+          "recipientAddress": "peer@agents.envoi-agents.com",
+          "text": "Hi",
+          "caseId": "case_example",
+          "idempotencyKey": "k1",
+          "providerApproved": true
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "rpcError",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32602,
+        "message": "Invalid tool arguments"
+      }
+    }
+  },
+  "client": {
+    "surface": "provider_backend",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "See the contract tables."
+  }
+}
