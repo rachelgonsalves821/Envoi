@@ -77,6 +77,7 @@
         "WORKOS_CLIENT_ID": "client_01M3NESPM075W2JNEB3N7FRVZF",
         "WORKOS_REDIRECT_URI": "https://www.envoi-agents.com/api/auth/workos/callback",
         "ENVOI_POLICY_ACTIVE_KEY_ID": "primary",
+        "ENVOI_MONAD_PERMISSIONS": "true",
         "ENVOI_OBJECT_STORAGE_PROVIDER": "s3",
         "ENVOI_S3_ENDPOINT": "https://54a5d6c680bd813fa60f8e088b098b8d.r2.cloudflarestorage.com",
         "ENVOI_S3_BUCKET": "sinaloa-beta",

@@ -83,6 +83,7 @@ export async function checkDeploymentConfiguration() {
   assert.equal(beta.vars?.WORKOS_CLIENT_ID, 'client_01M3NESPM075W2JNEB3N7FRVZF');
   assert.equal(beta.vars?.WORKOS_REDIRECT_URI, `${beta.vars.ENVOI_PUBLIC_URL}/api/auth/workos/callback`);
   assert.equal(beta.vars?.ENVOI_DB_SSL_MODE, 'verify-full');
+  assert.equal(beta.vars?.ENVOI_MONAD_PERMISSIONS, 'true', 'Beta Monad capability requires its issuer secret and paid organization entitlement');
   assert.equal(beta.vars?.ENVOI_S3_ENDPOINT, 'https://54a5d6c680bd813fa60f8e088b098b8d.r2.cloudflarestorage.com');
   assert.equal(beta.vars?.ENVOI_S3_BUCKET, 'sinaloa-beta');
   assert.equal(beta.vars?.ENVOI_MALWARE_SCANNER_URL, 'https://sinaloa-scanner-beta.rachelgonsalves821.workers.dev/scan', 'Beta must use the dedicated scanner');

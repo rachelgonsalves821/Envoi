@@ -42,7 +42,7 @@ export function secretInventory({ cwd, env, run = spawnSync }, ...argv) {
 // N2-config-2: beta still holds SINALOA_* secrets until its ENVOI_* twins are added (H-5). Every beta
 // deploy path checks names first, so code that no longer reads the old names cannot reach beta early.
 export function requireBetaSecretNames(inventory) {
-  requireSecretNames(inventory('--env', 'beta'));
+  requireSecretNames(inventory('--env', 'beta'), [...APP_SECRET_NAMES, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY']);
   requireSecretNames(inventory('--config', 'scanner/wrangler.beta.jsonc'), ['ENVOI_SCANNER_TOKEN']);
 }
 
