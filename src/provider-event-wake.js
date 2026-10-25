@@ -106,7 +106,7 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
       const guard=()=>authorizeOwner(identity);
       return store.withTransaction([`inbox:${binding.inboxId}:mutations`],async()=>{
         for(const sub of records)if(sub.installationId!==binding.installationId&&sub.status!=='ended')await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'replaced',guard);
-        const sub=await httpWake.createProfile(binding,'grok_trigger',{id,url,allowPaused:true,quotaReserved:true,beforeCommit:guard,secretEncrypted:encode(params.secret,id),previousSecretEncrypted:undefined,previousSecretUntil:undefined,targetState:'active',stateReason:null,updatedAt:now()});
+        const sub=await httpWake.createProfile(binding,'grok_trigger',{id,url,allowPaused:true,quotaReserved:true,beforeCommit:guard,resetGeneration:true,secretEncrypted:encode(params.secret,id),previousSecretEncrypted:undefined,previousSecretUntil:undefined,targetState:'active',stateReason:null,updatedAt:now()});
         await audit(binding.inboxId,'agent.wake_target_secret_set',{agentId:binding.agentId,installationId:binding.installationId,secretSet:true},now());
         await httpWake.queueProfile(sub,'wake.work_available','work_due');return {target:grokPublic(sub)};
       });

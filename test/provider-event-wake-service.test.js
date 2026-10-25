@@ -26,16 +26,16 @@ async function harness(t,kind='file',overrides={},providerOverrides={}){
     const {PostgresStore}=await import('../src/postgres-storage.js');const base=new PostgresStore(process.env.DATABASE_URL);await base.init();const prefix=`test/provider_wake_${crypto.randomUUID()}`;
     store={withTransaction:base.withTransaction.bind(base),getJson:(p,d)=>base.getJson(`${prefix}/${p}`,d),putJson:(p,v)=>base.putJson(`${prefix}/${p}`,v),listJson:p=>base.listJson(`${prefix}/${p}`),deleteJson:p=>base.deleteJson(`${prefix}/${p}`)};t.after(async()=>{try{await base.deleteJsonTree(prefix);}finally{await base.close();}});
   }else{const dir=await mkdtemp(path.join(process.cwd(),'.provider-wake-test-'));store=new FileStore(dir);await store.init();t.after(()=>rm(dir,{recursive:true,force:true}));}
-  let clock=Date.parse('2026-10-24T12:00:00Z'),response={status:202,failureClass:null},beforeResolve,verificationResponse;
+  let clock=Date.parse('2026-10-24T12:00:00Z'),response={status:202,failureClass:null},beforeResolve,beforeSend,verificationResponse;
   const sent=[],audits=[],state={family:{refreshExpiresAt:'2027-01-01T00:00:00Z'},agent:{status:'active',onboardingStatus:'approved'},installation:{status:'active'}};
   const now=()=>new Date(clock).toISOString();
   const resolveDestination=async url=>{await beforeResolve?.();return {url,addresses:['192.0.43.11']};};
-  const options={store,enabled:true,installationsEnabled:true,mcpWakeEnabled:true,mcpEventsEnabled:true,grokTriggerEnabled:true,env:{ENVOI_WAKE_SIGNING_KEYS:keys},facts:async()=>state,now,random:()=>0.5,resolveDestination,observe:()=>{},audit:async(...args)=>audits.push(args),transport:async request=>{sent.push(request);const body=JSON.parse(request.bodyText);return body.type==='verification'?(verificationResponse||{status:200,failureClass:null,bodyText:JSON.stringify({challenge:body.challenge})}):response;},...overrides};
+  const options={store,enabled:true,installationsEnabled:true,mcpWakeEnabled:true,mcpEventsEnabled:true,grokTriggerEnabled:true,env:{ENVOI_WAKE_SIGNING_KEYS:keys},facts:async()=>state,now,random:()=>0.5,resolveDestination,observe:()=>{},audit:async(...args)=>audits.push(args),transport:async request=>{sent.push(request);await beforeSend?.(request);const body=JSON.parse(request.bodyText);return body.type==='verification'?(verificationResponse||{status:200,failureClass:null,bodyText:JSON.stringify({challenge:body.challenge})}):response;},...overrides};
   const http=createHttpWake(options);
   const providerOptions={httpWake:http,store,mcpEventsEnabled:options.mcpEventsEnabled,grokTriggerEnabled:options.grokTriggerEnabled,key:Buffer.alloc(32,7),env:{ENVOI_MCP_EVENTS_CALLBACK_ORIGINS:'https://callbacks.envoi-provider.com',ENVOI_GROK_TRIGGER_ORIGINS:'https://triggers.envoi-provider.com'},now,resolveDestination,audit:options.audit,eventHistory:async()=>({cursor:'00000000000000000012',truncated:false,events:[]}),...providerOverrides};
   const provider=createProviderEventWake(providerOptions);await http.startup();
   const tx=fn=>store.withTransaction([`inbox:${identity.inboxId}:mutations`],fn);
-  return {store,http,provider,options,providerOptions,now,tx,state,sent,audits,advance:ms=>clock+=ms,response:r=>response=r,beforeResolve:fn=>beforeResolve=fn,verificationResponse:r=>verificationResponse=r};
+  return {store,http,provider,options,providerOptions,now,tx,state,sent,audits,advance:ms=>clock+=ms,response:r=>response=r,beforeResolve:fn=>beforeResolve=fn,beforeSend:fn=>beforeSend=fn,verificationResponse:r=>verificationResponse=r};
 }
 function parity(name,operation){for(const kind of ['file','postgres'])test(`${kind}: ${name}`,{skip:kind==='postgres'&&!process.env.DATABASE_URL},t=>operation(t,kind));}
 const verifyHmac=(request,key=secret,index=0)=>{
@@ -158,4 +158,25 @@ parity('Grok owner authority is checked inside the mutation after DNS and before
 test('cursor validation precedes quota, callback DNS and verification',async t=>{
   let validated=0,dns=0;const h=await harness(t,'file',{}, {validateCursor:async(_identity,cursor)=>{validated++;if(cursor>'00000000000000000012')throw Object.assign(new Error('Invalid params'),{rpcCode:-32602});}});h.beforeResolve(()=>dns++);
   await assert.rejects(h.provider.subscribe(identity,parameters({cursor:'00000000000000000099'}),protocol),{rpcCode:-32602});assert.equal(validated,1);assert.equal(dns,0);assert.equal(h.sent.length,0);assert.equal(await h.store.getJson(path.join('http-wake','create-limits',`${binding.agentId}.json`)),null);
+});
+parity('Grok URL/secret replacement during DNS prevents the old destination effect and retains the public target id',async(t,kind)=>{
+  const h=await harness(t,kind);const first=await h.provider.putGrok(binding,{url:'https://triggers.envoi-provider.com/old',secret});
+  const old=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.target.id));let replaced;
+  h.beforeResolve(async()=>{h.beforeResolve(null);replaced=await h.provider.putGrok(binding,{url:'https://triggers.envoi-provider.com/new',secret:secondSecret});});
+  await h.http.runOnce();assert.equal(h.sent.length,0);assert.equal(replaced.target.id,first.target.id);
+  const current=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.target.id));assert.notEqual(current.generation,old.generation);assert.equal(current.url,'https://triggers.envoi-provider.com/new');assert.equal(current.status,'active');
+  await h.http.runOnce();assert.equal(h.sent.length,1);assert.equal(h.sent[0].url,current.url);verifyHmac(h.sent[0],secondSecret);
+});
+parity('late old Grok 410 cannot end the replacement target or delete its new secret',async(t,kind)=>{
+  const h=await harness(t,kind);const first=await h.provider.putGrok(binding,{url:'https://triggers.envoi-provider.com/old',secret});let replacement;
+  h.beforeSend(async()=>{h.beforeSend(null);replacement=await h.provider.putGrok(binding,{url:'https://triggers.envoi-provider.com/new',secret:secondSecret});h.response({status:410,failureClass:'receiver_gone'});});
+  await h.http.runOnce();assert.equal(h.sent.length,1);assert.equal(replacement.target.id,first.target.id);
+  const current=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.target.id));assert.equal(current.status,'active');assert.equal(current.targetState,'active');assert.ok(current.secretEncrypted);assert.equal(current.delivery.lastFailureClass,null);assert.equal(current.delivery.lastAttemptAt,null);
+  h.response({status:202,failureClass:null});assert.equal(await h.http.runOnce(),false);h.advance(5000);await h.http.runOnce();assert.equal(h.sent.at(-1).url,'https://triggers.envoi-provider.com/new');verifyHmac(h.sent.at(-1),secondSecret);
+});
+parity('late old MCP event 410 cannot end a newly subscribed generation of the same deterministic id',async(t,kind)=>{
+  const h=await harness(t,kind);const first=await h.provider.subscribe(identity,parameters(),protocol);const previous=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));
+  h.beforeSend(async()=>{h.beforeSend(null);const {secret:_,...delivery}=parameters().delivery;await h.provider.unsubscribe(identity,{name:'envoi.work_available',arguments:{},delivery},protocol);const replacement=await h.provider.subscribe(identity,parameters({delivery:{...parameters().delivery,secret:secondSecret}}),protocol);assert.equal(replacement.id,first.id);h.response({status:410,failureClass:'receiver_gone'});});
+  await h.http.runOnce();const current=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));assert.equal(current.status,'active');assert.notEqual(current.generation,previous.generation);assert.ok(current.secretEncrypted);assert.equal(current.delivery.lastFailureClass,null);
+  h.response({status:202,failureClass:null});await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));await h.http.runOnce();verifyHmac(h.sent.at(-1),secondSecret);
 });
