@@ -8,6 +8,9 @@ const scenarios = JSON.parse(await readFile(new URL('../src/data/scenarios.json'
 test('default auth links use the beta public origin and backend WorkOS routes', async () => {
   const website = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   const exampleEnv = await readFile(new URL('../.env.example', import.meta.url), 'utf8');
+  const astroConfig = await readFile(new URL('../astro.config.mjs', import.meta.url), 'utf8');
+  assert.ok(astroConfig.includes("site: 'https://www.envoi-agents.com'"));
+  assert.ok(website.includes('content="https://www.envoi-agents.com/og-image.png"'));
   for (const [name, route] of [['SIGN_IN', 'sign-in'], ['SIGN_UP', 'sign-up']]) {
     const url = `https://www.envoi-agents.com/api/auth/workos/${route}`;
     assert.ok(website.includes(`import.meta.env.PUBLIC_${name}_URL || '${url}'`));

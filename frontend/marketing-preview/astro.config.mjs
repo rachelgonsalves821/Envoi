@@ -1,7 +1,7 @@
 import { defineConfig } from 'astro/config';
 
 export default defineConfig({
-  site: 'https://envoi-agents.com',
+  site: 'https://www.envoi-agents.com',
   output: 'static',
   devToolbar: { enabled: false }
 });
