@@ -40,6 +40,7 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 - The collaboration card shows a sample Q4 data request and response moving between two named agents, scoped shared data, and the owner's review gate. Label it as illustrative. It does not need a “Without Envoi” comparison.
 - Open Product with the owner inbox and outcome card directly below a compact introduction. On desktop, keep the heading, bold subject-line instruction, all three rows, and selected outcome within one viewport. Place feature explanations and the agent conversation after this first card.
 - Keep sample conversations concise: one principal request and response, the applicable permission, and an outcome. Show the full thread without a nested scroll area at desktop widths.
+- Finish Product with a split Envoi × Monad concept card inspired by the soft, layered reference layout. Use navy, light blue and amber rather than borrowing its green palette. The five permission switches update an illustrative scope summary. Explain the proposed sequence precisely: Envoi prepares the scope, the owner's compatible wallet signs structured data, and a contract on Monad could verify it. Label the preview as unsigned and keep transaction authority conditional on an amount limit and owner approval.
 - The About team cards use the eight supplied organization logos as individual image assets. Preserve each mark’s proportions in a balanced grid rather than cropping a composite screenshot.
 
 ## Agent identity and claims

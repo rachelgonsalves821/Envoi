@@ -1,0 +1,70 @@
+---
+const permissions = [
+  { id: 'communicate', label: 'Communicate with other agents', detail: 'Exchange requests and replies', enabled: true },
+  { id: 'calendar', label: 'Share calendar availability', detail: 'Offer free times, not private event details', enabled: true },
+  { id: 'receive-files', label: 'Receive files', detail: 'Accept files into this workspace', enabled: true },
+  { id: 'send-files', label: 'Send files', detail: 'Share files within an approved scope', enabled: false },
+  { id: 'transactions', label: 'Complete transactions', detail: 'Requires a separate limit and approval', enabled: false },
+];
+---
+<section class="monad-section" id="monad-permissions" aria-labelledby="monad-title" data-monad-preview>
+  <div class="container monad-layout">
+    <div class="monad-copy">
+      <p class="eyebrow">Envoi × Monad · integration concept</p>
+      <h2 id="monad-title">One permission set,<br /><em>controlled by you.</em></h2>
+      <p class="monad-lead">Give an agent only the actions it needs. In the proposed Monad flow, your wallet signs that exact scope, so another party can check who authorized it before the agent acts.</p>
+      <div class="monad-value">
+        <div><span class="monad-value-icon" aria-hidden="true">↗</span><p><strong>Works across agent platforms</strong><span>The authorization travels with the agent instead of relying on a shared provider.</span></p></div>
+        <div><span class="monad-value-icon" aria-hidden="true">✓</span><p><strong>Changes are explicit</strong><span>Adding or removing an action prepares a new scope for the owner to sign.</span></p></div>
+      </div>
+    </div>
+    <div class="monad-stage">
+      <div class="monad-panel">
+        <div class="monad-panel-top"><div><span class="monad-panel-kicker">John's agent</span><h3>Set agent permissions</h3></div><span class="monad-draft">Illustrative draft</span></div>
+        <p class="monad-panel-intro">Choose what this agent may do on your behalf.</p>
+        <div class="monad-permissions" role="group" aria-label="Example permissions for John's agent">
+          {permissions.map(permission => <label class="monad-permission" for={`monad-${permission.id}`}>
+            <span class="monad-permission-copy"><strong>{permission.label}</strong><small>{permission.detail}</small></span>
+            <input id={`monad-${permission.id}`} type="checkbox" data-permission={permission.label} checked={permission.enabled} />
+            <span class="monad-switch" aria-hidden="true"><span></span></span>
+          </label>)}
+        </div>
+        <p class="monad-transaction-note" data-transaction-note hidden>Transaction authority also needs an amount limit and the owner's approval before it can be signed.</p>
+        <div class="monad-signature">
+          <div class="monad-signature-heading"><span class="monad-seal" aria-hidden="true">✦</span><div><strong>How this scope is signed</strong><span data-permission-count aria-live="polite">3 of 5 permissions selected</span></div></div>
+          <ol class="monad-signing-steps">
+            <li><span>01</span><p><strong>Envoi prepares</strong><small>Agent ID, selected actions, expiry and a one-time nonce.</small></p></li>
+            <li><span>02</span><p><strong>Your wallet signs</strong><small>An EIP-712 structured authorization with your private key.</small></p></li>
+            <li><span>03</span><p><strong>Verify on Monad</strong><small>A compatible contract can check the signer and scope.</small></p></li>
+          </ol>
+          <div class="monad-scope-summary"><span>Scope to sign</span><output data-permission-summary>Communicate · Calendar · Receive files</output></div>
+        </div>
+        <p class="monad-disclaimer">Concept preview. These toggles update an example only; no wallet signature or on-chain transaction is sent.</p>
+      </div>
+    </div>
+  </div>
+</section>
+<script>
+  document.querySelectorAll<HTMLElement>('[data-monad-preview]').forEach(preview => {
+    const inputs = [...preview.querySelectorAll<HTMLInputElement>('[data-permission]')];
+    const count = preview.querySelector<HTMLElement>('[data-permission-count]')!;
+    const summary = preview.querySelector<HTMLOutputElement>('[data-permission-summary]')!;
+    const transactionNote = preview.querySelector<HTMLElement>('[data-transaction-note]')!;
+    const shortNames: Record<string, string> = {
+      'Communicate with other agents': 'Communicate',
+      'Share calendar availability': 'Calendar',
+      'Receive files': 'Receive files',
+      'Send files': 'Send files',
+      'Complete transactions': 'Transactions',
+    };
+    const update = () => {
+      const selected = inputs.filter(input => input.checked).map(input => shortNames[input.dataset.permission || '']);
+      count.textContent = `${selected.length} of ${inputs.length} permissions selected`;
+      summary.textContent = selected.length ? selected.join(' · ') : 'No actions selected';
+      transactionNote.hidden = !inputs.find(input => input.dataset.permission === 'Complete transactions')?.checked;
+      preview.classList.toggle('monad-empty-scope', selected.length === 0);
+    };
+    inputs.forEach(input => input.addEventListener('change', update));
+    update();
+  });
+</script>

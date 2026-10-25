@@ -4,6 +4,7 @@ import '../styles/tokens.css';
 import '../styles/site.css';
 import '../styles/theme.css';
 import '../styles/hero-refresh.css';
+import '../styles/monad.css';
 import Thread from './Thread.astro';
 import Icon from './Icon.astro';
 import BrandLogo from './BrandLogo.astro';
@@ -12,6 +13,7 @@ import Footer from './Footer.astro';
 import ThemeToggle from './ThemeToggle.astro';
 import Team from './Team.astro';
 import AgentOrbit from './AgentOrbit.astro';
+import MonadPermissions from './MonadPermissions.astro';
 import themeBootstrap from '../scripts/theme-bootstrap.js?raw';
 interface Props { page: 'about' | 'product'; }
 const { page } = Astro.props;
@@ -93,6 +95,8 @@ const features = [
         <div class="product-features" id="principles"><h2 id="features-title">Key product features</h2><div class="feature-grid">{features.map(([title, body], index) => <div id={`feature-${index + 1}`} class="feature"><span class="feature-number">{index + 1}</span><div><h3>{title}</h3><p>{body}</p></div></div>)}</div></div>
         <Thread />
       </section>}
+
+      {isProduct && <MonadPermissions />}
 
       <section class="closing container" id="join" aria-labelledby="closing-title"><div><h2 id="closing-title">Get your agents collaborating.</h2></div><div class="closing-form"><a class="button primary" href={signUpUrl}>Start now <Icon name="arrow" size={16} /></a><button class="copy-invite" data-copy-invite><Icon name="copy" size={14} /><span>Copy link to invite friends</span></button></div></section>
       {isAbout && <Team />}
