@@ -30,6 +30,11 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
   const flags = { mcp:mcpWakeEnabled, mcp_events:mcpEventsEnabled, grok_trigger:grokTriggerEnabled };
   const profileEpochPath = name => `config/http-wake-${name}-epoch`;
   const profileOf = sub => sub.profile ? profiles.get(sub.profile) : null;
+  const extension = sub => Boolean(sub.profile || sub.createdVia==='mcp');
+  const extensionLive = ({family,agent,installation}) => Boolean(family&&!family.revokedAt
+    &&Number.isFinite(Date.parse(family.refreshExpiresAt))&&Date.parse(family.refreshExpiresAt)>time()
+    &&agent&&['active','paused'].includes(agent.status)&&agent.onboardingStatus==='approved'
+    &&agent.permissions?.includes('receive_agent_messages')&&installation?.status==='active');
   const log = record => { try { observe(record); } catch { /* Observability cannot change delivery. */ } };
   const logAttempt = (event,sub,result,address=null) => log({event:'http_wake.attempt',subscriptionId:sub.id,origin:new URL(sub.url).origin,address,attempt:event.attempts,class:result.notSent?'not_sent':result.failureClass||'acknowledged',durationMs:Math.max(0,time()-Date.parse(event.startedAt))});
   // One agent's subscriptions; nothing lists every subscription except the throttled cleanup.
@@ -71,6 +76,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     }
     const { family, agent, installation } = await facts(sub);
     if (!family || family.revokedAt || installation?.status==='ended' || !agent || !['active','paused'].includes(agent.status) || agent.onboardingStatus !== 'approved') return endRecord(sub, 'credential_ended', family?.revokedAt || installation?.endedAt || agent?.revokedAt || agent?.removedAt || now());
+    if(extension(sub)&&!extensionLive({family,agent,installation}))return endRecord(sub,'credential_ended');
     if(sub.previousSecretEncrypted&&Date.parse(sub.previousSecretUntil)<=time()){delete sub.previousSecretEncrypted;delete sub.previousSecretUntil;await save(sub);}
     if (sub.status === 'pending' && Date.parse(sub.challengeExpiresAt) <= time()) return endRecord(sub, 'challenge_expired', sub.challengeExpiresAt);
     if (sub.status === 'active' && Date.parse(sub.expiresAt) <= time()) return endRecord(sub, 'expired', sub.expiresAt);
@@ -122,6 +128,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     if (createdVia === 'mcp' && !mcpWakeEnabled) throw wakeError(404,'FEATURE_DISABLED');
     await consumeCreate(identity);
     const resolved = await resolve(url);
+    if(createdVia==='mcp'){const current=await facts(identity);if(!extensionLive(current))throw wakeError(401,'CREDENTIAL_REVOKED');if(current.agent.status==='paused')throw wakeError(409,'AGENT_PAUSED');}
     const existing = (await agentSubs(identity.agentId)).filter(sub => !sub.profile && sub.installationId === identity.installationId && sub.agentId === identity.agentId);
     for (const sub of existing) await derive(sub);
     for (const sub of existing.filter(sub => sub.status === 'pending')) await endRecord(sub,'superseded');
@@ -133,11 +140,13 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
   }
   async function activate(identity,id,{ challenge }) {
     available(); const sub = await owned(identity,id);
+    if(sub.createdVia==='mcp'){const current=await facts(sub);if(!extensionLive(current))throw wakeError(401,'CREDENTIAL_REVOKED');if(current.agent.status==='paused')throw wakeError(409,'AGENT_PAUSED');}
     if (sub.status === 'ended') throw wakeError(409,'WAKE_SUBSCRIPTION_ENDED',sub.endedReason);
     const supplied = Buffer.from(hash(String(challenge))); const stored = Buffer.from(sub.challengeHash);
     if (supplied.length !== stored.length || !crypto.timingSafeEqual(supplied,stored)) throw wakeError(400,'WAKE_CHALLENGE_INVALID');
     if (sub.status === 'active') return { subscription:publicSub(sub) };
     for (const old of await agentSubs(sub.agentId)) if (!old.profile && old.installationId === sub.installationId && old.agentId === sub.agentId && old.status === 'active') await endRecord(old,'replaced');
+    if(sub.createdVia==='mcp'){const current=await facts(sub);if(!extensionLive(current))throw wakeError(401,'CREDENTIAL_REVOKED');if(current.agent.status==='paused')throw wakeError(409,'AGENT_PAUSED');}
     sub.status='active'; sub.activatedAt=now(); sub.expiresAt=iso(time()+2592000000); sub.challengeExpiresAt=null;
     if(sub.challengeDelivery)sub.delivery={...sub.challengeDelivery};
     await save(sub); await index(sub);
@@ -235,6 +244,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
             const current=await derive(await store.getJson(subPath(sub.agentId,sub.id)));
             if(!current)return;
             const state=await facts(current);
+            if(extension(current)&&!extensionLive(state))await endRecord(current,'credential_ended');
             permitted=queued?.status==='processing' && queued.claimToken===event.claimToken
               && Date.parse(queued.lockedUntil)>time() && Date.parse(queued.deadline)>=time()
               && time()-Date.parse(queued.startedAt)<10000 && queued.generation===current.generation && current.status!=='ended' && (!current.targetState || current.targetState==='active')
@@ -285,7 +295,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     async createProfile(identity,profile,{id,url,expiresAt=null,allowPaused=false,quotaReserved=false,beforeCommit,resetGeneration=false,...fields}){return store.withTransaction([lock(identity.inboxId)],async()=>{
       await beforeCommit?.();
       available();if(!flags[profile]||!profiles.has(profile))throw wakeError(404,'FEATURE_DISABLED');
-      const state=await facts(identity);if(!state.family||state.family.revokedAt||state.installation?.status==='ended'||!state.agent||!['active','paused'].includes(state.agent.status)||state.agent.onboardingStatus!=='approved')throw wakeError(401,'CREDENTIAL_REVOKED');
+      const state=await facts(identity);if(!extensionLive(state))throw wakeError(401,'CREDENTIAL_REVOKED');
       if(!allowPaused&&state.agent.status==='paused')throw wakeError(409,'AGENT_PAUSED');
       const records=await listFor(identity,true);const current=records.find(sub=>sub.id===id&&sub.profile===profile);
       if(!quotaReserved&&(!current||current.status==='ended'))await consumeCreate(identity);
@@ -299,7 +309,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     async verifyCallback(identity,url,{bodyText,headers}){
       available();const resolved=await resolve(url);const token=crypto.randomUUID();const admitted=await admission.admit({subscriptionId:`verify:${identity.installationId}`,host:new URL(url).hostname,addresses:resolved.addresses,token,limited:true});
       if(!admitted)throw Object.assign(wakeError(429,'RATE_LIMITED'),{retryAfter:1});
-      try{const state=await facts(identity);if(!state.family||state.family.revokedAt||state.installation?.status==='ended')throw wakeError(401,'CREDENTIAL_REVOKED');if(state.agent?.status==='paused')throw wakeError(409,'AGENT_PAUSED');return await send({...resolved,bodyText,headers,readResponseBody:true,remainingMs:10000});}finally{await admission.release(token);}
+      try{const state=await facts(identity);if(!extensionLive(state))throw wakeError(401,'CREDENTIAL_REVOKED');if(state.agent.status==='paused')throw wakeError(409,'AGENT_PAUSED');return await send({...resolved,bodyText,headers,readResponseBody:true,remainingMs:10000});}finally{await admission.release(token);}
     },
     keys:()=>{available();return keys.jwks();},
     async end(identity,id){available();return {subscription:publicSub(await endRecord(await owned(identity,id),'ended_by_host'))};},

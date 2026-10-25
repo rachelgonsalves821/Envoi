@@ -27,7 +27,7 @@ async function harness(t,kind='file',overrides={},providerOverrides={}){
     store={withTransaction:base.withTransaction.bind(base),getJson:(p,d)=>base.getJson(`${prefix}/${p}`,d),putJson:(p,v)=>base.putJson(`${prefix}/${p}`,v),listJson:p=>base.listJson(`${prefix}/${p}`),deleteJson:p=>base.deleteJson(`${prefix}/${p}`)};t.after(async()=>{try{await base.deleteJsonTree(prefix);}finally{await base.close();}});
   }else{const dir=await mkdtemp(path.join(process.cwd(),'.provider-wake-test-'));store=new FileStore(dir);await store.init();t.after(()=>rm(dir,{recursive:true,force:true}));}
   let clock=Date.parse('2026-10-24T12:00:00Z'),response={status:202,failureClass:null},beforeResolve,beforeSend,verificationResponse;
-  const sent=[],audits=[],state={family:{refreshExpiresAt:'2027-01-01T00:00:00Z'},agent:{status:'active',onboardingStatus:'approved'},installation:{status:'active'}};
+  const sent=[],audits=[],state={family:{refreshExpiresAt:'2027-01-01T00:00:00Z'},agent:{status:'active',onboardingStatus:'approved',permissions:['receive_agent_messages']},installation:{status:'active'}};
   const now=()=>new Date(clock).toISOString();
   const resolveDestination=async url=>{await beforeResolve?.();return {url,addresses:['192.0.43.11']};};
   const options={store,enabled:true,installationsEnabled:true,mcpWakeEnabled:true,mcpEventsEnabled:true,grokTriggerEnabled:true,env:{ENVOI_WAKE_SIGNING_KEYS:keys},facts:async()=>state,now,random:()=>0.5,resolveDestination,observe:()=>{},audit:async(...args)=>audits.push(args),transport:async request=>{sent.push(request);await beforeSend?.(request);const body=JSON.parse(request.bodyText);return body.type==='verification'?(verificationResponse||{status:200,failureClass:null,bodyText:JSON.stringify({challenge:body.challenge})}):response;},...overrides};
@@ -179,4 +179,30 @@ parity('late old MCP event 410 cannot end a newly subscribed generation of the s
   h.beforeSend(async()=>{h.beforeSend(null);const {secret:_,...delivery}=parameters().delivery;await h.provider.unsubscribe(identity,{name:'envoi.work_available',arguments:{},delivery},protocol);const replacement=await h.provider.subscribe(identity,parameters({delivery:{...parameters().delivery,secret:secondSecret}}),protocol);assert.equal(replacement.id,first.id);h.response({status:410,failureClass:'receiver_gone'});});
   await h.http.runOnce();const current=await h.store.getJson(wakeSubscriptionPath(binding.agentId,first.id));assert.equal(current.status,'active');assert.notEqual(current.generation,previous.generation);assert.ok(current.secretEncrypted);assert.equal(current.delivery.lastFailureClass,null);
   h.response({status:202,failureClass:null});await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));await h.http.runOnce();verifyHmac(h.sent.at(-1),secondSecret);
+});
+parity('permission removal during DNS refuses callback verification without storing a profile',async(t,kind)=>{
+  const h=await harness(t,kind);h.beforeResolve(()=>{h.state.agent.permissions=[];});
+  await assert.rejects(h.provider.subscribe(identity,parameters(),protocol),{statusCode:401,code:'CREDENTIAL_REVOKED'});assert.equal(h.sent.length,0);assert.deepEqual(await h.http.profileRecords(binding,'mcp_events'),[]);
+});
+parity('permission removal after successful verification refuses subscription commit',async(t,kind)=>{
+  const h=await harness(t,kind);h.beforeSend(request=>{if(JSON.parse(request.bodyText).type==='verification')h.state.agent.permissions=[];});
+  await assert.rejects(h.provider.subscribe(identity,parameters(),protocol),{statusCode:401,code:'CREDENTIAL_REVOKED'});assert.equal(h.sent.length,1);assert.equal(JSON.parse(h.sent[0].bodyText).type,'verification');assert.deepEqual(await h.http.profileRecords(binding,'mcp_events'),[]);
+});
+parity('permission loss, missing installation and refresh expiry before delivery end profiles and erase secrets',async(t,kind)=>{
+  for(const change of [h=>{h.state.agent.permissions=[];},h=>{h.state.installation=null;},h=>{h.state.family.refreshExpiresAt=h.now();}]){
+    const h=await harness(t,kind);const created=await h.provider.subscribe(identity,parameters(),protocol);await h.tx(()=>h.http.trigger({...binding,reason:'message_delivered'}));const sent=h.sent.length;h.beforeResolve(()=>change(h));
+    await h.http.runOnce();assert.equal(h.sent.length,sent);const record=await h.store.getJson(wakeSubscriptionPath(binding.agentId,created.id));assert.equal(record.status,'ended');assert.equal(record.endedReason,'credential_ended');assert.equal(record.secretEncrypted,undefined);assert.equal(record.previousSecretEncrypted,undefined);
+  }
+});
+parity('MCP-created subscriptions require live receive authority while legacy REST behavior stays unchanged',async(t,kind)=>{
+  const h=await harness(t,kind);const created=await h.tx(()=>h.http.create(binding,{url:'https://callbacks.envoi-provider.com/mcp'},{createdVia:'mcp'}));h.state.installation=null;
+  assert.equal((await h.http.status(binding)).subscription.endedReason,'credential_ended');h.state.agent.permissions=[];
+  const rest=await h.tx(()=>h.http.create(binding,{url:'https://callbacks.envoi-provider.com/rest'}));assert.equal(rest.subscription.status,'pending');assert.equal((await h.store.getJson(wakeSubscriptionPath(binding.agentId,created.subscription.id))).status,'ended');
+});
+parity('MCP create and activation recheck authority after asynchronous work and at refresh-expiry timing boundaries',async(t,kind)=>{
+  const denied=await harness(t,kind);denied.beforeResolve(()=>{denied.state.agent.permissions=[];});await assert.rejects(denied.tx(()=>denied.http.create(binding,{url:'https://callbacks.envoi-provider.com/mcp'},{createdVia:'mcp'})),{statusCode:401,code:'CREDENTIAL_REVOKED'});assert.deepEqual((await denied.http.list(binding)).subscriptions,[]);assert.equal(denied.sent.length,0);
+  let activation=false,reads=0,h;
+  h=await harness(t,kind,{facts:async()=>{if(activation&&++reads===3)h.state.family.refreshExpiresAt=h.now();return h.state;}});
+  const created=await h.tx(()=>h.http.create(binding,{url:'https://callbacks.envoi-provider.com/mcp'},{createdVia:'mcp'}));h.advance(2000);await h.http.runOnce();const challenge=JSON.parse(h.sent.at(-1).bodyText).challenge;activation=true;
+  await assert.rejects(h.tx(()=>h.http.activate(binding,created.subscription.id,{challenge})),{statusCode:401,code:'CREDENTIAL_REVOKED'});assert.equal(reads,3);assert.notEqual((await h.store.getJson(wakeSubscriptionPath(binding.agentId,created.subscription.id))).status,'active');
 });
