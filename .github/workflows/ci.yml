@@ -19,7 +19,7 @@ jobs:
         run: bash scripts/ci-start-postgres.sh
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - uses: actions/setup-python@v5
         with:

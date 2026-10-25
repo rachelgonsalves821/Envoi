@@ -1,0 +1,73 @@
+---
+import agents from '../data/agents.json';
+import Icon from './Icon.astro';
+---
+<section id="agent-ecosystem" class="agents-banner" aria-labelledby="agents-banner-title" data-agents-banner data-paused="false">
+  <div class="container agents-banner-inner">
+    <div class="agents-banner-heading">
+      <h2 id="agents-banner-title">Agent ecosystem</h2>
+      <p>Integration previews</p>
+    </div>
+    <ul class="visually-hidden" aria-label="Agent platforms">{agents.map(agent => <li>{agent.name}</li>)}</ul>
+    <div class="agents-marquee" aria-hidden="true">
+      <div class="agents-track">
+        {[0, 1].map(groupIndex => <div class="agents-group" data-group={groupIndex}>
+          {[0, 1, 2].map(repeatIndex => agents.map(agent => <div class="agent-logo-pill" data-repeat={repeatIndex > 0 ? 'true' : undefined}>
+            <img src={agent.logo} width="28" height="28" alt="" loading="lazy" decoding="async" />
+            <span>{agent.name}</span>
+          </div>))}
+        </div>)}
+      </div>
+    </div>
+    <button class="banner-toggle" data-banner-toggle type="button" aria-label="Pause agent logo animation" aria-pressed="false">
+      <span data-banner-pause-icon><Icon name="pause" size={15} /></span>
+      <span data-banner-play-icon hidden><Icon name="play" size={15} /></span>
+    </button>
+  </div>
+</section>
+<style>
+  .agents-banner { border-block: 1px solid var(--line); }
+  .agents-banner-inner { display: grid; grid-template-columns: 170px minmax(0, 1fr) 32px; gap: 24px; align-items: center; min-height: 120px; }
+  .agents-banner-heading h2 { font: 300 12px/1.5 var(--sans); color: var(--ink-muted); letter-spacing: .13em; text-transform: uppercase; }
+  .agents-banner-heading p { color: var(--ink-dim); font-size: 11px; margin-top: 5px; }
+  .agents-marquee { overflow: hidden; min-width: 0; padding-block: 16px; mask-image: linear-gradient(to right, transparent, var(--brand-navy) 6%, var(--brand-navy) 94%, transparent); }
+  .agents-track { display: flex; width: max-content; }
+  .agents-group { display: flex; align-items: center; gap: 16px; padding-right: 16px; flex: none; }
+  .agent-logo-pill { display: flex; align-items: center; justify-content: center; gap: 13px; min-width: 160px; height: 54px; padding: 0 24px; border: 1px solid var(--line); border-radius: var(--pill); background: var(--bg-raised); color: var(--ink-muted); font-size: 18px; font-weight: 300; white-space: nowrap; }
+  .agent-logo-pill img { display: block; width: 28px; height: 28px; object-fit: contain; flex: none; }
+  .banner-toggle { display: grid; place-items: center; width: 32px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink-muted); background: transparent; }
+  .banner-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
+  @media (prefers-reduced-motion: no-preference) {
+    .agents-track { animation: agent-logos 60s linear infinite; animation-play-state: paused; }
+    .agents-banner.in-view .agents-track { animation-play-state: running; }
+    .agents-banner:hover .agents-track, .agents-banner:focus-within .agents-track, .agents-banner[data-paused="true"] .agents-track, :global(body.page-hidden) .agents-track { animation-play-state: paused; }
+    @keyframes agent-logos { to { transform: translateX(-50%); } }
+  }
+  @media (max-width: 900px) {
+    .agents-banner-inner { grid-template-columns: 140px minmax(0, 1fr) 32px; gap: 16px; }
+    .agents-banner-heading h2 { font-size: 10px; }
+    .agents-banner-heading p { font-size: 10px; }
+  }
+  @media (max-width: 680px) {
+    .agents-banner-inner { grid-template-columns: minmax(0, 1fr) 32px; padding-block: 20px; gap: 8px 12px; }
+    .agents-banner-heading { display: flex; align-items: center; gap: 12px; }
+    .agents-banner-heading p { margin: 0; font-size: 9px; }
+    .agents-marquee { grid-column: 1 / -1; grid-row: 2; }
+    .banner-toggle { grid-column: 2; grid-row: 1; }
+    .agent-logo-pill { height: 48px; min-width: 145px; font-size: 16px; padding-inline: 20px; }
+    .agent-logo-pill img { width: 24px; height: 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .agents-banner-inner { grid-template-columns: 170px minmax(0, 1fr); }
+    .agents-marquee { mask-image: none; }
+    .agents-track { width: auto; }
+    .agents-group { flex-wrap: wrap; padding-right: 0; }
+    .agents-group + .agents-group, .agent-logo-pill[data-repeat], .banner-toggle { display: none; }
+  }
+  @media (max-width: 680px) and (prefers-reduced-motion: reduce) {
+    .agents-banner-inner { grid-template-columns: 1fr; }
+    .agents-marquee { grid-column: 1; }
+    .agents-group { gap: 10px; }
+    .agent-logo-pill { flex: 1; min-width: 135px; }
+  }
+</style>

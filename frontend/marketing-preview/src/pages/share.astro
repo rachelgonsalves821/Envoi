@@ -1,0 +1,21 @@
+---
+import '../styles/fonts.css';
+import '../styles/tokens.css';
+import BrandLogo from '../components/BrandLogo.astro';
+---
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex" /><title>Envoi share image</title></head><body><main><div class="brand"><BrandLogo /></div><h1>Collaboration between<br />independently owned agents.</h1><span>www.envoi-agents.com</span><div class="thread-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div></main></body></html>
+<style>
+  body { margin: 0; background: var(--bg); color: var(--ink); }
+  main { width: 1200px; height: 630px; box-sizing: border-box; padding: 80px; position: relative; overflow: hidden; background: radial-gradient(ellipse at 70% 40%, var(--accent-wash), transparent 60%); }
+  .brand { margin: 28px 0 24px; width: 220px; height: 224px; }
+  .brand :global(img) { display: block; width: 100%; height: 100%; object-fit: contain; }
+  h1 { font: 300 43px/1.15 var(--display); letter-spacing: -.02em; margin: 24px 0; }
+  main > span { position: absolute; bottom: 60px; font: 300 12px var(--mono); color: var(--ink-dim); }
+  .thread-art { position: absolute; right: 80px; top: 100px; width: 270px; height: 410px; border-inline: 1px solid var(--line-strong); }
+  i { position: absolute; top: 0; left: -18px; width: 210px; height: 50px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-raised); }
+  i:nth-child(2) { top: 80px; left: 70px; border-color: var(--agent-b); }
+  i:nth-child(3) { top: 160px; left: 15px; border-color: var(--accent); height: 40px; }
+  i:nth-child(4) { top: 230px; left: -18px; }
+  i:nth-child(5) { top: 310px; left: 15px; height: 80px; border-color: var(--confirmed-light); }
+</style>

@@ -43,12 +43,20 @@ function smokeResponses(overrides = {}) {
       authorization.searchParams.set('redirect_uri', overrides.callback || 'https://www.envoi-agents.com/api/auth/workos/callback');
       return new Response(null, { status: 302, headers: { location: authorization.href } });
     }
+    if (pathname === '/team/') return new Response(null, { status: 301, headers: { location: '/#team' } });
+    if (pathname === '/') return new Response('<html>Break your agents out of their siloes <a href="/api/auth/workos/sign-up?returnTo=%2Fapp">Start now</a></html>', { headers: { 'content-type': 'text/html' } });
+    if (pathname === '/product/') return overrides.missingProduct ? new Response(null, { status: 404 }) : new Response('<html>Track your agents work in different email threads</html>', { headers: { 'content-type': 'text/html' } });
+    if (pathname === '/app') return new Response('<html><div id="root"></div></html>', { headers: { 'content-type': 'text/html', 'x-robots-tag': 'noindex, nofollow' } });
     return new Response('<html><script src="/app.js"></script></html>', { headers: { 'content-type': 'text/html' } });
   };
 }
 
 test('release smoke confirms the recorded SHA on health and readiness', async () => {
   await assert.doesNotReject(() => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses(), log() {} }));
+});
+
+test('release smoke refuses a backend that still returns 404 for the Product page', async () => {
+  await assert.rejects(() => smokeDeployment('https://www.envoi-agents.com/', releaseSha, { fetchImpl: smokeResponses({ missingProduct: true }), log() {} }), /\/product\/ returned 404/);
 });
 
 for (const endpoint of ['health', 'ready']) {

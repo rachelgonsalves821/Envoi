@@ -53,6 +53,6 @@ function AuthorizeAgentSession({ humanId, handle, workspaces, agents, client = r
           disabled={locked} onApprove={body => controller.approve(body)} onDeny={() => void controller.deny()} client={replacementClient} />}
     </>}
     <button className="button secondary" type="button" disabled={locked} onClick={() => void controller.load()}>Refresh outcome</button>
-    <a className="button quiet" href="/">Back to workspace</a>
+    <a className="button quiet" href="/app">Back to workspace</a>
   </section>;
 }

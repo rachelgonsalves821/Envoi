@@ -1,0 +1,75 @@
+---
+import Icon from './Icon.astro';
+import agents from '../data/agents.json';
+const [first, second] = agents;
+---
+<figure class="collaboration-flow" aria-labelledby="collaboration-visual-title" data-collaboration-flow>
+  <figcaption id="collaboration-visual-title"><strong>With Envoi, agents work together directly</strong></figcaption>
+  <div class="flow-heading"><h3>A shared data request</h3><div class="review-gate"><Icon name="person" size={16} /><span>John reviews before sharing</span></div></div>
+  <div class="agent-workspace">
+    <span class="layer-label">Agent workspace</span>
+    <div class="direct-route" role="group" aria-label="John's agent and Jordan's agent collaborate in a shared workspace">
+      <div class="direct-agent"><span class="agent-symbol"><img src={first.logo} width="34" height="34" alt="" /></span><strong>{first.name}</strong><small>John's agent</small></div>
+      <div class="shared-work"><Icon name="file" size={25} /><span>Scoped Q4 data</span></div>
+      <div class="direct-agent"><span class="agent-symbol"><img src={second.logo} width="34" height="34" alt="" /></span><strong>{second.name}</strong><small>Jordan's agent</small></div>
+    </div>
+    <div class="message-track" aria-label="Data request and response">
+      <span class="message-bubble request">Request Q4 revenue data <span aria-hidden="true">→</span></span>
+      <span class="message-bubble reply"><span aria-hidden="true">←</span> Q4 figures attached</span>
+    </div>
+  </div>
+</figure>
+<style>
+  .collaboration-flow { margin: 0; padding: 22px; border: 1px solid var(--line); border-radius: 20px; background: var(--bg-raised); box-shadow: var(--card-shadow); }
+  figcaption { padding-bottom: 16px; border-bottom: 1px solid var(--line); font-size: 19px; line-height: 1.3; }
+  figcaption strong { font-weight: 300; }
+  .flow-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 14px; }
+  .flow-heading h3 { font-size: 20px; }
+  .agent-workspace { padding: 16px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-sunken); }
+  .layer-label { display: block; color: var(--ink-muted); font-size: 14px; }
+  .agent-workspace > .layer-label { text-align: center; }
+  .direct-route { display: grid; grid-template-columns: minmax(76px, 1fr) minmax(86px, 1.2fr) minmax(76px, 1fr); align-items: center; gap: 8px; margin-top: 16px; }
+  .direct-agent, .shared-work { display: flex; flex-direction: column; align-items: center; text-align: center; line-height: 1.3; }
+  .direct-agent { gap: 4px; }
+  .direct-agent strong { font-size: 15px; font-weight: 300; }
+  .direct-agent small { font-size: 14px; color: var(--ink-muted); }
+  .agent-symbol { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 4px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-raised); }
+  .agent-symbol img { width: 34px; height: 34px; object-fit: contain; }
+  :global(:root[data-theme="dark"]) .agent-symbol img { background: #eef5fb; border-radius: 6px; padding: 2px; }
+  .shared-work { gap: 8px; color: var(--ink-muted); font-size: 14px; }
+  .shared-work :global(svg) { color: var(--accent); }
+  .message-track { position: relative; height: 96px; margin: 16px 6px 0; border-top: 1px dashed var(--line-strong); }
+  .message-bubble { --bubble-width: min(224px, 82%); position: absolute; display: flex; align-items: center; justify-content: space-between; gap: 8px; width: var(--bubble-width); min-height: 34px; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--bg-raised); color: var(--ink); box-shadow: 0 4px 14px -10px var(--shadow-ink); font-size: 14px; white-space: nowrap; }
+  .request { left: 0; top: 10px; border-color: var(--brand-blue); }
+  .reply { right: 0; top: 53px; border-color: var(--brand-amber); }
+  .review-gate { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--brand-amber); border-radius: 8px; color: var(--needs-human-ink); background: var(--needs-human-bg); font-size: 14px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .request { animation: request-slide 8s ease-in-out infinite; }
+    .reply { animation: reply-slide 8s ease-in-out infinite; }
+    :global(body.page-hidden) .message-bubble { animation-play-state: paused; }
+    @keyframes request-slide {
+      0%, 8% { left: 0; opacity: 1; }
+      42%, 48% { left: calc(100% - var(--bubble-width)); opacity: 1; }
+      56%, 100% { left: calc(100% - var(--bubble-width)); opacity: .4; }
+    }
+    @keyframes reply-slide {
+      0%, 48% { right: 0; opacity: .4; }
+      56% { right: 0; opacity: 1; }
+      90%, 100% { right: calc(100% - var(--bubble-width)); opacity: 1; }
+    }
+  }
+  @media (max-width: 600px) {
+    .collaboration-flow { padding: 16px; }
+    figcaption { font-size: 17px; }
+    .flow-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+    .flow-heading h3 { font-size: 18px; }
+    .agent-workspace { padding: 12px; }
+    .direct-route { grid-template-columns: minmax(66px, 1fr) minmax(66px, 1.1fr) minmax(66px, 1fr); gap: 3px; }
+    .direct-agent strong { font-size: 14px; }
+    .direct-agent small { font-size: 14px; }
+    .shared-work { font-size: 14px; }
+    .agent-symbol { width: 42px; height: 42px; }
+    .agent-symbol img { width: 28px; height: 28px; }
+    .message-bubble { --bubble-width: min(224px, 82%); }
+  }
+</style>

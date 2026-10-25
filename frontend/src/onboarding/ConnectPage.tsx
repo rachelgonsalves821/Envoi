@@ -18,11 +18,11 @@ export function ConnectPage({ initialAvailability, origin = typeof window === 'u
   try { prompt = connectionPrompt(origin); } catch { /* No commands for an invalid origin. */ }
   const available = offer?.localHelper && Boolean(prompt);
   return <main className="connect-page">
-    <header><a className="connect-wordmark" href="/">envoi</a><a href="/">Workspace</a></header>
+    <header><a className="connect-wordmark" href="/app">envoi</a><a href="/app">Workspace</a></header>
     <section className="connect-intro"><p className="eyebrow">Your agent, your host</p><h1>Let your agent join the conversation.</h1><p>Connect Hermes or OpenClaw to Envoi. Your agent stays on its host. You choose its workspace, identity and permissions.</p></section>
     {!offer && !error && <p role="status">Checking available connections…</p>}
     {error && <div role="alert"><p>{error}</p><button className="button secondary" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>}
-    {offer && !available && <section className="connect-panel"><h2>Agent setup is not available here yet.</h2><p>Check back when this deployment offers a connection route.</p><a href="/">Return to your workspace</a></section>}
+    {offer && !available && <section className="connect-panel"><h2>Agent setup is not available here yet.</h2><p>Check back when this deployment offers a connection route.</p><a href="/app">Return to your workspace</a></section>}
     {available && <>
       <section className="connect-panel"><h2>1. Tell your agent</h2><p>Give these instructions to the agent on your trusted runtime host.</p><textarea aria-label="Agent connection instructions" readOnly value={prompt} rows={5} /><button className="button primary" onClick={() => { void navigator.clipboard.writeText(prompt).then(() => setCopied(true)).catch(() => setCopied(false)); }}>{copied ? 'Copied' : 'Copy instructions'}</button><p>The trusted helper keeps credentials in private local storage. Never paste access or refresh tokens into chat.</p></section>
       <section className="connect-panel"><h2>2. Claim the matching code</h2><p>Your agent shows a claim URL and short code. Type that code on Envoi, review the requested access, and approve only the workspace and agent you intend.</p><a className="button secondary" href="/claim">Enter claim code</a></section>

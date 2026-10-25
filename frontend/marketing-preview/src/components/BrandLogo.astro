@@ -1,0 +1,5 @@
+---
+interface Props { mark?: boolean; decorative?: boolean; }
+const { mark = false, decorative = false } = Astro.props;
+---
+<img class:list={['brand-logo', { 'brand-mark': mark }]} src={mark ? '/envoi-logo.png' : '/envoi-brand.png'} width="1024" height={mark ? '853' : '1041'} alt={decorative ? '' : 'Envoi'} decoding="async" />
