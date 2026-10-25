@@ -29,7 +29,7 @@ function originSet(value){
   const values=Array.isArray(value)?value:String(value||'').split(',').map(value=>value.trim()).filter(Boolean);
   return new Set(values.map(value=>{let url;try{url=new URL(value);}catch{throw new Error('Invalid provider wake origin');}if(url.protocol!=='https:'||url.port||url.username||url.password||url.pathname!=='/'||url.search||url.hash||net.isIP(url.hostname.replace(/^\[|\]$/g,''))||url.origin!==value)throw new Error('Invalid provider wake origin');return url.origin;}));
 }
-export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,grokTriggerEnabled=false,key,env=process.env,now=()=>new Date().toISOString(),audit=async()=>{},resolveDestination,eventHistory=async()=>({cursor:null,truncated:false,events:[]})}={}){
+export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,grokTriggerEnabled=false,key,env=process.env,now=()=>new Date().toISOString(),audit=async()=>{},resolveDestination,authorizeOwner=async()=>{},validateCursor=async()=>{},eventHistory=async()=>({cursor:null,truncated:false,events:[]})}={}){
   const dataKey=key||((mcpEventsEnabled||grokTriggerEnabled)&&env.ENVOI_DATA_ENCRYPTION_KEY?crypto.createHash('sha256').update(env.ENVOI_DATA_ENCRYPTION_KEY).digest():null);
   if((mcpEventsEnabled||grokTriggerEnabled)&&(!Buffer.isBuffer(dataKey)||dataKey.length!==32))throw new Error('Provider wake requires the server data encryption key');
   const destination=createWakeDestination({env});const resolve=resolveDestination||destination.resolve;
@@ -66,7 +66,7 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
     discover(identity,version){requireEvents(identity,version);return {protocolVersion:providerEventsProtocolVersion,capabilities:{tools:{},events:{}},serverInfo:{name:'envoi'}};},
     list(identity,params={},version){requireEvents(identity,version);if(!empty(params))throw invalid();return {events:providerEvents};},
     async subscribe(identity,params,version){
-      requireEvents(identity,version);paramsValid(params,true);const binding=bound(identity);let url;
+      requireEvents(identity,version);paramsValid(params,true);const binding=bound(identity);await validateCursor(binding,params.cursor??null);let url;
       try{url=checked(params.delivery.url,callbacks);}catch(error){throw callbackError(error.reason==='origin_not_allowed'?'origin_not_allowed':'address_not_allowed');}
       await httpWake.reserveProfileCreate(binding,'mcp_events',identityId(binding,params.name,url));
       const cache=cachePath(binding,url),oneWayKey=hash(`${params.delivery.secret}\n${allowlistDigest}`);
@@ -103,12 +103,15 @@ export function createProviderEventWake({httpWake,store,mcpEventsEnabled=false,g
       const current=records.find(sub=>sub.status!=='ended');
       const id=current?.installationId===binding.installationId?current.id:`wake_target_${crypto.randomBytes(18).toString('base64url')}`;
       await httpWake.reserveProfileCreate(binding,'grok_trigger',id);await resolve(url);
-      for(const sub of records)if(sub.installationId!==binding.installationId&&sub.status!=='ended')await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'replaced');
-      const sub=await httpWake.createProfile(binding,'grok_trigger',{id,url,allowPaused:true,quotaReserved:true,secretEncrypted:encode(params.secret,id),previousSecretEncrypted:undefined,previousSecretUntil:undefined,targetState:'active',stateReason:null,updatedAt:now()});
-      await audit(binding.inboxId,'agent.wake_target_secret_set',{agentId:binding.agentId,installationId:binding.installationId,secretSet:true},now());
-      await httpWake.queueProfile(sub,'wake.work_available','work_due');return {target:grokPublic(sub)};
+      const guard=()=>authorizeOwner(identity);
+      return store.withTransaction([`inbox:${binding.inboxId}:mutations`],async()=>{
+        for(const sub of records)if(sub.installationId!==binding.installationId&&sub.status!=='ended')await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'replaced',guard);
+        const sub=await httpWake.createProfile(binding,'grok_trigger',{id,url,allowPaused:true,quotaReserved:true,beforeCommit:guard,secretEncrypted:encode(params.secret,id),previousSecretEncrypted:undefined,previousSecretUntil:undefined,targetState:'active',stateReason:null,updatedAt:now()});
+        await audit(binding.inboxId,'agent.wake_target_secret_set',{agentId:binding.agentId,installationId:binding.installationId,secretSet:true},now());
+        await httpWake.queueProfile(sub,'wake.work_available','work_due');return {target:grokPublic(sub)};
+      });
     },
     async getGrok(identity){const binding=bound(identity);const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},'grok_trigger');grokAvailable();const sub=records.find(sub=>sub.status!=='ended')||records[0];return {target:sub?grokPublic(sub):null};},
-    async deleteGrok(identity){const binding=bound(identity);const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},'grok_trigger');grokAvailable();for(const sub of records)await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'ended_by_owner');return {};}
+    async deleteGrok(identity){const binding=bound(identity);grokAvailable();return store.withTransaction([`inbox:${binding.inboxId}:mutations`],async()=>{await authorizeOwner(identity);const records=await httpWake.profileRecords({inboxId:binding.inboxId,agentId:binding.agentId},'grok_trigger');for(const sub of records)await httpWake.endProfile({inboxId:binding.inboxId,agentId:binding.agentId},sub.id,'ended_by_owner',()=>authorizeOwner(identity));return {};});}
   };
 }

@@ -272,7 +272,8 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
     registerProfile(name,hooks){if(!['mcp_events','grok_trigger'].includes(name)||profiles.has(name))throw new Error('Invalid or duplicate wake profile');profiles.set(name,hooks);},
     async profileRecords(identity,profile){return store.withTransaction([lock(identity.inboxId)],async()=>(await listFor(identity,true)).filter(sub=>sub.profile===profile));},
     async reserveProfileCreate(identity,profile,id){return store.withTransaction([lock(identity.inboxId)],async()=>{available();if(!flags[profile])throw wakeError(404,'FEATURE_DISABLED');const current=await derive(await store.getJson(subPath(identity.agentId,id)));if(!current||current.status==='ended')await consumeCreate(identity);});},
-    async createProfile(identity,profile,{id,url,expiresAt=null,allowPaused=false,quotaReserved=false,...fields}){return store.withTransaction([lock(identity.inboxId)],async()=>{
+    async createProfile(identity,profile,{id,url,expiresAt=null,allowPaused=false,quotaReserved=false,beforeCommit,...fields}){return store.withTransaction([lock(identity.inboxId)],async()=>{
+      await beforeCommit?.();
       available();if(!flags[profile]||!profiles.has(profile))throw wakeError(404,'FEATURE_DISABLED');
       const state=await facts(identity);if(!state.family||state.family.revokedAt||state.installation?.status==='ended'||!state.agent||!['active','paused'].includes(state.agent.status)||state.agent.onboardingStatus!=='approved')throw wakeError(401,'CREDENTIAL_REVOKED');
       if(!allowPaused&&state.agent.status==='paused')throw wakeError(409,'AGENT_PAUSED');
@@ -282,7 +283,7 @@ export function createHttpWake({ store, enabled = false, installationsEnabled = 
       const at=now();const sub={...(current?.status!=='ended'?current:{}),id,...identity,generation:current?.status==='active'?current.generation:crypto.randomUUID(),profile,url,status:'active',endedReason:null,endedAt:null,createdAt:current?.status!=='ended'?current?.createdAt||at:at,activatedAt:current?.status!=='ended'?current?.activatedAt||at:at,expiresAt:expiresAt||iso(time()+2592000000),challengeExpiresAt:null,delivery:current?.delivery||{state:'healthy',lastAttemptAt:null,lastSuccessAt:null,consecutiveFailures:0,lastFailureClass:null},sequence:current?.sequence||0,dirty:{},...fields};
       await save(sub);await index(sub);return sub;
     });},
-    async endProfile(identity,id,reason='ended_by_host'){return store.withTransaction([lock(identity.inboxId)],async()=>{const sub=await owned(identity,id,true);if(!sub.profile)throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND');return endRecord(sub,reason);});},
+    async endProfile(identity,id,reason='ended_by_host',beforeCommit){return store.withTransaction([lock(identity.inboxId)],async()=>{await beforeCommit?.();const sub=await owned(identity,id,true);if(!sub.profile)throw wakeError(404,'WAKE_SUBSCRIPTION_NOT_FOUND');return endRecord(sub,reason);});},
     async queueProfile(sub,type,reason,cursor=null){return store.withTransaction([lock(sub.inboxId)],async()=>{const current=await derive(await store.getJson(subPath(sub.agentId,sub.id)));if(!current||current.generation!==sub.generation)return;if(current.status==='active'&&(!current.targetState||current.targetState==='active'))await queue(current,type,reason,undefined,cursor);});},
     async verifyCallback(identity,url,{bodyText,headers}){
       available();const resolved=await resolve(url);const token=crypto.randomUUID();const admitted=await admission.admit({subscriptionId:`verify:${identity.installationId}`,host:new URL(url).hostname,addresses:resolved.addresses,token,limited:true});
