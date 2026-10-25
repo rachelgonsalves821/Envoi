@@ -36,6 +36,24 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
   const ledgerId = binding => `native-ledger:${binding.installationId}`;
   const rateId = binding => `native-owner-rate:${binding.ownerId}`;
   const readLedger = async binding => await port.read(ledgerId(binding)) || { runs: {}, work: {}, keys: {} };
+  const emptyLedger = () => ({ runs: {}, work: {}, keys: {} });
+  function compactLedger(ledger) {
+    // Old work references still need minimal case/principal metadata for current
+    // authorization and settled-key replay. Private packet/session/lease material
+    // is useful only while that claim is outstanding and live.
+    for (const [ref, work] of Object.entries(ledger.work)) {
+      if (work.closed || Date.parse(work.leaseExpiresAt) <= now()) ledger.work[ref] = {
+        workRef: work.workRef, workId: work.workId, caseId: work.caseId,
+        runId: work.runId, generation: work.generation, closed: true
+      };
+    }
+    // Keep an expired run tombstone until its cookie expires. Reusing its runId
+    // must remain GATEWAY_RUN_EXPIRED rather than accidentally starting a new run.
+    for (const [id, run] of Object.entries(ledger.runs)) {
+      if (now() > run.startedAt + nativeGatewayLimits.runMs) ledger.runs[id] = { startedAt: run.startedAt, session: run.session, generation: run.generation };
+    }
+    return ledger;
+  }
   // This callback is server-internal. Target inboxes must come from the canonical
   // case binding, never HTTP input. Audit persistence shares the outer transaction;
   // Stage1's audit context publishes only after that transaction commits.
@@ -71,7 +89,7 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       // A repaired native cookie keeps Stage1 read access but cannot regain work scope.
       await port.write(`installation:${binding.installationId}`, record);
     }
-    await port.write(ledgerId(binding), ledger);
+    await port.write(ledgerId(binding), emptyLedger());
   }
   async function rollback() {
     const index = await port.read('native-installations') || { ids: [] };
@@ -81,7 +99,37 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       await port.lock(`native:${id}`, await lockKeys(record.binding, 'rollback', {}), () => revokeNative(record.binding, 'flag_off'));
     }
   }
-  async function reconcileFlags() { if (!enabled()) await rollback(); }
+  async function sessionReplaced(binding) {
+    const ledger = await readLedger(binding);
+    for (const work of Object.values(ledger.work)) await release(binding, work, 'session_replaced');
+    await port.remove(ledgerId(binding));
+  }
+  const sessionReplacementKeys = binding => lockKeys(binding, 'session_replaced', {});
+  async function cleanupExpired() {
+    const index = await port.read('native-installations') || { ids: [] };
+    const absent = new Set();
+    for (const id of index.ids) {
+      const record = await port.read(`installation:${id}`);
+      if (!record) {
+        await port.lock(`native:${id}`, [`gateway-installation:${id}`], async () => {
+          if (!await port.read(`installation:${id}`)) { await port.remove(`native-ledger:${id}`); absent.add(id); }
+        });
+        continue;
+      }
+      await port.lock(`native:${id}`, await lockKeys(record.binding, 'cleanup', {}), async () => {
+        const ledger = await port.read(ledgerId(record.binding));
+        if (!ledger) return;
+        if (ledger.sessionExpiresAt && ledger.sessionExpiresAt <= now() || ledger.sessionIdleExpiresAt && ledger.sessionIdleExpiresAt <= now()) await port.remove(ledgerId(record.binding));
+        else await port.write(ledgerId(record.binding), compactLedger(ledger));
+      });
+    }
+    if (absent.size) await port.lock('native-index-cleanup', ['gateway-native-index'], async () => {
+      const latest = await port.read('native-installations') || { ids: [] }, retained = [];
+      for (const id of latest.ids) if (!absent.has(id) || await port.read(`installation:${id}`)) retained.push(id);
+      await port.write('native-installations', { ids: retained });
+    });
+  }
+  async function reconcileFlags() { if (!enabled()) await rollback(); await cleanupExpired(); }
   async function commitAuthority(session, work, kind, input) {
     const at = now();
     if (session.expiresAt <= at || session.lastActivity + 86_400_000 <= at) fail(401, 'GATEWAY_SESSION_EXPIRED', { reason: 'expired' });
@@ -108,6 +156,13 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       const installation = await port.read(`installation:${session.binding.installationId}`);
       if (session.nativeScope !== 'native_work' || installation?.native?.scope !== 'native_work') fail(403, 'GATEWAY_SCOPE_DENIED');
       const ledger = await readLedger(session.binding);
+      if (ledger.generation && ledger.generation !== session.binding.generation) {
+        for (const prior of Object.values(ledger.work)) await release(session.binding, prior, 'session_replaced');
+        Object.assign(ledger, emptyLedger());
+      }
+      ledger.generation = session.binding.generation;
+      ledger.sessionExpiresAt = session.expiresAt;
+      compactLedger(ledger);
       // A claim retry contains only runId. Its outstanding work still needs the
       // same live case/counterparty checks as act before returning a replay.
       const work = input.workRef ? ledger.work[input.workRef] : kind === 'claim'
@@ -128,6 +183,8 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
       // An awaited projection/policy/effect must not let a 120 s run commit late.
       // A stored act replay is intentionally allowed after its old run expired.
       if (!(kind === 'act' && result.replayed) && ledger.runs[input.runId]) runBudget(ledger.runs[input.runId]);
+      ledger.sessionIdleExpiresAt = now() + 86_400_000;
+      await port.write(ledgerId(session.binding), compactLedger(ledger));
       return result;
     }, csrf, false, binding => lockKeys(binding, kind, input));
     if (result?.refused) throw result.refused;
@@ -257,5 +314,5 @@ export function createProviderGatewayNative({ gateway, adapter, enabled = () => 
         effectiveAt: iso(now()), requiresNewSessionCookie: true, repair: 'owner_confirmed_repair' };
     });
   }
-  return { claim, act, renew, updateScope, rollback, reconcileFlags };
+  return { claim, act, renew, updateScope, rollback, reconcileFlags, cleanupExpired, sessionReplacementKeys, sessionReplaced };
 }

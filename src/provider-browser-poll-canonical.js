@@ -128,6 +128,10 @@ export function createCanonicalBrowserGateway({ store, flags, key, registrations
       return identity;
     }
   } }) : null;
+  if (native) {
+    adapter.sessionReplacementKeys = native.sessionReplacementKeys;
+    adapter.sessionReplaced = native.sessionReplaced;
+  }
   const handler = createProviderBrowserPollHttp({ gateway, enabled, native, origin: publicOrigin, rateLimit,
     owner: requireOwner,
     ownerConfirm: async (req, payload, csrf) => { await requireOwner(req); ownerMutation(req, csrf); return gateway.confirm(payload, req); },

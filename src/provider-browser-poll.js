@@ -144,7 +144,8 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, native
     });
     // Canonical activation owns its own transaction and idempotency/replay detection.
     const binding = p.completed ? p.completed.binding : await adapter.activate(p.registration, p.activationId, p.confirmedOwner);
-    const result = await lock(id, adapter.lockKeys(binding), async () => {
+    const replacementKeys = adapter.sessionReplacementKeys ? await adapter.sessionReplacementKeys(binding) : [];
+    const result = await lock(id, [...adapter.lockKeys(binding), ...replacementKeys], async () => {
       const current = pendingState(await read(id));
       if (current.completed) {
         if (current.completed.recoverUntil <= now()) error(503, 'GATEWAY_RECOVERY_REQUIRED');
@@ -154,6 +155,7 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, native
       if (existing?.rotation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
       if (binding.reattaching && existing?.binding.generation !== binding.generation) error(503, 'GATEWAY_RECOVERY_REQUIRED');
       binding.generation = random();
+      if (existing?.native && adapter.sessionReplaced) await adapter.sessionReplaced(binding);
       const native = binding.reattaching ? existing?.native : undefined;
       const nativeScope = nativeEnabled() && native?.scope === 'native_work' ? 'native_work' : 'read_notify';
       await write(`installation:${binding.installationId}`, { kind: 'installation', binding, comparisonPhrase: current.phrase, ...(native ? { native } : {}) });
@@ -372,6 +374,6 @@ export function createProviderBrowserPoll({ store, key, enabled, adapter, native
     return value.binding;
   }
   // Server-internal capability. HTTP serializers never return it or a binding.
-  const nativePort = Object.freeze({ authorized, read, write, lock, digest, bindingForInstallation, audit });
+  const nativePort = Object.freeze({ authorized, read, write, remove: id => store.deleteJson(file(id)), lock, digest, bindingForInstallation, audit });
   return { setup, begin, pairing, confirm, activate, session, check, acknowledge, renew, end, updatePolicy, cleanup, digest, bindingForInstallation, nativePort };
 }

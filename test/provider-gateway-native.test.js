@@ -42,6 +42,8 @@ for (const backend of backends) {
       return { address: 'agent@agents.envoi-agents.com', paused, permissions: allowed };
     };
     const browserAdapter = {
+      sessionReplacementKeys: binding => native.sessionReplacementKeys(binding),
+      sessionReplaced: binding => native.sessionReplaced(binding),
       audit: async (binding, type, data, createdAt) => {
         const event = { id: crypto.randomUUID(), inboxId: binding.inboxId || 'ownerInbox', type, data, createdAt: createdAt || new Date(at).toISOString() };
         await store.putJson(path.join('canonical-audits', `${event.id}.json`), event); return event;
@@ -249,6 +251,57 @@ for (const backend of backends) {
       f.effectControl(control);
       await assert.rejects(f.native.act(s.secret, s.csrf, { runId: 'r', workRef: c.packet.workRef, idempotencyKey: 'control', action: 'reply', text: 'Blocked' }), code(expected));
       assert.equal((await f.store.listJson('canonical-replies')).length, 0); assert.equal((await f.work('work1')).state, 'pending'); assert.equal(f.published.length, beforePublished);
+    }
+  });
+  test(`[${backend}] settled packets drop private custody immediately while same-session replay and run tombstones survive`, async t => {
+    const f = await fixture(t), { session: s } = await f.nativeSession(), c = await f.native.claim(s.secret, s.csrf, { runId: 'r' });
+    const input = { runId: 'r', workRef: c.packet.workRef, idempotencyKey: 'reply', action: 'reply', text: 'One result' };
+    const result = await f.native.act(s.secret, s.csrf, input);
+    const port = f.browser.nativePort;
+    let ledger = await port.read('native-ledger:installation1');
+    const work = ledger.work[c.packet.workRef];
+    assert.deepEqual(Object.keys(work).sort(), ['caseId', 'closed', 'generation', 'runId', 'workId', 'workRef']);
+    assert.doesNotMatch(JSON.stringify(ledger), /PRIVATE_|snapshot|Ignore previous instructions|leaseToken|caseSession/);
+    assert.equal((await f.native.act(s.secret, s.csrf, input)).receiptRef, result.receiptRef);
+    f.advance(151_000); await f.native.cleanupExpired();
+    ledger = await port.read('native-ledger:installation1');
+    assert.deepEqual(Object.keys(ledger.runs.r).sort(), ['generation', 'session', 'startedAt']);
+    assert.equal((await f.native.act(s.secret, s.csrf, input)).replayed, true);
+    await assert.rejects(f.native.claim(s.secret, s.csrf, { runId: 'r' }), code('GATEWAY_RUN_EXPIRED'));
+  });
+  test(`[${backend}] expired outstanding packets are compacted without forgiving canonical expiry attempts`, async t => {
+    const f = await fixture(t), { session: s } = await f.nativeSession(), c = await f.native.claim(s.secret, s.csrf, { runId: 'r' });
+    f.advance(151_000); await f.native.cleanupExpired();
+    const ledger = await f.browser.nativePort.read('native-ledger:installation1');
+    assert.equal(ledger.work[c.packet.workRef].closed, true); assert.equal(ledger.work[c.packet.workRef].leaseToken, undefined);
+    assert.equal((await f.work('work1')).attempts, 1);
+    assert.equal((await f.native.claim(s.secret, s.csrf, { runId: 'fresh' })).state, 'work');
+    assert.equal((await f.work('work1')).attempts, 2);
+  });
+  test(`[${backend}] owner-confirmed repair immediately erases old-generation history and releases its outstanding lease`, async t => {
+    const f = await fixture(t), { session: s } = await f.nativeSession(), c = await f.native.claim(s.secret, s.csrf, { runId: 'old' });
+    await f.native.act(s.secret, s.csrf, { runId: 'old', workRef: c.packet.workRef, idempotencyKey: 'sent', action: 'reply', text: 'Retained only until replacement' });
+    await f.native.claim(s.secret, s.csrf, { runId: 'old' });
+    assert.equal((await f.work('work2')).attempts, 1);
+    const repairing = await f.connect(), replacement = await repairing.activate();
+    assert.equal(await f.browser.nativePort.read('native-ledger:installation1'), null);
+    assert.equal((await f.work('work2')).leaseExpiresAt, null); assert.equal((await f.work('work2')).attempts, 0);
+    assert.equal((await f.work('work1')).state, 'completed'); assert.equal((await f.store.listJson('canonical-replies')).length, 1);
+    await assert.rejects(f.native.claim(s.secret, s.csrf, { runId: 'old' }), code('GATEWAY_SESSION_EXPIRED'));
+    const next = await f.native.claim(replacement.secret, replacement.csrf, { runId: 'old' });
+    assert.equal(next.state, 'work'); assert.notEqual(next.packet.workRef, c.packet.workRef);
+  });
+  test(`[${backend}] a new scope generation clears all old replay metadata; idle or absolute cookie expiry reaps ended history`, async t => {
+    const f = await fixture(t), { session: s } = await f.nativeSession(), c = await f.native.claim(s.secret, s.csrf, { runId: 'old' });
+    await f.native.act(s.secret, s.csrf, { runId: 'old', workRef: c.packet.workRef, idempotencyKey: 'sent', action: 'reply', text: 'Done' });
+    await f.native.updateScope('installation1', { scope: 'native_work', expectedRevision: 1, comparisonPhrase: f.phrase }, 'owner');
+    const ledger = await f.browser.nativePort.read('native-ledger:installation1');
+    assert.deepEqual(ledger, { runs: {}, work: {}, keys: {} });
+    for (const elapsed of [86_400_001, 7 * 86_400_000 + 1]) {
+      const g = await fixture(t), { session: gs } = await g.nativeSession(); await g.native.claim(gs.secret, gs.csrf, { runId: 'expires' });
+      g.advance(elapsed); await g.native.reconcileFlags();
+      assert.equal(await g.browser.nativePort.read('native-ledger:installation1'), null);
+      assert.equal((await g.work('work1')).attempts, 1, 'expiry does not release or rewrite the canonical attempt');
     }
   });
 }
