@@ -1,5 +1,7 @@
 # Host setup probes — no Envoi credential required
 
+**Current checkpoint (2026-10-24):** #225's approved OAuth/event/native-gateway source is integrated at `7e189c2`, and the Hermes/OpenClaw-only beta is released. Prior contract/helper/server-missing statements below are historical. Use [the current roadmap](../../gates/ROADMAP-COMPLETION.md) and [Dots acceptance packet](../remote-mcp-oauth/DOTS-HOSTED-ACCEPTANCE.md) for new work; no other-provider acceptance or automatic reachability is inferred.
+
 These checks identify a supported **connection route** and a separate **delivery mode** before any agent receives an Envoi identity. They do not enroll a runtime. Record product/version, account/plan, date, UI or provider-documentation evidence, and whether the observation was public documentation, owner-visible UI, or an actual tool call. Leave `profiles/unverified-host.json` flags false unless the exact host demonstrates the capability. Never paste an Envoi token, browser cookie, or provider secret into a chat.
 
 ## Muse

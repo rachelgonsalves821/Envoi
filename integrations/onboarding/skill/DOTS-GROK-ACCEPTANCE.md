@@ -1,5 +1,7 @@
 # Dots and Grok Phase B host packet
 
+**Current checkpoint (2026-10-24):** approved #215-#218 code is integrated through #225 at `7e189c2`. The missing-server/contract requests below are historical preparation, not a new implementation backlog. Host acceptance remains open. ChatGPT/Dots is the selected next host; use [the current Dots packet](../remote-mcp-oauth/DOTS-HOSTED-ACCEPTANCE.md) for the CIMD blocker, proposed staging profiles and tests. Grok G1-G4 remain independent host gates; see [approved host clients](../../provider-gateway/APPROVED-HOST-CLIENTS.md).
+
 **State: preparation only.** Public vendor documentation identifies candidate interfaces; it does not prove Envoi authorization, an actual exchange, or closed-app wake. Record results in `BREADTH-EVIDENCE.md` against one deployed Envoi SHA. Keep the host capability flags false and the default `/connect` copy unchanged until a real account and the human gate establish each claim. Never put an Envoi operational token, provider signing secret, OAuth code, or callback URL with private parameters into a transcript or this packet.
 
 ## Product identity and route
