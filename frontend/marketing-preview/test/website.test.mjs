@@ -194,6 +194,9 @@ test('About centers a named, reduced-motion agent orbit above the solution card'
   assert.match(orbit, /class="orbit-brand" src="\/envoi-logo\.png"/);
   assert.match(orbit, /prefers-reduced-motion: reduce/);
   assert.match(orbit, /90s linear infinite/);
+  assert.match(orbit, /hero-agent-orbit 84s linear infinite/);
+  assert.match(orbit, /\.ambient-agent-4 \{ animation-delay: -63s;/);
+  assert.doesNotMatch(orbit, /ambient-drift|ambient-agent-2, \.ambient-agent-3 \{ display: none/);
   assert.match(layout, /\.hero-copy \{[^}]*text-align: center/);
   assert.match(layout, /\.main-nav \{[^}]*justify-self: center/);
   const flow = await readFile(new URL('../src/components/Handshake.astro', import.meta.url), 'utf8');

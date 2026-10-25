@@ -47,25 +47,34 @@ const { ambient = false } = Astro.props;
   .orbit-center a { display: inline-flex; align-items: center; gap: 12px; margin-top: 22px; padding: 10px 17px; border-radius: var(--pill); background: var(--action-bg); color: var(--action-ink); font-size: 14px; }
   .orbit-center a:hover { filter: brightness(1.08); }
   .ambient-agents { position: absolute; inset: 0; pointer-events: none; }
-  .ambient-agent { position: absolute; display: flex; flex-direction: column; align-items: center; opacity: .58; }
+  .ambient-agent { position: absolute; display: flex; flex-direction: column; align-items: center; opacity: .58; transform: translate(-50%, -50%); }
   .ambient-agent .agent-tile { width: 60px; height: 60px; border-radius: 18px; }
   .ambient-agent .agent-tile img { width: 30px; height: 30px; }
   .ambient-agent .agent-label { font-size: 12px; }
-  .ambient-agent-1 { left: 6%; top: 14%; }
-  .ambient-agent-2 { right: 10%; top: 8%; }
-  .ambient-agent-3 { left: 14%; bottom: 11%; }
-  .ambient-agent-4 { right: 7%; bottom: 18%; }
+  .ambient-agent-1 { left: 50%; top: 8%; }
+  .ambient-agent-2 { left: 91%; top: 50%; }
+  .ambient-agent-3 { left: 50%; top: 92%; }
+  .ambient-agent-4 { left: 9%; top: 50%; }
   @media (prefers-reduced-motion: no-preference) {
     .orbit-ring { animation: orbit-turn 90s linear infinite; }
     .orbit-agent { animation: orbit-counterturn 90s linear infinite; }
-    .ambient-agent { animation: ambient-drift 20s ease-in-out infinite alternate; }
-    .ambient-agent-2 { animation-delay: -7s; }
-    .ambient-agent-3 { animation-delay: -13s; }
-    .ambient-agent-4 { animation-delay: -4s; }
+    .ambient-agent { animation: hero-agent-orbit 84s linear infinite; }
+    .ambient-agent-2 { animation-delay: -21s; }
+    .ambient-agent-3 { animation-delay: -42s; }
+    .ambient-agent-4 { animation-delay: -63s; }
     :global(body.page-hidden) .orbit-ring, :global(body.page-hidden) .orbit-agent, :global(body.page-hidden) .ambient-agent { animation-play-state: paused; }
     @keyframes orbit-turn { to { transform: rotate(360deg); } }
     @keyframes orbit-counterturn { to { transform: rotate(-360deg); } }
-    @keyframes ambient-drift { to { transform: translate(18px, -22px); } }
+    @keyframes hero-agent-orbit {
+      0%, 100% { left: 50%; top: 8%; }
+      12.5% { left: 79%; top: 20%; }
+      25% { left: 91%; top: 50%; }
+      37.5% { left: 79%; top: 80%; }
+      50% { left: 50%; top: 92%; }
+      62.5% { left: 21%; top: 80%; }
+      75% { left: 9%; top: 50%; }
+      87.5% { left: 21%; top: 20%; }
+    }
   }
   @media (max-width: 680px) {
     .agent-orbit { padding-top: 10px; }
@@ -83,9 +92,7 @@ const { ambient = false } = Astro.props;
     .orbit-position-4 { left: -20px; }
     .orbit-position-2, .orbit-position-4 { top: calc(50% - 34px); }
     .agent-label { font-size: 12px; }
-    .ambient-agent-2, .ambient-agent-3 { display: none; }
-    .ambient-agent-1 { left: 3%; top: 18%; }
-    .ambient-agent-4 { right: 3%; bottom: 13%; }
+    .ambient-agent { opacity: .4; }
     .ambient-agent .agent-tile { width: 42px; height: 42px; }
     .ambient-agent .agent-tile img { width: 24px; height: 24px; }
   }

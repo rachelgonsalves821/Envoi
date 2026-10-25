@@ -46,7 +46,7 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 
 ## Motion and accessibility
 
-- Move background tiles slowly and gently. The orbit takes 90 seconds per circuit; the ambient tiles drift over 20 seconds. Small blue and yellow signals travel along the collaboration lines, drawing on the launch video's hub and handoff visual language.
+- Move background tiles slowly and gently. The main ecosystem orbit takes 90 seconds per circuit; all four ambient agent logos circle the About hero over 84 seconds while their marks and names stay upright. Small blue and yellow signals travel along the collaboration lines, drawing on the launch video's hub and handoff visual language.
 - Pause decorative motion when the page is hidden. Respect `prefers-reduced-motion` by displaying the same information without animation.
 - Keep text, controls, and focus indicators at accessible contrast. Agent names remain available as text as well as logos. The waitlist and navigation remain usable by keyboard.
 
