@@ -5311,3 +5311,47 @@ M1 Meta's final per-tool classification; M2 whether Meta requires a read-only of
 ### 7. Implementation notes (Lane A, informative)
 
 No server change. The classification test keeps the table honest against `src/agent-mcp.js`. Lane B updates the Muse readiness packet to cite this table instead of its candidate inventory. Dependent work starts only after Lane B's `CONTRACT-ACK` and the human's exact `CONTRACT-APPROVED`.
+
+## agent-remote-auth-cimd v1
+
+**Contract:** `agent-remote-auth-cimd`, version 1. **Status:** published proposal; awaiting client ACK and the human's exact `CONTRACT-APPROVED agent-remote-auth-cimd v1 @<publication SHA>`. This is an additive amendment of approved `agent-remote-auth v1` revision 4 section 3.1 only. The earlier approved contract and its fixtures retain their bytes and status. Before this amendment is approved, its accepted modern documents are proposals, not current runtime behavior. No dependent server/client implementation is included in this publication.
+
+**Reason:** ChatGPT's public CIMD document observed on 2026-10-25 advertises `token_endpoint_auth_methods_supported: ["none", "private_key_jwt"]` and a legacy singular preference of `private_key_jwt`. Envoi's public-client validator and planner reject the singular preference. The [official OAuth guidance](https://developers.openai.com/plugins/build/auth) describes capability intersection and a legacy preference; the selected shared method can be `none`. The exact local reproduction is [board comment 6393097298](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6393097298). The actual account may have a callback-specific document; this snapshot proves no host installation or hosted gate.
+
+**Scope:** replace only section 3.1's auth-method declaration rule for CIMD/public clients, after approval. Pre-registered clients keep their existing authentication rules. Authorization server metadata, endpoints, scopes, PKCE S256, exact client/redirect/issuer/resource binding, callback and metadata destination protection, cache policy, private custody, consent/activation, token exchange/refresh/replay, audience, flags and owner presence retain their existing contracts. There is no JWT client-auth implementation, JWKS fetch, new secret or fallback to an authenticated REST audience.
+
+### 1. Method declaration and selection
+
+A method identifier is a string of 1-128 visible ASCII characters (U+0021-U+007E). Whitespace, controls and non-strings are invalid. The new plural field, when present, must be an array of 1-16 unique such identifiers. Unknown names in this list are capabilities Envoi does not implement; they never enable another authentication method.
+
+| Document fields | Required result |
+| --- | --- |
+| Plural field absent, singular absent or exactly `none` | Preserve the approved public-client default: select `none`. |
+| Plural field absent, singular anything else | Refuse with existing internal `auth_method_not_none`; no legacy JWT or confidential-client bypass. |
+| Plural field present, valid and contains `none` | Select `none`, independently of a different valid singular preference. The preference is not an authorization requirement. |
+| Plural field present but malformed or lacks `none` | Refuse with `auth_method_not_none`, even if singular says `none`; no fallback that ignores the modern list. |
+| Singular preference present but not a valid method string | Refuse with `auth_method_not_none` even if the capability list contains `none`. |
+
+An absent plural field and a present null/empty/malformed field are different cases. If a singular preference names a method Envoi does not implement, it is not selected. A valid capability list containing `none` is still eligible. The resulting CIMD client remains public and its effective `tokenEndpointAuthMethod` is always exactly `none`.
+
+All other current metadata document rules run unchanged. This amendment does not accept a mismatched `client_id`, unregistered redirect, bad client name, unsafe metadata URL, bad fetch result or changed scope. It creates no permission or grant by itself.
+
+### 2. Authorization outcome and rollout
+
+For a client that satisfies section 1 and every other existing authorization check, `GET /oauth/authorize` reaches the existing sealed owner-consent redirect. An invalid metadata method declaration retains the existing `302` to Envoi's own `/authorize-agent?error=invalid_client`, with existing no-store/referrer headers; it never redirects to an unchecked client URI. No new public error code or response shape is added.
+
+The proposed bounds (16 methods, 128 characters each) are explicit review decisions within the existing 5,120-byte fetch cap. Approval of this amendment is approval of these bounds and the selection table. Nothing enables either remote route or proves ChatGPT/Dots account access.
+
+After approval, update the isolated server metadata validator and the pure client planner to consume the same canonical fixtures, retain all existing security checks, and add local real-HTTP negotiation/PKCE/redirect/error regressions. Run the required client/server suites and exact-head CI. Return a separate implementation draft PR into `integration/agent-native`; integration, deployments, provider setup and hosted acceptance keep their existing human gates.
+
+Rollback removes the implementation increment and returns to the old singular-only eligibility rule. There is no data migration, stored method expansion, credential rotation or automatic re-enrollment. Existing valid public clients remain public under either source version.
+
+### 3. Executable publication fixtures
+
+Canonical directory: `test/contract-fixtures/agent-remote-auth-cimd/`. `schemas.json` defines the amendment's auth-metadata acceptance and fixture/expected-result shapes. The 24 `kind: client-metadata` cases are negotiation vectors, not fabricated HTTP observations. Every non-auth document field is checked against the approved v1 schema after normalizing only auth-method fields; v1 fixtures are not copied or edited. `test/contract-agent-remote-auth-cimd.test.js` validates this proposal and its exact bounds without importing or changing runtime validators. Existing shared-fixture validation checks registration and schema consistency.
+
+Fixtures: `legacy-default`, `legacy-none`, `legacy-private-key-jwt`, `legacy-client-secret-basic`, `modern-public-only`, `modern-no-preference`, `modern-chatgpt-preference`, `modern-future-preference`, `modern-no-public-method`, `modern-no-legacy-fallback`, `modern-empty-list`, `modern-string-list`, `modern-null-list`, `modern-duplicate-method`, `modern-non-string-method`, `modern-empty-method`, `modern-control-method`, `modern-max-method-count`, `modern-over-method-count`, `modern-max-method-length`, `modern-over-method-length`, `modern-null-preference`, `modern-number-preference`, `legacy-null-preference`.
+
+### 4. Approval boundary
+
+Publication and schema checks approve no runtime behavior. The human approves this exact amendment SHA after client review; the task's request to fix it in this chat assigns preparation ownership and does not silently approve an unpublished wire-contract amendment. Prior approved remote-auth, MCP events/wake, gateway and Hermes/OpenClaw gates remain credited.
