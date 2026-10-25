@@ -10,7 +10,6 @@
 .monad-panel-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .monad-panel-kicker { display: block; color: var(--accent); font-size: 13px; margin-bottom: 4px; }
 .monad-panel-top h3 { font-size: 27px; }
-.monad-draft { flex: none; border: 1px solid var(--line-strong); border-radius: var(--pill); padding: 5px 10px; color: var(--ink-muted); font-size: 12px; }
 .monad-panel-intro { margin: 8px 0 16px; color: var(--ink-muted); font-size: 15px; }
 .monad-permissions { display: grid; gap: 8px; }
 .monad-permission { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; align-items: center; position: relative; padding: 10px 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--bg); cursor: pointer; }
@@ -28,7 +27,7 @@
 .monad-brand-note { display: flex; align-items: flex-start; gap: 16px; margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
 .monad-brand-note img { display: block; flex: none; width: 48px; height: 48px; object-fit: contain; }
 .monad-brand-copy { display: grid; gap: 10px; }
-.monad-brand-copy p { color: var(--ink-muted); font-size: 15px; line-height: 1.45; }
-.monad-brand-copy strong { color: var(--ink); font-size: 17px; font-weight: 600; font-synthesis: weight; }
+.monad-brand-copy p { color: var(--ink-muted); font-size: 18px; line-height: 1.5; }
+.monad-brand-copy strong { color: var(--ink); font-size: 21px; line-height: 1.35; font-weight: 600; font-synthesis: weight; }
 @media (max-width: 1000px) { .monad-layout { grid-template-columns: 1fr; } .monad-copy { max-width: 700px; } .monad-stage { max-width: 760px; width: 100%; } }
-@media (max-width: 680px) { .monad-section { padding: 60px 0; } .monad-copy h2 { font-size: 42px; } .monad-lead { font-size: 16px; } .monad-stage { padding: 6px; border-radius: 24px; } .monad-panel { padding: 12px; } .monad-panel-top h3 { font-size: 24px; } .monad-draft { font-size: 11px; } .monad-permission { padding: 8px; gap: 2px 8px; } .monad-brand-note { gap: 12px; } .monad-brand-note img { width: 40px; height: 40px; } .monad-brand-copy p { font-size: 14px; } .monad-brand-copy strong { font-size: 16px; } }
+@media (max-width: 680px) { .monad-section { padding: 60px 0; } .monad-copy h2 { font-size: 42px; } .monad-lead { font-size: 16px; } .monad-stage { padding: 6px; border-radius: 24px; } .monad-panel { padding: 12px; } .monad-panel-top h3 { font-size: 24px; } .monad-permission { padding: 8px; gap: 2px 8px; } .monad-brand-note { gap: 12px; } .monad-brand-note img { width: 40px; height: 40px; } .monad-brand-copy p { font-size: 17px; } .monad-brand-copy strong { font-size: 19px; } }
