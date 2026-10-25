@@ -266,3 +266,34 @@ test('release CLI refuses duplicate or arbitrary profile flags before source or 
     await assert.rejects(promoteRelease(['beta', main, ...flags], { cwd: 'missing-profile-source-must-not-be-read' }), /Usage:/);
   }
 });
+
+
+test('beta-only preservation profile retains live Monad and its issuer secret gate', async () => {
+  const { releaseProfileVars } = await import('../scripts/promote-release.mjs');
+  const vars = releaseProfileVars('hermes-openclaw-preserve-monad');
+  assert.deepEqual(vars, { ...releaseProfileVars('hermes-openclaw'), ENVOI_MONAD_PERMISSIONS: 'true' });
+  assert.equal(Object.isFrozen(vars), true);
+  const input = { target: 'beta', sha: main, headSha: main, mainSha: main, clean: true, descendedFromMain: true,
+    deploy: true, profile: 'hermes-openclaw-preserve-monad' };
+  const plan = promotionPlan(input);
+  assert.deepEqual(plan.vars, vars);
+  assert.deepEqual(plan.args, ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`,
+    ...Object.entries(vars).flatMap(([name,value]) => ['--var', `${name}:${value}`])]);
+  assert.throws(() => promotionPlan({ ...input, target: 'staging' }), /beta only/);
+  const profile = { profile: input.profile };
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), profile), /ENVOI_MONAD_ISSUER_PRIVATE_KEY/);
+  assert.doesNotThrow(() => requireBetaSecretNames(betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), profile));
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: betaApp.filter(name => name !== 'WORKOS_API_KEY'), scanner: ['ENVOI_SCANNER_TOKEN'] }), profile), /WORKOS_API_KEY/);
+});
+
+test('preserve-Monad cannot enable staging or choose conflicting CLI profiles before source access', async () => {
+  const { promoteRelease } = await import('../scripts/promote-release.mjs');
+  const options = { cwd: 'missing-profile-source-must-not-be-read' };
+  await assert.rejects(promoteRelease(['staging', main, '--profile=hermes-openclaw-preserve-monad'], options), /beta only/);
+  await assert.rejects(promoteRelease(['staging', main, '--deploy', '--profile=hermes-openclaw-preserve-monad'], options), /beta only/);
+  for (const profiles of [ ['--profile=hermes-openclaw','--profile=hermes-openclaw-preserve-monad'],
+    ['--profile=hermes-openclaw-preserve-monad','--profile=hermes-openclaw'],
+    ['--profile=hermes-openclaw-preserve-monad','--profile=hermes-openclaw-preserve-monad'] ]) {
+    await assert.rejects(promoteRelease(['beta', main, ...profiles], options), /Usage:/);
+  }
+});

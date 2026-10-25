@@ -61,14 +61,15 @@ export function requireStagingSecretNames(inventory) {
 // unchanged. Serialize every flag so keep_vars cannot retain a broader profile.
 export function releaseProfileVars(profile) {
   if (profile === undefined) return null;
-  if (profile !== 'hermes-openclaw') throw new Error('Unsupported release profile');
+  if (!['hermes-openclaw', 'hermes-openclaw-preserve-monad'].includes(profile)) throw new Error('Unsupported release profile');
   const core = new Set(['ENVOI_INSTALLATIONS_V2', 'ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_CASE_SESSIONS_V1']);
   return Object.freeze({ ...Object.fromEntries(onboardingFlagNames.map(name => [name, core.has(name) ? 'true' : 'false'])),
-    ENVOI_MONAD_PERMISSIONS: 'false' });
+    ENVOI_MONAD_PERMISSIONS: profile === 'hermes-openclaw-preserve-monad' ? 'true' : 'false' });
 }
 
 export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedFromMain, deploy = false, profile }) {
   const vars = releaseProfileVars(profile);
+  if (profile === 'hermes-openclaw-preserve-monad' && target !== 'beta') throw new Error('The preserve-Monad profile is beta only');
   if (!['staging', 'beta'].includes(target)) throw new Error('Choose the explicit staging or beta release target');
   for (const value of [sha, headSha, mainSha]) {
     if (!/^[a-f0-9]{40}$/.test(value || '')) throw new Error('Release and Git references must use full lowercase 40-hex SHAs');
@@ -87,11 +88,13 @@ export function promotionPlan({ target, sha, headSha, mainSha, clean, descendedF
 
 export async function promoteRelease(args, { cwd = fileURLToPath(new URL('../', import.meta.url)), env = process.env } = {}) {
   const [target, sha, ...flags] = args;
-  if (flags.length > 2 || new Set(flags).size !== flags.length
-    || flags.some(flag => flag !== '--deploy' && flag !== '--profile=hermes-openclaw')) {
-    throw new Error('Usage: node scripts/promote-release.mjs staging|beta FULL_SHA [--deploy] [--profile=hermes-openclaw]');
+  const profiles = flags.filter(flag => flag.startsWith('--profile='));
+  if (flags.length > 2 || new Set(flags).size !== flags.length || profiles.length > 1
+    || flags.some(flag => !['--deploy', '--profile=hermes-openclaw', '--profile=hermes-openclaw-preserve-monad'].includes(flag))) {
+    throw new Error('Usage: node scripts/promote-release.mjs staging|beta FULL_SHA [--deploy] [--profile=hermes-openclaw|hermes-openclaw-preserve-monad]');
   }
-  const profile = flags.includes('--profile=hermes-openclaw') ? 'hermes-openclaw' : undefined;
+  const profile = profiles[0]?.slice('--profile='.length);
+  if (profile === 'hermes-openclaw-preserve-monad' && target !== 'beta') throw new Error('The preserve-Monad profile is beta only');
   const git = (...argv) => execFileSync('git', argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   if (flags.includes('--deploy')) git('fetch', 'origin', 'main');
   const headSha = git('rev-parse', 'HEAD');
