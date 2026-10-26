@@ -4494,7 +4494,7 @@ async function route(req, res) {
       if (!persisted?.schemaVersion || !persisted.participants?.includes(targetDirectory.agentId)
         || !persisted.events?.some(event => event.actor === identity.agent.id && event.payload?.recipientEmail === address && event.payload?.data?.a2a?.messageId)) return a2aJson(res, 404, { error: { code: 'TASK_NOT_FOUND', message: 'Task not found' } });
       await a2aCurrentAgent(req, 'a2a.taskRead', persisted);
-      return a2aJson(res, 200, { task: projectA2ATask(persisted, { artifacts: await a2aAuthorizedArtifacts(identity, persisted) }) });
+      return a2aJson(res, 200, projectA2ATask(persisted, { artifacts: await a2aAuthorizedArtifacts(identity, persisted) }));
     }
     return a2aJson(res, 501, { error: { code: 'UNSUPPORTED_OPERATION', message: 'A2A operation is not supported' } });
   }

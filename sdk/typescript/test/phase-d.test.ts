@@ -45,4 +45,11 @@ describe('phase-d v1 client contract', () => {
     await expect(client.getA2ACard('blocked@agents.example.test')).rejects.toMatchObject({ status: 404, code: 'AGENT_NOT_FOUND', message: 'Agent not found' });
     await expect(client.getA2ACard('blocked@agents.example.test')).rejects.not.toThrow('secret-agent-token');
   });
+
+  it('reads the direct Task body required by the A2A HTTP binding', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(a2aFixture.expect.task), { status: 200 }));
+    const client = new EnvoiClient('https://api.example', 'agent-token', { fetch: fetcher as typeof fetch });
+    const task = await client.getA2ATask(a2aFixture.given.address, a2aFixture.expect.task.id);
+    expect(task).toEqual(a2aFixture.expect.task);
+  });
 });

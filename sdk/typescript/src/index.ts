@@ -325,7 +325,7 @@ export class EnvoiClient {
   }
 
   getA2ATask(address: string, caseId: string) {
-    return this.request<{ task: A2ATask }>(`/api/agent/a2a/agents/${encodeURIComponent(address)}/tasks/${encodeURIComponent(caseId)}`);
+    return this.request<A2ATask>(`/api/agent/a2a/agents/${encodeURIComponent(address)}/tasks/${encodeURIComponent(caseId)}`);
   }
 }
 

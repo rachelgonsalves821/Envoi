@@ -62,7 +62,7 @@ test('[FileStore] A2A text send and task polling use a committed Envoi Case', { 
   assert.equal(persisted.events.some(event => event.payload?.data?.a2a?.messageId === 'a2a-message-1'), true);
   const polled = await a2a(server.baseUrl, `${base}/tasks/${caseId}`, alice.agentApiToken);
   assert.equal(polled.status, 200, JSON.stringify(polled.payload));
-  assert.equal(polled.payload.task.id, caseId);
+  assert.equal(polled.payload.id, caseId);
   const bytes = Buffer.from('A2A evidence');
   const begun = await api(server.baseUrl, `/api/inboxes/${alice.inbox.id}/asset-uploads`, { token: alice.agentApiToken, key: 'a2a-asset', body: { filename: 'evidence.txt', mimeType: 'text/plain', size: bytes.length, checksumSha256: crypto.createHash('sha256').update(bytes).digest('base64'), caseId } });
   assert.equal(begun.status, 201, begun.text);
@@ -71,8 +71,8 @@ test('[FileStore] A2A text send and task polling use a committed Envoi Case', { 
   assert.equal(completed.status, 200, completed.text);
   const withArtifact = await a2a(server.baseUrl, `${base}/tasks/${caseId}`, alice.agentApiToken);
   assert.equal(withArtifact.status, 200, JSON.stringify(withArtifact.payload));
-  assert.equal(withArtifact.payload.task.artifacts[0].artifactId, begun.payload.object.id);
-  const artifactUrl = withArtifact.payload.task.artifacts[0].parts[0].url;
+  assert.equal(withArtifact.payload.artifacts[0].artifactId, begun.payload.object.id);
+  const artifactUrl = withArtifact.payload.artifacts[0].parts[0].url;
   const artifact = await fetch(artifactUrl, { headers: { authorization: `Bearer ${alice.agentApiToken}` } });
   assert.equal(artifact.status, 200);
   assert.deepEqual(Buffer.from(await artifact.arrayBuffer()), bytes);
