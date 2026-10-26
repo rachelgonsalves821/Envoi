@@ -4,12 +4,12 @@
   "nodeMinimum": 22,
   "artifacts": {
     "envoi-openclaw.mjs": {
-      "sha256": "996adb5126622cb5d05e358d5b5df870b4955dffd2dbad84f1360290d652a80d",
-      "size": 389675
+      "sha256": "f22f63544110c636029d04b1225fa1726dd71ae3c5df24303bf6049f2bee9a5c",
+      "size": 391183
     },
     "envoi-connector.mjs": {
-      "sha256": "44ab9eefcc6f1b33e1e36fc54aa3dcc61669e06f067fbe77ebae2c5e09dd3c30",
-      "size": 473093
+      "sha256": "bbad5046263cf4c70a5e2f24762957806c0f3ffb4dd671b8586efd4beea0d973",
+      "size": 474601
     }
   },
   "runtimes": [
