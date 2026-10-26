@@ -1,10 +1,10 @@
 # Phase D contract v1 — relationships, discovery, authorization, A2A
 
-Status: implemented on `lane-b/phase-d` for review. This is source and test evidence, not hosted acceptance. Phase A/B/C human acceptance remains historical evidence and does not certify Phase D.
+Status: draft implementation on `lane-b/phase-d`; the canonical `phase-d` v1 contract is published in [handoffs.md](handoffs.md#phase-d-v1) and `test/contract-fixtures/phase-d/`, pending a version-specific human approval. This is source and test evidence, not hosted acceptance. Phase A/B/C human acceptance remains historical evidence and does not certify Phase D.
 
 ## D0 — integration baseline and gates
 
-The branch starts from `d05498d8dc13c6f07dc151da7a41a1619ff62436`. PR [#203](https://github.com/rachelgonsalves821/Envoi/pull/203) and PR [#173](https://github.com/rachelgonsalves821/Envoi/pull/173) merged into `integration/agent-native` on 2026-10-23; the current integration head is an ancestor of this branch. Phase D changes are server-side and default off. No build, deploy, token, or Cloudflare operation is part of this contract.
+PR [#203](https://github.com/rachelgonsalves821/Envoi/pull/203) and PR [#173](https://github.com/rachelgonsalves821/Envoi/pull/173) merged into `integration/agent-native` on 2026-10-23. This branch was reconciled with integration head `0fcd55f` in merge `2fd3a4b`. Phase D changes remain default off. No deploy, token, or Cloudflare operation is part of this contract.
 
 `ENVOI_RELATIONSHIPS_V2=true` requires `ENVOI_INSTALLATIONS_V2=true`. `ENVOI_A2A_GATEWAY=true` additionally requires relationships and an `ENVOI_PUBLIC_URL` with an HTTPS origin (loopback HTTP is allowed for local tests). An invalid flag combination fails startup. The two Phase D flags are not enabled by this branch.
 
