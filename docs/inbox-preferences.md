@@ -142,6 +142,9 @@ errors with `statusCode` to the parent's existing error boundary. Endpoints:
 
 - `POST /api/inboxes/:id/inbox-folders` accepts `{ name }`, returns 200 with
   `{ folder: { id, name } }`, and deduplicates normalized-name retries.
+- `DELETE /api/inboxes/:id/inbox-folders/:folderId` returns 200 with
+  `{ deleted: boolean }`. Removing a folder leaves its conversations in the
+  inbox and projects their folder assignment as `null`.
 - `POST /api/inboxes/:id/cases/:caseId/inbox-preferences` accepts the documented
   patch, returns 200 with `{ inboxPreference: { read, archived, folderId,
   readThrough, revision } }`, and never changes protocol-case state.

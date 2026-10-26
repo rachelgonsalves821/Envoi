@@ -193,10 +193,13 @@ export async function updateInboxFolder(store, scope, folderId, input) {
   });
 }
 
-export async function deleteInboxFolder(store, scope, folderId) {
+export async function deleteInboxFolder(store, scope, folderId, { lockKeys = [], authorize } = {}) {
   const { folders } = preferencePaths(scope);
   assertSafeIdentifier(folderId, 'folderId');
-  return store.withTransaction([lockKey(folders)], async () => {
+  if (!Array.isArray(lockKeys)) throw invalid('lockKeys must be an array');
+  if (authorize !== undefined && typeof authorize !== 'function') throw invalid('authorize must be a function');
+  return store.withTransaction([lockKey(folders), ...lockKeys], async () => {
+    if (authorize) await authorize();
     const record = await store.getJson(folders) ?? { folders: [] };
     const remaining = record.folders.filter(folder => folder.id !== folderId);
     if (remaining.length === record.folders.length) return { deleted: false };
