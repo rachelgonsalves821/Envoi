@@ -73,7 +73,9 @@ test('production requires an exact invite list without SMS credentials', () => {
   assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: '' })), /ENVOI_BETA_INVITED_EMAILS is required/);
   assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: 'example.com' })), /exact email addresses/);
   assert.equal(validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: Array.from({ length: 31 }, (_, index) => `person${index}@example.com`).join(',') })).validated, true);
-  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: Array.from({ length: 32 }, (_, index) => `person${index}@example.com`).join(',') })), /at most 31 distinct addresses/);
+  const cohortAndOwner = [...Array.from({ length: 31 }, (_, index) => `person${index}@example.com`), 'existing-owner@example.com'];
+  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: cohortAndOwner.join(',') })).validated, true);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_BETA_INVITED_EMAILS: [...cohortAndOwner, 'extra@example.com'].join(',') })), /at most 32 distinct addresses/);
   assert.equal(validateProductionConfiguration(validProduction()).validated, true);
 });
 
@@ -89,8 +91,9 @@ test('public signup requires an explicit mode, exact invite list and a bounded a
   }
   assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'open' })), /ENVOI_HUMAN_SIGNUP_MODE/);
   assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100', ENVOI_BETA_INVITED_EMAILS: '' })), /ENVOI_BETA_INVITED_EMAILS is required/);
-  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100', ENVOI_BETA_INVITED_EMAILS: Array.from({ length: 31 }, (_, index) => `person${index}@example.com`).join(',') })).validated, true);
-  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100', ENVOI_BETA_INVITED_EMAILS: Array.from({ length: 32 }, (_, index) => `person${index}@example.com`).join(',') })), /at most 31 distinct addresses/);
+  const cohortAndOwner = [...Array.from({ length: 31 }, (_, index) => `person${index}@example.com`), 'existing-owner@example.com'];
+  assert.equal(validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100', ENVOI_BETA_INVITED_EMAILS: cohortAndOwner.join(',') })).validated, true);
+  assert.throws(() => validateProductionConfiguration(validProduction({ ENVOI_HUMAN_SIGNUP_MODE: 'public', ENVOI_PUBLIC_SIGNUP_LIMIT: '100', ENVOI_BETA_INVITED_EMAILS: [...cohortAndOwner, 'extra@example.com'].join(',') })), /at most 32 distinct addresses/);
 });
 
 test('development configuration remains local while production fails unsafe dependencies closed', () => {

@@ -55,7 +55,9 @@ export function validateProductionConfiguration(env = process.env) {
   required(env, 'WORKOS_COOKIE_PASSWORD', errors, 32);
   const invitedEmails = required(env, 'ENVOI_BETA_INVITED_EMAILS', errors).split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
   if (invitedEmails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) errors.push('ENVOI_BETA_INVITED_EMAILS must contain exact email addresses');
-  if (new Set(invitedEmails).size > 31) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 31 distinct addresses for the first beta');
+  // The launch allowlist includes 31 waitlist recipients and one existing internal owner
+  // whose Production WorkOS email is not on that list. The extra address is not an invite.
+  if (new Set(invitedEmails).size > 32) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 32 distinct addresses for the first beta');
   const signupMode = env.ENVOI_HUMAN_SIGNUP_MODE || 'invite-only';
   if (!['invite-only', 'public'].includes(signupMode)) errors.push('ENVOI_HUMAN_SIGNUP_MODE must be invite-only or public');
   const publicSignupLimit = Number(env.ENVOI_PUBLIC_SIGNUP_LIMIT);

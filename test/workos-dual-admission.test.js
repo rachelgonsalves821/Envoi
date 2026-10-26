@@ -6,7 +6,7 @@ import path from 'node:path';
 import { FileStore } from '../src/storage.js';
 import { WorkOSAuthService } from '../src/workos-auth.js';
 
-async function fixture(t, { signupMode = 'public', publicSignupLimit = 2 } = {}) {
+async function fixture(t, { signupMode = 'public', publicSignupLimit = 2, invitedEmails = ' invited@example.test ' } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'envoi-dual-admission-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const store = new FileStore(directory);
@@ -23,7 +23,7 @@ async function fixture(t, { signupMode = 'public', publicSignupLimit = 2 } = {})
   const auth = new WorkOSAuthService(store, {
     clientId: 'client_fixture', apiKey: 'sk_fixture', cookiePassword: 'x'.repeat(32),
     redirectUri: 'https://app.example.test/api/auth/workos/callback', workos,
-    invitedEmails: ' invited@example.test ', signupMode, publicSignupLimit
+    invitedEmails, signupMode, publicSignupLimit
   });
   const authorize = async user => {
     selectedUser = user;
@@ -46,6 +46,20 @@ test('default invite-only admission stays closed and public mode requires an exp
     clientId: 'client_fixture', apiKey: 'sk_fixture', cookiePassword: 'x'.repeat(32),
     redirectUri: 'https://app.example.test/callback', workos: {}, signupMode: 'public', publicSignupLimit: 0
   }), /ENVOI_PUBLIC_SIGNUP_LIMIT/);
+});
+
+test('invite-only cutover admits the preserved owner alongside all 31 cohort addresses', async t => {
+  const cohort = Array.from({ length: 31 }, (_, index) => `person${index}@example.test`);
+  const { auth, authorize, store } = await fixture(t, {
+    signupMode: 'invite-only', publicSignupLimit: 0,
+    invitedEmails: [...cohort, 'existing-owner@example.test'].join(',')
+  });
+  assert.equal(auth.config().inviteOnly, true);
+  const owner = await authorize(user('owner', 'existing-owner@example.test'));
+  const invited = await authorize(user('cohort', cohort[30]));
+  assert.notEqual(owner.human.id, invited.human.id);
+  await assert.rejects(authorize(user('outside', 'outside@example.test')), { statusCode: 403 });
+  assert.equal((await store.listJson('humans')).length, 2);
 });
 
 test('public admission keeps invited cohort separate and never exceeds its durable concurrent quota', async t => {
