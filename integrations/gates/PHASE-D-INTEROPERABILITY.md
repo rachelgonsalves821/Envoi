@@ -9,7 +9,7 @@ Status: **SOURCE CANDIDATE; hosted gate unproven.** This worksheet is a reviewab
 | Draft PR | [#211](https://github.com/rachelgonsalves821/Envoi/pull/211), `lane-b/phase-d` into `integration/agent-native` |
 | Exact source SHA | Record after the final source/CI round. Do not infer this from an earlier green head. |
 | Flag defaults | `ENVOI_RELATIONSHIPS_V2=false`; `ENVOI_A2A_GATEWAY=false` |
-| Local peer evidence | Phase D HTTP, fixture, frontend event/API and SDK tests. The card and a projected Task parse with the official [A2A Python SDK 1.2.3](https://github.com/a2aproject/a2a-python/releases/tag/v1.2.3) protobuf models. This proves local shape compatibility only. |
+| Local peer evidence | Phase D HTTP, fixture, frontend event/API and SDK tests. The card, send response and direct Task parse with the official [A2A Python SDK 1.2.3](https://github.com/a2aproject/a2a-python/releases/tag/v1.2.3) protobuf models. Its `RestTransport` completed a disposable local card/send/poll exchange when the client supplied the contract's `Content-Type: application/a2a+json`. Its unconfigured `httpx` JSON default received HTTP 415; this is a client setup requirement, not a hosted PASS. |
 | PR CI | Record the exact head and completed check URLs. |
 | Hosted source / peer | **Not selected or authorized**. Proposed independent client: official A2A Python SDK 1.2.3 using its HTTP+JSON 1.0 binding; confirm peer/version, deployment SHA and time before execution. |
 
