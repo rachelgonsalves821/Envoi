@@ -48,7 +48,7 @@ export async function runHostTaskCommand(directory: string, expected: { apiUrl: 
       result = { ...result, nextAction: `Open ${identity.apiUrl}/app to follow the task and reply.` };
     } catch {
       result = { state: 'needs_help', requestId: request.requestId,
-        nextAction: `Delivery is not confirmed. Preserve the saved connection and retry this same task with envoi-link task ${identity.apiUrl} --runtime ${identity.runtime} --retry ${request.requestId}.` };
+        nextAction: `Delivery is not confirmed. Preserve the saved connection. From the reviewed helper folder, retry with node ./envoi-link.mjs task ${identity.apiUrl} --runtime ${identity.runtime} --retry ${request.requestId}.` };
     }
   }
   options.write?.(result);

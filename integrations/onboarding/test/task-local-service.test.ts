@@ -34,7 +34,7 @@ it('onboards two independent owners and initiates a task in each direction throu
       expect(workspace.status).toBe(201);
       const registered = await register(app.baseUrl, { runtime: { type: runtime, version: 'synthetic' } });
       expect(registered.status).toBe(201);
-      const permissions = ['receive_agent_messages', 'send_agent_messages', 'execute_cases'];
+      const permissions = ['receive_agent_messages', 'send_agent_messages'];
       // An actual browser owner approves the exact registration; confirmation is synthetic in this automated test.
       const claim = await approveRequest(app.baseUrl, { session: browser }, registered.payload.registrationId,
         approveBody(registered.payload.claim.verificationCode, { kind: 'new_agent', workspaceInboxId: workspace.payload.id,
