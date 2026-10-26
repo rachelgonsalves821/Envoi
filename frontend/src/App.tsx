@@ -6,13 +6,14 @@ import {
   Activity, AlertCircle, Archive, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
   ChevronRight, CircleDashed, Clock3, Command, Copy, Database, Download, FileCheck2, FileText, Gauge, Inbox,
   KeyRound, LayoutGrid, Link2, List, ListFilter, Menu, MoreHorizontal, PanelRightClose, PanelRightOpen,
-  Folder, Hand, LogOut, Pause, Play, PlugZap, Plus, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
+  Folder, Hand, LogOut, Pause, Play, PlugZap, Plus, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles, Trash2,
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
 import { prepareCaseAssetDownload } from './case-files';
 import LandingPage from './LandingPage';
 import { ConnectPage, ConnectionActions } from './onboarding/ConnectPage';
+import { agentCatalog, productAsset } from './onboarding/agent-catalog';
 import { ClaimPage } from './onboarding/ClaimPage';
 import { AuthorizeAgentPage } from './onboarding/AuthorizeAgentPage';
 import { authorizationHandle, authorizationSignInPath } from './onboarding/consent-state';
@@ -33,7 +34,7 @@ import { mergeHistory, olderCursors } from './history';
 import { createEventCursorStore, PROGRESS_ONLY_EVENTS, subscribeReplayRecovery, WORKSPACE_EVENT_TYPES } from './event-replay';
 import { applyOrderedViewResponse, applyOrderedViewResponses, createRefreshCoordinator, createViewResponseOrder } from './workspace-refresh';
 import { QUIET_VALIDATION_TIMEOUT_MS, SESSION_VALIDATION_TIMEOUT_MS, validateWorkspaceReturn, withReadDeadline, workspaceRequester } from './session-validation';
-import { RUNTIME_OPTIONS, connectorDownloads, isLoopbackOrigin, runtimeLabel, setupPrompt, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
+import { RUNTIME_OPTIONS, connectorDownloads, dotsSetupPrompt, dotsSetupSkillFile, isLoopbackOrigin, runtimeLabel, setupPrompt, setupSkillFile, suggestedAgentAddress, watchEnrollmentStatus, type EnrollmentResult, type EnrollmentStatus } from './quick-connect';
 import type { ConnectorRuntime } from '../../sdk/typescript/src/quick-connect';
 import { SESSION_ENDED_NOTICE, SessionRequestCancelled, hasRememberedSession, invalidateSessionRequests, isCurrentSession, publishSessionEnd, publishSessionIdentity, rememberSessionStatus, ridesOutTabSwitch, sessionEndedNotice, sessionGeneration, watchSessionLifecycle } from './session-lifecycle';
 import {
@@ -67,6 +68,7 @@ export const previewView: HumanView = {
   agents: previewAgents,
   invitations: [],
   participantDirectory: {
+    human_preview: { id: 'human_preview', type: 'human', displayName: 'Rachel', accessState: 'active' },
     agent_milo: { id: 'agent_milo', type: 'internalAgent', displayName: 'Milo', address: 'milo@agents.envoi-agents.com', accessState: 'active' },
     agent_luma: { id: 'agent_luma', type: 'externalAgent', displayName: 'Luma Events agent', address: 'hello@luma.events', accessState: 'active' },
     agent_jordan: { id: 'agent_jordan', type: 'externalAgent', displayName: 'Jordan’s scheduling agent', address: 'calendar@jordan.ai', accessState: 'active' },
@@ -78,6 +80,7 @@ export const previewView: HumanView = {
       proposals: [{ id: 'proposal_dinner', kind: 'negotiation', status: 'countered', expiresAt: '2026-09-28T18:00:00.000Z', createdAt: '2026-09-27T13:15:00.000Z', options: [{ id: 'option_original', value: { title: '$2,650 with private room' }, sourceConfidence: 'enteredForCase', expired: true, outOfPolicyFlags: [] }, { id: 'option_counter', value: { title: '$2,350 with deposit due today' }, sourceConfidence: 'enteredForCase', expired: false, outOfPolicyFlags: ['paymentRequiresApproval'] }] }],
       policyEvaluations: [{ id: 'policy_deposit', requestedAction: 'payments.sendDeposit', actor: 'agent_milo', matchedPolicyId: 'permission:payments', decision: 'needsHuman', grantType: 'oneTime', effectiveAt: '2026-09-27T15:42:00.000Z', expiresAt: '2026-09-28T18:00:00.000Z', reasonCode: 'paymentRequiresApproval' }],
       events: [
+        { id: 'evt_dinner_owner', type: 'message', actor: previewHuman.id, createdAt: '2026-09-27T13:12:00.000Z', payload: { messageType: 'instruction', text: 'Keep the venue within $2,400. Ask me before paying a deposit.', senderType: 'human', senderHumanId: previewHuman.id, recipientAgentId: 'agent_milo', deliveryState: 'delivered' }, linkedPolicyEvaluation: null, precedingEventRef: null },
         { id: 'evt_dinner_1', type: 'message', actor: 'agent_milo', createdAt: '2026-09-27T13:15:00.000Z', payload: { messageType: 'proposal', text: 'I asked Luma to bring the venue within your $2,400 budget.', senderAgentId: 'agent_milo', recipientAgentId: 'agent_luma', deliveryState: 'delivered', proposalId: 'proposal_dinner', status: 'open' }, linkedPolicyEvaluation: null, precedingEventRef: null },
         { id: 'evt_dinner_2', type: 'message', actor: 'agent_luma', createdAt: '2026-09-27T15:36:00.000Z', payload: { messageType: 'counterproposal', text: 'Luma can do $2,350 if the deposit is paid today.', senderAgentId: 'agent_luma', recipientAgentId: 'agent_milo', deliveryState: 'received', proposalId: 'proposal_dinner', status: 'countered' }, linkedPolicyEvaluation: null, precedingEventRef: 'evt_dinner_1' },
         { id: 'evt_dinner_3', type: 'policyEvaluation', actor: 'agent_milo', createdAt: '2026-09-27T15:42:00.000Z', payload: { requestedAction: 'payments.sendDeposit', decision: 'needsHuman' }, linkedPolicyEvaluation: 'policy_deposit', precedingEventRef: 'evt_dinner_2' }
@@ -603,7 +606,7 @@ export function SignOutControl({ onLogout }: { onLogout: () => void }) {
 
 export function LoadingScreen({ checking = false, onLogout }: { checking?: boolean; onLogout?: () => void }) {
   return (
-    <main className="center-screen" aria-live="polite">
+    <main className="center-screen product-loading" aria-live="polite">
       <div className="brand-lockup"><BrandMark /><span>Envoi</span></div>
       <div className="decision-loader" aria-hidden="true"><span /><span /><span /></div>
       <p>{checking ? 'Checking your session…' : 'Loading your delegated work…'}</p>
@@ -775,6 +778,10 @@ export function AppShell(props: ShellProps) {
   const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [advancedConnectOpen, setAdvancedConnectOpen] = useState(false);
+  const [connectResult, setConnectResult] = useState<EnrollmentResult | null>(null);
+  const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
+  const [folderToDelete, setFolderToDelete] = useState<{ id: string; name: string } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderError, setFolderError] = useState('');
   const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
@@ -839,14 +846,24 @@ export function AppShell(props: ShellProps) {
       const target = event.target as HTMLElement;
       const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
       if (!editing && event.key === '/') { event.preventDefault(); document.querySelector<HTMLInputElement>('.queue-search input')?.focus(); }
-      if (event.key === 'Escape') setNavOpen(false);
+      if (event.key === 'Escape') { setNavOpen(false); setFolderMenuId(null); }
     };
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
   }, []);
+  useEffect(() => {
+    if (!folderMenuId) return;
+    document.querySelector<HTMLButtonElement>('.folder-context-menu button')?.focus({ preventScroll: true });
+    const closeMenu = (event: PointerEvent) => {
+      if (!(event.target as Element).closest('.folder-nav-row')) setFolderMenuId(null);
+    };
+    document.addEventListener('pointerdown', closeMenu);
+    return () => document.removeEventListener('pointerdown', closeMenu);
+  }, [folderMenuId]);
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 4200); return () => window.clearTimeout(timer); } }, [toast]);
 
   function chooseSection(next: NavSection) {
     setSelectedFolderId(null);
+    setFolderMenuId(null);
     setSection(next); setSelectedCaseId(null); setNavOpen(false);
   }
   function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox') {
@@ -886,6 +903,19 @@ export function AppShell(props: ShellProps) {
     } catch (caught) { setFolderError(errorMessage(caught)); }
     finally { setFolderBusy(false); }
   }
+  async function deleteFolder() {
+    if (!folderToDelete) return;
+    setFolderBusy(true); setFolderError('');
+    try {
+      if (workspace.id === previewWorkspace.id) throw new Error('Folder changes are unavailable in the design preview. Sign in to save changes.');
+      await api.deleteInboxFolder(workspace.id, folderToDelete.id);
+      if (selectedFolderId === folderToDelete.id) setSelectedFolderId(null);
+      setFolderToDelete(null);
+      try { await refreshInboxPreferences(); setToast('Folder deleted'); }
+      catch { setToast('Folder deleted. Refresh to update the list.'); }
+    } catch (caught) { setFolderError(errorMessage(caught)); }
+    finally { setFolderBusy(false); }
+  }
   function openCase(item: WorkCase) {
     const source = caseSources.find(entry => entry.workCase === item);
     if (!source) return;
@@ -919,12 +949,13 @@ export function AppShell(props: ShellProps) {
       <a className="skip-link" href="#main-content">Skip to content</a>
       {navOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <aside className={`primary-nav ${navOpen ? 'is-open' : ''}`} aria-label="Primary">
-        <div className="nav-brand"><div className="brand-lockup"><BrandMark /><span>envoi</span></div><button className="icon-button" aria-label="New case unavailable" title="New case is not available yet" disabled><Plus size={16} /></button><button className="icon-button mobile-only" aria-label="Close navigation" onClick={() => setNavOpen(false)}><X size={18} /></button></div>
+        <div className="nav-brand"><div className="brand-lockup"><BrandMark /><span>envoi</span></div><button className="icon-button mobile-only" aria-label="Close navigation" onClick={() => setNavOpen(false)}><X size={18} /></button></div>
         <nav className="nav-list">
+          <div className="nav-section-heading nav-section-title"><span>Inbox</span></div>
           <NavItem section="inbox" label="All inboxes" icon={<Inbox />} count={counts.inbox} active={workspace.id === rootWorkspace.id && section === 'inbox'} onClick={() => chooseInbox(rootWorkspace)} />
           <NavItem section="needsMe" label="Needs you" icon={<Hand />} count={counts.needsMe} active={workspace.id === rootWorkspace.id && section === 'needsMe'} onClick={() => chooseInbox(rootWorkspace, 'needsMe')} attention />
           <NavItem section="completed" label="Done" icon={<Check />} active={workspace.id === rootWorkspace.id && section === 'completed'} onClick={() => chooseInbox(rootWorkspace, 'completed')} />
-          <div className="nav-section-heading"><span>Agents</span><button aria-label="Add agent" onClick={() => chooseSection('integrations')}><Plus size={15} /></button></div>
+          <div className="nav-section-heading"><span>Agents</span><button aria-label="Add agent" onClick={() => { setNavOpen(false); chooseSection('integrations'); }}><Plus size={15} /></button></div>
           {agentEntries.map(({ agent, inbox }, index) => {
             const name = agent.name;
             const expanded = expandedAgents.includes(agent.id);
@@ -934,8 +965,13 @@ export function AppShell(props: ShellProps) {
           {agentInboxes.some(inbox => inbox.status === 'removed') && <div className="nav-section-heading"><span>Archived agents</span></div>}
           {agentInboxes.filter(inbox => inbox.status === 'removed').map(inbox => <button key={inbox.id} className="nav-item" onClick={() => chooseInbox(inbox)}><Archive size={16} /><span>{inbox.removedAgent?.name || inbox.name}</span></button>)}
           <div className="nav-section-heading"><span>Folders</span><button aria-label="Create folder" disabled={!view.folders} onClick={() => { setFolderError(''); setFolderDialogOpen(true); }}><Plus size={15} /></button></div>
-          {view.folders?.map(folder => <button key={folder.id} className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { chooseSection('inbox'); setSelectedFolderId(folder.id); }}><Folder size={16} /><span>{folder.name}</span></button>)}
+          {view.folders?.map(folder => <div key={folder.id} className="folder-nav-row" onContextMenu={event => { event.preventDefault(); setFolderMenuId(folder.id); }}>
+            <button className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { chooseSection('inbox'); setSelectedFolderId(folder.id); }}><Folder size={16} /><span>{folder.name}</span></button>
+            <button className="folder-menu-trigger icon-button" aria-label={`More options for ${folder.name}`} aria-haspopup="menu" aria-expanded={folderMenuId === folder.id} onClick={() => setFolderMenuId(current => current === folder.id ? null : folder.id)}><MoreHorizontal size={16} /></button>
+            {folderMenuId === folder.id && <div className="folder-context-menu" role="menu" aria-label={`${folder.name} options`}><button role="menuitem" onClick={() => { setFolderMenuId(null); setFolderError(''); setFolderToDelete(folder); }}><Trash2 size={16} />Delete folder</button></div>}
+          </div>)}
           <div className="nav-spacer" />
+          <div className="nav-section-heading nav-section-title"><span>Workspace</span></div>
           <NavItem section="documents" label="Files" icon={<FileText />} active={section === 'documents'} onClick={chooseSection} />
           <NavItem section="integrations" label="Manage agents" icon={<UsersRound />} active={section === 'integrations'} onClick={chooseSection} />
           <NavItem section="policies" label="Permissions" icon={<ShieldCheck />} active={section === 'policies'} onClick={chooseSection} />
@@ -952,14 +988,14 @@ export function AppShell(props: ShellProps) {
         {props.claimRoute ? <main id="main-content" className="utility-content"><ClaimWorkspace key={human.id} humanId={human.id} authorizationSearch={authorizationRoute ? window.location.search : undefined} workspaces={workspaces.filter(item => item.kind !== 'agent' && (!authorizationRoute || (item.id === workspace.id ? view.canManageInbox : childViews[item.id]?.canManageInbox)))} entries={agentEntries} onRefresh={onRefresh} onSelectAgent={async (agentId, address) => { const inbox = workspaces.find(item => item.kind === 'agent' && (item.ownerAgentId === agentId || agentEntries.some(entry => entry.agent.address === address && entry.agent.id === item.ownerAgentId))); if (inbox) { await onSelectWorkspace(inbox, 'integrations'); window.location.assign('/app'); } }} /></main> : utilitySection ? (
           <main id="main-content" className="utility-content">
             <button className="icon-button mobile-only utility-menu" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Menu size={18} /></button>
-{section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} />}
-            {section === 'policies' && <PoliciesPage entries={agentEntries} />}
-            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
+{section === 'documents' && <SharedFilesPage view={view} notify={setToast} onOpenCase={openCaseFromUtility} onConnect={() => chooseSection('integrations')} />}
+            {section === 'policies' && <PoliciesPage entries={agentEntries} onConnect={() => chooseSection('integrations')} />}
+            {section === 'integrations' && <IntegrationsPage view={view} workspace={rootWorkspace} entries={agentEntries} humanId={human.id} canManageInbox={canManageInbox} onAdvancedConnect={() => setAdvancedConnectOpen(true)} onSelectWorkspace={onSelectWorkspace} onPermissions={() => chooseSection('policies')} onRefresh={onRefresh} onRefreshAgent={refreshAgentInbox} notify={setToast} />}
             {section === 'activity' && <ActivityPage view={view} onOpenCase={openCaseFromUtility} />}
           </main>
         ) : (
           <div className={`case-layout ${selectedCase ? 'inbox-detail-view show-detail' : 'inbox-list-view'}`}>
-{!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
+{!selectedCase && <CaseQueue section={section} folderName={view.folders?.find(folder => folder.id === selectedFolderId)?.name} cases={visibleCases} view={queueView} currentAgent={currentAgent} selectedId={selectedCaseEntry?.key || null} caseKey={item => caseSources.find(source => source.workCase === item)?.key || item.id} onOpenNav={() => setNavOpen(true)} onConnect={() => chooseSection('integrations')} onLoadOlder={props.onLoadOlder} historyBusy={props.historyBusy} onSelect={openCase} />}
             {selectedCase && <main id="main-content" className="case-main">
 <CaseWorkspace key={`${selectedCaseView.inbox.id}:${selectedCase.id}`} workCase={selectedCase} view={selectedCaseView} canManageInbox={selectedCaseView.canManageInbox} railOpen={railOpen} onRailToggle={() => setRailOpen(value => !value)} onBack={() => { setSelectedCaseId(null); }} onRefresh={refreshSelectedCase} onPreferencesChanged={async preference => { preferenceUpdated(selectedCaseView.inbox.id, selectedCase.id, preference); setSelectedCaseId(null); await refreshSelectedCase().catch(caught => setToast(errorMessage(caught))); }} notify={setToast} />
             </main>}
@@ -969,6 +1005,8 @@ export function AppShell(props: ShellProps) {
       <div className="sr-live" aria-live="polite">{toast}</div>
       {toast && <div className="toast"><Check size={16} />{toast}</div>}
       {folderDialogOpen && <Modal title="Create folder" dismissible={!folderBusy} onClose={() => setFolderDialogOpen(false)}><CreateInboxFolderContent busy={folderBusy} error={folderError} onClose={() => setFolderDialogOpen(false)} onCreate={name => void createFolder(name)} /></Modal>}
+      {folderToDelete && <Modal title="Delete folder?" dismissible={!folderBusy} onClose={() => setFolderToDelete(null)}><p className="dialog-copy">Delete “{folderToDelete.name}”? Conversations in this folder will stay in All inboxes.</p><FormError message={folderError} /><div className="dialog-actions"><button className="button secondary" disabled={folderBusy} onClick={() => setFolderToDelete(null)}>Cancel</button><button className="button destructive" disabled={folderBusy} onClick={() => void deleteFolder()}>{folderBusy ? 'Deleting…' : 'Delete folder'}</button></div></Modal>}
+      {advancedConnectOpen && <EnrollmentDialog workspace={rootWorkspace} agentDomain={queueView.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={connectResult} setResult={setConnectResult} onRefresh={onRefresh} onClose={() => { setAdvancedConnectOpen(false); setConnectResult(null); }} />}
     </div>
   );
 }
@@ -991,7 +1029,7 @@ function NavItem({ section, label, icon, count, active, attention, onClick }: { 
   return <button className={`nav-item ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => onClick(section)}><span className="nav-icon">{icon}</span><span>{label}</span>{Boolean(count) && <span className={`nav-count ${attention ? 'attention' : ''}`} aria-label={`${count} items`}>{count! > 9 ? '9+' : count}</span>}</button>;
 }
 
-function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId, caseKey, onOpenNav, onLoadOlder, historyBusy, onSelect }: { section: NavSection; folderName?: string; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void }) {
+function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId, caseKey, onOpenNav, onConnect, onLoadOlder, historyBusy, onSelect }: { section: NavSection; folderName?: string; cases: WorkCase[]; view: HumanView; currentAgent: Agent | null; selectedId: string | null; caseKey: (workCase: WorkCase) => string; onOpenNav: () => void; onConnect: () => void; onLoadOlder?: () => Promise<void>; historyBusy?: boolean; onSelect: (workCase: WorkCase) => void }) {
   const [query, setQuery] = useState('');
   const loadMarker = useRef<HTMLDivElement>(null);
   const hasMore = Boolean(Object.keys(olderCursors(view)).length);
@@ -1020,7 +1058,7 @@ function CaseQueue({ section, folderName, cases, view, currentAgent, selectedId,
       <label className="queue-search"><Search size={15} /><span className="sr-only">Search cases</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search" /><kbd>/</kbd></label>
       <div className="case-list" role="listbox" aria-label="Conversations">
         {filtered.map(item => <CaseRow key={caseKey(item)} workCase={item} view={caseSourceView(item, view)} showOwner={!currentAgent} selected={selectedId === caseKey(item)} onSelect={onSelect} />)}
-        {!filtered.length && <div className="empty-list"><Inbox size={24} /><strong>{query ? 'No matches' : 'All clear'}</strong><span>{query ? 'Try a different search.' : 'Cases will appear here.'}</span></div>}
+        {!filtered.length && <div className="empty-list inbox-empty"><span className="empty-icon"><Inbox size={25} /></span><strong>{query ? 'No conversations found' : 'No conversations yet'}</strong><span>{query ? 'Try a different search.' : 'Conversations between your agents and other agents will appear here.'}</span>{!query && !view.agents.length && <button className="button secondary" onClick={onConnect}>Connect an agent</button>}</div>}
         {hasMore && <div ref={loadMarker} aria-hidden="true" />}
       </div>
     </aside>
@@ -1141,6 +1179,7 @@ export function CaseWorkspace({ workCase, view, canManageInbox, railOpen, onRail
 export function ConversationEntry({ event, previous, workCase, view }: { event: CaseEvent; previous?: CaseEvent; workCase: WorkCase; view: HumanView }) {
   view = caseSourceView(workCase, view);
   const ownHuman = Boolean(event.payload.senderHumanId && event.payload.senderHumanId === view.requester?.id);
+  const ownerInstruction = String(event.payload.messageType || '').toLowerCase() === 'instruction' && Boolean(event.payload.senderHumanId || event.payload.senderType === 'human');
   const senderId = event.payload.senderAgentId || event.payload.senderHumanId || event.actor;
   const mine = Boolean(localAgentId(workCase, view) && senderId === localAgentId(workCase, view)) || ownHuman;
   const participant = resolveParticipant(workCase, event.payload.senderAgentId || event.payload.senderHumanId || event.actor, view.agents, view.participantDirectory, localAgentId(workCase, view));
@@ -1150,7 +1189,7 @@ export function ConversationEntry({ event, previous, workCase, view }: { event: 
   const delivery = String(event.payload.deliveryState || 'unknown');
   const deliveryLabel = delivery === 'delivered' ? 'Delivered' : ['acknowledged', 'processed'].includes(delivery) ? 'Read' : ['queued', 'retrying', 'deadLettered'].includes(delivery) ? 'Not sent' : 'Unknown';
   const color = AGENT_COLORS[Math.abs(Array.from(participant.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AGENT_COLORS.length];
-return <>{showDay && <div className="conversation-day">{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</div>}{isExchangeEvent(event) ? <div className={`conversation-message ${mine ? 'mine' : 'theirs'}`}><span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{ownHuman ? 'Y' : initials(participant.displayName)}</span><div className="message-content"><div className="message-meta"><strong>{ownHuman ? 'You' : participant.displayName}</strong><span>{exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div><div className="message-bubble">{eventSummary(event)}</div>{mine && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}</div></div> : <div className="conversation-event"><Sparkles size={13} /><span>{eventSummary(event)}</span></div>}</>;
+return <>{showDay && <div className="conversation-day">{date.toDateString() === new Date().toDateString() ? 'Today' : formatDate(event.createdAt)}</div>}{isExchangeEvent(event) ? <div className={`conversation-message ${mine ? 'mine' : 'theirs'}${ownerInstruction ? ' owner-instruction' : ''}`}><span className="counterparty-avatar" style={{ '--avatar-color': color } as React.CSSProperties}>{ownerInstruction ? <UserRound size={15} aria-hidden="true" /> : initials(participant.displayName)}</span><div className="message-content"><div className="message-meta"><strong>{ownHuman ? 'You' : participant.displayName}</strong><span>{ownerInstruction ? 'Owner instruction' : exchangeEventLabel(event)}</span><time dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div><div className="message-bubble">{ownerInstruction && event.payload.text ? String(event.payload.text) : eventSummary(event)}</div>{mine && <div className={`message-delivery ${deliveryLabel === 'Not sent' || deliveryLabel === 'Unknown' ? 'warning' : ''}`}>{deliveryLabel}</div>}</div></div> : <div className="conversation-event"><Sparkles size={13} /><span>{eventSummary(event)}</span></div>}</>;
 }
 
 function NegotiationParticipants({ workCase, view, events, canManageInbox, onRefresh, notify }: { workCase: WorkCase; view: HumanView; events: CaseEvent[]; canManageInbox: boolean; onRefresh: () => Promise<unknown>; notify: (message: string) => void }) {
@@ -1389,7 +1428,7 @@ export function ReceiptCard({ workCase }: { workCase: WorkCase }) {
   );
 }
 
-function SharedFilesPage({ view, notify, onOpenCase }: { view: HumanView; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void }) {
+function SharedFilesPage({ view, notify, onOpenCase, onConnect }: { view: HumanView; notify: (message: string) => void; onOpenCase: (workCase: WorkCase) => void; onConnect: () => void }) {
   const [query, setQuery] = useState('');
   const [direction, setDirection] = useState<'all' | 'received' | 'sent'>('all');
   const [kind, setKind] = useState('');
@@ -1412,11 +1451,11 @@ function SharedFilesPage({ view, notify, onOpenCase }: { view: HumanView; notify
     return (!folder || folderFor(asset) === folder) && (!query || `${assetDisplayName(asset)} ${caseFor(asset)?.objective || ''} ${folderFor(asset)}`.toLowerCase().includes(query.toLowerCase())) && (direction === 'all' || Boolean(localId) && (direction === 'sent') === owner) && (!kind || `${asset.mimeType} ${assetDisplayName(asset)}`.toLowerCase().includes(kind));
   }).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   return <div className="files-page">
-    <div className="files-heading"><h1>Files</h1><div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div><button className="button primary" disabled title="Human uploads need server support"><Plus size={16} />New</button></div>
-    <div className="files-toolbar"><div className="files-segment" aria-label="File direction">{([['all','All'],['received','Received'],['sent','Sent by my agents']] as const).map(([value,label]) => <button key={value} aria-pressed={direction === value} onClick={() => setDirection(value)}>{label}</button>)}</div><div className="files-types">{kinds.map(item => <button key={item.label} aria-pressed={kind === item.match} onClick={() => setKind(current => current === item.match ? '' : item.match)}>{item.label}</button>)}</div><div className="files-segment layout-toggle"><button aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button></div></div>
-    <div className="files-breadcrumb"><button onClick={() => setFolder('')}>Files</button>{folder && <><ChevronRight size={16} /><span>{folder}</span></>}</div>
+    <div className="files-heading"><div><h1>Files</h1><p>Files shared in your agents’ conversations.</p></div>{view.assets.length > 0 && <div className="files-search"><Search size={16} /><input aria-label="Search files" placeholder="Search files" value={query} onChange={event => setQuery(event.target.value)} /></div>}</div>
+    {view.assets.length > 0 && <><div className="files-toolbar"><div className="files-segment" aria-label="File direction">{([['all','All'],['received','Received'],['sent','Sent by my agents']] as const).map(([value,label]) => <button key={value} aria-pressed={direction === value} onClick={() => setDirection(value)}>{label}</button>)}</div><div className="files-types">{kinds.map(item => <button key={item.label} aria-pressed={kind === item.match} onClick={() => setKind(current => current === item.match ? '' : item.match)}>{item.label}</button>)}</div><div className="files-segment layout-toggle"><button aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button></div></div>
+    {folder && <div className="files-breadcrumb"><button onClick={() => setFolder('')}>Files</button><ChevronRight size={16} /><span>{folder}</span></div>}</>}
     {!folder && folders.length > 0 && <section className="files-folders"><h2>Folders</h2><div className="folder-grid">{folders.map((name, index) => <button key={name} onClick={() => setFolder(name)}><Folder size={22} fill={AGENT_COLORS[index % AGENT_COLORS.length]} color={AGENT_COLORS[index % AGENT_COLORS.length]} /><span>{name}</span><small>{view.assets.filter(asset => folderFor(asset) === name).length}</small></button>)}</div></section>}
-    <section className="recent-files"><h2>{folder ? 'Files' : 'Recent files'}</h2>{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={view.agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={view.inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : <div className="files-empty"><FileText size={24} /><strong>No files here</strong><span>{query || kind ? 'Try another search or type.' : 'Files shared by agents appear here.'}</span></div>}</section>
+    <section className="recent-files">{view.assets.length > 0 && <h2>{folder ? folder : 'Recent files'}</h2>}{files.length ? <div className={`file-items ${layout}`}><div className="file-columns"><span>Name</span><span>Case</span><span>From</span><span>Modified</span><span>Size</span><span>Status</span></div>{files.map(asset => <FileItem key={asset.id} asset={asset} workCase={caseFor(asset)} creator={view.agents.find(agent => agent.id === asset.createdByAgentId)} inboxId={view.inbox.id} notify={notify} onOpenCase={onOpenCase} />)}</div> : <div className="files-empty"><span className="empty-icon"><FileText size={25} /></span><strong>{view.assets.length ? 'No matching files' : 'No files yet'}</strong><span>{view.assets.length ? 'Try another search or filter.' : 'Files shared in conversations will appear here.'}</span>{!view.assets.length && !view.agents.length && <button className="button secondary" onClick={onConnect}>Connect an agent</button>}</div>}</section>
   </div>;
 }
 
@@ -1435,30 +1474,34 @@ export function FileItem({ asset, workCase, creator, inboxId, notify, onOpenCase
 
 const PLANNED_ACTION_GATES = ['Calendar availability', 'Hold times', 'Submit forms', 'Spend money'];
 
-function PoliciesPage({ entries }: { entries: AgentEntry[] }) {
+function PoliciesPage({ entries, onConnect }: { entries: AgentEntry[]; onConnect: () => void }) {
   return <PageFrame eyebrow="" title="Permissions" description="See each agent’s bounded permissions.">
-    <div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
+    {entries.length === 0 ? <PageEmpty icon={<ShieldCheck />} title="No agents yet" body="Connect an agent to see its permissions." action={<button className="button secondary" onClick={onConnect}>Connect an agent</button>} /> : <><div className="permission-table" role="table" aria-label="Agent permissions" style={{ '--agent-columns': Math.max(1, entries.length) } as React.CSSProperties}>
       <div className="permission-table-head" role="row"><span role="columnheader">Action</span>{entries.map(({ agent }) => <span role="columnheader" key={agent.id}>{agent.name}</span>)}</div>
       {AGENT_PERMISSION_OPTIONS.map(option => <div className="permission-table-row" role="row" key={option.id}><div role="cell"><strong>{option.label}</strong><small>{option.description}</small></div>{entries.map(entry => {
         const { agent } = entry;
         const enabled = agent.permissions.includes(option.id);
-        return <div role="cell" key={agent.id}><button className={`permission-pill ${enabled ? 'allowed' : 'off'}`} disabled title="Permission editing requires backend support" aria-label={`${option.label} for ${agent.name}: ${option.required ? 'Always on' : enabled ? 'Allowed' : 'Off'}; editing unavailable`}>{option.required ? 'Always on' : enabled ? 'Allowed' : 'Off'}</button></div>;
+        return <div role="cell" key={agent.id} data-agent={agent.name}><span className={`permission-pill ${enabled ? 'allowed' : 'off'}`} aria-label={`${option.label} for ${agent.name}: ${option.required ? 'Always on' : enabled ? 'Allowed' : 'Off'}`}>{option.required ? 'Always on' : enabled ? 'Allowed' : 'Off'}</span></div>;
       })}</div>)}
-      {PLANNED_ACTION_GATES.map(label => <div className="permission-table-row" role="row" key={label}><div role="cell"><strong>{label}</strong><small>Permission gating is not available yet. Execution is disabled.</small></div>{entries.map(({ agent }) => <div role="cell" key={agent.id}><button className="permission-pill off" disabled title="This action is unavailable until backend support ships" aria-label={`${label} unavailable for ${agent.name}`}>Unavailable</button></div>)}</div>)}
+      {PLANNED_ACTION_GATES.map(label => <div className="permission-table-row" role="row" key={label}><div role="cell"><strong>{label}</strong><small>Permission gating is not available yet. Execution is disabled.</small></div>{entries.map(({ agent }) => <div role="cell" key={agent.id} data-agent={agent.name}><span className="permission-pill off" aria-label={`${label} unavailable for ${agent.name}`}>Unavailable</span></div>)}</div>)}
     </div>
-    <MonadPermissionPanel agents={entries.filter(entry => entry.view.canManageInbox).map(({ agent, inbox }) => ({ id: agent.id, name: agent.name, inboxId: inbox.id }))} />
-    {entries.length === 0 && <PageEmpty icon={<ShieldCheck />} title="No agents yet" body="Add an agent to see its permissions." />}
+    <MonadPermissionPanel agents={entries.filter(entry => entry.view.canManageInbox).map(({ agent, inbox }) => ({ id: agent.id, name: agent.name, inboxId: inbox.id }))} /></>}
   </PageFrame>;
 }
 
-function IntegrationsPage({ view, workspace, entries, humanId, canManageInbox, onSelectWorkspace, onPermissions, onRefresh, onRefreshAgent, notify }: { view: HumanView; workspace: Workspace; entries: AgentEntry[]; humanId: string; canManageInbox: boolean; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onPermissions: () => void; onRefresh: () => Promise<unknown>; onRefreshAgent: (inboxId: string) => Promise<void>; notify: (message: string) => void }) {
-  const [enrollment, setEnrollment] = useState<EnrollmentResult | null>(null);
-  const [open, setOpen] = useState(false);
-  return <div className="agents-page"><div className="agents-heading"><div><h1>Agents</h1><p>Your agents and their inboxes.</p></div>{canManageInbox && <ConnectionActions />}</div>
-    {canManageInbox && <><OwnerClaims key={humanId} humanId={humanId} onSelectAgent={(agentId, address) => { const entry = entries.find(item => item.inbox.kind === 'agent' && (item.agent.id === agentId || item.agent.address === address)); if (entry) void onSelectWorkspace(entry.inbox); }} /></>}
-    {canManageInbox && <details className="onboarding-advanced"><summary>Advanced · Quick Connect</summary><p>Legacy setup and frozen-agent re-onboarding.</p><button className="button secondary" onClick={() => setOpen(true)}>Add agent with Quick Connect</button></details>}
-{entries.length ? <div className="integration-grid">{entries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <PageEmpty icon={<Bot />} title="No agents yet" body="Connect your agent from its trusted runtime host." action={canManageInbox ? <a className="button primary" href="/connect">Connect an agent</a> : undefined} />}
-    {open && canManageInbox && <EnrollmentDialog workspace={workspace} agentDomain={view.publicEmailTransport?.internalAgentDomain || 'agents.envoi-agents.com'} result={enrollment} setResult={setEnrollment} onRefresh={onRefresh} onClose={() => { setOpen(false); setEnrollment(null); }} />}
+function IntegrationsPage({ entries, humanId, canManageInbox, onAdvancedConnect, onSelectWorkspace, onPermissions, onRefresh, onRefreshAgent, notify }: { view: HumanView; workspace: Workspace; entries: AgentEntry[]; humanId: string; canManageInbox: boolean; onAdvancedConnect: () => void; onSelectWorkspace: (workspace: Workspace) => Promise<void>; onPermissions: () => void; onRefresh: () => Promise<unknown>; onRefreshAgent: (inboxId: string) => Promise<void>; notify: (message: string) => void }) {
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'setup' | 'paused'>('all');
+  const visibleEntries = entries.filter(({ agent }) => {
+    const matchesQuery = `${agent.name} ${agent.address} ${agent.platformAddress || ''}`.toLowerCase().includes(query.trim().toLowerCase());
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'paused' ? agent.paused : statusFilter === 'setup' ? agent.onboardingStatus !== 'approved' : agent.onboardingStatus === 'approved' && !agent.paused && agent.status !== 'revoked');
+    return matchesQuery && matchesStatus;
+  });
+  return <div className="agents-page"><div className="agents-heading"><div><p className="eyebrow">YOUR WORKSPACE</p><h1>Manage agents</h1><p>Connect an agent, review its access, and see its work in one place.</p></div></div>
+    <section className="agents-onboard-hero"><div><p className="eyebrow">GET STARTED</p><h2>Bring your agents together.</h2><p>Each agent gets its own Envoi address and a secure workspace. Choose a platform to start setup.</p>{canManageInbox && <ConnectionActions />}</div><div className="agents-hero-logos" aria-hidden="true">{agentCatalog.slice(0, 6).map(item => <span key={item.id}><img src={item.logo} alt="" width="42" height="42" /></span>)}</div></section>
+    {canManageInbox && <details className="onboarding-advanced"><summary>Advanced · Quick Connect</summary><p>Legacy setup and frozen-agent re-onboarding.</p><button className="button secondary" onClick={onAdvancedConnect}>Set up with legacy Quick Connect</button></details>}
+    {entries.length ? <section className="agents-list-section" aria-label="Connected agents"><div className="agents-list-topline"><div><h2>Your agent team</h2><p>{entries.length} {entries.length === 1 ? 'agent' : 'agents'} in this workspace</p></div></div><div className="agents-toolbar"><label className="agents-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search agents</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search agents" /></label><label className="agents-filter"><span className="sr-only">Filter agents by status</span><ListFilter size={17} aria-hidden="true" /><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">All statuses</option><option value="active">Active</option><option value="setup">Needs setup</option><option value="paused">Paused</option></select></label></div><div className="agents-table-head" aria-hidden="true"><span>Agent</span><span>Work</span><span>Status & access</span><span>Actions</span></div>{visibleEntries.length ? <div className="integration-grid">{visibleEntries.map(({ agent, inbox, view: agentView }, index) => <AgentCard key={agent.id} agent={agent} workspace={inbox} humanId={humanId} canManageInbox={agentView.canManageInbox} emailTransport={null} onRefresh={async () => { await onRefreshAgent(inbox.id); await onRefresh(); }} notify={notify} color={AGENT_COLORS[index % AGENT_COLORS.length]} cases={agentView.caseQueue} onPermissions={onPermissions} onOpenInbox={() => void onSelectWorkspace(inbox)} />)}</div> : <div className="agents-filter-empty"><p>No agents match these filters.</p><button className="button secondary" onClick={() => { setQuery(''); setStatusFilter('all'); }}>Clear filters</button></div>}</section> : <div className="agents-empty"><span className="agents-empty-icon"><Bot size={24} aria-hidden="true" /></span><div><h2>No agents connected yet</h2><p>Use the connection options above to begin. Your connected agents and their inboxes will appear here.</p></div></div>}
+    {canManageInbox && <div className="agents-secondary"><OwnerClaims key={humanId} humanId={humanId} onSelectAgent={(agentId, address) => { const entry = entries.find(item => item.inbox.kind === 'agent' && (item.agent.id === agentId || item.agent.address === address)); if (entry) void onSelectWorkspace(entry.inbox); }} /></div>}
   </div>;
 }
 
@@ -1601,8 +1644,8 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
     finally { setPauseBusy(false); }
   }
   return <article className="integration-card">
-    <div className="integration-heading"><span className="agent-card-avatar" style={{ background: color }}>{initials(agent.name)}</span><div><h2>{agent.name}</h2><span className="verified-address" title={platformAddress}>{platformAddress}<CopyButton value={platformAddress} label={`Copy ${agent.name} address`} /></span></div><span className="agent-presence">{agentLabel(agent)} · {connectionLabel(agent.connection)}</span></div>
-    {approvedAccess ? <><div className="agent-stats"><div><strong>{agentCases.filter(item => caseState(item) !== 'completed').length}</strong><span>Open cases</span></div><div><strong>{agentCases.filter(item => item.needsAttention).length}</strong><span>Need you</span></div></div><div className="capability-list">{agent.permissions.slice(0,4).map(item => <span key={item}>{humanize(item)}</span>)}</div></> : <div className="agent-setup"><strong>Step {Math.min(7,completedSteps + 1)} of 7: {setupSteps[Math.min(6, completedSteps)][0]}</strong>{frozen && <span>No permissions active</span>}<div className="agent-progress" role="progressbar" aria-valuenow={completedSteps} aria-valuemin={0} aria-valuemax={7}><span style={{ width: `${completedSteps / 7 * 100}%` }} /></div>{pending && canApproveAgent ? <button className="button secondary" onClick={() => setApprovalOpen(true)}>Review agent access</button> : !pending && agent.status !== 'revoked' && canManageInbox ? <a className="button secondary" href="/connect">Connect runtime</a> : null}<button className="agent-steps-toggle" aria-expanded={showSteps} onClick={() => setShowSteps(value => !value)}>{showSteps ? 'Hide steps' : 'Show all steps'}</button>{showSteps && <ol className="agent-steps">{setupSteps.map(([name, complete]) => <li key={name}>{complete ? <Check size={13} /> : <span className="step-empty" />}{name}</li>)}</ol>}</div>}
+    <div className="integration-heading"><span className="agent-card-avatar" style={{ background: color }}>{initials(agent.name)}</span><div><h2>{agent.name}</h2><span className="verified-address" title={platformAddress}>{platformAddress}<CopyButton value={platformAddress} label={`Copy ${agent.name} address`} /></span></div></div>
+    {approvedAccess ? <><div className="agent-stats"><div><strong>{agentCases.filter(item => caseState(item) !== 'completed').length}</strong><span>Open cases</span></div><div><strong>{agentCases.filter(item => item.needsAttention).length}</strong><span>Need you</span></div></div><div className="agent-status-access"><span className="agent-presence">{agentLabel(agent)} · {connectionLabel(agent.connection)}</span><div className="capability-list">{agent.permissions.slice(0,4).map(item => <span key={item}>{humanize(item)}</span>)}</div></div></> : <div className="agent-setup"><span className="agent-presence">{agentLabel(agent)} · {connectionLabel(agent.connection)}</span><strong>Step {Math.min(7,completedSteps + 1)} of 7: {setupSteps[Math.min(6, completedSteps)][0]}</strong>{frozen && <span>No permissions active</span>}<div className="agent-progress" role="progressbar" aria-valuenow={completedSteps} aria-valuemin={0} aria-valuemax={7}><span style={{ width: `${completedSteps / 7 * 100}%` }} /></div>{pending && canApproveAgent ? <button className="button secondary" onClick={() => setApprovalOpen(true)}>Review agent access</button> : !pending && agent.status !== 'revoked' && canManageInbox ? <button className="button secondary" onClick={() => { setReconnectResult(null); setReconnectOpen(true); }}>Connect runtime</button> : null}<button className="agent-steps-toggle" aria-expanded={showSteps} onClick={() => setShowSteps(value => !value)}>{showSteps ? 'Hide steps' : 'Show all steps'}</button>{showSteps && <ol className="agent-steps">{setupSteps.map(([name, complete]) => <li key={name}>{complete ? <Check size={13} /> : <span className="step-empty" />}{name}</li>)}</ol>}</div>}
     <div className="agent-card-actions"><button className="button secondary" onClick={onOpenInbox} disabled={!onOpenInbox}>Open inbox</button><button className="button secondary" onClick={onPermissions} disabled={!onPermissions}>Permissions</button></div>
     {revokeResult && frozen && <InlineNotice title="Agent frozen" body={`${revokeResult.credentialFamilyCount} credential ${revokeResult.credentialFamilyCount === 1 ? 'family was' : 'families were'} revoked at ${formatAbsolute(revokeResult.revokedAt)}. Re-onboarding requires a new human-approved token. The agent identity and conversation history remain visible.`} tone="attention" />}
     {credential && <div className="credential-once"><InlineNotice title="Copy this credential now" body="It is shown once. Store it only in the agent runtime’s secret manager." tone="attention" /><div className="copy-field"><input readOnly value={credential} aria-label="Agent API credential" /><CopyButton value={credential} label="Copy agent API credential" /></div></div>}
@@ -1622,7 +1665,7 @@ export function AgentCard({ agent, workspace, humanId, canManageInbox, emailTran
       <FormError message={revokeError} />
       <div className="dialog-actions"><button className="button secondary" disabled={revokeBusy} onClick={() => setRevokeOpen(false)}>Keep access</button><button className="button destructive" disabled={revokeBusy} onClick={() => void revokeCredentials()}>{revokeBusy ? 'Freezing…' : 'Freeze agent'}</button></div>
     </Modal>}
-    {workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && (agent.onboardingStatus === 'approved' || frozen) && <AgentInstallations key={`${humanId}:${agent.id}`} humanId={humanId} inboxId={workspace.id} agent={agent} canManage={canManageInbox} onReconnect={() => window.location.assign('/connect')} onRefresh={async () => { await onRefresh(); }} />}
+    {workspace.kind === 'agent' && workspace.ownerAgentId === agent.id && (agent.onboardingStatus === 'approved' || frozen) && <AgentInstallations key={`${humanId}:${agent.id}`} humanId={humanId} inboxId={workspace.id} agent={agent} canManage={canManageInbox} onReconnect={() => { setReconnectResult(null); setReconnectOpen(true); }} onRefresh={async () => { await onRefresh(); }} />}
     {reconnectOpen && canManageInbox && <EnrollmentDialog workspace={workspace} reconnectAgent={agent} result={reconnectResult} setResult={setReconnectResult} onRefresh={onRefresh} onClose={() => { setReconnectOpen(false); setReconnectResult(null); }} />}
   </article>;
 }
@@ -1635,6 +1678,9 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [runtime, setRuntime] = useState<ConnectorRuntime>(reconnectAgent?.runtime || 'openclaw');
+  const [dotsSelected, setDotsSelected] = useState(false);
+  const [dotsGuideOpen, setDotsGuideOpen] = useState(false);
+  const [dotsRoute, setDotsRoute] = useState<'checking' | 'available' | 'unavailable' | 'unknown'>('checking');
   const addressEdited = useRef(false);
   const [status, setStatus] = useState<EnrollmentStatus | null>(null);
   const [statusError, setStatusError] = useState('');
@@ -1673,6 +1719,20 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
     });
   }, [result, workspace.id, pollingAttempt]);
   const envoiOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+  const dotsOrigin = envoiOrigin && isLoopbackOrigin(envoiOrigin) ? 'https://www.envoi-agents.com' : envoiOrigin;
+  const requestedAddress = `${localPart}@${agentDomain}`;
+  const dotsPrompt = dotsGuideOpen && dotsOrigin ? dotsSetupPrompt(dotsOrigin, name.trim(), requestedAddress) : '';
+  useEffect(() => {
+    if (!dotsSelected) return;
+    if (workspace.id === previewWorkspace.id) { setDotsRoute('unknown'); return; }
+    const stop = new AbortController();
+    setDotsRoute('checking');
+    void fetch('/api/onboarding/routes', { credentials: 'omit', redirect: 'error', signal: stop.signal })
+      .then(response => response.ok ? response.json() : Promise.reject(new Error('Route status unavailable')))
+      .then(value => { if (!stop.signal.aborted) setDotsRoute(value?.registrationEnabled && value?.installationsEnabled && value?.routes?.some((route: { connectionRoute?: string; available?: boolean }) => route.connectionRoute === 'remote_mcp_oauth' && route.available) && value?.deliveryModes?.some((mode: { deliveryMode?: string; available?: boolean }) => mode.deliveryMode === 'on_demand' && mode.available) ? 'available' : 'unavailable'); })
+      .catch(() => { if (!stop.signal.aborted) setDotsRoute('unknown'); });
+    return () => stop.abort();
+  }, [dotsSelected, workspace.id]);
   const selectedRuntime = handoff?.runtime || runtime;
   const label = runtimeLabel(selectedRuntime);
   const prepareCommand = `node envoi-connector.mjs prepare --runtime ${runtime} --api-url ${envoiOrigin || '<Envoi origin>'}${runtime === 'hermes' ? ' --prepare-runtime' : ''}`;
@@ -1701,15 +1761,32 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
       setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch { setError('The setup file could not be downloaded. Save the setup JSON privately on your runtime host.'); }
   }
-  return <Modal title={result ? 'Agent ready to connect' : reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Add an agent'} onClose={onClose}>
-    {result ? <>
+  function downloadAgentSkill() {
+    if (!handoff || !canUseHandoff) return;
+    try {
+      const skill = setupSkillFile(handoff);
+      const url = URL.createObjectURL(new Blob([skill], { type: 'text/markdown' }));
+      const link = document.createElement('a'); link.href = url; link.download = 'SKILL.md'; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch { setError('The skill file could not be downloaded. Copy the setup prompt instead.'); }
+  }
+  return <Modal title={dotsGuideOpen ? 'Connect Dots' : result ? 'Agent ready to connect' : reconnectAgent ? `${reenroll ? 'Re-onboard' : 'Reconnect'} ${reconnectAgent.name}` : 'Connect an agent'} onClose={onClose}>
+    {dotsGuideOpen ? <section className="quick-connect dots-setup-guide">
+      <p className="dialog-copy">Your Dots setup is ready. Envoi confirms the address and permissions when you approve the OAuth request.</p>
+      {dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}
+      <label className="field"><span>Requested agent email address</span><input readOnly value={requestedAddress} /><small>This address is not reserved yet. Confirm it during Envoi approval.</small></label>
+      <div className="setup-handoff-actions"><button className="button primary" type="button" onClick={() => void navigator.clipboard.writeText(dotsPrompt).then(() => setCopied(true)).catch(() => setError('Clipboard access was unavailable. Select the prompt below to copy it.'))}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Prompt copied' : 'Copy agent prompt'}</button><button className="button secondary" type="button" onClick={() => { try { const file = dotsSetupSkillFile(dotsOrigin, name.trim(), requestedAddress); const url = URL.createObjectURL(new Blob([file], { type: 'text/markdown' })); const link = document.createElement('a'); link.href = url; link.download = 'SKILL.md'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1_000); } catch { setError('The skill file could not be downloaded. Copy the prompt instead.'); } }}><Download size={16} />Download agent skill file</button></div>
+      <details className="setup-details"><summary>View setup prompt</summary><textarea readOnly value={dotsPrompt} rows={7} onFocus={event => event.currentTarget.select()} /></details>
+      <ol className="dots-setup-steps"><li>Add Envoi as a custom MCP plugin at <code>{dotsOrigin}/mcp</code> in your ChatGPT Work account.</li><li>Complete OAuth and approve the workspace, address and permissions in Envoi.</li><li>Open your Dot and send a test message through Envoi. This is an on-demand connection; closed-app delivery is still being verified.</li></ol>
+      <FormError message={error} /><div className="dialog-actions"><button className="button secondary" type="button" onClick={onClose}>Close</button></div>
+    </section> : result ? <>
       {handoff ? <>
         <p className="dialog-copy">Run the setup instructions where {label} is installed. The connector detects local settings and keeps runtime and provider credentials on that host. You can give the prompt to an agent with terminal access, or use the private setup file.</p>
         <InlineNotice title="One private setup handoff" body={`Give this prompt only to your trusted agent. Its one-use token expires ${formatAbsolute(result.expiresAt)}. Copy or download before closing; it cannot be recovered.`} tone="attention" />
       </> : <InlineNotice title="Copy before closing" body="This one-use token cannot be recovered. Give it to one trusted agent bridge; do not redeem it in the browser or a separate shell first." tone="attention" />}
-      {chosenAddress && <label className="field"><span>Chosen platform address</span><div className="copy-field"><input readOnly value={chosenAddress} aria-label="Chosen agent address" /><CopyButton value={chosenAddress} label="Copy chosen agent address" /></div><small>This address becomes active when the bridge redeems the token. It cannot be renamed during beta.</small></label>}
+      {chosenAddress && <label className="field"><span>Agent email address</span><div className="copy-field"><input readOnly value={chosenAddress} aria-label="Agent email address" /><CopyButton value={chosenAddress} label="Copy agent email address" /></div><small>This address becomes active when the agent completes setup. It cannot be renamed during beta.</small></label>}
       {handoff && <section className="quick-connect">
-        <button className="button primary" type="button" disabled={!canUseHandoff} onClick={() => void copyPrompt()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Setup prompt copied' : 'Copy setup prompt'}</button>
+        <div className="setup-handoff-actions"><button className="button primary" type="button" disabled={!canUseHandoff} onClick={() => void copyPrompt()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Prompt copied' : 'Copy agent prompt'}</button><button className="button secondary" type="button" disabled={!canUseHandoff} onClick={downloadAgentSkill}><Download size={16} />Download agent skill file</button></div>
         <small>Connects {label} using a durable wake bridge. Node.js 22 or newer and access to the runtime host are required. The prompt contains a confidential token that may remain in chat history; prefer the private setup file in Terminal fallback.</small>
         {isLoopbackOrigin(handoff.apiUrl) && <InlineNotice title="Local development address" body="This setup points to localhost. A remotely hosted agent cannot reach it. Use a reachable HTTPS Envoi deployment or run the connector beside this development server." tone="attention" />}
         {selectedRuntime === 'hermes' && <InlineNotice title="Hermes credentials" body="The installer reuses the model provider already configured in Hermes and generates or reuses its local API Server key. The Envoi token replaces neither. A running Gateway may need your approval to restart." tone="attention" />}
@@ -1739,6 +1816,7 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
     </> : <form className="enroll-form" onSubmit={async event => {
       event.preventDefault();
       if (step < 2) { setStep((step + 1) as 0 | 1 | 2); return; }
+      if (dotsSelected) { setDotsGuideOpen(true); return; }
       setBusy(true);
       setError('');
       try {
@@ -1750,19 +1828,18 @@ export function EnrollmentDialog({ workspace, agentDomain = 'agents.envoi-agents
         }
       } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
     }}>
-      <div className="enroll-steps" aria-label="Enrollment steps">{['Runtime', 'Identity', 'Access'].map((name, index) => <span key={name} className={step === index ? 'current' : step > index ? 'complete' : ''}>{index + 1}<b>{name}</b></span>)}</div>
-      {step === 0 && <div className="enroll-step"><RuntimePicker runtime={runtime} onChange={setRuntime} /><details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details></div>}
-      {step === 1 && <div className="enroll-step">{reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <><Field label="Name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Milo" required /><label className="field"><span>Address</span><span className="enroll-address"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required /><span>@{agentDomain}</span></span></label>{localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>{!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}</p>}</>}</div>}
-      {step === 2 && <div className="enroll-step"><AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} /><p className="enroll-note">Disabled permissions do not grant access. Availability of human approval depends on the specific action.</p></div>}
+      <div className="enroll-steps" aria-label="Enrollment steps">{['Agent type', 'Email address', dotsSelected ? 'Connect' : 'Permissions'].map((name, index) => <span key={name} className={step === index ? 'current' : step > index ? 'complete' : ''}>{index + 1}<b>{name}</b></span>)}</div>
+      {step === 0 && <div className="enroll-step"><RuntimePicker runtime={runtime} selectedId={dotsSelected ? 'dots' : runtime} onChange={value => { setDotsSelected(false); setRuntime(value); }} onSelectDots={reconnectAgent ? undefined : () => setDotsSelected(true)} />{dotsSelected && dotsRoute === 'unavailable' && <InlineNotice title="Dots connection is off here" body="You can prepare the prompt now. OAuth approval will work after this deployment enables the Dots on-demand route." tone="attention" />}{!dotsSelected && <details className="enroll-preparation"><summary>Prepare your runtime before creating a token</summary><RuntimePreparation runtime={runtime} command={prepareCommand} apiUrl={envoiOrigin} reconnect={Boolean(reconnectAgent)} /></details>}</div>}
+      {step === 1 && <div className="enroll-step">{reconnectAgent ? <p>{reconnectAgent.name}<br /><span>{reconnectAgent.address}</span></p> : <><Field label="Agent name" name="name" value={name} onChange={event => { setName(event.target.value); if (!addressEdited.current) setLocalPartInput(suggestedAgentAddress(event.target.value)); }} placeholder="Milo" required /><label className="field"><span>Agent email address</span><span className="enroll-address"><input name="localPart" value={localPartInput} onChange={event => { addressEdited.current = true; setLocalPartInput(event.target.value); }} autoComplete="off" spellCheck={false} placeholder="milo" aria-invalid={Boolean(localPartInput && !validAgentLocalPart(localPart))} required /><span>@{agentDomain}</span></span></label>{localPartInput && <p role="status" className={`address-feedback ${!validAgentLocalPart(localPart) || availability === 'taken' ? 'invalid' : ''}`}>{!validAgentLocalPart(localPart) ? 'Use 3 to 32 lowercase letters, numbers, or periods.' : availability === 'checking' ? 'Checking address' : availability === 'available' ? 'Address available' : availability === 'taken' ? 'Address taken' : availability === 'error' ? 'Could not check address' : ''}</p>}</>}</div>}
+      {step === 2 && <div className="enroll-step">{dotsSelected ? <p className="enroll-note">Dots uses OAuth. You will review its requested permissions and confirm this address when you approve the connection in Envoi. It can work on demand in an active chat.</p> : <><AgentPermissionPicker selected={selectedPermissions} onChange={setSelectedPermissions} /><p className="enroll-note">Disabled permissions do not grant access. Availability of human approval depends on the specific action.</p></>}</div>}
       <FormError message={error} />
-      <div className="dialog-actions enroll-footer"><button type="button" className="button quiet" disabled={step === 0 || busy} onClick={() => setStep((step - 1) as 0 | 1 | 2)}>Back</button><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (step === 1 && !reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating token' : step === 2 ? 'Create one-time token' : 'Continue'}</button></div>
+      <div className="dialog-actions enroll-footer"><button type="button" className="button quiet" disabled={step === 0 || busy} onClick={() => setStep((step - 1) as 0 | 1 | 2)}>Back</button><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (step === 1 && !reconnectAgent && (!name.trim() || availability !== 'available'))}>{busy ? 'Creating setup' : step === 2 ? dotsSelected ? 'Show Dots setup' : 'Generate agent setup' : 'Continue'}</button></div>
     </form>}
   </Modal>;
 }
 
-export function RuntimePicker({ runtime, onChange }: { runtime: ConnectorRuntime; onChange: (value: ConnectorRuntime) => void }) {
-  const descriptions: Record<string, string> = { OpenClaw: 'Needs a running Gateway', Hermes: 'Needs a configured Hermes profile', Grok: 'Needs an xAI API key' };
-  return <fieldset className="runtime-picker"><legend>What runs your agent?</legend><div className="runtime-options">{['OpenClaw', 'Hermes', 'Grok', 'Muse', 'Instinct', 'Dots'].map(label => { const option = RUNTIME_OPTIONS.find(item => item.label === label); const available = Boolean(option); return <label key={label} className={`runtime-option ${!available ? 'unavailable' : ''}`}><input type="radio" name="runtime" value={option?.id || label.toLowerCase()} checked={option?.id === runtime} disabled={!available} onChange={() => option && onChange(option.id)} /><span><strong>{label}</strong><small>{available ? descriptions[label] : 'Coming soon'}</small></span></label>; })}</div></fieldset>;
+export function RuntimePicker({ runtime, onChange, selectedId, onSelectDots }: { runtime: ConnectorRuntime; onChange: (value: ConnectorRuntime) => void; selectedId?: string; onSelectDots?: () => void }) {
+  return <fieldset className="runtime-picker"><legend>What runs your agent?</legend><p className="runtime-picker-help">Choose a platform. Available connections continue to address and permission setup.</p><div className="runtime-options">{agentCatalog.map(item => { const option = RUNTIME_OPTIONS.find(candidate => candidate.id === item.id); const dots = item.id === 'dots' && Boolean(onSelectDots); const available = Boolean(option || dots); return <label key={item.id} className={`runtime-option ${!available ? 'unavailable' : ''}`}><input type="radio" name="runtime" value={item.id} checked={item.id === (selectedId || runtime)} disabled={!available} onChange={() => { if (option) onChange(option.id); else if (dots) onSelectDots?.(); }} /><img src={item.logo} alt="" width="40" height="40" /><span><strong>{item.name}</strong><small>{item.summary}</small><em>{dots ? 'On-demand setup' : available ? 'Setup available' : 'Connection coming later'}</em></span></label>; })}</div></fieldset>;
 }
 
 export function RuntimePreparation({ runtime, command, apiUrl, reconnect = false }: { runtime: ConnectorRuntime; command: string; apiUrl: string; reconnect?: boolean }) {
@@ -1837,7 +1914,7 @@ function AuthoritySeal({ decision }: { decision: PolicyEvaluation['decision'] })
 function EventIcon({ type }: { type: CaseEvent['type'] }) { const icons = { message: <Inbox />, decision: <Sparkles />, policyEvaluation: <ShieldCheck />, toolAction: <Zap />, humanAction: <UserRound />, stateChange: <RefreshCw />, error: <AlertCircle />, receipt: <ReceiptText /> }; return icons[type]; }
 function CaseIcon({ workCase }: { workCase: WorkCase }) { if (workCase.collaborationMode === 'scheduling') return <CalendarDays />; if (['artifactCreation', 'knowledgeSharing'].includes(workCase.collaborationMode || '')) return <FileText />; if (workCase.receipt) return <ReceiptText />; return <Command />; }
 function StatusGlyph({ state }: { state: CaseState }) { if (['completed', 'accepted', 'authorized'].includes(state)) return <CheckCircle2 size={13} />; if (['failed', 'expired', 'revoked', 'disputed'].includes(state)) return <XCircle size={13} />; if (state === 'unknownExternalResult') return <AlertCircle size={13} />; if (['waitingForHuman', 'waitingForExternalParty', 'tentativeHold'].includes(state)) return <Clock3 size={13} />; return <Play size={13} />; }
-function BrandMark() { return <span className="brand-mark" aria-hidden="true"><span /><span /></span>; }
+function BrandMark() { return <span className="brand-mark" aria-hidden="true"><img src={productAsset('/envoi-logo.png')} alt="" width="32" height="32" /></span>; }
 
 function sectionTitle(section: NavSection) { return ({ inbox: 'Inbox', needsMe: 'Needs me', active: 'In motion', waiting: 'Waiting', scheduled: 'Calendar', documents: 'Shared files', completed: 'Done', policies: 'Permissions', integrations: 'Agent connections', activity: 'Activity log' } as Record<NavSection, string>)[section]; }
 function emptyTitle(section: NavSection) { return section === 'inbox' ? 'Your agent inbox is empty' : section === 'needsMe' ? 'Your agents have it handled' : `No conversations in ${sectionTitle(section).toLowerCase()}`; }
