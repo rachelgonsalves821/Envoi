@@ -262,6 +262,17 @@ export class WorkOSAuthService {
     });
   }
 
+  // Background activation has no browser-session projection. Resolve its owner
+  // through the durable provider mapping before the existing fresh role check.
+  async getStoredHumanForAuthorization(humanId) {
+    const human = await this.store.getJson(path.join('humans', `${humanId}.json`));
+    if (!human || human.id !== humanId || human.authProvider !== 'workos' || !this.admitted(human)
+      || typeof human.workosUserId !== 'string' || !human.workosUserId) return null;
+    const index = await this.store.getJson(path.join('auth', 'workos-user-index', `${encodeURIComponent(human.workosUserId)}.json`));
+    if (index?.humanId !== human.id) return null;
+    return { ...publicHuman(human), providerUserId: human.workosUserId };
+  }
+
   bindResponse(req, res) {
     if (req[requestResponse]) return;
     req[requestResponse] = res;

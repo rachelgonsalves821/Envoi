@@ -6,6 +6,7 @@ export class ConnectorSetupError extends Error {
 }
 
 export interface AdapterOptions {
+  apiUrl?: string;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
   platform?: string;

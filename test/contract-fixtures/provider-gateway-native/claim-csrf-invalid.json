@@ -1,0 +1,60 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "claim-csrf-invalid",
+  "kind": "http",
+  "description": "§2.1: Stage 1 CSRF and origin rules apply to every new POST; no effect.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:00:10.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/claim",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "wrong",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example"
+    }
+  },
+  "response": {
+    "status": 403,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "error": "GATEWAY_CSRF_INVALID",
+      "code": "GATEWAY_CSRF_INVALID",
+      "guidance": "none"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none"
+  }
+}

@@ -1,0 +1,58 @@
+# Muse Connector Platform submission readiness
+
+**Status: offline preparation, 2026-10-24.** This consumes human-approved `provider-connector-tools` v1 at PR #218 `3af8669a907c316b95ff92fa7031a50a654e1a18`, **option A**: retain `envoi.agent`, describe its work authority honestly, and submit only the approved minimum set. Rachel selected Meta's reviewed and listed Connector Platform route for the beta; a user-created Custom Connector is outside this selection. This packet is not a Meta submission, Meta-approved catalog, Envoi installation, live test, or permission to turn on a route. Muse remains **UNPROVEN** for Envoi authorization, exchange, and closed-app reply. Flags remain OFF; Builds stays paused. It complements the [Phase B host probes](../onboarding/skill/HOST-SETUP-PROBES.md) and the [PRD's Muse gate](../../docs/PRD.md).
+
+## What Meta publishes, and what this account showed
+
+- Meta's [Connector guidelines](https://platform.muse.ai/docs) require a submission covering product and business identity, terms and privacy, data processing, endpoint and authentication setup, requested scopes, tool documentation, test-account credentials, and an end-to-end demo. Meta reviews each tool's read/write and sensitive classification and tests permissions and workflows. Approval of one tool does not approve later tools. The [Connector Platform](https://platform.muse.ai/) describes review before directory discovery. These are vendor requirements, not evidence that Envoi has submitted or passed review.
+- Under those guidelines a **read** retrieves without changing state; a **write** changes state or acts for the user; a **sensitive write** includes consequential sends. Meta requires approval on **every use** of a sensitive write. A connector cannot quietly reclassify a send as a read, cache a one-time approval for different content, or bypass Muse's prompt. The exact classification of proposed Envoi tools is Meta's review decision.
+- No supported Envoi arrival event, recurring reviewed-connector invocation, private auth renewal, or closed-app reply has been observed for this account.
+- The sanitized [account observation in PR #179](https://github.com/rachelgonsalves821/Envoi/pull/179) records that Rachel's signed-in Muse web account exposed Settings → Connectors, a Connected tab, a per-connector Background sync control set to Allow, and Goals. No Envoi connector, credential, goal, schedule, or permission was created or changed in that observation. Those controls do not prove that an Envoi connector may use background sync or that a write may proceed without its required prompt. An earlier `custom.envoi-staging` read probe reported Cloudflare `1010` and then Muse `sentinel-policy` egress denial, without an Envoi-origin response; that excluded Custom Connector experiment is not a test of the selected reviewed route.
+
+## Submission inventory: leave unknowns open
+
+| Meta submission item | Envoi preparation | Missing before submission or acceptance |
+| --- | --- | --- |
+| Product overview, account/plan/region limits, support and maintenance | Explain the agent-to-agent inbox, owner claim, private installation, canonical case receipt, and recovery. Declare the limited beta scope and exact release. | Final public product and support details, eligible regions/plans, named maintenance contact. |
+| Business verification, terms, privacy, brand | Link the actual Envoi operator entity, terms, privacy policy, authorized assets and security contact. | Verified entity and documents, provided by the owner through Meta's portal; no guessed values here. |
+| Data processing | Describe only the approved tool fields: agent identity, work availability, case content and reply; document retention/deletion, account isolation, encryption, revocation and logs. | Confirm production data flow and retention against the exact reviewed implementation and policy. |
+| Endpoint and auth | Existing `provider_connector` implementation consumes approved `agent-remote-auth` v1: pre-registered OAuth client with PKCE S256, resource-bound `/mcp` token, owner consent as claim, or its separately specified private-field bootstrap option. The grant and operational tokens stay out of prompts and tool results. | Prove which auth and endpoint type Meta's reviewed connector actually accepts; verify consent/token/revoke/bootstrap and `/mcp` enforcement against that provider on the approved hosted candidate; record exact client/redirect metadata and Meta's private credential behavior. No live flag is enabled by the contract. |
+| Read-only OAuth choice | **Approved option A:** retain `envoi.agent`. It includes work claim and settlement authority and is **not read-only**, even if a reviewer selects only read tools. A canonical reply additionally needs optional `envoi.send`. | M2: Rachel obtains Meta's decision on whether option A meets its read-only guidance. A requirement for a genuinely narrower grant needs separate reviewed contract revisions; no new scope is invented here. |
+| Per-tool documentation | The table below consumes the approved `provider-connector-tools` classification and exact minimum names. Inputs, outputs and errors remain the existing agent-registration/remote-auth contracts. | Verify the final deployed schemas, rate limits and private-host behavior in a later authorized hosted window; obtain Meta's final per-tool classifications. |
+| Review test account and demo | Prepare a disposable owner and two disposable Envoi agents, safe synthetic cases, expected receipts, and an operator evidence sheet. | **Test account: NOT CREATED. Credentials: NOT SUPPLIED. Submission/review ID: NOT SUPPLIED.** Owner approves creation and secure delivery through Meta's portal. |
+| Review outcome and directory listing | Record every approved tool and classification, restrictions, the account's authorization, and directory/install evidence. | **Meta status: NOT SUBMITTED.** No listing or tool approval is claimed. |
+
+## Approved Envoi minimum tool boundary for Meta review
+
+The source of truth is [the approved #218 classification](https://github.com/rachelgonsalves821/Envoi/blob/3af8669a907c316b95ff92fa7031a50a654e1a18/test/contract-fixtures/provider-connector-tools/schemas.json), specifically `x-tool-classification`, `x-minimum-submission-set` and rules R1–R6. It adds no tool, scope, route or flag. Existing [agent-registration v1](../../docs/architecture/agent-native-v2/handoffs.md#agent-registration-v1) and [agent-remote-auth v1](../../docs/architecture/agent-native-v2/handoffs.md#agent-remote-auth-v1) already define the provider connector's host actions; **no additional provider action contract is needed for this set**. A trusted provider backend holds the OAuth bearer privately and performs claim/renew/settlement. The model never receives that bearer or a case-session token. MCP work fences and existing Envoi policy still apply regardless of provider approval.
+
+| Exact wire tools | Envoi scope and effect | Proposed Meta review class | Required handling |
+| --- | --- | --- | --- |
+| `envoi_agent_info` | `envoi.agent`; identity, no mutation | Read | Identify only the authorized installation. |
+| `envoi_list_cases`, `envoi_read_case`, `envoi_list_messages` | `envoi.agent` or `envoi.send`; authorized case reads | Read | No unrelated case, recipient or owner authority. |
+| `envoi_claim_work`, `envoi_renew_work` | `envoi.agent` / `receive_agent_messages`; changes leases | Write | Trusted host custody; renewal needs the current lease fence. |
+| `envoi_acknowledge_work`, `envoi_complete_work`, `envoi_fail_work` | `envoi.agent` / `receive_agent_messages`; changes work state | Write | Current lease fence and stable idempotency key. Settlement is separate from a reply receipt. |
+| `envoi_send_message` | `envoi.send` / `send_agent_messages`; outward canonical message | Sensitive write, proposed; Meta decides | Exact claimed case/recipient, stable idempotency key, current Envoi policy, and every required provider prompt. A provider approval never satisfies an Envoi human decision. |
+
+The first submission excludes `envoi_start_case`, `envoi_send_proposal`, `envoi_send_decision`, `envoi_send_completion`, every asset tool and wake tools. Do not confuse `envoi_complete_work` (included work settlement) with `envoi_send_completion` (excluded outward completion message). Adding a tool requires its own Meta review and a revision of this classification contract. Closed inputs reject invented `providerApproval` arguments; prompts do not add authority. A reply's queued/canonical receipt is distinct from work settlement and from the other agent's receipt.
+
+## Remaining provider gates and named owners
+
+| Gate | Owner | Evidence still required |
+| --- | --- | --- |
+| M1: per-tool classification | Rachel / Meta reviewer | Meta's final classification for each submitted tool. |
+| M2: option A acceptance | Rachel / Meta reviewer | Whether the honest work-capable `envoi.agent` grant satisfies Meta's read-only guidance. |
+| M3: reviewed auth capability | Rachel with Lane A/B evidence | Actual client type, redirects, credential custody and renewal, OAuth installation/revoke on one release. |
+| M4: closed-app trigger | Rachel with Lane A/B evidence | A supported provider trigger and observed callback origins; #215/#216 implement transport contracts but do not establish Meta capability. |
+| M5: unattended reply policy | Rachel / Meta reviewer | Required prompt behavior on every canonical reply and whether unattended operation is possible. |
+
+Local classification/client tests consume canonical fixtures and prove no provider account capability. No new provider operation, account creation or submission is authorized by this packet.
+
+## Exact sequence after the packet is filled
+
+1. **Finish the source candidate.** Consume approved #215–#218 fixtures, implement only those host/wake boundaries, run checks and return the exact candidate for integration/release review. #218 itself needs no server behavior change. Keep route flags OFF and Builds paused; local checks do not authorize hosted/provider actions.
+2. **Prepare Meta's real submission.** The owner supplies business/privacy/support details and a disposable test account through Meta's secure portal. Submit the exact endpoint/auth/scopes and every tool's classification, approvals, side effects and errors. Record submission ID and review outcome. No account or portal action was taken for this packet.
+3. **Prove one private installation.** On an owner-approved hosted release, observe Muse's actual OAuth or approved private-field flow, owner consent, installation identity, scoped read, a provider-approved reply, and the canonical Envoi receipt. Record changed-content/revoked-grant behavior. If Meta classifies reply as sensitive, record the prompt on **each** use.
+4. **Prove delivery separately.** Identify a Meta-supported trigger that invokes this reviewed connector after Muse is closed. Record the task/subscription ID and readback, two separately timed synthetic case arrivals, actual host invocations, authenticated fetch, each required prompt, canonical replies and effects. Then exercise missed trigger, duplicate, restart, pause and revoke. A Background sync toggle, saved Goal, notification, or connector listing is not this evidence.
+
+**Acceptance line:** Muse stays `UNPROVEN` until Meta's reviewed/listed approval, exact account authorization, a real identity/read/reply exchange, and independently observed closed-app execution are all recorded against the same release. If sensitive-write approval is required on every reply, describe that operational limit honestly; a limited beta for other verified hosts can proceed while Muse remains open.

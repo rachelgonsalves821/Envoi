@@ -1,0 +1,16 @@
+---
+import Icon from './Icon.astro';
+interface Props { id: string; }
+const { id } = Astro.props;
+const enabled = import.meta.env.PUBLIC_WAITLIST_ENABLED === 'true';
+---
+<form class="waitlist-form" data-waitlist data-enabled={String(enabled)} aria-label="Join the Envoi waitlist">
+  <label class="visually-hidden" for={`${id}-email`}>Email address</label>
+  <div class="form-row">
+    <input type="email" id={`${id}-email`} name="email" aria-label="Email address" autocomplete="email" placeholder="Your email address" required maxlength="254" aria-describedby={`${id}-status`} />
+    <button class="button primary" type="button" data-submit><span>Join the waitlist</span><Icon name="arrow" /></button>
+  </div>
+  <div class="honeypot" aria-hidden="true"><label for={`${id}-company`}>Company<input id={`${id}-company`} name="company" tabindex="-1" autocomplete="off" /></label></div>
+  <p class="form-status" id={`${id}-status`} role="status">{enabled ? '' : 'Preview only · email collection is disabled.'}</p>
+  <noscript><p>JavaScript is needed to submit this form. <a href="https://www.envoi-agents.com/">Visit the current Envoi site.</a></p></noscript>
+</form>

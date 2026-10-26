@@ -2,12 +2,16 @@ import posthog from 'posthog-js';
 
 // PostHog project tokens are public browser credentials. Production builds use
 // Envoi's US Cloud project; the variables allow a different project if needed.
-const projectToken = (import.meta.env.VITE_POSTHOG_PROJECT_TOKEN ||
+const defaultProjectToken = (import.meta.env.VITE_POSTHOG_PROJECT_TOKEN ||
   (import.meta.env.PROD ? 'phc_nayMdaa954vNC4Dkx33k9Ui38kPQyp2xhn2YUYiFFfHH' : '')).trim();
-const apiHost = (import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com').trim();
+const defaultApiHost = (import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com').trim();
+export type AnalyticsOptions = { projectToken?: string; apiHost?: string };
+let initialized = false;
 
 type AnalyticsEvent =
   | 'waitlist_joined'
+  | 'sign_up_started'
+  | 'sign_in_started'
   | 'beta_app_opened'
   | 'workspace_created'
   | 'agent_enrollment_started'
@@ -17,41 +21,56 @@ type AnalyticsEvent =
   | 'invitation_accepted';
 
 const productEvents: AnalyticsEvent[] = [
-  'waitlist_joined', 'beta_app_opened', 'workspace_created',
+  'waitlist_joined', 'sign_up_started', 'sign_in_started', 'beta_app_opened', 'workspace_created',
   'agent_enrollment_started', 'agent_approved', 'case_decision_submitted',
   'instruction_sent', 'invitation_accepted'
 ];
 
 function publicPage() {
   const path = window.location.pathname.replace(/\/$/, '') || '/';
-  return path === '/about' || path === '/product' ? path : '/';
+  return ['/', '/about', '/product', '/app', '/connect', '/claim', '/authorize-agent'].includes(path) ? path : '/';
 }
 
-export function initAnalytics() {
+export function initAnalytics(options: AnalyticsOptions = {}) {
+  if (initialized) return;
+  const projectToken = (options.projectToken || defaultProjectToken).trim();
+  const apiHost = (options.apiHost || defaultApiHost).trim();
   if (!projectToken || !apiHost || !/^https:\/\//.test(apiHost)) return;
 
-  posthog.init(projectToken, {
-    api_host: apiHost,
-    autocapture: false,
-    capture_pageview: false,
-    capture_pageleave: false,
-    disable_session_recording: true,
-    person_profiles: 'never',
-    before_send: event => {
-      if (!event || !['$pageview', ...productEvents].includes(event.event)) return null;
-      // Do not send query strings, emails, case content, or other SDK-added page properties.
-      event.properties = event.event === '$pageview'
-        ? { $current_url: `${window.location.origin}${publicPage()}` }
-        : {};
-      return event;
-    }
-  });
+  try {
+    posthog.init(projectToken, {
+      api_host: apiHost,
+      autocapture: false,
+      capture_pageview: false,
+      capture_pageleave: false,
+      disable_session_recording: true,
+      advanced_disable_feature_flags: true,
+      disable_surveys: true,
+      disable_external_dependency_loading: true,
+      person_profiles: 'never',
+      before_send: event => {
+        if (!event || !['$pageview', ...productEvents].includes(event.event)) return null;
+        // The SDK drops events without properties.token. Preserve only anonymous
+        // ingestion/session fields, never form values, account IDs or raw URLs.
+        const { token, distinct_id, $device_id, $session_id, $window_id } = event.properties;
+        return {
+          event: event.event, uuid: event.uuid, timestamp: event.timestamp,
+          properties: { token, distinct_id, $device_id, $session_id, $window_id,
+            $process_person_profile: false, $current_url: `${window.location.origin}${publicPage()}` }
+        };
+      }
+    });
 
-  posthog.capture('$pageview');
+    initialized = true;
+    posthog.capture('$pageview');
+  } catch {
+    // Analytics must never prevent loading the app or completing a user action.
+  }
 }
 
 export function captureAnalyticsEvent(event: AnalyticsEvent) {
-  if (projectToken && /^https:\/\//.test(apiHost)) posthog.capture(event);
+  if (!initialized) return;
+  try { posthog.capture(event); } catch { /* Do not turn a saved action into an error. */ }
 }
 
 export function captureSuccessfulProductAction(pathname: string, method = 'GET') {

@@ -1,0 +1,67 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "act-expired-run-refused",
+  "kind": "http",
+  "description": "§3.1a: a reply at 12:02:10 for run_example is refused with GATEWAY_RUN_EXPIRED before any lease check: no message is sent. The item stays leased until 12:02:30 and then returns to the queue.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:02:10.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/act",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "idempotencyKey": "late-1",
+      "action": "reply",
+      "text": "Tuesday 10:00 works for us."
+    }
+  },
+  "response": {
+    "status": 409,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "error": "GATEWAY_RUN_EXPIRED",
+      "code": "GATEWAY_RUN_EXPIRED",
+      "guidance": "start_fresh_run"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "start_fresh_run"
+  },
+  "effects": {
+    "effect": "none"
+  }
+}

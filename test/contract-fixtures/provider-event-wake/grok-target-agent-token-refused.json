@@ -1,0 +1,54 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "grok-target-agent-token-refused",
+  "kind": "http",
+  "description": "§8.1: an agent credential cannot read or change the target; only the signed-in owner can. The model never holds the URL or the secret.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "context": {
+    "profile": "grok_trigger",
+    "agentStatus": "active",
+    "targetAllowlist": [
+      "https://triggers.grok.example"
+    ],
+    "dns": {
+      "host": "triggers.grok.example",
+      "addresses": [
+        "192.0.43.12"
+      ]
+    }
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/inboxes/inbox_grok1/agents/agent_grok1/wake-targets/grok",
+    "auth": "bearer",
+    "headers": {
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "errorEnvelope",
+    "body": {
+      "code": "AUTHENTICATION_REQUIRED",
+      "error": "AUTHENTICATION_REQUIRED",
+      "message": "Authentication is required.",
+      "requestId": "req_example"
+    }
+  },
+  "client": {
+    "surface": "owner",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "See the row for this outcome in the contract tables."
+  }
+}

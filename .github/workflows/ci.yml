@@ -8,6 +8,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Legacy server suites use unfunded local agents. Monad-specific tests enable a fake RPC explicitly.
+      ENVOI_MONAD_PERMISSIONS: 'false'
     steps:
       - uses: actions/checkout@v4
       # A step, not a job service: services are pulled before any step, so a throttled registry
@@ -16,7 +19,7 @@ jobs:
         run: bash scripts/ci-start-postgres.sh
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - uses: actions/setup-python@v5
         with:

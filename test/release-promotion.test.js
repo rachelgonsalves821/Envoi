@@ -59,13 +59,15 @@ test('secret-name gate allows a policy keyring and requires a separate scanner c
 const secretList = names => names.map(name => ({ name, type: 'secret_text' }));
 const betaInventory = ({ app, scanner }) => (...argv) => argv.includes('scanner/wrangler.beta.jsonc') ? secretList(scanner) : secretList(app);
 const migratedApp = APP_SECRET_NAMES.map(name => name === 'ENVOI_DATA_ENCRYPTION_KEY' ? 'SINALOA_DATA_ENCRYPTION_KEY' : name);
+const betaApp = [...migratedApp, 'ENVOI_MONAD_ISSUER_PRIVATE_KEY'];
 test('beta deploys refuse until the ENVOI_* twins exist (H-5)', () => {
   const legacyApp = APP_SECRET_NAMES.map(name => name.replace('ENVOI_', 'SINALOA_'));
   assert.throws(() => requireBetaSecretNames(betaInventory({ app: legacyApp, scanner: ['ENVOI_SCANNER_TOKEN'] })), /ENVOI_BETA_INVITED_EMAILS/);
-  assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['SINALOA_SCANNER_TOKEN'] })), /ENVOI_SCANNER_TOKEN/);
-  assert.doesNotThrow(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] })));
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] })), /ENVOI_MONAD_ISSUER_PRIVATE_KEY/);
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: betaApp, scanner: ['SINALOA_SCANNER_TOKEN'] })), /ENVOI_SCANNER_TOKEN/);
+  assert.doesNotThrow(() => requireBetaSecretNames(betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] })));
   const asked = [];
-  requireBetaSecretNames((...argv) => { asked.push(argv); return betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] })(...argv); });
+  requireBetaSecretNames((...argv) => { asked.push(argv); return betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] })(...argv); });
   assert.deepEqual(asked, [['--env', 'beta'], ['--config', 'scanner/wrangler.beta.jsonc']]);
 });
 test('an optional secret held only under a retired name is refused, not silently dropped', () => {
@@ -98,9 +100,9 @@ test('the direct beta deploy checks secret names before running Wrangler', async
   const runs = [];
   const run = (command, args) => { runs.push(args.slice(1)); return { status: 0 }; };
   const source = () => ({ headSha: main, mainSha: main, clean: true, descendedFromMain: true });
-  await assert.rejects(deployBetaBuild({ inventory: betaInventory({ app: migratedApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), run, source }), /ENVOI_SCANNER_TOKEN/);
+  await assert.rejects(deployBetaBuild({ inventory: betaInventory({ app: betaApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), run, source }), /ENVOI_SCANNER_TOKEN/);
   assert.equal(runs.length, 0);
-  await deployBetaBuild({ inventory: betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, source });
+  await deployBetaBuild({ inventory: betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), run, source });
   assert.deepEqual(runs, [['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`]]);
 });
 test('automatic beta Builds pins the exact Git SHA and never selects the old production Worker', () => {
@@ -205,4 +207,93 @@ test('beta source refreshes an advanced local origin/main and detects hidden unt
     await writeFile(join(build, 'stray.txt'), 'uncommitted');
     assert.equal(readBetaBuildSource({ cwd: build }).clean, false);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test('explicit Hermes/OpenClaw profile serializes every flag and keeps Monad disabled', async () => {
+  const { releaseProfileVars } = await import('../scripts/promote-release.mjs');
+  const { onboardingFlagNames, readOnboardingFlags } = await import('../src/onboarding-flags.js');
+  const vars = releaseProfileVars('hermes-openclaw');
+  assert.equal(Object.isFrozen(vars), true);
+  assert.deepEqual(Object.keys(vars).sort(), [...onboardingFlagNames, 'ENVOI_MONAD_PERMISSIONS'].sort());
+  assert.deepEqual(Object.entries(vars).filter(([,value]) => value === 'true').map(([name]) => name).sort(),
+    ['ENVOI_AGENT_REGISTRATION_V2', 'ENVOI_CASE_SESSIONS_V1', 'ENVOI_INSTALLATIONS_V2']);
+  assert.equal(vars.ENVOI_MONAD_PERMISSIONS, 'false');
+  assert.doesNotThrow(() => readOnboardingFlags(vars));
+  assert.equal(releaseProfileVars(), null);
+  for (const unknown of ['', null, 'default', 'monad', {}, 'hermes-openclaw --var ENVOI_REMOTE_MCP_OAUTH:true']) {
+    assert.throws(() => releaseProfileVars(unknown), /Unsupported release profile/);
+  }
+  for (const target of ['staging', 'beta']) {
+    const plan = promotionPlan({ target, sha: main, headSha: main, mainSha: main, clean: true, descendedFromMain: true,
+      deploy: true, profile: 'hermes-openclaw' });
+    assert.equal(plan.profile, 'hermes-openclaw');
+    assert.deepEqual(plan.vars, vars);
+    assert.deepEqual(plan.args, ['deploy', '--env', target, '--var', `ENVOI_RELEASE_SHA:${main}`,
+      ...Object.entries(vars).flatMap(([name,value]) => ['--var', `${name}:${value}`])]);
+  }
+});
+
+test('profile selection cannot bypass clean exact-source and main-ancestry gates', () => {
+  const input = { target: 'beta', sha: main, headSha: main, mainSha: main, clean: true, descendedFromMain: true,
+    deploy: true, profile: 'hermes-openclaw' };
+  assert.throws(() => promotionPlan({ ...input, clean: false }), /clean/);
+  assert.throws(() => promotionPlan({ ...input, headSha: candidate }), /exactly/);
+  assert.throws(() => promotionPlan({ ...input, descendedFromMain: false }), /descend/);
+  assert.throws(() => promotionPlan({ ...input, mainSha: candidate }), /equal fetched origin/);
+  assert.throws(() => promotionPlan({ ...input, profile: 'other' }), /Unsupported release profile/);
+});
+
+test('core-only secret gate omits only disabled Monad and preserves all app/scanner protections', () => {
+  const profile = { profile: 'hermes-openclaw' };
+  const inventory = app => betaInventory({ app, scanner: ['ENVOI_SCANNER_TOKEN'] });
+  assert.doesNotThrow(() => requireBetaSecretNames(inventory(migratedApp), profile));
+  assert.throws(() => requireBetaSecretNames(inventory(migratedApp)), /ENVOI_MONAD_ISSUER_PRIVATE_KEY/);
+  for (const name of migratedApp) {
+    assert.throws(() => requireBetaSecretNames(inventory(migratedApp.filter(value => value !== name)), profile), /Missing encrypted/);
+  }
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['SINALOA_SCANNER_TOKEN'] }), profile), /ENVOI_SCANNER_TOKEN/);
+  assert.throws(() => requireBetaSecretNames(inventory([...migratedApp, 'SINALOA_DB_CA']), profile), /retired names/);
+  let accessed = false;
+  assert.throws(() => requireBetaSecretNames(() => { accessed = true; return []; }, { profile: 'other' }), /Unsupported release profile/);
+  assert.equal(accessed, false);
+});
+
+test('release CLI refuses duplicate or arbitrary profile flags before source or secret access', async () => {
+  const { promoteRelease } = await import('../scripts/promote-release.mjs');
+  for (const flags of [ ['--profile=other'], ['--profile'], ['--profile=hermes-openclaw','--profile=hermes-openclaw'],
+    ['--deploy','--deploy'], ['--profile=hermes-openclaw','--var=ENVOI_REMOTE_MCP_OAUTH:true'] ]) {
+    await assert.rejects(promoteRelease(['beta', main, ...flags], { cwd: 'missing-profile-source-must-not-be-read' }), /Usage:/);
+  }
+});
+
+
+test('beta-only preservation profile retains live Monad and its issuer secret gate', async () => {
+  const { releaseProfileVars } = await import('../scripts/promote-release.mjs');
+  const vars = releaseProfileVars('hermes-openclaw-preserve-monad');
+  assert.deepEqual(vars, { ...releaseProfileVars('hermes-openclaw'), ENVOI_MONAD_PERMISSIONS: 'true' });
+  assert.equal(Object.isFrozen(vars), true);
+  const input = { target: 'beta', sha: main, headSha: main, mainSha: main, clean: true, descendedFromMain: true,
+    deploy: true, profile: 'hermes-openclaw-preserve-monad' };
+  const plan = promotionPlan(input);
+  assert.deepEqual(plan.vars, vars);
+  assert.deepEqual(plan.args, ['deploy', '--env', 'beta', '--var', `ENVOI_RELEASE_SHA:${main}`,
+    ...Object.entries(vars).flatMap(([name,value]) => ['--var', `${name}:${value}`])]);
+  assert.throws(() => promotionPlan({ ...input, target: 'staging' }), /beta only/);
+  const profile = { profile: input.profile };
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: migratedApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), profile), /ENVOI_MONAD_ISSUER_PRIVATE_KEY/);
+  assert.doesNotThrow(() => requireBetaSecretNames(betaInventory({ app: betaApp, scanner: ['ENVOI_SCANNER_TOKEN'] }), profile));
+  assert.throws(() => requireBetaSecretNames(betaInventory({ app: betaApp.filter(name => name !== 'WORKOS_API_KEY'), scanner: ['ENVOI_SCANNER_TOKEN'] }), profile), /WORKOS_API_KEY/);
+});
+
+test('preserve-Monad cannot enable staging or choose conflicting CLI profiles before source access', async () => {
+  const { promoteRelease } = await import('../scripts/promote-release.mjs');
+  const options = { cwd: 'missing-profile-source-must-not-be-read' };
+  await assert.rejects(promoteRelease(['staging', main, '--profile=hermes-openclaw-preserve-monad'], options), /beta only/);
+  await assert.rejects(promoteRelease(['staging', main, '--deploy', '--profile=hermes-openclaw-preserve-monad'], options), /beta only/);
+  for (const profiles of [ ['--profile=hermes-openclaw','--profile=hermes-openclaw-preserve-monad'],
+    ['--profile=hermes-openclaw-preserve-monad','--profile=hermes-openclaw'],
+    ['--profile=hermes-openclaw-preserve-monad','--profile=hermes-openclaw-preserve-monad'] ]) {
+    await assert.rejects(promoteRelease(['beta', main, ...profiles], options), /Usage:/);
+  }
 });

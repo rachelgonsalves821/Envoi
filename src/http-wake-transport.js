@@ -36,7 +36,7 @@ export function classifyWakeStatus(status) {
   return 'http_rejected';
 }
 export function createWakeTransport({ request = https.request, limits = wakeLimits } = {}) {
-  return ({ url, addresses, headers, bodyText, remainingMs = limits.deliveryTimeoutMs }) => new Promise(resolve => {
+  return ({ url, addresses, headers, bodyText, readResponseBody = false, standardWebhooks = false, remainingMs = limits.deliveryTimeoutMs }) => new Promise(resolve => {
     const target = new URL(url); let req, timer, connectTimer, done = false, responseStream, responseResult;
     const finish = result => { if (done) return; done = true; clearTimeout(timer); clearTimeout(connectTimer); resolve(result); };
     try {
@@ -44,11 +44,13 @@ export function createWakeTransport({ request = https.request, limits = wakeLimi
         lookup: (_host, options, callback) => options?.all ? callback(null, addresses.map(address => ({ address, family:net.isIP(address) }))) : callback(null, addresses[0], net.isIP(addresses[0]))
       }, response => {
         responseStream = response;
-        const status = response.statusCode; const retry = [429,503].includes(status) && /^\d+$/.test(String(response.headers['retry-after'] || '')) ? Math.min(1800, Number(response.headers['retry-after'])) : 0;
+        const status = response.statusCode; const retryHeader=String(response.headers['retry-after'] || '');
+        const retryableStatus=standardWebhooks ? classifyWakeStatus(status)==='http_retryable' : [429,503].includes(status);
+        const retry=retryableStatus&&/^\d+$/.test(retryHeader)?Math.min(1800,Number(retryHeader)):standardWebhooks&&retryableStatus&&Number.isFinite(Date.parse(retryHeader))?Math.min(1800,Math.max(0,Math.ceil((Date.parse(retryHeader)-Date.now())/1000))):0;
         responseResult = { status, failureClass:classifyWakeStatus(status), retryAfterSeconds:retry };
         clearTimeout(connectTimer);
-        let bytes = 0;
-        response.on('data', chunk => { bytes += chunk.length; if (bytes >= limits.responseBodyReadMaxBytes) response.destroy(); });
+        let bytes = 0; const chunks = [];
+        response.on('data', chunk => { bytes += chunk.length; if (bytes >= limits.responseBodyReadMaxBytes) { responseResult.bodyTooLarge = true; response.destroy(); } else if (readResponseBody) { chunks.push(Buffer.from(chunk)); responseResult.bodyText = Buffer.concat(chunks).toString('utf8'); } });
         response.on('error', () => { response.destroy(); finish(responseResult); });
         response.on('end', () => { response.destroy(); finish(responseResult); });
         response.on('close', () => finish(responseResult));

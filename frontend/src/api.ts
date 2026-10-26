@@ -71,6 +71,14 @@ export function csrfHeaders(method = 'GET', cookieHeader?: string): Record<strin
   return token ? { 'x-envoi-csrf': token } : {};
 }
 
+export interface MonadPermissionEvidence {
+  enabled: boolean;
+  chainId: number;
+  permission: { status: 'off' | 'not_recorded' | 'pending' | 'unavailable' | 'recorded'; digest?: string; txHash?: string; explorerUrl?: string };
+  violations: Array<{ requestId: string; method: string; pathname: string; reasonCode: string; createdAt: string; status: 'queued' | 'pending' | 'recorded'; txHash?: string; explorerUrl?: string }>;
+}
+export interface MonadSettings { available: boolean; entitled: boolean; enabled: boolean }
+
 export async function request<T>(pathname: string, options: RequestInit = {}, notifySessionExpired = true): Promise<T> {
   const requestHumanId = expectedHumanId;
   const session = trackSessionRequest();
@@ -167,6 +175,9 @@ export const api = {
   sendInstruction: (inboxId: string, caseId: string, text: string, idempotencyKey: string) => request<unknown>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases/${encodeURIComponent(caseId)}/instructions`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ text }) }),
   createWorkspace: (name: string, organizationId?: string) => request<Inbox>('/api/inboxes', { method: 'POST', body: JSON.stringify({ name, organizationId }) }),
   humanView: (inboxId: string, history?: Record<string, string>, signal?: AbortSignal) => request<HumanView>(`/api/inboxes/${encodeURIComponent(inboxId)}/human-view${history ? `?history=${encodeURIComponent(JSON.stringify(history))}` : ''}`, { signal }),
+  monadPermissionEvidence: (inboxId: string, agentId: string, signal?: AbortSignal) => request<MonadPermissionEvidence>(`/api/inboxes/${encodeURIComponent(inboxId)}/agents/${encodeURIComponent(agentId)}/monad-evidence`, { signal }),
+  monadSettings: (inboxId: string, signal?: AbortSignal) => request<MonadSettings>(`/api/inboxes/${encodeURIComponent(inboxId)}/monad-settings`, { signal }),
+  updateMonadSettings: (inboxId: string, enabled: boolean) => request<MonadSettings>(`/api/inboxes/${encodeURIComponent(inboxId)}/monad-settings`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   // Only the validation caller handles denial, to distinguish MFA from logout.
   sessionView: (inboxId: string, signal: AbortSignal) => request<HumanView>(`/api/inboxes/${encodeURIComponent(inboxId)}/human-view`, { signal }, false),
   invitations: (inboxId: string) => request<AgentConnectionInvitation[]>(`/api/inboxes/${encodeURIComponent(inboxId)}/invitations`),

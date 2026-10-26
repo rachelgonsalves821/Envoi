@@ -26,6 +26,7 @@ import { configuredDeploymentIdentity, ensureDeploymentIdentity, verifyDeploymen
 import { clientIp, errorBody, publicHttpError, requestIdFrom } from './http-security.js';
 import { createPkcePair, exchangeCalendarAuthorizationCode } from './calendar-oauth.js';
 import { assertSafeIdentifier, assertSafeRequestTarget, resolvePathWithin } from './path-safety.js';
+import { marketingRoute, nonceStaticHtml } from './marketing-routes.js';
 import { claimIdempotency, completeIdempotency, replayResponse, scopedIdempotencyPath, semanticDigest, validateIdempotencyKey } from './idempotency.js';
 import { humanConversationMessagingEnabled } from './human-messaging.js';
 import { createHumanInstructions, isHumanInstruction, assertHumanInstructionWork, humanInstructionCaseDocuments, humanInstructionReplyDocuments, validateHumanInstructionInput } from './human-instructions.js';
@@ -73,9 +74,13 @@ import { createPollLimiter, createRegistrationLimits } from './agent-registratio
 import { allowedCaseTools, isHumanDecision, caseSessionTokenPath, caseSessionTokenPrefix, caseSessionsHeartbeatMs, createCaseSessions, firstCondition, leaseStaleReason, publicSessionEnd, sessionConditions, validCaseSessionId, validLeaseToken, workKindOf } from './case-sessions.js';
 import { createCaseSessionMcp } from './case-session-mcp.js';
 import { authorityToolError, createCaseTools, caseToolError, humanDecisionWorkMessage } from './case-tools.js';
-import { createCaseReferenceCodec } from './case-tools-projection.js';
+import { createCaseReferenceCodec, projectCaseSnapshot } from './case-tools-projection.js';
 import { createHttpWake } from './http-wake.js';
+import { createMcpWakeTools } from './mcp-wake-tools.js';
+import { createProviderEventWake } from './provider-event-wake.js';
 import { createCanonicalBrowserGateway } from './provider-browser-poll-canonical.js';
+import { commitment, createMonadPermissionLayer, permissionSnapshot } from './monad-permissions.js';
+import { createMonadAccess } from './monad-access.js';
 import { providerGatewayAuthority, browserPollAvailable } from './onboarding-flags.js';
 import { authorizationServerMetadata, consentClient, consentRedirect, createAuthorizationRequestSealer, createAuthorizeRequestHandler, createClientMetadataFetch, createClientResolver, oauthErrorDescriptions, oauthGrantablePermissions, parsePreRegisteredClients, permissionsForScopes, protectedResourceMetadata, remoteAuthEnabled, remoteAuthEndpointServed, remoteAuthLimits, remoteAuthOrigin, remoteAuthScopes, resourceFor, scopeForPermissions } from './agent-remote-auth.js';
 import { organizationMaximumPermissions } from './agent-approval.js';
@@ -148,6 +153,20 @@ if (process.env.ENVOI_EXPECTED_DATABASE_FINGERPRINT && !process.env.DATABASE_URL
 const consumerIdentity = createConsumerIdentity({ connectionString: process.env.DATABASE_URL, releaseSha });
 const logConsumer = consumerLogger(consumerIdentity);
 const store = process.env.DATABASE_URL ? new (await import('./postgres-storage.js')).PostgresStore(process.env.DATABASE_URL, { applicationName: consumerIdentity.applicationName }) : new FileStore(dataDir);
+const monadPermissions = createMonadPermissionLayer({
+  store, enabled: process.env.ENVOI_MONAD_PERMISSIONS === 'true'
+});
+const monadAccess = createMonadAccess({
+  store, available: monadPermissions.enabled,
+  paidOrganizationIds: process.env.ENVOI_MONAD_PAID_ORGANIZATION_IDS
+});
+const monadRequest = Symbol('monad-request');
+const monadPermissionDenied = Symbol('monad-permission-denied');
+const monadViolationRetry = monadPermissions.enabled
+  ? setInterval(() => { void monadPermissions.flushViolations().catch(() => {}); }, 30_000)
+  : null;
+monadViolationRetry?.unref?.();
+if (monadPermissions.enabled) void monadPermissions.flushViolations().catch(() => {});
 const auth = createHumanAuth(store);
 const presenceRecorder = createPresenceRecorder({
   store,
@@ -740,6 +759,15 @@ async function checkAgentCredential(req, url, res) {
   if (resolved.error) throw resolved.error;
   const identity = resolved.identity;
   if (identity) trackAgentPresence(req, res, identity);
+  if (identity && await monadAccess.active(identity.inboxId)) {
+    req[monadRequest] = {
+      requestId: crypto.randomUUID(), inboxId: identity.inboxId, agentId: identity.agent.id,
+      method: req.method, pathname: url.pathname,
+      permissionFingerprint: commitment('permission', permissionSnapshot(identity.inboxId, identity.agent))
+    };
+    try { await monadPermissions.ensurePermission(identity.inboxId, identity.agent); }
+    catch { throw codedError(503, 'MONAD_PERMISSION_UNAVAILABLE', 'The current agent permission could not be verified on Monad.'); }
+  }
   // agent-registration §14.2: the first outer /mcp request an oauth_access token authenticates records usedAt before it is
   // dispatched (and retires the refresh recovery envelope that named it). The REST call a tool call makes never does.
   if (identity?.oauth && url.pathname === '/mcp') await markOAuthAccessUsed(identity.credential.tokenHash, { familyId: identity.familyId, usedAt: identity.credential.usedAt });
@@ -797,7 +825,12 @@ async function a2aAuthorizedArtifacts(identity, caseRecord) {
 }
 async function getMcpIdentity(req) {
   const full = await getAgentWorkIdentity(req);
-  if (full) return full;
+  if (full) {
+    const family = await store.getJson(agentCredentialFamilyPath(full.inboxId, full.agent.id, full.familyId));
+    const installation = onboardingFlags.installations ? await installations.forFamily(full.inboxId, full.agent, full.familyId) : null;
+    return { ...full, family, installationId: installation?.status === 'active' ? installation.id : null,
+      connectionRoute: family?.audience ? oauthClients.get(family.oauthClientId)?.connectionRoute || 'remote_mcp_oauth' : 'local_helper' };
+  }
   const raw = bearerToken(req);
   if (!hasAgentCredentialFormat(raw, 'mcp_read')) return null;
   const index = await store.getJson(agentCredentialPath(hashSecret(raw)));
@@ -1077,10 +1110,57 @@ async function handleConsentRoute(req, res, route) {
 
 const httpWakeEnabled = onboardingFlags.httpWake;
 const httpWake = createHttpWake({ store, enabled: httpWakeEnabled, installationsEnabled: onboardingFlags.installations,
-  facts: async sub => ({ family: await store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)), agent: await store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`)) }),
+  mcpWakeEnabled: Boolean(onboardingFlags.mcpWake), mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger),
+  facts: async sub => {
+    const [family, agent] = await Promise.all([store.getJson(agentCredentialFamilyPath(sub.inboxId, sub.agentId, sub.familyId)),
+      store.getJson(path.join('inboxes', sub.inboxId, 'agents', `${sub.agentId}.json`))]);
+    // Installation documents are immutable. Their current lifecycle is derived from
+    // the family by the canonical reader, including installation-end/revoke state.
+    const installation = sub.installationId && agent ? await installations.forFamily(sub.inboxId, agent, sub.familyId) : null;
+    return { family, agent, installation: installation?.id === sub.installationId ? installation : null };
+  },
   audit: async (inboxId, type, data, at) => {
     if (!inboxId) { await store.putJson(path.join('http-wake', 'epoch-audit', `${store.id('evt')}.json`), { type, data, createdAt: at }); return; }
     const record = await auditRecord(inboxId, type, data, at); await store.putJson(record.document.path, record.document.value);
+  }
+});
+const mcpWakeTools = createMcpWakeTools({ httpWake, enabled: Boolean(onboardingFlags.mcpWake), clientFor: identity => oauthClients.get(identity.family?.oauthClientId) });
+const providerEventWake = createProviderEventWake({ httpWake, store, key: connectorEncryptionKey(),
+  mcpEventsEnabled: Boolean(onboardingFlags.mcpEvents), grokTriggerEnabled: Boolean(onboardingFlags.grokTrigger),
+  validateCursor: async (identity, cursor) => {
+    try { await resumeEventCursor(identity.inboxId, cursor); }
+    catch (error) { if (error.code === 'EVENT_CURSOR_INVALID') throw Object.assign(new Error('Invalid cursor'), { rpcCode: -32602 }); throw error; }
+  },
+  authorizeOwner: async identity => {
+    const { ownerRequest: req, ownerHumanId } = identity;
+    const human = req && await auth.getHuman(req);
+    const inbox = await store.getJson(path.join('inboxes', identity.inboxId, 'inbox.json'));
+    const agent = await store.getJson(path.join('inboxes', identity.inboxId, 'agents', `${identity.agent.id}.json`));
+    if (!human || human.id !== ownerHumanId || !inbox || !agent || !verifyCsrfRequest(req)
+      || !await canManageInbox(human, inbox, { maxAgeMs: 0 })) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'Workspace access is required.');
+    if (req.method === 'PUT') {
+      const family = await store.getJson(agentCredentialFamilyPath(identity.inboxId, agent.id, identity.family.id));
+      const installation = await installations.forFamily(identity.inboxId, agent, identity.family.id);
+      if (!family || family.revokedAt || Date.parse(family.refreshExpiresAt) <= Date.now() || installation?.status !== 'active'
+        || installation.id !== identity.installationId || !canAct(agent, 'receive_agent_messages')) throw credentialError('CREDENTIAL_REVOKED');
+    }
+  },
+  eventHistory: async (identity, cursor) => {
+    // Same durable a4 event history, bounded to 72 hours/1000 retained rows.
+    const rows = await store.queryJson(path.join('inboxes', identity.inboxId, 'events'), { sortField: 'cursor', order: 'desc', limit: 1000 });
+    const retained = rows.filter(event => Date.parse(event.createdAt) > Date.now() - 72 * 3600000).reverse();
+    const truncated = Boolean(cursor && (retained.length ? cursor < retained[0].cursor : rows.length));
+    const events = [];
+    for (const event of retained) {
+      if (cursor && event.cursor <= cursor || event.agentId && event.agentId !== identity.agentId || event.recipientAgentId && event.recipientAgentId !== identity.agentId) continue;
+      let type, reason;
+      if (event.type === 'message.delivered' && event.recipientAgentId === identity.agentId) { type = 'wake.work_available'; reason = 'message_delivered'; }
+      else if (event.type === 'work.available' && event.agentId === identity.agentId) { type = 'wake.work_available'; reason = ['human_instruction', 'case_resumed', 'counterparty_resumed', 'agent_resumed'].includes(event.reason) ? event.reason : 'work_due'; }
+      else if (event.type === 'agent.resumed' && event.agentId === identity.agentId) { type = 'wake.work_available'; reason = 'agent_resumed'; }
+      else if (event.type === 'agent.paused' && event.agentId === identity.agentId) { type = 'wake.control_changed'; reason = 'agent_paused'; }
+      if (type) events.push({ type, reason, cursor: event.cursor });
+    }
+    return { cursor: retained.at(-1)?.cursor || cursor || null, truncated, events };
   }
 });
 const registrationLimits = createRegistrationLimits({ store });
@@ -1101,9 +1181,9 @@ async function withInboxMutation(inboxId, operation, relatedInboxIds = [], addit
     await store.putJson(record.document.path, record.document.value);
     committedEvents.push({ inboxId: targetInboxId, event: record.event });
     if (httpWakeEnabled) {
-      if (type === 'work.available' && ['human_instruction', 'human_decision', 'case_resumed', 'counterparty_resumed', 'agent_resumed'].includes(data.reason)) await httpWake.trigger({ inboxId: targetInboxId, agentId: data.agentId, reason: data.reason });
-      if (type === 'agent.resumed') await httpWake.trigger({ inboxId: targetInboxId, agentId: data.agentId, reason: 'agent_resumed' });
-      if (type === 'agent.paused') await httpWake.pause(targetInboxId, data.agentId);
+      if (type === 'work.available' && ['human_instruction', 'human_decision', 'case_resumed', 'counterparty_resumed', 'agent_resumed'].includes(data.reason)) await httpWake.trigger({ inboxId: targetInboxId, agentId: data.agentId, reason: data.reason, cursor: record.event.cursor });
+      if (type === 'agent.resumed') await httpWake.trigger({ inboxId: targetInboxId, agentId: data.agentId, reason: 'agent_resumed', cursor: record.event.cursor });
+      if (type === 'agent.paused') await httpWake.pause(targetInboxId, data.agentId, record.event.cursor);
     }
     return record.event;
     });
@@ -1605,10 +1685,22 @@ async function evaluateServerPolicy(inboxId, agent, caseRecord, input, options =
     sourceEvaluationId: options.sourceEvaluationId || null,
     grantType: input.grantType || 'oneTime',
     humanDecisionRequired: onboardingFlags.caseSessions && requestedAction === 'proposal.accept' ? policy.agreements?.requireHumanApproval !== false
-      : onboardingFlags.caseSessions && requestedAction === 'case.complete' ? caseToolCompletionNeedsHuman(caseRecord, agent.id) : null,
+      : onboardingFlags.caseSessions && requestedAction === 'case.complete' ? caseToolCompletionNeedsHuman(caseRecord, agent.id) : input.humanDecisionRequired === true ? true : null,
     keyring: policyKeyring,
     now: store.now()
   });
+  if (await monadAccess.active(inboxId)) {
+    if (record.decision === 'deny') {
+      try {
+        await monadPermissions.recordViolation({
+          requestId: crypto.randomUUID(), inboxId, agentId: agent.id,
+          method: 'POLICY', pathname: requestedAction, status: 403,
+          reasonCode: record.reasonCode,
+          permissionFingerprint: commitment('permission', permissionSnapshot(inboxId, agent))
+        });
+      } catch { /* The durable outbox retries an unsent violation. */ }
+    }
+  }
   return {
     decision: record.decision,
     reasonCode: record.reasonCode,
@@ -1651,7 +1743,7 @@ async function validatedPolicyBinding(inboxId, caseRecord, principal, evaluation
   const proposalStateDigest = valueDigest(caseRecord.proposals || []);
   assertExactBinding(binding, { requestedAction: requestedAction || binding.requestedAction, actionPayload: actionPayload || {}, proposalDigest: proposalId ? proposalStateDigest : null, optionId, keyring: policyKeyring, at: store.now() });
   if (evaluation.decision === 'deny') throw Object.assign(new Error(`Policy denied this action: ${evaluation.reasonCode}`), { statusCode: 403 });
-  const humanApproved = hasHumanApprovalForEvaluation(caseRecord, evaluation.id, onboardingFlags.caseSessions && ['proposal.accept', 'case.complete'].includes(binding.requestedAction) ? inboxId : null);
+  const humanApproved = hasHumanApprovalForEvaluation(caseRecord, evaluation.id, onboardingFlags.caseSessions && ['proposal.accept', 'case.complete', 'message.reply'].includes(binding.requestedAction) ? inboxId : null);
   if (evaluation.decision === 'needsHuman' && !humanApproved && !allowPendingHuman) {
     throw Object.assign(new Error('This action requires human approval'), { statusCode: 409 });
   }
@@ -1876,7 +1968,7 @@ async function deliverNativeAgentMessage(outbox) {
   }
   // http-wake v1 §6.5: the wake is written in the delivery's own transaction (the worker runs this
   // and completeOutbox in one withTransaction), so it commits with the delivery or not at all.
-  if (httpWakeEnabled) await httpWake.trigger({ inboxId: outbox.recipientInboxId, agentId: queued.recipientAgentId, reason: 'message_delivered' });
+  if (httpWakeEnabled) await httpWake.trigger({ inboxId: outbox.recipientInboxId, agentId: queued.recipientAgentId, reason: 'message_delivered', cursor: events.find(entry => entry.inboxId === outbox.recipientInboxId)?.event.cursor || null });
   return { documents, result: { messageId: delivered.id, receiptId: receipt.id, deliveredAt }, events };
 }
 
@@ -2440,7 +2532,9 @@ async function settleActivation({ agent, inboxId, existing }) {
 // §6.1 row 11 re-checks, inside the activation's lock. False means the approval no longer holds.
 async function activationRechecksPass(registration) {
   const { target } = registration;
-  const approver = await store.getJson(path.join('humans', `${registration.approverHumanId}.json`));
+  const approver = auth.provider === 'workos'
+    ? await auth.getStoredHumanForAuthorization(registration.approverHumanId)
+    : await store.getJson(path.join('humans', `${registration.approverHumanId}.json`));
   if (!approver || (auth.provider === 'workos' && typeof auth.admitted === 'function' && !auth.admitted(approver))) return false;
   if (!(registration.oauth ? remoteRouteAvailable(onboardingFlags, registration.connectionRoute) : routeAvailable(onboardingFlags, registration.connectionRoute))) return false;
   const inbox = await store.getJson(path.join('inboxes', target.kind === 'new_agent' ? target.workspaceInboxId : target.agentInboxId, 'inbox.json'));
@@ -3188,6 +3282,12 @@ async function resolveCaseHumanRequest(request, outcome, humanId, value, writeAu
   if (['completed', 'failed', 'expired', 'revoked'].includes(value.state)) return;
   const id = `msg_human_decision_${hashSecret(request.id).slice(0, 32)}`;
   if (await store.getJson(messagePath(request.inboxId, id))) return;
+  if (request.kind === 'gateway_reply') {
+    const claim = await store.getJson(workClaimPath(request.inboxId, request.workId));
+    if (claim?.heldForOwnerRequest === request.id && ['approved', 'declined', 'expired'].includes(outcome)) await store.putJson(workClaimPath(request.inboxId, request.workId), { ...claim, heldForOwnerRequest: null, reofferWithoutAttempt: true, updatedAt: at });
+    if (['approved', 'declined', 'expired'].includes(outcome)) await writeAudit('work.available', { agentId: request.agentId, reason: 'human_decision', caseId: request.caseId }, at);
+    return;
+  }
   const evaluation = value.policyEvaluations.find(e => e.id === request.policyEvaluationId);
   const message = humanDecisionWorkMessage({ id, request, outcome, humanId, requestedAction: evaluation?.requestedAction, at });
   await store.putJson(messagePath(request.inboxId, id), message);
@@ -3292,9 +3392,19 @@ async function handleCaseSessionMcp(req, res, url) {
   }
   // §6.4: the session's tools, less any the agent's current permissions no longer allow.
   const agent = await store.getJson(path.join('inboxes', session.inboxId, 'agents', `${session.agentId}.json`));
+  if (agent && await monadAccess.active(session.inboxId)) {
+    req[monadRequest] = {
+      requestId: crypto.randomUUID(), inboxId: session.inboxId, agentId: session.agentId,
+      method: req.method, pathname: url.pathname,
+      permissionFingerprint: commitment('permission', permissionSnapshot(session.inboxId, agent))
+    };
+    try { await monadPermissions.ensurePermission(session.inboxId, agent); }
+    catch { throw codedError(503, 'MONAD_PERMISSION_UNAVAILABLE', 'The current agent permission could not be verified on Monad.'); }
+  }
   const permitted = new Set(allowedCaseTools(agent?.permissions, session.workKind, caseSessionMcp.implemented));
   const scope = { sessionId: session.id, agentId: session.agentId, inboxId: session.inboxId, workId: session.workId, workKind: session.workKind, caseId: session.caseId, counterparty: session.counterparty };
-  return caseSessionMcp.handle(req, res, { effectiveTools: session.allowedTools.filter(name => permitted.has(name)), scope });
+  return caseSessionMcp.handle(req, res, { effectiveTools: session.allowedTools.filter(name => permitted.has(name)), scope,
+    onPermissionDenied: () => { req[monadPermissionDenied] = true; } });
 }
 
 // §3 and §8. Credential and pause checks have already run (rows 2–5).
@@ -3405,7 +3515,7 @@ async function releaseCaseWork(inboxId, caseId, at, writeAudit) {
       if (message?.caseId === caseId) released.push(document(workClaimPath(participantInboxId, claim.workId), releasedClaim(claim, at)));
     }
     await store.putJsonBatch(released);
-    if (httpWakeEnabled) for (const agentId of new Set(released.map(entry => entry.value.agentId))) await httpWake.trigger({ inboxId: participantInboxId, agentId, type: 'wake.control_changed', reason: 'case_controlled' });
+    if (httpWakeEnabled) for (const agentId of new Set(released.map(entry => entry.value.agentId))) await httpWake.trigger({ inboxId: participantInboxId, agentId, type: 'wake.control_changed', reason: 'case_controlled', cursor: await newestEventCursor(participantInboxId) });
     await caseSessions.endForCase(participantInboxId, caseId, 'case_controlled', at, writeAudit);
   }
 }
@@ -3501,11 +3611,348 @@ async function reattachGatewayRegistration(rawToken, registrationId, activationI
   }, [], [registrationLockKey(registrationId), `gateway-installation:${binding.installationId}`]);
 }
 
+async function claimCanonicalAgentWork(identity, currentIdentity, input, claimCandidates, writeAudit, { leaseMs = agentWorkLeaseMs } = {}) {
+  const messages = claimCandidates
+    .filter(message => (isHumanInstruction(message) || isHumanDecision(message) || message.senderInboxId && message.senderAgentId) && message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status))
+    .sort((left, right) => String(left.deliveredAt || left.createdAt).localeCompare(String(right.deliveredAt || right.createdAt)) || String(left.id).localeCompare(String(right.id)));
+  let nextAvailable = null;
+  const noteAvailable = (claim, at) => {
+    if ((claim.reofferWithoutAttempt === true || agentWorkAttempts(claim) < agentWorkMaxAttempts) && (!nextAvailable || at < nextAvailable)) nextAvailable = at;
+  };
+  for (const candidate of messages) {
+    const message = await store.getJson(messagePath(identity.inboxId, candidate.id));
+    if (!message || !['delivered', 'acknowledged'].includes(message.status) || message.senderInboxId !== candidate.senderInboxId
+      || message.recipientInboxId !== identity.inboxId || message.recipientAgentId !== identity.agent.id
+      || isHumanInstruction(message) && input.acceptHumanInstructions !== true) continue;
+    const caseRecord = await getCase(identity.inboxId, message.caseId);
+    if (caseRecord?.state === 'paused' || caseRecord?.state === 'revoked') continue;
+    if (isHumanInstruction(message)) {
+      try { await assertHumanInstructionAuthority(message, currentIdentity); }
+      catch (error) { if ([400, 403, 404, 409, 422].includes(error.statusCode)) continue; throw error; }
+    } else if (isHumanDecision(message)) {
+      if (await workIneligibility(message, currentIdentity)) continue;
+    } else {
+      const senderAgent = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
+      if (!senderAgent || !canAct(senderAgent, 'send_agent_messages')) continue;
+      const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
+      const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
+      if (senderContact?.blocked || recipientContact?.blocked) continue;
+    }
+    const claimPath = workClaimPath(identity.inboxId, message.id);
+    const currentClaim = await store.getJson(claimPath);
+    if (currentClaim?.heldForOwnerRequest) {
+      const ownerRequest = await store.getJson(humanRequestPath(identity.inboxId, currentClaim.heldForOwnerRequest));
+      if (!ownerRequest || !['approved', 'declined', 'expired'].includes(ownerRequest.status)) continue;
+    }
+    if (currentClaim && ['completed', 'failed'].includes(currentClaim.status)) continue;
+    if (currentClaim && ['claimed', 'acknowledged'].includes(currentClaim.status) && new Date(currentClaim.leaseExpiresAt) > new Date()) {
+      noteAvailable(currentClaim, currentClaim.leaseExpiresAt);
+      continue;
+    }
+    const now = store.now();
+    if (currentClaim?.status === 'retryable' && new Date(currentClaim.retryAt) > new Date(now)) {
+      noteAvailable(currentClaim, currentClaim.retryAt);
+      continue;
+    }
+    const reoffer = currentClaim?.reofferWithoutAttempt === true;
+    if (currentClaim && !reoffer && agentWorkAttempts(currentClaim) >= agentWorkMaxAttempts) {
+      await failAgentWorkPermanently(message, currentClaim, 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
+      continue;
+    }
+    const leaseToken = crypto.randomBytes(32).toString('base64url');
+    const leaseExpiresAt = new Date(Date.now() + leaseMs).toISOString();
+    const claim = {
+      workId: message.id,
+      messageId: message.id,
+      agentId: identity.agent.id,
+      inboxId: identity.inboxId,
+      credentialFamilyId: identity.familyId,
+      fence: Number(currentClaim?.fence || 0) + 1,
+      attempts: agentWorkAttempts(currentClaim) + (reoffer ? 0 : 1),
+      leaseTokenHash: hashSecret(leaseToken),
+      leaseExpiresAt,
+      retryAt: null,
+      status: 'claimed',
+      createdAt: currentClaim?.createdAt || now,
+      updatedAt: now
+    };
+    await store.putJson(claimPath, claim);
+    await caseSessions.endForWork(identity.inboxId, message.id, 'lease_lost', now, writeAudit);
+    await writeAudit('agent.work_claimed', { workId: message.id, agentId: identity.agent.id, fence: claim.fence, attempts: claim.attempts, credentialFamilyId: claim.credentialFamilyId }, now);
+    return { status: 200, payload: { work: { workId: message.id, message, leaseToken, leaseExpiresAt }, state: 'claimed' } };
+  }
+  const idle = { work: null, state: 'idle' };
+  if (nextAvailable) {
+    // Relative delay too, so a client with a skewed clock schedules correctly.
+    const inMs = Math.max(0, Date.parse(nextAvailable) - Date.now());
+    Object.assign(idle, { nextAvailableAt: new Date(Date.now() + inMs).toISOString(), nextAvailableInMs: inMs });
+  }
+  return { status: 200, payload: idle };
+}
+
+async function settleCanonicalAgentWork({ identity, workId, currentMessage, claim, action, idempotencyPath = null, requestDigest = null, now = store.now() }, writeAudit) {
+  const claimPath = workClaimPath(identity.inboxId, workId);
+  const state = action === 'acknowledge' ? 'acknowledged' : 'processed';
+  if (action === 'acknowledge') {
+    const replay = replayResponse(await store.getJson(idempotencyPath), { principalId: identity.agent.id, requestDigest });
+    if (replay) return { status: 200, payload: replay };
+  }
+  if (currentMessage.status === 'processed' || claim.status === 'completed') {
+    throw settlementError(409, 'Work has already been processed', 'WORK_LEASE_STALE', 'settled');
+  }
+  const receiptId = `delivery_receipt_${currentMessage.id}_${state}`;
+  const existingReceipt = await store.getJson(deliveryReceiptPath(identity.inboxId, receiptId));
+  if (existingReceipt && action === 'acknowledge' && currentMessage.status === 'acknowledged') {
+    const receipt = {
+      id: existingReceipt.id,
+      type: 'delivery',
+      messageId: currentMessage.id,
+      ...workSenderFields(currentMessage),
+      recipientAgentId: currentMessage.recipientAgentId,
+      state: 'acknowledged',
+      createdAt: existingReceipt.createdAt
+    };
+    const response = { workId, status: 'acknowledged', receipt };
+    claim.status = 'acknowledged';
+    claim.updatedAt = now;
+    await store.putJson(claimPath, claim);
+    await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
+    return { status: 200, payload: response };
+  }
+  if (existingReceipt) throw settlementError(409, 'Message already has a receipt outside this work fence', 'WORK_LEASE_STALE', 'settled');
+  const updated = { ...currentMessage, status: state, [`${state}At`]: now, updatedAt: now };
+  const receipt = {
+    id: receiptId,
+    type: 'delivery',
+    messageId: currentMessage.id,
+    ...workSenderFields(currentMessage),
+    recipientAgentId: currentMessage.recipientAgentId,
+    state,
+    createdAt: now
+  };
+  const documents = await workCaseDocuments(currentMessage, updated, state, now);
+  for (const targetInboxId of workInboxIds(currentMessage)) {
+    const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
+    if (!targetInbox) continue;
+    documents.push(document(messagePath(targetInboxId, currentMessage.id), updated), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
+    await writeAudit(`message.${state}`, { messageId: currentMessage.id, caseId: currentMessage.caseId, ...workSenderFields(currentMessage), recipientAgentId: currentMessage.recipientAgentId }, now, targetInboxId);
+  }
+  claim.status = state === 'processed' ? 'completed' : 'acknowledged';
+  claim.updatedAt = now;
+  if (state === 'processed') claim.leaseExpiresAt = null;
+  const response = { workId, status: state, receipt };
+  await store.putJsonBatch(documents);
+  await store.putJson(claimPath, claim);
+  if (state === 'processed') await caseSessions.endForWork(identity.inboxId, workId, 'work_settled', now, writeAudit);
+  if (idempotencyPath) await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
+  return { status: 201, payload: response };
+}
+
+
+// Stage2 invokes the SAME canonical claim/settlement and scoped case services as the
+// trusted local host. The adapter never calls HTTP or exposes its private credentials.
+const nativeGatewayError = (code, statusCode = 409) => codedError(statusCode, code, 'This work operation is no longer authorized.');
+async function gatewayWorkIdentity(binding) {
+  const req = { method: 'POST', url: '/api/agent/work/claim', headers: { authorization: `Bearer ${binding.credentials?.access || ''}` } };
+  const identity = await getAgentWorkIdentity(req);
+  if (!identity || identity.inboxId !== binding.inboxId || identity.agent.id !== binding.agentId || identity.familyId !== binding.credentialFamilyId) throw nativeGatewayError('CREDENTIAL_REVOKED', 401);
+  return identity;
+}
+async function gatewayWorkKeys(binding) {
+  const messages = (await store.listJson(path.join('inboxes', binding.inboxId, 'messages'))).filter(message => message.recipientAgentId === binding.agentId);
+  const keys = new Set([inboxMutationKey(binding.inboxId), inboxMutationKey(binding.workspaceInboxId || binding.inboxId)]);
+  for (const message of messages) {
+    if (message.senderInboxId) keys.add(inboxMutationKey(message.senderInboxId));
+    if (!message.caseId) continue;
+    keys.add(caseMutationKey(message.caseId));
+    const current = await store.getJson(caseBindingPath(message.caseId));
+    for (const id of current?.inboxIds || []) keys.add(inboxMutationKey(id));
+  }
+  return [...keys];
+}
+async function gatewayWorkCurrent(binding, work, requireLease = false) {
+  const identity = await gatewayWorkIdentity(binding);
+  if (identity.paused) return { identity };
+  if (!work) return { identity };
+  const message = await store.getJson(messagePath(binding.inboxId, work.workId));
+  if (!message || message.recipientAgentId !== binding.agentId || message.recipientInboxId !== binding.inboxId || message.caseId !== work.caseId) throw nativeGatewayError('GATEWAY_SCOPE_DENIED', 403);
+  try { await assertCaseProgressAllowed(binding.inboxId, message.caseId); }
+  catch (error) { if (error.code === 'CASE_CONTROLLED') throw nativeGatewayError('GATEWAY_SCOPE_DENIED', 403); throw error; }
+  if (await workIneligibility(message, identity)) throw nativeGatewayError('GATEWAY_SCOPE_DENIED', 403);
+  const claim = await store.getJson(workClaimPath(binding.inboxId, message.id));
+  if (requireLease && (!claim || claim.credentialFamilyId !== identity.familyId || claim.fence !== work.fence || claim.leaseTokenHash !== hashSecret(work.leaseToken)
+    || !['claimed', 'acknowledged'].includes(claim.status) || Date.parse(claim.leaseExpiresAt) <= Date.now())) throw nativeGatewayError('LEASE_LOST');
+  return { identity, message, claim };
+}
+const gatewayAudit = options => (type, data, at = store.now(), targetInboxId) => options.audit(type, data, at, targetInboxId);
+function gatewayDeadline(options) {
+  if (!Number.isFinite(options.runDeadline) || Date.now() > options.runDeadline) throw nativeGatewayError('GATEWAY_RUN_EXPIRED');
+}
+async function gatewayPrivateSession(binding, work, identity, claim, options) {
+  let session = await caseSessions.get(binding.inboxId, work.caseSession.id);
+  const epoch = await caseSessions.epoch();
+  if (session && epoch && session.createdAt < epoch && !session.endedReason) {
+    const pointer = await caseSessions.pointer(binding.inboxId, work.workId);
+    if (pointer?.sessionId !== session.id || session.workId !== work.workId || session.fence !== claim.fence
+      || session.familyId !== identity.familyId || session.leaseTokenHash !== claim.leaseTokenHash) throw nativeGatewayError('LEASE_LOST');
+    const conditions = sessionConditions(session, await caseSessionFacts(session), store.now());
+    if (firstCondition(conditions)) throw nativeGatewayError('LEASE_LOST');
+    gatewayDeadline(options);
+    await caseSessions.recordEnd(session, 'superseded', store.now(), gatewayAudit(options));
+    const created = await caseSessions.create({ inboxId: binding.inboxId, agentId: binding.agentId, familyId: identity.familyId,
+      installationId: binding.installationId, workId: work.workId, workKind: session.workKind, caseId: work.caseId,
+      fence: claim.fence, leaseTokenHash: claim.leaseTokenHash, counterparty: session.counterparty,
+      allowedTools: allowedCaseTools(identity.agent.permissions, session.workKind, caseSessionMcp.implemented) }, store.now(), gatewayAudit(options));
+    session = created.session;
+    work.caseSession = { id: session.id };
+  }
+  if (!session) throw nativeGatewayError('LEASE_LOST');
+  try { await assertLiveToolSession(session); }
+  catch (error) { if (error.statusCode && error.statusCode < 500) throw nativeGatewayError('LEASE_LOST'); throw error; }
+  return session;
+}
+
+async function gatewayRelease(binding, work, options) {
+  const claim = await store.getJson(workClaimPath(binding.inboxId, work.workId));
+  if (!claim || claim.credentialFamilyId !== binding.credentialFamilyId || claim.fence !== work.fence || claim.leaseTokenHash !== hashSecret(work.leaseToken)
+    || !['claimed', 'acknowledged'].includes(claim.status)) return;
+  const at = store.now();
+  await store.putJson(workClaimPath(binding.inboxId, work.workId), { ...claim, status: 'retryable', leaseExpiresAt: null, retryAt: null,
+    reofferWithoutAttempt: true, updatedAt: at, ...(options.ownerRequestId ? { heldForOwnerRequest: options.ownerRequestId } : {}) });
+  await caseSessions.endForWork(binding.inboxId, work.workId, options.reason === 'paused' ? 'agent_paused' : 'work_settled', at, gatewayAudit(options));
+  await options.audit('agent.gateway_work_released', { agentId: binding.agentId, workId: work.workId, reason: options.reason }, at);
+}
+async function gatewayOwnerRequest(binding, work, ctx, text, actionPayload, options) {
+  const id = `policy_eval_gateway_${semanticDigest([binding.installationId, work.workId, work.fence, work.generation, actionPayload]).slice(0, 32)}`;
+  const at = store.now(), value = await getCase(binding.inboxId, work.caseId);
+  const evaluated = await evaluateServerPolicy(binding.inboxId, ctx.agent, value, { requestedAction: 'message.reply', actionPayload, humanDecisionRequired: true }, { id });
+  if (evaluated.decision === 'deny') throw nativeGatewayError('GATEWAY_SCOPE_DENIED', 403);
+  const evaluation = policyEvaluationFromInput({ id, requestedAction: 'message.reply', decision: evaluated.decision, matchedPolicyId: evaluated.matchedPolicyId,
+    grantType: 'oneTime', expiresAt: evaluated.expiresAt, reasonCode: evaluated.reasonCode }, binding.agentId, at);
+  const writeAudit = gatewayAudit(options);
+  if (!value.policyEvaluations.some(item => item.id === id)) {
+    await saveCase(binding.inboxId, addPolicyEvaluation(value, evaluation, { at }));
+    await store.putJson(policyBindingPath(binding.inboxId, id), evaluated.binding);
+    await writeAudit('policy.evaluated', { caseId: work.caseId, policyEvaluationId: id, requestedAction: 'message.reply', decision: evaluated.decision }, at);
+  }
+  const requestId = `request_gateway_${semanticDigest([id, binding.generation]).slice(0, 32)}`;
+  const prior = await store.getJson(humanRequestPath(binding.inboxId, requestId));
+  if (!prior) {
+    const request = await requestCaseToolHuman({ ...ctx, writeAudit }, evaluation, text, requestId);
+    await store.putJson(humanRequestPath(binding.inboxId, requestId), { ...request, kind: 'gateway_reply', workId: work.workId,
+      installationId: binding.installationId, generation: binding.generation, actionDigest: semanticDigest(actionPayload) });
+  }
+  await gatewayRelease(binding, work, { ...options, ownerRequestId: requestId, reason: 'owner_required' });
+  return { state: 'owner_approval_pending', settled: false, requestId };
+}
+const gatewayNativeAdapter = {
+  ownerInstallations: async human => {
+    const result = [];
+    for (const organization of await listHumanOrganizations(human.id)) {
+      for (const reference of await store.listJson(path.join('organizations', organization.id, 'workspaces'))) {
+        const inbox = await store.getJson(path.join('inboxes', reference.inboxId, 'inbox.json'));
+        if (!inbox?.ownerAgentId || inbox.status === 'removed' || !await canManageInbox(human, inbox, { maxAgeMs: 0 })) continue;
+        const agent = await store.getJson(path.join('inboxes', inbox.id, 'agents', `${inbox.ownerAgentId}.json`));
+        if (!agent) continue;
+        for (const installation of await installations.list(inbox.id, agent)) {
+          if (installation.status === 'active' && installation.deliveryMode === 'poll') result.push({ inboxId: inbox.id,
+            agentId: agent.id, installationId: installation.id, address: agent.address, permissions: agent.permissions || [] });
+        }
+      }
+    }
+    return result;
+  },
+  lockKeys: gatewayWorkKeys,
+  authorize: async (binding, { work } = {}) => {
+    const { identity } = await gatewayWorkCurrent(binding, work);
+    return { paused: identity.paused, permissions: identity.agent.permissions, address: identity.agent.address };
+  },
+  verifyOwnerScope: async (binding, _input, req) => {
+    if (!verifyCsrfRequest(req)) throw nativeGatewayError('GATEWAY_CSRF_INVALID', 403);
+    const ownerPath = new URL(req.url, 'http://localhost').pathname;
+    if (ownerPath !== `/api/inboxes/${binding.inboxId}/agents/${binding.agentId}/installations/${binding.installationId}/gateway-scope`) throw nativeGatewayError('GATEWAY_SCOPE_DENIED', 403);
+    const human = await auth.getHuman(req);
+    if (!human || human.id !== binding.ownerId) throw nativeGatewayError('AUTHENTICATION_REQUIRED', 401);
+  },
+  claim: async (binding, options) => store.withTransaction(await gatewayWorkKeys(binding), async () => {
+    const identity = await gatewayWorkIdentity(binding);
+    if (identity.paused) throw agentPausedError();
+    const candidates = (await store.listJson(path.join('inboxes', binding.inboxId, 'messages')))
+      .filter(message => !isHumanDecision(message) && !options.excludeWorkIds.includes(message.id));
+    gatewayDeadline(options);
+    const result = await claimCanonicalAgentWork(identity, identity, { acceptHumanInstructions: true }, candidates, gatewayAudit(options), { leaseMs: options.leaseSeconds * 1000 });
+    const work = result.payload.work;
+    if (!work) return { retryAfterSeconds: Math.max(1, Math.ceil((result.payload.nextAvailableInMs || 1800000) / 1000)) };
+    const message = work.message, claim = await store.getJson(workClaimPath(binding.inboxId, work.workId));
+    const workKind = workKindOf(message, isHumanInstruction);
+    let counterparty = { kind: 'human' };
+    if (workKind === 'agent_message') {
+      const other = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
+      counterparty = { kind: 'agent', address: other.address };
+    }
+    const created = await caseSessions.create({ inboxId: binding.inboxId, agentId: binding.agentId, familyId: binding.credentialFamilyId,
+      installationId: binding.installationId, workId: work.workId, workKind, caseId: message.caseId, fence: claim.fence, leaseTokenHash: claim.leaseTokenHash,
+      counterparty, allowedTools: allowedCaseTools(identity.agent.permissions, workKind, caseSessionMcp.implemented) }, store.now(), gatewayAudit(options));
+    const ctx = await loadCaseToolContext(created.session);
+    const shown = projectCaseSnapshot({ ...ctx, codec: referenceCodec, now: store.now() }, { eventLimit: 10 });
+    return { workId: work.workId, caseId: message.caseId, kind: workKind, leaseExpiresAt: work.leaseExpiresAt, leaseToken: work.leaseToken, fence: claim.fence,
+      caseSession: { id: created.session.id }, snapshot: { objective: shown.case.objective, status: shown.case.status,
+        participants: [{ role: 'self', displayName: identity.agent.name || 'Your agent' }, { role: 'counterparty', displayName: counterparty.kind === 'human' ? 'Your owner' : 'Other agent' }],
+        recentEvents: [...shown.recentEvents.map(event => ({ at: event.at, from: event.actor === 'you' ? 'self' : event.actor === 'your_human' ? 'owner' : 'counterparty', summary: event.text || '', truncated: event.truncated })),
+          ...(shown.requestedResponse ? [{ at: shown.requestedResponse.receivedAt, from: shown.requestedResponse.from === 'your_human' ? 'owner' : 'counterparty', summary: shown.requestedResponse.text, truncated: shown.requestedResponse.truncated }] : [])].slice(-10),
+        assets: shown.assets.map(asset => ({ name: asset.filename, state: asset.scan === 'clean' ? 'clean' : asset.scan === 'blocked' ? 'quarantined' : 'pending_scan' })),
+        pendingProposal: shown.proposal ? { summary: JSON.stringify(shown.proposal.options.map(option => option.value)) } : null } };
+  }),
+  act: async (binding, work, options) => store.withTransaction(await gatewayWorkKeys(binding), async () => {
+    const { identity, message, claim } = await gatewayWorkCurrent(binding, work, true);
+    if (identity.paused) throw agentPausedError();
+    if (options.action === 'defer') { await gatewayRelease(binding, work, { ...options, reason: 'deferred' }); return { state: 'deferred', settled: false }; }
+    gatewayDeadline(options);
+    const session = await gatewayPrivateSession(binding, work, identity, claim, options);
+    const ctx = { ...await loadCaseToolContext(session), writeAudit: gatewayAudit(options) };
+    const actionPayload = { text: options.text, caseId: work.caseId, recipient: session.counterparty, generation: binding.generation, workId: work.workId };
+    const requests = ctx.humanRequests.filter(request => request.kind === 'gateway_reply' && request.workId === work.workId);
+    const approval = requests.find(request => request.status === 'approved' && Date.parse(request.expiresAt) > Date.now() && request.generation === binding.generation && request.actionDigest === semanticDigest(actionPayload));
+    const hasPendingDecision = ctx.humanRequests.some(request => request.status === 'pending');
+    if (options.action === 'request_owner' || requests.length && !approval || hasPendingDecision) return gatewayOwnerRequest(binding, work, ctx, options.text, actionPayload, options);
+    if (approval) {
+      try { await validatedPolicyBinding(binding.inboxId, ctx.caseRecord, ctx.agent, approval.policyEvaluationId, { requestedAction: 'message.reply', actionPayload,
+        executionId: `gateway_reply_${semanticDigest([work.workId, options.idempotencyKey]).slice(0, 32)}`, writeAudit: ctx.writeAudit }); }
+      catch (error) { if (error.statusCode && error.statusCode < 500) throw nativeGatewayError('GATEWAY_SCOPE_DENIED', 403); throw error; }
+    }
+    else {
+      const evaluated = await evaluateServerPolicy(binding.inboxId, ctx.agent, ctx.caseRecord, { requestedAction: 'message.reply', actionPayload });
+      if (evaluated.decision === 'deny') throw nativeGatewayError('GATEWAY_SCOPE_DENIED', 403);
+      if (evaluated.decision === 'needsHuman') return gatewayOwnerRequest(binding, work, ctx, options.text, actionPayload, options);
+    }
+    gatewayDeadline(options);
+    const id = `msg_gateway_${semanticDigest([binding.installationId, work.workId, options.idempotencyKey]).slice(0, 40)}`;
+    const reply = await sendCaseToolMessage(ctx, { id, type: 'message', intent: 'message', text: options.text, inReplyTo: message.id });
+    const completed = await settleCanonicalAgentWork({ identity, workId: work.workId, currentMessage: message, claim, action: 'complete' }, ctx.writeAudit);
+    await options.audit('agent.gateway_work_replied', { agentId: binding.agentId, workId: work.workId, messageId: reply.id, caseId: work.caseId });
+    return { state: 'sent', settled: true, receiptId: completed.payload.receipt.id };
+  }),
+  renew: async (binding, work, options) => {
+    const { identity, claim } = await gatewayWorkCurrent(binding, work, true);
+    if (identity.paused) throw agentPausedError();
+    gatewayDeadline(options);
+    claim.leaseExpiresAt = new Date(Date.now() + options.leaseSeconds * 1000).toISOString(); claim.updatedAt = store.now();
+    await store.putJson(workClaimPath(binding.inboxId, work.workId), claim);
+    return { leaseExpiresAt: claim.leaseExpiresAt };
+  },
+  release: gatewayRelease
+};
+
 const browserGatewayHttp = createCanonicalBrowserGateway({
-  store, flags: onboardingFlags, key: connectorEncryptionKey(), registrations, activateRegistration, reattachRegistration: reattachGatewayRegistration, rotateCredentials: rotateAgentCredentials, auth, canManageInbox,
+  store, flags: onboardingFlags, key: connectorEncryptionKey(), nativeAdapter: gatewayNativeAdapter, registrations, activateRegistration, reattachRegistration: reattachGatewayRegistration, rotateCredentials: rotateAgentCredentials, auth, canManageInbox,
   publicOrigin: req => publicBaseUrl(req), clientIp, familyPath: agentCredentialFamilyPath,
-  writeAudit: async (binding, type, data) => {
-    const record = await auditRecord(binding.inboxId, type, { agentId: binding.agentId, installationId: binding.installationId, ...data });
+  writeAudit: async (binding, type, data, at = store.now()) => {
+    // A canonical receipt can target the other participant's inbox. Gateway custody
+    // identifiers belong only in the installation owner's audit history.
+    const localInstallation = await store.getJson(installationPath(binding.inboxId, binding.agentId, binding.installationId));
+    const custody = localInstallation?.credentialFamilyId === binding.credentialFamilyId
+      ? { agentId: binding.agentId, installationId: binding.installationId } : {};
+    const record = await auditRecord(binding.inboxId, type, { ...custody, ...data }, at);
     await store.putJson(record.document.path, record.document.value); return { inboxId: binding.inboxId, event: record.event };
   },
   publishAudit: record => publish(record.inboxId, record.event),
@@ -3580,6 +4027,38 @@ async function route(req, res) {
   await enforceAgentCredential(req, url, res);
   if (wakeRoute) return handleHttpWakeRoute(req, res, url);
   if (caseSessionRoute) return handleCaseSessionRoute(req, res, caseSessionRoute);
+  const grokTargetRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/agents\/([^/]+)\/wake-targets\/grok$/);
+  if (grokTargetRoute) {
+    if (!onboardingFlags.grokTrigger) throw codedError(404, 'FEATURE_DISABLED', 'Provider wake is not available.');
+    if (!['PUT', 'GET', 'DELETE'].includes(req.method)) return fail(res, 405, 'Method not allowed');
+    if (bearerToken(req) || parseCookies(req.headers.cookie)['__Host-envoi_agent_gateway']) throw credentialError('AUTHENTICATION_REQUIRED');
+    const human = await auth.getHuman(req);
+    if (!human) throw credentialError('AUTHENTICATION_REQUIRED');
+    const inboxId = assertSafeIdentifier(grokTargetRoute[1], 'inboxId'), agentId = assertSafeIdentifier(grokTargetRoute[2], 'agentId');
+    const inbox = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
+    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    if (!inbox || !agent || !await canManageInbox(human, inbox, { maxAgeMs: 0 })) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'Workspace access is required.');
+    let family = null, installationId = null;
+    if (req.method === 'PUT') for (const installation of await installations.list(inboxId, agent)) {
+      if (installation.status !== 'active') continue;
+      const candidate = await store.getJson(agentCredentialFamilyPath(inboxId, agentId, installation.familyId));
+      if (candidate && !candidate.revokedAt && Date.parse(candidate.refreshExpiresAt) > Date.now()) { family = candidate; installationId = installation.id; break; }
+    }
+    if (req.method === 'PUT' && (!family || !canAct(agent, 'receive_agent_messages'))) throw codedError(403, 'AUTHENTICATION_REQUIRED', 'An active installation is required.');
+    const identity = { inboxId, agent, family, installationId, ownerRequest: req, ownerHumanId: human.id };
+    let result;
+    try { result = req.method === 'PUT' ? await providerEventWake.putGrok(identity, await body(req, 8192))
+      : req.method === 'DELETE' ? await providerEventWake.deleteGrok(identity) : await providerEventWake.getGrok(identity); }
+    catch (error) {
+      if (error.statusCode) {
+        const retry = Math.min(86400, Math.max(0, Math.ceil(Number(error.retryAfter) || 0)));
+        error.publicFields = { ...error.publicFields, ...(error.reason ? { reason: error.reason } : {}), ...(retry ? { retryAfterSeconds: retry } : {}) };
+        if (retry) res.setHeader('retry-after', String(retry));
+      }
+      throw error;
+    }
+    res.setHeader('cache-control', 'no-store'); return json(res, 200, result);
+  }
   if (url.pathname === '/mcp') {
     const identity = await getMcpIdentity(req);
     if (!identity) {
@@ -3615,23 +4094,50 @@ async function route(req, res) {
       res.setHeader('www-authenticate', insufficientScopeChallenge(remoteAuth.origin, scope));
       throw codedError(403, 'INSUFFICIENT_SCOPE', insufficientScopeMessages[tool.permission] || 'This connection may not use this tool.');
     } : null;
-    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable });
+    const freshMcpIdentity = async () => {
+      const fresh = await getMcpIdentity(req);
+      if (!fresh || fresh.inboxId !== identity.inboxId || fresh.agent.id !== identity.agent.id || fresh.family?.id !== identity.family?.id
+        || fresh.installationId !== identity.installationId) throw credentialError('CREDENTIAL_REVOKED');
+      if (fresh.paused) throw agentPausedError();
+      if (!fresh.agent.permissions?.includes('receive_agent_messages')) {
+        if (fresh.oauth) res.setHeader('www-authenticate', insufficientScopeChallenge(remoteAuth.origin, 'envoi.agent'));
+        throw codedError(403, 'INSUFFICIENT_SCOPE', 'This connection no longer holds receive permission.');
+      }
+      return fresh;
+    };
+    const events = { ...providerEventWake };
+    for (const name of ['discover', 'list', 'unsubscribe']) events[name] = (_caller, ...args) => withInboxMutation(identity.inboxId, async () => providerEventWake[name](await freshMcpIdentity(), ...args));
+    events.subscribe = async (_caller, ...args) => providerEventWake.subscribe(await freshMcpIdentity(), ...args);
+    return handleAgentMcp(req, res, { identity, callRest, denyUnavailable, onPermissionDenied: () => { req[monadPermissionDenied] = true; },
+      eventsEnabled: Boolean(onboardingFlags.mcpEvents), providerEvents: events,
+      wakeTools: { ...mcpWakeTools, call: (name, args) => withInboxMutation(identity.inboxId, async () => mcpWakeTools.call(name, args, await freshMcpIdentity())) } });
   }
   // agent-remote-auth v1 §5: /authorize-agent is the owner consent page, also the web app.
   // agent-registration v1 §3 and §7: claim.url is ${ENVOI_PUBLIC_URL}/claim; /connect is the
   // agent-facing page. Both are the web app, which reads availability from the routes endpoint.
-  const appShell = ['/', '/claim', '/connect', '/authorize-agent'].includes(url.pathname);
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/' && (url.searchParams.has('enroll') || url.searchParams.has('workspace'))) {
+    return redirect(res, `/app${url.search}`);
+  }
+  if (['GET', 'HEAD'].includes(req.method) && url.pathname === '/app/') return redirect(res, `/app${url.search}`);
+  const marketing = marketingRoute(url.pathname);
+  if (['GET', 'HEAD'].includes(req.method) && marketing?.redirect) {
+    const location = marketing.redirect === '/#team' ? `/${url.search}#team` : `${marketing.redirect}${url.search}`;
+    res.writeHead(301, { location, 'cache-control': 'public, max-age=3600' });
+    return res.end();
+  }
+  const appShell = ['/app', '/claim', '/connect', '/authorize-agent'].includes(url.pathname);
   if (['GET', 'HEAD'].includes(req.method) && url.pathname.startsWith('/connect/')) return serveConnectContent(req, res, url);
-  if (['GET', 'HEAD'].includes(req.method) && (appShell || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
-    const relative = appShell ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1);
+  if (['GET', 'HEAD'].includes(req.method) && (marketing?.file || appShell || url.pathname.startsWith('/web/') || url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
+    const relative = marketing?.file || (appShell ? 'index.html' : url.pathname.startsWith('/web/') ? url.pathname.slice('/web/'.length) : url.pathname.slice(1));
     let filePath;
-    try { filePath = resolvePathWithin(path.resolve('web'), relative); }
+    try { filePath = resolvePathWithin(path.resolve(marketing?.file ? 'web/marketing' : 'web'), relative); }
     catch { return fail(res, 400, 'Invalid asset path'); }
-    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
+    const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.webp': 'image/webp', '.avif': 'image/avif' };
     try {
       const extension = path.extname(filePath);
       let content = await readFile(filePath);
-      if (extension === '.html') content = Buffer.from(content.toString('utf8').replace('<script', `<script nonce="${responseNonce}"`).replace('<style', `<style nonce="${responseNonce}"`));
+      if (extension === '.html') content = Buffer.from(nonceStaticHtml(content.toString('utf8'), responseNonce));
+      if (appShell || url.pathname === '/web/index.html') res.setHeader('x-robots-tag', 'noindex, nofollow');
       res.writeHead(200, { 'content-type': contentTypes[extension] || 'application/octet-stream', 'content-length': content.byteLength, 'cache-control': 'private, no-store' });
       return res.end(req.method === 'HEAD' ? undefined : content);
     }
@@ -3705,80 +4211,7 @@ async function route(req, res) {
         const binding = await store.getJson(caseBindingPath(caseId));
         if (binding?.inboxIds?.some(id => id !== identity.inboxId && !relatedWorkInboxes.includes(id))) throw Object.assign(new Error('Case participants changed while acquiring the mutation lock; retry'), { statusCode: 409 });
       }
-      if (action === 'claim') {
-        const messages = claimCandidates
-          .filter(message => (isHumanInstruction(message) || isHumanDecision(message) || message.senderInboxId && message.senderAgentId) && message.recipientInboxId === identity.inboxId && message.recipientAgentId === identity.agent.id && ['delivered', 'acknowledged'].includes(message.status))
-          .sort((left, right) => String(left.deliveredAt || left.createdAt).localeCompare(String(right.deliveredAt || right.createdAt)) || String(left.id).localeCompare(String(right.id)));
-        let nextAvailable = null;
-        const noteAvailable = (claim, at) => {
-          if ((claim.reofferWithoutAttempt === true || agentWorkAttempts(claim) < agentWorkMaxAttempts) && (!nextAvailable || at < nextAvailable)) nextAvailable = at;
-        };
-        for (const candidate of messages) {
-          const message = await store.getJson(messagePath(identity.inboxId, candidate.id));
-          if (!message || !['delivered', 'acknowledged'].includes(message.status) || message.senderInboxId !== candidate.senderInboxId
-            || message.recipientInboxId !== identity.inboxId || message.recipientAgentId !== identity.agent.id
-            || isHumanInstruction(message) && input.acceptHumanInstructions !== true) continue;
-          const caseRecord = await getCase(identity.inboxId, message.caseId);
-          if (caseRecord?.state === 'paused' || caseRecord?.state === 'revoked') continue;
-          if (isHumanInstruction(message)) {
-            try { await assertHumanInstructionAuthority(message, currentIdentity); }
-            catch (error) { if ([400, 403, 404, 409, 422].includes(error.statusCode)) continue; throw error; }
-          } else if (isHumanDecision(message)) {
-            if (await workIneligibility(message, currentIdentity)) continue;
-          } else {
-            const senderAgent = await store.getJson(path.join('inboxes', message.senderInboxId, 'agents', `${message.senderAgentId}.json`));
-            if (!senderAgent || !canAct(senderAgent, 'send_agent_messages')) continue;
-            const senderContact = await store.getJson(path.join('inboxes', message.senderInboxId, 'contacts', `${identity.agent.id}.json`));
-            const recipientContact = await store.getJson(path.join('inboxes', identity.inboxId, 'contacts', `${message.senderAgentId}.json`));
-            if (senderContact?.blocked || recipientContact?.blocked) continue;
-          }
-          const claimPath = workClaimPath(identity.inboxId, message.id);
-          const currentClaim = await store.getJson(claimPath);
-          if (currentClaim && ['completed', 'failed'].includes(currentClaim.status)) continue;
-          if (currentClaim && ['claimed', 'acknowledged'].includes(currentClaim.status) && new Date(currentClaim.leaseExpiresAt) > new Date()) {
-            noteAvailable(currentClaim, currentClaim.leaseExpiresAt);
-            continue;
-          }
-          const now = store.now();
-          if (currentClaim?.status === 'retryable' && new Date(currentClaim.retryAt) > new Date(now)) {
-            noteAvailable(currentClaim, currentClaim.retryAt);
-            continue;
-          }
-          const reoffer = currentClaim?.reofferWithoutAttempt === true;
-          if (currentClaim && !reoffer && agentWorkAttempts(currentClaim) >= agentWorkMaxAttempts) {
-            await failAgentWorkPermanently(message, currentClaim, 'MAX_ATTEMPTS_EXCEEDED', now, writeAudit);
-            continue;
-          }
-          const leaseToken = crypto.randomBytes(32).toString('base64url');
-          const leaseExpiresAt = new Date(Date.now() + agentWorkLeaseMs).toISOString();
-          const claim = {
-            workId: message.id,
-            messageId: message.id,
-            agentId: identity.agent.id,
-            inboxId: identity.inboxId,
-            credentialFamilyId: identity.familyId,
-            fence: Number(currentClaim?.fence || 0) + 1,
-            attempts: agentWorkAttempts(currentClaim) + (reoffer ? 0 : 1),
-            leaseTokenHash: hashSecret(leaseToken),
-            leaseExpiresAt,
-            retryAt: null,
-            status: 'claimed',
-            createdAt: currentClaim?.createdAt || now,
-            updatedAt: now
-          };
-          await store.putJson(claimPath, claim);
-          await caseSessions.endForWork(identity.inboxId, message.id, 'lease_lost', now, writeAudit);
-          await writeAudit('agent.work_claimed', { workId: message.id, agentId: identity.agent.id, fence: claim.fence, attempts: claim.attempts, credentialFamilyId: claim.credentialFamilyId }, now);
-          return { status: 200, payload: { work: { workId: message.id, message, leaseToken, leaseExpiresAt }, state: 'claimed' } };
-        }
-        const idle = { work: null, state: 'idle' };
-        if (nextAvailable) {
-          // Relative delay too, so a client with a skewed clock schedules correctly.
-          const inMs = Math.max(0, Date.parse(nextAvailable) - Date.now());
-          Object.assign(idle, { nextAvailableAt: new Date(Date.now() + inMs).toISOString(), nextAvailableInMs: inMs });
-        }
-        return { status: 200, payload: idle };
-      }
+      if (action === 'claim') return claimCanonicalAgentWork(identity, currentIdentity, input, claimCandidates, writeAudit);
 
       const currentMessage = await store.getJson(messagePath(identity.inboxId, workId));
       if (!currentMessage || currentMessage.recipientInboxId !== identity.inboxId || currentMessage.recipientAgentId !== identity.agent.id) {
@@ -3869,60 +4302,7 @@ async function route(req, res) {
         return { status: 200, payload: { workId, status: claim.status } };
       }
 
-      const state = action === 'acknowledge' ? 'acknowledged' : 'processed';
-      if (action === 'acknowledge') {
-        const replay = replayResponse(await store.getJson(idempotencyPath), { principalId: identity.agent.id, requestDigest });
-        if (replay) return { status: 200, payload: replay };
-      }
-      if (currentMessage.status === 'processed' || claim.status === 'completed') {
-        throw settlementError(409, 'Work has already been processed', 'WORK_LEASE_STALE', 'settled');
-      }
-      const receiptId = `delivery_receipt_${currentMessage.id}_${state}`;
-      const existingReceipt = await store.getJson(deliveryReceiptPath(identity.inboxId, receiptId));
-      if (existingReceipt && action === 'acknowledge' && currentMessage.status === 'acknowledged') {
-        const receipt = {
-          id: existingReceipt.id,
-          type: 'delivery',
-          messageId: currentMessage.id,
-          ...workSenderFields(currentMessage),
-          recipientAgentId: currentMessage.recipientAgentId,
-          state: 'acknowledged',
-          createdAt: existingReceipt.createdAt
-        };
-        const response = { workId, status: 'acknowledged', receipt };
-        claim.status = 'acknowledged';
-        claim.updatedAt = now;
-        await store.putJson(claimPath, claim);
-        await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
-        return { status: 200, payload: response };
-      }
-      if (existingReceipt) throw settlementError(409, 'Message already has a receipt outside this work fence', 'WORK_LEASE_STALE', 'settled');
-      const updated = { ...currentMessage, status: state, [`${state}At`]: now, updatedAt: now };
-      const receipt = {
-        id: receiptId,
-        type: 'delivery',
-        messageId: currentMessage.id,
-        ...workSenderFields(currentMessage),
-        recipientAgentId: currentMessage.recipientAgentId,
-        state,
-        createdAt: now
-      };
-      const documents = await workCaseDocuments(currentMessage, updated, state, now);
-      for (const targetInboxId of workInboxIds(currentMessage)) {
-        const targetInbox = await store.getJson(path.join('inboxes', targetInboxId, 'inbox.json'));
-        if (!targetInbox) continue;
-        documents.push(document(messagePath(targetInboxId, currentMessage.id), updated), document(deliveryReceiptPath(targetInboxId, receipt.id), receipt));
-        await writeAudit(`message.${state}`, { messageId: currentMessage.id, caseId: currentMessage.caseId, ...workSenderFields(currentMessage), recipientAgentId: currentMessage.recipientAgentId }, now, targetInboxId);
-      }
-      claim.status = state === 'processed' ? 'completed' : 'acknowledged';
-      claim.updatedAt = now;
-      if (state === 'processed') claim.leaseExpiresAt = null;
-      const response = { workId, status: state, receipt };
-      await store.putJsonBatch(documents);
-      await store.putJson(claimPath, claim);
-      if (state === 'processed') await caseSessions.endForWork(identity.inboxId, workId, 'work_settled', now, writeAudit);
-      if (idempotencyPath) await store.putJson(idempotencyPath, { principalId: identity.agent.id, requestDigest, status: 'completed', response, createdAt: now });
-      return { status: 201, payload: response };
+      return settleCanonicalAgentWork({ identity, workId, currentMessage, claim, action, idempotencyPath, requestDigest, now }, writeAudit);
     }, relatedWorkInboxes, workLockKeys);
     // a5-presence §3: claimed or idle claims show the work loop; only a first completion (201) is processing.
     if (action === 'claim' && ['claimed', 'idle'].includes(result.payload?.state)) notePresence(req, { workLoop: true });
@@ -4175,7 +4555,7 @@ async function route(req, res) {
     if (auth.provider !== 'workos') return fail(res, 404, 'Hosted authentication is not enabled');
     const authorization = await auth.startAuthorization({
       screenHint: url.pathname.endsWith('sign-up') ? 'sign-up' : 'sign-in',
-      returnTo: url.searchParams.get('returnTo') || '/',
+      returnTo: url.searchParams.get('returnTo') || '/app',
       forceFresh: url.searchParams.get('fresh') === '1'
     });
     // envoi-browser-names v1 §1.3: sign-in start also clears the retired flow cookie.
@@ -4331,7 +4711,7 @@ async function route(req, res) {
     };
     await store.putJson(calendarConnectorPath(pending.inboxId, providerId), connector);
     await audit(pending.inboxId, 'calendar.connected', { provider: providerId, humanId: pending.humanId });
-    const returnUrl = new URL(pending.returnTo || '/', process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`);
+    const returnUrl = new URL(pending.returnTo || '/app', process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`);
     returnUrl.searchParams.set('calendarConnected', providerId);
     return redirect(res, returnUrl.toString());
   }
@@ -4678,6 +5058,34 @@ async function route(req, res) {
 
   if (await inboxPreferencesHttp.handleRequest(req, res, url)) return;
 
+  if (suffix === 'monad-settings' && (req.method === 'GET' || req.method === 'POST')) {
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Authentication required');
+    if (!await canManageInbox(human, inbox, { maxAgeMs: 0 })) return fail(res, 403, 'Workspace administrator required');
+    if (req.method === 'GET') return json(res, 200, await monadAccess.status(inbox));
+    const input = await body(req, 4096);
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 || typeof input.enabled !== 'boolean') return fail(res, 400, 'Expected { enabled: boolean }');
+    const settings = await withInboxMutation(inboxId, async () => {
+      const current = await store.getJson(path.join('inboxes', inboxId, 'inbox.json'));
+      if (!current || !await canManageInbox(await auth.getHuman(req), current, { maxAgeMs: 0 })) throw codedError(403, 'GATEWAY_SCOPE_DENIED', 'Workspace administrator required');
+      return monadAccess.set(current, input.enabled);
+    });
+    return json(res, 200, settings);
+  }
+
+  const monadEvidenceRoute = suffix.match(/^agents\/([^/]+)\/monad-evidence$/);
+  if (req.method === 'GET' && monadEvidenceRoute) {
+    const human = await auth.getHuman(req);
+    if (!human) return fail(res, 401, 'Authentication required');
+    if (!await canManageInbox(human, inbox)) return fail(res, 403, 'Workspace administrator required');
+    const agentId = assertSafeIdentifier(monadEvidenceRoute[1], 'agentId');
+    const agent = await store.getJson(path.join('inboxes', inboxId, 'agents', `${agentId}.json`));
+    if (!agent || inbox.ownerAgentId !== agentId) return fail(res, 404, 'Owned agent not found');
+    return json(res, 200, await monadAccess.active(inboxId)
+      ? await monadPermissions.permissionEvidence(inboxId, agent)
+      : { enabled: false, chainId: 10143, permission: { status: 'off' }, violations: [] });
+  }
+
   // agent-registration v1 §6.5: the owner's installation list and per-installation revoke.
   const installationRoute = suffix.match(/^agents\/([^/]+)\/installations(?:\/([^/]+)\/revoke)?$/);
   if (installationRoute && (req.method === 'GET' ? !installationRoute[2] : req.method === 'POST' && installationRoute[2])) {
@@ -4828,7 +5236,7 @@ async function route(req, res) {
     const state = crypto.randomBytes(32).toString('base64url');
     const pkce = createPkcePair();
     const publicUrl = (process.env.ENVOI_PUBLIC_URL || `http://${req.headers.host || `${host}:${port}`}`).replace(/\/$/, '');
-    const stateRecord = { provider: providerId, inboxId, humanId: human.id, codeVerifier: pkce.verifier, returnTo: `${publicUrl}/?workspace=${encodeURIComponent(inboxId)}`, createdAt: store.now(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), usedAt: null };
+    const stateRecord = { provider: providerId, inboxId, humanId: human.id, codeVerifier: pkce.verifier, returnTo: `${publicUrl}/app?workspace=${encodeURIComponent(inboxId)}`, createdAt: store.now(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), usedAt: null };
     await store.putJson(path.join('auth', 'calendar-oauth', `${hashSecret(state)}.json`), stateRecord);
     const authorizationUrl = new URL(provider.authorizeUrl);
     authorizationUrl.searchParams.set('client_id', provider.clientId);
@@ -6153,6 +6561,7 @@ await reconcileLegacyAgentRevocations();
 // case-session v1 §1: the sessions epoch, and the heartbeat that keeps it from moving while on.
 await caseSessions.startEpoch();
 await httpWake.startup();
+await browserGatewayHttp.reconcileFlags();
 let wakeDrainRun = null;
 let wakeMaintenanceRun = null;
 async function wakeMaintenance() {
@@ -6173,7 +6582,7 @@ async function wakeMaintenance() {
         if (!message || !['delivered', 'acknowledged'].includes(message.status)) continue;
         const value = await getCase(sub.inboxId, message.caseId);
         if (['paused', 'revoked'].includes(value?.state) || await workIneligibility(message, { agent, inboxId: sub.inboxId })) continue;
-        await httpWake.trigger({ inboxId: sub.inboxId, agentId: sub.agentId, reason: 'work_due' });
+        await httpWake.trigger({ inboxId: sub.inboxId, agentId: sub.agentId, reason: 'work_due', cursor: await newestEventCursor(sub.inboxId) });
         break;
       }
     });
@@ -6252,13 +6661,30 @@ if (scanJobStore) {
   void runObjectScans();
   void runObjectScanRetention();
 }
-const server = http.createServer((req, res) => route(req, res).catch((error) => {
-  const requestId = requestIdFrom(req.headers['x-request-id']);
-  const response = publicHttpError(error, requestId);
-  notePresence(req, { errorCode: response.body?.code || null });
-  if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
-  return json(res, response.status, response.body);
-}));
+const server = http.createServer(async (req, res) => {
+  let reasonCode = null;
+  try { await route(req, res); }
+  catch (error) {
+    const requestId = requestIdFrom(req.headers['x-request-id']);
+    const response = publicHttpError(error, requestId);
+    reasonCode = response.body?.code || null;
+    notePresence(req, { errorCode: reasonCode });
+    if (response.status >= 500) console.error('Unhandled request error', { requestId, name: error instanceof Error ? error.name : 'Error' });
+    json(res, response.status, response.body);
+  }
+  const deniedByControl = reasonCode === 'AGENT_PAUSED' || reasonCode === 'CASE_CONTROLLED';
+  if ((res.statusCode === 403 || deniedByControl || req[monadPermissionDenied]) && req[monadRequest]) {
+    try {
+      await monadPermissions.recordViolation({
+        ...req[monadRequest], status: res.statusCode, reasonCode: reasonCode || 'PERMISSION_DENIED'
+      });
+    } catch (error) {
+      console.error('Monad violation recording pending', {
+        requestId: req[monadRequest].requestId, name: error instanceof Error ? error.name : 'Error'
+      });
+    }
+  }
+});
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 server.listen(port, host, () => console.log(`Envoi backend listening on http://${host}:${server.address().port}`));
@@ -6269,6 +6695,7 @@ const shutdown = () => {
   shutdownStarted = true;
   scanLifecycleStopping = true;
   clearInterval(objectQuotaReaper);
+  if (monadViolationRetry) clearInterval(monadViolationRetry);
   clearInterval(agentRotationReaper);
   clearInterval(registrationCleanup);
   clearInterval(caseSessionCleanup);

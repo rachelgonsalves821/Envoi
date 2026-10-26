@@ -1,0 +1,71 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "reply-replay-after-run-expiry",
+  "kind": "http",
+  "description": "§3.1a: a reply that already settled is replayed from its idempotency record even after its run expired, because no new effect, lease or budget is involved: same key, same body, the stored result with replayed true.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:03:00.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/agent-gateway/work/act",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "idempotencyKey": "reply-1",
+      "action": "reply",
+      "text": "Tuesday 10:00 works for us."
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "actResult",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "state": "sent",
+      "runId": "run_example",
+      "workRef": "w_7Kq2mP0xVn4Lr9Tc",
+      "receiptRef": "r_9Hc4tVw1Jd7Qe2Ns",
+      "settled": true,
+      "replayed": true
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "RUNNING",
+    "retry": "none",
+    "guidance": "none"
+  },
+  "effects": {
+    "effect": "none",
+    "newLease": false
+  }
+}

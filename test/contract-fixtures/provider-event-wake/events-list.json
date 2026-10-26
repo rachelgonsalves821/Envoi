@@ -1,0 +1,129 @@
+{
+  "contract": "provider-event-wake",
+  "version": 1,
+  "id": "events-list",
+  "kind": "http",
+  "description": "§3: the two event definitions, webhook delivery only, closed inputSchema.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_REMOTE_MCP_OAUTH": true,
+    "ENVOI_PROVIDER_CONNECTORS": false,
+    "ENVOI_MCP_EVENTS_V1": true,
+    "ENVOI_GROK_TRIGGER_V1": true
+  },
+  "context": {
+    "profile": "mcp_events",
+    "route": "remote_mcp_oauth",
+    "agentStatus": "active",
+    "callbackOriginAllowlist": [
+      "https://dots.callbacks.example"
+    ],
+    "dns": {
+      "host": "dots.callbacks.example",
+      "addresses": [
+        "192.0.43.11"
+      ]
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "bearer",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "authorization": "Bearer envoi_agent_access_PLACEHOLDER_oauth_1"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "events/list",
+      "params": {}
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "rpcResult",
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "events": [
+          {
+            "name": "envoi.work_available",
+            "description": "Work for this connection became claimable. Opaque hint: claim to learn what.",
+            "delivery": [
+              "webhook"
+            ],
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {}
+            },
+            "payloadSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reason"
+              ],
+              "properties": {
+                "reason": {
+                  "enum": [
+                    "message_delivered",
+                    "human_instruction",
+                    "agent_resumed",
+                    "case_resumed",
+                    "counterparty_resumed",
+                    "work_due",
+                    "subscription_activated"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "name": "envoi.control_changed",
+            "description": "This connection's pause state or a case control changed. Opaque hint.",
+            "delivery": [
+              "webhook"
+            ],
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {}
+            },
+            "payloadSchema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reason"
+              ],
+              "properties": {
+                "reason": {
+                  "enum": [
+                    "agent_paused",
+                    "case_controlled"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "client": {
+    "surface": "host",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "none",
+    "next": "See the row for this outcome in the contract tables."
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "scope-upgrade-from-gateway-session-denied",
+  "kind": "http",
+  "description": "§2.2: a delegated gateway cookie is never owner authority; it cannot widen itself.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:00:00.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/api/inboxes/inbox_gw1/agents/agent_gw1/installations/installation_gw1/gateway-scope",
+    "auth": "gateway_session",
+    "headers": {
+      "cookie": "__Host-envoi_agent_gateway=PLACEHOLDER_gateway_session",
+      "x-envoi-gateway-csrf": "PLACEHOLDER_gateway_csrf",
+      "origin": "https://www.envoi-agents.com",
+      "content-type": "application/json"
+    },
+    "body": {
+      "scope": "native_work",
+      "expectedRevision": 2,
+      "comparisonPhrase": "x"
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "gatewayError",
+    "headers": {
+      "cache-control": "private, no-store"
+    },
+    "body": {
+      "error": "AUTHENTICATION_REQUIRED",
+      "code": "AUTHENTICATION_REQUIRED",
+      "guidance": "owner_required"
+    }
+  },
+  "client": {
+    "surface": "browser",
+    "lifecycle": "UNCHANGED",
+    "retry": "none",
+    "guidance": "owner_required"
+  }
+}

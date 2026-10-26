@@ -1,0 +1,44 @@
+{
+  "contract": "mcp-wake",
+  "version": 1,
+  "id": "receiver-flow",
+  "kind": "sequence",
+  "description": "A provider backend end to end: create, challenge at the declared URL, activate, a work notification, claim through /mcp. The notification is an unchanged http-wake body.",
+  "flags": {
+    "ENVOI_AGENT_REGISTRATION_V2": true,
+    "ENVOI_INSTALLATIONS_V2": true,
+    "ENVOI_HTTP_WAKE_V1": true,
+    "ENVOI_PROVIDER_CONNECTORS": true,
+    "ENVOI_REMOTE_MCP_OAUTH": false,
+    "ENVOI_MCP_WAKE_V1": true
+  },
+  "steps": [
+    {
+      "actor": "connector_backend",
+      "does": "tools/call envoi_wake_create with a URL on a declared origin",
+      "fixture": "create-ok"
+    },
+    {
+      "actor": "envoi",
+      "does": "sends one signed wake.challenge to that URL (http-wake §3.2); no OAuth token or secret travels in it"
+    },
+    {
+      "actor": "connector_backend",
+      "does": "verifies the signature against the key set, then calls envoi_wake_activate with the challenge",
+      "fixture": "activate-ok"
+    },
+    {
+      "actor": "envoi",
+      "does": "sends wake.work_available/subscription_activated, then wake.work_available/message_delivered when work arrives (http-wake §2.3, opaque)"
+    },
+    {
+      "actor": "connector_backend",
+      "does": "acknowledges within the timeout, then calls envoi_claim_work with its own OAuth access token at /mcp, never a URL taken from the notification"
+    },
+    {
+      "actor": "connector_backend",
+      "does": "on every start and at most every 900 s reads envoi_wake_status and claims once",
+      "fixture": "status-active"
+    }
+  ]
+}

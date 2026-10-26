@@ -1,0 +1,54 @@
+{
+  "contract": "provider-gateway-native",
+  "version": 1,
+  "id": "consent-model",
+  "kind": "sequence",
+  "description": "§5: standing consent is exactly the owner-approved permission set, cadence and lifetime at pairing or scope upgrade. Per-item consent is the existing policy and human-request flow. The gateway and the host never approve.",
+  "flags": {
+    "ENVOI_PROVIDER_BROWSER_POLL": true,
+    "ENVOI_CASE_SESSIONS_V1": true,
+    "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": true
+  },
+  "context": {
+    "session": {
+      "generation": 4,
+      "scope": "native_work",
+      "absoluteExpiresAt": "2026-10-31T12:00:00.000Z",
+      "idleExpiresAt": "2026-10-25T12:00:00.000Z"
+    },
+    "agentStatus": "active",
+    "permissions": [
+      "receive_agent_messages",
+      "send_agent_messages",
+      "execute_cases"
+    ],
+    "asOf": "2026-10-24T12:00:00.000Z",
+    "runStartedAt": "2026-10-24T12:00:00.000Z"
+  },
+  "steps": [
+    {
+      "actor": "owner",
+      "does": "approves native_work with the permissions receive_agent_messages, send_agent_messages, execute_cases, a cadence and a lifetime; re-approves at every 7-day re-pairing",
+      "fixture": "scope-upgrade-owner"
+    },
+    {
+      "actor": "host",
+      "does": "the old session is refused; the host re-pairs through the unchanged Stage 1 route and the owner confirms the repair for this exact installation (comparison phrase, current assurance), which issues the generation-5 cookie",
+      "fixture": "old-session-refused-after-upgrade"
+    },
+    {
+      "actor": "host",
+      "does": "after the repair (repair-sequence) a reply that current policy allows is sent by the generation-5 session under that standing grant",
+      "fixture": "reply-sent-after-repair"
+    },
+    {
+      "actor": "envoi",
+      "does": "a reply that policy says needs a human decision opens the existing human request; nothing is sent until the owner decides in the dashboard",
+      "fixture": "reply-needs-owner-approval"
+    },
+    {
+      "actor": "owner",
+      "does": "a later reply on the next tick is governed by the decision as the case policy binds it (exact case, recipient, content and generation); a changed detail needs a fresh decision"
+    }
+  ]
+}

@@ -5,6 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { workosActivationFixture } from './workos-activation-harness.js';
 import { agentStatus, api, newRotationId, owner, pauseAgent, refresh } from './a3-harness.js';
 import {
   approveBody, approveRequest, assertCode, assertContract, backends, documents, launchRegistration, lookup, newAgentTarget,
@@ -38,6 +39,67 @@ async function approvedNew(baseUrl, who, overrides = {}) {
 
 for (const backend of backends) {
   const s = suffixes[backend.name];
+
+  test(`[${backend.name}] WorkOS activation resolves the durable owner and rechecks membership for same-identity reconnect`, { timeout: 120000 }, async t => {
+    const f = await workosActivationFixture(t, backend);
+    const { baseUrl } = f.server;
+    const { created } = await approvedNew(baseUrl, f.who);
+    await f.assertNoTransientIdentityPersisted();
+    const before = (await f.calls()).length;
+    const activated = await activate(baseUrl, created);
+    assert.equal(activated.status, 201, activated.text);
+    assert.equal((await f.calls()).length, before + 1, 'activation performs a fresh WorkOS membership lookup');
+    await f.assertNoTransientIdentityPersisted();
+    const reconnect = await registered(baseUrl);
+    assert.equal((await approveRequest(baseUrl, f.who, reconnect.registrationId, approveBody(code(reconnect), {
+      kind: 'existing_agent', agentId: activated.payload.agent.id, replacesInstallationId: activated.payload.installation.id
+    }))).status, 200);
+    const replacement = await activate(baseUrl, reconnect);
+    assert.equal(replacement.status, 201, replacement.text);
+    assert.equal(replacement.payload.agent.id, activated.payload.agent.id);
+    assert.equal(replacement.payload.inboxId, activated.payload.inboxId);
+    assert.equal(replacement.payload.agent.address, activated.payload.agent.address);
+    assertRevoked(await agentStatus(baseUrl, activated.payload.agentApiToken), 'replaced');
+  });
+
+  for (const variant of ['missing-user-id', 'missing-index', 'wrong-index', 'wrong-human-id', 'wrong-provider', 'unverified', 'uninvited', 'local-demoted', 'provider-demoted', 'provider-removed']) {
+    test(`[${backend.name}] WorkOS activation denies ${variant} after approval`, { timeout: 120000 }, async t => {
+      const f = await workosActivationFixture(t, backend);
+      const { baseUrl } = f.server;
+      const { created } = await approvedNew(baseUrl, f.who);
+      if (variant === 'missing-user-id') await f.docs.edit(f.humanParts, value => ({ ...value, workosUserId: null }));
+      if (variant === 'missing-index') await f.docs.remove(f.indexParts);
+      if (variant === 'wrong-index') await f.docs.put(f.indexParts, { humanId: 'human_unrelated_fixture' });
+      if (variant === 'wrong-human-id') await f.docs.edit(f.humanParts, value => ({ ...value, id: 'human_unrelated_fixture' }));
+      if (variant === 'wrong-provider') await f.docs.edit(f.humanParts, value => ({ ...value, authProvider: 'local' }));
+      if (variant === 'unverified') await f.docs.edit(f.humanParts, value => ({ ...value, emailVerified: false }));
+      if (variant === 'uninvited') await f.docs.edit(f.humanParts, value => ({ ...value, email: 'uninvited@example.test' }));
+      if (variant === 'local-demoted') await f.docs.edit(f.membershipParts, value => ({ ...value, role: 'member' }));
+      if (variant === 'provider-demoted') await f.changeProvider({ role: 'member' });
+      if (variant === 'provider-removed') await f.changeProvider({ active: false });
+      assertCode(await activate(baseUrl, created), 'REGISTRATION_ENDED', { reason: 'withdrawn' });
+      const stored = await f.docs.get(registrationParts(created.registrationId));
+      assert.equal(stored.withdrawnBy, 'recheck');
+      assert.equal(stored.activatedInstallationId, undefined);
+    });
+  }
+
+  test(`[${backend.name}] WorkOS activation fails closed during provider outage and retries the same activation`, { timeout: 120000 }, async t => {
+    const f = await workosActivationFixture(t, backend);
+    const { baseUrl } = f.server;
+    const { created } = await approvedNew(baseUrl, f.who);
+    await f.changeProvider({ unavailable: true });
+    const id = activationId();
+    const refused = await activate(baseUrl, created, { activationId: id });
+    assert.ok(refused.status >= 500, refused.text);
+    assert.equal((await f.docs.get(registrationParts(created.registrationId))).status, 'approved');
+    await f.changeProvider({ unavailable: false });
+    const activated = await activate(baseUrl, created, { activationId: id });
+    assert.equal(activated.status, 201, activated.text);
+    const replay = await activate(baseUrl, created, { activationId: id });
+    assert.equal(replay.status, 200, replay.text);
+    assert.equal(replay.payload.installation.id, activated.payload.installation.id);
+  });
 
   test(`[${backend.name}] the local-helper journey: activate, connect, recover, replay, reconnect the same identity`, { timeout: 120000 }, async t => {
     let server = await launchRegistration(backend);

@@ -29,12 +29,9 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["SinaloaContainer"]
-    }
-  ],
+  "exports": {
+    "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+  },
   "env": {
     "staging": {
       "workers_dev": true,
@@ -63,12 +60,9 @@
           }
         ]
       },
-      "migrations": [
-        {
-          "tag": "v1",
-          "new_sqlite_classes": ["SinaloaContainer"]
-        }
-      ]
+      "exports": {
+        "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+      }
     },
     "beta": {
       "workers_dev": false,
@@ -83,6 +77,8 @@
         "WORKOS_CLIENT_ID": "client_01M3NESPM075W2JNEB3N7FRVZF",
         "WORKOS_REDIRECT_URI": "https://www.envoi-agents.com/api/auth/workos/callback",
         "ENVOI_POLICY_ACTIVE_KEY_ID": "primary",
+        "ENVOI_MONAD_PERMISSIONS": "true",
+        "ENVOI_MONAD_ISSUER_ADDRESS": "0xfB83B9008e5A3bA3e6AB63f8C734693e2e120e91",
         "ENVOI_OBJECT_STORAGE_PROVIDER": "s3",
         "ENVOI_S3_ENDPOINT": "https://54a5d6c680bd813fa60f8e088b098b8d.r2.cloudflarestorage.com",
         "ENVOI_S3_BUCKET": "sinaloa-beta",
@@ -99,6 +95,12 @@
         "ENVOI_PROVIDER_BROWSER_POLL": "false",
         "ENVOI_REMOTE_MCP_OAUTH": "false",
         "ENVOI_PROVIDER_CONNECTORS": "false",
+        "ENVOI_MCP_WAKE_V1": "false",
+        "ENVOI_MCP_EVENTS_V1": "false",
+        "ENVOI_GROK_TRIGGER_V1": "false",
+        "ENVOI_PROVIDER_GATEWAY_NATIVE_V1": "false",
+        "ENVOI_MCP_EVENTS_CALLBACK_ORIGINS": "",
+        "ENVOI_GROK_TRIGGER_ORIGINS": "",
         "ENVOI_RELATIONSHIPS_V2": "false",
         "ENVOI_A2A_GATEWAY": "false"
       },
@@ -133,12 +135,9 @@
           }
         ]
       },
-      "migrations": [
-        {
-          "tag": "v1",
-          "new_sqlite_classes": ["SinaloaContainer"]
-        }
-      ]
+      "exports": {
+        "SinaloaContainer": { "type": "durable-object", "storage": "sqlite" }
+      }
     }
   }
 }

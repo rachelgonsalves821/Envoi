@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { isHumanInstructionMessage, type ConnectorSession, type ConnectorStore, type WorkMessage } from '../../sdk/typescript/src/connector';
 import type { BridgeDecision, BridgeLedger } from './bridge';
 
@@ -26,7 +27,15 @@ export class FileBridgeStore implements ConnectorStore, BridgeLedger {
       const handle = await open(temporary, 'wx', 0o600);
       try { await handle.writeFile(JSON.stringify(value)); await handle.sync(); }
       finally { await handle.close(); }
-      await rename(temporary, filename);
+      for (let attempt = 0; ; attempt++) {
+        try { await rename(temporary, filename); break; }
+        catch (error) {
+          const failure = error as NodeJS.ErrnoException;
+          // On Windows a short-lived reader of the existing file can deny replacement.
+          if (process.platform !== 'win32' || failure.code !== 'EPERM' || failure.syscall !== 'rename' || attempt >= 3) throw error;
+          await delay(10 * (attempt + 1));
+        }
+      }
       if (process.platform !== 'win32') {
         const parent = await open(path.dirname(filename), 'r');
         try { await parent.sync(); } finally { await parent.close(); }

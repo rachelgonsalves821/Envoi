@@ -14,27 +14,27 @@ var T = Object.create, E = Object.defineProperty, D = Object.getOwnPropertyDescr
 	} catch (e) {
 		throw n = [e], e;
 	}
-}, M = (e, t) => () => (t || (e((t = { exports: {} }).exports, t), e = null), t.exports), N = (e, t) => {
+}, M = (e, t) => () => (t || (e((t = { exports: {} }).exports, t), e = null), t.exports), ee = (e, t) => {
 	let n = {};
 	for (var r in e) E(n, r, {
 		get: e[r],
 		enumerable: !0
 	});
 	return t || E(n, Symbol.toStringTag, { value: "Module" }), n;
-}, P = (e, t, n, r) => {
+}, N = (e, t, n, r) => {
 	if (t && typeof t == "object" || typeof t == "function") for (var i = O(t), a = 0, o = i.length, s; a < o; a++) s = i[a], !A.call(e, s) && s !== n && E(e, s, {
 		get: ((e) => t[e]).bind(null, s),
 		enumerable: !(r = D(t, s)) || r.enumerable
 	});
 	return e;
-}, F = (e, t, n) => (n = e == null ? {} : T(k(e)), P(t || !e || !e.__esModule || !A.call(e, "default") ? E(n, "default", {
+}, P = (e, t, n) => (n = e == null ? {} : T(k(e)), N(t || !e || !e.__esModule || !A.call(e, "default") ? E(n, "default", {
 	value: e,
 	enumerable: !0
-}) : n, e)), ee = (e) => A.call(e, "module.exports") ? e["module.exports"] : P(E({}, "__esModule", { value: !0 }), e), I = class extends Error {
+}) : n, e)), te = (e) => A.call(e, "module.exports") ? e["module.exports"] : N(E({}, "__esModule", { value: !0 }), e), F = class extends Error {
 	constructor(e) {
 		super(e), this.name = "QuickConnectError";
 	}
-}, L = class extends Error {
+}, I = class extends Error {
 	status;
 	code;
 	reason;
@@ -43,10 +43,10 @@ var T = Object.create, E = Object.defineProperty, D = Object.getOwnPropertyDescr
 	constructor(e, t, n, r = {}) {
 		super(e), this.status = t, this.code = n, this.name = "EnvoiError", this.reason = r.reason, this.retryAfterSeconds = r.retryAfterSeconds, this.requestId = r.requestId;
 	}
-}, te = (e = 3e4) => {
+}, ne = (e = 3e4) => {
 	if (!Number.isSafeInteger(e) || e < 1 || e > 3e5) throw RangeError("timeoutMs must be an integer from 1 to 300000");
 	return e;
-}, ne = (e) => {
+}, re = (e) => {
 	if (!e) return null;
 	try {
 		let t = JSON.parse(e);
@@ -55,11 +55,11 @@ var T = Object.create, E = Object.defineProperty, D = Object.getOwnPropertyDescr
 		return null;
 	}
 };
-async function R(e, t) {
-	let n = await e.text(), r = ne(n);
+async function L(e, t) {
+	let n = await e.text(), r = re(n);
 	if (!e.ok) {
 		let n = r && !Array.isArray(r) ? r : null, i = typeof n?.message == "string" && n.message.length > 0 && n.message.length <= 500 ? n.message : typeof n?.error == "string" ? n.error : null, a = i && i.length <= 500 ? i : `${t} with HTTP ${e.status}`, o = e.headers.get("retry-after"), s = o ? /^\d+$/.test(o) ? Number(o) : Math.max(0, (Date.parse(o) - Date.now()) / 1e3) : 0, c = typeof n?.retryAfterSeconds == "number" ? n.retryAfterSeconds : 0, l = Math.max(Number.isFinite(s) ? s : 0, Number.isFinite(c) ? c : 0);
-		throw new L(a, e.status, typeof n?.code == "string" ? n.code : void 0, {
+		throw new I(a, e.status, typeof n?.code == "string" ? n.code : void 0, {
 			...l > 0 ? { retryAfterSeconds: l } : {},
 			...typeof n?.reason == "string" && [
 				"revoked",
@@ -69,12 +69,12 @@ async function R(e, t) {
 			...typeof n?.requestId == "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(n.requestId) ? { requestId: n.requestId } : {}
 		});
 	}
-	if (!n) throw new L("Envoi returned an empty response", e.status);
-	if (r === null) throw new L("Envoi returned an invalid JSON response", e.status);
+	if (!n) throw new I("Envoi returned an empty response", e.status);
+	if (r === null) throw new I("Envoi returned an invalid JSON response", e.status);
 	return r;
 }
-async function re(e, t, n, r) {
-	let i = new AbortController(), a = setTimeout(() => i.abort(), te(r)), o = () => i.abort();
+async function R(e, t, n, r) {
+	let i = new AbortController(), a = setTimeout(() => i.abort(), ne(r)), o = () => i.abort();
 	n.signal?.addEventListener("abort", o, { once: !0 });
 	try {
 		return await e(t, {
@@ -82,7 +82,7 @@ async function re(e, t, n, r) {
 			signal: i.signal
 		});
 	} catch {
-		throw i.signal.aborted && !n.signal?.aborted ? new L("Envoi request timed out", void 0, "TIMEOUT") : new L("Envoi could not be reached", void 0, "NETWORK_ERROR");
+		throw i.signal.aborted && !n.signal?.aborted ? new I("Envoi request timed out", void 0, "TIMEOUT") : new I("Envoi could not be reached", void 0, "NETWORK_ERROR");
 	} finally {
 		clearTimeout(a), n.signal?.removeEventListener("abort", o);
 	}
@@ -93,13 +93,13 @@ var ie = class {
 	requestTimeoutMs;
 	fetcher;
 	constructor(e, t, n = {}) {
-		this.baseUrl = e, this.accessToken = t, this.requestTimeoutMs = te(n.timeoutMs), this.fetcher = n.fetch || fetch;
+		this.baseUrl = e, this.accessToken = t, this.requestTimeoutMs = ne(n.timeoutMs), this.fetcher = n.fetch || fetch;
 	}
 	setAccessToken(e) {
 		this.accessToken = e;
 	}
 	async request(e, t = {}) {
-		return R(await re(this.fetcher, `${this.baseUrl.replace(/\/$/, "")}${e}`, {
+		return L(await R(this.fetcher, `${this.baseUrl.replace(/\/$/, "")}${e}`, {
 			...t,
 			headers: {
 				"content-type": "application/json",
@@ -207,17 +207,17 @@ async function ae(e, t, n = {}) {
 		"127.0.0.1",
 		"[::1]"
 	].includes(r.hostname))) throw TypeError("Signed upload URL must use HTTPS");
-	let i = await re(n.fetch || fetch, r.toString(), {
+	let i = await R(n.fetch || fetch, r.toString(), {
 		method: "PUT",
 		headers: e.headers || {},
 		body: t,
 		redirect: "error"
-	}, te(n.timeoutMs));
-	if (!i.ok) throw new L(`Signed upload failed with HTTP ${i.status}`, i.status);
+	}, ne(n.timeoutMs));
+	if (!i.ok) throw new I(`Signed upload failed with HTTP ${i.status}`, i.status);
 }
 async function oe(e, t, n, r = {}) {
 	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(n)) throw TypeError("Valid rotationId required");
-	let i = await R(await re(r.fetch || fetch, `${e.replace(/\/$/, "")}/api/agent-token`, {
+	let i = await L(await R(r.fetch || fetch, `${e.replace(/\/$/, "")}/api/agent-token`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
@@ -225,7 +225,7 @@ async function oe(e, t, n, r = {}) {
 			agentRefreshToken: t,
 			rotationId: n
 		})
-	}, te(r.timeoutMs)), "Envoi token rotation failed");
+	}, ne(r.timeoutMs)), "Envoi token rotation failed");
 	return {
 		agentApiToken: i.agentApiToken,
 		agentRefreshToken: i.agentRefreshToken,
@@ -459,7 +459,7 @@ var he = /* @__PURE__ */ new Set([
 	"lease_lost"
 ]), ve = (e) => typeof e == "object" && !!e && !Array.isArray(e), ye = (e, t) => Object.keys(e).length === t.length && t.every((t) => Object.hasOwn(e, t)), be = (e, t) => typeof e == "string" && RegExp(`^${t}[A-Za-z0-9_-]+$`).test(e), xe = (e) => typeof e == "string" && Number.isFinite(Date.parse(e));
 function Se(e) {
-	return e instanceof L && ([
+	return e instanceof I && ([
 		"NETWORK_ERROR",
 		"TIMEOUT",
 		"INTERNAL_SERVER_ERROR",
@@ -490,9 +490,9 @@ function we(e, t) {
 async function Te(e) {
 	let t = e.ok ? null : e.clone();
 	try {
-		return await R(e, "Envoi case session request failed");
+		return await L(e, "Envoi case session request failed");
 	} catch (e) {
-		if (!(e instanceof L)) throw new L("Envoi case session response was invalid", void 0, "CASE_SESSION_RESPONSE_INVALID");
+		if (!(e instanceof I)) throw new I("Envoi case session response was invalid", void 0, "CASE_SESSION_RESPONSE_INVALID");
 		let n = await t?.json().catch(() => null), r = typeof e.code == "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(e.code) ? e.code : "CASE_SESSION_TRANSPORT_ERROR", i = r === "CASE_SESSION_ENDED" ? _e : r === "WORK_LEASE_STALE" ? /* @__PURE__ */ new Set([
 			"other_installation",
 			"superseded",
@@ -509,7 +509,7 @@ async function Te(e) {
 			"replaced",
 			"refresh_replay"
 		]), a = typeof n?.reason == "string" && i.has(n.reason) ? n.reason : void 0;
-		throw new L("Envoi case session request failed", e.status, r, {
+		throw new I("Envoi case session request failed", e.status, r, {
 			reason: a,
 			retryAfterSeconds: e.retryAfterSeconds,
 			requestId: e.requestId
@@ -517,7 +517,7 @@ async function Te(e) {
 	}
 }
 function Ee(e, t, n) {
-	let r = () => new L("Envoi returned an invalid case session", void 0, "CASE_SESSION_RESPONSE_INVALID");
+	let r = () => new I("Envoi returned an invalid case session", void 0, "CASE_SESSION_RESPONSE_INVALID");
 	if (!ve(e) || !ye(e, ["session", "lease"]) || !ve(e.session) || !ve(e.lease)) throw r();
 	let i = e.session;
 	if (!ye(i, [
@@ -563,13 +563,13 @@ var De = class {
 		].includes(r.hostname))) throw TypeError("Invalid case session origin");
 		if (n.timeoutMs !== void 0 && (!Number.isSafeInteger(n.timeoutMs) || n.timeoutMs < 1 || n.timeoutMs > 3e5)) throw RangeError("Invalid case session timeout");
 		if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(t.agentAddress)) throw TypeError("Invalid agent address");
-		this.#e = Ee(e, t, n.origin), this.#t = { ...t }, this.#n = { ...n }, this.#i = setTimeout(() => this.invalidate(new L("Case session expired", 401, "CASE_SESSION_EXPIRED")), Date.parse(this.#e.expiresAt) - Date.now()), this.#a = () => this.invalidate(new L("Case session was interrupted", void 0, "REQUEST_CANCELLED")), n.signal?.addEventListener("abort", this.#a, { once: !0 }), n.signal?.aborted && this.#a();
+		this.#e = Ee(e, t, n.origin), this.#t = { ...t }, this.#n = { ...n }, this.#i = setTimeout(() => this.invalidate(new I("Case session expired", 401, "CASE_SESSION_EXPIRED")), Date.parse(this.#e.expiresAt) - Date.now()), this.#a = () => this.invalidate(new I("Case session was interrupted", void 0, "REQUEST_CANCELLED")), n.signal?.addEventListener("abort", this.#a, { once: !0 }), n.signal?.aborted && this.#a();
 	}
 	get signal() {
 		return this.#r.signal;
 	}
 	#s() {
-		if (this.#o || (Date.parse(this.#e.expiresAt) <= Date.now() && this.invalidate(new L("Case session expired", 401, "CASE_SESSION_EXPIRED")), this.#o)) throw this.#o;
+		if (this.#o || (Date.parse(this.#e.expiresAt) <= Date.now() && this.invalidate(new I("Case session expired", 401, "CASE_SESSION_EXPIRED")), this.#o)) throw this.#o;
 	}
 	modelContext() {
 		return this.#s(), Object.freeze({
@@ -587,7 +587,7 @@ var De = class {
 		let e = this.#e.id;
 		this.invalidate(), await this.#n.end?.(e);
 	}
-	invalidate(e = new L("Case session ended", 401, "CASE_SESSION_ENDED", { reason: "ended_by_host" })) {
+	invalidate(e = new I("Case session ended", 401, "CASE_SESSION_ENDED", { reason: "ended_by_host" })) {
 		if (!this.#o) {
 			this.#o = e, this.#e.token = "", clearTimeout(this.#i), this.#n.signal?.removeEventListener("abort", this.#a), this.#r.abort(e);
 			try {
@@ -596,7 +596,7 @@ var De = class {
 		}
 	}
 	observeEvent(e) {
-		return e.type !== "case_session.ended" || e.agentId !== this.#e.agentId || e.workId !== this.#e.workId || e.caseId !== this.#e.caseId || e.sessionId !== this.#e.id || typeof e.reason != "string" || !_e.has(e.reason) ? !1 : (this.invalidate(new L("Case session ended", 401, "CASE_SESSION_ENDED", { reason: e.reason })), !0);
+		return e.type !== "case_session.ended" || e.agentId !== this.#e.agentId || e.workId !== this.#e.workId || e.caseId !== this.#e.caseId || e.sessionId !== this.#e.id || typeof e.reason != "string" || !_e.has(e.reason) ? !1 : (this.invalidate(new I("Case session ended", 401, "CASE_SESSION_ENDED", { reason: e.reason })), !0);
 	}
 	async forward(e, t = "2025-11-25") {
 		let n = 0;
@@ -623,8 +623,8 @@ var De = class {
 			"tools/call"
 		].includes(String(n.method))) throw TypeError("Invalid case session MCP method");
 		if (n.method === "tools/call") {
-			if (!ve(n.params) || typeof n.params.name != "string" || !this.#e.allowedTools.includes(n.params.name)) throw new L("Tool is not in this case session", void 0, "TOOL_NOT_IN_SESSION");
-			if (!ve(n.params.arguments) || Object.keys(n.params.arguments).some((e) => ge.has(e))) throw new L("Tool arguments cannot override session scope", void 0, "TOOL_ARGUMENTS_INVALID");
+			if (!ve(n.params) || typeof n.params.name != "string" || !this.#e.allowedTools.includes(n.params.name)) throw new I("Tool is not in this case session", void 0, "TOOL_NOT_IN_SESSION");
+			if (!ve(n.params.arguments) || Object.keys(n.params.arguments).some((e) => ge.has(e))) throw new I("Tool arguments cannot override session scope", void 0, "TOOL_ARGUMENTS_INVALID");
 		}
 		await this.#n.assertActive?.(), this.#s();
 		let r = AbortSignal.timeout(this.#n.timeoutMs ?? 3e4), i = AbortSignal.any([r, this.signal]), a;
@@ -643,11 +643,11 @@ var De = class {
 				}
 			}), i);
 		} catch {
-			throw this.#s(), new L("Case session transport failed", void 0, r.aborted ? "TIMEOUT" : "NETWORK_ERROR");
+			throw this.#s(), new I("Case session transport failed", void 0, r.aborted ? "TIMEOUT" : "NETWORK_ERROR");
 		}
 		if (this.#s(), a.status !== 202 && a.status !== 204) {
 			let e = a.body?.getReader();
-			if (!e) throw new L("Case session returned an empty response", void 0, "CASE_SESSION_RESPONSE_INVALID");
+			if (!e) throw new I("Case session returned an empty response", void 0, "CASE_SESSION_RESPONSE_INVALID");
 			let t = [], n = 0, i = () => {
 				e.cancel().catch(() => {});
 			};
@@ -655,13 +655,13 @@ var De = class {
 			try {
 				for (;;) {
 					let i = await e.read();
-					if (this.#s(), r.aborted) throw new L("Case session response timed out", void 0, "TIMEOUT");
+					if (this.#s(), r.aborted) throw new I("Case session response timed out", void 0, "TIMEOUT");
 					if (i.done) break;
-					if (n += i.value.byteLength, n > 4e6) throw new L("Case session response is too large", void 0, "CASE_SESSION_RESPONSE_INVALID");
+					if (n += i.value.byteLength, n > 4e6) throw new I("Case session response is too large", void 0, "CASE_SESSION_RESPONSE_INVALID");
 					t.push(i.value);
 				}
 			} catch (t) {
-				throw await e.cancel().catch(() => {}), this.#s(), t instanceof L ? t : new L("Case session response could not be read", void 0, "NETWORK_ERROR");
+				throw await e.cancel().catch(() => {}), this.#s(), t instanceof I ? t : new I("Case session response could not be read", void 0, "NETWORK_ERROR");
 			} finally {
 				this.signal.removeEventListener("abort", i), r.removeEventListener("abort", i), e.releaseLock();
 			}
@@ -675,7 +675,7 @@ var De = class {
 		if (this.#s(), !a.ok) try {
 			await Te(a);
 		} catch (e) {
-			throw this.#s(), a.status === 401 && e instanceof L && this.invalidate(e), e;
+			throw this.#s(), a.status === 401 && e instanceof I && this.invalidate(e), e;
 		}
 		return await this.#n.assertActive?.(), this.#s(), a;
 	}
@@ -687,7 +687,7 @@ function Oe(e) {
 	return e.kind === "humanDecision";
 }
 function ke(e) {
-	let t = () => new L("Envoi returned an invalid human decision"), n = (e, t) => typeof e == "string" && RegExp(`^${t}[A-Za-z0-9_-]+$`).test(e), r = [
+	let t = () => new I("Envoi returned an invalid human decision"), n = (e, t) => typeof e == "string" && RegExp(`^${t}[A-Za-z0-9_-]+$`).test(e), r = [
 		"id",
 		"kind",
 		"type",
@@ -728,7 +728,7 @@ function ke(e) {
 }
 function Ae(e) {
 	let t = (e) => typeof e == "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e);
-	if (e.senderType !== "human" || e.type !== "instruction" || !t(e.senderHumanId) || !t(e.recipientInboxId) || !t(e.caseId) || typeof e.text != "string" || !e.text.trim() || !e.from || typeof e.from != "object" || Array.isArray(e.from) || e.from.humanId !== e.senderHumanId || Object.keys(e.from).some((e) => e !== "humanId") || "senderAgentId" in e || "senderInboxId" in e || "senderEmail" in e) throw new L("Envoi returned an invalid human instruction");
+	if (e.senderType !== "human" || e.type !== "instruction" || !t(e.senderHumanId) || !t(e.recipientInboxId) || !t(e.caseId) || typeof e.text != "string" || !e.text.trim() || !e.from || typeof e.from != "object" || Array.isArray(e.from) || e.from.humanId !== e.senderHumanId || Object.keys(e.from).some((e) => e !== "humanId") || "senderAgentId" in e || "senderInboxId" in e || "senderEmail" in e) throw new I("Envoi returned an invalid human instruction");
 }
 var je = class extends Error {
 	requestId;
@@ -736,7 +736,7 @@ var je = class extends Error {
 	constructor(e, t) {
 		super("Connector credential persistence failed; stop this installation and recover its saved rotation state"), this.requestId = e, this.status = t, this.name = "ConnectorPersistenceError";
 	}
-}, Me = class extends L {
+}, Me = class extends I {
 	requestId;
 	constructor(e, t, n) {
 		super(`Envoi enrollment failed (${e}${n ? `; HTTP ${n}` : ""})`, n, e), this.requestId = t, this.name = "ConnectorEnrollmentError";
@@ -758,7 +758,7 @@ var Pe = class extends Error {
 	constructor() {
 		super("Envoi fenced work API is unavailable; agent processing cannot start"), this.name = "ConnectorContractError";
 	}
-}, Fe = class extends L {
+}, Fe = class extends I {
 	constructor() {
 		super("Connector credentials are missing or expired; ask the owner to reconnect this existing agent", void 0, "CREDENTIAL_EXPIRED"), this.name = "ConnectorCredentialsError";
 	}
@@ -782,7 +782,7 @@ async function Le(e) {
 	return Array.from(new Uint8Array(t), (e) => e.toString(16).padStart(2, "0")).join("");
 }
 function Re(e) {
-	if (typeof e.id != "string" || typeof e.type != "string" || typeof e.cursor != "string" || !e.cursor) throw new L("Envoi returned an invalid event");
+	if (typeof e.id != "string" || typeof e.type != "string" || typeof e.cursor != "string" || !e.cursor) throw new I("Envoi returned an invalid event");
 	return e;
 }
 async function ze(e, t, n, r = {}) {
@@ -947,7 +947,7 @@ var Be = class {
 			].includes(e)) {
 				this.actionEpoch++;
 				for (let e of [...this.activeActions, ...this.activeWork]) e.abort();
-				for (let t of this.activeCaseSessions) t.invalidate(new L("Case session ended", 401, "CASE_SESSION_ENDED", { reason: o.paused ? "agent_paused" : e === "STOPPED" ? "ended_by_host" : "credential_ended" }));
+				for (let t of this.activeCaseSessions) t.invalidate(new I("Case session ended", 401, "CASE_SESSION_ENDED", { reason: o.paused ? "agent_paused" : e === "STOPPED" ? "ended_by_host" : "credential_ended" }));
 			}
 			return {
 				...i,
@@ -967,7 +967,7 @@ var Be = class {
 		}
 	}
 	async observeError(e, t) {
-		if (!(e instanceof L) || this.observedErrors.has(e)) return;
+		if (!(e instanceof I) || this.observedErrors.has(e)) return;
 		this.observedErrors.add(e);
 		let n = ce(e);
 		if (n.lifecycle === "UNCHANGED" || n.lifecycle === "NOT_APPLICABLE") return;
@@ -988,15 +988,15 @@ var Be = class {
 				...e,
 				type: t
 			}) || n;
-			n && e.reason === "agent_paused" && await this.observeError(new L("Paused", void 0, "AGENT_PAUSED"));
+			n && e.reason === "agent_paused" && await this.observeError(new I("Paused", void 0, "AGENT_PAUSED"));
 			return;
 		}
 		if (t === "credential.ended") {
-			typeof e.code == "string" && await this.observeError(new L("Credential ended", void 0, e.code, { reason: typeof e.reason == "string" ? e.reason : void 0 }));
+			typeof e.code == "string" && await this.observeError(new I("Credential ended", void 0, e.code, { reason: typeof e.reason == "string" ? e.reason : void 0 }));
 			return;
 		}
 		let n = V(await this.store.load());
-		e.agentId === n.agentId && (t === "agent.paused" && await this.observeError(new L("Paused", void 0, "AGENT_PAUSED")), t === "agent.resumed" && (await this.transition("RUNNING", {
+		e.agentId === n.agentId && (t === "agent.paused" && await this.observeError(new I("Paused", void 0, "AGENT_PAUSED")), t === "agent.resumed" && (await this.transition("RUNNING", {
 			paused: !1,
 			failures: 0,
 			retryAt: void 0,
@@ -1008,8 +1008,8 @@ var Be = class {
 	async guard(e = !1) {
 		if (this.persistenceFailed) throw new je();
 		let t = await this.lifecycle();
-		if (["REVOKED", "NEEDS_RECONNECT"].includes(t.state)) throw new L(t.guidance ?? "Ask the owner to reconnect this installation", void 0, t.code ?? "CREDENTIAL_EXPIRED");
-		if (e && (t.paused || t.state === "STOPPED")) throw new L(t.guidance ?? "Connector actions are stopped", void 0, t.paused ? "AGENT_PAUSED" : "CONNECTOR_STOPPED");
+		if (["REVOKED", "NEEDS_RECONNECT"].includes(t.state)) throw new I(t.guidance ?? "Ask the owner to reconnect this installation", void 0, t.code ?? "CREDENTIAL_EXPIRED");
+		if (e && (t.paused || t.state === "STOPPED")) throw new I(t.guidance ?? "Connector actions are stopped", void 0, t.paused ? "AGENT_PAUSED" : "CONNECTOR_STOPPED");
 	}
 	async healthy() {
 		let e = await this.lifecycle();
@@ -1052,7 +1052,7 @@ var Be = class {
 				this.activeRefresh.delete(i);
 			}
 			return await this.guard(), this.mutate((e) => {
-				if (["REVOKED", "NEEDS_RECONNECT"].includes(e.lifecycle?.state ?? "")) throw new L(e.lifecycle?.guidance ?? "Credential ended", void 0, e.lifecycle?.code);
+				if (["REVOKED", "NEEDS_RECONNECT"].includes(e.lifecycle?.state ?? "")) throw new I(e.lifecycle?.guidance ?? "Credential ended", void 0, e.lifecycle?.code);
 				let { pendingRotation: t, ...n } = e;
 				return V({
 					...n,
@@ -1075,22 +1075,22 @@ var Be = class {
 		let i = this.actionEpoch, a = new AbortController();
 		t && this.activeActions.add(a);
 		let o = async (n) => {
-			if (await this.guard(t), t && i !== this.actionEpoch) throw new L("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
+			if (await this.guard(t), t && i !== this.actionEpoch) throw new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED");
 			let r = await e(n, a.signal);
-			if (await this.guard(t), t && i !== this.actionEpoch) throw new L("Connector action was interrupted");
+			if (await this.guard(t), t && i !== this.actionEpoch) throw new I("Connector action was interrupted");
 			return await this.healthy(), r;
 		};
 		try {
 			try {
 				return await o(r);
 			} catch (e) {
-				if (!(e instanceof L) || ce(e).retry !== "refresh_then_retry_once") throw e;
+				if (!(e instanceof I) || ce(e).retry !== "refresh_then_retry_once") throw e;
 				await this.guard(t);
 				let n = V(await this.store.load());
 				return await o(n.agentApiToken === r.agentApiToken ? await this.freshSession(!0) : n);
 			}
 		} catch (e) {
-			throw t && a.signal.aborted ? (await this.guard(t), new L("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (n && e instanceof L && ce(e).lifecycle === "DEGRADED" || await this.observeError(e), e);
+			throw t && a.signal.aborted ? (await this.guard(t), new I("Connector action was interrupted", void 0, "REQUEST_CANCELLED")) : (n && e instanceof I && ce(e).lifecycle === "DEGRADED" || await this.observeError(e), e);
 		} finally {
 			this.activeActions.delete(a);
 		}
@@ -1105,7 +1105,7 @@ var Be = class {
 		}), t), t);
 	}
 	async currentAccessToken(e = this.refreshSkewMs) {
-		if (this.options.caseSessionHandler) throw new L("Scoped runtimes cannot expose installation access credentials", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
+		if (this.options.caseSessionHandler) throw new I("Scoped runtimes cannot expose installation access credentials", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
 		if (!Number.isSafeInteger(e) || e < 0 || e > 3e5) throw RangeError("minValidityMs must be an integer from 0 to 300000");
 		let t = await this.freshSession();
 		if (Date.parse(t.agentTokenExpiresAt) <= Date.now() + e && (t = await this.freshSession(!0)), Date.parse(t.agentTokenExpiresAt) <= Date.now() + e) throw new Fe();
@@ -1139,7 +1139,7 @@ var Be = class {
 					])
 				});
 			} catch {
-				throw new L("Wake service is unavailable", void 0, n?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
+				throw new I("Wake service is unavailable", void 0, n?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
 			}
 			let c = o.body?.getReader(), l = [], u = 0;
 			try {
@@ -1159,22 +1159,22 @@ var Be = class {
 					let t = JSON.parse(new TextDecoder("utf-8", { fatal: !0 }).decode(e));
 					if (!t || typeof t != "object" || Array.isArray(t)) throw Error();
 					let n = typeof t.code == "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(t.code) ? t.code : void 0, r = typeof t.reason == "string" && /^[a-z][a-z0-9_]{0,63}$/.test(t.reason) ? t.reason : void 0, i = typeof t.requestId == "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(t.requestId) ? t.requestId : void 0, a = o.headers.get("retry-after"), s = Math.max(a && /^\d{1,6}$/.test(a) ? Number(a) : 0, typeof t.retryAfterSeconds == "number" && Number.isSafeInteger(t.retryAfterSeconds) && t.retryAfterSeconds >= 0 ? t.retryAfterSeconds : 0);
-					throw new L("Wake request was refused", o.status, n, {
+					throw new I("Wake request was refused", o.status, n, {
 						reason: r,
 						requestId: i,
 						...s ? { retryAfterSeconds: Math.min(s, 86400) } : {}
 					});
 				}
-				return await R(r, "Wake request was refused");
+				return await L(r, "Wake request was refused");
 			} catch (e) {
-				throw n?.aborted ? new L("Wake request was cancelled", void 0, "REQUEST_CANCELLED") : a.aborted ? new L("Wake request timed out", void 0, "TIMEOUT") : e instanceof L ? e : new L("Invalid wake response");
+				throw n?.aborted ? new I("Wake request was cancelled", void 0, "REQUEST_CANCELLED") : a.aborted ? new I("Wake request timed out", void 0, "TIMEOUT") : e instanceof I ? e : new I("Invalid wake response");
 			} finally {
 				await c?.cancel().catch(() => {});
 			}
 		}, !1);
 	}
 	mintMcpReadToken(e = null) {
-		if (this.options.caseSessionHandler) throw new L("Scoped runtimes cannot mint legacy model credentials", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
+		if (this.options.caseSessionHandler) throw new I("Scoped runtimes cannot mint legacy model credentials", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
 		if (e !== null && (typeof e != "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(e))) throw TypeError("A safe case ID is required for an MCP read token");
 		return this.withFreshSession(async (t, n) => {
 			let r = AbortSignal.timeout(this.options.timeoutMs ?? 3e4), i;
@@ -1190,21 +1190,21 @@ var Be = class {
 					body: JSON.stringify(e === null ? {} : { caseId: e })
 				});
 			} catch {
-				throw new L(r.aborted ? "Envoi MCP token request timed out" : "Envoi MCP token service could not be reached", void 0, n?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
+				throw new I(r.aborted ? "Envoi MCP token request timed out" : "Envoi MCP token service could not be reached", void 0, n?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
 			}
-			i.ok || await R(i, "Envoi MCP read credential was denied");
+			i.ok || await L(i, "Envoi MCP read credential was denied");
 			let a;
 			try {
 				a = await i.json();
 			} catch {
-				throw new L("Envoi returned an invalid MCP read credential");
+				throw new I("Envoi returned an invalid MCP read credential");
 			}
-			if (!a || typeof a.mcpAccessToken != "string" || !a.mcpAccessToken || a.tokenType !== "Bearer" || a.scope !== "case_read" || a.caseId !== e || typeof a.expiresAt != "string" || Date.parse(a.expiresAt) <= Date.now() + 12e4) throw new L("Envoi returned an invalid or short-lived MCP read credential");
+			if (!a || typeof a.mcpAccessToken != "string" || !a.mcpAccessToken || a.tokenType !== "Bearer" || a.scope !== "case_read" || a.caseId !== e || typeof a.expiresAt != "string" || Date.parse(a.expiresAt) <= Date.now() + 12e4) throw new I("Envoi returned an invalid or short-lived MCP read credential");
 			return a;
 		}, !0);
 	}
 	forwardMcpRequest(e, { protocolVersion: t, signal: n } = {}) {
-		if (this.options.caseSessionHandler) throw new L("Scoped runtimes cannot use privileged legacy MCP", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
+		if (this.options.caseSessionHandler) throw new I("Scoped runtimes cannot use privileged legacy MCP", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
 		if (t && !/^\d{4}-\d{2}-\d{2}$/.test(t)) throw TypeError("Invalid MCP protocol version");
 		return this.withFreshSession(async (r, i) => {
 			let a = AbortSignal.timeout(this.options.timeoutMs ?? 3e4), o = AbortSignal.any([
@@ -1226,9 +1226,9 @@ var Be = class {
 					}
 				});
 			} catch {
-				throw new L(o.aborted ? "Envoi MCP request timed out or canceled" : "Envoi MCP could not be reached", void 0, i?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
+				throw new I(o.aborted ? "Envoi MCP request timed out or canceled" : "Envoi MCP could not be reached", void 0, i?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR");
 			}
-			return s.ok || await R(s.clone(), "Envoi MCP request failed"), s;
+			return s.ok || await L(s.clone(), "Envoi MCP request failed"), s;
 		}, !0);
 	}
 	reportConnectionStatus(e) {
@@ -1245,9 +1245,9 @@ var Be = class {
 					signal: AbortSignal.timeout(this.options.timeoutMs ?? 3e4)
 				});
 			} catch {
-				throw new L("Envoi status service could not be reached", void 0, "NETWORK_ERROR");
+				throw new I("Envoi status service could not be reached", void 0, "NETWORK_ERROR");
 			}
-			n.ok ? await n.body?.cancel() : await R(n, "Envoi could not record setup checks");
+			n.ok ? await n.body?.cancel() : await L(n, "Envoi could not record setup checks");
 		});
 	}
 	startCase(e, t) {
@@ -1306,10 +1306,10 @@ var Be = class {
 					])
 				});
 			} catch {
-				throw new L(s.aborted ? "Envoi request timed out" : "Envoi could not be reached", void 0, o?.aborted ? "REQUEST_CANCELLED" : s.aborted ? "TIMEOUT" : "NETWORK_ERROR");
+				throw new I(s.aborted ? "Envoi request timed out" : "Envoi could not be reached", void 0, o?.aborted ? "REQUEST_CANCELLED" : s.aborted ? "TIMEOUT" : "NETWORK_ERROR");
 			}
 			r?.throwIfAborted();
-			let l = await (i ? Te(c) : R(c, "Envoi work request failed"));
+			let l = await (i ? Te(c) : L(c, "Envoi work request failed"));
 			return r?.throwIfAborted(), l;
 		}, !0);
 	}
@@ -1324,10 +1324,10 @@ var Be = class {
 	}
 	async createCaseSession(e, t) {
 		if (t.signal?.throwIfAborted(), Oe(e.message) && ke(e.message), !/^msg_[A-Za-z0-9_-]+$/.test(e.workId) || typeof e.leaseToken != "string" || e.leaseToken.length < 1 || e.leaseToken.length > 256 || !e.message.caseId || !Number.isFinite(Date.parse(e.leaseExpiresAt)) || Date.parse(e.leaseExpiresAt) <= Date.now()) throw TypeError("A live case-bound work lease is required");
-		if (await this.checkStatus(), t.signal?.throwIfAborted(), !this.caseSessionsAvailable) throw new L("Case sessions are unavailable; update the server before processing", 404, "FEATURE_DISABLED");
+		if (await this.checkStatus(), t.signal?.throwIfAborted(), !this.caseSessionsAvailable) throw new I("Case sessions are unavailable; update the server before processing", 404, "FEATURE_DISABLED");
 		let n = V(await this.store.load());
-		if (e.message.recipientAgentId !== n.agentId) throw new L("Work belongs to another agent", void 0, "CASE_SESSION_RESPONSE_INVALID");
-		if (Oe(e.message) && e.message.recipientInboxId !== n.inboxId) throw new L("Work belongs to another inbox", void 0, "CASE_SESSION_RESPONSE_INVALID");
+		if (e.message.recipientAgentId !== n.agentId) throw new I("Work belongs to another agent", void 0, "CASE_SESSION_RESPONSE_INVALID");
+		if (Oe(e.message) && e.message.recipientInboxId !== n.inboxId) throw new I("Work belongs to another inbox", void 0, "CASE_SESSION_RESPONSE_INVALID");
 		let r = `/api/agent/work/${encodeURIComponent(e.workId)}/session`, i = await this.postWork(r, { leaseToken: e.leaseToken }, void 0, t.signal, !0);
 		t.signal?.throwIfAborted();
 		let a;
@@ -1353,12 +1353,12 @@ var Be = class {
 					leaseToken: e.leaseToken,
 					sessionId: t
 				}, void 0, void 0, !0);
-				if (n.session?.id !== t || n.session.status !== "ended") throw new L("Envoi returned an invalid case session end", void 0, "CASE_SESSION_RESPONSE_INVALID");
+				if (n.session?.id !== t || n.session.status !== "ended") throw new I("Envoi returned an invalid case session end", void 0, "CASE_SESSION_RESPONSE_INVALID");
 			}
 		}), a.signal.aborted || this.activeCaseSessions.add(a), a;
 	}
 	async reply(e, t, n, r = {}, i) {
-		if (Oe(e)) throw new L("Human decisions require the scoped tool channel", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
+		if (Oe(e)) throw new I("Human decisions require the scoped tool channel", void 0, "LEGACY_MODEL_ACCESS_DISABLED");
 		if (B(e)) {
 			if (Ae(e), !n || n.length > 200 || /[\x00-\x1f\x7f]/.test(n)) throw TypeError("A stable reply idempotency key is required");
 			if (Object.keys(r).length) throw TypeError("Human instruction replies accept text only");
@@ -1367,7 +1367,7 @@ var Be = class {
 				text: t,
 				leaseToken: i
 			}, n);
-			if (typeof a.id != "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(a.id) || a.kind !== "humanInstructionReply" || a.inReplyTo !== e.id || a.caseId !== e.caseId || a.inboxId !== e.recipientInboxId || a.senderInboxId !== e.recipientInboxId || a.recipientInboxId !== e.recipientInboxId || a.senderType !== "agent" || a.senderAgentId !== e.recipientAgentId || a.recipientHumanId !== e.senderHumanId || a.from?.agentId !== e.recipientAgentId || typeof a.from?.address != "string" || !a.from.address || a.type !== "message" || a.status !== "delivered" || a.text !== t.trim()) throw new L("Envoi returned an invalid human instruction reply");
+			if (typeof a.id != "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(a.id) || a.kind !== "humanInstructionReply" || a.inReplyTo !== e.id || a.caseId !== e.caseId || a.inboxId !== e.recipientInboxId || a.senderInboxId !== e.recipientInboxId || a.recipientInboxId !== e.recipientInboxId || a.senderType !== "agent" || a.senderAgentId !== e.recipientAgentId || a.recipientHumanId !== e.senderHumanId || a.from?.agentId !== e.recipientAgentId || typeof a.from?.address != "string" || !a.from.address || a.type !== "message" || a.status !== "delivered" || a.text !== t.trim()) throw new I("Envoi returned an invalid human instruction reply");
 			return a;
 		}
 		if (!n || !e.from?.address) throw TypeError("A stable reply idempotency key and sender address are required");
@@ -1381,10 +1381,10 @@ var Be = class {
 	}
 	scopedWakeWorkDriver() {
 		let e = this.options.caseSessionHandler, t = () => {
-			if (!e || this.options.caseSessionHandler !== e || this.options.handler) throw new L("A scoped CaseSession handler is required for wake processing", void 0, "SCOPED_HANDLER_REQUIRED");
+			if (!e || this.options.caseSessionHandler !== e || this.options.handler) throw new I("A scoped CaseSession handler is required for wake processing", void 0, "SCOPED_HANDLER_REQUIRED");
 		};
 		t();
-		let n = (e) => e instanceof L && [
+		let n = (e) => e instanceof I && [
 			"CASE_CONTROLLED",
 			"WORK_LEASE_STALE",
 			"WORK_NOT_ELIGIBLE",
@@ -1396,7 +1396,7 @@ var Be = class {
 		return Object.freeze({
 			processWorkOnce: (e) => (t(), this.processWorkOnce(e).catch((t) => {
 				if (n(t) && !e?.aborted) return !0;
-				if (t instanceof L && ["AGENT_PAUSED", "FEATURE_DISABLED"].includes(t.code ?? "") && !e?.aborted) return !1;
+				if (t instanceof I && ["AGENT_PAUSED", "FEATURE_DISABLED"].includes(t.code ?? "") && !e?.aborted) return !1;
 				throw t;
 			})),
 			revalidateLiveLeases: async (e) => {
@@ -1406,11 +1406,11 @@ var Be = class {
 				}));
 				try {
 					await Promise.all([this.checkStatus().then(async () => {
-						if (await this.guard(!0), !this.caseSessionsAvailable) throw new L("Case sessions are unavailable", 404, "FEATURE_DISABLED");
+						if (await this.guard(!0), !this.caseSessionsAvailable) throw new I("Case sessions are unavailable", 404, "FEATURE_DISABLED");
 					}), ...i]), e?.throwIfAborted();
 				} catch (t) {
 					for (let [, e] of r) e.abort();
-					if (t instanceof L && ["AGENT_PAUSED", "FEATURE_DISABLED"].includes(t.code ?? "") && !e?.aborted) return;
+					if (t instanceof I && ["AGENT_PAUSED", "FEATURE_DISABLED"].includes(t.code ?? "") && !e?.aborted) return;
 					throw t;
 				}
 			},
@@ -1433,47 +1433,47 @@ var Be = class {
 		if (!n) throw TypeError("A durable work handler is required");
 		if (e?.aborted || (await this.guard(), (await this.lifecycle()).paused)) return !1;
 		if (t) {
-			if (await this.checkStatus(), !this.caseSessionsAvailable) throw new L("Case sessions are unavailable", 404, "FEATURE_DISABLED");
+			if (await this.checkStatus(), !this.caseSessionsAvailable) throw new I("Case sessions are unavailable", 404, "FEATURE_DISABLED");
 			if ((await this.lifecycle()).paused) return !1;
 		}
 		let r;
 		try {
 			r = await this.postWork("/api/agent/work/claim", { acceptHumanInstructions: !0 });
 		} catch (e) {
-			throw e instanceof L && [
+			throw e instanceof I && [
 				404,
 				405,
 				501
 			].includes(e.status || 0) ? new Pe() : e;
 		}
-		if (r.state === "paused") return await this.observeError(new L("Paused", void 0, "AGENT_PAUSED")), !1;
+		if (r.state === "paused") return await this.observeError(new I("Paused", void 0, "AGENT_PAUSED")), !1;
 		if (this.nextClaimAt = Infinity, r.work === null) return r.state === "idle" && Number.isSafeInteger(r.nextAvailableInMs) && r.nextAvailableInMs >= 0 && (this.nextClaimAt = Date.now() + Math.max(1e3, r.nextAvailableInMs)), !1;
 		let i = r.work;
-		if (!i || typeof i.workId != "string" || typeof i.leaseToken != "string" || !Number.isFinite(Date.parse(i.leaseExpiresAt)) || typeof i.message?.id != "string" || !i.message.id) throw new L("Envoi returned an invalid work claim");
+		if (!i || typeof i.workId != "string" || typeof i.leaseToken != "string" || !Number.isFinite(Date.parse(i.leaseExpiresAt)) || typeof i.message?.id != "string" || !i.message.id) throw new I("Envoi returned an invalid work claim");
 		let a = V(await this.store.load());
 		if (Oe(i.message)) {
-			if (!t) throw new L("Human decisions require a scoped runtime", void 0, "FEATURE_DISABLED");
-			if (ke(i.message), i.message.recipientInboxId !== a.inboxId || i.message.id !== i.workId) throw new L("Envoi returned work for the wrong inbox");
+			if (!t) throw new I("Human decisions require a scoped runtime", void 0, "FEATURE_DISABLED");
+			if (ke(i.message), i.message.recipientInboxId !== a.inboxId || i.message.id !== i.workId) throw new I("Envoi returned work for the wrong inbox");
 		} else if (B(i.message)) {
-			if (Ae(i.message), i.message.recipientInboxId !== a.inboxId) throw new L("Envoi returned work for the wrong inbox");
-		} else if (i.message.senderType === "human" || "senderHumanId" in i.message || i.message.from && "humanId" in i.message.from || !i.message.from?.address) throw new L("Envoi returned an invalid native work sender");
-		if (i.message.recipientAgentId !== a.agentId || i.message.status === "processed") throw new L("Envoi returned work for the wrong recipient");
+			if (Ae(i.message), i.message.recipientInboxId !== a.inboxId) throw new I("Envoi returned work for the wrong inbox");
+		} else if (i.message.senderType === "human" || "senderHumanId" in i.message || i.message.from && "humanId" in i.message.from || !i.message.from?.address) throw new I("Envoi returned an invalid native work sender");
+		if (i.message.recipientAgentId !== a.agentId || i.message.status === "processed") throw new I("Envoi returned work for the wrong recipient");
 		let o = `/api/agent/work/${encodeURIComponent(i.workId)}`, s = globalThis.crypto.randomUUID(), c = `connector:${i.message.id}:${s}:ack`, l = `connector:${i.message.id}:${s}:complete`, u = new AbortController();
 		this.activeWork.add(u);
 		let d = () => u.abort();
 		e?.addEventListener("abort", d, { once: !0 }), e?.aborted && u.abort();
 		let f = i.leaseExpiresAt, p = null, m, h = () => {
 			clearTimeout(m), m = setTimeout(() => {
-				p = new L("Work lease expired during processing", void 0, "REQUEST_CANCELLED"), u.abort();
+				p = new I("Work lease expired during processing", void 0, "REQUEST_CANCELLED"), u.abort();
 			}, Math.max(0, Date.parse(f) - Date.now()));
 		};
 		h();
 		let g = null, _ = !1, v = () => g || (g = (async () => {
-			if (u.signal.aborted) throw new L("Work lease was interrupted", void 0, "REQUEST_CANCELLED");
+			if (u.signal.aborted) throw new I("Work lease was interrupted", void 0, "REQUEST_CANCELLED");
 			let e = await this.postWork(`${o}/renew`, { leaseToken: i.leaseToken }, void 0, u.signal, !!t);
-			if (u.signal.aborted) throw new L("Work lease was interrupted", void 0, "REQUEST_CANCELLED");
-			if (e.workId !== i.workId || e.leaseToken !== i.leaseToken || !Number.isFinite(Date.parse(e.leaseExpiresAt))) throw new L("Envoi returned an invalid lease renewal");
-			if (Date.parse(e.leaseExpiresAt) <= Date.now()) throw new L("Envoi returned an expired lease renewal");
+			if (u.signal.aborted) throw new I("Work lease was interrupted", void 0, "REQUEST_CANCELLED");
+			if (e.workId !== i.workId || e.leaseToken !== i.leaseToken || !Number.isFinite(Date.parse(e.leaseExpiresAt))) throw new I("Envoi returned an invalid lease renewal");
+			if (Date.parse(e.leaseExpiresAt) <= Date.now()) throw new I("Envoi returned an expired lease renewal");
 			f = e.leaseExpiresAt, h();
 		})().catch((e) => {
 			if (!_) throw t && (p = e, u.abort()), e;
@@ -1492,7 +1492,7 @@ var Be = class {
 					await v(), e = 0;
 				} catch (n) {
 					if (u.signal.aborted) break;
-					let r = n instanceof L && (["NETWORK_ERROR", "TIMEOUT"].includes(n.code ?? "") || !n.code && [
+					let r = n instanceof I && (["NETWORK_ERROR", "TIMEOUT"].includes(n.code ?? "") || !n.code && [
 						502,
 						503,
 						504
@@ -1506,15 +1506,15 @@ var Be = class {
 			_ = !0, this.activeLeaseChecks.delete(y), clearTimeout(m), u.abort(), await b, await g?.catch(() => {});
 		}, S = !1, C = null;
 		try {
-			if (u.signal.aborted) throw new L("Work claim was interrupted before admission");
-			if (await this.guard(!0), await n.admit(i.message), u.signal.aborted) throw new L("Work lease was interrupted before acknowledgement");
+			if (u.signal.aborted) throw new I("Work claim was interrupted before admission");
+			if (await this.guard(!0), await n.admit(i.message), u.signal.aborted) throw new I("Work lease was interrupted before acknowledgement");
 			let r = await this.postWork(`${o}/acknowledge`, { leaseToken: i.leaseToken }, c, u.signal, !!t);
-			if (r.workId !== i.workId || r.status !== "acknowledged" || r.receipt?.state !== "acknowledged" || r.receipt.messageId !== i.message.id) throw new L("Envoi returned an invalid acknowledgement");
-			if (u.signal.aborted) throw new L("Work lease was interrupted before processing");
+			if (r.workId !== i.workId || r.status !== "acknowledged" || r.receipt?.state !== "acknowledged" || r.receipt.messageId !== i.message.id) throw new I("Envoi returned an invalid acknowledgement");
+			if (u.signal.aborted) throw new I("Work lease was interrupted before processing");
 			if (t ? await this.processCaseSessionWork(i, t, u.signal, () => f) : await this.options.handler.process(i.message, {
 				signal: u.signal,
 				reply: async (t, n, r) => {
-					if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new L("Work lease is no longer valid for a reply");
+					if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new I("Work lease is no longer valid for a reply");
 					try {
 						let e = await this.reply(i.message, t, n, r, i.leaseToken);
 						return B(i.message) && (C = null), e;
@@ -1524,11 +1524,11 @@ var Be = class {
 				}
 			}), C) throw C;
 			if (p) throw p;
-			if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new L("Work lease expired before completion");
+			if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new I("Work lease expired before completion");
 			let a = await this.postWork(`${o}/complete`, { leaseToken: i.leaseToken }, l, u.signal, !!t);
 			if (p) throw p;
-			if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new L("Work lease was interrupted during completion", void 0, "REQUEST_CANCELLED");
-			if (a.workId !== i.workId || a.status !== "processed" || a.receipt?.state !== "processed" || a.receipt.messageId !== i.message.id) throw new L("Envoi returned an invalid completion");
+			if (u.signal.aborted || e?.aborted || Date.parse(f) <= Date.now()) throw new I("Work lease was interrupted during completion", void 0, "REQUEST_CANCELLED");
+			if (a.workId !== i.workId || a.status !== "processed" || a.receipt?.state !== "processed" || a.receipt.messageId !== i.message.id) throw new I("Envoi returned an invalid completion");
 			return S = !0, await x(), !0;
 		} catch (n) {
 			let r = u.signal.aborted;
@@ -1536,7 +1536,7 @@ var Be = class {
 				"REVOKED",
 				"NEEDS_RECONNECT",
 				"STOPPED"
-			].includes((await this.lifecycle()).state) && !(n instanceof L && (n.code === "CASE_CONTROLLED" || t && [
+			].includes((await this.lifecycle()).state) && !(n instanceof I && (n.code === "CASE_CONTROLLED" || t && [
 				"CASE_SESSION_ENDED",
 				"CASE_SESSION_EXPIRED",
 				"WORK_LEASE_STALE",
@@ -1548,7 +1548,7 @@ var Be = class {
 				leaseToken: i.leaseToken,
 				retryable: !0,
 				reasonCode: "HANDLER_FAILED"
-			}, void 0, void 0, !!t).catch(() => {}), r && !p && n instanceof L && !n.code ? new L(n.message, n.status, "REQUEST_CANCELLED") : (n instanceof L || await this.observeError(new L("Work handler failed", void 0, "HANDLER_FAILED")), p ?? n);
+			}, void 0, void 0, !!t).catch(() => {}), r && !p && n instanceof I && !n.code ? new I(n.message, n.status, "REQUEST_CANCELLED") : (n instanceof I || await this.observeError(new I("Work handler failed", void 0, "HANDLER_FAILED")), p ?? n);
 		} finally {
 			this.activeWork.delete(u), e?.removeEventListener("abort", d), await x();
 		}
@@ -1592,9 +1592,9 @@ var Be = class {
 				n.throwIfAborted();
 				return;
 			} catch (e) {
-				let t = a.signal.aborted && !(a.signal.reason instanceof L && a.signal.reason.reason === "ended_by_host") ? a.signal.reason : e;
-				await a.end().catch(() => {}), t instanceof L && t.code === "CASE_SESSION_ENDED" && t.reason === "agent_paused" && await this.observeError(new L("Paused", void 0, "AGENT_PAUSED"));
-				let o = t instanceof L && (t.code === "CASE_SESSION_EXPIRED" || t.code === "AUTHENTICATION_REQUIRED" || t.code === "CASE_SESSION_ENDED" && t.reason === "superseded");
+				let t = a.signal.aborted && !(a.signal.reason instanceof I && a.signal.reason.reason === "ended_by_host") ? a.signal.reason : e;
+				await a.end().catch(() => {}), t instanceof I && t.code === "CASE_SESSION_ENDED" && t.reason === "agent_paused" && await this.observeError(new I("Paused", void 0, "AGENT_PAUSED"));
+				let o = t instanceof I && (t.code === "CASE_SESSION_EXPIRED" || t.code === "AUTHENTICATION_REQUIRED" || t.code === "CASE_SESSION_ENDED" && t.reason === "superseded");
 				if (!i && o && !n.aborted && Date.parse(r()) > Date.now()) {
 					i = !0;
 					continue;
@@ -1608,14 +1608,14 @@ var Be = class {
 	}
 	async pollOnce() {
 		let e = V(await this.store.load()), t = await this.withFreshSession(async (t) => (e = t, new ie(this.origin, t.agentApiToken, this.options).delta(t.inboxId, this.cursorFor(t) || void 0, this.pageSize)));
-		if (!Array.isArray(t.events) || typeof t.hasMore != "boolean" || t.hasMore && t.events.length === 0) throw new L("Envoi returned an invalid event page");
+		if (!Array.isArray(t.events) || typeof t.hasMore != "boolean" || t.hasMore && t.events.length === 0) throw new I("Envoi returned an invalid event page");
 		let n = 0;
 		for (let r of t.events) {
 			let t = Re(r);
 			if (this.cursorFor(e) && t.cursor <= this.cursorFor(e)) continue;
 			await this.observeEvent(t), await this.options.onEvent?.(t);
 			let i = V(await this.store.load());
-			if (i.agentId !== e.agentId || i.inboxId !== e.inboxId) throw new L("Connector session changed while reading events");
+			if (i.agentId !== e.agentId || i.inboxId !== e.inboxId) throw new I("Connector session changed while reading events");
 			e = await this.saveCursor(e, t.cursor), n += 1;
 		}
 		return {
@@ -1628,7 +1628,7 @@ var Be = class {
 	}
 	saveCursor(e, t) {
 		return this.mutate((n) => {
-			if (n.inboxId !== e.inboxId || n.agentId !== e.agentId) throw new L("Connector session changed while reading events");
+			if (n.inboxId !== e.inboxId || n.agentId !== e.agentId) throw new I("Connector session changed while reading events");
 			return {
 				...n,
 				cursor: t,
@@ -1650,13 +1650,13 @@ var Be = class {
 					signal: AbortSignal.timeout(this.options.timeoutMs ?? 3e4)
 				});
 			} catch {
-				throw new L("Envoi status could not be reached", void 0, "NETWORK_ERROR");
+				throw new I("Envoi status could not be reached", void 0, "NETWORK_ERROR");
 			}
-			let n = await R(t, "Envoi status failed");
-			if (!["active", "paused"].includes(n.state) || n.inboxId !== e.inboxId || n.agent?.id !== e.agentId) throw new L("Envoi returned an invalid agent status");
+			let n = await L(t, "Envoi status failed");
+			if (!["active", "paused"].includes(n.state) || n.inboxId !== e.inboxId || n.agent?.id !== e.agentId) throw new I("Envoi returned an invalid agent status");
 			return n;
 		});
-		e === this.actionEpoch && (this.caseSessionsAvailable = t.caseSessions?.available === !0 && t.caseSessions.version === 1, t.state === "paused" ? await this.observeError(new L("Paused", void 0, "AGENT_PAUSED"), e) : (await this.lifecycle()).paused && (await this.transition("RUNNING", {
+		e === this.actionEpoch && (this.caseSessionsAvailable = t.caseSessions?.available === !0 && t.caseSessions.version === 1, t.state === "paused" ? await this.observeError(new I("Paused", void 0, "AGENT_PAUSED"), e) : (await this.lifecycle()).paused && (await this.transition("RUNNING", {
 			paused: !1,
 			code: void 0,
 			reason: void 0,
@@ -1671,17 +1671,17 @@ var Be = class {
 			r && (i = !0), u();
 		}, f = (e) => s && e?.state !== "DEGRADED" ? 3e4 + Math.random() * 3e4 : 12e3 + Math.random() * 6e3, p = async (e, r = !1) => {
 			if (n.aborted) return;
-			if (r && e instanceof L && ce(e).lifecycle === "DEGRADED") {
+			if (r && e instanceof I && ce(e).lifecycle === "DEGRADED") {
 				c = Math.min(c, Date.now() + f()), u();
 				return;
 			}
-			if (await this.observeError(e), this.options.caseSessionHandler && e instanceof L && e.code === "CASE_SESSION_ENDED" && e.reason === "credential_ended") try {
+			if (await this.observeError(e), this.options.caseSessionHandler && e instanceof I && e.code === "CASE_SESSION_ENDED" && e.reason === "credential_ended") try {
 				await this.checkStatus();
 			} catch (t) {
 				e = t, await this.observeError(e);
 			}
 			let i = await this.lifecycle();
-			i.state === "DEGRADED" && (c = Math.min(c, Date.now() + 12e3 + Math.random() * 6e3)), (e instanceof je || e instanceof Pe || ["REVOKED", "NEEDS_RECONNECT"].includes(i.state) || !(e instanceof L) && i.state !== "DEGRADED" || e instanceof L && !(ce(e).lifecycle === "DEGRADED" || [
+			i.state === "DEGRADED" && (c = Math.min(c, Date.now() + 12e3 + Math.random() * 6e3)), (e instanceof je || e instanceof Pe || ["REVOKED", "NEEDS_RECONNECT"].includes(i.state) || !(e instanceof I) && i.state !== "DEGRADED" || e instanceof I && !(ce(e).lifecycle === "DEGRADED" || [
 				"REQUEST_CANCELLED",
 				"AGENT_PAUSED",
 				"CASE_CONTROLLED"
@@ -1716,7 +1716,7 @@ var Be = class {
 				try {
 					if ((await this.lifecycle()).paused && (await this.checkStatus(), l = Date.now() + 3e4 + Math.random() * 3e4), r.aborted) break;
 					let e = await this.withFreshSession(async (e) => {
-						if (e.inboxId !== g.inboxId || e.agentId !== g.agentId) throw new L("Connector session changed while connecting");
+						if (e.inboxId !== g.inboxId || e.agentId !== g.agentId) throw new I("Connector session changed while connecting");
 						g = e;
 						let t = {
 							authorization: `Bearer ${e.agentApiToken}`,
@@ -1734,9 +1734,9 @@ var Be = class {
 									signal: AbortSignal.any([r, n.signal])
 								});
 							} catch {
-								throw new L("Envoi event stream could not be reached", void 0, "NETWORK_ERROR");
+								throw new I("Envoi event stream could not be reached", void 0, "NETWORK_ERROR");
 							}
-							return i.ok || await R(i, "Envoi event stream failed"), i;
+							return i.ok || await L(i, "Envoi event stream failed"), i;
 						} finally {
 							clearTimeout(i);
 						}
@@ -1746,26 +1746,26 @@ var Be = class {
 						for await (let t of me(e, r, y)) {
 							if (n.aborted) break;
 							if (t.id !== void 0) {
-								if (!/^\d{20}$/.test(t.id) || t.data.cursor !== t.id || t.data.type !== t.type) throw new L("Envoi returned an invalid stored event");
+								if (!/^\d{20}$/.test(t.id) || t.data.cursor !== t.id || t.data.type !== t.type) throw new I("Envoi returned an invalid stored event");
 								let e = V(await this.store.load());
-								if (e.inboxId !== g.inboxId || e.agentId !== g.agentId) throw new L("Connector session changed while reading events");
+								if (e.inboxId !== g.inboxId || e.agentId !== g.agentId) throw new I("Connector session changed while reading events");
 								if (this.cursorFor(e) && t.id <= this.cursorFor(e)) continue;
 								let n = Re(t.data);
 								await this.observeEvent(n, t.type), await this.options.onEvent?.(n), await this.saveCursor(g, t.id), (t.type === "work.available" && n.agentId === g.agentId || (t.type === "message.delivered" || t.type === "human.instruction_created") && n.recipientAgentId === g.agentId) && d();
 							} else if (t.type === "ready") {
-								if (t.data.inboxId !== g.inboxId || t.data.cursor !== null && (typeof t.data.cursor != "string" || !/^\d{20}$/.test(t.data.cursor))) throw new L("Envoi returned an invalid ready frame");
+								if (t.data.inboxId !== g.inboxId || t.data.cursor !== null && (typeof t.data.cursor != "string" || !/^\d{20}$/.test(t.data.cursor))) throw new I("Envoi returned an invalid ready frame");
 								v && !this.cursorFor(V(await this.store.load())) && await this.saveCursor(g, t.data.cursor), s = !0, c = Date.now() + f(), (await this.lifecycle()).paused && (await this.checkStatus(), l = Date.now() + 3e4 + Math.random() * 3e4), d();
 							} else if (t.type === "replay_required") {
 								m = !0;
 								break;
-							} else if (t.type === "replay_error") throw new L("Envoi event replay failed", void 0, "NETWORK_ERROR");
-							else if (t.type === "credential.ended") throw await this.observeEvent(t.data, t.type), await this.guard(), new L("Credential ended", void 0, String(t.data.code));
+							} else if (t.type === "replay_error") throw new I("Envoi event replay failed", void 0, "NETWORK_ERROR");
+							else if (t.type === "credential.ended") throw await this.observeEvent(t.data, t.type), await this.guard(), new I("Credential ended", void 0, String(t.data.code));
 						}
 					} catch (e) {
-						throw e instanceof L || e instanceof je ? e : new L("Envoi event stream was interrupted", void 0, "NETWORK_ERROR");
+						throw e instanceof I || e instanceof je ? e : new I("Envoi event stream was interrupted", void 0, "NETWORK_ERROR");
 					}
 				} catch (e) {
-					e instanceof L && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), d()) : (h = e instanceof L ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await p(e, !0));
+					e instanceof I && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), d()) : (h = e instanceof I ? (e.retryAfterSeconds ?? 0) * 1e3 : 0, await p(e, !0));
 				} finally {
 					clearTimeout(o), t.abort(), this.activeStreams.delete(t), a = i ? Date.now() - i : 0, s = !1, c = Math.min(c, Date.now() + f()), u();
 				}
@@ -1775,7 +1775,7 @@ var Be = class {
 						for (; !n.aborted && (await this.pollOnce()).hasMore;);
 						d();
 					} catch (e) {
-						e instanceof L && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), d()) : (await p(e), m = !1);
+						e instanceof I && e.code === "EVENT_CURSOR_INVALID" ? (await this.saveCursor(g, null), d()) : (await p(e), m = !1);
 					}
 					if (m) continue;
 				}
@@ -1877,9 +1877,23 @@ async function qe(t) {
 		mode: 448
 	});
 	let a = f.resolve(await s(i));
-	if ((await n(i)).isSymbolicLink() || (process.platform === "win32" ? a.toLowerCase() !== i.toLowerCase() : a !== i)) throw new I("Choose a private state directory without symbolic links");
+	if ((await n(i)).isSymbolicLink() || (process.platform === "win32" ? a.toLowerCase() !== i.toLowerCase() : a !== i)) throw new F("Choose a private state directory without symbolic links");
 	if (process.platform === "win32") {
-		let e = await Ge(), t = `$ErrorActionPreference='Stop'; $p='${i.replaceAll("'", "''")}'; $s=New-Object System.Security.Principal.SecurityIdentifier('${e}'); $a=New-Object System.Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($s); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); $a.AddAccessRule($r); ([System.IO.DirectoryInfo]::new($p)).SetAccessControl($a)`;
+		let e = await Ge(), t = [
+			"$ErrorActionPreference='Stop'",
+			`$p='${i.replaceAll("'", "''")}'`,
+			`$s=New-Object System.Security.Principal.SecurityIdentifier('${e}')`,
+			"$d=[System.IO.DirectoryInfo]::new($p)",
+			"if ($d.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Owner).GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $s.Value) { throw 'Credential directory owner mismatch' }",
+			"$a=New-Object System.Security.AccessControl.DirectorySecurity",
+			"$a.SetAccessRuleProtection($true,$false)",
+			"$r=New-Object System.Security.AccessControl.FileSystemAccessRule($s,'FullControl','ContainerInherit,ObjectInherit','None','Allow')",
+			"$a.AddAccessRule($r)",
+			"$d.SetAccessControl($a)",
+			"$v=$d.GetAccessControl()",
+			"$g=@($v.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))",
+			"if ($v.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $s.Value -or !$v.AreAccessRulesProtected -or $g.Count -ne 1 -or $g[0].IdentityReference.Value -ne $s.Value -or $g[0].IsInherited -or $g[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or $g[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or [int]$g[0].InheritanceFlags -ne 3 -or [int]$g[0].PropagationFlags -ne 0) { throw 'Credential directory ACL verification failed' }"
+		].join("; ");
 		try {
 			await Ke(We("powershell.exe"), [
 				"-NoProfile",
@@ -1900,7 +1914,7 @@ async function qe(t) {
 				timeout: 2e4
 			});
 		} catch {
-			throw new I("Windows could not restrict credential storage to your account. Choose an owned private state directory and retry; this check did not redeem an enrollment token");
+			throw new F("Windows could not restrict credential storage to your account. Choose an owned private state directory and retry; this check did not redeem an enrollment token");
 		}
 	} else await e(i, 448);
 	return i;
@@ -1940,9 +1954,9 @@ async function U(e, t = () => e) {
 				throw e;
 			});
 			if (r) {
-				if (!r.isFile() || r.isSymbolicLink() || r.size > 2048) throw new I("A private helper setup owns this connection");
+				if (!r.isFile() || r.isSymbolicLink() || r.size > 2048) throw new F("A private helper setup owns this connection");
 				let e = JSON.parse(await a(t, "utf8"));
-				if (!Number.isSafeInteger(e.pid) || e.pid <= 0) throw new I("A private helper setup owns this connection");
+				if (!Number.isSafeInteger(e.pid) || e.pid <= 0) throw new F("A private helper setup owns this connection");
 				if (e.pid !== process.pid) {
 					let t = !0;
 					try {
@@ -1951,7 +1965,7 @@ async function U(e, t = () => e) {
 						if (e.code === "ESRCH") t = !1;
 						else throw e;
 					}
-					if (t) throw new I("A private helper setup owns this connection");
+					if (t) throw new F("A private helper setup owns this connection");
 				}
 			}
 		} catch (e) {
@@ -1967,9 +1981,9 @@ async function U(e, t = () => e) {
 		try {
 			t = JSON.parse(await a(r, "utf8"));
 		} catch {
-			throw new I("The connector lock is incomplete. Check for a running setup before removing connector.lock");
+			throw new F("The connector lock is incomplete. Check for a running setup before removing connector.lock");
 		}
-		if (!Number.isSafeInteger(t.pid) || t.pid <= 0 || !t.nonce) throw new I("Invalid connector lock; inspect the state directory");
+		if (!Number.isSafeInteger(t.pid) || t.pid <= 0 || !t.nonce) throw new F("Invalid connector lock; inspect the state directory");
 		try {
 			process.kill(t.pid, 0);
 		} catch (e) {
@@ -1980,16 +1994,16 @@ async function U(e, t = () => e) {
 					try {
 						t = JSON.parse(await a(e, "utf8"));
 					} catch {
-						throw new I("The recovery lock is incomplete. Verify no setup is running before removing connector.lock.recovery");
+						throw new F("The recovery lock is incomplete. Verify no setup is running before removing connector.lock.recovery");
 					}
-					if (!Number.isSafeInteger(t.pid) || t.pid <= 0 || !t.nonce) throw new I("Invalid recovery lock; inspect the state directory");
+					if (!Number.isSafeInteger(t.pid) || t.pid <= 0 || !t.nonce) throw new F("Invalid recovery lock; inspect the state directory");
 					try {
 						process.kill(t.pid, 0);
 					} catch (r) {
 						r.code === "ESRCH" && (JSON.parse(await a(e, "utf8")).nonce === t.nonce && await l(e), n = await i(e, "wx", 384).catch(() => null));
 					}
 				}
-				if (!n) throw new I("Another setup is recovering this connector. Try again shortly");
+				if (!n) throw new F("Another setup is recovering this connector. Try again shortly");
 				try {
 					await n.writeFile(JSON.stringify(o)), JSON.parse(await a(r, "utf8")).nonce === t.nonce && await l(r);
 				} finally {
@@ -1998,9 +2012,9 @@ async function U(e, t = () => e) {
 				continue;
 			}
 		}
-		throw new I("This Envoi connection is already running. Stop its existing connector before setup or start");
+		throw new F("This Envoi connection is already running. Stop its existing connector before setup or start");
 	}
-	throw new I("Could not acquire the connector lock. Try again after the existing connector stops");
+	throw new F("Could not acquire the connector lock. Try again after the existing connector stops");
 }
 async function Ye(e) {
 	try {
@@ -2523,7 +2537,7 @@ function At(e) {
 		"pending",
 		"active",
 		"ended"
-	].includes(e.status) || !(e.expiresAt === null || typeof e.expiresAt == "string" && Number.isFinite(Date.parse(e.expiresAt))) || !(e.endedReason === null || typeof e.endedReason == "string" && Dt.has(e.endedReason)) || e.status === "ended" != (e.endedReason !== null) || e.status === "active" && e.expiresAt === null) throw new L("Invalid wake subscription response");
+	].includes(e.status) || !(e.expiresAt === null || typeof e.expiresAt == "string" && Number.isFinite(Date.parse(e.expiresAt))) || !(e.endedReason === null || typeof e.endedReason == "string" && Dt.has(e.endedReason)) || e.status === "ended" != (e.endedReason !== null) || e.status === "active" && e.expiresAt === null) throw new I("Invalid wake subscription response");
 	return e;
 }
 var jt = class {
@@ -2542,28 +2556,28 @@ var jt = class {
 		try {
 			return await this.connector.wakeRequest(e, t, n);
 		} catch (e) {
-			throw e instanceof L ? new L("Wake host request was refused", e.status, e.code, {
+			throw e instanceof I ? new I("Wake host request was refused", e.status, e.code, {
 				reason: e.reason,
 				retryAfterSeconds: e.retryAfterSeconds,
 				requestId: e.requestId
-			}) : new L("Wake host request failed");
+			}) : new I("Wake host request failed");
 		}
 	}
 	subscription(e) {
-		if (!W(e) || !W(e.subscription)) throw new L("Invalid wake subscription response");
+		if (!W(e) || !W(e.subscription)) throw new I("Invalid wake subscription response");
 		let t = e.subscription;
-		if (At(t), t.installationId !== this.identity.installationId || t.agentId !== this.identity.agentId || typeof t.url != "string" || kt(t.url) !== t.url || !(t.replacesSubscriptionId === null || typeof t.replacesSubscriptionId == "string" && Et.test(t.replacesSubscriptionId))) throw new L("Wake subscription identity changed");
+		if (At(t), t.installationId !== this.identity.installationId || t.agentId !== this.identity.agentId || typeof t.url != "string" || kt(t.url) !== t.url || !(t.replacesSubscriptionId === null || typeof t.replacesSubscriptionId == "string" && Et.test(t.replacesSubscriptionId))) throw new I("Wake subscription identity changed");
 		return t;
 	}
 	async status(e) {
 		let t = await this.request("/api/agent/status", void 0, e);
-		if (!W(t) || typeof t.state != "string" || !["active", "paused"].includes(t.state) || t.inboxId !== this.identity.inboxId || !W(t.agent) || t.agent.id !== this.identity.agentId || !W(t.installation) || t.installation.id !== this.identity.installationId) throw new L("Wake host identity changed");
+		if (!W(t) || typeof t.state != "string" || !["active", "paused"].includes(t.state) || t.inboxId !== this.identity.inboxId || !W(t.agent) || t.agent.id !== this.identity.agentId || !W(t.installation) || t.installation.id !== this.identity.installationId) throw new I("Wake host identity changed");
 		if (t.httpWake === void 0) return {
 			paused: t.state === "paused",
 			wake: null
 		};
 		let n = t.httpWake;
-		if (!W(n) || typeof n.available != "boolean" || n.version !== 1 || !W(t.installation) || t.installation.id !== this.identity.installationId) throw new L("Invalid wake availability response");
+		if (!W(n) || typeof n.available != "boolean" || n.version !== 1 || !W(t.installation) || t.installation.id !== this.identity.installationId) throw new I("Invalid wake availability response");
 		return {
 			paused: t.state === "paused",
 			wake: {
@@ -2582,9 +2596,9 @@ var jt = class {
 	}
 	async list(e) {
 		let t = await this.request("/api/agent/wake-subscriptions", void 0, e);
-		if (!W(t) || t.installationId !== this.identity.installationId || !Array.isArray(t.subscriptions)) throw new L("Invalid wake subscription list");
+		if (!W(t) || t.installationId !== this.identity.installationId || !Array.isArray(t.subscriptions)) throw new I("Invalid wake subscription list");
 		let n = t.subscriptions.map((e) => this.subscription({ subscription: e }));
-		if (new Set(n.map((e) => e.id)).size !== n.length || n.filter((e) => e.status === "active").length > 1 || n.filter((e) => e.status === "pending").length > 1) throw new L("Inconsistent wake subscription list");
+		if (new Set(n.map((e) => e.id)).size !== n.length || n.filter((e) => e.status === "active").length > 1 || n.filter((e) => e.status === "pending").length > 1) throw new I("Inconsistent wake subscription list");
 		return n;
 	}
 	async end(e, t) {
@@ -2617,7 +2631,7 @@ var jt = class {
 		});
 	}
 	async remember(e) {
-		if (e.installationId !== this.transport.identity.installationId || e.agentId !== this.transport.identity.agentId || e.url !== this.url) throw new L("Wake subscription identity changed");
+		if (e.installationId !== this.transport.identity.installationId || e.agentId !== this.transport.identity.agentId || e.url !== this.url) throw new I("Wake subscription identity changed");
 		await this.store.update((t) => {
 			if (e.status === "ended") delete t.subscriptions[e.id], e.endedReason && t.endedReasons[e.installationId] !== "revoked_by_owner" && (t.endedReasons[e.installationId] = e.endedReason);
 			else {
@@ -2626,7 +2640,7 @@ var jt = class {
 					"ended_by_host",
 					"receiver_gone",
 					"credential_ended"
-				].includes(t.endedReasons[e.installationId])) throw new L("Wake subscription was ended");
+				].includes(t.endedReasons[e.installationId])) throw new I("Wake subscription was ended");
 				t.subscriptions[e.id] = {
 					url: e.url,
 					status: e.status,
@@ -2659,7 +2673,7 @@ var jt = class {
 			let a = await this.transport.list(e);
 			if (t !== this.generation) return;
 			for (let e of a) {
-				if (e.installationId !== this.transport.identity.installationId || e.agentId !== this.transport.identity.agentId) throw new L("Wake subscription identity changed");
+				if (e.installationId !== this.transport.identity.installationId || e.agentId !== this.transport.identity.agentId) throw new I("Wake subscription identity changed");
 				e.endedReason === "revoked_by_owner" && await this.store.update((t) => {
 					t.endedReasons[e.installationId] = "revoked_by_owner";
 					for (let [n, r] of Object.entries(t.subscriptions)) r.installationId === e.installationId && delete t.subscriptions[n];
@@ -2672,15 +2686,15 @@ var jt = class {
 			e?.throwIfAborted();
 			let l = await this.transport.create(this.url, e);
 			if (t === this.generation) {
-				if (l.status !== "pending") throw new L("Invalid new wake subscription");
+				if (l.status !== "pending") throw new I("Invalid new wake subscription");
 				await this.remember(l);
 			}
 		})().catch(async (e) => {
-			if (e instanceof L && e.code === "FEATURE_DISABLED") {
+			if (e instanceof I && e.code === "FEATURE_DISABLED") {
 				await this.disableWake();
 				return;
 			}
-			if (e instanceof L && e.code === "RATE_LIMITED" && e.reason === "wake_subscription_create_limit" && Number.isSafeInteger(e.retryAfterSeconds) && e.retryAfterSeconds >= 0) {
+			if (e instanceof I && e.code === "RATE_LIMITED" && e.reason === "wake_subscription_create_limit" && Number.isSafeInteger(e.retryAfterSeconds) && e.retryAfterSeconds >= 0) {
 				this.subscriptionRetryAt = this.now() + e.retryAfterSeconds * 1e3;
 				return;
 			}
@@ -2741,11 +2755,11 @@ var jt = class {
 			try {
 				n = await this.transport.activate(e.subscriptionId, e.challenge, t);
 			} catch (t) {
-				if (t instanceof L && t.code === "FEATURE_DISABLED") {
+				if (t instanceof I && t.code === "FEATURE_DISABLED") {
 					await this.disableWake();
 					return;
 				}
-				if (t instanceof L && t.code === "WAKE_SUBSCRIPTION_ENDED" && t.reason && Dt.has(t.reason)) {
+				if (t instanceof I && t.code === "WAKE_SUBSCRIPTION_ENDED" && t.reason && Dt.has(t.reason)) {
 					await this.store.update((n) => {
 						delete n.subscriptions[e.subscriptionId], n.endedReasons[this.transport.identity.installationId] !== "revoked_by_owner" && (n.endedReasons[this.transport.identity.installationId] = t.reason);
 					});
@@ -2753,7 +2767,7 @@ var jt = class {
 				}
 				throw t;
 			}
-			if (n.status !== "active" || n.id !== e.subscriptionId) throw new L("Invalid activated wake subscription");
+			if (n.status !== "active" || n.id !== e.subscriptionId) throw new I("Invalid activated wake subscription");
 			await this.remember(n);
 		} else if (e.type === "wake.control_changed") {
 			await this.driver.revalidateLiveLeases(t);
@@ -2769,12 +2783,12 @@ var jt = class {
 	}
 	async endSubscription(e, t) {
 		let n = (await this.store.read()).subscriptions[e];
-		if (!n || n.installationId !== this.transport.identity.installationId || n.url !== this.url || !this.transport.end) throw new L("No locally owned wake subscription");
+		if (!n || n.installationId !== this.transport.identity.installationId || n.url !== this.url || !this.transport.end) throw new I("No locally owned wake subscription");
 		this.generation++, await this.store.update((t) => {
 			delete t.subscriptions[e], t.endedReasons[this.transport.identity.installationId] = "ended_by_host";
 		});
 		let r = await this.transport.end(e, t);
-		if (r.id !== e || r.status !== "ended") throw new L("Invalid ended wake subscription");
+		if (r.id !== e || r.status !== "ended") throw new I("Invalid ended wake subscription");
 		await this.remember(r);
 	}
 	async acknowledge(e) {
@@ -2785,7 +2799,7 @@ var jt = class {
 	}
 	async run(e, t = 6e4) {
 		if (!Number.isSafeInteger(t) || t < 1e3 || t > 9e5) throw RangeError("Wake polling must run at least every 900 seconds");
-		let n = new AbortController(), r, i, a, o = 0, s = (e) => e instanceof L && (e.status !== void 0 && e.status >= 500 || [
+		let n = new AbortController(), r, i, a, o = 0, s = (e) => e instanceof I && (e.status !== void 0 && e.status >= 500 || [
 			"NETWORK_ERROR",
 			"TIMEOUT",
 			"RATE_LIMITED"
@@ -2796,14 +2810,14 @@ var jt = class {
 				await this.maintain(e), await this.dispatchControls(e), !i && this.now() >= o && (i = (async () => {
 					await this.dispatchWork(e), await this.claim(e);
 				})().catch((t) => {
-					!e.aborted && !s(t) ? (r = t, n.abort()) : t instanceof L && Number.isSafeInteger(t.retryAfterSeconds) && t.retryAfterSeconds >= 0 && (o = this.now() + t.retryAfterSeconds * 1e3);
+					!e.aborted && !s(t) ? (r = t, n.abort()) : t instanceof I && Number.isSafeInteger(t.retryAfterSeconds) && t.retryAfterSeconds >= 0 && (o = this.now() + t.retryAfterSeconds * 1e3);
 				}).finally(() => {
 					i = void 0, a?.();
 				}));
 			} catch (t) {
 				if (e.aborted) return;
 				if (!s(t)) throw t;
-				t instanceof L && Number.isSafeInteger(t.retryAfterSeconds) && t.retryAfterSeconds >= 0 && (l = t.retryAfterSeconds * 1e3);
+				t instanceof I && Number.isSafeInteger(t.retryAfterSeconds) && t.retryAfterSeconds >= 0 && (l = t.retryAfterSeconds * 1e3);
 			}
 			if (r) throw r;
 			if (e.aborted) return;
@@ -3052,7 +3066,15 @@ var Wt = (e) => {
 			} finally {
 				await r.close();
 			}
-			if (await c(n, e), process.platform !== "win32") {
+			for (let t = 0;; t++) try {
+				await c(n, e);
+				break;
+			} catch (e) {
+				let n = e;
+				if (process.platform !== "win32" || n.code !== "EPERM" || n.syscall !== "rename" || t >= 3) throw e;
+				await w(10 * (t + 1));
+			}
+			if (process.platform !== "win32") {
 				let t = await i(f.dirname(e), "r");
 				try {
 					await t.sync();
@@ -3107,7 +3129,7 @@ function Kt(e = process.env, t) {
 	let n = t?.scopedTools;
 	if (n !== void 0 && n !== !0) throw TypeError("Invalid saved scoped mode");
 	if (n === !0) {
-		if (e.ENVOI_SCOPED_TOOLS === "false") throw new L("This connection was saved in scoped mode. Keep scoped mode enabled; do not downgrade its existing work to legacy execution.", void 0, "SCOPED_MODE_DOWNGRADE_UNAVAILABLE");
+		if (e.ENVOI_SCOPED_TOOLS === "false") throw new I("This connection was saved in scoped mode. Keep scoped mode enabled; do not downgrade its existing work to legacy execution.", void 0, "SCOPED_MODE_DOWNGRADE_UNAVAILABLE");
 		e = {
 			...e,
 			ENVOI_SCOPED_TOOLS: "true"
@@ -3126,7 +3148,7 @@ function Kt(e = process.env, t) {
 			"relayPort",
 			"mcpWriteEnabled",
 			"assetManifestPath"
-		].some((e) => r?.[e] !== void 0)) throw new L("Scoped mode cannot use privileged legacy Envoi relay or asset settings. Remove those settings from the selected connector environment.", void 0, "SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE");
+		].some((e) => r?.[e] !== void 0)) throw new I("Scoped mode cannot use privileged legacy Envoi relay or asset settings. Remove those settings from the selected connector environment.", void 0, "SCOPED_LEGACY_CONFIGURATION_UNAVAILABLE");
 	}
 	return e;
 }
@@ -3413,14 +3435,14 @@ async function on(e, t = {}) {
 }
 var sn = S(x), q = (e) => e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;"), cn = (e) => `"${e.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%").replaceAll("$", () => "$$")}"`, ln = (e) => `"${e.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\+)$/, "$1$1")}"`;
 function un(e, t = {}) {
-	if (t.runtime && !de.includes(t.runtime)) throw new I("Unsupported startup runtime");
+	if (t.runtime && !de.includes(t.runtime)) throw new F("Unsupported startup runtime");
 	let n = t.platform ?? process.platform, r = t.home ?? d(), i = t.node ?? process.execPath;
 	if ([
 		e,
 		r,
 		i,
 		t.user || ""
-	].some((e) => /[\r\n\0]/.test(e))) throw new I("Service paths cannot contain control characters");
+	].some((e) => /[\r\n\0]/.test(e))) throw new F("Service paths cannot contain control characters");
 	let a = h("sha256").update(e).digest("hex").slice(0, 16), o = `envoi-${t.runtime || "openclaw"}-${a}`, s = [
 		f.join(e, "connector.mjs"),
 		"start",
@@ -3461,7 +3483,7 @@ function un(e, t = {}) {
 		};
 	}
 	if (n === "win32") {
-		if (!t.user) throw new I("Windows startup requires the current account SID");
+		if (!t.user) throw new F("Windows startup requires the current account SID");
 		let n = f.join(e, "startup-task.xml");
 		return {
 			name: o,
@@ -3487,7 +3509,7 @@ function un(e, t = {}) {
 			}]
 		};
 	}
-	throw new I("Automatic startup supports Linux systemd, macOS launchd and Windows Task Scheduler. Use your host process supervisor");
+	throw new F("Automatic startup supports Linux systemd, macOS launchd and Windows Task Scheduler. Use your host process supervisor");
 }
 async function dn() {
 	try {
@@ -3502,9 +3524,9 @@ async function dn() {
 			timeout: 1e4,
 			windowsHide: !0
 		});
-		else throw new I("unsupported");
+		else throw new F("unsupported");
 	} catch {
-		throw new I("A user startup service is unavailable. Run setup without --install-service and use your host process supervisor to run the printed start command");
+		throw new F("A user startup service is unavailable. Run setup without --install-service and use your host process supervisor to run the printed start command");
 	}
 }
 async function fn(e, t = "openclaw") {
@@ -3525,7 +3547,7 @@ async function fn(e, t = "openclaw") {
 			windowsHide: !0
 		});
 	} catch {
-		throw new I("Startup registration failed. Your connection is saved; use the printed start command or retry install-service after checking the host service manager");
+		throw new F("Startup registration failed. Your connection is saved; use the printed start command or retry install-service after checking the host service manager");
 	}
 	return i.name;
 }
@@ -4669,23 +4691,23 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		for (let n in t) e[n] = (e[n] || 0) - (t[n] || 0);
 	}
 	function j(e) {
-		return typeof e == "boolean" || typeof e == "number" || e === null ? !e : (0, t._)`!${I(e)}`;
+		return typeof e == "boolean" || typeof e == "number" || e === null ? !e : (0, t._)`!${F(e)}`;
 	}
 	e.not = j;
-	var M = ee(e.operators.AND);
-	function N(...e) {
+	var M = te(e.operators.AND);
+	function ee(...e) {
 		return e.reduce(M);
 	}
-	e.and = N;
-	var P = ee(e.operators.OR);
-	function F(...e) {
-		return e.reduce(P);
+	e.and = ee;
+	var N = te(e.operators.OR);
+	function P(...e) {
+		return e.reduce(N);
 	}
-	e.or = F;
-	function ee(e) {
-		return (n, r) => n === t.nil ? r : r === t.nil ? n : (0, t._)`${I(n)} ${e} ${I(r)}`;
+	e.or = P;
+	function te(e) {
+		return (n, r) => n === t.nil ? r : r === t.nil ? n : (0, t._)`${F(n)} ${e} ${F(r)}`;
 	}
-	function I(e) {
+	function F(e) {
 		return e instanceof t.Name ? e : (0, t._)`(${e})`;
 	}
 })), X = /* @__PURE__ */ M(((e) => {
@@ -5624,9 +5646,9 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		(0, d.checkUnknownRules)(e), E(e);
 	}
 	function T(e, t) {
-		if (e.opts.jtd) return N(e, [], !1, t);
+		if (e.opts.jtd) return ee(e, [], !1, t);
 		let r = (0, n.getSchemaTypes)(e.schema);
-		N(e, r, !(0, n.coerceAndCheckDataType)(e, r), t);
+		ee(e, r, !(0, n.coerceAndCheckDataType)(e, r), t);
 	}
 	function E(e) {
 		let { schema: t, errSchemaPath: n, opts: r, self: i } = e;
@@ -5658,65 +5680,65 @@ var Pn = /* @__PURE__ */ M(((e) => {
 	function M({ gen: e, evaluated: t, props: n, items: r }) {
 		n instanceof c.Name && e.assign((0, c._)`${t}.props`, n), r instanceof c.Name && e.assign((0, c._)`${t}.items`, r);
 	}
-	function N(e, t, n, a) {
+	function ee(e, t, n, a) {
 		let { gen: o, schema: s, data: u, allErrors: f, opts: p, self: m } = e, { RULES: h } = m;
 		if (s.$ref && (p.ignoreKeywordsWithRef || !(0, d.schemaHasRulesButRef)(s, h))) {
 			o.block(() => ae(e, "$ref", h.all.$ref.definition));
 			return;
 		}
-		p.jtd || F(e, t), o.block(() => {
+		p.jtd || P(e, t), o.block(() => {
 			for (let e of h.rules) g(e);
 			g(h.post);
 		});
 		function g(d) {
-			(0, r.shouldUseGroup)(s, d) && (d.type ? (o.if((0, i.checkDataType)(d.type, u, p.strictNumbers)), P(e, d), t.length === 1 && t[0] === d.type && n && (o.else(), (0, i.reportTypeError)(e)), o.endIf()) : P(e, d), f || o.if((0, c._)`${l.default.errors} === ${a || 0}`));
+			(0, r.shouldUseGroup)(s, d) && (d.type ? (o.if((0, i.checkDataType)(d.type, u, p.strictNumbers)), N(e, d), t.length === 1 && t[0] === d.type && n && (o.else(), (0, i.reportTypeError)(e)), o.endIf()) : N(e, d), f || o.if((0, c._)`${l.default.errors} === ${a || 0}`));
 		}
 	}
-	function P(e, t) {
+	function N(e, t) {
 		let { gen: n, schema: i, opts: { useDefaults: o } } = e;
 		o && (0, a.assignDefaults)(e, t.type), n.block(() => {
 			for (let n of t.rules) (0, r.shouldUseRule)(i, n) && ae(e, n.keyword, n.definition, t.type);
 		});
 	}
-	function F(e, t) {
-		!e.schemaEnv.meta && e.opts.strictTypes && (ee(e, t), e.opts.allowUnionTypes || I(e, t), L(e, e.dataTypes));
+	function P(e, t) {
+		!e.schemaEnv.meta && e.opts.strictTypes && (te(e, t), e.opts.allowUnionTypes || F(e, t), I(e, e.dataTypes));
 	}
-	function ee(e, t) {
+	function te(e, t) {
 		if (t.length) {
 			if (!e.dataTypes.length) {
 				e.dataTypes = t;
 				return;
 			}
 			t.forEach((t) => {
-				ne(e.dataTypes, t) || re(e, `type "${t}" not allowed by context "${e.dataTypes.join(",")}"`);
-			}), R(e, t);
+				re(e.dataTypes, t) || R(e, `type "${t}" not allowed by context "${e.dataTypes.join(",")}"`);
+			}), L(e, t);
 		}
 	}
-	function I(e, t) {
-		t.length > 1 && !(t.length === 2 && t.includes("null")) && re(e, "use allowUnionTypes to allow union type keyword");
+	function F(e, t) {
+		t.length > 1 && !(t.length === 2 && t.includes("null")) && R(e, "use allowUnionTypes to allow union type keyword");
 	}
-	function L(e, t) {
+	function I(e, t) {
 		let n = e.self.RULES.all;
 		for (let i in n) {
 			let a = n[i];
 			if (typeof a == "object" && (0, r.shouldUseRule)(e.schema, a)) {
 				let { type: n } = a.definition;
-				n.length && !n.some((e) => te(t, e)) && re(e, `missing type "${n.join(",")}" for keyword "${i}"`);
+				n.length && !n.some((e) => ne(t, e)) && R(e, `missing type "${n.join(",")}" for keyword "${i}"`);
 			}
 		}
 	}
-	function te(e, t) {
+	function ne(e, t) {
 		return e.includes(t) || t === "number" && e.includes("integer");
 	}
-	function ne(e, t) {
+	function re(e, t) {
 		return e.includes(t) || t === "integer" && e.includes("number");
 	}
-	function R(e, t) {
+	function L(e, t) {
 		let n = [];
-		for (let r of e.dataTypes) ne(t, r) ? n.push(r) : t.includes("integer") && r === "number" && n.push("integer");
+		for (let r of e.dataTypes) re(t, r) ? n.push(r) : t.includes("integer") && r === "number" && n.push("integer");
 		e.dataTypes = n;
 	}
-	function re(e, t) {
+	function R(e, t) {
 		let n = e.schemaEnv.baseId + e.errSchemaPath;
 		t += ` at "${n}" (strictTypes)`, (0, d.checkStrictMode)(e, t, e.opts.strictTypes);
 	}
@@ -6026,7 +6048,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 			baseId: t
 		}), o.schema !== o.root.schema) return o;
 	}
-})), Qn = /* @__PURE__ */ N({
+})), Qn = /* @__PURE__ */ ee({
 	$id: () => $n,
 	additionalProperties: () => !1,
 	default: () => ir,
@@ -6211,18 +6233,27 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		}
 		return n.join("");
 	}
-	var C = {
+	function C(e) {
+		if (e === "" || e[0] === "/") return S(e);
+		let t = e.split("/"), n = t.length - 1, r = [], i = !1;
+		for (let e = 0; e <= n; e++) {
+			let a = t[e];
+			a === "." || a === ".." ? (a === ".." && (r.length !== 0 && r[r.length - 1] !== ".." ? r.pop() : r.push("..")), i = e === n) : r.push(a);
+		}
+		return i && r[r.length - 1] !== ".." && r.push(""), (r.length === 0 || r[0] === "" || r[0].includes(":")) && r.unshift("."), r.join("/");
+	}
+	var w = {
 		"@": "%40",
 		"/": "%2F",
 		"?": "%3F",
 		"#": "%23",
 		":": "%3A"
-	}, w = /[@/?#:]/g, T = /[@/?#]/g;
-	function E(e, t) {
-		let n = t ? T : w;
-		return n.lastIndex = 0, e.replace(n, (e) => C[e]);
+	}, T = /[@/?#:]/g, E = /[@/?#]/g;
+	function D(e, t) {
+		let n = t ? E : T;
+		return n.lastIndex = 0, e.replace(n, (e) => w[e]);
 	}
-	function D(e, t = !1) {
+	function O(e, t = !1) {
 		if (e.indexOf("%") === -1) return e;
 		let n = "";
 		for (let r = 0; r < e.length; r++) {
@@ -6238,7 +6269,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		}
 		return n;
 	}
-	function O(e) {
+	function k(e) {
 		let t = "";
 		for (let n = 0; n < e.length; n++) {
 			let r = e[n];
@@ -6263,7 +6294,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		}
 		return t;
 	}
-	function k(e, t = !1) {
+	function A(e, t = !1) {
 		let n = "", r = t && e[0] !== "/";
 		for (let t = 0; t < e.length; t++) {
 			let i = e[t];
@@ -6287,7 +6318,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		}
 		return n;
 	}
-	function A(e, t) {
+	function j(e, t) {
 		let n = "";
 		for (let r = 0; r < e.length; r++) {
 			let i = e[r];
@@ -6311,19 +6342,19 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		}
 		return n;
 	}
-	function j(e) {
-		return A(e, l);
-	}
 	function M(e) {
-		return A(e, c);
+		return j(e, l);
+	}
+	function ee(e) {
+		return j(e, c);
 	}
 	function N(e) {
-		return A(e, c);
+		return j(e, c);
 	}
 	function P(e) {
 		return e >= 48 && e <= 57 || e >= 65 && e <= 90 || e >= 97 && e <= 122 || e === 42 || e === 43 || e === 45 || e === 46 || e === 47 || e === 64 || e === 95;
 	}
-	function F(e) {
+	function te(e) {
 		let t = "";
 		for (let n = 0; n < e.length; n++) {
 			let r = e[n];
@@ -6348,7 +6379,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		}
 		return t;
 	}
-	function ee(e) {
+	function F(e) {
 		let t = "";
 		for (let n = 0; n < e.length; n++) {
 			if (e[n] === "%" && n + 2 < e.length) {
@@ -6364,11 +6395,11 @@ var Pn = /* @__PURE__ */ M(((e) => {
 	}
 	function I(e) {
 		let t = [];
-		if (e.userinfo !== void 0 && (t.push(j(e.userinfo)), t.push("@")), e.host !== void 0) {
+		if (e.userinfo !== void 0 && (t.push(M(e.userinfo)), t.push("@")), e.host !== void 0) {
 			let n = e.host;
 			if (!r(n)) {
 				let e = b(n);
-				e.isIPV6 !== !0 && e.isIPVFuture !== !0 && (n = D(n, !0), e = b(n)), n = e.isIPV6 === !0 || e.isIPVFuture === !0 ? `[${e.escapedHost}]` : E(n, !1);
+				e.isIPV6 !== !0 && e.isIPVFuture !== !0 && (n = O(n, !0), e = b(n)), n = e.isIPV6 === !0 || e.isIPVFuture === !0 ? `[${e.escapedHost}]` : D(n, !1);
 			}
 			t.push(n);
 		}
@@ -6382,16 +6413,17 @@ var Pn = /* @__PURE__ */ M(((e) => {
 	t.exports = {
 		nonSimpleDomain: g,
 		recomposeAuthority: I,
-		reescapeHostDelimiters: E,
-		normalizePercentEncoding: D,
-		normalizePathEncoding: O,
-		serializePathEncoding: k,
-		normalizeQueryFragmentEncoding: F,
-		encodeUserinfo: j,
-		encodeQuery: M,
+		reescapeHostDelimiters: D,
+		normalizePercentEncoding: O,
+		normalizePathEncoding: k,
+		serializePathEncoding: A,
+		normalizeQueryFragmentEncoding: te,
+		encodeUserinfo: M,
+		encodeQuery: ee,
 		encodeFragment: N,
-		escapePreservingEscapes: ee,
+		escapePreservingEscapes: F,
 		removeDotSegments: S,
+		removeDotSegmentsRelative: C,
 		isIPv4: r,
 		isUUID: n,
 		normalizeIPv6: b,
@@ -6504,33 +6536,51 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		getSchemeHandler: y
 	};
 })), cr = /* @__PURE__ */ M(((e, t) => {
-	var { normalizeIPv6: n, removeDotSegments: r, recomposeAuthority: i, normalizePercentEncoding: a, normalizePathEncoding: o, serializePathEncoding: s, normalizeQueryFragmentEncoding: c, encodeQuery: l, encodeFragment: u, reescapeHostDelimiters: d, isIPv4: f, nonSimpleDomain: p } = or(), { SCHEMES: m, getSchemeHandler: h } = sr(), g = /^[A-Za-z][A-Za-z0-9+.-]*$/u, _ = "URI scheme is malformed.";
-	function v(e) {
-		let t = unescape(String(e));
-		if (!g.test(t)) throw TypeError(_);
+	var { normalizeIPv6: n, removeDotSegments: r, removeDotSegmentsRelative: i, recomposeAuthority: a, normalizePercentEncoding: o, normalizePathEncoding: s, serializePathEncoding: c, normalizeQueryFragmentEncoding: l, encodeQuery: u, encodeFragment: d, reescapeHostDelimiters: f, isIPv4: p, nonSimpleDomain: m } = or(), { SCHEMES: h, getSchemeHandler: g } = sr(), _ = /^[A-Za-z][A-Za-z0-9+.-]*$/u, v = "URI scheme is malformed.", y = "URI host is malformed.", b = /[\0-\x20"#/:<>?@[\\\]^`{|}\x7F]/u;
+	function x(e) {
+		let t = String(e);
+		if (!_.test(t)) throw TypeError(v);
 		return t;
 	}
-	function y(e, t) {
-		return typeof e == "string" ? e = P(e, t) : typeof e == "object" && (e = N(C(e, t), t)), e;
+	function S(e, t) {
+		return typeof e == "string" ? e = ne(e, t) : typeof e == "object" && (e = I(E(e, t), t)), e;
 	}
-	function b(e, t, r) {
-		let i = r ? Object.assign({ scheme: "null" }, r) : { scheme: "null" }, { parsed: a, malformedAuthorityOrPort: o, malformedPercentEncoding: s, malformedSchemeSpecific: c, malformedHost: l, malformedScheme: u } = M(e, i), { parsed: d, malformedAuthorityOrPort: p, malformedPercentEncoding: m, malformedSchemeSpecific: g, malformedHost: _, malformedScheme: v } = M(t, i);
-		if (o || p || s || m || c || g || l || _ || u || v) throw Error(a.error || d.error || "URI is malformed.");
-		let y = x(a, d, i, !0), b = h(r && r.scheme || y.scheme), S = y.host, w = S !== void 0 && S !== "" && (f(S) || n(S).isIPV6);
-		j(y, r || {}, b, w);
+	function C(e, t, r) {
+		let i = r ? Object.assign({ scheme: "null" }, r) : { scheme: "null" }, { parsed: a, malformedAuthorityOrPort: o, malformedPercentEncoding: s, malformedSchemeSpecific: c, malformedHost: l, malformedScheme: u } = F(e, i), { parsed: d, malformedAuthorityOrPort: f, malformedPercentEncoding: m, malformedSchemeSpecific: h, malformedHost: _, malformedScheme: v } = F(t, i);
+		if (o || f || s || m || c || h || l || _ || u || v) throw Error(a.error || d.error || "URI is malformed.");
+		let b = w(a, d, i, !0), x = g(r && r.scheme || b.scheme), S = b.host, C = S !== void 0 && S !== "" && (p(S) || n(S).isIPV6);
+		if (P(b, r || {}, x, C)) throw Error(y);
+		N(b, r || {}, x, C);
 		let T = S && S.indexOf("%") !== -1 && !/\P{ASCII}/u.test(S);
-		if (y.error && !T) throw Error(y.error);
-		return i.skipEscape = !0, C(y, i);
+		if (b.error && !T) throw Error(b.error);
+		return i.skipEscape = !0, E(b, i);
 	}
-	function x(e, t, n, i) {
-		let a = {};
-		return i || (e = N(C(e, n), n), t = N(C(t, n), n)), n ||= {}, !n.tolerant && t.scheme ? (a.scheme = t.scheme, a.userinfo = t.userinfo, a.host = t.host, a.port = t.port, a.path = r(t.path || ""), a.query = t.query) : (t.userinfo !== void 0 || t.host !== void 0 || t.port !== void 0 ? (a.userinfo = t.userinfo, a.host = t.host, a.port = t.port, a.path = r(t.path || ""), a.query = t.query) : (t.path ? (t.path[0] === "/" ? a.path = r(t.path) : (a.path = (e.userinfo !== void 0 || e.host !== void 0 || e.port !== void 0) && !e.path ? "/" + t.path : e.path ? e.path.slice(0, e.path.lastIndexOf("/") + 1) + t.path : t.path, a.path = r(a.path)), a.query = t.query) : (a.path = e.path, a.query = t.query === void 0 ? e.query : t.query), a.userinfo = e.userinfo, a.host = e.host, a.port = e.port), a.scheme = e.scheme), a.fragment = t.fragment, a;
+	function w(e, t, n, a) {
+		let o = {};
+		if (a || (e = I(E(e, n), n), t = I(E(t, n), n)), n ||= {}, !n.tolerant && t.scheme) o.scheme = t.scheme, o.userinfo = t.userinfo, o.host = t.host, o.port = t.port, o.path = r(t.path || ""), o.query = t.query;
+		else {
+			if (t.userinfo !== void 0 || t.host !== void 0 || t.port !== void 0) o.userinfo = t.userinfo, o.host = t.host, o.port = t.port, o.path = r(t.path || ""), o.query = t.query;
+			else {
+				if (!t.path) o.path = e.path, o.query = t.query === void 0 ? e.query : t.query;
+				else {
+					if (t.path[0] === "/") o.path = r(t.path);
+					else {
+						let n = e.userinfo !== void 0 || e.host !== void 0 || e.port !== void 0;
+						o.path = n && !e.path ? "/" + t.path : e.path ? e.path.slice(0, e.path.lastIndexOf("/") + 1) + t.path : t.path, o.path = e.scheme === void 0 && !n && o.path[0] !== "/" ? i(o.path) : r(o.path);
+					}
+					o.query = t.query;
+				}
+				o.userinfo = e.userinfo, o.host = e.host, o.port = e.port;
+			}
+			o.scheme = e.scheme;
+		}
+		return o.fragment = t.fragment, o;
 	}
-	function S(e, t, n) {
-		let r = ee(e, n), i = ee(t, n);
+	function T(e, t, n) {
+		let r = L(e, n), i = L(t, n);
 		return r !== void 0 && i !== void 0 && r === i;
 	}
-	function C(e, t) {
+	function E(e, t) {
 		let n = {
 			host: e.host,
 			scheme: e.scheme,
@@ -6546,25 +6596,25 @@ var Pn = /* @__PURE__ */ M(((e) => {
 			resourceName: e.resourceName,
 			secure: e.secure,
 			error: ""
-		}, o = Object.assign({}, t), c = [];
-		n.scheme &&= v(n.scheme);
-		let d = h(o.scheme || n.scheme);
-		d && d.serialize && d.serialize(n, o);
-		let f = n.userinfo !== void 0 || n.host !== void 0 || n.port !== void 0, p = !o.skipEscape && n.scheme === void 0 && !f;
-		n.path !== void 0 && (n.path = o.skipEscape ? a(n.path) : s(n.path, p)), o.reference !== "suffix" && n.scheme && (n.scheme = v(n.scheme), c.push(n.scheme, ":"));
-		let m = i(n);
-		if (m !== void 0 && (o.reference !== "suffix" && c.push("//"), c.push(m), n.path && n.path[0] !== "/" && c.push("/")), n.path !== void 0) {
+		}, s = Object.assign({}, t), l = [];
+		n.scheme &&= x(n.scheme);
+		let f = g(s.scheme || n.scheme);
+		f && f.serialize && f.serialize(n, s);
+		let p = n.userinfo !== void 0 || n.host !== void 0 || n.port !== void 0, m = (n.scheme === void 0 || s.reference === "suffix") && !p, h = !s.skipEscape && m;
+		n.path !== void 0 && (n.path = s.skipEscape ? o(n.path) : c(n.path, h)), s.reference !== "suffix" && n.scheme && (n.scheme = x(n.scheme), l.push(n.scheme, ":"));
+		let _ = a(n);
+		if (_ !== void 0 && (s.reference !== "suffix" && l.push("//"), l.push(_), n.path && n.path[0] !== "/" && l.push("/")), n.path !== void 0) {
 			let e = n.path;
-			!o.absolutePath && (!d || !d.absolutePath) && (e = r(e)), p && (e = s(e, !0)), m === void 0 && e[0] === "/" && e[1] === "/" && (e = "/%2F" + e.slice(2)), c.push(e);
+			!s.absolutePath && (!f || !f.absolutePath) && (e = m && e[0] !== "/" ? i(e) : r(e)), m && (e = c(e, !0)), _ === void 0 && e[0] === "/" && e[1] === "/" && (e = "/%2F" + e.slice(2)), l.push(e);
 		}
-		return n.query !== void 0 && c.push("?", l(n.query)), n.fragment !== void 0 && c.push("#", u(n.fragment)), c.join("");
+		return n.query !== void 0 && l.push("?", u(n.query)), n.fragment !== void 0 && l.push("#", d(n.fragment)), l.join("");
 	}
-	var w = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u, T = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/, E = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
-	function D(e, t) {
+	var D = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u, O = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/, k = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
+	function A(e, t) {
 		if (t[2] !== void 0 && e.path && e.path[0] !== "/") return "URI path must start with \"/\" when authority is present.";
 		if (typeof e.port == "number" && (e.port < 0 || e.port > 65535)) return "URI port is malformed.";
 	}
-	function O(e) {
+	function j(e) {
 		if (e === void 0) return !1;
 		let t = e.indexOf("%");
 		for (; t !== -1;) {
@@ -6573,22 +6623,34 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		}
 		return !1;
 	}
-	function k(e) {
+	function M(e) {
 		return e[0] === "[" && e[e.length - 1] === "]";
 	}
-	function A(e) {
+	function ee(e) {
 		let t = e[4];
-		return O(e[3]) || t !== void 0 && !k(t) && O(t) || O(e[6]) || O(e[7]) || O(e[8]);
+		return j(e[3]) || t !== void 0 && !M(t) && j(t) || j(e[6]) || j(e[7]) || j(e[8]);
 	}
-	function j(e, t, n, r) {
-		if (!t.unicodeSupport && (!n || !n.unicodeSupport) && e.host && !k(e.host) && (t.domainHost || n && n.domainHost) && r === !1 && p(e.host)) try {
-			e.host = new URL("http://" + e.host).hostname;
-		} catch (t) {
-			return e.error = e.error || "Host's domain name can not be converted to ASCII: " + t, !0;
+	function N(e, t, n, r) {
+		if (P(e, t, n, r)) return e.error = e.error || y, !0;
+		if (!t.unicodeSupport && (!n || !n.unicodeSupport) && e.host && !M(e.host) && (t.domainHost || n && n.domainHost) && r === !1 && m(e.host)) {
+			let t;
+			try {
+				t = new URL("http://" + e.host);
+			} catch (t) {
+				return e.error = e.error || "Host's domain name can not be converted to ASCII: " + t, !0;
+			}
+			if (!te(t)) return e.error = e.error || y, !0;
+			e.host = t.hostname;
 		}
 		return !1;
 	}
-	function M(e, t) {
+	function P(e, t, n, r) {
+		return !!(e.host && r === !1 && !M(e.host) && (t.domainHost || n && n.domainHost) && b.test(e.host));
+	}
+	function te(e) {
+		return e.username === "" && e.password === "" && e.port === "" && e.pathname === "/" && e.search === "" && e.hash === "" && e.hostname !== "";
+	}
+	function F(e, t) {
 		let r = Object.assign({}, t), i = {
 			scheme: void 0,
 			userinfo: void 0,
@@ -6597,56 +6659,52 @@ var Pn = /* @__PURE__ */ M(((e) => {
 			path: "",
 			query: void 0,
 			fragment: void 0
-		}, s = !1, l = !1, u = !1, p = !1, v = !1, y = !1, b = !1;
+		}, a = !1, c = !1, u = !1, d = !1, m = !1, b = !1, x = !1;
 		r.reference === "suffix" && (e = r.scheme ? r.scheme + ":" + e : "//" + e);
-		let x = e.match(T);
-		x !== null && x[1].indexOf("\\") !== -1 && (i.error = "URI authority must not contain a literal backslash.", s = !0);
-		let S = e.match(E);
-		if (S !== null) {
-			let e = S[1], t = e.replace(/[\t\n\r]/g, "");
-			t.length >= 2 && (t.slice(0, 2) === "//" ? e.length !== t.length && (i.error = i.error || "URI authority introducer must not contain whitespace.", s = !0) : (i.error = i.error || "URI authority must not contain a literal backslash.", s = !0));
+		let S = e.match(O);
+		S !== null && S[1].indexOf("\\") !== -1 && (i.error = "URI authority must not contain a literal backslash.", a = !0);
+		let C = e.match(k);
+		if (C !== null) {
+			let e = C[1], t = e.replace(/[\t\n\r]/g, "");
+			t.length >= 2 && (t.slice(0, 2) === "//" ? e.length !== t.length && (i.error = i.error || "URI authority introducer must not contain whitespace.", a = !0) : (i.error = i.error || "URI authority must not contain a literal backslash.", a = !0));
 		}
-		let C = e.match(w);
-		if (C) {
-			if (i.scheme = C[1], i.userinfo = C[3], i.host = C[4], i.port = parseInt(C[5], 10), i.path = C[6] || "", i.query = C[7], i.fragment = C[8], i.scheme !== void 0) {
-				let e = unescape(i.scheme);
-				g.test(e) ? i.scheme = e.toLowerCase() : (i.error = i.error || _, y = !0);
-			}
-			l = A(C), l && (i.error = i.error || "URI contains malformed percent-encoding."), isNaN(i.port) && (i.port = C[5]);
-			let t = D(i, C);
-			if (t !== void 0 && (i.error = i.error || t, s = !0), i.host) {
-				if (f(i.host) === !1) {
-					let e = k(i.host), t = i.host.indexOf("[") !== -1 || i.host.indexOf("]") !== -1, r = n(i.host);
-					b = r.isIPV6 || r.isIPVFuture === !0, v = t && (!e || r.error === !0), i.host = b ? r.host : r.host.toLowerCase(), v && (i.error = i.error || "URI host is malformed.", s = !0);
-				} else b = !0;
+		let w = e.match(D);
+		if (w) {
+			i.scheme = w[1], i.userinfo = w[3], i.host = w[4], i.port = parseInt(w[5], 10), i.path = w[6] || "", i.query = w[7], i.fragment = w[8], i.scheme !== void 0 && (_.test(i.scheme) ? i.scheme = i.scheme.toLowerCase() : (i.error = i.error || v, b = !0)), c = ee(w), c && (i.error = i.error || "URI contains malformed percent-encoding."), isNaN(i.port) && (i.port = w[5]);
+			let t = A(i, w);
+			if (t !== void 0 && (i.error = i.error || t, a = !0), i.host) {
+				if (p(i.host) === !1) {
+					let e = M(i.host), t = i.host.indexOf("[") !== -1 || i.host.indexOf("]") !== -1, r = n(i.host);
+					x = r.isIPV6 || r.isIPVFuture === !0, m = t && (!e || r.error === !0), i.host = x ? r.host : r.host.toLowerCase(), m && (i.error = i.error || y, a = !0);
+				} else x = !0;
 			}
 			i.reference = i.scheme === void 0 && i.userinfo === void 0 && i.host === void 0 && i.port === void 0 && i.query === void 0 && !i.path ? "same-document" : i.scheme === void 0 ? "relative" : i.fragment === void 0 ? "absolute" : "uri", r.reference && r.reference !== "suffix" && r.reference !== i.reference && (i.error = i.error || "URI is not a " + r.reference + " reference.");
-			let x = h(r.scheme || i.scheme);
-			if (v || (p = j(i, r, x, b)), e.indexOf("%") !== -1 && i.host !== void 0 && !v) {
-				let e = b ? i.host : a(i.host, !0);
-				b || (e = a(e.toLowerCase())), i.host = d(e, b);
+			let S = g(r.scheme || i.scheme);
+			if (m || (d = N(i, r, S, x)), e.indexOf("%") !== -1 && i.host !== void 0 && !m) {
+				let e = x ? i.host : o(i.host, !0);
+				x || (e = o(e.toLowerCase())), i.host = x || r.scheme !== "null" ? f(e, x) : e;
 			}
-			(!x || x && !x.skipNormalize) && (i.path &&= o(i.path), i.query &&= c(i.query), i.fragment &&= c(i.fragment)), x && x.parse && (x.parse(i, r), x === m.urn && i.nid === void 0 && (u = !0));
+			(!S || S && !S.skipNormalize) && (i.path &&= s(i.path), i.query &&= l(i.query), i.fragment &&= l(i.fragment)), S && S.parse && (S.parse(i, r), S === h.urn && i.nid === void 0 && (u = !0));
 		} else i.error = i.error || "URI can not be parsed.";
 		return {
 			parsed: i,
-			malformedAuthorityOrPort: s,
-			malformedPercentEncoding: l,
+			malformedAuthorityOrPort: a,
+			malformedPercentEncoding: c,
 			malformedSchemeSpecific: u,
-			malformedHost: p,
-			malformedScheme: y
+			malformedHost: d,
+			malformedScheme: b
 		};
 	}
-	function N(e, t) {
-		return M(e, t).parsed;
+	function I(e, t) {
+		return F(e, t).parsed;
 	}
-	function P(e, t) {
-		return F(e, t).normalized;
+	function ne(e, t) {
+		return re(e, t).normalized;
 	}
-	function F(e, t) {
-		let { parsed: n, malformedAuthorityOrPort: r, malformedPercentEncoding: i, malformedSchemeSpecific: a, malformedHost: o, malformedScheme: s } = M(e, t);
+	function re(e, t) {
+		let { parsed: n, malformedAuthorityOrPort: r, malformedPercentEncoding: i, malformedSchemeSpecific: a, malformedHost: o, malformedScheme: s } = F(e, t);
 		return {
-			normalized: r || i || a || o || s ? e : C(n, t),
+			normalized: r || i || a || o || s ? e : E(n, t),
 			malformedAuthorityOrPort: r,
 			malformedPercentEncoding: i,
 			malformedSchemeSpecific: a,
@@ -6654,27 +6712,27 @@ var Pn = /* @__PURE__ */ M(((e) => {
 			malformedScheme: s
 		};
 	}
-	function ee(e, t) {
+	function L(e, t) {
 		if (typeof e != "string" && typeof e != "object") return;
 		let n;
 		try {
-			n = typeof e == "string" ? e : C(e, t);
+			n = typeof e == "string" ? e : E(e, t);
 		} catch {
 			return;
 		}
-		let { normalized: r, malformedAuthorityOrPort: i, malformedPercentEncoding: a, malformedSchemeSpecific: o, malformedHost: s, malformedScheme: c } = F(n, t);
+		let { normalized: r, malformedAuthorityOrPort: i, malformedPercentEncoding: a, malformedSchemeSpecific: o, malformedHost: s, malformedScheme: c } = re(n, t);
 		return i || a || o || s || c ? void 0 : r;
 	}
-	var I = {
-		SCHEMES: m,
-		normalize: y,
-		resolve: b,
-		resolveComponent: x,
-		equal: S,
-		serialize: C,
-		parse: N
+	var R = {
+		SCHEMES: h,
+		normalize: S,
+		resolve: C,
+		resolveComponent: w,
+		equal: T,
+		serialize: E,
+		parse: I
 	};
-	t.exports = I, t.exports.default = I, t.exports.fastUri = I;
+	t.exports = R, t.exports.default = R, t.exports.fastUri = R;
 })), lr = /* @__PURE__ */ M(((e) => {
 	Object.defineProperty(e, "__esModule", { value: !0 });
 	var t = cr();
@@ -6720,7 +6778,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 			return n.CodeGen;
 		}
 	});
-	var r = Yn(), i = Xn(), a = zn(), o = Zn(), s = Y(), c = qn(), l = Vn(), u = X(), d = (ar(), ee(Qn).default), f = lr(), p = (e, t) => new RegExp(e, t);
+	var r = Yn(), i = Xn(), a = zn(), o = Zn(), s = Y(), c = qn(), l = Vn(), u = X(), d = (ar(), te(Qn).default), f = lr(), p = (e, t) => new RegExp(e, t);
 	p.code = "new RegExp";
 	var m = [
 		"removeAdditional",
@@ -6936,7 +6994,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 				if (t = e, n = t.keyword, Array.isArray(n) && !n.length) throw Error("addKeywords: keyword must be string or non-empty array");
 			} else throw Error("invalid addKeywords parameters");
 			if (A.call(this, n, t), !t) return (0, u.eachItem)(n, (e) => j.call(this, e)), this;
-			N.call(this, t);
+			ee.call(this, t);
 			let r = {
 				...t,
 				type: (0, l.getJSONTypes)(t.type),
@@ -6973,7 +7031,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 					let t = n[e];
 					if (typeof t != "object") continue;
 					let { $data: r } = t.definition, a = i[e];
-					r && a && (i[e] = F(a));
+					r && a && (i[e] = P(a));
 				}
 			}
 			return e;
@@ -7100,13 +7158,13 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		let r = e.rules.findIndex((e) => e.keyword === n);
 		r >= 0 ? e.rules.splice(r, 0, t) : (e.rules.push(t), this.logger.warn(`rule ${n} is not defined`));
 	}
-	function N(e) {
+	function ee(e) {
 		let { metaSchema: t } = e;
-		t !== void 0 && (e.$data && this.opts.$data && (t = F(t)), e.validateSchema = this.compile(t, !0));
+		t !== void 0 && (e.$data && this.opts.$data && (t = P(t)), e.validateSchema = this.compile(t, !0));
 	}
-	var P = { $ref: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#" };
-	function F(e) {
-		return { anyOf: [e, P] };
+	var N = { $ref: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#" };
+	function P(e) {
+		return { anyOf: [e, N] };
 	}
 })), dr = /* @__PURE__ */ M(((e) => {
 	Object.defineProperty(e, "__esModule", { value: !0 }), e.default = {
@@ -8231,7 +8289,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 			}
 		}
 	};
-})), Xr = /* @__PURE__ */ N({
+})), Xr = /* @__PURE__ */ ee({
 	$id: () => Qr,
 	$schema: () => Zr,
 	default: () => ri,
@@ -8376,7 +8434,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 	};
 })), ai = /* @__PURE__ */ M(((e, t) => {
 	Object.defineProperty(e, "__esModule", { value: !0 }), e.MissingRefError = e.ValidationError = e.CodeGen = e.Name = e.nil = e.stringify = e.str = e._ = e.KeywordCxt = e.Ajv = void 0;
-	var n = ur(), r = qr(), i = Yr(), a = (ii(), ee(Xr).default), o = ["/properties"], s = "http://json-schema.org/draft-07/schema", c = class extends n.default {
+	var n = ur(), r = qr(), i = Yr(), a = (ii(), te(Xr).default), o = ["/properties"], s = "http://json-schema.org/draft-07/schema", c = class extends n.default {
 		_addVocabularies() {
 			super._addVocabularies(), r.default.forEach((e) => this.addVocabulary(e)), this.opts.discriminator && this.addKeyword(i.default);
 		}
@@ -8675,7 +8733,7 @@ var Pn = /* @__PURE__ */ M(((e) => {
 		for (let r of t) e.addFormat(r, n[r]);
 	}
 	t.exports = e = s, Object.defineProperty(e, "__esModule", { value: !0 }), e.default = s;
-})), li = /* @__PURE__ */ F(ai(), 1), ui = /* @__PURE__ */ F(ci(), 1), di = {
+})), li = /* @__PURE__ */ P(ai(), 1), ui = /* @__PURE__ */ P(ci(), 1), di = {
 	contract: "case-tools",
 	version: 1,
 	publicationSha: "15fff09f336fe941858287511471b07b9f5184f8",
@@ -9004,7 +9062,7 @@ var pi = (e) => fi.compile({
 	input: pi(e.inputSchema),
 	result: pi({ $ref: `#/definitions/${e.resultSchema}` }),
 	writes: e.writes
-}])), vi = (e) => typeof e == "object" && !!e && !Array.isArray(e), yi = (e) => new TextEncoder().encode(e).byteLength, Q = (e) => yi(JSON.stringify(e)), $ = () => new L("Case tool returned an invalid response", void 0, "CASE_TOOL_RESPONSE_INVALID"), bi = (e) => Q(e.filename) <= 255 && Q(e.mimeType) <= 128;
+}])), vi = (e) => typeof e == "object" && !!e && !Array.isArray(e), yi = (e) => new TextEncoder().encode(e).byteLength, Q = (e) => yi(JSON.stringify(e)), $ = () => new I("Case tool returned an invalid response", void 0, "CASE_TOOL_RESPONSE_INVALID"), bi = (e) => Q(e.filename) <= 255 && Q(e.mimeType) <= 128;
 function xi(e) {
 	return Q(e) <= e.limits.resultMaxBytes && Q({
 		...e,
@@ -9018,7 +9076,7 @@ function Si(e) {
 	}
 	return e;
 }
-var Ci = class extends L {
+var Ci = class extends I {
 	retryable;
 	constructor(e, t) {
 		super("Case tool refused the operation", void 0, e), this.retryable = t;
@@ -9043,17 +9101,17 @@ var Ci = class extends L {
 	}
 	call(e, t) {
 		let n = _i.get(e);
-		if (!n || !n.input(t)) return Promise.reject(new L("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID"));
+		if (!n || !n.input(t)) return Promise.reject(new I("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID"));
 		let r;
 		try {
 			r = JSON.parse(JSON.stringify(t));
 		} catch {
-			return Promise.reject(new L("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID"));
+			return Promise.reject(new I("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID"));
 		}
-		if (!n.input(r)) return Promise.reject(new L("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID"));
-		if ("terms" in r && yi(JSON.stringify(r.terms)) > 1024) return Promise.reject(new L("Case terms exceed the byte limit", void 0, "TOOL_ARGUMENTS_INVALID"));
+		if (!n.input(r)) return Promise.reject(new I("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID"));
+		if ("terms" in r && yi(JSON.stringify(r.terms)) > 1024) return Promise.reject(new I("Case terms exceed the byte limit", void 0, "TOOL_ARGUMENTS_INVALID"));
 		let i = this.#i.then(async () => {
-			if (this.signal.throwIfAborted(), this.#r) throw new L("End this turn and wait for the human decision", void 0, "TURN_END_REQUIRED");
+			if (this.signal.throwIfAborted(), this.#r) throw new I("End this turn and wait for the human decision", void 0, "TURN_END_REQUIRED");
 			return !this.#n && (e !== "envoi_case_snapshot" || Object.hasOwn(r, "eventsBefore")) && await this.#a("envoi_case_snapshot", {}), this.#a(e, r);
 		});
 		return this.#i = i.catch(() => {}), i;
@@ -9088,7 +9146,7 @@ var Ci = class extends L {
 	async #a(e, t) {
 		this.signal.throwIfAborted();
 		let n = this.#e.modelContext();
-		if (!n.allowedTools.includes(e)) throw new L("Tool is not in this case session", void 0, "TOOL_NOT_IN_SESSION");
+		if (!n.allowedTools.includes(e)) throw new I("Tool is not in this case session", void 0, "TOOL_NOT_IN_SESSION");
 		let r = ++this.#t, i = await this.#e.forward(JSON.stringify({
 			jsonrpc: "2.0",
 			id: r,
@@ -9107,7 +9165,7 @@ var Ci = class extends L {
 		}
 		if (hi(a) && vi(a) && a.id === r) {
 			let e = a.error;
-			throw new L("Case tool request was refused", void 0, e.data.code);
+			throw new I("Case tool request was refused", void 0, e.data.code);
 		}
 		if (!mi(a) || !vi(a) || a.id !== r || !vi(a.result)) throw $();
 		let o = a.result, s = o.content;
@@ -9182,7 +9240,7 @@ function Ei(e) {
 			]), s = t.modelContext(), c = Object.freeze(di.tools.filter((e) => s.allowedTools.includes(e.name)).map((e) => Object.freeze({
 				name: e.name,
 				inputSchema: Object.freeze(structuredClone(e.inputSchema))
-			}))), l = new L("Turn ended for human input", void 0, "TURN_END_REQUIRED"), u = 0, d = Promise.resolve(), f, p = new Promise((e, t) => {
+			}))), l = new I("Turn ended for human input", void 0, "TURN_END_REQUIRED"), u = 0, d = Promise.resolve(), f, p = new Promise((e, t) => {
 				f = () => t(o.reason), o.addEventListener("abort", f, { once: !0 }), o.aborted && f();
 			});
 			try {
@@ -9206,11 +9264,11 @@ function Ei(e) {
 							u--;
 						}
 					}
-				}, Object.freeze({ workId: n.workId }))))]), o.throwIfAborted(), u) throw new L("Runtime returned before its tools finished", void 0, "SCOPED_TURN_INCOMPLETE");
+				}, Object.freeze({ workId: n.workId }))))]), o.throwIfAborted(), u) throw new I("Runtime returned before its tools finished", void 0, "SCOPED_TURN_INCOMPLETE");
 			} catch (e) {
 				if (e !== l || n.signal.aborted || t.signal.aborted) throw e;
 			} finally {
-				o.removeEventListener("abort", f), a.abort(), u && !r.endTurnRequired && t.invalidate(new L("Runtime ended with outstanding tools", void 0, "SCOPED_TURN_INCOMPLETE"));
+				o.removeEventListener("abort", f), a.abort(), u && !r.endTurnRequired && t.invalidate(new I("Runtime ended with outstanding tools", void 0, "SCOPED_TURN_INCOMPLETE"));
 			}
 		}
 	};
@@ -9286,7 +9344,7 @@ var Oi = /* @__PURE__ */ new Map(), ki = class {
 			await l(a, { force: !0 });
 		}
 	}
-}, Ai = (e) => typeof e == "object" && !!e && !Array.isArray(e), ji = () => new L("Runtime returned an invalid scoped tool response", void 0, "SCOPED_PROVIDER_RESPONSE_INVALID");
+}, Ai = (e) => typeof e == "object" && !!e && !Array.isArray(e), ji = () => new I("Runtime returned an invalid scoped tool response", void 0, "SCOPED_PROVIDER_RESPONSE_INVALID");
 async function Mi(e, t) {
 	let n = e.body?.getReader();
 	if (!n) throw ji();
@@ -9310,14 +9368,14 @@ async function Mi(e, t) {
 function Ni(e) {
 	let t = e.identity ?? e.model;
 	return async (n, r) => {
-		if (!r.workId) throw new L("Scoped runtime needs trusted work identity", void 0, "SCOPED_HOST_CONTEXT_REQUIRED");
+		if (!r.workId) throw new I("Scoped runtime needs trusted work identity", void 0, "SCOPED_HOST_CONTEXT_REQUIRED");
 		let i = r.workId;
 		return e.store.exclusive(i, async () => {
 			n.signal.throwIfAborted();
 			let r = await e.store.load(i);
-			if (r?.admission) throw new L("Resume with the dedicated admission host", void 0, "SCOPED_ADMISSION_REQUIRED");
+			if (r?.admission) throw new I("Resume with the dedicated admission host", void 0, "SCOPED_ADMISSION_REQUIRED");
 			let a = r !== null;
-			if (r && r.model !== t) throw new L("Resume with the original scoped model", void 0, "SCOPED_MODEL_CHANGED");
+			if (r && r.model !== t) throw new I("Resume with the original scoped model", void 0, "SCOPED_MODEL_CHANGED");
 			if (r ||= {
 				version: 1,
 				workId: i,
@@ -9341,7 +9399,7 @@ function Ni(e) {
 				name: e.name,
 				parameters: e.inputSchema
 			})), s = new Set(n.tools.map((e) => e.name)), c = async () => {
-				if (n.signal.throwIfAborted(), Buffer.byteLength(JSON.stringify(r)) > 524288) throw new L("Scoped turn context limit reached", void 0, "SCOPED_TURN_LIMIT");
+				if (n.signal.throwIfAborted(), Buffer.byteLength(JSON.stringify(r)) > 524288) throw new I("Scoped turn context limit reached", void 0, "SCOPED_TURN_LIMIT");
 				await e.store.save(r);
 			};
 			for (; !r.completed;) {
@@ -9356,7 +9414,7 @@ function Ni(e) {
 					}
 					let a;
 					try {
-						if (!Ai(i)) throw new L("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID");
+						if (!Ai(i)) throw new I("Invalid case tool arguments", void 0, "TOOL_ARGUMENTS_INVALID");
 						let e = 0;
 						for (;;) {
 							n.signal.throwIfAborted();
@@ -9369,8 +9427,8 @@ function Ni(e) {
 							}
 						}
 					} catch (t) {
-						if (t instanceof L && t.code === "TURN_END_REQUIRED") throw r.completed = !0, r.pending = [], await e.store.save(r), t;
-						if (t instanceof Ci && t.retryable || !(t instanceof Ci) && !(t instanceof L && t.code === "TOOL_ARGUMENTS_INVALID")) throw t;
+						if (t instanceof I && t.code === "TURN_END_REQUIRED") throw r.completed = !0, r.pending = [], await e.store.save(r), t;
+						if (t instanceof Ci && t.retryable || !(t instanceof Ci) && !(t instanceof I && t.code === "TOOL_ARGUMENTS_INVALID")) throw t;
 						a = {
 							ok: !1,
 							code: t.code,
@@ -9390,7 +9448,7 @@ function Ni(e) {
 						context: n.context,
 						snapshot: n.snapshot
 					})
-				}), !1), r.providerCalls >= 16) throw new L("Scoped turn request limit reached", void 0, "SCOPED_TURN_LIMIT");
+				}), !1), r.providerCalls >= 16) throw new I("Scoped turn request limit reached", void 0, "SCOPED_TURN_LIMIT");
 				r.providerCalls++, await c();
 				let t = AbortSignal.any([n.signal, AbortSignal.timeout(12e4)]), i;
 				try {
@@ -9404,9 +9462,9 @@ function Ni(e) {
 						tools: o
 					}, t);
 				} catch {
-					throw n.signal.throwIfAborted(), new L(`${e.label} scoped request could not be completed`, void 0, "SCOPED_PROVIDER_UNAVAILABLE");
+					throw n.signal.throwIfAborted(), new I(`${e.label} scoped request could not be completed`, void 0, "SCOPED_PROVIDER_UNAVAILABLE");
 				}
-				if (!i.ok) throw await i.body?.cancel(), new L(`${e.label} scoped request failed with HTTP ${i.status}`, i.status, "SCOPED_PROVIDER_UNAVAILABLE");
+				if (!i.ok) throw await i.body?.cancel(), new I(`${e.label} scoped request failed with HTTP ${i.status}`, i.status, "SCOPED_PROVIDER_UNAVAILABLE");
 				let l;
 				try {
 					l = await Mi(i, t);
@@ -9593,14 +9651,14 @@ async function zi(e, t, n, r, i) {
 		signal: AbortSignal.timeout(3e4),
 		redirect: "error"
 	});
-	if (!o.ok) throw new I(`Envoi could not record setup checks (HTTP ${o.status}). Your connection is saved; retry start`);
+	if (!o.ok) throw new F(`Envoi could not record setup checks (HTTP ${o.status}). Your connection is saved; retry start`);
 	await o.body?.cancel();
 }
 async function Bi(e) {
 	let t = f.join(e, "connection.json");
-	if ((await n(t)).isSymbolicLink()) throw new I("The saved connection must not be a symbolic link");
+	if ((await n(t)).isSymbolicLink()) throw new F("The saved connection must not be a symbolic link");
 	let r = JSON.parse(await a(t, "utf8"));
-	if (r.version !== 1 || r.runtime !== "openclaw" || typeof r.address != "string" || !r.openclaw) throw new I("The saved connection is invalid. Inspect the private state directory");
+	if (r.version !== 1 || r.runtime !== "openclaw" || typeof r.address != "string" || !r.openclaw) throw new F("The saved connection is invalid. Inspect the private state directory");
 	return r.apiUrl = fe(r.apiUrl), r;
 }
 function Vi(e, t = {}) {
@@ -9618,7 +9676,7 @@ function Vi(e, t = {}) {
 		"[::1]"
 	].includes(new URL(e.gatewayUrl).hostname)) {
 		let i = t.gatewayUrl || n.OPENCLAW_GATEWAY_URL || e.gatewayUrl, a = t.gatewayToken || n.OPENCLAW_GATEWAY_TOKEN;
-		if (new URL(i).origin !== new URL(e.gatewayUrl).origin && !a) throw new I("Changing the saved Gateway origin requires its own explicit local Gateway credential. Set OPENCLAW_GATEWAY_TOKEN for the selected Gateway");
+		if (new URL(i).origin !== new URL(e.gatewayUrl).origin && !a) throw new F("Changing the saved Gateway origin requires its own explicit local Gateway credential. Set OPENCLAW_GATEWAY_TOKEN for the selected Gateway");
 		r.gatewayUrl = i, r.gatewayToken = a || e.gatewayToken;
 	}
 	return r;
@@ -9626,7 +9684,7 @@ function Vi(e, t = {}) {
 async function Hi(e, n = {}) {
 	Kt(n.env ?? process.env);
 	let r = Ri(n.fetch), i = pe(e, { allowExpired: !0 });
-	if (i.runtime !== "openclaw" || i.operation === "reconnect") throw new I("Use the unified Envoi connector for this runtime or reconnect handoff");
+	if (i.runtime !== "openclaw" || i.operation === "reconnect") throw new F("Use the unified Envoi connector for this runtime or reconnect handoff");
 	let a = n.stateDir || Ii(i.apiUrl, i.address, {
 		home: n.homeDir,
 		env: n.env,
@@ -9637,7 +9695,7 @@ async function Hi(e, n = {}) {
 		await a.init();
 		let s = await a.load(), c;
 		if (s) {
-			if (c = await Bi(o), c.apiUrl !== i.apiUrl || c.address !== i.address || s.address !== i.address) throw new I("This state directory belongs to another connection. Choose a separate private directory");
+			if (c = await Bi(o), c.apiUrl !== i.apiUrl || c.address !== i.address || s.address !== i.address) throw new F("This state directory belongs to another connection. Choose a separate private directory");
 		} else pe(e);
 		n.onProgress?.("Detecting OpenClaw");
 		let l = await qt(o, n.env ?? process.env, c?.openclaw), u = {
@@ -9666,9 +9724,9 @@ async function Hi(e, n = {}) {
 				fetch: r
 			});
 		} catch (e) {
-			throw (typeof e == "object" && e && "status" in e ? Number(e.status) : 0) === 401 ? new I("The enrollment token is expired or already used. Check Agent connections in Envoi and create a new setup prompt if no saved connection exists") : new I("Envoi enrollment did not finish. Check Agent connections before retrying; the token may have been consumed. Keep this state directory");
+			throw (typeof e == "object" && e && "status" in e ? Number(e.status) : 0) === 401 ? new F("The enrollment token is expired or already used. Check Agent connections in Envoi and create a new setup prompt if no saved connection exists") : new F("Envoi enrollment did not finish. Check Agent connections before retrying; the token may have been consumed. Keep this state directory");
 		}
-		if (s.address !== i.address) throw new I("The enrolled address differs from the setup address. Inspect Agent connections before starting");
+		if (s.address !== i.address) throw new F("The enrolled address differs from the setup address. Inspect Agent connections before starting");
 		let m = new Be(i.apiUrl, a, { fetch: r });
 		n.onProgress?.("Checking Envoi access");
 		try {
@@ -9705,7 +9763,7 @@ async function Ui(e, t, n = {}) {
 			fetch: a
 		}), e && o.connector.scopedWakeWorkDriver(), s = new Be(i.apiUrl, o.store, { fetch: a }), await s.checkStatus(), e) {
 			let c = await o.store.load();
-			if (!c) throw new I("Hosted wake needs saved connector identity");
+			if (!c) throw new F("Hosted wake needs saved connector identity");
 			await It({
 				connector: o.connector,
 				session: c,
@@ -9733,7 +9791,7 @@ async function Ui(e, t, n = {}) {
 }
 async function Wi(e) {
 	let t = await Bi(f.resolve(e)), n = await new Gt(f.resolve(e)).load();
-	if (!n) throw new I("No saved enrollment. Run setup with a fresh Envoi handoff");
+	if (!n) throw new F("No saved enrollment. Run setup with a fresh Envoi handoff");
 	return {
 		address: n.address,
 		apiUrl: t.apiUrl,
@@ -9752,12 +9810,12 @@ async function Ki(e = process.argv.slice(2)) {
 		process.stdout.write(Gi);
 		return;
 	}
-	if (Number(process.versions.node.split(".")[0]) < 22) throw new I("Install Node.js 22 or newer before connecting OpenClaw");
+	if (Number(process.versions.node.split(".")[0]) < 22) throw new F("Install Node.js 22 or newer before connecting OpenClaw");
 	let [t, ...r] = e, i = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Set();
 	for (let e = 0; e < r.length; e++) {
 		let t = r[e];
 		if (["--install-service", "--handoff-stdin"].includes(t)) {
-			if (o.has(t)) throw new I("Duplicate option");
+			if (o.has(t)) throw new F("Duplicate option");
 			o.add(t);
 			continue;
 		}
@@ -9767,31 +9825,31 @@ async function Ki(e = process.argv.slice(2)) {
 			"--agent",
 			"--gateway-url",
 			"--state-dir"
-		].includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new I("Unknown, duplicate or incomplete option. Run --help");
+		].includes(t) || !r[e + 1] || r[e + 1].startsWith("--") || i.has(t)) throw new F("Unknown, duplicate or incomplete option. Run --help");
 		i.set(t, r[++e]);
 	}
 	if (t === "setup") {
-		if (i.has("--handoff") === o.has("--handoff-stdin")) throw new I("Supply either --handoff <file> or --handoff-stdin");
+		if (i.has("--handoff") === o.has("--handoff-stdin")) throw new F("Supply either --handoff <file> or --handoff-stdin");
 		o.has("--install-service") && await dn();
 		let e;
 		if (o.has("--handoff-stdin")) {
 			let t = [], n = 0;
 			for await (let e of process.stdin) {
-				if (n += e.length, n > 16384) throw new I("Setup input is too large");
+				if (n += e.length, n > 16384) throw new F("Setup input is too large");
 				t.push(Buffer.from(e));
 			}
 			e = Buffer.concat(t).toString("utf8");
 		} else {
 			let t = f.resolve(i.get("--handoff")), r = await n(t);
-			if (!r.isFile() || r.isSymbolicLink() || r.size > 16384) throw new I("Choose a regular private setup file of at most 16 KB");
-			if (process.platform !== "win32" && r.mode & 63) throw new I("Restrict the setup file to your account (chmod 600) before connecting");
+			if (!r.isFile() || r.isSymbolicLink() || r.size > 16384) throw new F("Choose a regular private setup file of at most 16 KB");
+			if (process.platform !== "win32" && r.mode & 63) throw new F("Restrict the setup file to your account (chmod 600) before connecting");
 			e = await a(t, "utf8");
 		}
 		let t;
 		try {
 			t = JSON.parse(e);
 		} catch {
-			throw new I("The setup file is not valid JSON. Download a fresh setup file from Envoi");
+			throw new F("The setup file is not valid JSON. Download a fresh setup file from Envoi");
 		}
 		let r = await Hi(t, {
 			stateDir: i.get("--state-dir"),
@@ -9813,7 +9871,7 @@ async function Ki(e = process.argv.slice(2)) {
 		"install-service",
 		"configure-wake",
 		"clear-wake"
-	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new I("Supply a supported command and --state-dir. Run --help");
+	].includes(t) || !i.get("--state-dir") || i.size !== 1 || o.size) throw new F("Supply a supported command and --state-dir. Run --help");
 	let s = f.resolve(i.get("--state-dir"));
 	if (t === "configure-wake" || t === "clear-wake") {
 		await Wi(s), t === "configure-wake" ? await Ht(s) : await Ut(s), process.stdout.write(`${JSON.stringify({
@@ -9842,6 +9900,6 @@ async function Ki(e = process.argv.slice(2)) {
 	}
 }
 Ki().catch((e) => {
-	let t = e instanceof I || e instanceof G || e instanceof z ? e.message : "Setup could not finish. Check local OpenClaw configuration, connectivity and the saved Envoi connection; run --help for recovery options";
+	let t = e instanceof F || e instanceof G || e instanceof z ? e.message : "Setup could not finish. Check local OpenClaw configuration, connectivity and the saved Envoi connection; run --help for recovery options";
 	process.stderr.write(`${t}\n`), process.exitCode = 1;
 });
