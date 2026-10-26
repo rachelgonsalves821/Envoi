@@ -71,7 +71,10 @@ test('D3 accepts only the advertised immediate text subset and projects canonica
   assert.throws(() => projectA2ATask({ ...persisted, schemaVersion: null }), /persisted Envoi Case/);
   assert.throws(() => projectA2ATask(persisted, { artifacts: [{ id: 'asset_1' }] }), /authorized HTTPS/);
   for (const state of CASE_STATES) assert.ok(projectA2ATask({ ...persisted, state }).status.state.startsWith('TASK_STATE_'), state);
-  assert.equal(a2aAgentCard({ name: 'Envoi', description: 'Gateway', url: 'https://example.com/a2a' }).capabilities.streaming, false);
+  const card = a2aAgentCard({ name: 'Envoi', description: 'Gateway', url: 'https://example.com/a2a' });
+  assert.equal(card.capabilities.streaming, false);
+  assert.deepEqual(card.securityRequirements, [{ schemes: { envoiBearer: { list: [] } } }]);
+  assert.equal(Object.hasOwn(card, 'security'), false);
 });
 
 test('D1 signed invitations bind audience, expiry, and signature', () => {

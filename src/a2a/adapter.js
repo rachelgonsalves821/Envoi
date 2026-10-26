@@ -57,7 +57,7 @@ export function a2aAgentCard({ name, description, url, version = '1.0.0' }) {
     supportedInterfaces: [{ url, protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' }],
     capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
     securitySchemes: { envoiBearer: { httpAuthSecurityScheme: { scheme: 'Bearer' } } },
-    security: [{ envoiBearer: [] }],
+    securityRequirements: [{ schemes: { envoiBearer: { list: [] } } }],
     defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'],
     skills: [{ id: 'envoi-message', name: 'Envoi messaging', description: 'Send a text message as a canonical Envoi Case', tags: ['messaging'], inputModes: ['text/plain'], outputModes: ['text/plain'] }]
   };
