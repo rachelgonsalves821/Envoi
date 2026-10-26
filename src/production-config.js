@@ -55,7 +55,7 @@ export function validateProductionConfiguration(env = process.env) {
   required(env, 'WORKOS_COOKIE_PASSWORD', errors, 32);
   const invitedEmails = required(env, 'ENVOI_BETA_INVITED_EMAILS', errors).split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
   if (invitedEmails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) errors.push('ENVOI_BETA_INVITED_EMAILS must contain exact email addresses');
-  if (new Set(invitedEmails).size > 30) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 30 distinct addresses for the first beta');
+  if (new Set(invitedEmails).size > 31) errors.push('ENVOI_BETA_INVITED_EMAILS must contain at most 31 distinct addresses for the first beta');
   const signupMode = env.ENVOI_HUMAN_SIGNUP_MODE || 'invite-only';
   if (!['invite-only', 'public'].includes(signupMode)) errors.push('ENVOI_HUMAN_SIGNUP_MODE must be invite-only or public');
   const publicSignupLimit = Number(env.ENVOI_PUBLIC_SIGNUP_LIMIT);
