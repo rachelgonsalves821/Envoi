@@ -1,6 +1,6 @@
 # Phase D contract v1 — relationships, discovery, authorization, A2A
 
-Status: draft implementation on `lane-b/phase-d`; the canonical `phase-d` v1 contract is published in [handoffs.md](handoffs.md#phase-d-v1) and `test/contract-fixtures/phase-d/`, pending a version-specific human approval. This is source and test evidence, not hosted acceptance. Phase A/B/C human acceptance remains historical evidence and does not certify Phase D.
+Status: draft implementation on `lane-b/phase-d`; the canonical `phase-d` v1 contract in [handoffs.md](handoffs.md#phase-d-v1) and `test/contract-fixtures/phase-d/` was approved by pjsk02 in [board #34 comment 6416305575](https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6416305575). Approval covers contract bytes and dependent source corrections, not hosted acceptance, integration or release. Phase A/B/C human acceptance remains historical evidence and does not certify Phase D.
 
 ## D0 — integration baseline and gates
 

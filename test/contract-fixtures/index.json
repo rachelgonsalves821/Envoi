@@ -906,7 +906,7 @@
     {
       "id": "phase-d",
       "version": 1,
-      "status": "published",
+      "status": "approved",
       "handoff": "docs/architecture/agent-native-v2/handoffs.md#phase-d-v1",
       "dir": "phase-d",
       "schemas": "schemas.json",

@@ -50,6 +50,7 @@ test('[FileStore] A2A text send and task polling use a committed Envoi Case', { 
   assert.equal(card.payload.capabilities.streaming, false);
   assert.equal(card.payload.securitySchemes.envoiBearer.httpAuthSecurityScheme.scheme, 'Bearer');
   assert.equal((await a2a(server.baseUrl, `${base}/card`, '')).status, 401);
+  assert.equal((await a2a(server.baseUrl, `${route('missing@agents.envoi-agents.com')}/card`, '')).status, 401, 'unauthenticated card lookup cannot enumerate addresses');
   const message = { message: { messageId: 'a2a-message-1', role: 'ROLE_USER', parts: [{ text: 'A2A Case work' }] }, configuration: { returnImmediately: true } };
   const sent = await a2a(server.baseUrl, `${base}/message:send`, alice.agentApiToken, { method: 'POST', payload: message });
   assert.equal(sent.status, 200, JSON.stringify(sent.payload));
@@ -83,6 +84,9 @@ test('[FileStore] A2A text send and task polling use a committed Envoi Case', { 
   assert.equal((await a2a(server.baseUrl, `${route(alice.agent.address)}/tasks/${caseId}`, alice.agentApiToken)).status, 404);
   assert.equal((await a2a(server.baseUrl, `${base}/tasks/${caseId}`, bob.agentApiToken)).status, 404);
   assert.equal((await a2a(server.baseUrl, `${base}/message:stream`, alice.agentApiToken, { method: 'POST', payload: message })).status, 501);
+  assert.equal((await api(server.baseUrl, `/api/inboxes/${bob.inbox.id}/contacts/${alice.agent.id}/block`, { session: bob.session, body: {} })).status, 200);
+  assert.equal((await a2a(server.baseUrl, `${base}/card`, alice.agentApiToken)).status, 404, 'a reciprocal block hides the card');
+  assert.equal((await a2a(server.baseUrl, `${base}/tasks/${caseId}`, alice.agentApiToken)).status, 404, 'a reciprocal block hides the Task');
 });
 
 test('[FileStore] A2A edge is absent while its flag is off', { timeout: 30000 }, async t => {

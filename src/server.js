@@ -4440,6 +4440,7 @@ async function route(req, res) {
     const reverseContact = await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${identity.agent.id}.json`));
     const targetInbox = await store.getJson(path.join('inboxes', directory.inboxId, 'inbox.json'));
     const blocked = contact?.blocked === true || reverseContact?.blocked === true;
+    if (blocked) return fail(res, 404, 'Agent not found');
     const found = trustedDiscovery(directory, { approvedContact: blocked ? null : contact, relationship: blocked ? null : relationship, sameOrganization: !blocked && Boolean(targetInbox?.organizationId && targetInbox.organizationId === identity.agent.organizationId) });
     return found ? json(res, 200, withA2ACard(found)) : fail(res, 404, 'Agent not found');
   }
@@ -4450,11 +4451,17 @@ async function route(req, res) {
     let address;
     try { address = normalizedEmail(decodeURIComponent(a2aEdge[1])); } catch { return a2aJson(res, 400, { error: { code: 'INVALID_ADDRESS', message: 'Invalid agent address' } }); }
     if (!validEmail(address) || !address.endsWith(`@${agentDomain}`)) return a2aJson(res, 400, { error: { code: 'INVALID_ADDRESS', message: 'Invalid agent address' } });
+    // Authenticate before looking up an address so a public caller cannot probe card existence.
+    const caller = await a2aCurrentAgent(req, 'agent.discover');
     const targetDirectory = await store.getJson(nativeAddressDirectoryPath(address));
     if (!targetDirectory || targetDirectory.address !== address || targetDirectory.verified !== true || !['active', 'paused'].includes(targetDirectory.status)) return a2aJson(res, 404, { error: { code: 'AGENT_NOT_FOUND', message: 'Agent not found' } });
+    const [contact, reverseContact] = await Promise.all([
+      store.getJson(path.join('inboxes', caller.inboxId, 'contacts', `${targetDirectory.agentId}.json`)),
+      store.getJson(path.join('inboxes', targetDirectory.inboxId, 'contacts', `${caller.agent.id}.json`))
+    ]);
+    if (contact?.blocked === true || reverseContact?.blocked === true) return a2aJson(res, 404, { error: { code: 'AGENT_NOT_FOUND', message: 'Agent not found' } });
     if (req.headers['a2a-version'] && req.headers['a2a-version'] !== '1.0') return a2aJson(res, 400, { error: { code: 'VERSION_NOT_SUPPORTED', message: 'A2A protocol version 1.0 is required' } });
     if (a2aEdge[2] === 'card' && req.method === 'GET') {
-      await a2aCurrentAgent(req, 'agent.discover');
       const target = await store.getJson(path.join('inboxes', targetDirectory.inboxId, 'agents', `${targetDirectory.agentId}.json`));
       if (!target || target.address !== address) return a2aJson(res, 404, { error: { code: 'AGENT_NOT_FOUND', message: 'Agent not found' } });
       const base = new URL(process.env.ENVOI_PUBLIC_URL).origin;
@@ -5052,6 +5059,7 @@ async function route(req, res) {
     const reverseContact = actorAgentId ? await store.getJson(path.join('inboxes', directory.inboxId, 'contacts', `${actorAgentId}.json`)) : null;
     const targetInbox = await store.getJson(path.join('inboxes', directory.inboxId, 'inbox.json'));
     const blocked = contact?.blocked === true || reverseContact?.blocked === true;
+    if (blocked) return fail(res, 404, 'Agent not found');
     const found = trustedDiscovery(directory, { approvedContact: blocked ? null : contact, relationship: blocked ? null : relationship, sameOrganization: !blocked && Boolean(targetInbox?.organizationId && targetInbox.organizationId === inbox.organizationId) });
     return found ? json(res, 200, withA2ACard(found)) : fail(res, 404, 'Agent not found');
   }
