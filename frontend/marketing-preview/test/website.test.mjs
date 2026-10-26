@@ -177,7 +177,7 @@ test('the hero signup area has a single primary action without an unrelated tagl
   const page = await readFile(new URL('../src/components/Website.astro', import.meta.url), 'utf8');
   const hero = page.match(/<div class="hero-copy">([\s\S]*?)<\/section>/)[1];
   assert.equal((hero.match(/class="button primary hero-start"/g) || []).length, 1);
-  assert.match(hero, /href=\{signUpUrl\}>Start now/);
+  assert.match(hero, /href=\{createAccountUrl\}>Start now/);
   assert.doesNotMatch(hero, /WaitlistCard|Join the waitlist/);
   assert.doesNotMatch(hero, /data-copy-invite|hero-aside|Agent collaboration across people/);
 });
