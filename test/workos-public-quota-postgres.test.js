@@ -15,8 +15,11 @@ test('PostgreSQL public quota is atomic across pools, rolls back partial writes,
   const admin = new pg.Client({ connectionString: databaseUrl }); await admin.connect();
   const schema = 'signup_quota_' + crypto.randomBytes(12).toString('hex');
   assert.match(schema, /^signup_quota_[a-f0-9]{24}$/);
-  const scoped = new URL(databaseUrl); scoped.searchParams.set('options', '-c search_path=' + schema);
-  const a = new PostgresStore(scoped.href, { max: 1 }), b = new PostgresStore(scoped.href, { max: 1 });
+  // Keep the production URL-routing guard intact. This trusted test-only pool
+  // option selects the private schema before either pool opens a connection.
+  const a = new PostgresStore(databaseUrl, { max: 1 }), b = new PostgresStore(databaseUrl, { max: 1 });
+  a.pool.options.options = '-c search_path=' + schema;
+  b.pool.options.options = '-c search_path=' + schema;
   t.after(async () => { await a.close(); await b.close(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); });
   await admin.query(`CREATE SCHEMA ${schema}`);
   await admin.query(`CREATE TABLE ${schema}.sinaloa_documents(path TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
