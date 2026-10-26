@@ -1,4 +1,4 @@
-import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, acceptedWaitlistResponse, visibleFeatureCount } from './playback.mjs';
+import { advancePlayback, createPlaybackState, playbackDelay, selectScenario, togglePlayback, acceptedWaitlistResponse, visibleFeatureCount } from './playback.mjs';
 import { mountThemeControls } from './theme.mjs';
 import { captureAnalyticsEvent } from '../../../src/analytics';
 
@@ -31,17 +31,12 @@ if (thread) {
   let activeIndex = 0;
   let state = createPlaybackState(panels[0].querySelectorAll('[data-step]').length, reducedMotion.matches);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let switchTimer: ReturnType<typeof setTimeout> | undefined;
   let inView = false;
-  let hovered = false;
-  let focused = false;
+  let messageFocused = false;
 
   const clearTimers = () => {
     if (timer !== undefined) clearTimeout(timer);
-    if (switchTimer !== undefined) clearTimeout(switchTimer);
     timer = undefined;
-    switchTimer = undefined;
-    thread.classList.remove('is-switching');
   };
   const render = () => {
     panels.forEach((panel, panelIndex) => {
@@ -71,20 +66,15 @@ if (thread) {
   };
   const schedule = () => {
     clearTimers();
-    if (!inView || hovered || focused || document.hidden || state.paused || state.manual || state.reducedMotion) return;
+    if (!inView || messageFocused || document.hidden || state.paused || state.manual || state.reducedMotion) return;
     const complete = state.visibleCount === state.stepCount;
     timer = setTimeout(() => {
       if (complete) {
-        thread.classList.add('is-switching');
-        switchTimer = setTimeout(() => {
-          switchTimer = undefined;
-          activeIndex = (activeIndex + 1) % panels.length;
-          state = createPlaybackState(panels[activeIndex].querySelectorAll('[data-step]').length);
-          panels[activeIndex].querySelector('.thread-messages')!.scrollTop = 0;
-          render();
-          thread.classList.remove('is-switching');
-          schedule();
-        }, 160);
+        activeIndex = (activeIndex + 1) % panels.length;
+        state = createPlaybackState(panels[activeIndex].querySelectorAll('[data-step]').length);
+        panels[activeIndex].querySelector('.thread-messages')!.scrollTop = 0;
+        render();
+        schedule();
         return;
       }
       state = advancePlayback(state);
@@ -121,17 +111,16 @@ if (thread) {
   });
   playback.addEventListener('click', () => {
     clearTimers();
-    if (state.manual || state.paused) {
-      state = createPlaybackState(state.stepCount, reducedMotion.matches);
+    const wasManual = state.manual;
+    state = togglePlayback(state);
+    if (wasManual) {
       panels[activeIndex].querySelector('.thread-messages')!.scrollTop = 0;
-    } else state = { ...state, paused: true };
+    }
     render();
     schedule();
   });
-  thread.addEventListener('mouseenter', () => { hovered = true; schedule(); });
-  thread.addEventListener('mouseleave', () => { hovered = false; schedule(); });
-  thread.addEventListener('focusin', () => { focused = true; schedule(); });
-  thread.addEventListener('focusout', () => queueMicrotask(() => { focused = thread.contains(document.activeElement); schedule(); }));
+  thread.addEventListener('focusin', () => { messageFocused = !!thread.querySelector('.thread-messages:focus-within'); schedule(); });
+  thread.addEventListener('focusout', () => queueMicrotask(() => { messageFocused = !!thread.querySelector('.thread-messages:focus-within'); schedule(); }));
   document.addEventListener('visibilitychange', schedule);
   reducedMotion.addEventListener('change', () => {
     clearTimers();

@@ -171,6 +171,7 @@ export const api = {
   organizations: (signal?: AbortSignal) => request<Organization[]>('/api/organizations', { signal }),
   workspaces: (organizationId: string, signal?: AbortSignal) => request<Inbox[]>(`/api/organizations/${organizationId}/workspaces`, { signal }),
   createInboxFolder: (inboxId: string, name: string) => request<{ folder: { id: string; name: string } }>(`/api/inboxes/${encodeURIComponent(inboxId)}/inbox-folders`, { method: 'POST', body: JSON.stringify({ name }) }),
+  deleteInboxFolder: (inboxId: string, folderId: string) => request<{ deleted: boolean }>(`/api/inboxes/${encodeURIComponent(inboxId)}/inbox-folders/${encodeURIComponent(folderId)}`, { method: 'DELETE' }),
   updateInboxPreference: (inboxId: string, caseId: string, patch: { archive?: boolean; folderId?: string | null; read?: boolean; readThrough?: string }) => request<{ inboxPreference: InboxPreference }>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases/${encodeURIComponent(caseId)}/inbox-preferences`, { method: 'POST', body: JSON.stringify(patch) }),
   sendInstruction: (inboxId: string, caseId: string, text: string, idempotencyKey: string) => request<unknown>(`/api/inboxes/${encodeURIComponent(inboxId)}/cases/${encodeURIComponent(caseId)}/instructions`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ text }) }),
   createWorkspace: (name: string, organizationId?: string) => request<Inbox>('/api/inboxes', { method: 'POST', body: JSON.stringify({ name, organizationId }) }),

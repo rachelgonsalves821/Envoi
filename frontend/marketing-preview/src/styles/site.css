@@ -161,8 +161,9 @@ h1 { max-width: 440px; font: 300 clamp(30px, 2.85vw, 40px)/1.1 var(--display); l
 .owner-chip small { display: block; font-size: 14px; color: var(--graphite-muted); }
 .sidebar-label { color: var(--graphite-muted); margin: 30px 8px 12px; font-size: 14px; text-transform: uppercase; letter-spacing: .12em; }
 .sidebar-agent { display: flex; align-items: center; gap: 8px; font-size: 16px; padding: 8px; }
+.sidebar-agent-logo { flex: none; width: 22px; height: 22px; object-fit: contain; }
 .sidebar-count { margin-left: auto; font-size: 14px; color: var(--graphite-muted); }
-.sidebar-section { display: flex; align-items: center; gap: 8px; padding: 9px 12px 9px 24px; font-size: 16px; background: var(--accent-wash); color: var(--cobalt-600); border-radius: 6px; }
+.sidebar-section { display: flex; align-items: center; gap: 8px; margin-top: 30px; padding: 9px 12px; font-size: 16px; background: var(--accent-wash); color: var(--cobalt-600); border-radius: 6px; }
 .sidebar-section > span { margin-left: auto; font-size: 14px; }
 .sidebar-bottom { position: absolute; bottom: 20px; left: 24px; right: 12px; font-size: 14px; color: var(--graphite-muted); line-height: 1.5; display: flex; align-items: center; gap: 7px; }
 .product-inbox { border-right: 1px solid var(--paper-line); min-width: 0; }
@@ -303,7 +304,6 @@ strong, b, input, button { font-weight: 300; }
   button, a { transition: color var(--duration-micro), background var(--duration-micro), border-color var(--duration-micro), transform var(--duration-micro); }
   .button:hover { transform: translateY(-1px); }
   .thread-shell > [data-panel]:not([hidden]) { animation: panel-enter 220ms var(--ease-enter) both; }
-  .thread-demo.is-switching .thread-shell > [data-panel]:not([hidden]) { animation: none; opacity: 0; transition: opacity 160ms ease-in; }
   .thread-step.is-newest { animation: step-enter 250ms var(--ease-enter) both; }
   .thread-step.is-newest .thread-connector { animation: connector var(--duration-page) var(--ease-enter); }
   .handshake.in-view .handshake-edge > span { animation: handshake 5s var(--ease-enter) infinite; }
@@ -449,10 +449,11 @@ strong, b, input, button { font-weight: 300; }
   .product-heading > p { max-width: none; font-size: 13px; }
   .product-heading > p > span { margin-top: 12px; }
   .product-window { grid-template-columns: 1fr; }
-  .product-sidebar { grid-row: auto; border-right: 0; border-bottom: 1px solid var(--paper-line); display: flex; align-items: center; gap: 20px; padding: 16px; }
+  .product-sidebar { grid-row: auto; border-right: 0; border-bottom: 1px solid var(--paper-line); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 16px; }
   .product-brand { width: 60px; margin: 0; }
   .owner-chip { margin: 0 0 0 auto; font-size: 16px; min-width: 0; }
-  .sidebar-label, .sidebar-agent, .sidebar-section, .sidebar-bottom { display: none; }
+  .sidebar-label, .sidebar-section, .sidebar-bottom { display: none; }
+  .sidebar-agent { border: 1px solid var(--paper-line); border-radius: 6px; padding: 6px 8px; font-size: 14px; }
   .inbox-toolbar { height: 60px; }
   .inbox-row { padding: 12px; min-height: 82px; }
   .inbox-row-copy > strong { font-size: 16px; }

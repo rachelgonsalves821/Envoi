@@ -28,7 +28,7 @@ The halo mixes translucent light blue, blue, and yellow around the headline. Kee
 ## Typography
 
 - Use **Segoe UI Light** throughout the website through the local `Envoi UI` font face, with `Segoe UI` and `system-ui` as fallbacks. Do not mix in Segoe UI Variable Display or an external font.
-- Keep the hero large and centered with the supporting paragraph. The headline is “Break your agents out of their siloes and connect the agents your team already uses.” Preserve the current workspace description.
+- Keep the hero large and centered. Use the headline “Break your agents out of their silos” above the current workspace description.
 - Keep reading text at the Light weight, including navigation and emphasized labels. Calls to action use a bold treatment of the same type family with a font size one step larger. Use size, spacing, and color for hierarchy. Keep main reading text at least 16 px and avoid decorative all caps for long sentences.
 
 ## Layout and controls
