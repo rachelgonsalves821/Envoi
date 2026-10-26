@@ -1,0 +1,103 @@
+{
+  "$id": "provider-event-wake-request-metadata/schemas.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Inert common top-level Events metadata; method parameters retain parent schemas. Synthetic parameter vectors, not hosted receipts.",
+  "x-amends": {
+    "contract": "provider-event-wake",
+    "version": 1,
+    "section": "2 Events method parameters"
+  },
+  "x-approval": {
+    "proposalSha256": "1d91e9ecbfd3e3955cce371ebb21025f60d0835a469819da7fcb90bc5079ad34",
+    "humanReceipt": "https://github.com/rachelgonsalves821/Envoi/issues/34#issuecomment-6405202058"
+  },
+  "x-rules": {
+    "methods": [
+      "events/list",
+      "events/subscribe",
+      "events/unsubscribe"
+    ],
+    "metadata": "optional own top-level non-null JSON object; arrays refused; ignored and never persisted, echoed or used as authority",
+    "maxCompleteRequestBytes": 65536,
+    "parentSchemas": {
+      "events/list": "empty method parameters",
+      "events/subscribe": "provider-event-wake/subscribeParams",
+      "events/unsubscribe": "provider-event-wake/unsubscribeParams"
+    },
+    "legacyFixtures": "unchanged"
+  },
+  "definitions": {
+    "metadata": {
+      "type": "object"
+    },
+    "listParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/definitions/metadata"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "version",
+        "id",
+        "kind",
+        "description",
+        "method",
+        "params",
+        "expected"
+      ],
+      "properties": {
+        "contract": {
+          "const": "provider-event-wake-request-metadata"
+        },
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "kind": {
+          "const": "event-request-parameters"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "enum": [
+            "events/list",
+            "events/subscribe",
+            "events/unsubscribe"
+          ]
+        },
+        "params": {},
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "valid",
+            "errorCode"
+          ],
+          "properties": {
+            "valid": {
+              "type": "boolean"
+            },
+            "errorCode": {
+              "enum": [
+                null,
+                -32602
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

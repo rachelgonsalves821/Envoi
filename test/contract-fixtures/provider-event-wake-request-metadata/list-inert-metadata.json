@@ -1,0 +1,28 @@
+{
+  "contract": "provider-event-wake-request-metadata",
+  "version": 1,
+  "id": "list-inert-metadata",
+  "kind": "event-request-parameters",
+  "description": "list inert metadata",
+  "method": "events/list",
+  "params": {
+    "_meta": {
+      "example.com/acceptance": "METADATA_ONLY_SYNTHETIC",
+      "authority": {
+        "agentId": "ignored",
+        "permissions": [
+          "ignored"
+        ]
+      },
+      "nested": [
+        null,
+        true,
+        1
+      ]
+    }
+  },
+  "expected": {
+    "valid": true,
+    "errorCode": null
+  }
+}
