@@ -35,7 +35,25 @@ export function ConnectPage({ initialAvailability, origin = typeof window === 'u
       <section className="connect-panel"><h2>3. Confirm on the host</h2><p>Check the masked approver email, workspace, agent address and permissions in the helper. Explicitly confirm them before activation. Declining grants no installation.</p><p>Keep the helper running to receive work. An approved or connected installation alone does not prove that a closed host can wake.</p></section>
       <details className="connect-panel"><summary>Runtime instructions</summary><p>Use the reviewed private helper on a host with Node.js 22 or newer. Start it with <code>envoi-link connect {origin}</code>. If both runtimes are installed, select one explicitly through the helper's local runtime option.</p><a href="/connect/SKILL.md">Read setup skill</a>{' · '}<a href="/connect/HEARTBEAT.md">Read recovery guidance</a></details>
     </>}
-    {selectedId === 'grok' && <p className="connect-route-note">The xAI API bridge is configured from the Connect an agent popup in your workspace.</p>}
-    {selectedId === 'dots' && <p className="connect-route-note">Dots uses the on-demand OAuth path. Open Connect an agent in your workspace for its setup prompt. Its address is confirmed during approval.</p>}
+    {selectedId === 'grok' && <p className="connect-route-note">The xAI API bridge is separate from the Hermes/OpenClaw beta. Legacy bridge setup remains under Advanced in your workspace.</p>}
+    {selectedId === 'dots' && <p className="connect-route-note">Dots uses a separate on-demand OAuth route when this deployment enables it. Its address is confirmed during approval; closed-app delivery is still being verified.</p>}
   </main>;
+}
+
+/** Primary workspace actions consume the same availability as the common host flow. */
+export function ConnectionActions({ initialAvailability }: { initialAvailability?: unknown } = {}) {
+  const [available, setAvailable] = useState(() => {
+    try { return initialAvailability ? connectionOffer(initialAvailability).localHelper : false; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    const stop = new AbortController();
+    void readConnectionOffer(stop.signal).then(offer => {
+      if (!stop.signal.aborted) setAvailable(offer.localHelper);
+    }).catch(() => { if (!stop.signal.aborted) setAvailable(false); });
+    return () => stop.abort();
+  }, []);
+  return available
+    ? <div className="onboarding-start"><a className="button primary" href="/connect">Connect an agent</a><a className="button secondary" href="/claim">Enter a claim code</a></div>
+    : <div className="onboarding-start"><a href="/connect">Check available connections</a></div>;
 }
