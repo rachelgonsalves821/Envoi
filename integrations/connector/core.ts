@@ -17,6 +17,7 @@ import { migrateConnectionDirectory } from './migrate';
 import { waitForRuntimeTools } from './runtime-readiness';
 import { parseHostedWakeConfig, runHostedWake } from './hosted-wake-runner';
 import { resolveHostedWakeConfig } from './hosted-wake-config';
+import { createHostTaskSender, HostTaskError } from './host-task';
 
 export interface InstalledConnection {
   version: 1;
@@ -408,7 +409,11 @@ export async function startConnection(stateDir: string, signal: AbortSignal, res
     await startup.start();
     const adapter = resolveAdapter(saved.runtime);
     const context = { ...options, signal: stop.signal, apiUrl: saved.apiUrl, stateDir: directory, fetch: fetcher };
-    if (options.control !== false) control = await startControl(directory, { runtime: saved.runtime, address: saved.address }, cancel, () => diagnostics);
+    if (options.control !== false) control = await startControl(directory, { runtime: saved.runtime, address: saved.address, apiUrl: saved.apiUrl }, cancel, () => diagnostics,
+      createHostTaskSender(directory, saved, () => {
+        if (!bridge || diagnostics.runtimeChecks !== 'passed' || stop.signal.aborted) throw new HostTaskError('CONNECTOR_NOT_READY');
+        return bridge.connector;
+      }));
     const initialState = await startup.lifecycle();
     if (initialState.retryAt) await delay(Math.max(0, Date.parse(initialState.retryAt) - Date.now()), undefined, { signal: stop.signal }).catch(error => { if (!stop.signal.aborted) throw error; });
     while (!stop.signal.aborted) {

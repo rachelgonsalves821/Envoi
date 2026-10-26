@@ -18,11 +18,20 @@ describe('approved onboarding connection content', () => {
     expect(offer.localHelper).toBe(name !== 'routes-disabled');
     expect(html.includes('envoi-link connect')).toBe(offer.localHelper);
     expect(html.includes('href="/claim"')).toBe(offer.localHelper);
+    expect(html.includes('envoi-link task')).toBe(offer.localHelper);
     expect(html).not.toMatch(/OAuth|provider.connector|on.demand.*connect|access.token_[A-Za-z]/i);
     if (offer.localHelper) {
       expect(html).toContain('masked approver email'); expect(html).toContain('Keep the helper running');
       expect(html).toContain('Never paste access or refresh tokens');
     }
+  });
+  it('keeps the owner task command on the selected deployment', () => {
+    const html = renderToStaticMarkup(createElement(ConnectPage, { initialAvailability: fixture('routes-available').response.body,
+      origin: 'https://demo.envoi.example' }));
+    expect(html).toContain('envoi-link task https://demo.envoi.example --runtime openclaw');
+    expect(html).toContain('another terminal');
+    expect(html).toContain('review and confirm');
+    expect(html).not.toContain('envoi-link task https://www.envoi-agents.com');
   });
   it('fails closed for unavailable, malformed, incomplete and unsupported route snapshots', () => {
     const valid = fixture('routes-available').response.body;
