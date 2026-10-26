@@ -65,6 +65,14 @@
 .app-shell .nav-section-heading { display: flex; align-items: center; justify-content: space-between; margin: 18px 10px 4px; color: var(--ink3); font-size: 12px; font-weight: 600; }
 .app-shell .nav-section-heading button { width: 22px; height: 22px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); }
 .app-shell .nav-section-heading button:hover { background: rgba(0,0,0,.04); }
+.app-shell .folder-nav-row { position: relative; display: flex; align-items: center; min-width: 0; border-radius: 8px; }
+.app-shell .folder-nav-row:hover { background: rgba(0,0,0,.04); }
+.app-shell .folder-nav-row .nav-item { flex: 1; min-width: 0; background: transparent; }
+.app-shell .folder-nav-row .nav-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .folder-menu-trigger { width: 26px; height: 26px; margin-right: 4px; color: var(--ink2); }
+.app-shell .folder-context-menu { position: absolute; right: 4px; top: calc(100% - 2px); z-index: 5; min-width: 152px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 10px 30px rgba(15,42,67,.16); }
+.app-shell .folder-context-menu button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); text-align: left; font: inherit; font-size: 14px; }
+.app-shell .folder-context-menu button:hover, .app-shell .folder-context-menu button:focus-visible { background: rgba(0,0,0,.05); }
 .app-shell .agent-nav-row { display: flex; align-items: center; border-radius: 8px; }
 .app-shell .agent-nav-row:hover { background: rgba(0,0,0,.04); }
 .app-shell .agent-nav-row .nav-item { flex: 1; min-width: 0; background: transparent; }

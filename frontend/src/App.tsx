@@ -6,7 +6,7 @@ import {
   Activity, AlertCircle, Archive, ArrowLeft, ArrowLeftRight, ArrowRight, Bot, CalendarDays, Check, CheckCircle2, ChevronDown,
   ChevronRight, CircleDashed, Clock3, Command, Copy, Database, Download, FileCheck2, FileText, Gauge, Inbox,
   KeyRound, LayoutGrid, Link2, List, ListFilter, Menu, MoreHorizontal, PanelRightClose, PanelRightOpen,
-  Folder, Hand, LogOut, Pause, Play, PlugZap, Plus, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles,
+  Folder, Hand, LogOut, Pause, Play, PlugZap, Plus, ReceiptText, RefreshCw, Search, ShieldCheck, Sparkles, Trash2,
   UserRound, UsersRound, X, XCircle, Zap
 } from 'lucide-react';
 import { ACCOUNT_CHANGED_EVENT, ApiError, SESSION_EXPIRED_EVENT, api, setExpectedHuman } from './api';
@@ -775,6 +775,8 @@ export function AppShell(props: ShellProps) {
   const childResponseOrders = useRef(new Map<string, ReturnType<typeof createViewResponseOrder>>());
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
+  const [folderToDelete, setFolderToDelete] = useState<{ id: string; name: string } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderError, setFolderError] = useState('');
   const rootWorkspace = workspaces.find(item => item.id === (workspace.parentInboxId || workspace.id)) || workspace;
@@ -839,14 +841,24 @@ export function AppShell(props: ShellProps) {
       const target = event.target as HTMLElement;
       const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
       if (!editing && event.key === '/') { event.preventDefault(); document.querySelector<HTMLInputElement>('.queue-search input')?.focus(); }
-      if (event.key === 'Escape') setNavOpen(false);
+      if (event.key === 'Escape') { setNavOpen(false); setFolderMenuId(null); }
     };
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
   }, []);
+  useEffect(() => {
+    if (!folderMenuId) return;
+    document.querySelector<HTMLButtonElement>('.folder-context-menu button')?.focus({ preventScroll: true });
+    const closeMenu = (event: PointerEvent) => {
+      if (!(event.target as Element).closest('.folder-nav-row')) setFolderMenuId(null);
+    };
+    document.addEventListener('pointerdown', closeMenu);
+    return () => document.removeEventListener('pointerdown', closeMenu);
+  }, [folderMenuId]);
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 4200); return () => window.clearTimeout(timer); } }, [toast]);
 
   function chooseSection(next: NavSection) {
     setSelectedFolderId(null);
+    setFolderMenuId(null);
     setSection(next); setSelectedCaseId(null); setNavOpen(false);
   }
   function chooseInbox(next: Workspace, nextSection: NavSection = 'inbox') {
@@ -883,6 +895,19 @@ export function AppShell(props: ShellProps) {
       if (workspace.id === previewWorkspace.id) throw new Error('Folder changes are unavailable in the design preview. Sign in to save changes.');
       await api.createInboxFolder(workspace.id, name);
       await refreshInboxPreferences(); setFolderDialogOpen(false); setToast('Folder created');
+    } catch (caught) { setFolderError(errorMessage(caught)); }
+    finally { setFolderBusy(false); }
+  }
+  async function deleteFolder() {
+    if (!folderToDelete) return;
+    setFolderBusy(true); setFolderError('');
+    try {
+      if (workspace.id === previewWorkspace.id) throw new Error('Folder changes are unavailable in the design preview. Sign in to save changes.');
+      await api.deleteInboxFolder(workspace.id, folderToDelete.id);
+      if (selectedFolderId === folderToDelete.id) setSelectedFolderId(null);
+      setFolderToDelete(null);
+      try { await refreshInboxPreferences(); setToast('Folder deleted'); }
+      catch { setToast('Folder deleted. Refresh to update the list.'); }
     } catch (caught) { setFolderError(errorMessage(caught)); }
     finally { setFolderBusy(false); }
   }
@@ -934,7 +959,11 @@ export function AppShell(props: ShellProps) {
           {agentInboxes.some(inbox => inbox.status === 'removed') && <div className="nav-section-heading"><span>Archived agents</span></div>}
           {agentInboxes.filter(inbox => inbox.status === 'removed').map(inbox => <button key={inbox.id} className="nav-item" onClick={() => chooseInbox(inbox)}><Archive size={16} /><span>{inbox.removedAgent?.name || inbox.name}</span></button>)}
           <div className="nav-section-heading"><span>Folders</span><button aria-label="Create folder" disabled={!view.folders} onClick={() => { setFolderError(''); setFolderDialogOpen(true); }}><Plus size={15} /></button></div>
-          {view.folders?.map(folder => <button key={folder.id} className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { chooseSection('inbox'); setSelectedFolderId(folder.id); }}><Folder size={16} /><span>{folder.name}</span></button>)}
+          {view.folders?.map(folder => <div key={folder.id} className="folder-nav-row" onContextMenu={event => { event.preventDefault(); setFolderMenuId(folder.id); }}>
+            <button className="nav-item" aria-current={selectedFolderId === folder.id ? 'page' : undefined} onClick={() => { chooseSection('inbox'); setSelectedFolderId(folder.id); }}><Folder size={16} /><span>{folder.name}</span></button>
+            <button className="folder-menu-trigger icon-button" aria-label={`More options for ${folder.name}`} aria-haspopup="menu" aria-expanded={folderMenuId === folder.id} onClick={() => setFolderMenuId(current => current === folder.id ? null : folder.id)}><MoreHorizontal size={16} /></button>
+            {folderMenuId === folder.id && <div className="folder-context-menu" role="menu" aria-label={`${folder.name} options`}><button role="menuitem" onClick={() => { setFolderMenuId(null); setFolderError(''); setFolderToDelete(folder); }}><Trash2 size={16} />Delete folder</button></div>}
+          </div>)}
           <div className="nav-spacer" />
           <NavItem section="documents" label="Files" icon={<FileText />} active={section === 'documents'} onClick={chooseSection} />
           <NavItem section="integrations" label="Manage agents" icon={<UsersRound />} active={section === 'integrations'} onClick={chooseSection} />
@@ -969,6 +998,7 @@ export function AppShell(props: ShellProps) {
       <div className="sr-live" aria-live="polite">{toast}</div>
       {toast && <div className="toast"><Check size={16} />{toast}</div>}
       {folderDialogOpen && <Modal title="Create folder" dismissible={!folderBusy} onClose={() => setFolderDialogOpen(false)}><CreateInboxFolderContent busy={folderBusy} error={folderError} onClose={() => setFolderDialogOpen(false)} onCreate={name => void createFolder(name)} /></Modal>}
+      {folderToDelete && <Modal title="Delete folder?" dismissible={!folderBusy} onClose={() => setFolderToDelete(null)}><p className="dialog-copy">Delete “{folderToDelete.name}”? Conversations in this folder will stay in All inboxes.</p><FormError message={folderError} /><div className="dialog-actions"><button className="button secondary" disabled={folderBusy} onClick={() => setFolderToDelete(null)}>Cancel</button><button className="button destructive" disabled={folderBusy} onClick={() => void deleteFolder()}>{folderBusy ? 'Deleting…' : 'Delete folder'}</button></div></Modal>}
     </div>
   );
 }
