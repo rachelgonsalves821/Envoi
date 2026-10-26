@@ -29,7 +29,7 @@ test('the combined server serves marketing, workspace, assets and legacy routes'
   assert.equal(about.status, 200);
   assert.match(about.headers.get('content-type'), /^text\/html/);
   const aboutHtml = await about.text();
-  assert.match(aboutHtml, /Break your agents out of their siloes/);
+  assert.match(aboutHtml, /Break your agents out of their silos/);
   assert.match(aboutHtml, /content="index, follow"/);
   assert.match(aboutHtml, /sign-up\?returnTo=%2Fapp/);
   const nonce = about.headers.get('content-security-policy').match(/script-src 'nonce-([^']+)'/)?.[1];

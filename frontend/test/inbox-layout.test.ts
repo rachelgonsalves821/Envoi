@@ -34,7 +34,12 @@ it('does not label another human’s instruction as You', () => {
   const view = { agents: [], requester: { id: 'human_observer', auth: { provider: 'local', assurance: 'totp' } }, participantDirectory: { human_sender: { id: 'human_sender', type: 'human', displayName: 'Alice', accessState: 'active' } } } as HumanView;
   expect(renderToStaticMarkup(createElement(ConversationEntry, { event, workCase, view }))).toContain('Alice');
   expect(renderToStaticMarkup(createElement(ConversationEntry, { event, workCase, view }))).not.toContain('>You<');
-  expect(renderToStaticMarkup(createElement(ConversationEntry, { event, workCase, view: { ...view, requester: { ...view.requester!, id: 'human_sender' } } }))).toContain('>You<');
+  const ownerMarkup = renderToStaticMarkup(createElement(ConversationEntry, { event: { ...event, summary: 'Human instruction' }, workCase, view: { ...view, requester: { ...view.requester!, id: 'human_sender' } } }));
+  expect(ownerMarkup).toContain('>You<');
+  expect(ownerMarkup).toContain('conversation-message mine owner-instruction');
+  expect(ownerMarkup).toContain('>Owner instruction<');
+  expect(ownerMarkup).toContain('Check the latest draft');
+  expect(ownerMarkup).not.toContain('class="message-bubble">Human instruction');
 });
 
 it('honors initial Done on a fresh shell mount without selecting a case or relying on task completion', () => {

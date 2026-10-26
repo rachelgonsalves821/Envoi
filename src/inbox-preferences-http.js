@@ -1,5 +1,5 @@
 import { assertSafeIdentifier, assertSafeRequestTarget } from './path-safety.js';
-import { createInboxFolder, getPrefsForCases, updateCaseInboxPreferences } from './inbox-preferences.js';
+import { createInboxFolder, deleteInboxFolder, getPrefsForCases, updateCaseInboxPreferences } from './inbox-preferences.js';
 
 const requestError = (statusCode, message) => Object.assign(new Error(message), { statusCode });
 
@@ -39,10 +39,10 @@ export function createInboxPreferencesHttp({ store, requireHuman, requireInboxAc
   }
 
   async function handleRequest(req, res, url = new URL(req.url, 'http://localhost')) {
-    if (req.method !== 'POST') return false;
     const folderRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/inbox-folders$/);
+    const deleteFolderRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/inbox-folders\/([^/]+)$/);
     const caseRoute = url.pathname.match(/^\/api\/inboxes\/([^/]+)\/cases\/([^/]+)\/inbox-preferences$/);
-    const match = folderRoute || caseRoute;
+    const match = req.method === 'DELETE' ? deleteFolderRoute : req.method === 'POST' ? folderRoute || caseRoute : null;
     if (!match) return false;
     try { assertSafeRequestTarget(req.url); }
     catch (error) { throw requestError(400, error.message); }
@@ -50,13 +50,17 @@ export function createInboxPreferencesHttp({ store, requireHuman, requireInboxAc
     const caseId = caseRoute ? assertSafeIdentifier(decodeURIComponent(caseRoute[2]), 'caseId') : null;
     const human = await requireHuman(req);
     if (!human) throw requestError(401, 'Verified human session required');
-    const input = await readBody(req);
+    const input = req.method === 'POST' ? await readBody(req) : null;
     const context = await validatedContext(req, inboxId, human);
     const authorization = mutationAuthorization ? await mutationAuthorization(req, { human: context.human, inbox: context.inbox, caseId }) : null;
     if (mutationAuthorization && (!authorization || !Array.isArray(authorization.lockKeys) || typeof authorization.authorize !== 'function')) {
       throw new TypeError('mutationAuthorization must return lockKeys and an authorize callback');
     }
-    if (folderRoute) {
+    if (deleteFolderRoute) {
+      const folderId = assertSafeIdentifier(decodeURIComponent(deleteFolderRoute[2]), 'folderId');
+      const result = await deleteInboxFolder(store, context.scope, folderId, authorization ?? {});
+      await writeJson(res, 200, result);
+    } else if (folderRoute) {
       const folder = await createInboxFolder(store, context.scope, input, authorization ?? {});
       await writeJson(res, 200, { folder: { id: folder.id, name: folder.name } });
     } else {

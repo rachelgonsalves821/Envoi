@@ -133,6 +133,24 @@ test('personal HTTP folder and preference writes persist, deduplicate and move o
   assert.deepEqual(await harness.store.getJson('inboxes/inbox_one/cases/case_one.json'), original);
 });
 
+test('folder DELETE removes only the current human’s folder and keeps conversations', async context => {
+  const harness = await createHarness(context);
+  const folderRoute = '/api/inboxes/inbox_one/inbox-folders';
+  const caseRoute = '/api/inboxes/inbox_one/cases/case_one/inbox-preferences';
+  const originalCase = await harness.store.getJson('inboxes/inbox_one/cases/case_one.json');
+  const created = await harness.request(folderRoute, { body: { name: 'Travel' } });
+  assert.equal((await harness.request(caseRoute, { body: { folderId: created.body.folder.id } })).status, 200);
+  const deleteRoute = `${folderRoute}/${created.body.folder.id}`;
+  assert.equal((await harness.request(deleteRoute, { method: 'DELETE', human: 'agent' })).status, 401);
+  assert.equal((await harness.request(deleteRoute, { method: 'DELETE', human: 'bob' })).body.deleted, false);
+  assert.deepEqual((await harness.request(deleteRoute, { method: 'DELETE' })).body, { deleted: true });
+  assert.deepEqual((await harness.request(deleteRoute, { method: 'DELETE' })).body, { deleted: false });
+  const view = await harness.request('/test-human-view');
+  assert.deepEqual(view.body.folders, []);
+  assert.equal(view.body.caseQueue[0].inboxPreference.folderId, null);
+  assert.deepEqual(await harness.store.getJson('inboxes/inbox_one/cases/case_one.json'), originalCase);
+});
+
 test('every HTTP mutation requires a human, current inbox membership and an existing case', async context => {
   const harness = await createHarness(context);
   const folderRoute = '/api/inboxes/inbox_one/inbox-folders';
@@ -244,12 +262,13 @@ test('optional mutation guard rechecks under supplied locks before folder and ca
     }
   });
   harness.adapter.handleRequest = guarded.handleRequest;
-  for (const [route, body] of [
-    ['/api/inboxes/inbox_one/inbox-folders', { name: 'Travel' }],
-    ['/api/inboxes/inbox_one/cases/case_one/inbox-preferences', { archive: true }]
+  for (const [route, body, method] of [
+    ['/api/inboxes/inbox_one/inbox-folders', { name: 'Travel' }, 'POST'],
+    ['/api/inboxes/inbox_one/inbox-folders/folder_missing', undefined, 'DELETE'],
+    ['/api/inboxes/inbox_one/cases/case_one/inbox-preferences', { archive: true }, 'POST']
   ]) {
-    assert.equal((await harness.request(route, { body })).status, 403);
+    assert.equal((await harness.request(route, { body, method })).status, 403);
   }
-  assert.equal(guards, 2);
+  assert.equal(guards, 3);
   assert.deepEqual(await harness.store.listJson('human-inbox-preferences/org_one/personal/human_alice/inboxes/inbox_one/cases'), []);
 });

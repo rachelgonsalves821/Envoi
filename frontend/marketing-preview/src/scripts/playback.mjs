@@ -8,7 +8,12 @@ export function advancePlayback(state) {
 }
 
 export function playbackDelay(state) {
-  return state.visibleCount === state.stepCount ? 3000 : 1000;
+  return state.visibleCount === state.stepCount ? 2600 : 850;
+}
+
+export function togglePlayback(state) {
+  if (state.manual) return createPlaybackState(state.stepCount, state.reducedMotion);
+  return { ...state, paused: !state.paused };
 }
 
 export function visibleFeatureCount(markers, visibleCount) {

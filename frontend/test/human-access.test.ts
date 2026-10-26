@@ -53,7 +53,7 @@ describe('external runtime enrollment handoff', () => {
 
     expect(markup).toContain('Raw enrollment token');
     expect(markup).toContain('milo@agents.envoi-agents.com');
-    expect(markup).toContain('Copy chosen agent address');
+    expect(markup).toContain('Copy agent email address');
     expect(markup).toContain('enroll_once_secret');
     expect(markup).toContain('ENVOI_ENROLLMENT_TOKEN');
     expect(markup).toContain('OPENCLAW_GATEWAY_TOKEN');

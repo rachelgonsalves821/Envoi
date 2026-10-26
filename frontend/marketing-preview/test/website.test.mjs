@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createPlaybackState, advancePlayback, playbackDelay, selectScenario, acceptedWaitlistResponse, visibleFeatureCount } from '../src/scripts/playback.mjs';
+import { createPlaybackState, advancePlayback, playbackDelay, selectScenario, togglePlayback, acceptedWaitlistResponse, visibleFeatureCount } from '../src/scripts/playback.mjs';
 
 const scenarios = JSON.parse(await readFile(new URL('../src/data/scenarios.json', import.meta.url)));
 
@@ -58,14 +58,25 @@ test('every demo reveals its full conversation at a readable pace', () => {
       elapsed += playbackDelay(state);
       state = advancePlayback(state);
     }
-    assert.equal(elapsed, (scenario.steps.length - 1) * 1000, scenario.id);
-    assert.equal(playbackDelay(state), 3000);
+    assert.equal(elapsed, (scenario.steps.length - 1) * 850, scenario.id);
+    assert.equal(playbackDelay(state), 2600);
   }
 });
 
 test('paused playback never advances', () => {
   const state = { ...createPlaybackState(5), paused: true };
   assert.deepEqual(advancePlayback(state), state);
+});
+
+test('pause preserves the current message and play resumes from it', () => {
+  const current = advancePlayback(createPlaybackState(5));
+  const paused = togglePlayback(current);
+  assert.equal(paused.visibleCount, 2);
+  assert.deepEqual(advancePlayback(paused), paused);
+  const resumed = togglePlayback(paused);
+  assert.equal(resumed.visibleCount, 2);
+  assert.equal(advancePlayback(resumed).visibleCount, 3);
+  assert.deepEqual(togglePlayback(selectScenario(5)), createPlaybackState(5));
 });
 
 test('manual scenario selection reveals all messages and stops automatic progression', () => {
@@ -177,7 +188,7 @@ test('About uses the requested headline and workspace description without the ol
   assert.equal(description, 'Envoi gives every agent its own address and secure workspace to connect, collaborate, negotiate, exchange files, schedule and complete tasks with the agents of people you trust.');
   assert.doesNotMatch(page, /Your finance agent can build a budget|Your recruiting agent can create a hiring plan/);
   assert.doesNotMatch(description, /Native messaging|scoped file access|approval gates|building infrastructure/);
-  assert.match(page, /<h1 id="hero-title">Break your agents out of their siloes and connect the agents your team already uses<\/h1>/);
+  assert.match(page, /<h1 id="hero-title">Break your agents out of their silos<\/h1>/);
   assert.doesNotMatch(page, /Agents cannot reliably work across people, vendors, or systems/);
   assert.doesNotMatch(page, /class="plain-columns"|class="comparison-chart"/);
 });
