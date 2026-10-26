@@ -1,6 +1,6 @@
 # Closed-beta launch runbook
 
-Updated 2026-09-29. Local results and remaining hosted gates are in the [readiness evidence log](closed-beta-readiness-evidence-2026-09-29.md). The merged implementation baseline is `main` commit **`fc2e1d8b72280789e365e9f8b8e399717933ccb6`** (PR #6). This is the current operator procedure; older [two-owner plan](beta-two-owner-execution-plan.md) and [handoff audit](beta-handoff-audit.md) are historical. The [runtime inventory](runtime-configuration-status.md) contains dated observations, not permanent provider guarantees.
+Updated 2026-10-25. Local results and remaining hosted gates are in the [readiness evidence log](closed-beta-readiness-evidence-2026-09-29.md). The WorkOS Production binding and owner-preserving cutover sequence are in the [Production cutover packet](workos-production-cutover.md). The prior `main` baseline `fc2e1d8b72280789e365e9f8b8e399717933ccb6` (PR #6) is historical; pin the current reviewed release SHA before using this procedure. The older [two-owner plan](beta-two-owner-execution-plan.md) and [handoff audit](beta-handoff-audit.md) are historical. The [runtime inventory](runtime-configuration-status.md) contains dated observations, not permanent provider guarantees.
 
 **Code integrated; cohort admission remains gated by evidence.** Earlier staging readiness and fixture/CI results do not prove a newly reviewed candidate, beta Container, real agents, backup recovery or operational signoff. Record every gate against one exact full candidate SHA and target environment. Do not mark pending evidence passed, or treat an HTTP 401 from unauthenticated scanner health as authenticated readiness.
 
@@ -24,19 +24,19 @@ Run the repository CI matrix on the candidate: clean install, backend, frontend,
 
 ## 1. Verify isolated resources and private configuration
 
-| Target | Application Worker / Container | Public app origin | Separate providers |
+| Target | Application Worker / Container | Public app origin | Provider resources |
 | --- | --- | --- | --- |
 | Staging | `sinaloa-staging` / `sinaloa-beta-staging` | `https://sinaloa-staging.rachelgonsalves821.workers.dev` | Neon `sinaloa-staging`, private R2 `sinaloa-staging`, staging scanner and selected staging WorkOS app |
-| Beta | `sinaloa-beta` / `sinaloa-beta-release` | `https://www.envoi-agents.com` | Neon `sinaloa-beta` / `sinaloa_beta`, private R2 `sinaloa-beta`, `sinaloa-scanner-beta`, separate WorkOS `Sinaloa Beta` environment/app |
+| Beta | `sinaloa-beta` / `sinaloa-beta-release` | `https://www.envoi-agents.com` | Neon `sinaloa-beta` / `sinaloa_beta`, private R2 `sinaloa-beta`, `sinaloa-scanner-beta`, existing WorkOS Production environment/default application selected by Rachel; the separately named `Sinaloa Beta` WorkOS environment is test-only |
 
 Verify current Workers Paid/Containers entitlement, effective deployment permissions, resource ownership and billing limits. The runtime inventory records intended resource identities, but the operator must confirm the active project/branch/Worker in each dashboard. A tab labelled Production on the `sinaloa-beta` Worker is that Worker's live settings, not permission to reuse the old `sinaloa` Worker.
 
-The user confirms only staging secrets have been configured; beta secret entry remains pending. Before the first beta app deploy, Rachel must enter these **nine beta-only encrypted application secrets** privately on `sinaloa-beta`. Verify names and application behavior without reading values into logs, chat or source control:
+Before the beta app cutover, Rachel must verify these **nine encrypted application secret bindings** on `sinaloa-beta` and privately add or preserve the correct values under the guarded [Production cutover sequence](workos-production-cutover.md#remaining-cutover-sequence). Existing data-encryption material and compatible legacy aliases must be preserved. Verify names and application behavior without reading values into logs, chat or source control:
 
 | Secret name | Rule |
 | --- | --- |
 | `DATABASE_URL` | Beta Neon active branch/database, direct TLS connection; `ENVOI_DB_SSL_MODE=verify-full` controls verified certificate behavior |
-| `WORKOS_API_KEY` | Beta application's key from its separate WorkOS environment |
+| `WORKOS_API_KEY` | Production WorkOS environment key matching the pinned beta `WORKOS_CLIENT_ID`; pair key/client/issuer in one approved cutover, never use the separate test environment's key |
 | `WORKOS_COOKIE_PASSWORD` | New strong beta cookie key, at least 32 characters |
 | `ENVOI_DATA_ENCRYPTION_KEY` | Beta already has its key, held as `SINALOA_DATA_ENCRYPTION_KEY`. **Keep it under that name; never create a new one.** Changing or deleting it locks out encrypted data. The key's own migration is in [the rename inventory](envoi-backend-rename-inventory.md#encryption-key-its-own-migration-task). |
 | `ENVOI_POLICY_SIGNING_KEY` | New strong beta signing key, at least 32 characters; active key ID `primary` |
@@ -47,7 +47,7 @@ The user confirms only staging secrets have been configured; beta secret entry r
 
 Cookie, encryption, signing and scanner keys must be independent of each other and of staging/old production keys. The matching app/scanner bearer is the deliberate exception. Store durable encryption/signing recovery material privately and retain old keys as needed for existing data/signatures. Provider deployment credentials are not app runtime secrets. Additional provider CA/session-token settings are conditional, not substitutes for these nine names.
 
-The beta non-secret origin, exact edge hostname, CORS origin, WorkOS client/callback, R2 endpoint/bucket, scanner URL and disabled feature flags are pinned in `wrangler.jsonc`. Reconcile dashboard values with that contract. Configure WorkOS callback/homepage/logout on the same HTTPS beta origin and exact-origin R2 CORS for signed PUT/GET/HEAD and upload headers. Verify bucket public access disabled and credential bucket scope. Native agent addresses use `agents.envoi-agents.com`; they do not require SMTP.
+The beta non-secret origin, exact edge hostname, CORS origin, Production WorkOS client/callback, R2 endpoint/bucket, scanner URL and disabled feature flags are pinned in `wrangler.jsonc`. Reconcile dashboard values with that contract. Confirm the Production WorkOS application's callback, initiate-login and logout URLs match the beta HTTPS origin. Complete the [owner identity mapping and coordinated key/client/issuer switch](workos-production-cutover.md) before live beta sign-in; a client-ID change alone can duplicate owners or deny their workspaces. Configure exact-origin R2 CORS for signed PUT/GET/HEAD and upload headers. Verify bucket public access disabled and credential bucket scope. Native agent addresses use `agents.envoi-agents.com`; they do not require SMTP.
 
 The current live policy remains **invite-only**. The next beta policy is **up to 31 invited people plus 100 public accounts**, subject to the hosted gates below. `ENVOI_HUMAN_SIGNUP_MODE=invite-only` is the default; set `ENVOI_HUMAN_SIGNUP_MODE=public` with `ENVOI_PUBLIC_SIGNUP_LIMIT=100` only on the exact tested release after signoff. Keep `ENVOI_BETA_INVITED_EMAILS` as the exact invited cohort. WorkOS must permit hosted signup and verify email; Envoi's server checks the verified identity and persists public admissions under a cross-instance transaction lock. These human admission settings do not enable `ENVOI_REMOTE_MCP_OAUTH` or `ENVOI_PROVIDER_CONNECTORS`. Rachel selected WorkOS MFA Off for this beta, including the public cohort; confirm the dashboard still matches that choice at the hosted gate. Hosted auth reports `assurance: provider`. Current organization membership/management authority is checked for protected controls. Test invalid/stale sessions and changed membership.
 
