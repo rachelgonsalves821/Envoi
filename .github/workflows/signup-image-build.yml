@@ -1,0 +1,40 @@
+name: Pinned signup container image
+
+on:
+  push:
+    branches:
+      - codex/signup-f379-image-build
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: f3794e4fec78ef3294c97f70dc4f038509c29989
+          persist-credentials: false
+      - name: Verify pinned source
+        run: test "$(git rev-parse HEAD)" = f3794e4fec78ef3294c97f70dc4f038509c29989
+      - name: Build source-matched Linux image
+        run: |
+          docker build --pull -f Dockerfile.cloudflare \
+            --label org.opencontainers.image.revision=f3794e4fec78ef3294c97f70dc4f038509c29989 \
+            -t envoi-signup:f3794e4 .
+          docker image inspect envoi-signup:f3794e4 \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+            | grep -Fx f3794e4fec78ef3294c97f70dc4f038509c29989
+      - name: Save and hash image
+        run: |
+          docker save -o image.tar envoi-signup:f3794e4
+          sha256sum image.tar > image.tar.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: envoi-signup-image-f3794e4
+          path: |
+            image.tar
+            image.tar.sha256
+          retention-days: 1
+          compression-level: 1
