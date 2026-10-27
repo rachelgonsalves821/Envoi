@@ -11,6 +11,8 @@ import { adoptActivatedConnection, operationalConnectionStatus, readConnection, 
 import { FileBridgeStore } from '../agent-bridges/file-store';
 import type { AdapterOptions } from '../connector/adapter';
 import { quickConnectOrigin } from '../../sdk/typescript/src/quick-connect';
+import { runHostTaskCommand, type TaskPrompt } from './task-cli';
+import { validTaskId } from '../connector/host-task';
 
 export type LocalRuntime = 'hermes' | 'openclaw';
 export function helperDirectory(origin: string, runtime: LocalRuntime, options: AdapterOptions = {}) {
@@ -37,23 +39,29 @@ interface LinkOptions extends SetupOptions {
   write?: (projection: Record<string, any>) => void;
   wait?: (ms: number, signal: AbortSignal) => Promise<void>;
   helperDependencies?: HelperDependencies;
+  taskPrompt?: TaskPrompt;
 }
 /** Actual foreground CLI. Tests inject all runtime/network effects. No service or settings installation. */
 export async function runLocalLink(args: string[], signal: AbortSignal, options: LinkOptions = {}) {
   const [command, rawOrigin] = args;
-  if (!['connect', 'resume', 'status', 'doctor'].includes(command) || !rawOrigin) throw new Error('Use envoi-link connect <Envoi origin>.');
+  if (!['connect', 'resume', 'status', 'doctor', 'task'].includes(command) || !rawOrigin) throw new Error('Use envoi-link connect|task <Envoi origin>.');
   const origin = quickConnectOrigin(rawOrigin);
   const runtimeIndex = args.indexOf('--runtime');
   const explicit = runtimeIndex < 0 ? undefined : args[runtimeIndex + 1];
+  let retryId: string | undefined;
   // Reject unknown/token-bearing args before runtime discovery or credential work.
   for (let index = 2; index < args.length; index++) {
-    if (args[index] === '--runtime' && ['hermes', 'openclaw'].includes(args[index + 1])) { index++; continue; }
-    if (['--show-code', '--new'].includes(args[index])) continue;
+    if (args[index] === '--runtime' && ['hermes', 'openclaw'].includes(args[index + 1])) {
+      if (command === 'task' && index !== runtimeIndex) throw new Error('Choose one runtime.');
+      index++; continue;
+    }
+    if (command === 'task' && args[index] === '--retry' && !retryId && validTaskId(args[index + 1])) { retryId = args[++index]; continue; }
+    if (command !== 'task' && ['--show-code', '--new'].includes(args[index])) continue;
     throw new Error('Use the documented local helper options.');
   }
   const resolver = options.resolveAdapter ?? adapterFor;
   let selected = explicit;
-  if (!selected && ['status', 'doctor', 'resume'].includes(command)) {
+  if (!selected && ['status', 'doctor', 'resume', 'task'].includes(command)) {
     const saved: LocalRuntime[] = [];
     for (const candidate of ['hermes', 'openclaw'] as const) {
       const candidateDirectory = options.stateDir ?? helperDirectory(origin, candidate, options);
@@ -65,6 +73,8 @@ export async function runLocalLink(args: string[], signal: AbortSignal, options:
   }
   const runtime = await selectLocalRuntime(selected, resolver, options, command === 'connect');
   const directory = options.stateDir ?? helperDirectory(origin, runtime, options);
+  if (command === 'task') return runHostTaskCommand(directory, { apiUrl: origin, runtime }, signal,
+    { retryId, prompt: options.taskPrompt, write: options.write });
   const dependencies: HelperDependencies = {
     ...options.helperDependencies, contract, directory, runtime: { type: runtime, version: 'unknown' }, ...(options.fetch ? { fetch: options.fetch } : {}),
     operationalStatus: options.helperDependencies?.operationalStatus ?? ((context: OperationalStatusContext) => operationalConnectionStatus(context, { fetch: options.fetch })),

@@ -1,5 +1,17 @@
 # Envoi private onboarding helper
 
+## Start a task after connecting
+
+Keep the connected helper running in its original terminal. On the same trusted host, open another interactive terminal and run `node /absolute/path/envoi-link.mjs task https://www.envoi-agents.com --runtime hermes` (or `openclaw`). Enter the other agent's exact Envoi address and task, review the origin/sender/recipient/text, and type `yes` to send. Each owner uses their own helper and account; both website inboxes show the resulting native exchange.
+
+This is a human-confirmed host operation under the existing `startCase` contract, not a new model tool or browser send API. It uses the running connector's credentials/rotation and server authorization. It never enrolls, starts a runtime, installs a service or grants access. It refuses noninteractive execution and a missing, mismatched, old or unready connector.
+
+The output's `accepted` means the server accepted the send, not that the recipient processed it. A stable retry ID and exact request/case identity are saved privately before dispatch. If delivery is uncertain, use `task <same-origin> --runtime <same-runtime> --retry <reported-UUID>`; review the restored task and confirm. Never substitute a new ID to recover an uncertain send. An accepted replay returns `replayed: true` without a new send. Preserve a corrupt or missing journal for reconciliation.
+
+Use matching reviewed helper/connector artifacts. [The two-owner demo worksheet](../gates/VC-DEMO-FIRST-TASK.md) separates synthetic checks from the human-operated hosted rehearsal and release.
+
+## Connection and recovery
+
 This private, unpublished package implements the approved agent-registration v1 revision 3 local-helper flow. It requires server-offered `local_helper` / `envoi_link`, a supported trusted runtime adapter and private local storage. Remote OAuth/provider routes and package publication remain outside this milestone.
 
 The built `envoi-link` entry supplies the existing Hermes/OpenClaw runtime adapter. Source `envoi-link.mjs` exports `runCli(args, dependencies)` and `createHelper(options)` for trusted embedding and fixture testing. Running source without that adapter returns safe `needs_help` before registration. It never substitutes a legacy enrollment token.
