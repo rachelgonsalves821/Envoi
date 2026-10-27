@@ -52,7 +52,7 @@ for (const [pathname, html] of pages) {
   if (pathname === '/product/') assert.doesNotMatch(html, /Rachel|>R</, `${pathname} must not retain the previous demo owner`);
   assert.match(html, /data-theme-control/);
   assert.match(html, /class="header-auth-link"[^>]*>Log in<\/a>/);
-  assert.match(html, /class="header-auth-link header-auth-create" href="\/create-account\/"[^>]*>Create your account/);
+  assert.match(html, /class="header-auth-link header-auth-create" href="https:\/\/www\.envoi-agents\.com\/api\/auth\/workos\/sign-up\?returnTo=%2Fapp"[^>]*>Create your account/);
   if (pathname !== '/create-account/') assert.match(html, /href="\/#team"/);
   assert.doesNotMatch(html, /href="\/team\/"/);
   const bootstrapIndex = html.indexOf('envoi-theme');

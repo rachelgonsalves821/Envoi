@@ -60,7 +60,7 @@ const features = [
         <nav class="main-nav" aria-label="Main navigation"><a href="/" aria-current={isAbout ? 'page' : undefined}>About</a><a href="/product/" aria-current={isProduct ? 'page' : undefined}>Product</a></nav>
         <div class="header-auth-actions">
           <a class="header-auth-link" href={signInUrl} data-analytics-auth="sign-in">Log in</a>
-          <a class="header-auth-link header-auth-create" href={createAccountUrl}>Create your account <Icon name="arrow" size={15} /></a>
+          <a class="header-auth-link header-auth-create" href={signUpUrl} data-analytics-auth="sign-up">Create your account <Icon name="arrow" size={15} /></a>
         </div>
         <ThemeToggle />
       </div>
