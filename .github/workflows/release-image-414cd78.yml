@@ -17,12 +17,6 @@ jobs:
           ref: 414cd783ee80ac19229695d9a46a6950063fbe4e
       - name: Verify exact approved source
         run: test "$(git rev-parse HEAD)" = 414cd783ee80ac19229695d9a46a6950063fbe4e
-      - name: Authenticate to temporary Cloudflare registry access
-        env:
-          CF_REGISTRY_PUSH_PASSWORD: ${{ secrets.CF_REGISTRY_PUSH_414CD78 }}
-        run: |
-          test -n "$CF_REGISTRY_PUSH_PASSWORD"
-          printf '%s' "$CF_REGISTRY_PUSH_PASSWORD" | docker login registry.cloudflare.com --username v1 --password-stdin
       - name: Pull base image with retry
         run: |
           for attempt in 1 2 3 4; do
@@ -34,8 +28,23 @@ jobs:
             sleep $((attempt * 15))
           done
           exit 1
-      - name: Build and push approved container
+      - name: Build approved container
         run: |
-          image=registry.cloudflare.com/54a5d6c680bd813fa60f8e088b098b8d/sinaloa-beta-release:signup-414cd78
-          docker build -f Dockerfile.cloudflare -t "$image" .
-          docker push "$image"
+          docker build -f Dockerfile.cloudflare \
+            --label org.opencontainers.image.revision=414cd783ee80ac19229695d9a46a6950063fbe4e \
+            -t envoi-ui:414cd78 .
+          docker image inspect envoi-ui:414cd78 \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+            | grep -Fx 414cd783ee80ac19229695d9a46a6950063fbe4e
+      - name: Save and hash image
+        run: |
+          docker save -o image.tar envoi-ui:414cd78
+          sha256sum image.tar > image.tar.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: envoi-ui-image-414cd78
+          path: |
+            image.tar
+            image.tar.sha256
+          retention-days: 1
+          compression-level: 1
