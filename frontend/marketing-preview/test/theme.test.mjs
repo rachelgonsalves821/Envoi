@@ -124,7 +124,7 @@ test('native theme radios support keyboard operation and bootstrap runs in the d
   assert.match(control, /aria-label=\{preference\[0\]/);
   assert.match(control, /<svg[^>]+aria-hidden="true"/);
   assert.doesNotMatch(control, /<span>\{preference/);
-  assert.ok(page.indexOf('<ThemeToggle />') > page.indexOf('class="sign-in"'));
+  assert.ok(page.indexOf('<ThemeToggle />') > page.indexOf('class="header-auth-actions"'));
   assert.match(control, /\['light', 'dark'\]/);
   assert.doesNotMatch(control, /'system'|<rect/);
   const bootstrapIndex = page.indexOf('<script is:inline set:html={themeBootstrap}>');

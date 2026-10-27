@@ -345,7 +345,7 @@ test('reading text uses the light system font while action labels are larger and
   assert.match(tokens, /--mono: var\(--display\)/);
   assert.doesNotMatch(fonts, /url\(|woff|Newsreader|Instrument Sans|Geist Mono/);
   assert.match(styles, /body \{ font-weight: 300; \}/);
-  for (const selector of ['.button', '.sign-in']) assert.match(styles, new RegExp(`${selector.replace('.', '\\.') } \\{[^}]*font-weight: 700;`));
+  for (const selector of ['.button', '.header-auth-link']) assert.match(styles, new RegExp(`${selector.replace('.', '\\.') } \\{[^}]*font-weight: 700;`));
   for (const source of [hero, handshake]) assert.doesNotMatch(source, /font-weight:\s*(?!300\b)\d+/);
 });
 
